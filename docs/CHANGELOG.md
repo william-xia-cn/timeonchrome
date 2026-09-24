@@ -2,6 +2,15 @@
 
 ---
 
+## [1.7.34 候选] — 2026-09-22
+
+- **BrowserBridge v2**：将本地桥拆分为可丢弃的 health 通道和持久的 ledger 通道；启用后新产生的权威网页 Segment 采用最多 100 条批次、逐项 ACK 和 Segment ID 幂等补发。
+- **账本边界不变**：镜像 payload 始终从 `usage_segments_v1` 重建；本次仅保护待 ACK Segment 不被本地清理，不修改网页 Segment 生成、切段、结算、云端 outbox、配额或拦截语义。
+- **开发联调隐私**：unpacked Native Host 开发候选 heartbeat 不再读取 managed storage，`policyHash=null`；不发送 URL、域名、标题、邮箱、token、SID、用户名或路径。
+- **发布边界**：本轮只生成 unpacked 候选并配合 Runtime 2.6.0 本地验证，不发布 CRX、不部署云端资源。
+
+---
+
 ## [1.7.33 候选] — 2026-09-21
 
 - **通用本地桥**：Managed 扩展改用 `com.timeonchrome.nativehost`；旧 `com.timeonchrome.guardian` 由 Runtime 2.5.0 保留一个发布周期的兼容别名。

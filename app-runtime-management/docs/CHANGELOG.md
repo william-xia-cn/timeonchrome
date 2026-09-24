@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## [ARM-D-029 / Windows 2.6.0 候选] — 2026-09-22（本地实现、测试与构建完成，待实机升级验收）
+
+- BrowserBridge v2 分离 best-effort health 与 durable ledger；Ledger 使用持久待发送状态、逐项 ACK、Segment ID 幂等和启用后对账。
+- RuntimeService 双 pipe 兼容 v1/v2；镜像与影子脏区间事务提交后 ACK，投影异步可恢复。
+- TimeWhereMg 增加裁剪的 BrowserBridge 健康摘要；Native Host 预期断流静默退出。
+- 扩展候选 1.7.34 不改变网页账本语义；本轮不部署云端、不上传 R2、不执行 D1 migration。
+
 ## [ARM-D-028 / Windows 2.5.2 候选] — 2026-09-22（本地实机升级与联调通过）
 
 - 修复原地升级或 Service 重启时既有 Session Agent 导致的新进程单实例退出竞态。

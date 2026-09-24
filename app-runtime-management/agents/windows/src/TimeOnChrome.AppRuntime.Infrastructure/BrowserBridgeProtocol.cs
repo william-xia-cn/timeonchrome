@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.IO.Pipes;
+using System.Globalization;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
@@ -10,8 +11,12 @@ namespace TimeOnChrome.AppRuntime.Infrastructure;
 public static class BrowserBridgeProtocol
 {
     public const int Version = 1;
+    public const int CurrentVersion = 2;
+    public const int SnapshotVersion = 3;
     public const int MaxMessageBytes = 256 * 1024;
     public const string PipeName = "TimeOnChrome.AppRuntime.BrowserBridge.v1";
+    public const string PipeNameV2 = "TimeOnChrome.AppRuntime.BrowserBridge.v2";
+    public const string PipeNameV3 = "TimeOnChrome.AppRuntime.BrowserBridge.v3";
     public const string NativeHostId = "com.timeonchrome.nativehost";
     public const string LegacyNativeHostId = "com.timeonchrome.guardian";
     public const string ManagedExtensionId = "jdcancbiocacabbjdkngadmjpjmkdnih";
@@ -42,15 +47,44 @@ public static class BrowserBridgeProtocol
 
     public static void Validate(BrowserBridgeEnvelope envelope)
     {
-        if (envelope.ProtocolVersion != Version) throw new InvalidDataException("Unsupported browser bridge protocol.");
+        if (envelope.ProtocolVersion is not (Version or CurrentVersion or SnapshotVersion)) throw new InvalidDataException("Unsupported browser bridge protocol.");
         if (!Guid.TryParse(envelope.RequestId, out _)) throw new InvalidDataException("Browser bridge request ID is invalid.");
         if (!Guid.TryParse(envelope.ProfileId, out _)) throw new InvalidDataException("Browser profile ID is invalid.");
         if (!string.Equals(envelope.ExtensionId, ManagedExtensionId, StringComparison.Ordinal))
             throw new InvalidDataException("Browser extension is not allowed.");
         if (envelope.SentAtMs < 0) throw new InvalidDataException("Browser bridge timestamp is invalid.");
-        if (envelope.MessageType is not ("heartbeat" or "probe" or "settledUsageSegments"))
+        if (envelope.MessageType is not ("heartbeat" or "probe" or "settledUsageSegments" or "dailyUsageSnapshot"))
             throw new InvalidDataException("Browser bridge message type is invalid.");
+        if (envelope.ProtocolVersion == Version && envelope.MessageType == "dailyUsageSnapshot")
+            throw new InvalidDataException("Browser snapshot requires protocol v3.");
+        if (envelope.ProtocolVersion == CurrentVersion)
+        {
+            if (envelope.Channel is not ("health" or "ledger"))
+                throw new InvalidDataException("Browser bridge channel is invalid.");
+            if (envelope.Channel == "health" && envelope.MessageType is not ("heartbeat" or "probe"))
+                throw new InvalidDataException("Health channel message type is invalid.");
+            if (envelope.Channel == "ledger")
+            {
+                if (envelope.MessageType != "settledUsageSegments"
+                    || !Guid.TryParse(envelope.BridgeEpochId, out _)
+                    || !Guid.TryParse(envelope.BatchId, out _))
+                    throw new InvalidDataException("Ledger channel metadata is invalid.");
+            }
+        }
+        if (envelope.ProtocolVersion == SnapshotVersion)
+        {
+            if (envelope.Channel == "health" && envelope.MessageType is ("heartbeat" or "probe")) return;
+            if (envelope.Channel == "statistics" && envelope.MessageType == "dailyUsageSnapshot") return;
+            throw new InvalidDataException("Browser bridge v3 channel or message type is invalid.");
+        }
     }
+
+    public static string PipeFor(int protocolVersion) => protocolVersion switch
+    {
+        SnapshotVersion => PipeNameV3,
+        CurrentVersion => PipeNameV2,
+        _ => PipeName,
+    };
 }
 
 public sealed record BrowserBridgeEnvelope(
@@ -60,14 +94,44 @@ public sealed record BrowserBridgeEnvelope(
     string ExtensionId,
     string ProfileId,
     long SentAtMs,
-    JsonElement Payload);
+    JsonElement Payload,
+    string? Channel = null,
+    string? BridgeEpochId = null,
+    string? BatchId = null);
 
 public sealed record BrowserBridgeResponse(
     bool Ok,
     long ReceivedAt,
     string? RequestId = null,
     string? ErrorCode = null,
-    int AcceptedCount = 0);
+    int AcceptedCount = 0,
+    IReadOnlyList<int>? SupportedProtocols = null,
+    IReadOnlyList<string>? Capabilities = null,
+    IReadOnlyList<string>? AcceptedIds = null,
+    IReadOnlyList<string>? DuplicateIds = null,
+    IReadOnlyList<BrowserBridgeRejectedSegment>? Rejected = null,
+    int? RetryAfterMs = null,
+    string? AcceptedRevision = null,
+    bool Duplicate = false,
+    bool Stale = false);
+
+public sealed record BrowserBridgeRejectedSegment(string SegmentId, string ErrorCode, bool Retryable);
+public sealed record BrowserBridgeAppendResult(
+    IReadOnlyList<string> AcceptedIds,
+    IReadOnlyList<string> DuplicateIds,
+    IReadOnlyList<BrowserBridgeRejectedSegment> Rejected);
+
+public sealed record BrowserBridgeHealthSummary(
+    int ProtocolVersion,
+    long LastHeartbeatAtMs,
+    long LastProbeAtMs,
+    long LastLedgerAckAtMs,
+    int PendingSendCount,
+    int PendingProjectionCount,
+    long AcceptedCount,
+    long DuplicateCount,
+    long RejectedCount,
+    string? LastErrorCode);
 
 public sealed record BrowserSettledUsageSegment(
     string SegmentId,
@@ -82,6 +146,69 @@ public sealed record BrowserSettledUsageSegment(
     bool Diagnostic);
 
 public sealed record BrowserSettledUsagePayload(IReadOnlyList<BrowserSettledUsageSegment> Segments);
+
+public sealed record BrowserUsageEvidenceInterval(long StartMs, long EndMs, long CreditedSeconds, string QuotaBucket);
+
+public sealed record BrowserDailyUsageSnapshot(
+    string Date,
+    string SnapshotRevision,
+    string StatisticsRevision,
+    string CorrectionRevision,
+    long ComputedAtMs,
+    long ActiveSeconds,
+    IReadOnlyDictionary<string, long> QuotaBucketSeconds,
+    bool Complete,
+    IReadOnlyList<string> IncompleteReasonCodes,
+    IReadOnlyList<BrowserUsageEvidenceInterval> Intervals);
+
+public static class BrowserDailySnapshotValidator
+{
+    public static void Validate(BrowserDailyUsageSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (!DateOnly.TryParseExact(snapshot.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var date))
+            throw new InvalidDataException("Browser snapshot date is invalid.");
+        if (string.IsNullOrWhiteSpace(snapshot.SnapshotRevision) || snapshot.SnapshotRevision.Length > 128
+            || string.IsNullOrWhiteSpace(snapshot.StatisticsRevision) || snapshot.StatisticsRevision.Length > 128
+            || string.IsNullOrWhiteSpace(snapshot.CorrectionRevision) || snapshot.CorrectionRevision.Length > 128
+            || snapshot.ComputedAtMs < 0 || snapshot.ActiveSeconds < 0
+            || snapshot.QuotaBucketSeconds is null || snapshot.Intervals is null
+            || snapshot.IncompleteReasonCodes is null || snapshot.Intervals.Count > 2000)
+            throw new InvalidDataException("Browser snapshot metadata is invalid.");
+        if (snapshot.QuotaBucketSeconds.Any(entry => string.IsNullOrWhiteSpace(entry.Key)
+                || entry.Key.Length > 64 || entry.Value < 0))
+            throw new InvalidDataException("Browser snapshot quota buckets are invalid.");
+        var bucketTotal = checked(snapshot.QuotaBucketSeconds.Values.Sum());
+        if (bucketTotal > snapshot.ActiveSeconds || (snapshot.Complete && bucketTotal != snapshot.ActiveSeconds))
+            throw new InvalidDataException("Browser snapshot quota total is not conserved.");
+        if (snapshot.Complete && snapshot.IncompleteReasonCodes.Count != 0)
+            throw new InvalidDataException("Complete browser snapshot has missing evidence.");
+        var dayStart = new DateTimeOffset(date.Year, date.Month, date.Day, 0, 0, 0,
+            TimeSpan.FromHours(8)).ToUnixTimeMilliseconds();
+        var dayEnd = dayStart + 86_400_000;
+        var evidenceByBucket = new Dictionary<string, long>(StringComparer.Ordinal);
+        long previousEnd = dayStart;
+        foreach (var interval in snapshot.Intervals.OrderBy(item => item.StartMs))
+        {
+            if (interval.StartMs < dayStart || interval.EndMs > dayEnd || interval.EndMs <= interval.StartMs
+                || interval.StartMs < previousEnd || interval.CreditedSeconds < 0
+                || interval.CreditedSeconds > (interval.EndMs - interval.StartMs + 999) / 1000
+                || string.IsNullOrWhiteSpace(interval.QuotaBucket)
+                || !snapshot.QuotaBucketSeconds.ContainsKey(interval.QuotaBucket))
+                throw new InvalidDataException("Browser snapshot interval evidence is invalid.");
+            evidenceByBucket[interval.QuotaBucket] = checked(
+                evidenceByBucket.GetValueOrDefault(interval.QuotaBucket) + interval.CreditedSeconds);
+            previousEnd = interval.EndMs;
+        }
+        foreach (var bucket in snapshot.QuotaBucketSeconds)
+        {
+            var evidence = evidenceByBucket.GetValueOrDefault(bucket.Key);
+            if (evidence > bucket.Value || (snapshot.Complete && evidence != bucket.Value))
+                throw new InvalidDataException("Browser snapshot evidence does not match authoritative quota seconds.");
+        }
+    }
+}
 
 public static class NativeMessagingFraming
 {
@@ -127,8 +254,8 @@ public static class BrowserBridgePipeClient
 {
     public const TokenImpersonationLevel RequiredImpersonationLevel = TokenImpersonationLevel.Impersonation;
 
-    public static NamedPipeClientStream Create() => new(
-        ".", BrowserBridgeProtocol.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous,
+    public static NamedPipeClientStream Create(int protocolVersion = BrowserBridgeProtocol.Version) => new(
+        ".", BrowserBridgeProtocol.PipeFor(protocolVersion), PipeDirection.InOut, PipeOptions.Asynchronous,
         RequiredImpersonationLevel);
 }
 

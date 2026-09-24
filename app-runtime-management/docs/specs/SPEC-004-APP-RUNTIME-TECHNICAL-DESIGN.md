@@ -1,5 +1,28 @@
 # SPEC-004 Cross-Platform App Runtime Management Technical Design
 
+## BrowserBridge v3：权威网页统计与本机重叠
+
+- v3 使用独立 `TimeOnChrome.AppRuntime.BrowserBridge.v3` pipe；v1/v2 保留旧客户端兼容，但新版扩展仅在 Service 宣告 v3 能力后发送统计快照，连接旧 Service 时只发送健康消息，绝不回退发送 v2 Segment。
+- 升级到新版扩展时仅停用并清空旧 v2 待投递 ID／脏日期队列，保留已接收、拒绝和计数诊断；不得继续因旧镜像待发送状态阻止原网页账本的正常保留期清理。既有 `usage_segments_v1` 内容不因此删除或改写。
+- 扩展以现有网页 V2 本地统计读数为唯一网页权威值，按北京时间日期发送可按 `(session, profile, date, revision)` 幂等替换的 `ACTIVE` 总整数秒、有效配额桶整数秒、统计／修正版本、计算时间与完整性。跨日及跨桶区间证据必须使用原账相同的整数秒分配结果；缺段、缺修正页或紧急压缩不可恢复时标为不完整，不估算填平。
+- 当前周逐段修正证据由 Guardian `GET /device/usage-accounting-corrections/v2?offset=&anchorAtMs=` 返回：设备 token 鉴权限定当前 profile/device，北京时间本周，最多每页 100 条；返回固定 anchor、总数、revision、下一页 offset 和不含域名的逐段区间／原始及有效配额桶。任一页缺失或 revision 改变须标记该日期不完整。该接口只补充区间归属证据，不改变原 Segment、已有云端压缩修正下发或网页统计与配额结果；根 D-076 单项批准已于 2026-09-25 获确认。
+- Service 在单个 SQLite 事务中校验快照、替换同一日期旧 revision 并标记重叠投影脏区间。区间证据秒数与权威桶／总秒数不守恒时拒绝发布共享结果；只在相同本机会话内按可解释区间计算网页与应用账重叠，不重新分类、重算网页用量，不用旧 v2 镜像补缺。旧镜像仅供诊断。
+- v3 本地表分别存快照、OS 会话与 Runtime 会话关联、带 revision 的脏日期及只读共享日影子。应用主 Segment 到来只标记相应日期；后台按日期合并，重启时把现有快照日期重新标脏。读取时必须同时匹配当前快照 revision 且无脏标记；应用 wall/monotonic 不一致、会话关联缺失、整数秒重叠不能唯一确定时仅返回稳定不可用原因，不返回共享总量。该影子不参与现行网页或应用配额执行。
+- v3 本地表分别存快照、OS 会话与 Runtime 会话关联、带 revision 的脏日期及只读共享日影子。应用主 Segment 到来只标记相应日期；后台按日期合并，重启时把现有快照日期重新标脏。读取时必须同时匹配当前快照 revision 且无脏标记；应用 wall/monotonic 不一致、会话关联缺失、整数秒重叠不能唯一确定时仅返回稳定不可用原因，不返回共享总量。该影子不参与现行网页或应用配额执行。
+- Host 只负责 Native Messaging 帧与 pipe 转发。缺失、未注册、断开或 Service 停止是受支持的降级状态；managed／本地开发候选显示非敏感状态并提供重新检查，普通／CWS 不提示。自动探测有界退避，网页写账、配额、拦截和云端同步不等待本地桥。
+- 后来安装 Host 后，从现有权威统计生成当前周快照而非从安装时刻归零；证据不足的日期只展示独立网页／应用值，共享总量不可用。本阶段不向云端上传快照、不反向下发策略或配额、不发布安装包或部署 Worker。
+
+## ARM-D-029 BrowserBridge v2 健康与落账镜像
+
+- v1 pipe `TimeOnChrome.AppRuntime.BrowserBridge.v1` 保留一个兼容周期；v2 使用独立 `TimeOnChrome.AppRuntime.BrowserBridge.v2`。扩展先用 v1 heartbeat 读取 `supportedProtocols/capabilities`，只有 Service 声明 v2 后才切换。
+- v2 envelope 必须声明 `channel`，只允许 `health/heartbeat`、`health/probe` 和 `ledger/settledUsageSegments`。Health 为非持久 best-effort；Ledger 为 durable at-least-once。
+- Ledger 每批最多 100 条，携带 `bridgeEpochId/batchId`。ACK 逐项返回 `acceptedIds`、`duplicateIds`、`rejected[{segmentId,errorCode,retryable}]` 与可选 `retryAfterMs`；只有 accepted/duplicate 可清除待发送状态，永久拒绝转为可见诊断。
+- 扩展不修改 `usage_segments_v1` 的生成、边界或事务。Segment 写入原账后只登记 ID；发送 payload 始终从原账重建。首次启用保存 epoch/时间，并保存日期 digest、待处理日期和 pending IDs；启动、每小时、Host 重连和失败后对账。启用前历史不回填，待 ACK 数据无 TTL。
+- 开发部署 heartbeat 不读取 managed storage，`policyHash=null`；正式 managed 部署只发送脱敏策略哈希。Health 维持一分钟节奏，Probe 优先，Ledger 与 heartbeat 公平调度。
+- Service 在同一 SQLite 事务写入镜像与影子重建脏区间，提交后立即 ACK。后台任务合并重叠区间异步投影并在重启后恢复；镜像不上传云端。
+- TimeWhereMg 对标准账户仅显示协议/连接/最近成功状态，管理员可额外查看 pending、accepted/duplicate/rejected、待投影和稳定错误码；不得显示 Profile UUID、Segment ID、SID、路径或凭据。
+- Windows 候选版本为 2.6.0，扩展候选为 1.7.34，contracts 为 1.11.0。本阶段不部署 Worker/Pages/Guardian，不执行 D1 migration，不发布 R2。
+
 ## ARM-D-027 Unpacked 联调与管道修复
 
 - 部署 profile 增加 `native-host-development`。扩展授权条件为 `mode`、稳定扩展 ID、`chrome.management.getSelf().installType === development` 三者同时满足；`getSelf()` 不需要新增 manifest permission。

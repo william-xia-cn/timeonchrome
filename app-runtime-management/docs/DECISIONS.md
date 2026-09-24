@@ -1,5 +1,17 @@
 # App Runtime 决策记录
 
+## ARM-D-030：BrowserBridge v3 仅同步权威网页统计快照
+
+2026-09-25 PO 批准。新版扩展不再发送网页 Segment；扩展仍按原算法结算网页用量，只将每日权威秒数、版本与最小区间证据传给 Service。Service 仅验证和去除本机会话与应用主账本的精确重叠，不能重算、重新分类或覆盖网页秒数。证据缺失、压缩或不一致时共享结果不可用，网页和应用各自读数仍可显示。Host 缺失或 Service 断开不影响网页原账及配额。当前周修正证据由设备鉴权只读分页接口提供；不修改原 Segment 或既有物化。ARM-D-029 仅作 v2 历史协议记录。
+
+## ARM-D-029：BrowserBridge 健康 best-effort、落账镜像 durable at-least-once
+
+状态：由 ARM-D-030 取代，仅保留旧客户端 v2 兼容与历史决策记录。
+
+PO 于 2026-09-22 确认实施。BrowserBridge v2 使用独立 `TimeOnChrome.AppRuntime.BrowserBridge.v2` pipe，并把 `health/heartbeat|probe` 与 `ledger/settledUsageSegments` 分开：Health 可合并、跳过且不持久补发；Ledger 只接受已写入 TimeOnChrome 权威网页账本的裁剪 Segment，采用持久待发送状态、最多 100 条分批、逐项 ACK 和 Service Segment ID 幂等。v2 首次启用保存 `bridgeEpochId/enabledAtMs`，只补发启用后的未 ACK 数据，不回填此前历史。
+
+Host 仍只负责 Native Messaging framing 与 pipe 转发，不保存账本、凭据或策略；预期 stdio/pipe 关闭必须静默退出。Service 将镜像写入和影子脏区间登记置于同一 SQLite 事务，提交后 ACK，由可恢复后台任务合并重叠区间并重建影子。TimeWhereMg 只显示裁剪健康摘要。该影子不执行配额扣减、阻止或进程终止，Service 也不向扩展发送策略、配额或控制命令。v1 保留一个兼容周期。
+
 ## ARM-D-027：Unpacked 联调与正式 managed 激活分离，BrowserBridge 前向修复
 
 PO 于 2026-09-21 确认实施。日常 Native Host 联调使用 `native-host-development` 候选，不要求 Chrome 企业策略或真实 managed token。扩展必须同时确认部署 marker、稳定扩展 ID 以及 Chrome 自报 `installType=development`；只满足 marker 不得启用。该模式保留普通用户同意和既有本地绑定，禁止打包为 CRX、进入更新源或作为生产资产。正式 `managed` 包继续 fail closed，普通/CWS 包继续移除 Native Messaging。

@@ -2315,6 +2315,7 @@ export async function dropOldestPendingUsageSegments(limit = 50, storageOptions 
       USAGE_SEGMENTS_KEY, SEGMENT_INDEX_KEY, SEGMENT_OUTBOX_KEY, USAGE_COMPACTED_FACTS_KEY,
       DAILY_STATS_KEY, HOURLY_STATS_KEY, STATS_OUTBOX_KEY, TARGET_STATS_OUTBOX_KEY,
       HOURLY_STATS_OUTBOX_KEY, HOURLY_TARGET_STATS_OUTBOX_KEY,
+      'browser_bridge_v2_state_v1',
     ];
     const data = await storage.get(keys);
     const segments = data[USAGE_SEGMENTS_KEY] || {};
@@ -2323,9 +2324,10 @@ export async function dropOldestPendingUsageSegments(limit = 50, storageOptions 
     const daily = data[DAILY_STATS_KEY] || {};
     const hourly = data[HOURLY_STATS_KEY] || {};
     const compacted = makeCompactedFactsStore(data[USAGE_COMPACTED_FACTS_KEY]);
+    const browserBridgePending = new Set(data.browser_bridge_v2_state_v1?.pendingIds || []);
     const candidates = [...new Set(outbox.dirtySegmentIds || [])]
       .map((id) => segments[id])
-      .filter(Boolean)
+      .filter((segment) => segment && !browserBridgePending.has(segment.id))
       .sort((a, b) => Number(a.endMs || a.startMs || 0) - Number(b.endMs || b.startMs || 0));
     const droppedIds = [];
     const dirtyDates = new Set();
@@ -2391,10 +2393,15 @@ export async function dropOldestPendingUsageSegments(limit = 50, storageOptions 
 }
 export async function pruneUploadedUsageSegments(retentionDays = 30, storageOptions = {}) {
   const storageSet = (items) => localStorageSet(items, storageOptions);
-  const data = await chrome.storage.local.get([USAGE_SEGMENTS_KEY, SEGMENT_INDEX_KEY, SEGMENT_OUTBOX_KEY]);
+  const data = await chrome.storage.local.get([
+    USAGE_SEGMENTS_KEY, SEGMENT_INDEX_KEY, SEGMENT_OUTBOX_KEY, 'browser_bridge_v2_state_v1',
+  ]);
   const allSegments = data[USAGE_SEGMENTS_KEY] || {};
   const index = data[SEGMENT_INDEX_KEY] || {};
-  const pending = new Set(data[SEGMENT_OUTBOX_KEY]?.dirtySegmentIds || []);
+  const pending = new Set([
+    ...(data[SEGMENT_OUTBOX_KEY]?.dirtySegmentIds || []),
+    ...(data.browser_bridge_v2_state_v1?.pendingIds || []),
+  ]);
   const cutoffMs = retentionCutoffMs(retentionDays);
   let pruned = 0;
 

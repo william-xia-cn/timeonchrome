@@ -61,7 +61,7 @@ async function run() {
       id: 'jdcancbiocacabbjdkngadmjpjmkdnih',
       lastError: null,
       getURL(relativePath) { return `https://extension.test/${relativePath}`; },
-      getManifest() { return { version: '1.7.33' }; },
+      getManifest() { return { version: '1.7.34' }; },
     },
   };
 

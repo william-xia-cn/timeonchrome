@@ -34,6 +34,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
     private MachineSegmentLedger? ledger;
     private MachineApplicationInventoryStore? inventoryStore;
     private BrowserUsageMirrorStore? browserMirrorStore;
+    private BrowserDailySnapshotStore? browserSnapshotStore;
     private sealed record InventoryEnvelope(string LocalUserId, SessionApplicationInventoryMessage Message);
     private readonly Channel<InventoryEnvelope> inventoryQueue = Channel.CreateBounded<InventoryEnvelope>(
         new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false });
@@ -70,6 +71,8 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         await terminalLogs.InitializeAsync(cancellation.Token).ConfigureAwait(false);
         browserMirrorStore = new BrowserUsageMirrorStore(paths.DatabasePath);
         await browserMirrorStore.InitializeAsync(cancellation.Token).ConfigureAwait(false);
+        browserSnapshotStore = new BrowserDailySnapshotStore(paths.DatabasePath);
+        await browserSnapshotStore.InitializeAsync(cancellation.Token).ConfigureAwait(false);
         await NativeMessagingManifestWriter.WriteAsync(
             AppContext.BaseDirectory,
             Path.Combine(AppContext.BaseDirectory, "TimeOnChrome.NativeHost.exe"),
@@ -84,7 +87,11 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         [
             RunResilientLoopAsync("status", StatusLoopAsync, cancellation.Token),
             RunResilientLoopAsync("control", ControlLoopAsync, cancellation.Token),
-            RunResilientLoopAsync("browserBridge", BrowserBridgeLoopAsync, cancellation.Token),
+            RunResilientLoopAsync("browserBridgeV1", token => BrowserBridgeLoopAsync(BrowserBridgeProtocol.Version, token), cancellation.Token),
+            RunResilientLoopAsync("browserBridgeV2", token => BrowserBridgeLoopAsync(BrowserBridgeProtocol.CurrentVersion, token), cancellation.Token),
+            RunResilientLoopAsync("browserBridgeV3", token => BrowserBridgeLoopAsync(BrowserBridgeProtocol.SnapshotVersion, token), cancellation.Token),
+            RunResilientLoopAsync("browserShadowProjection", BrowserShadowProjectionLoopAsync, cancellation.Token),
+            RunResilientLoopAsync("browserSnapshotProjection", BrowserSnapshotProjectionLoopAsync, cancellation.Token),
             RunResilientLoopAsync("supervisor", SupervisorLoopAsync, cancellation.Token),
             RunResilientLoopAsync("policy", PolicyLoopAsync, cancellation.Token),
             RunResilientLoopAsync("upload", UploadLoopAsync, cancellation.Token),
@@ -256,22 +263,28 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         var logs = terminalLogs is null
             ? new MachineTerminalLogSummary(0, 0, 0, null)
             : await terminalLogs.SummaryAsync(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+        var bridge = browserMirrorStore is null
+            ? new BrowserBridgeHealthSummary(0, 0, 0, 0, 0, 0, 0, 0, 0, null)
+            : await browserMirrorStore.HealthSummaryAsync(false, cancellationToken).ConfigureAwait(false);
         return new MachinePublicStatusResponse(
             true,
             state,
             ServiceVersion: Assembly.GetExecutingAssembly().GetName().Version?.ToString(),
             ServiceStartedAtMs: serviceStartedAtMs,
             LastHeartbeatSucceededAtMs: Interlocked.Read(ref lastHeartbeatSucceededAtMs),
-            HasPendingUploads: outbox.Legacy + outbox.Usage + outbox.Media + logs.Pending > 0);
+            HasPendingUploads: outbox.Legacy + outbox.Usage + outbox.Media + logs.Pending > 0,
+            BrowserBridgeProtocolVersion: bridge.ProtocolVersion,
+            BrowserBridgeLastSuccessAtMs: Math.Max(bridge.LastProbeAtMs,
+                Math.Max(bridge.LastHeartbeatAtMs, bridge.LastLedgerAckAtMs)));
     }
 
-    private async Task BrowserBridgeLoopAsync(CancellationToken cancellationToken)
+    private async Task BrowserBridgeLoopAsync(int protocolVersion, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
             var security = BrowserBridgeSecurity.CreatePipeSecurity();
             await using var pipe = NamedPipeServerStreamAcl.Create(
-                BrowserBridgeProtocol.PipeName, PipeDirection.InOut, 4, PipeTransmissionMode.Byte,
+                BrowserBridgeProtocol.PipeFor(protocolVersion), PipeDirection.InOut, 4, PipeTransmissionMode.Byte,
                 PipeOptions.Asynchronous, 8192, 8192, security);
             await pipe.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
             var client = ValidateBrowserBridgeClient(pipe);
@@ -294,7 +307,11 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                 var envelope = JsonSerializer.Deserialize<BrowserBridgeEnvelope>(line, RuntimeJson.Options)
                     ?? throw new InvalidDataException("Browser bridge message is empty.");
                 BrowserBridgeProtocol.Validate(envelope);
+                if (envelope.ProtocolVersion != protocolVersion)
+                    throw new InvalidDataException("Browser bridge pipe version mismatch.");
                 var accepted = 0;
+                BrowserBridgeAppendResult? append = null;
+                BrowserSnapshotWriteResult? snapshotWrite = null;
                 if (envelope.MessageType == "settledUsageSegments")
                 {
                     var payload = envelope.Payload.Deserialize<BrowserSettledUsagePayload>(RuntimeJson.Options)
@@ -302,25 +319,46 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                     if (payload.Segments is null)
                         throw new InvalidDataException("Browser segment collection is missing.");
                     if (browserMirrorStore is null) throw new InvalidOperationException("Browser mirror store is unavailable.");
-                    accepted = await browserMirrorStore.AppendAsync(
+                    append = await browserMirrorStore.AppendV2Async(
                         client.SessionId,
                         identityDeriver.Derive(client.Sid),
                         envelope.ProfileId,
                         envelope.ExtensionId,
                         payload.Segments,
                         DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        protocolVersion,
                         cancellationToken).ConfigureAwait(false);
-                    if (accepted > 0 && payload.Segments.Count > 0)
-                    {
-                        await browserMirrorStore.RebuildShadowAsync(
-                            identityDeriver.Derive(client.Sid),
-                            payload.Segments.Min(item => item.StartMs),
-                            payload.Segments.Max(item => item.EndMs),
-                            cancellationToken).ConfigureAwait(false);
-                    }
+                    accepted = append.AcceptedIds.Count;
+                }
+                else if (envelope.MessageType == "dailyUsageSnapshot")
+                {
+                    if (browserSnapshotStore is null) throw new InvalidOperationException("Browser snapshot store is unavailable.");
+                    var snapshot = envelope.Payload.Deserialize<BrowserDailyUsageSnapshot>(RuntimeJson.Options)
+                        ?? throw new InvalidDataException("Browser snapshot payload is empty.");
+                    snapshotWrite = await browserSnapshotStore.ReplaceAsync(
+                        client.SessionId, identityDeriver.Derive(client.Sid), envelope.ProfileId,
+                        snapshot, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken).ConfigureAwait(false);
+                }
+                else if (browserMirrorStore is not null)
+                {
+                    await browserMirrorStore.RecordHealthAsync(
+                        identityDeriver.Derive(client.Sid), protocolVersion, envelope.MessageType,
+                        DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        envelope.Payload.TryGetProperty("browserBridgePendingCount", out var pendingValue)
+                            && pendingValue.TryGetInt32(out var pendingCount) ? pendingCount : 0,
+                        cancellationToken).ConfigureAwait(false);
                 }
                 response = new BrowserBridgeResponse(true, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    envelope.RequestId, AcceptedCount: accepted);
+                    envelope.RequestId, AcceptedCount: accepted,
+                    SupportedProtocols: [BrowserBridgeProtocol.Version, BrowserBridgeProtocol.CurrentVersion, BrowserBridgeProtocol.SnapshotVersion],
+                    Capabilities: ["health", "ledger-item-ack", "ledger-durable-shadow", "authoritative-daily-snapshot"],
+                    AcceptedIds: append?.AcceptedIds,
+                    DuplicateIds: append?.DuplicateIds,
+                    Rejected: append?.Rejected,
+                    AcceptedRevision: snapshotWrite?.Accepted == true || snapshotWrite?.Duplicate == true
+                        ? envelope.Payload.GetProperty("snapshotRevision").GetString() : null,
+                    Duplicate: snapshotWrite?.Duplicate == true,
+                    Stale: snapshotWrite?.Stale == true);
             }
             catch (Exception exception) when (exception is InvalidDataException or JsonException or SqliteException or InvalidOperationException)
             {
@@ -328,6 +366,28 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                     ErrorCode: "BROWSER_BRIDGE_MESSAGE_REJECTED");
             }
             await writer.WriteLineAsync(JsonSerializer.Serialize(response, RuntimeJson.Options)).ConfigureAwait(false);
+        }
+    }
+
+    private async Task BrowserShadowProjectionLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            if (browserMirrorStore is null
+                || !await browserMirrorStore.ProcessNextDirtyRangeAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task BrowserSnapshotProjectionLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            if (browserSnapshotStore is null
+                || !await browserSnapshotStore.ProcessNextDirtyDayAsync(cancellationToken).ConfigureAwait(false))
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -377,6 +437,9 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             ? "disabled"
             : logging.ExpiresAtMs is not > 0 || logging.ExpiresAtMs <= nowMs ? "expired" : "enabled";
         var policyVersion = appliedPolicy?.Policy.Version ?? 0;
+        var bridge = browserMirrorStore is null
+            ? new BrowserBridgeHealthSummary(0, 0, 0, 0, 0, 0, 0, 0, 0, null)
+            : await browserMirrorStore.HealthSummaryAsync(true, cancellationToken).ConfigureAwait(false);
         return new MachineControlResponse(
             true,
             credential is null ? "unpaired" : appliedPolicy is null ? "pendingPolicy" : "online",
@@ -407,7 +470,17 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             LastStableErrorCode: lastStableErrorCode ?? logSummary.LastStableErrorCode,
             RemoteLoggingState: loggingState,
             RemoteLoggingMinLevel: logging?.MinLevel,
-            RemoteLoggingExpiresAtMs: logging?.ExpiresAtMs ?? 0);
+            RemoteLoggingExpiresAtMs: logging?.ExpiresAtMs ?? 0,
+            BrowserBridgeProtocolVersion: bridge.ProtocolVersion,
+            BrowserBridgeLastHeartbeatAtMs: bridge.LastHeartbeatAtMs,
+            BrowserBridgeLastProbeAtMs: bridge.LastProbeAtMs,
+            BrowserBridgeLastLedgerAckAtMs: bridge.LastLedgerAckAtMs,
+            BrowserBridgePendingSendCount: bridge.PendingSendCount,
+            BrowserBridgePendingProjectionCount: bridge.PendingProjectionCount,
+            BrowserBridgeAcceptedCount: bridge.AcceptedCount,
+            BrowserBridgeDuplicateCount: bridge.DuplicateCount,
+            BrowserBridgeRejectedCount: bridge.RejectedCount,
+            BrowserBridgeLastErrorCode: bridge.LastErrorCode);
     }
 
     private async Task ControlLoopAsync(CancellationToken cancellationToken)
@@ -803,6 +876,9 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                         $"windows:{credential!.MachineId}:{localUserId}:{Guid.NewGuid():N}",
                         fact.ClockEpochId));
                 sessions[sessionId] = runtime;
+                if (browserSnapshotStore is not null)
+                    await browserSnapshotStore.RecordRuntimeSessionAsync(sessionId, localUserId,
+                        runtime.AccountingSession.DurableState.RuntimeSessionID, cancellationToken).ConfigureAwait(false);
             }
             var application = fact.Application
                 ?? fact.Snapshot?.ForegroundApplication
@@ -811,6 +887,9 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
             var transition = await runtime.AccountingSession.PushAndPersistAsync(
                 fact with { PolicySnapshot = policySnapshot }, cancellationToken).ConfigureAwait(false);
             await RefreshSharedQuotaShadowAsync(localUserId, transition.UsageSegments, cancellationToken).ConfigureAwait(false);
+            if (browserSnapshotStore is not null)
+                await browserSnapshotStore.MarkApplicationDaysDirtyAsync(sessionId, localUserId,
+                    transition.UsageSegments, cancellationToken).ConfigureAwait(false);
         }
         finally { _ = stateGate.Release(); }
     }
@@ -830,6 +909,9 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         var flushTransition = await runtime.AccountingSession.FlushAndPersistAsync().ConfigureAwait(false);
         await RefreshSharedQuotaShadowAsync(runtime.LocalUserId,
             closeTransition.UsageSegments.Concat(flushTransition.UsageSegments), cancellation.Token).ConfigureAwait(false);
+        if (browserSnapshotStore is not null)
+            await browserSnapshotStore.MarkApplicationDaysDirtyAsync(sessionId, runtime.LocalUserId,
+                closeTransition.UsageSegments.Concat(flushTransition.UsageSegments), cancellation.Token).ConfigureAwait(false);
         await ledger.RemoveAccountingOpenStateAsync(runtime.LocalUserId, state.RuntimeSessionID).ConfigureAwait(false);
     }
 
@@ -919,6 +1001,9 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
                             Snapshot: snapshot, PolicySnapshot: policySnapshot), cancellationToken).ConfigureAwait(false);
                         _ = await accounting.FlushAndPersistAsync(cancellationToken).ConfigureAwait(false);
                         sessions[sessionId] = new SessionRuntime(prior.LocalUserId, assignment, accounting);
+                        if (browserSnapshotStore is not null)
+                            await browserSnapshotStore.RecordRuntimeSessionAsync(sessionId, prior.LocalUserId,
+                                accounting.DurableState.RuntimeSessionID, cancellationToken).ConfigureAwait(false);
                     }
                 }
                 finally { _ = stateGate.Release(); }
@@ -1098,7 +1183,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await api.HeartbeatAsync(credential, new MachineHeartbeat(
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.5.2",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.6.0",
                 Environment.OSVersion.VersionString,
                 RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
                 tamperCount,
@@ -1175,7 +1260,7 @@ internal sealed class RuntimeServiceCoordinator : IAsyncDisposable
         try
         {
             await terminalLogs.WriteAsync(level, category, eventCode, module, messageCode, details,
-                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.5.2",
+                Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "2.6.0",
                 remoteEligible ? appliedPolicy?.Policy.LoggingPolicy : null,
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellation.Token).ConfigureAwait(false);
         }

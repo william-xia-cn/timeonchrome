@@ -1,5 +1,9 @@
 # App Runtime Management
 
+## 当前开发：BrowserBridge v2 与 Windows 2.6.0
+
+ARM-D-029 将本地浏览器桥分成 best-effort `health` 和 durable at-least-once `ledger`。Extension 1.7.34 只观察已写入 `usage_segments_v1` 的 Segment，以持久 ID/日期 digest 在首次启用后对账；RuntimeService 双 pipe 兼容 v1/v2，在镜像与影子脏区间事务提交后逐项 ACK，并异步恢复投影。TimeWhereMg 仅显示裁剪健康摘要。该能力不改变网页落账、现有配额、阻止或云端数据；当前只构建本地未签名候选。
+
 ## 当前修复：Unpacked Native Host 联调与 Windows 2.5.2
 
 ARM-D-027 为开发者模式解压扩展提供严格受限的 Native Host 联调通道；ARM-D-028 使 Service 在升级/重启后接管同 session 仍运行的 Agent，并隔离退出竞态。Windows 2.5.2 保留 2.5.1 的 BrowserBridge pipe impersonation 修复；正式 managed policy、普通/CWS 包和生产资源不变。

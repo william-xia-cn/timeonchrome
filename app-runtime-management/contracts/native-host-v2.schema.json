@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.app/contracts/native-host-v2.schema.json",
+  "title": "TimeOnChrome BrowserBridge Envelope v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocolVersion", "channel", "requestId", "messageType", "extensionId", "profileId", "sentAtMs", "payload"],
+  "properties": {
+    "protocolVersion": { "const": 2 },
+    "channel": { "enum": ["health", "ledger"] },
+    "requestId": { "type": "string", "format": "uuid" },
+    "messageType": { "enum": ["heartbeat", "probe", "settledUsageSegments"] },
+    "extensionId": { "type": "string", "pattern": "^[a-p]{32}$" },
+    "profileId": { "type": "string", "format": "uuid" },
+    "sentAtMs": { "type": "integer", "minimum": 0 },
+    "bridgeEpochId": { "type": "string", "format": "uuid" },
+    "batchId": { "type": "string", "format": "uuid" },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "channel": { "const": "health" } } },
+      "then": { "properties": { "messageType": { "enum": ["heartbeat", "probe"] } } }
+    },
+    {
+      "if": { "properties": { "channel": { "const": "ledger" } } },
+      "then": {
+        "required": ["bridgeEpochId", "batchId"],
+        "properties": {
+          "messageType": { "const": "settledUsageSegments" },
+          "payload": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["segments"],
+            "properties": { "segments": { "type": "array", "maxItems": 100 } }
+          }
+        }
+      }
+    }
+  ]
+}

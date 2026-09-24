@@ -52,13 +52,15 @@
                        Text="TimeWhereMg 正在读取 Runtime Service 状态。" />
             <Grid x:Name="PublicDetails" Margin="24,18,0,0">
               <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
               <TextBlock Grid.Row="0" Grid.Column="0" Foreground="#64748B" Text="受管理状态" />
               <TextBlock x:Name="ManagedValue" Grid.Row="0" Grid.Column="1" FontWeight="SemiBold" Text="检查中" />
               <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,8,0,0" Foreground="#64748B" Text="Runtime Service" />
               <TextBlock x:Name="ServiceStateValue" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" FontWeight="SemiBold" Text="检查中" />
               <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,8,0,0" Foreground="#64748B" Text="最近云端确认" />
               <TextBlock x:Name="LastHeartbeatValue" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" FontWeight="SemiBold" Text="等待确认" />
+              <TextBlock Grid.Row="3" Grid.Column="0" Margin="0,8,0,0" Foreground="#64748B" Text="浏览器桥" />
+              <TextBlock x:Name="BrowserBridgePublicValue" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" FontWeight="SemiBold" Text="等待连接" />
             </Grid>
           </StackPanel>
         </Border>
@@ -82,6 +84,7 @@
               <TextBlock Text="运行健康" FontSize="17" FontWeight="SemiBold" Foreground="#111827" />
               <TextBlock x:Name="HealthSummary" Margin="0,10,0,0" Foreground="#334155" Text="等待 Service 报告" />
               <TextBlock x:Name="OutboxSummary" Margin="0,8,0,0" Foreground="#334155" Text="待上传：—" />
+              <TextBlock x:Name="BrowserBridgeSummary" Margin="0,8,0,0" Foreground="#334155" Text="浏览器桥：—" />
               <TextBlock x:Name="LogSummary" Margin="0,8,0,0" Foreground="#334155" Text="诊断：—" />
             </StackPanel>
           </Border>

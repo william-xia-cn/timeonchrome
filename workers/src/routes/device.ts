@@ -1,7 +1,7 @@
 // Device 路由 - 设备绑定、配置拉取
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { applySystemAccessDefaultsToProfileConfig, composeDeviceConfigVersion, getSystemAccessConfigRecord } from '../config/system-access-config';
-import { compactUsageAccountingCorrectionDeltas, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
+import { compactUsageAccountingCorrectionDeltas, getBeijingWeekForTimestamp, listDeviceCorrectionEvidencePage, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
 
@@ -322,6 +322,26 @@ export const deviceRouter = {
       if (!deviceIdentity) return json({ error: 'Invalid device token' }, 401);
       if (deviceIdentity.unbound) return deviceUnboundResponse(deviceIdentity.deviceId);
       return json({ ok: true, ts: Date.now() });
+    }
+
+    // GET /device/usage-accounting-corrections/v2
+    if (request.method === 'GET' && path === '/device/usage-accounting-corrections/v2') {
+      const identity = await verifyDeviceTokenFromRequest(request, env);
+      if (!identity) return json({ error: 'Invalid device token' }, 401);
+      if (identity.unbound) return deviceUnboundResponse(identity.deviceId);
+      const rawOffset = url.searchParams.get('offset') ?? '0';
+      const rawAnchor = url.searchParams.get('anchorAtMs');
+      const now = Date.now();
+      const offset = Number(rawOffset);
+      const anchorAtMs = rawAnchor === null ? now : Number(rawAnchor);
+      if (!/^\d+$/.test(rawOffset) || offset > 100000 || (rawAnchor !== null && !/^\d+$/.test(rawAnchor))
+          || !Number.isSafeInteger(anchorAtMs) || anchorAtMs > now || anchorAtMs < 0) {
+        return json({ error: 'Invalid correction evidence cursor' }, 400);
+      }
+      const { weekStart, weekEnd } = getBeijingWeekForTimestamp(now);
+      const page = await listDeviceCorrectionEvidencePage(env, identity.profileId, identity.deviceId,
+        weekStart, weekEnd, anchorAtMs, offset);
+      return json({ schemaVersion: 2, weekStart, weekEnd, anchorAtMs, ...page });
     }
 
     // GET /device/config

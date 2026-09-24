@@ -1,5 +1,28 @@
 # App Runtime 任务板
 
+## NOW：BrowserBridge v3 权威网页统计（本地实现与定向验证完成，未集成／发布）
+
+- [x] Contracts 1.12.0 增加 v3 每日快照、修正版本和区间证据 schema；v1/v2 保留。
+- [x] Windows Service 建立 v3 pipe、快照守恒校验、按 revision 幂等替换与 SQLite 待投影日期；目前尚未发布共享总量。
+- [x] Host 缺失／Service 不可用的本地降级状态及有界退避；预期部署模式的管理页可手动重试，普通／CWS 页面不显示该卡。
+- [x] 浏览器端当前周统计快照与补发、停止新版 v2 Segment 发送、设备鉴权只读修正证据接口、Service 本地重叠影子投影已完成代码与聚焦单测；仍不得安装／发布此工作树产物。
+- [x] PO 已按 D-076 单项批准只读、设备鉴权、可分页的当前周逐段历史修正证据；不修改网页原账、统计聚合或配额算法。
+- [x] 隔离 Chrome 的受控本地页面完成真实浏览器原始 ACTIVE Segment、V2 权威日统计与 v3 快照的本周逐日／逐桶严格对照；旧落账 E2E 3/3 通过。Guardian Worker 与 Runtime Worker 的 Wrangler dry-run 分别通过。跨日与修正归桶仍由现有聚焦单测覆盖，不将本次证据写成真实家庭数据验收或发布批准。
+
+测试契约：跨边界高风险；Contracts 兼容、Extension 快照 21/21、修正证据及设备路由聚焦测试、Windows BrowserBridge/SharedDaily 21/21、根与 Runtime backend TypeScript 检查通过。隔离 Chrome 的受控账本 E2E 3/3 通过，逐日／逐桶核对原始 ACTIVE、V2 与 v3；Guardian／Runtime Wrangler dry-run 已通过。`git diff --check` 通过。以上只构成本地代码证据，不代表真实家庭数据或生产验收；排除云端部署、MSI/R2、生产 migration、macOS 和无关全量回归。
+
+## NOW：BrowserBridge v2 健康与落账镜像（ARM-D-029）
+
+- [x] contracts 1.11.0 增加 v2 双通道、协商、batch 和逐项 ACK，保留 v1 兼容。
+- [x] Extension 1.7.34 增加独立持久 bridge 状态、启用后对账与有界补发，不修改权威网页账本。
+- [x] Runtime 2.6.0 增加双 pipe、事务镜像/脏区间和可恢复异步投影，Host 预期断流静默退出。
+- [x] TimeWhereMg 显示按权限裁剪的 BrowserBridge 健康摘要。
+- [x] 构建本地未签名 MSI/Burn 与 unpacked 候选；未部署、不切 R2 latest。
+- [x] 本机已从 2.5.2 原地升级 2.6.0；Service Automatic/Running、单一 Agent、公开状态 online。unpacked 1.7.34 已协商 v2，管理员诊断为 accepted 1、rejected 0、待投影 0。
+- [x] 断线补发实机验收：真实前台切换后 accepted 由 1 增至 9；随后受控停止 Service 约 101 秒并自动恢复，v2 重新在线，accepted 由 9 增至 14、duplicate 由 17 增至 26、rejected 为 0、待发送与待投影均为 0。只读 SQLite 聚合确认至少 1 条 Segment 完全位于停机窗口且在恢复后收到，镜像总数 14 与 accepted 计数一致；未读取网站或个人标识。
+
+测试契约：变更等级＝跨边界本地协议、持久 outbox 和 SQLite 投影；受影响＝Extension bridge、Contracts、Windows Host/Service/Manager/Installer；本地必须＝v1/v2 协商、部分/重复/永久拒绝 ACK、observer 丢失恢复、跨日、100 条批次、长期离线、10,000 条有界性能、双 pipe 身份校验、SQLite 事务/恢复、Manager 裁剪、相关 build/WiX 与 `git diff --check`；CI 必须＝contracts-worker、受影响扩展聚焦、windows-tests、windows-installer；明确排除＝Worker/Console/Guardian/Pages、macOS、D1/R2、网页落账状态机与边界、云端上传、配额执行、阻止。
+
 ## NOW：Windows 2.5.2 Service 接管既有 Agent（ARM-D-028）
 
 - [x] 精确发现并接管安装目录中同 session 的既有 Session Agent。

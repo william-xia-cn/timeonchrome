@@ -18,9 +18,10 @@ internal static class NativeHostProgram
             {
                 message = await NativeMessagingFraming.ReadAsync(input, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException or JsonException)
+            catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException or JsonException or IOException)
             {
-                await NativeMessagingFraming.WriteAsync(output,
+                if (exception is IOException or EndOfStreamException) return 0;
+                await TryWriteAsync(output,
                     new BrowserBridgeResponse(false, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                         ErrorCode: "NATIVE_MESSAGE_INVALID"), cancellationToken).ConfigureAwait(false);
                 return 2;
@@ -36,14 +37,14 @@ internal static class NativeHostProgram
                 }
                 catch (Exception exception) when (exception is InvalidDataException or JsonException)
                 {
-                    await NativeMessagingFraming.WriteAsync(output,
+                    if (!await TryWriteAsync(output,
                         new BrowserBridgeResponse(false, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                            ErrorCode: "NATIVE_ENVELOPE_REJECTED"), cancellationToken).ConfigureAwait(false);
+                            ErrorCode: "NATIVE_ENVELOPE_REJECTED"), cancellationToken).ConfigureAwait(false)) return 0;
                     continue;
                 }
 
                 var response = await ForwardAsync(envelope, cancellationToken).ConfigureAwait(false);
-                await NativeMessagingFraming.WriteAsync(output, response, cancellationToken).ConfigureAwait(false);
+                if (!await TryWriteAsync(output, response, cancellationToken).ConfigureAwait(false)) return 0;
             }
         }
         return 0;
@@ -55,7 +56,7 @@ internal static class NativeHostProgram
     {
         try
         {
-            await using var pipe = BrowserBridgePipeClient.Create();
+            await using var pipe = BrowserBridgePipeClient.Create(envelope.ProtocolVersion);
             await pipe.ConnectAsync(3000, cancellationToken).ConfigureAwait(false);
             using var reader = new StreamReader(pipe, leaveOpen: true);
             using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
@@ -65,10 +66,27 @@ internal static class NativeHostProgram
                 ?? new BrowserBridgeResponse(false, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     envelope.RequestId, "SERVICE_RESPONSE_INVALID");
         }
-        catch (Exception exception) when (exception is IOException or TimeoutException or OperationCanceledException or JsonException)
+        catch (Exception exception) when (exception is IOException or TimeoutException or OperationCanceledException
+            or JsonException or InvalidOperationException or UnauthorizedAccessException or ObjectDisposedException)
         {
             return new BrowserBridgeResponse(false, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 envelope.RequestId, "RUNTIME_SERVICE_UNAVAILABLE");
+        }
+    }
+
+    private static async Task<bool> TryWriteAsync(
+        Stream output,
+        BrowserBridgeResponse response,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await NativeMessagingFraming.WriteAsync(output, response, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException or OperationCanceledException)
+        {
+            return false;
         }
     }
 }

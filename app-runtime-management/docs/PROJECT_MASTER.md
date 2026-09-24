@@ -1,5 +1,12 @@
 # App Runtime 项目真值
 
+## 当前开发：ARM-D-029 BrowserBridge v2（本地候选）
+
+- 目标版本为 contracts 1.11.0、Windows Runtime/TimeWhereMg 2.6.0、unpacked extension 1.7.34。
+- Health heartbeat/probe 为 best-effort；Ledger 只镜像启用后已写入网页权威账本的 Segment，持久至少一次投递并逐项 ACK。
+- v1 保留兼容，Service 声明能力后扩展才切换 v2；Host 仍为无状态 framing/pipe 转发层。
+- 本阶段只完善本地可靠性、性能和可观测性，不执行共享配额、不下发策略/控制、不部署云端或 R2。
+
 ## 当前修复：ARM-D-028 Windows 2.5.2 Service 生命周期（实机通过）
 
 - 2.5.2 已原地安装并接管升级前既有 Session Agent；Service 保持 Automatic/Running，未再出现 1067 或新增运行时崩溃。

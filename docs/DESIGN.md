@@ -2,8 +2,8 @@
 
 > App Runtime 的独立模块设计位于 `app-runtime-management/docs/DESIGN.md`。本文件只维护 Guardian adapter、主控制台 launch 入口和 `@timeonchrome/app-runtime-contracts` 兼容边界。
 
-版本：1.7.32
-更新：2026-09-12
+版本：1.7.34
+更新：2026-09-22
 
 ---
 
@@ -16,6 +16,8 @@ Managed 扩展通过 `com.timeonchrome.nativehost` 连接 Runtime-owned `TimeOnC
 共享配额首阶段只由 RuntimeService 生成本地影子结果，不替换现有 Chrome/App Runtime 配额。网页与应用原始账保持独立不可变；裁决规则和拆仓边界以 D-098、ARM-D-026 与 Runtime 技术设计为准。根仓侧不得导入 Runtime Host/Service 源码。
 
 本地未打包联调使用 `native-host-development`，并与正式 managed activation 分离。只有 marker、稳定扩展 ID 和 Chrome 自报 `installType=development` 同时成立时，扩展才允许 Native Messaging；运行激活继续使用普通用户同意和既有本地绑定。staging 工具必须从已批准候选 manifest 读取公开 `key`、校验派生 ID 并写入开发目录，不得输出 key 内容；缺少稳定 key 时拒绝生成。该候选禁止打包、签名、进入更新源或生产渠道。正式 managed 包仍只接受 Chrome managed policy，普通/CWS 包仍不包含 Native Messaging。
+
+BrowserBridge v2 将通信拆成两个可靠性通道：`health/heartbeat|probe` 为 best-effort，不持久补发；`ledger/settledUsageSegments` 为 durable at-least-once，以权威 `usage_segments_v1` 的稳定字段重建 payload、最多 100 条分批并逐项 ACK。扩展只保存 bridge epoch、启用时间、日期 digest、待处理日期和 Segment ID，不复制完整账本；启动、每小时、Host 重连和失败后对账，启用前历史不回填。RuntimeService 在独立 v2 pipe 中以 Segment ID 幂等接收，镜像与影子脏区间同一 SQLite 事务提交后才 ACK，投影异步合并重建。v1 保留一个兼容周期，Service 通过 v1 heartbeat 声明能力后新扩展才切换 v2。
 
 ### 未识别页面防错与显示边界（2026-09-15）
 

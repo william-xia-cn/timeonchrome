@@ -988,6 +988,58 @@ function shouldSaveDespiteVersionSkip(remoteConfig, localConfig) {
 
 // ── Cloud request ───────────────────────────────────────────────────────────────
 
+// Auxiliary read-only evidence for BrowserBridge. It must not update normal cloud-sync health.
+export async function readDeviceCorrectionEvidenceWeek() {
+  if (!syncState.deviceToken) throw new Error('CORRECTION_EVIDENCE_UNAVAILABLE');
+  const items = [];
+  let anchorAtMs = null;
+  let expectedRevision = null;
+  let expectedTotal = null;
+  let expectedWeek = null;
+  for (let offset = 0, page = 0; page < 100; page++) {
+    const params = new URLSearchParams({ offset: String(offset) });
+    if (anchorAtMs !== null) params.set('anchorAtMs', String(anchorAtMs));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    let result;
+    try {
+      const response = await fetch(`${getCloudApiBase()}/device/usage-accounting-corrections/v2?${params}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${syncState.deviceToken}` },
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error('CORRECTION_EVIDENCE_UNAVAILABLE');
+      result = await response.json();
+    } catch (_) {
+      throw new Error('CORRECTION_EVIDENCE_UNAVAILABLE');
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!result || result.schemaVersion !== 2 || !Array.isArray(result.items)
+      || !Number.isSafeInteger(result.anchorAtMs) || !Number.isSafeInteger(result.total)
+      || typeof result.revision !== 'string') throw new Error('CORRECTION_EVIDENCE_INCOMPLETE');
+    const week = `${result.weekStart}:${result.weekEnd}`;
+    if (anchorAtMs === null) {
+      anchorAtMs = result.anchorAtMs;
+      expectedRevision = result.revision;
+      expectedTotal = result.total;
+      expectedWeek = week;
+    } else if (result.anchorAtMs !== anchorAtMs || result.revision !== expectedRevision
+      || result.total !== expectedTotal || week !== expectedWeek) {
+      throw new Error('CORRECTION_EVIDENCE_REVISION_CHANGED');
+    }
+    items.push(...result.items);
+    if (result.nextOffset === null) {
+      if (items.length !== expectedTotal) throw new Error('CORRECTION_EVIDENCE_INCOMPLETE');
+      return { items, revision: expectedRevision, weekStart: result.weekStart, weekEnd: result.weekEnd };
+    }
+    if (!Number.isSafeInteger(result.nextOffset) || result.nextOffset !== items.length
+      || result.items.length === 0) throw new Error('CORRECTION_EVIDENCE_INCOMPLETE');
+    offset = result.nextOffset;
+  }
+  throw new Error('CORRECTION_EVIDENCE_INCOMPLETE');
+}
+
 async function cloudRequest(method, path, body = null, retries = 3) {
   if (!syncState.deviceToken) {
     throw new Error('No device token');

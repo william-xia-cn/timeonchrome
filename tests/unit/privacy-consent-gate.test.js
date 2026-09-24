@@ -35,7 +35,7 @@ function run() {
   const popup = read('extension/popup/popup.js');
 
   const changelog = read('docs/CHANGELOG.md');
-  const latestChangelogVersion = (changelog.match(new RegExp('^## \\[(\\d+\\.\\d+\\.\\d+)\\]', 'm')) || [])[1];
+  const latestChangelogVersion = (changelog.match(new RegExp('^## \\[(\\d+\\.\\d+\\.\\d+)(?:[^\\]]*)\\]', 'm')) || [])[1];
   expectTrue(`manifest version matches changelog ${latestChangelogVersion}`, !!latestChangelogVersion && manifest.version === latestChangelogVersion);
   expectTrue('manifest keeps identity permissions for disclosed recovery feature', manifest.permissions.includes('identity') && manifest.permissions.includes('identity.email'));
   expectTrue('manifest still has no OAuth config', !Object.prototype.hasOwnProperty.call(manifest, 'oauth2'));

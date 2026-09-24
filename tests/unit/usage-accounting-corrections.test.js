@@ -21,6 +21,7 @@ const {
   getBeijingWeekForTimestamp,
   isEligibleRestrictedReattributionSegment,
   applyRestrictedReattributionForRequest,
+  listDeviceCorrectionEvidencePage,
 } = moduleRef.exports;
 
 const correction = {
@@ -197,6 +198,33 @@ const fakeDb = {
   assert.strictEqual(repeated.segmentCount, 0, 'a repeated run must not create duplicate corrections');
   assert.strictEqual(repeated.durationSeconds, 0);
   assert.strictEqual(repeated.batchCount, 0);
+  const evidenceQueries = [];
+  const evidenceDb = {
+    prepare(sql) {
+      const query = { sql, args: [] };
+      evidenceQueries.push(query);
+      return {
+        bind(...args) { query.args = args; return this; },
+        async first() { return { total: 2, latest: 1234 }; },
+        async all() { return { results: [{
+          segment_id: 'segment-a', date: '2026-09-18', start_ms: 1, end_ms: 121001,
+          duration_seconds: 120, channel: 'active', original_mode: 'composite',
+          original_quota_bucket: 'composite', effective_mode: 'rest',
+          effective_quota_bucket: 'rest', domain: 'must-not-leak.example',
+        }] }; },
+      };
+    },
+  };
+  const evidence = await listDeviceCorrectionEvidencePage({ DB: evidenceDb }, 'profile-1', 'device-1',
+    '2026-09-14', '2026-09-20', 1500, 0, 1);
+  assert.strictEqual(evidence.total, 2);
+  assert.strictEqual(evidence.nextOffset, 1);
+  assert.strictEqual(evidence.revision, '2026-09-14:2026-09-20:2:1234');
+  assert.strictEqual(evidence.items[0].effectiveQuotaBucket, 'rest');
+  assert.strictEqual(JSON.stringify(evidence).includes('must-not-leak'), false);
+  assert(evidenceQueries.every((query) => query.sql.includes('profile_id = ?')
+    && query.sql.includes('device_id = ?') && query.sql.includes('created_at <= ?')));
+  assert(evidenceQueries.every((query) => query.args[0] === 'profile-1' && query.args[1] === 'device-1'));
   console.log('[Usage Accounting Corrections] passed');
 })().catch((error) => {
   console.error(error);

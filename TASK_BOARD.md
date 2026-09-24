@@ -2,6 +2,28 @@
 
 > App Runtime 跨边界集成已由 PR #8 合并 master，D-092 生产 SSO、主 Pages 独立复部署和旧地址兼容验收完成；contract `1.0.0`。Runtime 内部任务及生产 manifest 由 `app-runtime-management/docs/` 管理，本任务板只追踪 Guardian adapter 与主控制台入口兼容；本次不修改网页账本、网站配额或任务管理工作线。
 
+## BrowserBridge v3：权威网页统计同步（开发中）
+
+- 验证补口：隔离 Chrome 测试 profile 已补当前隐私同意；在扩展页面读取同一受控账本并执行 V2/v3 逐日、逐配额桶严格对照，原始 ACTIVE 秒数、V2 与 v3 相等，证据完整；旧 E2E 三项均通过。V2 未物化的零用量日按零值对照。Guardian Worker（新增只读路由）和 Runtime Worker dry-run 分别通过。该证据只关闭浏览器对照缺口，不单独宣称整个 v3 已完成或可发布；生产激活及网页落账语义未修改。
+
+- [x] 保留 v2 历史基线；新版扩展不向任何 Service 回退发送原始网页 Segment。
+- [x] v3 只同步本机、北京时间逐日可替换的网页权威统计与同口径区间证据；Service 验证守恒，仅作本机会话网页／应用重叠调整。证据不足时不发布共享总量。
+- [x] 预期使用 Host 的 managed／开发候选区分 Host 缺失、Host 不可连接及 Service 停止；有界退避、手动重试，无弹窗且普通／CWS 不提示。
+- [x] 当前周逐段修正证据接口已获 D-076 单项批准并完成只读本地实现；不更改网页原 Segment、现有统计、配额、上传和阻止语义。生产未部署。
+
+测试契约：变更等级＝跨边界统计契约与本地可靠通信（高风险）；受影响＝Extension、Contracts、Windows Host/Service、只读修正证据接口；本地必需＝权威 V2 逐日逐桶严格相等、Host 缺失／旧 Service／重连、v3 守恒及精确重叠、Service 幂等快照与不完整状态、修正接口分页和鉴权的聚焦测试；CI＝对应 Extension、Contracts、Windows、Worker job；发布 smoke＝无，本轮不发布；明确排除＝Windows 安装包、macOS、Pages、Guardian 部署、生产 D1/R2、网页落账状态机和现有配额算法。真实浏览器核对须采用受控测试数据，不读家庭明细。
+
+## Native Host 健康与落账镜像通道（D-101）
+
+- [x] BrowserBridge v2 将 `health` best-effort 与 `ledger` durable at-least-once 分离，并保留 v1 一个兼容周期。
+- [x] 扩展 1.7.34 仅观察既有权威账本，持久化待发送 ID/日期摘要并按启动、每小时、重连和失败对账；不修改网页落账边界。
+- [x] Runtime 2.6.0 同时监听 v1/v2，镜像写入与影子脏区间同一 SQLite 事务，逐项 ACK 后异步合并重建。
+- [x] TimeWhereMg 提供裁剪后的 BrowserBridge 健康摘要；Host 对预期 stdio/pipe 断开静默退出。
+- [x] 已构建本地未签名 Runtime 2.6.0 与 unpacked 1.7.34；2.6.0 已在本机原地安装，Service Automatic/Running、单一 Agent，1.7.34 开发候选已协商 BrowserBridge v2，管理员诊断观察到 1 条 Ledger accepted、0 rejected、待投影 0。
+- [x] 断线补发实机验收：真实前台切换后 accepted 由 1 增至 9；随后受控停止 Service 约 101 秒并自动恢复，v2 重新在线，accepted 由 9 增至 14、duplicate 由 17 增至 26、rejected 为 0、待发送与待投影均为 0。只读 SQLite 聚合确认至少 1 条 Segment 完全位于停机窗口且在恢复后收到，镜像总数 14 与 accepted 计数一致；未读取网站或个人标识。
+
+测试契约：变更等级＝跨边界本地可靠协议 + Windows Service/Host/Manager/Installer + Extension observer/outbox；本地必须＝contracts v1/v2 兼容、扩展协商/持久补发/逐项 ACK/100 条分批、Host framing/静默断开、Service 双 pipe/幂等/事务与投影恢复、Manager 状态裁剪、相关版本/WiX 结构和 `git diff --check`；性能＝10,000 条有界分批聚焦测试；发布 smoke＝只构建本地未签名候选，不部署云端；明确排除＝Worker、Pages、Guardian、D1/R2、macOS、网页状态机/账本边界、配额执行和应用阻止。
+
 ## App Runtime 本地桥集成（D-098）
 
 - [x] Managed 扩展迁移至 `com.timeonchrome.nativehost`，仅在网页 Segment 已持久化后发送隐私裁剪镜像。

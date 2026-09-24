@@ -57,6 +57,27 @@ public sealed class BrowserUsageMirrorStore
             );
             CREATE INDEX IF NOT EXISTS idx_shared_quota_shadow_time_v1
               ON shared_quota_shadow_v1(local_user_id,start_ms,end_ms);
+            CREATE TABLE IF NOT EXISTS browser_shadow_dirty_ranges_v2(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              local_user_id TEXT NOT NULL,
+              from_ms INTEGER NOT NULL,
+              to_ms INTEGER NOT NULL,
+              created_at_ms INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_browser_shadow_dirty_user_v2
+              ON browser_shadow_dirty_ranges_v2(local_user_id,from_ms,to_ms);
+            CREATE TABLE IF NOT EXISTS browser_bridge_health_v2(
+              local_user_id TEXT PRIMARY KEY,
+              protocol_version INTEGER NOT NULL,
+              last_heartbeat_at_ms INTEGER NOT NULL DEFAULT 0,
+              last_probe_at_ms INTEGER NOT NULL DEFAULT 0,
+              last_ledger_ack_at_ms INTEGER NOT NULL DEFAULT 0,
+              pending_send_count INTEGER NOT NULL DEFAULT 0,
+              accepted_count INTEGER NOT NULL DEFAULT 0,
+              duplicate_count INTEGER NOT NULL DEFAULT 0,
+              rejected_count INTEGER NOT NULL DEFAULT 0,
+              last_error_code TEXT
+            );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -75,13 +96,51 @@ public sealed class BrowserUsageMirrorStore
         if (!Guid.TryParse(profileId, out _)) throw new InvalidDataException("Browser profile ID is invalid.");
         if (segments.Count > 100) throw new InvalidDataException("Browser segment batch is too large.");
 
+        var result = await AppendV2Async(sessionId, localUserId, profileId, extensionId, segments,
+            receivedAtMs, BrowserBridgeProtocol.Version, cancellationToken).ConfigureAwait(false);
+        return result.AcceptedIds.Count;
+    }
+
+    public async Task<BrowserBridgeAppendResult> AppendV2Async(
+        int sessionId,
+        string localUserId,
+        string profileId,
+        string extensionId,
+        IReadOnlyList<BrowserSettledUsageSegment> segments,
+        long receivedAtMs,
+        int protocolVersion = BrowserBridgeProtocol.CurrentVersion,
+        CancellationToken cancellationToken = default)
+    {
+        if (sessionId < 0) throw new ArgumentOutOfRangeException(nameof(sessionId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(localUserId);
+        if (!Guid.TryParse(profileId, out _)) throw new InvalidDataException("Browser profile ID is invalid.");
+        if (segments.Count > 100) throw new InvalidDataException("Browser segment batch is too large.");
+
+        var acceptedIds = new List<string>();
+        var duplicateIds = new List<string>();
+        var rejected = new List<BrowserBridgeRejectedSegment>();
+        var valid = new List<BrowserSettledUsageSegment>();
+        var insertedSegments = new List<BrowserSettledUsageSegment>();
+        foreach (var segment in segments)
+        {
+            try
+            {
+                Validate(segment);
+                valid.Add(segment);
+            }
+            catch (InvalidDataException)
+            {
+                rejected.Add(new BrowserBridgeRejectedSegment(
+                    string.IsNullOrWhiteSpace(segment.SegmentId) ? "invalid" : segment.SegmentId[..Math.Min(160, segment.SegmentId.Length)],
+                    "SEGMENT_INVALID", false));
+            }
+        }
+
         await using var connection = new SqliteConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        var accepted = 0;
-        foreach (var segment in segments)
+        foreach (var segment in valid)
         {
-            Validate(segment);
             await using var command = connection.CreateCommand();
             command.Transaction = (SqliteTransaction)transaction;
             command.CommandText = """
@@ -106,10 +165,174 @@ public sealed class BrowserUsageMirrorStore
             command.Parameters.AddWithValue("$estimated", segment.Estimated ? 1 : 0);
             command.Parameters.AddWithValue("$diagnostic", segment.Diagnostic ? 1 : 0);
             command.Parameters.AddWithValue("$received", receivedAtMs);
-            accepted += await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            var inserted = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            if (inserted == 1)
+            {
+                acceptedIds.Add(segment.SegmentId);
+                insertedSegments.Add(segment);
+            }
+            else
+            {
+                duplicateIds.Add(segment.SegmentId);
+            }
+        }
+        if (insertedSegments.Count > 0)
+        {
+            await using var dirty = connection.CreateCommand();
+            dirty.Transaction = (SqliteTransaction)transaction;
+            dirty.CommandText = "INSERT INTO browser_shadow_dirty_ranges_v2(local_user_id,from_ms,to_ms,created_at_ms) VALUES($user,$from,$to,$created);";
+            dirty.Parameters.AddWithValue("$user", localUserId);
+            dirty.Parameters.AddWithValue("$from", insertedSegments.Min(item => item.StartMs));
+            dirty.Parameters.AddWithValue("$to", insertedSegments.Max(item => item.EndMs));
+            dirty.Parameters.AddWithValue("$created", receivedAtMs);
+            await dirty.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        await using (var health = connection.CreateCommand())
+        {
+            health.Transaction = (SqliteTransaction)transaction;
+            health.CommandText = """
+                INSERT INTO browser_bridge_health_v2(local_user_id,protocol_version,last_ledger_ack_at_ms,
+                  accepted_count,duplicate_count,rejected_count,last_error_code)
+                VALUES($user,$protocol,$received,$accepted,$duplicate,$rejected,$error)
+                ON CONFLICT(local_user_id) DO UPDATE SET
+                  protocol_version=excluded.protocol_version,last_ledger_ack_at_ms=excluded.last_ledger_ack_at_ms,
+                  accepted_count=accepted_count+excluded.accepted_count,
+                  duplicate_count=duplicate_count+excluded.duplicate_count,
+                  rejected_count=rejected_count+excluded.rejected_count,
+                  last_error_code=excluded.last_error_code;
+                """;
+            health.Parameters.AddWithValue("$user", localUserId);
+            health.Parameters.AddWithValue("$protocol", protocolVersion);
+            health.Parameters.AddWithValue("$received", receivedAtMs);
+            health.Parameters.AddWithValue("$accepted", acceptedIds.Count);
+            health.Parameters.AddWithValue("$duplicate", duplicateIds.Count);
+            health.Parameters.AddWithValue("$rejected", rejected.Count);
+            health.Parameters.AddWithValue("$error", rejected.Count > 0 ? "SEGMENT_REJECTED" : DBNull.Value);
+            await health.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return accepted;
+        return new BrowserBridgeAppendResult(acceptedIds, duplicateIds, rejected);
+    }
+
+    public async Task RecordHealthAsync(
+        string localUserId,
+        int protocolVersion,
+        string messageType,
+        long receivedAtMs,
+        int pendingSendCount = 0,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(localUserId);
+        if (messageType is not ("heartbeat" or "probe")) throw new InvalidDataException("Health type is invalid.");
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        var column = messageType == "probe" ? "last_probe_at_ms" : "last_heartbeat_at_ms";
+        command.CommandText = $"""
+            INSERT INTO browser_bridge_health_v2(local_user_id,protocol_version,{column},pending_send_count)
+            VALUES($user,$protocol,$received,$pending)
+            ON CONFLICT(local_user_id) DO UPDATE SET protocol_version=excluded.protocol_version,
+              {column}=excluded.{column},pending_send_count=excluded.pending_send_count,last_error_code=NULL;
+            """;
+        command.Parameters.AddWithValue("$user", localUserId);
+        command.Parameters.AddWithValue("$protocol", protocolVersion);
+        command.Parameters.AddWithValue("$received", receivedAtMs);
+        command.Parameters.AddWithValue("$pending", Math.Max(0, pendingSendCount));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<BrowserBridgeHealthSummary> HealthSummaryAsync(
+        bool includeAdministrativeCounts,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COALESCE(MAX(protocol_version),0),COALESCE(MAX(last_heartbeat_at_ms),0),
+              COALESCE(MAX(last_probe_at_ms),0),COALESCE(MAX(last_ledger_ack_at_ms),0),COALESCE(SUM(pending_send_count),0),
+              COALESCE(SUM(accepted_count),0),COALESCE(SUM(duplicate_count),0),
+              COALESCE(SUM(rejected_count),0),MAX(last_error_code)
+            FROM browser_bridge_health_v2;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var pending = includeAdministrativeCounts ? await PendingProjectionCountAsync(cancellationToken).ConfigureAwait(false) : 0;
+        return new BrowserBridgeHealthSummary(
+            reader.GetInt32(0), reader.GetInt64(1), reader.GetInt64(2), reader.GetInt64(3),
+            includeAdministrativeCounts ? reader.GetInt32(4) : 0, pending,
+            includeAdministrativeCounts ? reader.GetInt64(5) : 0,
+            includeAdministrativeCounts ? reader.GetInt64(6) : 0,
+            includeAdministrativeCounts ? reader.GetInt64(7) : 0,
+            reader.IsDBNull(8) ? null : reader.GetString(8));
+    }
+
+    public async Task<int> PendingProjectionCountAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqliteConnection(connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM browser_shadow_dirty_ranges_v2;";
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    public async Task<bool> ProcessNextDirtyRangeAsync(CancellationToken cancellationToken = default)
+    {
+        string? user = null;
+        long from = 0;
+        long to = 0;
+        var selectedIds = new List<long>();
+        await using (var connection = new SqliteConnection(connectionString))
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using (var userCommand = connection.CreateCommand())
+            {
+                userCommand.CommandText = "SELECT local_user_id FROM browser_shadow_dirty_ranges_v2 ORDER BY created_at_ms,id LIMIT 1;";
+                user = Convert.ToString(await userCommand.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+            }
+            if (string.IsNullOrWhiteSpace(user)) return false;
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT id,from_ms,to_ms
+                FROM browser_shadow_dirty_ranges_v2
+                WHERE local_user_id=$user
+                ORDER BY from_ms,to_ms,id;
+                """;
+            command.Parameters.AddWithValue("$user", user);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var candidateFrom = reader.GetInt64(1);
+                var candidateTo = reader.GetInt64(2);
+                if (selectedIds.Count == 0)
+                {
+                    from = candidateFrom;
+                    to = candidateTo;
+                    selectedIds.Add(reader.GetInt64(0));
+                }
+                else if (candidateFrom <= to)
+                {
+                    to = Math.Max(to, candidateTo);
+                    selectedIds.Add(reader.GetInt64(0));
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+        await RebuildShadowAsync(user!, from, to, cancellationToken).ConfigureAwait(false);
+        await using (var connection = new SqliteConnection(connectionString))
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            var parameters = selectedIds.Select((_, index) => $"$id{index}").ToArray();
+            command.CommandText = $"DELETE FROM browser_shadow_dirty_ranges_v2 WHERE id IN ({string.Join(',', parameters)});";
+            for (var index = 0; index < selectedIds.Count; index++)
+                command.Parameters.AddWithValue(parameters[index], selectedIds[index]);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        return true;
     }
 
     public async Task<int> CountAsync(CancellationToken cancellationToken = default)
