@@ -1,11 +1,12 @@
 # TASK_BOARD
 
-## TimeWhereNative 本机拆仓（D-104，进行中）
+## TimeWhereNative 本机拆仓（D-104，源码/CI 已完成；发布交接待凭据）
 
 - [x] BrowserBridge v3 已通过 PR #44 合入 `origin/master@373877d`，本任务从该干净基线开始。
-- [ ] 在隔离工作树保留 `agents/`、`installer/` 相关历史并迁入私有 `TimeWhereNative`；原生仓锁定固定契约版本及校验值。
-- [ ] 原生仓独立 Windows/macOS CI；TimeOnChrome 保留 contracts、Runtime Worker/Pages/D1/R2、Guardian adapter 与唯一 R2 发布权。
-- [ ] 双仓隔离构建、当前版及上一兼容版协议验证、发布权限审计后，再通过 PR 移除旧本机源码和旧 CI 入口。
+- [x] 在隔离仓保留 `agents/`、`installer/` 的 40 个相关历史提交并迁入私有 `TimeWhereNative`；原生仓锁定 contracts 1.12.0/上一兼容 1.10.0 及包校验值。
+- [x] 原生仓独立 Windows/macOS/WiX CI；TimeOnChrome PR #45/#46 保留 contracts、Runtime Worker/Pages/D1/R2、Guardian adapter 与唯一 R2 发布权。
+- [x] 双仓隔离构建、当前版及上一兼容版协议验证、发布权限审计完成；旧本机源码和旧 CI 入口已通过 PR #45 从 master 移除。原生仓 PR #1（merge `d7b56ec`）修复最新 Windows CI 失败并引入最小影响测试路由。旧仓在无本机源码时完成 contracts build/compat、Guardian TypeScript/集成、Worker typecheck/Vitest `56/56`/dry-run 及 Console session 测试；原生仓 CI `5759559` 的真实安装候选已通过旧仓验真器，旧来源 SHA 的本地候选被正确拒绝。
+- [ ] 发布交接独立门：TimeOnChrome production 环境仍需只读跨仓令牌与 R2 专用凭据；随后在明确发布授权下试运行候选验真/不可变回读。`latest` 切换另行审批，本次不执行。
 
 测试契约：架构／源码所有权迁移（高风险）；本地必须＝原生文件与 Git 历史对照、Windows 测试与 WiX 构建、macOS CI、contracts 当前版/上一版兼容、TimeOnChrome contracts/Worker/Console/Guardian 定向检查、边界与权限审计、`git diff --check`；CI＝两仓各自受影响 job；发布 smoke＝无。本轮明确排除云端部署、D1 migration、R2 latest、终端升级、真实家庭数据、网页／应用账本语义修改。
 

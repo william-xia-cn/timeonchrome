@@ -4,7 +4,8 @@
 
 - BrowserBridge v3 已于 PR #44 合入 `master@373877d`，拆仓从该干净基线开始；v3 仍是本地候选，不代表生产发布。
 - TimeOnChrome 保留 contracts、Runtime Worker/独立 Pages、D1/R2、Guardian 身份桥及生产发布权；私有 TimeWhereNative 接管 Windows/macOS Agent、RuntimeService、TimeWhereMg、Native Host 与安装器。
-- 现有 SSO、Child lifecycle、机器身份和云资源地址不迁移；新仓无 Cloudflare 生产写权限。私有仓库 `main@5759559` 的 Windows tests/installer 与 macOS 15 当前版、上一兼容契约版 CI 已通过（run `36045220406`）；集成 PR 合并前，旧仓本机源码只在隔离工作树中标记删除，`master` 尚未改变。
+- 现有 SSO、Child lifecycle、机器身份和云资源地址不迁移；新仓为私有仓，Actions 无 Cloudflare 生产 secrets 或写入 workflow。原生仓 `5759559` 的 Windows tests/installer 与 macOS 15 当前版、上一兼容契约版 CI 已通过（run `36045220406`）；PR #1（merge `d7b56ec`）的 Windows 当前/上一契约测试与新汇总门通过（run `36048525372`）。旧仓 PR #45/#46 已合并，master 不再包含本机可发布源码与旧本机 CI；旧仓隔离构建 contracts、Guardian、Worker（56 tests 与 dry-run）及 Console session 均通过。旧仓验真器对 run `36045220406` 的实际候选来源 SHA、契约锁、Burn/MSI 大小与 SHA-256 验证通过，并拒绝本地来源 SHA 不符的同版本旧候选。
+- TimeOnChrome production 环境已核实具备人工审核且只允许 master；目前只有既有 Cloudflare API secret，尚无跨仓只读令牌和 R2 S3 专用密钥。交接工作流未运行，不能宣称不可变安装包已发布或 latest 已切换。
 - 拆仓本身不部署、不执行 migration、不升级本机、不改写账本或切换 R2 latest。
 
 ## 当前开发：ARM-D-029 BrowserBridge v2（本地候选）

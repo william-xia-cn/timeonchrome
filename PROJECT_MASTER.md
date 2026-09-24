@@ -2,9 +2,9 @@
 
 > App Runtime 集成状态：D-092 已经 PR #8 合并 master 并完成生产 SSO/独立部署验收；contract `1.0.0` 为当时集成版本，后续版本以 `app-runtime-management/contracts/package.json` 为准。Guardian adapter 当时版本 `b971221b-82b1-4e14-8f67-f3b884ac924c`，主控制台 Pages `3876077d-5607-4e95-8526-b666cf16d13c`；单独发布主 Pages 不改变 Runtime 资源。内部真值与不可变生产 manifest 位于 `app-runtime-management/docs/`，根项目只维护 adapter、入口和 compatibility。
 
-## TimeWhereNative 拆仓状态（D-104，进行中）
+## TimeWhereNative 拆仓状态（D-104，源码与 CI 边界完成）
 
-BrowserBridge v3 已合入 `master@373877d`。当前工作仅拆分本机源码和构建责任；Runtime 云端、contracts、Guardian 身份桥和生产发布权留在 TimeOnChrome。拆仓不迁移云资源、不重新配对、不部署或升级终端。私有 TimeWhereNative 的当前及上一兼容契约 CI 已通过；旧仓源码和 CI 仅在本次集成 PR 合并后移除，生产安装包交接仍须独立验收。
+BrowserBridge v3 已合入 `master@373877d`。PR #45/#46 已把本机源码/CI 从旧仓迁走，并建立仅旧仓可执行的受保护安装候选验真与可选不可变 R2 发布门；Runtime 云端、contracts、Guardian 身份桥和生产发布权继续留在 TimeOnChrome。私有 `TimeWhereNative` 的 40 个相关历史提交与迁移前 tree hash 已核对；原生仓 PR #1（merge `d7b56ec`）修复了最新 CI 的 Windows 测试超时，当前/上一兼容契约 Windows CI 与汇总门通过，macOS 与 WiX 使用未改动代码的已通过证据。旧仓隔离工作树在无本机源码条件下完成 contracts build/compat、Guardian TypeScript/集成、Worker typecheck/Vitest `56/56`/dry-run 与 Console session 测试；旧仓验真器对原生仓 CI run `36045220406` 的 `5759559` 安装候选完成来源 SHA、契约锁、Burn/MSI 字节哈希核对，且正确拒绝不同 SHA 的本地旧候选。拆仓未迁移云资源、重新配对、部署或升级终端。生产交接门尚未实际运行：旧仓 production 环境缺跨仓只读令牌及 R2 专用凭据；不能把代码门存在等同于安装包已发布，`latest` 仍须另行批准。
 
 ## 项目状态
 - **生产版本：1.7.32（内部 managed 已发布；生产观察中）**

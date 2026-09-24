@@ -4,8 +4,8 @@
 
 - [x] BrowserBridge v3 已通过 PR #44 合入 `master@373877d`，新迁移工作树从此基线创建。
 - [x] 固定 contracts 1.12.0 与上一已提交兼容版 1.10.0 的包及 SHA-256；隔离迁移 `agents/`、`installer/` 的 40 个相关历史提交，源 tree hash 一致。
-- [ ] 新仓在不读取 TimeOnChrome 工作树的前提下运行 Windows/macOS CI（run `36045220406` 已通过）；旧仓云端/契约/Guardian 检查仍待本 PR CI。
-- [ ] 已审计新仓无 Cloudflare 生产 secrets/写入 workflow；隔离工作树已准备移除旧源码和 CI 入口，仍待旧仓 PR 审查/合并。
+- [x] 新仓在不读取 TimeOnChrome 工作树的前提下运行 Windows/macOS/WiX CI（run `36045220406` 已通过）；PR #1 对最新 Windows CI 超时进行前向修复，当前/上一契约 Windows 测试与汇总门通过（run `36048525372`）。旧仓 PR #45/#46 的轻量边界与发布配置门通过；云端/Guardian 源码树对拆仓基线无差异，隔离工作树 contracts、Guardian、Worker（56 tests 与 dry-run）及 Console session 定向检查通过。旧仓验真器对真实原生 CI 候选通过，对来源 SHA 不符旧候选拒绝。
+- [x] 新仓为私有仓，Actions secrets 列表为空且 workflow 仅有读权限、无 Cloudflare 写入；旧仓本机源码与 CI 已由 PR #45 合并移除。
 - [ ] 旧仓受保护交接门已可核验精确原生 CI SHA、来源、契约锁及 MSI/Burn 哈希；显式选择不可变版本发布时，使用 R2 条件写入、回读核验和 manifest-last。待配置旧仓只读跨仓令牌与 R2 专用密钥后才能实际运行；`latest` 切换仍为单独审批，不在本轮运行。
 
 测试等级：高风险所有权迁移。只运行受影响构建、协议兼容、文件/历史清单与边界检查；不因纯文档重跑无关产品测试。发布 smoke：无；本轮排除部署、migration、R2、终端升级和真实家庭数据。
