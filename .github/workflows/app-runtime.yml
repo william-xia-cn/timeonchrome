@@ -19,6 +19,10 @@ on:
       - 'tools/classify-app-runtime-ci-changes.js'
       - '.github/workflows/app-runtime.yml'
       - '.github/workflows/app-runtime-production.yml'
+      - '.github/workflows/timewhere-native-artifact-gate.yml'
+      - 'tools/timewhere-native-contract-lock.json'
+      - 'tools/verify-timewhere-native-artifact.js'
+      - 'tests/unit/timewhere-native-artifact.test.js'
       - 'tools/write-app-runtime-release-manifest.js'
       - 'tests/unit/app-runtime-ci-routing.test.js'
       - 'tests/unit/app-runtime-release-config.test.js'
@@ -37,9 +41,6 @@ jobs:
       contracts: ${{ steps.classify.outputs.contracts }}
       worker: ${{ steps.classify.outputs.worker }}
       console: ${{ steps.classify.outputs.console }}
-      windows: ${{ steps.classify.outputs.windows }}
-      installer: ${{ steps.classify.outputs.installer }}
-      macos: ${{ steps.classify.outputs.macos }}
       release_config: ${{ steps.classify.outputs.release_config }}
     steps:
       - uses: actions/checkout@v4
@@ -116,36 +117,6 @@ jobs:
       - run: node app-runtime-management/console/app-runtime-time.test.js
       - run: node app-runtime-management/console/app-runtime-usage.test.js
 
-  windows:
-    name: windows-tests
-    needs: changes
-    if: needs.changes.outputs.windows == 'true'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: '8.0.x' }
-      - run: dotnet test app-runtime-management/agents/windows/TimeOnChrome.AppRuntime.sln
-
-  windows-installer:
-    needs: changes
-    if: needs.changes.outputs.installer == 'true'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: '8.0.x' }
-      - shell: pwsh
-        run: app-runtime-management/installer/windows/build.ps1
-
-  macos:
-    needs: changes
-    if: needs.changes.outputs.macos == 'true'
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v4
-      - run: swift test --package-path app-runtime-management/agents/macos
-
   release-config:
     needs: changes
     if: needs.changes.outputs.release_config == 'true'
@@ -154,18 +125,19 @@ jobs:
       - uses: actions/checkout@v4
       - run: node tests/unit/app-runtime-ci-routing.test.js
       - run: node tests/unit/app-runtime-release-config.test.js
+      - run: node tests/unit/timewhere-native-artifact.test.js
       - run: npm run check:app-runtime-boundaries
 
   app-runtime-gate:
     if: always()
-    needs: [changes, contracts-worker-console, console, windows, windows-installer, macos, release-config]
+    needs: [changes, contracts-worker-console, console, release-config]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Verify required jobs
         env:
           CI_REQUIREMENTS: >-
-            {"contracts-worker":"${{ needs.changes.outputs.contracts == 'true' || needs.changes.outputs.worker == 'true' }}","console":"${{ needs.changes.outputs.console }}","windows-tests":"${{ needs.changes.outputs.windows }}","windows-installer":"${{ needs.changes.outputs.installer }}","macos":"${{ needs.changes.outputs.macos }}","release-config":"${{ needs.changes.outputs.release_config }}"}
+            {"contracts-worker":"${{ needs.changes.outputs.contracts == 'true' || needs.changes.outputs.worker == 'true' }}","console":"${{ needs.changes.outputs.console }}","release-config":"${{ needs.changes.outputs.release_config }}"}
           CI_RESULTS: >-
-            {"changes":"${{ needs.changes.result }}","contracts-worker":"${{ needs.contracts-worker-console.result }}","console":"${{ needs.console.result }}","windows-tests":"${{ needs.windows.result }}","windows-installer":"${{ needs.windows-installer.result }}","macos":"${{ needs.macos.result }}","release-config":"${{ needs.release-config.result }}"}
+            {"changes":"${{ needs.changes.result }}","contracts-worker":"${{ needs.contracts-worker-console.result }}","console":"${{ needs.console.result }}","release-config":"${{ needs.release-config.result }}"}
         run: node tools/classify-app-runtime-ci-changes.js --verify-gate

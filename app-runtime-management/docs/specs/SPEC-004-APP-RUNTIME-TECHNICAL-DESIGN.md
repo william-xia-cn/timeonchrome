@@ -574,7 +574,21 @@ Burn 必须先以启动安装器的原交互式用户上下文运行 1.x migrati
 - auth/token implementation
 - network client/server
 
-## Validation
+## 拆仓后验证入口（D-104/ARM-D-031）
+
+下列 Windows/macOS 命令仅在私有 TimeWhereNative 仓库根目录执行；先运行 `pwsh tools/restore-contracts.ps1` 校验固定契约包。TimeOnChrome 本仓只执行 contracts、Runtime Worker/Pages 和 Guardian 身份桥验证。后续历史章节中的 `app-runtime-management/agents/` 路径是拆仓前记录，不再是当前可执行路径。
+
+```powershell
+dotnet test agents/windows/TimeOnChrome.AppRuntime.sln
+dotnet test agents/windows/TimeOnChrome.AppRuntime.sln -p:ContractsVersion=1.10.0
+```
+
+```bash
+swift test --package-path agents/macos
+TIMEWHERE_CONTRACTS_VERSION=1.10.0 swift test --package-path agents/macos
+```
+
+## Validation（拆仓前历史口径）
 
 Windows：
 

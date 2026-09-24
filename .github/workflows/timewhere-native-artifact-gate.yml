@@ -1,0 +1,69 @@
+name: TimeWhereNative Artifact Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      native_run_id:
+        description: Successful TimeWhereNative CI run ID
+        required: true
+        type: string
+      native_sha:
+        description: Exact 40-character TimeWhereNative source SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify-candidate:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ github.sha }}' }
+      - name: Verify TimeOnChrome source
+        run: |
+          git fetch origin master
+          test -z "$(git status --porcelain)"
+          test "$GITHUB_SHA" = "$(git rev-parse origin/master)"
+      - name: Require read-only cross-repo credential
+        env:
+          NATIVE_READ_TOKEN: ${{ secrets.TIMEWHERE_NATIVE_READ_TOKEN }}
+        run: test -n "$NATIVE_READ_TOKEN" || { echo 'TIMEWHERE_NATIVE_READ_TOKEN is required' >&2; exit 1; }
+      - name: Verify exact native run and download candidate
+        env:
+          GH_TOKEN: ${{ secrets.TIMEWHERE_NATIVE_READ_TOKEN }}
+          NATIVE_RUN_ID: ${{ inputs.native_run_id }}
+          NATIVE_SHA: ${{ inputs.native_sha }}
+        run: |
+          [[ "$NATIVE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$NATIVE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/william-xia-cn/TimeWhereNative/actions/runs/$NATIVE_RUN_ID" \
+            --jq '[.head_repository.full_name, .head_branch, .head_sha, .status, .conclusion, .event] | @tsv' > native-run.tsv
+          IFS=$'\t' read -r repo branch sha status conclusion event < native-run.tsv
+          test "$repo" = 'william-xia-cn/TimeWhereNative'
+          test "$branch" = 'main'
+          test "$sha" = "$NATIVE_SHA"
+          test "$status" = 'completed'
+          test "$conclusion" = 'success'
+          mkdir -p native-candidate
+          gh run download "$NATIVE_RUN_ID" --repo william-xia-cn/TimeWhereNative \
+            --name windows-internal-candidate --dir native-candidate
+      - name: Verify immutable candidate bytes and contract lock
+        env:
+          NATIVE_SHA: ${{ inputs.native_sha }}
+        run: |
+          version="$(node -p "require('./tools/timewhere-native-contract-lock.json').version")"
+          checksum="$(node -p "require('./tools/timewhere-native-contract-lock.json').sha256")"
+          test "$version" = "$(node -p "require('./app-runtime-management/contracts/package.json').version")"
+          node tools/verify-timewhere-native-artifact.js native-candidate "$NATIVE_SHA" "$version" "$checksum" > verified-native-candidate.json
+      - name: Preserve verification evidence without publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-timewhere-native-${{ inputs.native_run_id }}
+          path: |
+            native-candidate/manifest.json
+            verified-native-candidate.json
+            native-run.tsv

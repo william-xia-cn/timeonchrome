@@ -309,6 +309,8 @@ Phase 1 统一定义：
 - 只清除明确 accepted 的 outbox 项；
 - timeout、网络失败或缺失 ACK 保留待上传项。
 
+> 2026-09-25 拆仓补充（D-104 / ARM-D-031）：下述 Phase 1/2 的 `app-runtime-management/agents/`、`installer/` 路径为历史实施记录，不再是当前源码位置。本机可发布源码、测试和安装器由私有 `william-xia-cn/TimeWhereNative` 单独维护；TimeOnChrome 保留共享契约、Runtime Worker、独立 Pages、D1/R2、Guardian 身份桥与生产发布权。现有身份、账本、API 和云资源不因源码迁移改变。新仓使用固定版本与 SHA-256 的契约包，不跨仓引用源文件；安装包由 TimeOnChrome 受保护发布流程验收后发布。本补充不追溯改写下列历史验收条件。
+
 ## Phase 1 Scope
 
 - 将现有 macOS Swift Package 移入统一 `app-runtime-management/agents/macos/`。

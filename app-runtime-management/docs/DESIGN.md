@@ -1,5 +1,7 @@
 # App Runtime 技术设计
 
+> 本机拆仓交接（ARM-D-031）：TimeWhereNative CI 产出带 `sourceGitSha`、contract 版本/包哈希及 MSI/Burn 文件哈希的内部候选。TimeOnChrome 的受保护工作流只接受精确成功 CI run 与受控来源仓库，经只读跨仓凭据下载并逐项校验后，才可写入版本化 R2 路径；缺少凭据或对象已存在时 fail closed。`latest.json` 切换是另一个明确批准的发布动作，本轮不执行。
+
 ## 当前开发：ARM-D-025 系统默认分类
 
 应用分类解析新增云端低优先级默认：精确系统应用为 `composite`，confirmed 游戏/游戏平台/游戏工具为 `restrictedEntertainment`。家长明确分类和更高优先级批准规则先执行；冲突、疑似类型、普通应用和技术记录不套用默认。目录和机器策略共用同一解析结果。
@@ -115,11 +117,13 @@ contracts 1.3.0 的 inventory v2 分离 products/variants/sourceResults。来源
 ```text
 app-runtime-management/
 ├── contracts/   @timeonchrome/app-runtime-contracts
-├── agents/      macOS / Windows
 ├── backend/     Runtime Worker、D1 migrations、R2 接口
 ├── console/     独立 Runtime Pages canonical source
-├── installer/   Windows 安装与发布资产
 └── docs/        Runtime 自身项目真值
+
+TimeWhereNative/（独立私有仓库）
+├── agents/      macOS / Windows、RuntimeService、TimeWhereMg、Native Host
+└── installer/   Windows 安装与待发布产物
 ```
 
 Runtime 模块禁止导入根目录 `workers/`、`pages/`、Extension 或 Santa 业务代码。Guardian 只允许通过 `@timeonchrome/app-runtime-contracts` 与 Runtime 协作，不得引用 Runtime backend、console 或 Agent 源码。
@@ -129,9 +133,9 @@ Runtime 模块禁止导入根目录 `workers/`、`pages/`、Extension 或 Santa 
 | 资源 | 所属与回滚边界 |
 |---|---|
 | Guardian Worker/D1、主控制台 Pages | TimeOnChrome |
-| Runtime Worker/D1/R2、Runtime Pages | App Runtime |
-| JWT、lifecycle、SSO/API contract | Runtime-owned versioned package |
-| Windows/macOS Agent、TimeWhereMg | App Runtime |
+| Runtime Worker/D1/R2、Runtime Pages | TimeOnChrome 仓库的 Runtime 模块 |
+| JWT、lifecycle、SSO/API contract | TimeOnChrome 仓库发布的固定版本包 |
+| Windows/macOS Agent、TimeWhereMg、Native Host | TimeWhereNative 私有仓库 |
 
 生产构建只能来自已合并到 `origin/master` 的干净 Git SHA。功能 worktree 只能本地验证和 Pages preview，禁止操作生产 D1、Worker、Pages 或 R2 latest。
 
@@ -154,4 +158,6 @@ SSO 使用独立 ES256 key pair，不复用 Santa、Runtime machine、module JWT
 
 ## 拆仓路径
 
-目标仓库为 `timeonchrome-app-runtime`。迁出时保留 `app-runtime-management/` 历史，并接管自身 CI、Cloudflare secrets 和 Runtime 四类生产资源。TimeOnChrome 只保留 Guardian adapter、主控制台入口和固定版本 contract dependency。两仓必须分别构建、部署、回滚，任一部署不得覆盖另一方资源。
+目标仓库改为私有 `william-xia-cn/TimeWhereNative`，仅迁出本机 `agents/` 和 `installer/` 的相关历史。TimeOnChrome 保留 Runtime contracts、Worker、独立 Pages、D1、R2、Guardian adapter、主控制台入口和全部 Cloudflare 生产写权限；新仓锁定固定版本 contract 包并只生成经测试的 MSI/Burn/manifest。TimeOnChrome 的受保护发布流程校验来源 SHA、契约版本和哈希后，独占 R2 上传与 latest 切换。旧“整体迁出 Runtime 云端”方案由 D-104/ARM-D-031 取代。两仓必须独立构建；拆仓本身不部署、不执行 migration、不升级本机、不改写数据。
+
+本机产物交接使用新仓成功 CI 的精确 `runId + headSha` 和只读仓库令牌。TimeOnChrome 的手工生产环境流程下载该 CI artifact，核对 manifest 的 `sourceGitSha`、contract 版本/包 SHA-256、MSI/Burn 大小与 SHA-256，确认目标 R2 版本路径不存在后写入、回读校验，manifest 最后写入。`latest.json` 只有单独勾选并获得生产环境批准后才可切换；没有只读交接令牌或任一哈希不符即停止。新仓 CI 本身没有 Cloudflare secret、R2 上传或 latest 权限。

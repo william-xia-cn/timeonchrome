@@ -37,7 +37,12 @@ walk(path.join(root, 'workers', 'src'), (file) => {
   }
 });
 
-for (const forbidden of ['pages/app-runtime', 'tools/stage-app-runtime-console.js']) {
+for (const forbidden of [
+  'pages/app-runtime',
+  'tools/stage-app-runtime-console.js',
+  'app-runtime-management/agents',
+  'app-runtime-management/installer',
+]) {
   if (fs.existsSync(path.join(root, forbidden))) violations.push(`forbidden duplicate/staging path exists: ${forbidden}`);
 }
 
