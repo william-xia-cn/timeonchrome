@@ -265,6 +265,64 @@ export async function listUsageAccountingCorrections(
   }
 }
 
+export type DeviceCorrectionEvidence = Pick<UsageAccountingCorrection,
+  'segmentId' | 'date' | 'startMs' | 'endMs' | 'durationSeconds' | 'channel' |
+  'originalMode' | 'originalQuotaBucket' | 'effectiveMode' | 'effectiveQuotaBucket'>;
+
+/** Read-only, device-scoped evidence. Unlike legacy config compaction, failures must surface. */
+export async function listDeviceCorrectionEvidencePage(
+  env: Env,
+  profileId: string,
+  deviceId: string,
+  weekStart: string,
+  weekEnd: string,
+  anchorAtMs: number,
+  offset: number,
+  limit = 100,
+): Promise<{ items: DeviceCorrectionEvidence[]; total: number; revision: string; nextOffset: number | null }> {
+  if (!Number.isSafeInteger(anchorAtMs) || anchorAtMs < 0 || !Number.isSafeInteger(offset) || offset < 0
+      || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new RangeError('Invalid correction evidence pagination');
+  }
+  const count = await env.DB.prepare(
+    `SELECT COUNT(*) AS total, COALESCE(MAX(created_at), 0) AS latest
+       FROM usage_segment_corrections_v1
+      WHERE profile_id = ? AND device_id = ? AND date >= ? AND date <= ? AND created_at <= ?`
+  ).bind(profileId, deviceId, weekStart, weekEnd, anchorAtMs)
+    .first<{ total: number; latest: number }>();
+  const total = Number(count?.total || 0);
+  const result = await env.DB.prepare(
+    `SELECT segment_id,date,start_ms,end_ms,duration_seconds,channel,
+            original_mode,original_quota_bucket,effective_mode,effective_quota_bucket
+       FROM usage_segment_corrections_v1
+      WHERE profile_id = ? AND device_id = ? AND date >= ? AND date <= ? AND created_at <= ?
+      ORDER BY date ASC,start_ms ASC,segment_id ASC
+      LIMIT ? OFFSET ?`
+  ).bind(profileId, deviceId, weekStart, weekEnd, anchorAtMs, limit, offset).all<{
+    segment_id: string; date: string; start_ms: number; end_ms: number;
+    duration_seconds: number; channel: string; original_mode: string;
+    original_quota_bucket: string | null; effective_mode: string; effective_quota_bucket: string;
+  }>();
+  const items = (result.results || []).map((row) => ({
+    segmentId: row.segment_id,
+    date: row.date,
+    startMs: Number(row.start_ms),
+    endMs: Number(row.end_ms),
+    durationSeconds: Number(row.duration_seconds),
+    channel: row.channel,
+    originalMode: row.original_mode,
+    originalQuotaBucket: row.original_quota_bucket,
+    effectiveMode: row.effective_mode,
+    effectiveQuotaBucket: row.effective_quota_bucket,
+  }));
+  return {
+    items,
+    total,
+    revision: `${weekStart}:${weekEnd}:${total}:${Number(count?.latest || 0)}`,
+    nextOffset: offset + items.length < total ? offset + items.length : null,
+  };
+}
+
 function correctionHourSlices(correction: UsageAccountingCorrection) {
   const total = Math.max(0, correction.durationSeconds);
   if (correction.endMs <= correction.startMs) return [{ hourKey: new Date(correction.startMs + 8 * 3600000).toISOString().slice(0, 13), seconds: total }];

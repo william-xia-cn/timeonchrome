@@ -64,6 +64,7 @@ async function createContext() {
               cloud_profile_id: 'e2e-profile-settle',
               cloud_device_id: 'e2e-device-id-settle',
               cloud_device_token: 'e2e-device-token-settle',
+              privacy_consent_v1: { accepted: true, policyVersion: '2026-06-22' },
               event_log_v1: [],
               usage_segments_v1: {},
               usage_segments_index_v1: {},
@@ -365,6 +366,42 @@ test('P0-settle-3: checkpoint settles open bound foreground session into Stats F
     });
     const segments1 = Object.values(snapshot1.usage_segments_v1 || {});
     expect(segments1.length).toBeGreaterThanOrEqual(1);
+    // Run both read models in an extension page: ServiceWorkerGlobalScope forbids import().
+    const projectionComparison = await popup.evaluate(async () => {
+      const { buildAuthoritativeDailySnapshots } = await import(chrome.runtime.getURL('infra/browser-bridge-v3-snapshot.js'));
+      const { buildLocalQuotaProjectionV2 } = await import(chrome.runtime.getURL('core/quota-read-model-v2.js'));
+      const { getBeijingWeekPeriod } = await import(chrome.runtime.getURL('core/profile-account-v2.js'));
+      const stored = await chrome.storage.local.get(['daily_usage_stats_v1', 'usage_segments_v1']);
+      const date = new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
+      const { weekStart, weekEnd } = getBeijingWeekPeriod(date);
+      const authoritative = buildLocalQuotaProjectionV2(stored.daily_usage_stats_v1 || {}, {
+        date, weekStart, weekEnd, deviceId: 'e2e-device-id-settle', corrections: [],
+      }).days;
+      const snapshots = await buildAuthoritativeDailySnapshots({
+        statsByDate: stored.daily_usage_stats_v1 || {},
+        segmentsById: stored.usage_segments_v1 || {},
+        correctionEvidence: { weekStart, weekEnd, revision: 'e2e-no-corrections', items: [] },
+        deviceId: 'e2e-device-id-settle', weekStart, weekEnd, throughDate: date,
+      });
+      return snapshots.map((snapshot) => ({
+        // V2 materializes only dates with usage; an absent day is zero, not an error.
+        authoritative: authoritative.find((day) => day.date === snapshot.date)
+          || { onlineSeconds: 0, byQuotaBucket: {}, complete: true },
+        snapshot,
+        rawActiveSeconds: Object.values(stored.usage_segments_v1 || {})
+          .filter((segment) => segment.channel === 'active' && segment.date === snapshot.date)
+          .reduce((sum, segment) => sum + Number(segment.durationSeconds || 0), 0),
+      }));
+    });
+    expect(projectionComparison.length).toBeGreaterThan(0);
+    for (const { authoritative, snapshot, rawActiveSeconds } of projectionComparison) {
+      const positiveBuckets = Object.fromEntries(Object.entries(authoritative.byQuotaBucket)
+        .filter(([, value]) => value > 0));
+      expect(snapshot.activeSeconds, snapshot.date).toBe(authoritative.onlineSeconds);
+      expect(snapshot.quotaBucketSeconds, snapshot.date).toEqual(positiveBuckets);
+      expect(rawActiveSeconds, snapshot.date).toBe(snapshot.activeSeconds);
+      expect(snapshot.complete, `${snapshot.date}: ${snapshot.incompleteReasonCodes.join(',')}`).toBe(true);
+    }
     expect(segments1.some(s =>
       s.domain === serverCtx.domain &&
       s.settlementReason === 'periodic_checkpoint'

@@ -20,6 +20,7 @@ import {
 import { computeOnlineWindowsForDay } from '../core/time-windows.js';
 import { getPrivacyConsentPageUrl } from '../core/privacy-consent.js';
 import { canUseChromeIdentityForAdmin, resolveActivationState } from '../core/activation-gate.js';
+import { readNativeHostDeploymentMarker } from '../core/deployment-mode.js';
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -2410,7 +2411,46 @@ function renderRulesPage() {
 
 async function setupDevicesPage() {
   await renderSyncStatus();
+  await renderNativeHostStatus();
   await renderChangelog();
+}
+
+async function renderNativeHostStatus() {
+  const card = document.getElementById('native-host-status-card');
+  const label = document.getElementById('native-host-status');
+  const retry = document.getElementById('native-host-recheck');
+  if (!card || !label || !retry) return;
+  const expected = await readNativeHostDeploymentMarker().catch(() => false);
+  card.hidden = !expected;
+  card.style.display = expected ? '' : 'none';
+  if (!expected) return;
+  const stored = await chrome.storage.local.get('local_guardian_status_v1').catch(() => ({}));
+  const status = stored?.local_guardian_status_v1 || {};
+  const names = {
+    native_host_unavailable: '未检测到本地组件',
+    native_port_disconnected: '本地组件无法连接',
+    native_response_timeout: '本地组件无法连接',
+    native_invalid_response: '本地组件无法连接',
+    native_post_failed: '本地组件无法连接',
+    runtime_service_unavailable: 'Runtime Service 已停止或不可用',
+  };
+  const state = status.portConnected && !status.lastErrorCode
+    ? '已连接' : names[status.lastErrorCode] || '尚未完成连接检查';
+  const lastSuccess = Number(status.lastSuccessAt) > 0
+    ? new Date(status.lastSuccessAt).toLocaleString('zh-CN') : '暂无';
+  label.textContent = `${state} · 最近成功：${lastSuccess}`;
+  retry.onclick = async () => {
+    retry.disabled = true;
+    label.textContent = '正在重新检查…';
+    try {
+      await chrome.runtime.sendMessage({ type: 'TIMEONCHROME_LOCAL_HEALTH_RECHECK' });
+      await renderNativeHostStatus();
+    } catch (_) {
+      label.textContent = '本地组件无法连接';
+    } finally {
+      retry.disabled = false;
+    }
+  };
 }
 
 

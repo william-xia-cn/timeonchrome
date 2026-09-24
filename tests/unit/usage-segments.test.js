@@ -52,7 +52,7 @@ const integrityApi = loadProdModule('core/usage-segment-integrity.js', [
 const api = loadProdModule('core/usage-segments.js', [
   'generateSegmentId', 'stateToChannel', 'isCountedState', 'getLocalDateInfo', 'getLocalHourInfo',
   'splitSegmentByLocalDate', 'splitSegmentByLocalHour', 'buildUsageSegment',
-  'appendUsageSegments', 'incrementDailyUsageStats', 'incrementHourlyUsageStats',
+  'appendUsageSegments', 'registerPersistedUsageSegmentObserver', 'incrementDailyUsageStats', 'incrementHourlyUsageStats',
   'getUsageSegmentsByDate', 'getAllUsageSegments', 'getDailyUsageStats', 'getHourlyUsageStats',
   'rebuildDailyUsageStats', 'rebuildHourlyUsageStats',
   'markSegmentSyncDirty', 'markStatsSyncDirty', 'markHourlyStatsSyncDirty',
@@ -184,8 +184,13 @@ chk('description summary generated', seg4d.description.summary, '开始：tabAct
 // ── TB5: Append + idempotency + date query ──
 sec('TB5: Append / idempotent / date query');
 mockLocal.reset();
+const persistedNotifications = [];
+api.registerPersistedUsageSegmentObserver((segments) => persistedNotifications.push(segments));
 let n = await api.appendUsageSegments([seg4]);
+await Promise.resolve();
 chk('append 1', n, 1);
+chk('observer after durable append', persistedNotifications.length, 1);
+chk('observer receives persisted segment', persistedNotifications[0][0].id, seg4.id);
 let all = await api.getAllUsageSegments();
 chk('stored 1', Object.keys(all).length, 1);
 chkT('retrievable', !!all[seg4.id]);
@@ -194,9 +199,21 @@ chk('byDate 1', byDate.length, 1);
 chk('byDate id match', byDate[0].id, seg4.id);
 
 n = await api.appendUsageSegments([seg4]);
+await Promise.resolve();
 chk('idempotent append 0', n, 0);
+chk('idempotent append emits no observer event', persistedNotifications.length, 1);
 all = await api.getAllUsageSegments();
 chk('still 1', Object.keys(all).length, 1);
+api.registerPersistedUsageSegmentObserver(() => { throw new Error('bridge unavailable'); });
+const bridgeFailureSegment = api.buildUsageSegment({
+  ...input3, domain: 'bridge-failure.example', startMs: MOCK_TIME - 120000, endMs: MOCK_TIME - 60000,
+});
+n = await api.appendUsageSegments([bridgeFailureSegment]);
+await Promise.resolve();
+all = await api.getAllUsageSegments();
+chk('bridge observer failure does not roll back authoritative append', n, 1);
+chkT('bridge observer failure leaves authoritative segment readable', !!all[bridgeFailureSegment.id]);
+api.registerPersistedUsageSegmentObserver(null);
 
 // ── TB6: Increment daily aggregate ──
 sec('TB6: Daily aggregate increment');
@@ -798,15 +815,17 @@ sec('TB31b: P0 outbox compaction and uploaded-only pruning');
 mockLocal.reset();
 const oldPendingId = 'seg-20200101-1111111111111111';
 const oldUploadedId = 'seg-20200101-2222222222222222';
+const bridgePendingId = 'seg-20200101-4444444444444444';
 const recentUploadedId = 'seg-20260508-3333333333333333';
 await chrome.storage.local.set({
   usage_segments_v1: {
     [oldPendingId]: { id: oldPendingId, startMs: 1, endMs: 2, uploadedAt: null },
     [oldUploadedId]: { id: oldUploadedId, startMs: 1, endMs: 2, uploadedAt: MOCK_TIME },
+    [bridgePendingId]: { id: bridgePendingId, startMs: 1, endMs: 2, uploadedAt: MOCK_TIME },
     [recentUploadedId]: { id: recentUploadedId, startMs: Date.now() - 1000, endMs: Date.now(), uploadedAt: Date.now() },
   },
   usage_segments_index_v1: {
-    '2020-01-01': [oldPendingId, oldPendingId, oldUploadedId],
+    '2020-01-01': [oldPendingId, oldPendingId, oldUploadedId, bridgePendingId],
     [todayStr]: [recentUploadedId, 'missing-id'],
   },
   segment_sync_outbox_v1: {
@@ -814,6 +833,7 @@ await chrome.storage.local.set({
     retryCounts: { [oldPendingId]: 5000, 'missing-id': 2 },
     lastErrors: { [oldPendingId]: '<html>503 Service Unavailable</html>'.repeat(1000), 'missing-id': 'missing' },
   },
+  browser_bridge_v2_state_v1: { pendingIds: [bridgePendingId] },
 });
 const compacted = await api.compactUsageSyncOutboxes();
 const compactStorage = await chrome.storage.local.get(null);
@@ -825,6 +845,7 @@ const uploadedPruned = await api.pruneUploadedUsageSegments(30);
 const afterUploadedPrune = await chrome.storage.local.get(null);
 chk('uploaded-only prune deletes old uploaded segment', uploadedPruned, 1);
 chkT('uploaded-only prune preserves old pending segment', !!afterUploadedPrune.usage_segments_v1[oldPendingId]);
+chkT('uploaded-only prune preserves BrowserBridge pending segment without TTL', !!afterUploadedPrune.usage_segments_v1[bridgePendingId]);
 chkT('uploaded-only prune preserves recent uploaded segment', !!afterUploadedPrune.usage_segments_v1[recentUploadedId]);
 // ── TB32: Disabled segment v1 upload dry-run ──
 sec('TB32: Disabled segment v1 upload dry-run');

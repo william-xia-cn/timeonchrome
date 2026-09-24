@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.app/contracts/native-host-v1.schema.json",
+  "title": "TimeOnChrome Native Host Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocolVersion", "requestId", "messageType", "extensionId", "profileId", "sentAtMs", "payload"],
+  "properties": {
+    "protocolVersion": { "const": 1 },
+    "requestId": { "type": "string", "format": "uuid" },
+    "messageType": { "enum": ["heartbeat", "probe", "settledUsageSegments"] },
+    "extensionId": { "type": "string", "pattern": "^[a-p]{32}$" },
+    "profileId": { "type": "string", "format": "uuid" },
+    "sentAtMs": { "type": "integer", "minimum": 0 },
+    "payload": { "type": "object" }
+  }
+}

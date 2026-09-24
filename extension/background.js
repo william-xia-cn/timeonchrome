@@ -15,7 +15,7 @@ import { runV1StorageMaintenance } from './infra/storage-maintenance.js';
 import { registerStoragePressureHandler } from './infra/storage-budget.js';
 import { budgetedSessionSet, runSessionStorageMaintenance } from './infra/session-storage-budget.js';
 import { recordStreamGameProbe } from './infra/stream-game-probe.js';
-import { configureLocalGuardianStateProvider, notifyLocalGuardianBootstrapResult } from './infra/local-guardian.js';
+import { configureLocalGuardianStateProvider, notifyLocalGuardianBootstrapResult } from './infra/native-host-client.js';
 import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoticeForFocusedTab, setModeBoundaryDrainHook, markContentScriptReady, clearModeNoticeTabState, clearModeNoticeTabNavigationState } from './product/interceptor.js';
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';

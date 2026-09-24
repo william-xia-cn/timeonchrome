@@ -6,7 +6,7 @@ namespace TimeOnChrome.AppRuntime.Core.Tests;
 
 public sealed class InstallerPackageTests
 {
-    private const string ExpectedVersion = "2.4.0";
+    private const string ExpectedVersion = "2.6.0";
     private const string ExpectedUpgradeCode = "7DEBE72B-8D64-438F-8C51-8B9969C039D9";
     private static readonly XNamespace WixNamespace = "http://wixtoolset.org/schemas/v4/wxs";
 
@@ -55,6 +55,26 @@ public sealed class InstallerPackageTests
         Assert.Matches(
             new Regex(@"\[string\]\$Version\s*=\s*'" + Regex.Escape(ExpectedVersion) + "'", RegexOptions.CultureInvariant),
             buildScript);
+    }
+
+    [Fact]
+    public void InstallerRegistersCanonicalAndLegacyNativeHostAliases()
+    {
+        var package = XDocument.Load(InstallerFile("Package.wxs"));
+        var component = package.Descendants(WixNamespace + "Component")
+            .Single(element => (string?)element.Attribute("Id") == "NativeHostRegistration");
+        var values = component.Elements(WixNamespace + "RegistryValue").ToArray();
+
+        Assert.Contains(values, value => ((string?)value.Attribute("Key"))?.EndsWith(
+            @"NativeMessagingHosts\com.timeonchrome.nativehost", StringComparison.Ordinal) == true);
+        Assert.Contains(values, value => ((string?)value.Attribute("Key"))?.EndsWith(
+            @"NativeMessagingHosts\com.timeonchrome.guardian", StringComparison.Ordinal) == true);
+        Assert.All(values, value => Assert.StartsWith("[INSTALLFOLDER]com.timeonchrome.",
+            (string?)value.Attribute("Value"), StringComparison.Ordinal));
+
+        var buildScript = File.ReadAllText(InstallerFile("build.ps1"));
+        Assert.Contains("TimeOnChrome.NativeHost\\TimeOnChrome.NativeHost.csproj", buildScript, StringComparison.Ordinal);
+        Assert.Contains("TimeOnChrome Native Host publish failed", buildScript, StringComparison.Ordinal);
     }
 
     private static void AssertShortcut(XElement shortcut, string directory)

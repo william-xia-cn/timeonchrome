@@ -1,5 +1,27 @@
 # App Runtime 项目真值
 
+## 当前开发：ARM-D-029 BrowserBridge v2（本地候选）
+
+- 目标版本为 contracts 1.11.0、Windows Runtime/TimeWhereMg 2.6.0、unpacked extension 1.7.34。
+- Health heartbeat/probe 为 best-effort；Ledger 只镜像启用后已写入网页权威账本的 Segment，持久至少一次投递并逐项 ACK。
+- v1 保留兼容，Service 声明能力后扩展才切换 v2；Host 仍为无状态 framing/pipe 转发层。
+- 本阶段只完善本地可靠性、性能和可观测性，不执行共享配额、不下发策略/控制、不部署云端或 R2。
+
+## 当前修复：ARM-D-028 Windows 2.5.2 Service 生命周期（实机通过）
+
+- 2.5.2 已原地安装并接管升级前既有 Session Agent；Service 保持 Automatic/Running，未再出现 1067 或新增运行时崩溃。
+- 开发扩展通过 Chrome `development` 安装类型启用 Host，保留普通绑定并完全绕过旧 managed policy/email 读取；正式 managed 和普通/CWS 边界不变。
+- Chrome 重载后 Native Host 重新连接，控件恢复正常；公开状态为 online，云端 heartbeat 成功且无待上传数据。
+- 本轮只完成本地实现、候选构建和实机联调，不发布云端或 R2。
+
+## 当前开发：ARM-D-026 通用 Native Host 与共享配额影子核算
+
+- `TimeOnChrome Native Host` 归 Runtime 模块，连接 Managed Chrome 扩展与现有 LocalSystem RuntimeService；旧 guardian Host ID 仅保留兼容别名。
+- 扩展只镜像已经持久化的网页 Segment，Service 独立保存并计算影子共享配额；不修改网页/App Runtime 原始账、现行配额或阻止行为。
+- 影子规则为前台优先、网页覆盖 Chrome 容器、待归类/未归类统一 Composite、辅助媒体排除。
+- 所有 Host/Service/installer 实现保持在 `app-runtime-management/`，为后续独立仓库迁移准备；根项目仅保留 contracts 消费和扩展适配。
+- 本阶段只完成本地实现与最小验证，不安装、不部署 Worker/Pages/Guardian、不执行 migration、不修改生产数据。
+
 ## 当前开发：ARM-D-025 系统应用与游戏默认分类
 
 - 云端确认的系统应用默认归为复合；confirmed 游戏、游戏平台和游戏工具默认归为受限娱乐。

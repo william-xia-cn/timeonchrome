@@ -295,6 +295,7 @@ public partial class MainWindow : Window
         Status.Text = missing ? "请重新运行 TimeOnChrome App Runtime 安装器。" : "当前不会采集或上传应用使用；管理员可以重新启动服务。";
         ManagedValue.Text = "无法确认";
         LastHeartbeatValue.Text = "Service 启动后确认";
+        BrowserBridgePublicValue.Text = "Service 启动后确认";
         PairingPanel.Visibility = Visibility.Collapsed;
         SetAdminActionsEnabled(true);
         StartServiceButton.IsEnabled = !missing;
@@ -360,6 +361,11 @@ public partial class MainWindow : Window
         };
         ServiceStateValue.Text = "正在运行";
         LastHeartbeatValue.Text = FormatTime(service?.LastHeartbeatSucceededAtMs ?? 0, "尚未完成云端确认");
+        var bridgeLastSuccess = Math.Max(service?.BrowserBridgeLastHeartbeatAtMs ?? 0,
+            service?.BrowserBridgeLastLedgerAckAtMs ?? 0);
+        BrowserBridgePublicValue.Text = (service?.BrowserBridgeProtocolVersion ?? 0) <= 0
+            ? "尚未连接"
+            : $"v{service!.BrowserBridgeProtocolVersion} · {FormatTime(bridgeLastSuccess, "等待首次成功")}";
         PairingPanel.Visibility = adminMode && presentation.ShowPairing ? Visibility.Visible : Visibility.Collapsed;
         PairingCode.IsEnabled = presentation.PairingEnabled;
         ConnectButton.IsEnabled = presentation.PairingEnabled;
@@ -381,6 +387,10 @@ public partial class MainWindow : Window
             + $"策略 {value.AppliedPolicyVersion}/{value.DesiredPolicyVersion} · "
             + $"会话 {value.ActiveSessionCount}，受保护 {value.ProtectedSessionCount}，采集 Agent {value.AgentCount}";
         OutboxSummary.Text = $"待上传：主账本 {value.UsageOutboxCount + value.LegacyOutboxCount} · 媒体 {value.MediaOutboxCount} · 日志 {value.LogOutboxCount}";
+        BrowserBridgeSummary.Text = $"浏览器桥：v{value.BrowserBridgeProtocolVersion} · 待发送 {value.BrowserBridgePendingSendCount} · "
+            + $"待投影 {value.BrowserBridgePendingProjectionCount} · 接收 {value.BrowserBridgeAcceptedCount} / 重复 {value.BrowserBridgeDuplicateCount} / 拒绝 {value.BrowserBridgeRejectedCount} · "
+            + $"最近 heartbeat {FormatTime(value.BrowserBridgeLastHeartbeatAtMs, "无")} · Probe {FormatTime(value.BrowserBridgeLastProbeAtMs, "无")} · Ledger ACK {FormatTime(value.BrowserBridgeLastLedgerAckAtMs, "无")} · "
+            + $"错误 {value.BrowserBridgeLastErrorCode ?? "无"}";
         var remote = value.RemoteLoggingState switch
         {
             "enabled" => $"远程日志已开启（最低 {value.RemoteLoggingMinLevel}，到期 {FormatTime(value.RemoteLoggingExpiresAtMs, "—")}）",
@@ -445,7 +455,10 @@ public partial class MainWindow : Window
         value.ServiceVersion,
         ServiceStartedAtMs: value.ServiceStartedAtMs,
         LastHeartbeatSucceededAtMs: value.LastHeartbeatSucceededAtMs,
-        UsageOutboxCount: value.HasPendingUploads ? 1 : 0);
+        UsageOutboxCount: value.HasPendingUploads ? 1 : 0,
+        BrowserBridgeProtocolVersion: value.BrowserBridgeProtocolVersion,
+        BrowserBridgeLastHeartbeatAtMs: value.BrowserBridgeLastSuccessAtMs,
+        BrowserBridgeLastLedgerAckAtMs: value.BrowserBridgeLastSuccessAtMs);
 
     internal static bool IsCode(string value) =>
         System.Text.RegularExpressions.Regex.IsMatch(value, "^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$");

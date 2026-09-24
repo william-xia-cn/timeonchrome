@@ -50,6 +50,11 @@ function run() {
     activationGate.includes("'devicePolicyId'"));
   expectTrue('managed policy is read from chrome.storage.managed',
     (activationGate.includes('chrome.storage.managed.get') || activationGate.includes('chromeApi.storage.managed.get')) && activationGate.includes('MANAGED_POLICY_KEYS'));
+  expectTrue('verified native-host development bypasses managed policy before it is read',
+    activationGate.includes('readNativeHostDevelopmentMarker') &&
+    activationGate.includes('managed_policy_bypassed_for_native_host_development') &&
+    activationGate.indexOf('const nativeHostDevelopment = await readNativeHostDevelopmentMarker()') <
+      activationGate.indexOf('readManagedActivationPolicy(),'));
   expectTrue('managed activation requires managed deployment, https endpoint and token or legacy anchor',
     activationGate.includes("deploymentMode !== 'managed'") &&
     activationGate.includes("url.protocol === 'https:'") &&
@@ -57,9 +62,9 @@ function run() {
     activationGate.includes("'managed_policy_malformed'"));
   expectTrue('managed profile email mismatch blocks user consent fallback',
     activationGate.includes('managed_profile_email_mismatch') &&
-    activationGate.indexOf('if (profileGate.required && !profileGate.matches)') < activationGate.indexOf('if (privacyConsent?.accepted === true)'));
+    activationGate.indexOf('if (profileGate.required && !profileGate.matches)') < activationGate.lastIndexOf('if (privacyConsent?.accepted === true)'));
   expectTrue('managed policy wins before user consent fallback',
-    activationGate.indexOf('if (managed.active)') < activationGate.indexOf('if (privacyConsent?.accepted === true)'));
+    activationGate.indexOf('if (managed.active)') < activationGate.lastIndexOf('if (privacyConsent?.accepted === true)'));
   expectTrue('identity recovery can be disabled by managed policy',
     activationGate.includes('isIdentityRecoveryAllowed') &&
     activationGate.includes('allowIdentityRecovery !== false'));

@@ -1,6 +1,6 @@
 param(
   [string]$Configuration = 'Release',
-  [string]$Version = '2.4.0'
+  [string]$Version = '2.6.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,6 +14,7 @@ $serviceProject = Join-Path $windowsRoot 'src\TimeOnChrome.AppRuntime.Service\Ti
 $sessionAgentProject = Join-Path $windowsRoot 'src\TimeOnChrome.AppRuntime.SessionAgent\TimeOnChrome.AppRuntime.SessionAgent.csproj'
 $migrationProject = Join-Path $windowsRoot 'src\TimeOnChrome.AppRuntime.Migration\TimeOnChrome.AppRuntime.Migration.csproj'
 $managerProject = Join-Path $windowsRoot 'src\TimeOnChrome.AppRuntime.Setup\TimeOnChrome.AppRuntime.Setup.csproj'
+$nativeHostProject = Join-Path $windowsRoot 'src\TimeOnChrome.NativeHost\TimeOnChrome.NativeHost.csproj'
 $fileVersion = "$Version.0"
 
 if (Test-Path -LiteralPath $artifactRoot) {
@@ -44,6 +45,10 @@ dotnet publish $managerProject -c $Configuration -r win-x64 --self-contained tru
   -p:Version=$Version -p:AssemblyVersion=$fileVersion -p:FileVersion=$fileVersion `
   -p:InformationalVersion=$Version -p:IncludeSourceRevisionInInformationalVersion=false
 if ($LASTEXITCODE -ne 0) { throw 'TimeWhereMg publish failed.' }
+dotnet publish $nativeHostProject -c $Configuration -r win-x64 --self-contained true -o $artifactRoot `
+  -p:Version=$Version -p:AssemblyVersion=$fileVersion -p:FileVersion=$fileVersion `
+  -p:InformationalVersion=$Version -p:IncludeSourceRevisionInInformationalVersion=false
+if ($LASTEXITCODE -ne 0) { throw 'TimeOnChrome Native Host publish failed.' }
 
 $migrationExe = Join-Path $artifactRoot 'TimeOnChrome.AppRuntime.Migration.exe'
 if (-not (Test-Path -LiteralPath $migrationExe)) { throw 'Migration single-file executable is missing.' }

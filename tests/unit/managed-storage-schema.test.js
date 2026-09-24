@@ -41,7 +41,7 @@ function run() {
   };
 
   const changelog = read('docs/CHANGELOG.md');
-  const latestChangelogVersion = (changelog.match(new RegExp('^## \\[(\\d+\\.\\d+\\.\\d+)\\]', 'm')) || [])[1];
+  const latestChangelogVersion = (changelog.match(new RegExp('^## \\[(\\d+\\.\\d+\\.\\d+)(?:[^\\]]*)\\]', 'm')) || [])[1];
   expectTrue(`manifest version matches changelog ${latestChangelogVersion}`, !!latestChangelogVersion && manifest.version === latestChangelogVersion);
   expectTrue('manifest declares the production self-hosted update URL', manifest.update_url === productionUpdateUrl);
   expectTrue('manifest declares the managed storage schema', schemaName === 'managed-storage-schema.json');

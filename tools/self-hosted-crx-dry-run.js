@@ -25,6 +25,8 @@ const MANAGED_PACKAGE_EXCLUDED_ENTRIES = new Set([
 ]);
 const LOCAL_GUARDIAN_PERMISSION = 'nativeMessaging';
 const LOCAL_GUARDIAN_PROBE_RESOURCE = 'health-probe.html';
+const DEPLOYMENT_MODE_MANAGED = 'managed';
+const DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT = 'native-host-development';
 
 function parseArgs(argv) {
   const args = {};
@@ -62,10 +64,7 @@ function sha256File(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-function chromeIdFromPem(keyPath) {
-  const privateKey = crypto.createPrivateKey(fs.readFileSync(keyPath));
-  const publicKey = crypto.createPublicKey(privateKey);
-  const der = publicKey.export({ type: 'spki', format: 'der' });
+function chromeIdFromPublicKeyDer(der) {
   const digest = crypto.createHash('sha256').update(der).digest();
   let id = '';
   for (let i = 0; i < 16; i++) {
@@ -73,6 +72,28 @@ function chromeIdFromPem(keyPath) {
     id += String.fromCharCode(97 + (digest[i] & 0x0f));
   }
   return id;
+}
+
+function chromeIdFromPem(keyPath) {
+  const privateKey = crypto.createPrivateKey(fs.readFileSync(keyPath));
+  const publicKey = crypto.createPublicKey(privateKey);
+  return chromeIdFromPublicKeyDer(publicKey.export({ type: 'spki', format: 'der' }));
+}
+
+function readPublicKeyManifest(manifestPath) {
+  if (!manifestPath) return null;
+  const resolved = path.resolve(manifestPath);
+  if (!fs.existsSync(resolved)) throw new Error('public key source manifest not found');
+  const key = String(readJson(resolved)?.key || '').trim();
+  if (!key) throw new Error('public key source manifest is missing key');
+  let der;
+  try {
+    der = crypto.createPublicKey({ key: Buffer.from(key, 'base64'), format: 'der', type: 'spki' })
+      .export({ type: 'spki', format: 'der' });
+  } catch {
+    throw new Error('public key source manifest contains an invalid key');
+  }
+  return { key: der.toString('base64'), extensionId: chromeIdFromPublicKeyDer(der) };
 }
 
 function isInside(parent, child) {
@@ -97,17 +118,25 @@ function validateExtensionPackageRoot(extensionDir) {
     throw new Error(`staged extension package contains banned entries: ${banned.join(', ')}`);
   }
   const manifest = readJson(path.join(extensionDir, 'manifest.json'));
-  const managedDeployment = fs.existsSync(path.join(extensionDir, 'deployment-profile.json'));
+  const markerPath = path.join(extensionDir, 'deployment-profile.json');
+  const deploymentMode = fs.existsSync(markerPath) ? readJson(markerPath)?.mode : null;
+  if (deploymentMode !== null
+    && deploymentMode !== DEPLOYMENT_MODE_MANAGED
+    && deploymentMode !== DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT) {
+    throw new Error(`unsupported deployment profile mode: ${deploymentMode}`);
+  }
+  const nativeHostEnabled = deploymentMode === DEPLOYMENT_MODE_MANAGED
+    || deploymentMode === DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT;
   const hasNativeMessaging = Array.isArray(manifest.permissions)
     && manifest.permissions.includes(LOCAL_GUARDIAN_PERMISSION);
   const hasProbeResource = Array.isArray(manifest.web_accessible_resources)
     && manifest.web_accessible_resources.some((entry) => (
       Array.isArray(entry?.resources) && entry.resources.includes(LOCAL_GUARDIAN_PROBE_RESOURCE)
     ));
-  if (managedDeployment && (!hasNativeMessaging || !hasProbeResource)) {
-    throw new Error('managed extension package must retain local guardian permission and probe resource');
+  if (nativeHostEnabled && (!hasNativeMessaging || !hasProbeResource)) {
+    throw new Error('native-host extension package must retain nativeMessaging permission and probe resource');
   }
-  if (!managedDeployment && (hasNativeMessaging || hasProbeResource)) {
+  if (!nativeHostEnabled && (hasNativeMessaging || hasProbeResource)) {
     throw new Error('non-managed extension package must remove local guardian permission and probe resource');
   }
   if (manifest.update_url !== 'https://timeonchrome-update.pages.dev/timeonchrome/update.xml') {
@@ -139,7 +168,7 @@ function validateExtensionPackageRoot(extensionDir) {
   }
 }
 
-function applyLocalGuardianChannelBoundary(stagingDir, managedDeployment) {
+function applyLocalGuardianChannelBoundary(stagingDir, nativeHostEnabled) {
   const manifestPath = path.join(stagingDir, 'manifest.json');
   const manifest = readJson(manifestPath);
   const permissions = new Set(Array.isArray(manifest.permissions) ? manifest.permissions : []);
@@ -150,7 +179,7 @@ function applyLocalGuardianChannelBoundary(stagingDir, managedDeployment) {
       }))
     : [];
 
-  if (managedDeployment) {
+  if (nativeHostEnabled) {
     permissions.add(LOCAL_GUARDIAN_PERMISSION);
     const target = resources.find((entry) => Array.isArray(entry.resources));
     if (target && !target.resources.includes(LOCAL_GUARDIAN_PROBE_RESOURCE)) {
@@ -170,7 +199,10 @@ function applyLocalGuardianChannelBoundary(stagingDir, managedDeployment) {
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }
 
-function stageExtensionPackage(extensionDir, stagingDir, managedDeployment = false) {
+function stageExtensionPackage(extensionDir, stagingDir, deploymentMode = null, manifestPublicKey = null) {
+  const managedDeployment = deploymentMode === DEPLOYMENT_MODE_MANAGED;
+  const nativeHostEnabled = managedDeployment
+    || deploymentMode === DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT;
   fs.rmSync(stagingDir, { recursive: true, force: true });
   ensureDir(stagingDir);
   for (const entry of fs.readdirSync(extensionDir, { withFileTypes: true })) {
@@ -180,9 +212,19 @@ function stageExtensionPackage(extensionDir, stagingDir, managedDeployment = fal
     const target = path.join(stagingDir, entry.name);
     fs.cpSync(source, target, { recursive: true, force: true });
   }
-  applyLocalGuardianChannelBoundary(stagingDir, managedDeployment);
+  applyLocalGuardianChannelBoundary(stagingDir, nativeHostEnabled);
+  if (deploymentMode === DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT) {
+    if (!manifestPublicKey) throw new Error('native-host development staging requires --public-key-manifest');
+    const manifestPath = path.join(stagingDir, 'manifest.json');
+    const manifest = readJson(manifestPath);
+    manifest.key = manifestPublicKey;
+    manifest.version_name = `${manifest.version} Native Host Development Candidate`;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  }
+  if (nativeHostEnabled) {
+    fs.writeFileSync(path.join(stagingDir, 'deployment-profile.json'), JSON.stringify({ mode: deploymentMode }, null, 2) + '\n', 'utf8');
+  }
   if (managedDeployment) {
-    fs.writeFileSync(path.join(stagingDir, 'deployment-profile.json'), JSON.stringify({ mode: 'managed' }, null, 2) + '\n', 'utf8');
     const leakedPrivacyPages = [...MANAGED_PACKAGE_EXCLUDED_ENTRIES]
       .filter((entry) => fs.existsSync(path.join(stagingDir, entry)));
     if (leakedPrivacyPages.length > 0) {
@@ -284,8 +326,22 @@ function main() {
   const keyPathRaw = args.key || process.env.TIMEONCHROME_CRX_KEY_PATH || '';
   const pack = args.pack === true;
   const managedDeployment = args['managed-deployment'] === true || args['managed-deployment'] === 'true';
+  const nativeHostDevelopment = args['native-host-development'] === true
+    || args['native-host-development'] === 'true';
+  if (managedDeployment && nativeHostDevelopment) {
+    throw new Error('--managed-deployment and --native-host-development are mutually exclusive');
+  }
+  if (nativeHostDevelopment && (pack || args['prepare-host'] || args['host-output-dir'])) {
+    throw new Error('native-host development staging is unpacked-only and cannot produce CRX/update host assets');
+  }
+  const deploymentMode = managedDeployment
+    ? DEPLOYMENT_MODE_MANAGED
+    : (nativeHostDevelopment ? DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT : null);
+  const publicKeyManifest = nativeHostDevelopment
+    ? readPublicKeyManifest(args['public-key-manifest'])
+    : null;
   const keyPath = pack ? validateExternalKey(repoRoot, keyPathRaw) : (keyPathRaw ? validateExternalKey(repoRoot, keyPathRaw) : null);
-  const derivedExtensionId = keyPath ? chromeIdFromPem(keyPath) : null;
+  const derivedExtensionId = keyPath ? chromeIdFromPem(keyPath) : publicKeyManifest?.extensionId || null;
   const extensionId = args['extension-id'] || process.env.TIMEONCHROME_MANAGED_EXTENSION_ID || derivedExtensionId || 'REPLACE_WITH_STABLE_EXTENSION_ID';
   const expectedId = process.env.TIMEONCHROME_MANAGED_EXTENSION_ID || args['expected-extension-id'] || '';
   const baseUrl = String(args['base-url'] || process.env.TIMEONCHROME_UPDATE_BASE_URL || 'https://timeonchrome-update.pages.dev/timeonchrome').replace(/\/$/, '');
@@ -293,39 +349,52 @@ function main() {
   const crxPath = path.resolve(args.crx || path.join(outputDir, crxFileName));
   const requireCrx = args['require-crx'] === true || pack;
 
+  if (nativeHostDevelopment) {
+    for (const file of ['update.xml', 'SHA256SUMS.txt']) {
+      fs.rmSync(path.join(outputDir, file), { force: true });
+    }
+  }
+
   if (!/^[a-p]{32}$/.test(extensionId) && extensionId !== 'REPLACE_WITH_STABLE_EXTENSION_ID') {
     throw new Error('extension id must be 32 Chrome id chars a-p, or leave the dry-run placeholder');
   }
   if (expectedId && derivedExtensionId && expectedId !== derivedExtensionId) {
     throw new Error('derived extension id does not match expected managed extension id');
   }
+  if (publicKeyManifest && extensionId !== publicKeyManifest.extensionId) {
+    throw new Error('public key manifest does not match requested extension id');
+  }
   if (!/^https:\/\//i.test(baseUrl)) throw new Error('base-url must be HTTPS for production policy use');
 
-  stageExtensionPackage(extensionDir, packageDir, managedDeployment);
+  stageExtensionPackage(extensionDir, packageDir, deploymentMode, publicKeyManifest?.key || null);
 
   if (pack) {
     const chromePath = findChromeExecutable(args.chrome || process.env.CHROME_EXE || '');
     packCrx({ repoRoot, packageDir, outputDir, crxPath, keyPath, chromePath });
   }
 
-  const artifact = writeUpdateArtifacts({ outputDir, hostOutputDir, version, extensionId, baseUrl, crxPath, crxFileName, requireCrx });
+  const artifact = nativeHostDevelopment
+    ? { codebase: null, crxSha256: null, crxExists: false }
+    : writeUpdateArtifacts({ outputDir, hostOutputDir, version, extensionId, baseUrl, crxPath, crxFileName, requireCrx });
 
   console.log(JSON.stringify({
     ok: true,
     dryRun: !artifact.crxExists,
     packed: pack,
+    deploymentMode: deploymentMode || 'regular',
     outputDir,
     hostOutputDir,
     version,
     extensionId,
-    updateXml: path.join(outputDir, 'update.xml'),
-    sha256Sums: path.join(outputDir, 'SHA256SUMS.txt'),
+    updateXml: nativeHostDevelopment ? null : path.join(outputDir, 'update.xml'),
+    sha256Sums: nativeHostDevelopment ? null : path.join(outputDir, 'SHA256SUMS.txt'),
     packageDir,
     crxExpected: crxPath,
     crxExists: artifact.crxExists,
     crxSha256: artifact.crxSha256,
     codebase: artifact.codebase,
     keyProvided: !!keyPath,
+    publicKeyManifestProvided: !!publicKeyManifest,
   }, null, 2));
 }
 

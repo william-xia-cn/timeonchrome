@@ -2,12 +2,22 @@
 
 > App Runtime 的独立模块设计位于 `app-runtime-management/docs/DESIGN.md`。本文件只维护 Guardian adapter、主控制台 launch 入口和 `@timeonchrome/app-runtime-contracts` 兼容边界。
 
-版本：1.7.32
-更新：2026-09-12
+版本：1.7.34
+更新：2026-09-22
 
 ---
 
 ## 1. 架构概览
+
+### 1.0.2 TimeOnChrome Native Host 与 Runtime 共享配额影子边界
+
+Managed 扩展通过 `com.timeonchrome.nativehost` 连接 Runtime-owned `TimeOnChrome.NativeHost.exe`；D-061 的旧 ID `com.timeonchrome.guardian` 只保留兼容 manifest。Host 不拥有产品逻辑，只把健康消息和已经写入 `usage_segments_v1` 的隐私裁剪 Segment 镜像转发给 `TimeOnChromeAppRuntime` Service。任何本地桥失败均 fail open，不影响网页落账、拦截、云同步或配额。
+
+共享配额首阶段只由 RuntimeService 生成本地影子结果，不替换现有 Chrome/App Runtime 配额。网页与应用原始账保持独立不可变；裁决规则以 D-103、ARM-D-026 与 Runtime 技术设计为准；拆仓边界以后续已批准决策为准。根仓侧不得导入 Runtime Host/Service 源码。
+
+本地未打包联调使用 `native-host-development`，并与正式 managed activation 分离。只有 marker、稳定扩展 ID 和 Chrome 自报 `installType=development` 同时成立时，扩展才允许 Native Messaging；运行激活继续使用普通用户同意和既有本地绑定。staging 工具必须从已批准候选 manifest 读取公开 `key`、校验派生 ID 并写入开发目录，不得输出 key 内容；缺少稳定 key 时拒绝生成。该候选禁止打包、签名、进入更新源或生产渠道。正式 managed 包仍只接受 Chrome managed policy，普通/CWS 包仍不包含 Native Messaging。
+
+BrowserBridge v2 将通信拆成两个可靠性通道：`health/heartbeat|probe` 为 best-effort，不持久补发；`ledger/settledUsageSegments` 为 durable at-least-once，以权威 `usage_segments_v1` 的稳定字段重建 payload、最多 100 条分批并逐项 ACK。扩展只保存 bridge epoch、启用时间、日期 digest、待处理日期和 Segment ID，不复制完整账本；启动、每小时、Host 重连和失败后对账，启用前历史不回填。RuntimeService 在独立 v2 pipe 中以 Segment ID 幂等接收，镜像与影子脏区间同一 SQLite 事务提交后才 ACK，投影异步合并重建。v1 保留一个兼容周期，Service 通过 v1 heartbeat 声明能力后新扩展才切换 v2。
 
 ### 未识别页面防错与显示边界（2026-09-15）
 
@@ -878,11 +888,11 @@ pullCloudConfig():
 
 #### 3.5.2 Managed 本地健康心跳
 
-内部 managed self-hosted 扩展通过 Native Messaging Host `com.timeonchrome.guardian` 提供独立于网络和云端 API 的本地健康信号。源 manifest 声明 `nativeMessaging`，但打包 staging 必须按渠道裁剪：managed artifact 保留权限、`deployment-profile.json` 与 `health-probe.html` 的 web accessible resource；普通/CWS artifact 强制移除该权限和探测页暴露。运行时还必须验证 deployment marker 为 managed，非 managed 上下文不得连接 Host。
+本节的 guardian 专用命名已由 D-103 取代。内部 managed self-hosted 扩展通过 Native Messaging Host `com.timeonchrome.nativehost` 提供独立于网络和云端 API 的本地健康信号；`com.timeonchrome.guardian` 只作兼容别名。源 manifest 声明 `nativeMessaging`，但打包 staging 必须按渠道裁剪：managed artifact 保留权限、`deployment-profile.json` 与 `health-probe.html` 的 web accessible resource；普通/CWS artifact 强制移除该权限和探测页暴露。运行时还必须验证 deployment marker 为 managed，非 managed 上下文不得连接 Host。
 
 - 模块加载时同步注册 `timeonchromeLocalGuardianHeartbeat` alarm、`onStartup`、`onInstalled` 和内部 probe 消息监听器。Service Worker 加载后立即发送 `booting`；bootstrap 完成或失败后发送确定状态；Native Port 存活时每 60 秒发送，独立一分钟 alarm 作为 Service Worker 唤醒兜底。
 - 使用持久 `connectNative()` Port，但任一时刻只允许一个等待应答的 heartbeat/probe。Host 应答超时为 3 秒；probe 优先且使用 5 秒冷却；生命周期、alarm 和内存定时器触发必须合并，队列不得无界增长。Port 断开后不立即循环重连，只在下一次 alarm、生命周期事件或 probe 时重试。
-- payload 固定为 `type`、`extensionId`、`version`、`profile`、`incognito`、`policyHash`、`monitoringStatus`、`timestamp`。Profile UUID 在 `chrome.storage.local` 生成、持久化并回读确认；普通和 split-incognito 上下文共享 UUID，用 `chrome.extension.inIncognitoContext` 区分上下文。
+- 协议 envelope 固定为 `protocolVersion`、`requestId`、`messageType`、`extensionId`、`profileId`、`sentAtMs`、`payload`。心跳 payload 包含 `version`、`incognito`、`policyHash`、`monitoringStatus`；已持久化 Segment 镜像使用同一 envelope 且不得包含页面身份。Profile UUID 在 `chrome.storage.local` 生成、持久化并回读确认；普通和 split-incognito 上下文共享 UUID，用 `chrome.extension.inIncognitoContext` 区分上下文。
 - 策略哈希使用认可 managed key 的递归排序确定性 JSON 和 SHA-256；`managedDeviceToken` 只以“是否存在”布尔值参与哈希。payload、状态、控制台和客户端日志禁止出现 token、邮箱、URL、域名、标题、Cookie、浏览历史或原始错误正文。
 - `monitoringStatus` 只允许 `booting`、`active`、`degraded`、`disabled_by_policy`、`privacy_consent_required`。只有 bootstrap 成功、activation 有效且 monitoring 未关闭时才能报告 `active`；关键读取或 bootstrap 失败报告 `degraded`。
 - Host 仅以 `{ ok: true, receivedAt }` 确认。缺失、断开、超时或无效响应只更新有界 `local_guardian_status_v1`，保存最近尝试/成功时间、短错误码、连续失败数、Port 状态和触发来源；不得保存 payload 或原始错误文本，也不得让失败传播到 bootstrap、计时、拦截或同步。

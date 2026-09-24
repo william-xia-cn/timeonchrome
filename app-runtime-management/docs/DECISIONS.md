@@ -1,5 +1,37 @@
 # App Runtime 决策记录
 
+## ARM-D-030：BrowserBridge v3 仅同步权威网页统计快照
+
+2026-09-25 PO 批准。新版扩展不再发送网页 Segment；扩展仍按原算法结算网页用量，只将每日权威秒数、版本与最小区间证据传给 Service。Service 仅验证和去除本机会话与应用主账本的精确重叠，不能重算、重新分类或覆盖网页秒数。证据缺失、压缩或不一致时共享结果不可用，网页和应用各自读数仍可显示。Host 缺失或 Service 断开不影响网页原账及配额。当前周修正证据由设备鉴权只读分页接口提供；不修改原 Segment 或既有物化。ARM-D-029 仅作 v2 历史协议记录。
+
+## ARM-D-029：BrowserBridge 健康 best-effort、落账镜像 durable at-least-once
+
+状态：由 ARM-D-030 取代，仅保留旧客户端 v2 兼容与历史决策记录。
+
+PO 于 2026-09-22 确认实施。BrowserBridge v2 使用独立 `TimeOnChrome.AppRuntime.BrowserBridge.v2` pipe，并把 `health/heartbeat|probe` 与 `ledger/settledUsageSegments` 分开：Health 可合并、跳过且不持久补发；Ledger 只接受已写入 TimeOnChrome 权威网页账本的裁剪 Segment，采用持久待发送状态、最多 100 条分批、逐项 ACK 和 Service Segment ID 幂等。v2 首次启用保存 `bridgeEpochId/enabledAtMs`，只补发启用后的未 ACK 数据，不回填此前历史。
+
+Host 仍只负责 Native Messaging framing 与 pipe 转发，不保存账本、凭据或策略；预期 stdio/pipe 关闭必须静默退出。Service 将镜像写入和影子脏区间登记置于同一 SQLite 事务，提交后 ACK，由可恢复后台任务合并重叠区间并重建影子。TimeWhereMg 只显示裁剪健康摘要。该影子不执行配额扣减、阻止或进程终止，Service 也不向扩展发送策略、配额或控制命令。v1 保留一个兼容周期。
+
+## ARM-D-027：Unpacked 联调与正式 managed 激活分离，BrowserBridge 前向修复
+
+PO 于 2026-09-21 确认实施。日常 Native Host 联调使用 `native-host-development` 候选，不要求 Chrome 企业策略或真实 managed token。扩展必须同时确认部署 marker、稳定扩展 ID 以及 Chrome 自报 `installType=development`；只满足 marker 不得启用。该模式保留普通用户同意和既有本地绑定，禁止打包为 CRX、进入更新源或作为生产资产。正式 `managed` 包继续 fail closed，普通/CWS 包继续移除 Native Messaging。
+
+Runtime 2.5.0 实机事件日志确认 `browserBridge` 循环在每次分钟心跳时失败。2.5.1 的命名管道客户端必须显式请求 `TokenImpersonationLevel.Impersonation`，使 LocalSystem Service 可以通过 `RunAsClient` 取得已验证用户 SID；Service 仍同时校验 Host 安装路径、session 和 SID。修复不改变网页/App Runtime 原始账、云端协议、配额或阻止行为。
+
+## ARM-D-028：Service 重启接管既有 Session Agent，退出事件 fail-safe
+
+2.5.1 原地升级后，Windows Restart Manager 未结束既有 Session Agent；旧进程继续持有同会话 mutex，新进程正常以 0 退出。Service 对该已退出进程设置 `EnableRaisingEvents` 时抛出 `InvalidOperationException`，未处理的异步退出链使 Service 以 1067 停止。2.5.2 必须先按安装路径与 session 精确发现并接管既有 Agent，只有无既有实例时才启动；启动／接管期间的进程退出竞态不得逃逸为 Service 未处理异常。退出回调只处理当前登记 PID，避免旧事件误删替代进程。升级、Service 重启和修复不得依赖人工结束孩子会话进程。
+
+## ARM-D-026：通用 Native Host 与共享配额影子核算保持可拆仓边界
+
+PO 于 2026-09-21 确认实施。浏览器本地桥统一命名为 `TimeOnChrome Native Host`，可执行文件为 `TimeOnChrome.NativeHost.exe`，新 Native Messaging Host ID 为 `com.timeonchrome.nativehost`。旧 `com.timeonchrome.guardian` 只作为一个 managed 扩展发布周期的兼容别名，两个 manifest 指向同一可执行文件；Host 不保存机器凭据、不直接访问 SQLite、不执行计时或配额裁决，只负责 Chrome Native Messaging 长度帧与 RuntimeService 版本化本地协议之间的转发。
+
+`TimeOnChromeAppRuntime` Service 是本机共享配额影子核算的唯一执行者。Managed 扩展只能在网页 `UsageSegment` 已成功写入现有不可变本地账本后，发送不含 URL、域名、标题、账号、token 或浏览历史的只读镜像；Service 以已验证 Host 进程、Windows 会话和命名管道 ACL 标记来源并独立持久化。Host/Service 缺失、断开、超时或拒绝消息必须 fail open，不得影响网页落账、拦截、云同步或 App Runtime 账本。
+
+首阶段只形成共享配额影子读模型：所有分类与总活跃时间共享，前台事实优先且同一时间区间只计一次；Chrome 前台且存在网页主 Segment 时网页覆盖 Chrome 容器，Chrome 前台无网页 Segment 时保留 Chrome 应用 Segment，其他前台应用覆盖重叠的网页强媒体 ACTIVE；PiP、后台媒体和所有辅助媒体不进入共享配额。网页待归类与应用未归类在影子视图中统一映射到 Composite。原始 Chrome/App Runtime 账本、当前配额执行、阻止行为、云端 API 和历史数据均不改变。
+
+Host、Service 桥、共享协议、影子核算核心和安装资产全部归 `app-runtime-management/`；根扩展只保留协议消费者。未来拆仓时整体迁出 Runtime 模块，TimeOnChrome 只依赖固定版本 contracts，不得反向导入 Runtime Service/Host 源码。
+
 ## ARM-D-025：系统应用与游戏采用可覆盖的默认管理分类
 
 PO 于 2026-09-20 确认实施。经云端精确规则确认的 `catalogGroup = systemTool` 默认管理分类为 `composite`；经可信产品身份确认的 `appType = game | gameLauncher | gameUtility` 默认管理分类为 `restrictedEntertainment`。该默认是系统级低优先级分类，不改变客观产品类型，也不新增目录分组或配额桶。

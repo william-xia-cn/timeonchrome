@@ -1,5 +1,59 @@
 # App Runtime 任务板
 
+## NOW：BrowserBridge v3 权威网页统计（本地实现与定向验证完成，未集成／发布）
+
+- [x] Contracts 1.12.0 增加 v3 每日快照、修正版本和区间证据 schema；v1/v2 保留。
+- [x] Windows Service 建立 v3 pipe、快照守恒校验、按 revision 幂等替换与 SQLite 待投影日期；目前尚未发布共享总量。
+- [x] Host 缺失／Service 不可用的本地降级状态及有界退避；预期部署模式的管理页可手动重试，普通／CWS 页面不显示该卡。
+- [x] 浏览器端当前周统计快照与补发、停止新版 v2 Segment 发送、设备鉴权只读修正证据接口、Service 本地重叠影子投影已完成代码与聚焦单测；仍不得安装／发布此工作树产物。
+- [x] PO 已按 D-076 单项批准只读、设备鉴权、可分页的当前周逐段历史修正证据；不修改网页原账、统计聚合或配额算法。
+- [x] 隔离 Chrome 的受控本地页面完成真实浏览器原始 ACTIVE Segment、V2 权威日统计与 v3 快照的本周逐日／逐桶严格对照；旧落账 E2E 3/3 通过。Guardian Worker 与 Runtime Worker 的 Wrangler dry-run 分别通过。跨日与修正归桶仍由现有聚焦单测覆盖，不将本次证据写成真实家庭数据验收或发布批准。
+
+测试契约：跨边界高风险；Contracts 兼容、Extension 快照 21/21、修正证据及设备路由聚焦测试、Windows BrowserBridge/SharedDaily 21/21、根与 Runtime backend TypeScript 检查通过。隔离 Chrome 的受控账本 E2E 3/3 通过，逐日／逐桶核对原始 ACTIVE、V2 与 v3；Guardian／Runtime Wrangler dry-run 已通过。`git diff --check` 通过。以上只构成本地代码证据，不代表真实家庭数据或生产验收；排除云端部署、MSI/R2、生产 migration、macOS 和无关全量回归。
+
+## NOW：BrowserBridge v2 健康与落账镜像（ARM-D-029）
+
+- [x] contracts 1.11.0 增加 v2 双通道、协商、batch 和逐项 ACK，保留 v1 兼容。
+- [x] Extension 1.7.34 增加独立持久 bridge 状态、启用后对账与有界补发，不修改权威网页账本。
+- [x] Runtime 2.6.0 增加双 pipe、事务镜像/脏区间和可恢复异步投影，Host 预期断流静默退出。
+- [x] TimeWhereMg 显示按权限裁剪的 BrowserBridge 健康摘要。
+- [x] 构建本地未签名 MSI/Burn 与 unpacked 候选；未部署、不切 R2 latest。
+- [x] 本机已从 2.5.2 原地升级 2.6.0；Service Automatic/Running、单一 Agent、公开状态 online。unpacked 1.7.34 已协商 v2，管理员诊断为 accepted 1、rejected 0、待投影 0。
+- [x] 断线补发实机验收：真实前台切换后 accepted 由 1 增至 9；随后受控停止 Service 约 101 秒并自动恢复，v2 重新在线，accepted 由 9 增至 14、duplicate 由 17 增至 26、rejected 为 0、待发送与待投影均为 0。只读 SQLite 聚合确认至少 1 条 Segment 完全位于停机窗口且在恢复后收到，镜像总数 14 与 accepted 计数一致；未读取网站或个人标识。
+
+测试契约：变更等级＝跨边界本地协议、持久 outbox 和 SQLite 投影；受影响＝Extension bridge、Contracts、Windows Host/Service/Manager/Installer；本地必须＝v1/v2 协商、部分/重复/永久拒绝 ACK、observer 丢失恢复、跨日、100 条批次、长期离线、10,000 条有界性能、双 pipe 身份校验、SQLite 事务/恢复、Manager 裁剪、相关 build/WiX 与 `git diff --check`；CI 必须＝contracts-worker、受影响扩展聚焦、windows-tests、windows-installer；明确排除＝Worker/Console/Guardian/Pages、macOS、D1/R2、网页落账状态机与边界、云端上传、配额执行、阻止。
+
+## NOW：Windows 2.5.2 Service 接管既有 Agent（ARM-D-028）
+
+- [x] 精确发现并接管安装目录中同 session 的既有 Session Agent。
+- [x] 已退出进程注册与异步退出回调 fail-safe，Service 不再因升级竞态崩溃。
+- [x] 2.5.2 原地升级后验证 Service Automatic/Running、单一 Agent、Native Host 重连和公开在线状态；云端 heartbeat 成功且无待上传数据。
+
+测试契约：变更等级＝Windows Service 生命周期 bugfix；本地必须＝进程注册竞态聚焦测试、Service/Host build、WiX build、真实本机 smoke、`git diff --check`；明确排除＝Worker、Console、macOS、Guardian、D1/R2、网页账本和完整跨平台测试。
+
+## NOW：Unpacked Native Host 联调与 BrowserBridge 2.5.1 修复（ARM-D-027）
+
+- [x] 扩展增加仅限 `installType=development` 的 Native Host 联调授权，普通本地绑定继续有效。
+- [x] 打包工具增加不可打包的 `native-host-development` staging，保持 managed/普通渠道边界。
+- [x] BrowserBridge pipe client 显式请求 impersonation，并补固定回归。
+- [x] Service、Host 与 Installer 默认版本统一为 2.5.1，构建新的本地候选。
+- [x] 在 HornburgXW 验证 loop failure 停止、Host 重连成功；开发候选绕过旧 managed 邮箱门禁后控件恢复正常。未上传、未部署、未切 latest。
+
+测试契约：变更等级＝扩展打包安全边界 + Windows 本地 IPC 修复；本地必须＝deployment-mode/打包矩阵、Native Host/pipe 身份聚焦测试、Service/Host 编译、Installer 版本结构、`git diff --check`；发布 smoke＝本轮不发布；明确排除＝Worker、Console、macOS、Guardian、D1/R2、网页账本、配额执行和应用阻止。
+
+## NOW：通用 Native Host 与共享配额影子核算（ARM-D-026）
+
+- [x] 新增 `TimeOnChrome.NativeHost.exe`、版本化 Native Messaging/pipe 协议及旧 Host ID 兼容 manifest。
+- [x] RuntimeService 增加受约束 BrowserBridge listener、进程/session/SID 校验和独立幂等镜像存储。
+- [x] Managed 扩展迁移到新 Host ID，并仅在网页 Segment 已持久化后发送隐私裁剪镜像；失败不得影响原账。
+- [x] 增加共享配额纯影子裁决：前台优先、网页覆盖 Chrome 容器、未归类合并 Composite、媒体排除。
+- [x] WiX 安装 Host 与两个注册别名；版本提升为本地候选 2.5.0，不安装、不发布、不切 R2 latest。
+- [x] 完成 contracts、Native Host/Service/影子核算、扩展桥和 WiX 结构最小测试及 Plan Conformance Audit。
+
+本地实现与最小验证已完成；完整 MSI/Burn 产物构建、真实安装、managed Chrome 协议联调和生产发布仍需单独发布闸门，不在本任务中记为通过。
+
+本任务测试契约：变更等级＝跨边界本地协议 + Windows Service/Installer + Managed Extension 适配 + 影子核算；受影响＝本机浏览器桥和只读影子数据；本地必须＝contracts schema、Native Messaging framing、pipe ACL/身份验证、镜像幂等、影子优先级、扩展持久化后通知与 fail-open、WiX 结构、`git diff --check`；CI 必须＝contracts-worker、windows-tests、windows-installer 及受影响扩展聚焦测试；发布 smoke＝本轮不发布；明确排除＝macOS、Runtime Worker/Pages、Guardian、生产 D1/R2、现有网页计时/聚合/上传、当前配额执行和应用阻止。
+
 ## NOW：系统应用与游戏默认分类（ARM-D-025）
 
 - [x] 系统应用默认 `composite`，confirmed `game/gameLauncher/gameUtility` 默认 `restrictedEntertainment`。

@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..', '..');
-const modulePath = path.join(root, 'extension', 'infra', 'local-guardian.js');
+const modulePath = path.join(root, 'extension', 'infra', 'native-host-client.js');
 const originalSource = fs.readFileSync(modulePath, 'utf8');
 const POLICY_KEYS = [
   'enabled', 'deploymentMode', 'cloudEndpoint', 'managedDeviceToken',
@@ -37,12 +37,14 @@ function createPort(onPost) {
 function moduleSource(instance) {
   return originalSource
     .replace(/import \{ MANAGED_POLICY_KEYS, readManagedActivationPolicy \} from '\.\.\/core\/activation-gate\.js';/, `const MANAGED_POLICY_KEYS = globalThis.__guardianPolicyKeys;\nconst readManagedActivationPolicy = (...args) => globalThis.__guardianReadPolicy(...args);`)
-    .replace(/import \{ readManagedDeploymentMarker \} from '\.\.\/core\/deployment-mode\.js';/, 'const readManagedDeploymentMarker = (...args) => globalThis.__guardianReadMarker(...args);')
+    .replace(/import \{ readNativeHostDeploymentMarker, readNativeHostDevelopmentMarker \} from '\.\.\/core\/deployment-mode\.js';/, 'const readNativeHostDeploymentMarker = (...args) => globalThis.__guardianReadMarker(...args);\nconst readNativeHostDevelopmentMarker = (...args) => globalThis.__guardianReadDevelopmentMarker(...args);')
     .replace(/import \{ budgetedLocalSet \} from '\.\/storage-budget\.js';/, 'const budgetedLocalSet = (...args) => globalThis.__guardianBudgetedSet(...args);')
+    .replace(/import \{ registerPersistedUsageSegmentObserver \} from '\.\.\/core\/usage-segments\.js';/, 'const registerPersistedUsageSegmentObserver = (observer) => { globalThis.__persistedSegmentObserver = observer; };')
+    .replace(/import \{ readCurrentWeekBrowserSnapshots \} from '\.\/browser-bridge-v3-snapshot\.js';/, 'const readCurrentWeekBrowserSnapshots = (...args) => globalThis.__readBrowserSnapshots(...args);')
     + `\n// test-instance-${instance}`;
 }
 
-async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null } = {}) {
+async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [] } = {}) {
   const alarms = { onAlarm: createEvent(), created: [] };
   alarms.get = async () => null;
   alarms.create = async (name, options) => { alarms.created.push({ name, options }); };
@@ -70,7 +72,9 @@ async function loadGuardian({ storage, incognito = false, connectNative, policy,
     },
   };
   global.__guardianPolicyKeys = POLICY_KEYS;
+  global.__readBrowserSnapshots = async () => snapshots;
   global.__guardianReadMarker = async () => true;
+  global.__guardianReadDevelopmentMarker = async () => development;
   global.__guardianReadPolicy = async () => policyRead || ({ available: true, raw: policy });
   global.__guardianBudgetedSet = async (items) => {
     Object.assign(storage, items);
@@ -105,10 +109,15 @@ async function run() {
     storage,
     policy,
     connectNative(host) {
-      assert.strictEqual(host, 'com.timeonchrome.guardian');
+      assert.strictEqual(host, 'com.timeonchrome.nativehost');
       const port = createPort((payload, onMessage) => {
         payloads.push(payload);
-        queueMicrotask(() => onMessage.listeners.forEach((listener) => listener({ ok: true, receivedAt: 1787160000 })));
+        queueMicrotask(() => onMessage.listeners.forEach((listener) => listener({
+          ok: true, receivedAt: 1787160000, supportedProtocols: [1, 2, 3],
+          capabilities: ['health', 'authoritative-daily-snapshot'],
+          acceptedIds: payload.payload?.segments?.map((segment) => segment.segmentId) || [],
+          duplicateIds: [], rejected: [],
+        })));
       });
       ports.push(port);
       return port;
@@ -121,17 +130,18 @@ async function run() {
   assert.strictEqual(runtime.onInstalled.listeners.length, 1);
   assert.strictEqual(runtime.onMessage.listeners.length, 1);
   assert.strictEqual(alarms.created.some((entry) => entry.name === 'timeonchromeLocalGuardianHeartbeat' && entry.options.periodInMinutes === 1), true);
+  assert.strictEqual(alarms.created.some((entry) => entry.name === 'timeonchromeBrowserBridgeReconcile' && entry.options.periodInMinutes === 60), true);
 
   const boot = payloads[0];
   assert.deepStrictEqual(Object.keys(boot).sort(), [
-    'extensionId', 'incognito', 'monitoringStatus', 'policyHash',
-    'profile', 'timestamp', 'type', 'version',
+    'extensionId', 'messageType', 'payload', 'profileId',
+    'protocolVersion', 'requestId', 'sentAtMs',
   ].sort());
-  assert.strictEqual(boot.type, 'heartbeat');
-  assert.strictEqual(boot.monitoringStatus, 'booting');
+  assert.strictEqual(boot.messageType, 'heartbeat');
+  assert.strictEqual(boot.payload.monitoringStatus, 'booting');
   assert.strictEqual(boot.extensionId, runtime.id);
-  assert.strictEqual(boot.version, '1.7.25');
-  assert.strictEqual(boot.policyHash.length, 64);
+  assert.strictEqual(boot.payload.version, '1.7.25');
+  assert.strictEqual(boot.payload.policyHash.length, 64);
   assert.strictEqual(JSON.stringify(boot).includes('secret-token-a'), false);
   assert.strictEqual(JSON.stringify(boot).includes('child@example.test'), false);
 
@@ -142,7 +152,20 @@ async function run() {
   }));
   const activeResult = await module.requestLocalGuardianHeartbeat({ trigger: 'unit_active', force: true });
   assert.strictEqual(activeResult.ok, true);
-  assert.strictEqual(payloads.at(-1).monitoringStatus, 'active');
+  await waitFor(() => payloads.some((payload) => payload.messageType === 'heartbeat' && payload.payload.monitoringStatus === 'active'));
+
+  const beforeMirror = payloads.length;
+  const persistedSegment = {
+    id: 'segment-1', startMs: 1000, endMs: 4000, durationSeconds: 3,
+    channel: 'active', sourceState: 'ACTIVE', quotaBucketAtTime: 'pending_composite',
+    mode: 'composite', domain: 'private.example.test', title: 'private title',
+  };
+  storage.usage_segments_v1 = { 'segment-1': persistedSegment };
+  await global.__persistedSegmentObserver([persistedSegment]);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.strictEqual(payloads.slice(beforeMirror).some((payload) => payload.channel === 'ledger'), false);
+  assert.strictEqual(JSON.stringify(payloads).includes('private.example.test'), false);
+  assert.strictEqual(JSON.stringify(payloads).includes('private title'), false);
 
   assert.strictEqual(module.resolveLocalGuardianMonitoringStatus({ bootstrapState: 'booting' }), 'booting');
   assert.strictEqual(module.resolveLocalGuardianMonitoringStatus({ bootstrapState: 'failed' }), 'degraded');
@@ -155,6 +178,82 @@ async function run() {
   const hashMissing = await module.hashManagedPolicy({ ...policy, managedDeviceToken: undefined });
   assert.strictEqual(hashA, hashB);
   assert.notStrictEqual(hashA, hashMissing);
+
+  const largeLedger = Object.fromEntries(Array.from({ length: 10_000 }, (_, index) => [
+    `large-${index}`,
+    { id: `large-${index}`, startMs: index, endMs: index + 1 },
+  ]));
+  assert.strictEqual(module.selectBrowserBridgeLedgerBatch(Object.keys(largeLedger), largeLedger).length, 100);
+
+  const developmentPayloads = [];
+  await loadGuardian({
+    storage: {}, policy, development: true,
+    policyRead: null,
+    connectNative: () => createPort((payload, onMessage) => {
+      developmentPayloads.push(payload);
+      queueMicrotask(() => onMessage.listeners.forEach((listener) => listener({ ok: true, receivedAt: 1787160004 })));
+    }),
+  });
+  await waitFor(() => developmentPayloads.length >= 1);
+  assert.strictEqual(developmentPayloads[0].payload.policyHash, null);
+
+  const oldServicePayloads = [];
+  const oldService = await loadGuardian({
+    storage: {}, policy,
+    connectNative: () => createPort((payload, onMessage) => {
+      oldServicePayloads.push(payload);
+      queueMicrotask(() => onMessage.listeners.forEach((listener) => listener({
+        ok: true, receivedAt: 1787160005, supportedProtocols: [1, 2], capabilities: ['ledger-item-ack'],
+      })));
+    }),
+  });
+  await waitFor(() => oldServicePayloads.length >= 1);
+  await oldService.module.mirrorPersistedUsageSegments([{ id: 'old-service-segment', startMs: 1, endMs: 2 }]);
+  await oldService.module.requestLocalGuardianHeartbeat({ trigger: 'old_service', force: true });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.strictEqual(oldServicePayloads.some((payload) => payload.channel === 'ledger'
+    || payload.messageType === 'settledUsageSegments'), false);
+
+  const recoveryStorage = {
+    browser_bridge_v3_state_v1: { acknowledgedRevisions: {}, pendingDates: {}, lastSnapshotAckAtMs: 0 },
+    browser_bridge_v2_state_v1: {
+      bridgeEpochId: '11111111-1111-4111-8111-111111111111', enabledAtMs: 1,
+      pendingIds: ['legacy-id'], dirtyDates: ['2026-09-21'], acknowledgedDateDigests: {},
+      permanentRejections: [], acceptedCount: 2, duplicateCount: 0, rejectedCount: 0,
+    },
+    usage_segments_v1: { 'legacy-id': { id: 'legacy-id', startMs: 1, endMs: 2 } },
+  };
+  const recoveryPayloads = [];
+  let snapshotAttempts = 0;
+  const { alarms: recoveryAlarms } = await loadGuardian({
+    storage: recoveryStorage, policy,
+    snapshots: [{ date: '2026-09-22', snapshotRevision: 'revision-1', statisticsRevision: 'stats-1',
+      correctionRevision: 'correction-1', computedAtMs: 1, activeSeconds: 3,
+      quotaBucketSeconds: { study: 3 }, complete: true, incompleteReasonCodes: [],
+      intervals: [{ startMs: 1, endMs: 3001, creditedSeconds: 3, quotaBucket: 'study' }] }],
+    connectNative: () => createPort((payload, onMessage) => {
+      recoveryPayloads.push(payload);
+      queueMicrotask(() => {
+        if (payload.protocolVersion === 1) {
+          onMessage.listeners.forEach((listener) => listener({
+            ok: true, receivedAt: 1787160200, supportedProtocols: [1, 2, 3], capabilities: ['authoritative-daily-snapshot'],
+          }));
+          return;
+        }
+        snapshotAttempts += 1;
+        onMessage.listeners.forEach((listener) => listener({
+          ok: true, receivedAt: 1787160201, acceptedRevision: payload.payload.snapshotRevision,
+        }));
+      });
+    }),
+  });
+  await waitFor(() => recoveryPayloads.some((payload) => payload.channel === 'statistics'), 1_000);
+  assert.strictEqual(recoveryPayloads.some((payload) => payload.channel === 'ledger'), false);
+  assert.deepStrictEqual(recoveryStorage.browser_bridge_v2_state_v1.pendingIds, []);
+  assert.ok(recoveryStorage.usage_segments_v1['legacy-id']);
+  recoveryAlarms.onAlarm.listeners[0]({ name: 'timeonchromeBrowserBridgeReconcile' });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.strictEqual(snapshotAttempts, 1);
 
   let rejectedResponse = null;
   const probeListener = runtime.onMessage.listeners[0];
@@ -175,9 +274,9 @@ async function run() {
   assert.strictEqual(acceptedReturn, true);
   await waitFor(() => acceptedResponse !== null);
   assert.strictEqual(acceptedResponse.ok, true);
-  assert.strictEqual(payloads.at(-1).type, 'probe');
+  assert.strictEqual(payloads.at(-1).messageType, 'probe');
 
-  const firstUuid = boot.profile;
+  const firstUuid = boot.profileId;
   ports.forEach((port) => port.disconnect());
   const secondPayloads = [];
   const second = await loadGuardian({
@@ -190,8 +289,8 @@ async function run() {
     }),
   });
   await waitFor(() => secondPayloads.length >= 1);
-  assert.strictEqual(secondPayloads[0].profile, firstUuid);
-  assert.strictEqual(secondPayloads[0].incognito, true);
+  assert.strictEqual(secondPayloads[0].profileId, firstUuid);
+  assert.strictEqual(secondPayloads[0].payload.incognito, true);
 
   const otherStorage = {};
   const otherPayloads = [];
@@ -204,7 +303,7 @@ async function run() {
     }),
   });
   await waitFor(() => otherPayloads.length >= 1);
-  assert.notStrictEqual(otherPayloads[0].profile, firstUuid);
+  assert.notStrictEqual(otherPayloads[0].profileId, firstUuid);
 
   const unavailableStorage = {};
   const unavailable = await loadGuardian({
@@ -220,9 +319,15 @@ async function run() {
   const savedStatus = unavailableStorage.local_guardian_status_v1;
   assert.deepStrictEqual(Object.keys(savedStatus).sort(), [
     'consecutiveFailures', 'lastAckReceivedAt', 'lastAttemptAt', 'lastErrorCode',
-    'lastSuccessAt', 'lastTrigger', 'portConnected',
+    'lastSuccessAt', 'lastTrigger', 'nextRetryAt', 'portConnected',
   ].sort());
   assert.strictEqual(JSON.stringify(savedStatus).includes('secret-token-a'), false);
+  assert(savedStatus.nextRetryAt > savedStatus.lastAttemptAt);
+  const backoffResult = await unavailable.module.requestLocalGuardianHeartbeat({ trigger: 'unit_missing_host_backoff' });
+  assert.strictEqual(backoffResult.skipped, true);
+  assert.strictEqual(backoffResult.errorCode, 'native_host_unavailable');
+  const manualRetry = await unavailable.module.requestLocalGuardianHeartbeat({ type: 'probe', trigger: 'unit_manual_retry' });
+  assert.strictEqual(manualRetry.errorCode, 'native_host_unavailable');
 
   const invalidStorage = {};
   await loadGuardian({
@@ -246,6 +351,19 @@ async function run() {
   await waitFor(() => disconnectedStorage.local_guardian_status_v1?.lastErrorCode === 'native_port_disconnected');
   assert.strictEqual(disconnectedStorage.local_guardian_status_v1.consecutiveFailures >= 1, true);
 
+  const stoppedServiceStorage = {};
+  await loadGuardian({
+    storage: stoppedServiceStorage,
+    policy,
+    connectNative: () => createPort((_payload, onMessage) => {
+      queueMicrotask(() => onMessage.listeners.forEach((listener) => listener({
+        ok: false, receivedAt: 1787160004, errorCode: 'RUNTIME_SERVICE_UNAVAILABLE',
+      })));
+    }),
+  });
+  await waitFor(() => stoppedServiceStorage.local_guardian_status_v1?.lastErrorCode === 'runtime_service_unavailable');
+  assert(stoppedServiceStorage.local_guardian_status_v1.nextRetryAt > stoppedServiceStorage.local_guardian_status_v1.lastAttemptAt);
+
   const degradedStorage = {};
   const degradedPayloads = [];
   const degraded = await loadGuardian({
@@ -263,9 +381,9 @@ async function run() {
     monitoringEnabled: 1,
   }));
   await degraded.module.requestLocalGuardianHeartbeat({ trigger: 'unit_policy_read_failed', force: true });
-  await waitFor(() => degradedPayloads.length >= 2);
-  assert.strictEqual(degradedPayloads.at(-1).monitoringStatus, 'degraded');
-  assert.strictEqual(degradedPayloads.at(-1).policyHash.length, 64);
+  await waitFor(() => degradedPayloads.some((payload) => payload.payload?.monitoringStatus === 'degraded'));
+  const degradedPayload = degradedPayloads.find((payload) => payload.payload?.monitoringStatus === 'degraded');
+  assert.strictEqual(degradedPayload.payload.policyHash.length, 64);
 
   const deduped = await module.requestLocalGuardianHeartbeat({ trigger: 'unit_dedup' });
   const dedupedAgain = await module.requestLocalGuardianHeartbeat({ trigger: 'unit_dedup_repeat' });
@@ -296,12 +414,12 @@ async function run() {
   assert.strictEqual(queuedPayloads.length, 1);
   acknowledgements[0]();
   await waitFor(() => queuedPayloads.length === 2);
-  assert.strictEqual(queuedPayloads[1].type, 'probe');
+  assert.strictEqual(queuedPayloads[1].messageType, 'probe');
   acknowledgements[1]();
   assert.strictEqual((await queuedProbePromise).ok, true);
   await waitFor(() => queuedPayloads.length === 3);
-  assert.strictEqual(queuedPayloads[2].type, 'heartbeat');
-  assert.strictEqual(queuedPayloads[2].monitoringStatus, 'booting');
+  assert.strictEqual(queuedPayloads[2].messageType, 'heartbeat');
+  assert.strictEqual(queuedPayloads[2].payload.monitoringStatus, 'booting');
   acknowledgements[2]();
 
   const timeoutStorage = {};
@@ -320,7 +438,7 @@ async function run() {
   assert.match(background, /configureLocalGuardianStateProvider/);
   assert.match(background, /TIMEONCHROME_LOCAL_HEALTH_PROBE/);
 
-  console.log('[Local Guardian] 54/54 passed');
+  console.log('[Local Guardian] passed');
   process.exit(0);
 }
 

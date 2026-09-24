@@ -1,5 +1,17 @@
 # App Runtime Management
 
+## 当前开发：BrowserBridge v2 与 Windows 2.6.0
+
+ARM-D-029 将本地浏览器桥分成 best-effort `health` 和 durable at-least-once `ledger`。Extension 1.7.34 只观察已写入 `usage_segments_v1` 的 Segment，以持久 ID/日期 digest 在首次启用后对账；RuntimeService 双 pipe 兼容 v1/v2，在镜像与影子脏区间事务提交后逐项 ACK，并异步恢复投影。TimeWhereMg 仅显示裁剪健康摘要。该能力不改变网页落账、现有配额、阻止或云端数据；当前只构建本地未签名候选。
+
+## 当前修复：Unpacked Native Host 联调与 Windows 2.5.2
+
+ARM-D-027 为开发者模式解压扩展提供严格受限的 Native Host 联调通道；ARM-D-028 使 Service 在升级/重启后接管同 session 仍运行的 Agent，并隔离退出竞态。Windows 2.5.2 保留 2.5.1 的 BrowserBridge pipe impersonation 修复；正式 managed policy、普通/CWS 包和生产资源不变。
+
+## 当前开发：通用 Native Host 与共享配额影子核算
+
+ARM-D-026 将本机桥统一为 `TimeOnChrome Native Host`。Host 只连接 Managed Chrome 扩展与 RuntimeService；Service 独立保存已结算网页 Segment 镜像并运行共享配额影子裁决，不改网页/App Runtime 原始账、现行配额或阻止。实现与安装资产全部归本模块，便于未来整体迁出独立仓库。
+
 ## 当前开发：系统应用与游戏默认分类
 
 ARM-D-025 将云端确认的系统应用默认归为复合，将 confirmed 游戏、游戏平台和游戏工具默认归为受限娱乐。家长对单个应用的明确分类仍可覆盖系统默认；疑似游戏、普通应用和技术记录不自动分类。目录可立即显示默认值，终端只在下一次完整盘点产生并应用新策略后向前切段，历史账本不重算。

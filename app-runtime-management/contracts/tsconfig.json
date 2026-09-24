@@ -10,5 +10,5 @@
     "rootDir": ".",
     "skipLibCheck": true
   },
-  "include": ["app-runtime-control.ts", "application-classification.ts", "application-knowledge-validation.ts"]
+  "include": ["app-runtime-control.ts", "application-classification.ts", "application-knowledge-validation.ts", "native-host.ts"]
 }

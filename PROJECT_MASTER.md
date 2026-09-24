@@ -3,7 +3,8 @@
 > App Runtime 集成状态：D-092 已经 PR #8 合并 master 并完成生产 SSO/独立部署验收；contract `1.0.0`。Guardian adapter 当前版本 `b971221b-82b1-4e14-8f67-f3b884ac924c`，主控制台 Pages `3876077d-5607-4e95-8526-b666cf16d13c`；单独发布主 Pages 不改变 Runtime 资源。内部真值与不可变生产 manifest 位于 `app-runtime-management/docs/`，根项目只维护 adapter、入口和 compatibility。
 
 ## 项目状态
-- **版本：1.7.32（内部 managed 已发布；生产观察中）**
+- **生产版本：1.7.32（内部 managed 已发布；生产观察中）**
+- **本地候选：1.7.33（Unpacked Native Host 联调；未发布、禁止打包）**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
 - **当前发布状态（2026-09-15）**：`1.7.32` 功能提交 `c2841a3` 与部署记录 `29168b2` 已推送；Guardian Worker `09c2b1c4-b4d4-4de8-8e05-d51f36cdd606`、控制台 Pages `7455c3ad` 与更新站点 `0a3707ac` 已部署并回读成功。线上 feed 已指向 `1.7.32`；managed CRX 为 418,237 bytes，SHA256 `12d8e5417a34a6ec16bcf499dd55298827436adc17ba7e2e8cbf9d7cc994aa9f`，稳定扩展 ID 不变。本版包括系统分类一致性与历史归属修正、自主度配置及既有 V2 配额能力；不修改网页 ACTIVE、原始分段时长或媒体计时边界。终端升级、V2 单账形成及 `cg.163.com idleStateChanged` 风险继续保留为生产观察/Deferred。
 - **D-093/D-096 云端增量（2026-09-18）**：提交 `430a200` 与精确双标识热修 `5dd583c` 已推送；Guardian Worker `ee15be42-dde0-47b9-9e7b-4006ac1f4870`、控制台 Pages `60e66ea6` 已部署，稳定域名回读 HTTP 200。未提升扩展版本、未更新 CRX/update feed。首轮定时自愈以 immutable correction ledger 调整 92 个唯一网页分段、4,803 秒；随后依据 PO 明确批准和 canonical observation 时间线取证，以 D-096 单次修正旧 `www.4399.com` 67 个分段、7,394 秒。两次均保持原始 segment 和总网页秒数不变；D-096 将 Composite 7,386 秒与 Study 8 秒的有效归属转为 Rest 7,394 秒。决定后产生的独立 1 秒 `rejected + composite bucket` 风险仍待调查。

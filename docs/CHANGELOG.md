@@ -2,6 +2,24 @@
 
 ---
 
+## [1.7.34 候选] — 2026-09-22
+
+- **BrowserBridge v2**：将本地桥拆分为可丢弃的 health 通道和持久的 ledger 通道；启用后新产生的权威网页 Segment 采用最多 100 条批次、逐项 ACK 和 Segment ID 幂等补发。
+- **账本边界不变**：镜像 payload 始终从 `usage_segments_v1` 重建；本次仅保护待 ACK Segment 不被本地清理，不修改网页 Segment 生成、切段、结算、云端 outbox、配额或拦截语义。
+- **开发联调隐私**：unpacked Native Host 开发候选 heartbeat 不再读取 managed storage，`policyHash=null`；不发送 URL、域名、标题、邮箱、token、SID、用户名或路径。
+- **发布边界**：本轮只生成 unpacked 候选并配合 Runtime 2.6.0 本地验证，不发布 CRX、不部署云端资源。
+
+---
+
+## [1.7.33 候选] — 2026-09-21
+
+- **通用本地桥**：Managed 扩展改用 `com.timeonchrome.nativehost`；旧 `com.timeonchrome.guardian` 由 Runtime 2.5.0 保留一个发布周期的兼容别名。
+- **只读网页镜像**：仅在既有 `usage_segments_v1` 成功持久化后，将不含 URL、域名、标题、账号或 token 的 Segment 镜像发送给 RuntimeService；失败保持 fail-open，不影响网页计时、拦截、上传或现有配额。
+- **Unpacked 联调模式**：增加 `native-host-development` 候选；仅 Chrome 解压加载且扩展 ID 匹配时启用 Native Host，扩展本身继续走普通本地绑定，不要求企业 policy。
+- **发布边界**：开发候选禁止打成 CRX、上传更新源或替换生产 `1.7.32`；正式 Managed/CWS 打包语义保持不变。
+
+---
+
 ## [1.7.32] — 2026-09-15
 
 - **系统分类版本闭环**：设备配置同时携带 profile version、system access version 和组合 revision；任一系统网站库变更都强制终端重新拉取，不再等待孩子档案发生其他修改。

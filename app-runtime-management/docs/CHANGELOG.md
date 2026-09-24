@@ -1,5 +1,34 @@
 # App Runtime Changelog
 
+## [ARM-D-029 / Windows 2.6.0 候选] — 2026-09-22（本地实现、测试与构建完成，待实机升级验收）
+
+- BrowserBridge v2 分离 best-effort health 与 durable ledger；Ledger 使用持久待发送状态、逐项 ACK、Segment ID 幂等和启用后对账。
+- RuntimeService 双 pipe 兼容 v1/v2；镜像与影子脏区间事务提交后 ACK，投影异步可恢复。
+- TimeWhereMg 增加裁剪的 BrowserBridge 健康摘要；Native Host 预期断流静默退出。
+- 扩展候选 1.7.34 不改变网页账本语义；本轮不部署云端、不上传 R2、不执行 D1 migration。
+
+## [ARM-D-028 / Windows 2.5.2 候选] — 2026-09-22（本地实机升级与联调通过）
+
+- 修复原地升级或 Service 重启时既有 Session Agent 导致的新进程单实例退出竞态。
+- Service 接管符合安装路径与 session 的既有 Agent；已退出进程和退出回调异常不再终止 Service。
+- 实机确认 Service Automatic/Running、单一 Session Agent、Native Host 重连、公开状态 online、云端 heartbeat 成功且无待上传数据。
+- 不修改账本、配额、云端 API、Worker、Pages、Guardian 或生产数据。
+
+## [ARM-D-027 / Windows 2.5.1 候选] — 2026-09-21（由 2.5.2 完成本地实机联调）
+
+- 修复 2.5.0 BrowserBridge 管道客户端未显式请求 impersonation、Service 无法稳定取得用户 SID 的问题。
+- 增加与正式 managed policy 分离的 unpacked Native Host 开发联调模式；该模式禁止打包和发布。
+- 修复开发模式仍执行旧 `managedProfileEmail` 门禁的遗漏；开发候选只使用普通隐私同意与既有本地绑定，正式 managed 门禁不变。
+- 不修改原始账本、云端 API、配额、阻止、Worker、Pages、Guardian 或生产数据。
+
+## [ARM-D-026 / Windows 2.5.0 候选] — 2026-09-21（本地实现完成，待发布闸门）
+
+- 将 guardian 专用桥升级为通用 `TimeOnChrome Native Host`，新 ID 为 `com.timeonchrome.nativehost`，旧 ID 作为兼容 manifest。
+- RuntimeService 增加受约束浏览器桥和独立网页 Segment 镜像存储；扩展只在现有账本写入成功后发送隐私裁剪事实。
+- 增加不接管现有配额的共享配额影子核算：前台优先、网页覆盖 Chrome 容器、未归类统一 Composite、媒体排除。
+- Host/Service/installer 全部保留在 Runtime 模块，根扩展只消费版本化协议，为未来独立仓库拆分保持单向依赖。
+- 本地 contracts、Host/Service 编译、影子核算、扩展持久化后通知、Managed/CWS 打包边界与 WiX 结构测试通过；尚未生成或安装 2.5.0 包。
+
 ## [ARM-D-025 / 系统应用与游戏默认分类] — 2026-09-20（本地实现完成，待合并发布）
 
 - 系统应用默认归为复合；confirmed 游戏、游戏平台与游戏工具默认归为受限娱乐。

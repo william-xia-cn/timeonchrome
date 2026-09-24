@@ -53,7 +53,9 @@ public sealed record MachinePublicStatusResponse(
     string? ServiceVersion = null,
     long ServiceStartedAtMs = 0,
     long LastHeartbeatSucceededAtMs = 0,
-    bool HasPendingUploads = false);
+    bool HasPendingUploads = false,
+    int BrowserBridgeProtocolVersion = 0,
+    long BrowserBridgeLastSuccessAtMs = 0);
 
 public sealed record MachineControlResponse(
     bool Success,
@@ -87,4 +89,14 @@ public sealed record MachineControlResponse(
     string? LastStableErrorCode = null,
     string? RemoteLoggingState = null,
     string? RemoteLoggingMinLevel = null,
-    long RemoteLoggingExpiresAtMs = 0);
+    long RemoteLoggingExpiresAtMs = 0,
+    int BrowserBridgeProtocolVersion = 0,
+    long BrowserBridgeLastHeartbeatAtMs = 0,
+    long BrowserBridgeLastProbeAtMs = 0,
+    long BrowserBridgeLastLedgerAckAtMs = 0,
+    int BrowserBridgePendingSendCount = 0,
+    int BrowserBridgePendingProjectionCount = 0,
+    long BrowserBridgeAcceptedCount = 0,
+    long BrowserBridgeDuplicateCount = 0,
+    long BrowserBridgeRejectedCount = 0,
+    string? BrowserBridgeLastErrorCode = null);

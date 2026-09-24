@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.app/contracts/native-host-v3.schema.json",
+  "title": "BrowserBridge v3 envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocolVersion", "channel", "requestId", "messageType", "extensionId", "profileId", "sentAtMs", "payload"],
+  "properties": {
+    "protocolVersion": { "const": 3 },
+    "channel": { "enum": ["health", "statistics"] },
+    "requestId": { "type": "string", "format": "uuid" },
+    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot"] },
+    "extensionId": { "type": "string", "minLength": 1 },
+    "profileId": { "type": "string", "format": "uuid" },
+    "sentAtMs": { "type": "integer", "minimum": 0 },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "channel": { "const": "statistics" } }, "required": ["channel"] },
+      "then": { "properties": { "messageType": { "const": "dailyUsageSnapshot" }, "payload": { "$ref": "#/$defs/dailySnapshot" } } }
+    },
+    {
+      "if": { "properties": { "channel": { "const": "health" } }, "required": ["channel"] },
+      "then": { "properties": { "messageType": { "enum": ["heartbeat", "probe"] } } }
+    }
+  ],
+  "$defs": {
+    "evidenceInterval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startMs", "endMs", "creditedSeconds", "quotaBucket"],
+      "properties": {
+        "startMs": { "type": "integer", "minimum": 0 },
+        "endMs": { "type": "integer", "minimum": 0 },
+        "creditedSeconds": { "type": "integer", "minimum": 0 },
+        "quotaBucket": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "dailySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "snapshotRevision", "statisticsRevision", "correctionRevision", "computedAtMs", "activeSeconds", "quotaBucketSeconds", "complete", "incompleteReasonCodes", "intervals"],
+      "properties": {
+        "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "snapshotRevision": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "statisticsRevision": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "correctionRevision": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "computedAtMs": { "type": "integer", "minimum": 0 },
+        "activeSeconds": { "type": "integer", "minimum": 0 },
+        "quotaBucketSeconds": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+        "complete": { "type": "boolean" },
+        "incompleteReasonCodes": { "type": "array", "items": { "type": "string", "maxLength": 64 }, "uniqueItems": true },
+        "intervals": { "type": "array", "items": { "$ref": "#/$defs/evidenceInterval" }, "maxItems": 2000 }
+      }
+    }
+  }
+}

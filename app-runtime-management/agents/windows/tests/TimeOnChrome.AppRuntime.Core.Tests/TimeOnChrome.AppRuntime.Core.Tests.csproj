@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Setup\TimeOnChrome.AppRuntime.Setup.csproj" />
     <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Windows\TimeOnChrome.AppRuntime.Windows.csproj" />
     <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Migration\TimeOnChrome.AppRuntime.Migration.csproj" />
+    <ProjectReference Include="..\..\src\TimeOnChrome.AppRuntime.Service\TimeOnChrome.AppRuntime.Service.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\..\..\contracts\runtime-state-machine-v1.vectors.json"
