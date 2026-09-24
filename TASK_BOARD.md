@@ -16,6 +16,8 @@
 
 ## BrowserBridge v3：权威网页统计同步（开发中）
 
+- PR #44 的 Guardian Integration CI 暴露旧集成测试将 contracts 版本固定为 `1.9.0`，与已升级的 `1.12.0` 冲突。只修正测试为校验兼容的 `1.x` SemVer，不变更 Guardian 业务、契约或网页账本；运行该聚焦测试和 `git diff --check` 后更新 PR。
+
 - 验证补口：隔离 Chrome 测试 profile 已补当前隐私同意；在扩展页面读取同一受控账本并执行 V2/v3 逐日、逐配额桶严格对照，原始 ACTIVE 秒数、V2 与 v3 相等，证据完整；旧 E2E 三项均通过。V2 未物化的零用量日按零值对照。Guardian Worker（新增只读路由）和 Runtime Worker dry-run 分别通过。该证据只关闭浏览器对照缺口，不单独宣称整个 v3 已完成或可发布；生产激活及网页落账语义未修改。
 
 - [x] 保留 v2 历史基线；新版扩展不向任何 Service 回退发送原始网页 Segment。
