@@ -1,6 +1,6 @@
 # App Runtime 技术设计
 
-> 本机拆仓交接（ARM-D-031）：TimeWhereNative CI 产出带 `sourceGitSha`、contract 版本/包哈希及 MSI/Burn 文件哈希的内部候选。TimeOnChrome 的受保护工作流只接受精确成功 CI run 与受控来源仓库，经只读跨仓凭据下载并逐项校验后，才可写入版本化 R2 路径；缺少凭据或对象已存在时 fail closed。`latest.json` 切换是另一个明确批准的发布动作，本轮不执行。
+> 本机拆仓交接（ARM-D-031）：TimeWhereNative CI 产出带 `sourceGitSha`、contract 版本/包哈希及 MSI/Burn 文件哈希的内部候选。TimeOnChrome 的受保护工作流只接受精确成功 CI run 与受控来源仓库，经只读跨仓凭据下载并逐项校验。只有显式选择 `publish_immutable_r2` 且生产环境批准后，旧仓才用 R2 S3 条件写入（`If-None-Match: *`）上传不可变版本对象、回读校验字节，manifest 最后发布；缺少跨仓只读凭据、R2 凭据或对象已存在时 fail closed。`latest.json` 切换仍是另一个明确批准的动作，本轮不执行。
 
 ## 当前开发：ARM-D-025 系统默认分类
 
