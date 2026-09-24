@@ -1,7 +1,7 @@
 # TASK_BOARD
 
-- [ ] [P1 Native App / preconfiguration presentation / release pending] 主表与预配置页显示归属、旧来源详情核验动作及对应单测已完成：可执行 BLOCK 进入“已阻止”，预配置页只显示未匹配来源并区分 BLOCK/候选。`agent-browser` 在正常用户环境的启动故障已修复，但浏览器安全策略仍拒绝此本地页面，部署前目视验收未完成。Product Owner 于 2026-09-24 明确要求直接提交部署并自行验证；上线后视觉验收保留为待确认，不记为 PASS。本轮不导入新生产来源，也不做跨 Child 复制。
-- [ ] [P1 Native App / migration ledger repair / release pending] 生产 Native D1 已有与仓库 `002/003` 一致的表、索引及 `inventory_snapshot_id` 字段，但 `d1_migrations` 只记录 `001`；`004` 的 `desired_state` 尚不存在。发布时只补录已核验的 `002/003` 元数据，再应用 `004`，不得重新执行旧建表 SQL。
+- [ ] [P1 Native App / preconfiguration presentation / deployed, visual pending] 主表与预配置页显示归属、旧来源详情核验动作及对应单测已完成：可执行 BLOCK 进入“已阻止”，预配置页只显示未匹配来源并区分 BLOCK/候选。Product Owner 于 2026-09-24 明确要求先提交部署并自行验证；部署前目视验收因浏览器安全策略未完成，仍待 Product Owner 线上确认，不记为 PASS。代码提交 `cffcee2`；Native Worker `1ff8c68b-82bc-4cdc-a498-85eb4cb44912`、Pages `c2d25d50` 已部署，稳定域名 HTML/JS 和 Worker `/health` 回读 HTTP 200。本轮未导入新生产来源，也未做跨 Child 复制。
+- [x] [P1 Native App / migration ledger repair / deployed] 生产 Native D1 的 `002/003` 表、索引及 `inventory_snapshot_id` 字段已与仓库迁移核对；仅补录缺失迁移元数据，未重放旧建表 SQL。随后应用 `004`，回查无待执行迁移，既有 21 条来源仍全部为 `BLOCK`。
 - [x] [P1 Native App / preconfiguration version attribution / local] 通用来源自动绑定已按实际激活的来源项写入 `required_policy_version`；同批只提升一次 Child 策略版本，候选项不写版本。相关回归通过，未扩大规则匹配或改变策略优先级。
 - [x] [P1 Native App / inventory-only preconfiguration match / local] 无可用签名身份的安装项可按精确 Bundle ID 关联预配置来源，主列表仍显示只读安装项；测试确认没有伪造 Santa 观察或生成 BLOCK 规则。
 - [x] [P1 Native App / preconfiguration backend / local] 通用来源预配置后端第一包已实现并通过本地测试：旧 21 条 BLOCK 无损兼容；新增纯候选不得编译 Santa 规则；同序号不同来源的组件不会误停用。后续另包完成 Qustodio 全目录导入和跨 Child 初始化。本轮未执行生产迁移或部署。
