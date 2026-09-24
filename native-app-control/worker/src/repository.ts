@@ -503,19 +503,30 @@ export async function listApplications(env: Env, auth: NativeAuth, state?: strin
       LEFT JOIN application_observations_v1 o
         ON o.identity_id = am.identity_id AND o.child_id = s.child_id
      WHERE s.child_id = ? AND a.account_id = ? AND a.merged_into_application_id IS NULL
-       AND (? IS NULL OR s.state = ?)
      GROUP BY a.id, a.display_name, a.publisher, a.team_id, a.top_level_bundle_id,
               s.state, s.updated_at
      ORDER BY CASE s.state WHEN 'REVIEW' THEN 0 WHEN 'BLOCK' THEN 1 ELSE 2 END,
               observed DESC, last_observed_at DESC, s.updated_at DESC
-  `).bind(auth.child_id, auth.account_id, stateFilter, stateFilter).all<ApplicationPresentationRow>();
+  `).bind(auth.child_id, auth.account_id).all<ApplicationPresentationRow>();
+  const preconfigured = await env.DB.prepare(`
+    SELECT DISTINCT am.application_id
+      FROM native_app_predefined_items_v1 p
+      JOIN native_app_predefined_identities_v1 pi
+        ON pi.child_id = p.child_id AND pi.source = p.source
+       AND pi.source_index = p.source_index
+      JOIN application_identities_v1 i ON i.identity_key = pi.identity_key
+      JOIN application_memberships_v1 am ON am.identity_id = i.id
+     WHERE p.child_id = ? AND p.desired_state = 'BLOCK' AND p.disabled_at IS NULL
+       AND pi.status IN ('AUTO', 'CONFIRMED')
+  `).bind(auth.child_id).all<{ application_id: string }>();
+  const preconfiguredBlockedIds = new Set((preconfigured.results || []).map((row) => row.application_id));
   const presented = buildApplicationPresentation((result.results || []).map((row) => ({
     ...row,
     publisher: normalizeStoredPublisher(row.publisher),
   })));
   const inventory = await env.DB.prepare(`
     SELECT e.inventory_key, e.application_id, e.display_name, e.bundle_id, e.team_id,
-           e.signature_status, m.id AS native_mac_id,
+           e.signature_status, m.id AS native_mac_id, snap.imported_at,
            CASE WHEN e.identity_key IS NOT NULL AND EXISTS (
              SELECT 1 FROM application_identities_v1 ai
              JOIN application_memberships_v1 am ON am.identity_id = ai.id
@@ -528,9 +539,12 @@ export async function listApplications(env: Env, auth: NativeAuth, state?: strin
   `).bind(auth.child_id, auth.child_id).all<{
     inventory_key: string; application_id: string | null; display_name: string;
     bundle_id: string | null; team_id: string | null; signature_status: string;
-    native_mac_id: string; rule_identity_present: number;
+    native_mac_id: string; imported_at: number; rule_identity_present: number;
   }>();
-  const installedById = new Map<string, { macIds: Set<string>; signatureStatus: string; ruleIdentityPresent: boolean }>();
+  const installedById = new Map<string, {
+    macIds: Set<string>; signatureStatus: string; ruleIdentityPresent: boolean;
+    displayName: string; importedAt: number; nativeMacId: string;
+  }>();
   const presentedByBundle = new Map(presented
     .filter((app) => app.top_level_bundle_id || app.bundle_id)
     .map((app) => [
@@ -549,9 +563,17 @@ export async function listApplications(env: Env, auth: NativeAuth, state?: strin
     if (matchedAppId) {
       const record = installedById.get(matchedAppId) || {
         macIds: new Set<string>(), signatureStatus: entry.signature_status, ruleIdentityPresent: false,
+        displayName: entry.display_name, importedAt: Number(entry.imported_at), nativeMacId: entry.native_mac_id,
       };
       record.macIds.add(entry.native_mac_id);
       record.ruleIdentityPresent ||= !!entry.rule_identity_present;
+      if (Number(entry.imported_at) > record.importedAt
+        || (Number(entry.imported_at) === record.importedAt && entry.native_mac_id < record.nativeMacId)) {
+        record.displayName = entry.display_name;
+        record.importedAt = Number(entry.imported_at);
+        record.nativeMacId = entry.native_mac_id;
+        record.signatureStatus = entry.signature_status;
+      }
       installedById.set(matchedAppId, record);
     } else if (!stateFilter || stateFilter === 'REVIEW') {
       const row = unmanageable.get(entry.inventory_key) || {
@@ -570,18 +592,29 @@ export async function listApplications(env: Env, auth: NativeAuth, state?: strin
   const rows = presented.map((app) => {
     const installed = [app.id, ...app.relatedApplicationIds]
       .map((appId) => installedById.get(appId)).filter((item) => !!item);
+    const latestInventory = installed.reduce<(typeof installed)[number] | null>((latest, item) =>
+      !latest || item.importedAt > latest.importedAt
+        || (item.importedAt === latest.importedAt && item.nativeMacId < latest.nativeMacId)
+        ? item : latest, null);
     const installedOnMacIds = [...new Set(installed.flatMap((item) => [...item.macIds]))];
+    const preconfiguredBlock = app.state !== 'IGNORE'
+      && app.relatedApplicationIds.some((appId) => preconfiguredBlockedIds.has(appId));
     return {
       ...app,
+      state: preconfiguredBlock ? 'BLOCK' : app.state,
+      preconfiguredBlock,
+      display_name: latestInventory?.displayName || app.display_name,
       installed: installedOnMacIds.length > 0,
       installedOnMacIds,
       policyAvailable: true,
       ruleCoversInstalledVersion: installed.length ? installed.every((item) => item.ruleIdentityPresent) : null,
       signatureStatus: installed[0]?.signatureStatus || null,
-      contentCategory: nativeContentCategory(app.display_name || '', app.top_level_bundle_id || app.bundle_id || ''),
+      contentCategory: nativeContentCategory(latestInventory?.displayName || app.display_name || '',
+        app.top_level_bundle_id || app.bundle_id || ''),
       presentationClass: installedOnMacIds.length ? 'USER_APPLICATION' as const : app.presentationClass,
     };
-  }).filter((app) => app.state !== 'REVIEW' || Number(app.observed) > 0 || app.installed);
+  }).filter((app) => (!stateFilter || app.state === stateFilter)
+    && (app.state !== 'REVIEW' || Number(app.observed) > 0 || app.installed));
   return [...rows, ...unmanageable.values()];
 }
 
@@ -648,20 +681,21 @@ export async function decideApplication(
     ));
     if (action === 'IGNORE') {
       statements.push(env.DB.prepare(`
-        UPDATE native_app_predefined_items_v1 SET disabled_at = ?, updated_at = ?
-         WHERE child_id = ? AND disabled_at IS NULL AND (
+        UPDATE native_app_predefined_items_v1 AS p SET disabled_at = ?, updated_at = ?
+         WHERE p.child_id = ? AND p.disabled_at IS NULL AND (
            (? IS NOT NULL AND LOWER(bundle_id) = LOWER(?))
-           OR parent_source_index IN (
-             SELECT source_index FROM native_app_predefined_items_v1
-              WHERE child_id = ? AND ? IS NOT NULL AND LOWER(bundle_id) = LOWER(?)
+           OR p.parent_source_index IN (
+             SELECT parent.source_index FROM native_app_predefined_items_v1 AS parent
+              WHERE parent.child_id = ? AND parent.source = p.source
+                AND ? IS NOT NULL AND LOWER(parent.bundle_id) = LOWER(?)
            )
            OR EXISTS (
              SELECT 1 FROM native_app_predefined_identities_v1 pi
                JOIN application_identities_v1 ai ON ai.identity_key = pi.identity_key
                JOIN application_memberships_v1 am ON am.identity_id = ai.id
-              WHERE pi.child_id = native_app_predefined_items_v1.child_id
-                AND pi.source = native_app_predefined_items_v1.source
-                AND pi.source_index = native_app_predefined_items_v1.source_index
+              WHERE pi.child_id = p.child_id
+                AND pi.source = p.source
+                AND pi.source_index = p.source_index
                 AND am.application_id = ?
            )
          )
@@ -817,15 +851,17 @@ export async function loadBlockedPolicy(env: Env, childId: string) {
     grouped.set(row.application_id, identities);
   }
   const predefined = await env.DB.prepare(`
-    SELECT p.source_index, i.identity_type, i.identifier
+    SELECT p.source, p.source_index, i.identity_type, i.identifier
       FROM native_app_predefined_items_v1 p
       JOIN native_app_predefined_identities_v1 i
         ON i.child_id = p.child_id AND i.source = p.source AND i.source_index = p.source_index
-     WHERE p.child_id = ? AND p.disabled_at IS NULL AND i.status IN ('AUTO', 'CONFIRMED')
+     WHERE p.child_id = ? AND p.desired_state = 'BLOCK'
+       AND p.disabled_at IS NULL AND i.status IN ('AUTO', 'CONFIRMED')
      ORDER BY p.source_index
-  `).bind(childId).all<{ source_index: number; identity_type: 'SIGNINGID' | 'CDHASH' | 'BINARY'; identifier: string }>();
+  `).bind(childId).all<{ source: string; source_index: number;
+    identity_type: 'SIGNINGID' | 'CDHASH' | 'BINARY'; identifier: string }>();
   for (const row of predefined.results || []) {
-    grouped.set(`predefined:${row.source_index}:${row.identifier}`, [{
+    grouped.set(`predefined:${row.source}:${row.source_index}:${row.identifier}`, [{
       identityType: row.identity_type, identifier: row.identifier,
     }]);
   }

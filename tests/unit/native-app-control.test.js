@@ -376,6 +376,17 @@ test('独立控制台只共享登录和 Child，不包含网站/配额管理', (
   assert(!/site-classification|timeQuota|timeWindows|guardian_config/.test(`${html}\n${js}`));
 });
 
+test('预配置应用只展示未匹配来源，已匹配来源在应用详情继续可核验', () => {
+  const html = read('native-app-control/console/index.html');
+  const js = read('native-app-control/console/native-apps.js');
+  assert(html.includes('data-view="PREDEFINED" title="预配置应用"'));
+  assert(js.includes("native('/native/v1/preconfigurations')"));
+  assert(js.includes('!item.matchedApplicationId && !item.disabled_at'));
+  assert(js.includes('appIds.has(item.matchedApplicationId)'));
+  assert(js.includes("item.desired_state === 'BLOCK' ? '期望阻止' : '候选，不下发规则'"));
+  assert(js.includes('data-preset-action="CONFIRM"'), '旧来源核验动作不能丢失');
+});
+
 test('独立控制台可刷新 Guardian session 并重签 Native module token', () => {
   const js = read('native-app-control/console/native-apps.js');
   assert(js.includes('async function refreshGuardianSession()'));

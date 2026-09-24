@@ -80,6 +80,95 @@ export async function importPredefinedItems(env: Env, auth: NativeAuth, raw: unk
   return { source: SOURCE, sourceCount: items.length };
 }
 
+export async function importPreconfigurationSource(
+  env: Env, auth: NativeAuth, source: string, raw: unknown
+) {
+  if (!/^[a-z][a-z0-9-]{2,63}$/.test(source) || source === SOURCE) {
+    throw new Error('invalid_preconfiguration_source');
+  }
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 500) {
+    throw new Error('invalid_preconfiguration_items');
+  }
+  const items = raw.map((value, offset) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('invalid_preconfiguration_item');
+    }
+    const item = value as Record<string, unknown>;
+    const sourceIndex = Number(item.sourceIndex);
+    const displayName = typeof item.displayName === 'string' ? item.displayName.trim() : '';
+    const bundleId = typeof item.bundleId === 'string' ? item.bundleId.trim() : '';
+    const desiredState = item.desiredState;
+    if (sourceIndex !== offset + 1 || !displayName || displayName.length > 120
+      || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,255}$/.test(bundleId)
+      || (desiredState !== 'BLOCK' && desiredState !== 'CANDIDATE')) {
+      throw new Error('invalid_preconfiguration_item');
+    }
+    return { sourceIndex, displayName, bundleId, desiredState };
+  });
+  const previous = await env.DB.prepare(`SELECT source_index, bundle_id, desired_state
+    FROM native_app_predefined_items_v1 WHERE child_id = ? AND source = ?`)
+    .bind(auth.child_id, source).all<{
+      source_index: number; bundle_id: string; desired_state: string;
+    }>();
+  const existing = new Map((previous.results || []).map((item) => [item.source_index, item]));
+  for (const item of items) {
+    const old = existing.get(item.sourceIndex);
+    if (old && (old.bundle_id.toLowerCase() !== item.bundleId.toLowerCase()
+      || old.desired_state !== item.desiredState)) {
+      throw new Error('source_identity_changed');
+    }
+  }
+  const now = timestamp();
+  await env.DB.batch(items.map((item) => env.DB.prepare(`
+    INSERT INTO native_app_predefined_items_v1 (
+      child_id, source, source_index, display_name, bundle_id,
+      desired_state, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(child_id, source, source_index) DO UPDATE SET
+      display_name = excluded.display_name, updated_at = excluded.updated_at
+  `).bind(auth.child_id, source, item.sourceIndex, item.displayName, item.bundleId,
+    item.desiredState, now, now)));
+  await reconcilePredefinedItems(env, auth.account_id, auth.child_id,
+    items.filter((item) => item.desiredState === 'BLOCK').map((item) => item.bundleId));
+  return { source, sourceCount: items.length };
+}
+
+export async function listPreconfigurations(env: Env, auth: NativeAuth) {
+  const result = await env.DB.prepare(`
+    SELECT p.source, p.source_index, p.display_name, p.bundle_id, p.desired_state,
+           p.parent_source_index, p.disabled_at,
+           (SELECT COALESCE(a.merged_into_application_id, a.id, 'inventory:' || e.inventory_key)
+              FROM native_app_inventory_entries_v1 e
+              JOIN native_app_inventory_snapshots_v1 snap ON snap.id = e.snapshot_id
+              JOIN native_macs_v1 m ON m.id = snap.native_mac_id AND m.inventory_snapshot_id = snap.id
+              LEFT JOIN account_applications_v1 a ON a.id = e.application_id
+             WHERE m.child_id = p.child_id AND snap.child_id = p.child_id
+               AND LOWER(e.bundle_id) = LOWER(p.bundle_id)
+             ORDER BY snap.imported_at DESC, m.id ASC LIMIT 1) AS installed_application_id,
+           (SELECT COALESCE(a.merged_into_application_id, a.id)
+              FROM application_observations_v1 o
+              JOIN application_identities_v1 i ON i.id = o.identity_id
+              JOIN application_memberships_v1 am ON am.identity_id = i.id
+              JOIN account_applications_v1 a ON a.id = am.application_id AND a.account_id = ?
+             WHERE o.child_id = p.child_id AND LOWER(i.bundle_id) = LOWER(p.bundle_id)
+             ORDER BY o.last_observed_at DESC LIMIT 1) AS observed_application_id
+      FROM native_app_predefined_items_v1 p
+     WHERE p.child_id = ? ORDER BY p.source, p.source_index
+  `).bind(auth.account_id, auth.child_id).all<{
+    source: string; source_index: number; display_name: string; bundle_id: string | null;
+    desired_state: 'BLOCK' | 'CANDIDATE'; parent_source_index: number | null;
+    disabled_at: number | null; installed_application_id: string | null;
+    observed_application_id: string | null;
+  }>();
+  const items = (result.results || []).map((item) => ({
+    ...item,
+    matchedApplicationId: item.installed_application_id || item.observed_application_id,
+    installed: !!item.installed_application_id,
+    observed: !!item.observed_application_id,
+  }));
+  return { items, unmatchedCount: items.filter((item) => !item.matchedApplicationId && !item.disabled_at).length };
+}
+
 async function matchingCandidates(env: Env, childId: string, bundleId: string): Promise<Candidate[]> {
   const rows = await env.DB.prepare(`
     SELECT i.identity_key, i.identity_type, i.identifier,
@@ -112,16 +201,18 @@ export async function reconcilePredefinedItems(
   const child = await env.DB.prepare(`SELECT child_id FROM native_children_v1
     WHERE child_id = ? AND account_id = ?`).bind(childId, accountId).first<{ child_id: string }>();
   if (!child) return;
-  const items = await env.DB.prepare(`SELECT source_index, bundle_id FROM native_app_predefined_items_v1
-    WHERE child_id = ? AND source = ? AND disabled_at IS NULL AND bundle_id IS NOT NULL`)
-    .bind(childId, SOURCE).all<{ source_index: number; bundle_id: string }>();
+  const items = await env.DB.prepare(`SELECT source, source_index, bundle_id FROM native_app_predefined_items_v1
+    WHERE child_id = ? AND desired_state = 'BLOCK' AND disabled_at IS NULL AND bundle_id IS NOT NULL`)
+    .bind(childId).all<{ source: string; source_index: number; bundle_id: string }>();
   const changed = changedBundleIds && new Set(changedBundleIds.map((bundleId) => bundleId.toLowerCase()));
   const relevant = (items.results || []).filter((item) => !changed || changed.has(item.bundle_id.toLowerCase()));
   if (!relevant.length) return;
-  const known = await env.DB.prepare(`SELECT source_index, identity_key, status FROM native_app_predefined_identities_v1
-    WHERE child_id = ? AND source = ?`).bind(childId, SOURCE)
-    .all<{ source_index: number; identity_key: string; status: string }>();
-  const existing = new Map((known.results || []).map((row) => [`${row.source_index}:${row.identity_key}`, row.status]));
+  const known = await env.DB.prepare(`SELECT source, source_index, identity_key, status
+    FROM native_app_predefined_identities_v1 WHERE child_id = ?`).bind(childId)
+    .all<{ source: string; source_index: number; identity_key: string; status: string }>();
+  const existing = new Map((known.results || []).map((row) => [
+    `${row.source}:${row.source_index}:${row.identity_key}`, row.status,
+  ]));
   const statements: D1PreparedStatement[] = [];
   const activationToken = crypto.randomUUID();
   const now = timestamp();
@@ -130,12 +221,12 @@ export async function reconcilePredefinedItems(
     if (candidates.some((candidate) => candidate.existing_ignore)) {
       statements.push(env.DB.prepare(`UPDATE native_app_predefined_items_v1
         SET disabled_at = ?, updated_at = ? WHERE child_id = ? AND source = ? AND source_index = ?`)
-        .bind(now, now, childId, SOURCE, item.source_index));
+        .bind(now, now, childId, item.source, item.source_index));
       continue;
     }
     const signingKeys = new Set(candidates.filter(trustedSigning).map((candidate) => candidate.identity_key));
     for (const candidate of candidates) {
-      const key = `${item.source_index}:${candidate.identity_key}`;
+      const key = `${item.source}:${item.source_index}:${candidate.identity_key}`;
       if (existing.has(key)) continue;
       const origin = candidate.existing_block ? 'existing_block' : candidate.santa_seen ? 'santa' : 'inventory';
       const automatic = !!candidate.existing_block || (trustedSigning(candidate) && signingKeys.size === 1);
@@ -144,7 +235,7 @@ export async function reconcilePredefinedItems(
         child_id, source, source_index, identity_key, identity_type, identifier,
         match_origin, status, activation_token, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(childId, SOURCE, item.source_index, candidate.identity_key, candidate.identity_type,
+        .bind(childId, item.source, item.source_index, candidate.identity_key, candidate.identity_type,
           candidate.identifier, origin, status, automatic ? activationToken : null, now, now));
     }
   }
@@ -154,24 +245,24 @@ export async function reconcilePredefinedItems(
   statements.push(env.DB.prepare(`UPDATE native_app_predefined_items_v1
     SET required_policy_version = (SELECT policy_version + 1 FROM native_children_v1 WHERE child_id = ?),
         updated_at = ?
-    WHERE child_id = ? AND source = ? AND EXISTS (
+    WHERE child_id = ? AND EXISTS (
       SELECT 1 FROM native_app_predefined_identities_v1 pi
       WHERE pi.child_id = native_app_predefined_items_v1.child_id
         AND pi.source = native_app_predefined_items_v1.source
         AND pi.source_index = native_app_predefined_items_v1.source_index
         AND pi.activation_token = ? AND pi.status = 'AUTO'
         AND pi.match_origin <> 'existing_block'
-    )`).bind(childId, now, childId, SOURCE, activationToken));
+    )`).bind(childId, now, childId, activationToken));
   statements.push(env.DB.prepare(`UPDATE native_app_predefined_items_v1
     SET required_policy_version = COALESCE(required_policy_version,
       (SELECT policy_version FROM native_children_v1 WHERE child_id = ?)), updated_at = ?
-    WHERE child_id = ? AND source = ? AND EXISTS (
+    WHERE child_id = ? AND EXISTS (
       SELECT 1 FROM native_app_predefined_identities_v1 pi
       WHERE pi.child_id = native_app_predefined_items_v1.child_id
         AND pi.source = native_app_predefined_items_v1.source
         AND pi.source_index = native_app_predefined_items_v1.source_index
         AND pi.activation_token = ? AND pi.match_origin = 'existing_block'
-    )`).bind(childId, now, childId, SOURCE, activationToken));
+    )`).bind(childId, now, childId, activationToken));
   statements.push(env.DB.prepare(`UPDATE native_macs_v1
     SET desired_policy_version = desired_policy_version + 1, updated_at = ?
     WHERE child_id = ? AND status = 'active' AND ${newlyExecutable}`)
@@ -185,7 +276,8 @@ export async function reconcilePredefinedItems(
     SELECT ?, ?, ?, 'predefined.auto_bound', 'success', ?, ?
     WHERE ${newlyExecutable}`)
     .bind(crypto.randomUUID(), childId, accountId,
-      JSON.stringify({ source: SOURCE }), now, childId, activationToken));
+      JSON.stringify({ sources: [...new Set(relevant.map((item) => item.source))] }),
+      now, childId, activationToken));
   if (statements.length) await env.DB.batch(statements);
 }
 

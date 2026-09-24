@@ -14,7 +14,10 @@ import {
   unmergeApplication,
 } from './repository';
 import type { Env } from './types';
-import { decidePredefinedIdentity, disablePredefinedItem, importPredefinedItems, listPredefinedItems, reconcilePredefinedItems } from './presets';
+import {
+  decidePredefinedIdentity, disablePredefinedItem, importPreconfigurationSource, listPreconfigurations,
+  importPredefinedItems, listPredefinedItems, reconcilePredefinedItems,
+} from './presets';
 
 const APPLICATION_DECISION_RE = /^\/native\/v1\/applications\/([^/]+)\/decision$/;
 const APPLICATION_MERGE_RE = /^\/native\/v1\/applications\/([^/]+)\/merge$/;
@@ -116,12 +119,23 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
   if (path === '/native/v1/predefined' && request.method === 'GET') {
     return json({ data: await listPredefinedItems(env, auth) });
   }
+  if (path === '/native/v1/preconfigurations' && request.method === 'GET') {
+    return json({ data: await listPreconfigurations(env, auth) });
+  }
   if (path === '/native/v1/predefined/import' && request.method === 'POST') {
     if (body.expectedChildId !== auth.child_id) return json({ error: 'child_confirmation_required' }, 409);
     try {
       return json({ data: await importPredefinedItems(env, auth, body.items) });
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'invalid_predefined_import' }, 400);
+    }
+  }
+  if (path === '/native/v1/preconfigurations/import' && request.method === 'POST') {
+    if (body.expectedChildId !== auth.child_id) return json({ error: 'child_confirmation_required' }, 409);
+    try {
+      return json({ data: await importPreconfigurationSource(env, auth, String(body.source || ''), body.items) });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'invalid_preconfiguration_import' }, 400);
     }
   }
   const identityDecision = path.match(PREDEFINED_IDENTITY_RE);

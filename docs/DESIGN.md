@@ -27,6 +27,8 @@
 
 macOS Native App Control 的权威技术设计位于 `docs/specs/SPEC-003-MACOS-NATIVE-APP-CONTROL-TECHNICAL-DESIGN.md`。该模块部署为独立 Worker 与独立 D1，不属于 Chrome Extension、`guardian-api` 设备同步或 `guardian-db` 业务数据。主系统仅提供 Account/Child 的短期 ES256 身份桥和 Child 删除 lifecycle outbox；Pages 通过 `/native-apps/` 提供独立控制台。现有 Native Worker、D1、secrets 和 Santa 协议属于已部署生产能力，常规 Chrome/Pages 发布不得因“本轮不改 Native 基础设施”而移除既有页面或 Guardian bridge。
 
+Native App 预配置后端增加来源无关的 `GET /native/v1/preconfigurations` 和 `POST /native/v1/preconfigurations/import`（目标 Child ID 二次确认）。迁移 004 为旧预定义表补充 `desired_state`，旧 21 条默认为 `BLOCK`；新来源可保存 `BLOCK` 或仅供识别的 `CANDIDATE`，只有前者参与 Santa 规则编译。生产迁移和通用预配置 UI 尚未部署，跨 Child 复制属于后续包。
+
 ### 1.0.1 App Runtime Guardian 集成边界
 
 App Runtime 的产品、Agent、Worker/D1/R2、独立 Pages、安装器和发布事实只在 `app-runtime-management/docs/` 维护。TimeOnChrome 侧仅保留 Guardian 身份桥、Child lifecycle、主控制台 SSO launch 入口和 `@timeonchrome/app-runtime-contracts` 固定版本兼容。旧 `/app-runtime/` 路径回到主控制台 launch 流程，不再承载或复制 Runtime 静态文件。

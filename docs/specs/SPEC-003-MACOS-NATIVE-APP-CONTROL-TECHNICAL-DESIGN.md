@@ -84,6 +84,8 @@ The main `pages/index.html` adds only a navigation link. It must not embed Nativ
 
 顶层应用目录可由家长在 Native Macs 页面导入 Mac 安装快照 ZIP。浏览器只提取 `applications.json` 的最小身份字段，按当前 Child 下指定 Native Mac 上传；Native D1 独立保存每台 Mac 的快照版本与安装状态。快照与 Santa observation 按代码身份合并，但安装不表示启动，不创建 observation，不改变 Child 策略或现有 Santa rule。重新导入切换该 Mac 的有效快照，不删除旧审核、阻止规则或历史发现。没有可执行身份的应用仍展示，但不可直接下发阻止规则。
 
+可管理应用以目标 Child 的有效安装快照采集名作为主显示名；Santa 和来源系统名称保留在各自来源，不覆盖主显示名。账号级应用身份可以共享，但不能因为一个 Child 导入快照而覆盖另一个 Child 的显示名。若同一 Child 的多台 Mac 为同一身份报告不同名称，展示最近导入的有效快照名称；同时间按 Native Mac ID 稳定排序。Santa 先发现、后导入快照时也遵循此规则，不复制应用或修改既有策略。安装快照只证明导入时采集到，不证明当前仍安装或曾在前台使用。
+
 控制台保留 REVIEW/BLOCK/IGNORE 入口，各入口按社交、娱乐、游戏、人工智能、教育、其它六个内容类别折叠顶层应用。类别只用于展示和搜索，不生成类别策略。REVIEW badge 只计算 Santa 已发现且仍待审核的顶层应用；仅在安装快照发现的应用可预先管理，但须明确标为“已安装 · 尚无 Santa 执行记录”。辅助进程和组件在应用详情中展示，不能计入顶层应用数量；未能归属的技术对象保留在折叠区。预置 Edge、Steam、Safari 等已有规则不得被快照替换或删除。
 
 Santa execution observations remain complete audit evidence, but the review console must not flatten every helper and system process into the primary application list. `listApplications()` derives a read-only presentation model without deleting observations or changing policy identities:
@@ -105,6 +107,16 @@ Canonical source 位于 `native-app-control/console/`；`npm run stage:native-ap
 T.xia 的 Qustodio 阻止清单是一次性导入的 21 条来源事实，独立保存于 Native D1，不能伪造 Santa observation，不能成为账号共享 Application membership。导入按 Child + 来源 + 来源序号幂等更新；Bundle ID 缺失时保持待识别，不按名称猜测。只有已验证的父子关系才把组件折叠到顶层 App，组件身份仍逐一编译。导入先关联同 Child 的 BLOCK、当前安装快照和 Santa 身份，不修改已有 Edge、Steam、Safari 等规则。
 
 预定义目标始终为 BLOCK：精确 Bundle ID 命中同 Child 的可信 TeamID:SigningID 或 `platform:` Signing ID 可自动绑定并提升该 Child 的策略版本；仅哈希、签名异常、多个候选或归属不明时需家长确认，确认后的 CDHASH/BINARY 仅覆盖对应版本。未知身份等待实际发现，允许首次执行。编译时取 Child 专属预定义身份与既有 Child BLOCK 规则的并集并去重，不把组件 identity 写入账号共享 App family。家长将关联应用改为 IGNORE 时，同事务停用对应预定义项，防止下次发现后重新阻止。
+
+预配置应用的后续通用化不把 Qustodio 当作唯一来源：来源项保留 `source` 与该来源的稳定序号，新增 `desired_state` 区分明确的 `BLOCK` 和仅供识别的 `CANDIDATE`。现有 21 条 BLOCK 来源在迁移后默认仍为 `BLOCK`，旧 `target_policy` 仅作兼容字段；规则编译必须显式筛选 `desired_state=BLOCK`。候选项不生成 Santa 规则、不代表 Santa 已观察或家长已审核。跨 Child 初始化只复制明确的 BLOCK/IGNORE，保留目标 Child 独立策略；本轮先完成通用来源存储、BLOCK 重算和候选隔离，不开放跨 Child 复制或生产导入。
+
+新增 Child 授权的 `/native/v1/preconfigurations` 只读查询与 `/native/v1/preconfigurations/import` 来源导入接口。导入需要目标 Child ID 二次确认，来源代码与来源序号决定幂等键，已存在项不得换 Bundle ID 或管理意图；只有当前 Child 的有效安装快照或 Santa 观察与同 Bundle ID 的可管理应用身份对应时才标记已匹配。此查询不改变来源记录，不把安装当作执行事实，也不自动跨 Child 复制。
+
+来源项的组件父子关系必须同时按 `source` 和 `source_index` 约束；一个来源的确认、停用或匹配不能仅因另一来源使用相同序号而改动后者。旧来源行的 BLOCK 编译与终端策略版本保持原样。主应用列表的状态投影需纳入当前 Child 的可执行预配置 BLOCK 身份，否则来源项从预配置页移出后会错误留在待审核；这只是只读展示归属，不改写审核状态或规则。预配置页只展示当前 Child 未匹配的来源项，并保留来源和候选/BLOCK 区分。
+
+通用来源自动绑定的策略版本归属必须以本次 `activation_token` 找到真实激活的 `(source, source_index)`，不能固定为旧 Qustodio 来源。多个来源同批激活只提升一次 Child 策略版本，但各激活项都记录该版本；已存在 BLOCK 身份仅关联当前版本，不重复提升。审计元数据记录本批涉及的来源集合。
+
+来源与安装快照的展示关联不得要求清单项已有可用规则身份：无签名/身份异常但有精确 Bundle ID 的应用仍属于“已安装”，主列表以 `inventory:<inventory_key>` 的只读应用行呈现；预配置来源可关联此行，但该关联不产生 Santa observation、可执行身份或策略生效声明。
 
 Santa EventUpload 与安装清单导入只触发本批出现的 Bundle ID 的预定义重算；没有匹配的预定义项时立即返回，不做空批次 D1 写入。首次来源导入才完整核对 21 项。
 

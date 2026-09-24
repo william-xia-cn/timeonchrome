@@ -30,7 +30,7 @@ const repository = loadModule('native-app-control/worker/src/repository.ts', {
 function database() {
   const sqlite = new DatabaseSync(':memory:');
   for (const migration of ['001_native_app_control_v1.sql', '002_native_app_inventory_v1.sql',
-    '003_native_app_predefined_controls_v1.sql']) {
+    '003_native_app_predefined_controls_v1.sql', '004_native_app_preconfiguration_source_v1.sql']) {
     sqlite.exec(fs.readFileSync(path.join(ROOT, 'native-app-control', 'worker', 'migrations', migration), 'utf8'));
   }
   const statement = (sql, args = []) => ({
@@ -121,5 +121,45 @@ const signed = (name, bundle, team, signing = bundle, hash = 'a'.repeat(40)) => 
   assert.deepEqual([...edgeBlocked.installedOnMacIds].sort(), ['mac-1', 'mac-1b']);
   assert.equal(await repository.importNativeMacInventory(env, auth, 'mac-3', [edge]), null,
     '不能给另一个 Child 的 Mac 上传清单');
+
+  const historical = database();
+  const firstChild = seed(historical.sqlite, 'historical-1', 'historical-mac-1');
+  const secondChild = seed(historical.sqlite, 'historical-2', 'historical-mac-2');
+  await repository.observeSantaEvents(historical.env, {
+    accountId: firstChild.account_id, childId: firstChild.child_id, nativeMacId: 'historical-mac-1',
+  }, [{ file_name: 'MSTeams', file_path: '/Applications/Microsoft Teams.app/Contents/MacOS/MSTeams',
+    bundle_id: 'com.microsoft.teams2', team_id: 'UBF8T346G9', signing_id: 'com.microsoft.teams2' }]);
+  let firstRows = await repository.listApplications(historical.env, firstChild, 'REVIEW');
+  assert.equal(firstRows.length, 1);
+  assert.equal(firstRows[0].display_name, 'MSTeams');
+  const applicationId = firstRows[0].id;
+  await repository.importNativeMacInventory(historical.env, firstChild, 'historical-mac-1', [
+    signed('Microsoft Teams', 'com.microsoft.teams2', 'UBF8T346G9'),
+  ]);
+  firstRows = await repository.listApplications(historical.env, firstChild, 'REVIEW');
+  assert.equal(firstRows.length, 1, '先 Santa 后清单不复制应用');
+  assert.equal(firstRows[0].id, applicationId);
+  assert.equal(firstRows[0].display_name, 'Microsoft Teams', '当前 Child 主名以安装快照为准');
+  assert.equal(historical.sqlite.prepare('SELECT display_name FROM account_applications_v1 WHERE id = ?')
+    .get(applicationId).display_name, 'MSTeams', '不覆盖账号共享身份名称');
+
+  await repository.importNativeMacInventory(historical.env, secondChild, 'historical-mac-2', [
+    signed('Teams for School', 'com.microsoft.teams2', 'UBF8T346G9'),
+  ]);
+  const secondRows = await repository.listApplications(historical.env, secondChild, 'REVIEW');
+  assert.equal(secondRows.length, 1);
+  assert.equal(secondRows[0].display_name, 'Teams for School');
+  assert.equal((await repository.listApplications(historical.env, firstChild, 'REVIEW'))[0].display_name,
+    'Microsoft Teams', '另一个 Child 的清单不能改本 Child 主名');
+
+  historical.sqlite.prepare('INSERT INTO native_macs_v1 (id, child_id, display_name, created_at, updated_at) VALUES (?, ?, ?, 1, 1)')
+    .run('historical-mac-1b', 'historical-1', 'Second Mac');
+  await repository.importNativeMacInventory(historical.env, firstChild, 'historical-mac-1b', [
+    signed('Teams New Name', 'com.microsoft.teams2', 'UBF8T346G9'),
+  ]);
+  historical.sqlite.prepare('UPDATE native_app_inventory_snapshots_v1 SET imported_at = imported_at + 1 WHERE id = '
+    + '(SELECT inventory_snapshot_id FROM native_macs_v1 WHERE id = ?)').run('historical-mac-1b');
+  assert.equal((await repository.listApplications(historical.env, firstChild, 'REVIEW'))[0].display_name,
+    'Teams New Name', '多台 Mac 使用最新有效快照的采集名');
   console.log('Native App inventory tests: passed');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

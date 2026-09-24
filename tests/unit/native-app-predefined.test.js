@@ -32,7 +32,7 @@ function database() {
   const sqlite = new DatabaseSync(':memory:');
   let batchTail = Promise.resolve();
   for (const migration of ['001_native_app_control_v1.sql', '002_native_app_inventory_v1.sql',
-    '003_native_app_predefined_controls_v1.sql']) {
+    '003_native_app_predefined_controls_v1.sql', '004_native_app_preconfiguration_source_v1.sql']) {
     sqlite.exec(fs.readFileSync(path.join(ROOT, 'native-app-control', 'worker', 'migrations', migration), 'utf8'));
   }
   const statement = (sql, args = []) => ({
@@ -179,7 +179,7 @@ function signed(name, bundleId, teamId, signingId = bundleId) {
   listed = await presets.listPredefinedItems(env, auth);
   assert.equal(listed.items[3].status, '部分生效', '第二台 Mac 未报告应用版本时不得宣称全部生效');
 
-  const steam = (await repository.listApplications(env, auth, 'REVIEW')).find((app) => app.display_name === 'Steam');
+  const steam = (await repository.listApplications(env, auth, 'BLOCK')).find((app) => app.display_name === 'Steam');
   assert(await repository.decideApplication(env, auth, steam.id, 'IGNORE'));
   listed = await presets.listPredefinedItems(env, auth);
   assert.equal(listed.items[0].status, '已停用');
@@ -225,5 +225,118 @@ function signed(name, bundleId, teamId, signingId = bundleId) {
   assert.equal(wrongChild.status, 409, '生产导入必须再次绑定当前 Child');
   const read = await admin.handleAdminRequest(new Request('https://native.test/native/v1/predefined'), env);
   assert.equal((await read.json()).data.sourceCount, 21);
+
+  const generic = database();
+  const genericAuth = seed(generic.sqlite, 'generic-child', 'generic-mac');
+  seed(generic.sqlite, 'generic-other', 'generic-other-mac');
+  await repository.importNativeMacInventory(generic.env, genericAuth, 'generic-mac', [
+    signed('Candidate', 'org.example.candidate', 'AAAAAAAAAA'),
+    signed('Blocked', 'org.example.blocked', 'BBBBBBBBBB'),
+  ]);
+  const genericItems = [
+    { sourceIndex: 1, displayName: 'Candidate source name', bundleId: 'org.example.candidate',
+      desiredState: 'CANDIDATE' },
+    { sourceIndex: 2, displayName: 'Blocked source name', bundleId: 'org.example.blocked',
+      desiredState: 'BLOCK' },
+    { sourceIndex: 3, displayName: 'Future app', bundleId: 'org.example.future',
+      desiredState: 'CANDIDATE' },
+  ];
+  const genericVersion = generic.sqlite.prepare('SELECT policy_version AS v FROM native_children_v1 WHERE child_id = ?')
+    .get('generic-child').v;
+  await presets.importPreconfigurationSource(generic.env, genericAuth, 'reference-catalog', genericItems);
+  assert.equal(generic.sqlite.prepare('SELECT policy_version AS v FROM native_children_v1 WHERE child_id = ?')
+    .get('generic-child').v, genericVersion + 1, '只有可信 BLOCK 来源提升策略版本');
+  assert.equal(generic.sqlite.prepare(`SELECT required_policy_version AS v
+    FROM native_app_predefined_items_v1 WHERE child_id = ? AND source = ? AND source_index = 2`)
+    .get('generic-child', 'reference-catalog').v, genericVersion + 1,
+  '通用来源的可执行项必须记录本次 Child 策略版本');
+  assert.equal(generic.sqlite.prepare(`SELECT required_policy_version AS v
+    FROM native_app_predefined_items_v1 WHERE child_id = ? AND source = ? AND source_index = 1`)
+    .get('generic-child', 'reference-catalog').v, null,
+  '仅供识别的候选项不应记录下发版本');
+  assert.equal(generic.sqlite.prepare('SELECT COUNT(*) AS n FROM native_app_predefined_identities_v1 '
+    + 'WHERE child_id = ? AND source = ? AND source_index = 1').get('generic-child', 'reference-catalog').n, 0,
+  '候选应用不生成可执行身份');
+  const genericBlocked = await repository.loadBlockedPolicy(generic.env, 'generic-child');
+  assert(genericBlocked.applications.some((app) => app.identities.some((identity) =>
+    identity.identifier === 'BBBBBBBBBB:org.example.blocked')));
+  assert(!genericBlocked.applications.some((app) => app.identities.some((identity) =>
+    identity.identifier === 'AAAAAAAAAA:org.example.candidate')), '候选应用不能编译阻止规则');
+  const effectiveBlocked = await repository.listApplications(generic.env, genericAuth, 'BLOCK');
+  assert(effectiveBlocked.some((app) => app.top_level_bundle_id === 'org.example.blocked'
+    && app.preconfiguredBlock), '预配置可执行 BLOCK 应在已阻止主列表展示');
+  const effectiveReview = await repository.listApplications(generic.env, genericAuth, 'REVIEW');
+  assert(effectiveReview.some((app) => app.top_level_bundle_id === 'org.example.candidate'),
+    '仅候选的应用仍在待审核');
+  assert(!effectiveReview.some((app) => app.top_level_bundle_id === 'org.example.blocked'),
+    '预配置 BLOCK 不应同时留在待审核');
+  assert.equal((await repository.loadBlockedPolicy(generic.env, 'generic-other')).applications.length, 0);
+  const preconfigured = await presets.listPreconfigurations(generic.env, genericAuth);
+  assert.equal(preconfigured.items.length, 3);
+  assert.equal(preconfigured.unmatchedCount, 1);
+  assert.equal(preconfigured.items[0].installed, true);
+  assert(preconfigured.items[0].matchedApplicationId, '已安装来源项关联可管理应用');
+  assert.equal(preconfigured.items[2].matchedApplicationId, null, '未采集到的来源项保持预配置');
+  assert.equal((await presets.listPreconfigurations(generic.env, {
+    ...genericAuth, child_id: 'generic-other',
+  })).items.length, 0, '预配置来源按 Child 隔离');
+  await presets.importPreconfigurationSource(generic.env, genericAuth, 'reference-catalog', genericItems);
+  assert.equal(generic.sqlite.prepare('SELECT policy_version AS v FROM native_children_v1 WHERE child_id = ?')
+    .get('generic-child').v, genericVersion + 1, '重复来源导入不再提升策略版本');
+  await assert.rejects(() => presets.importPreconfigurationSource(generic.env, genericAuth,
+    'reference-catalog', [{ ...genericItems[0], desiredState: 'BLOCK' }]), /source_identity_changed/);
+  const genericAdmin = loadModule('native-app-control/worker/src/admin.ts', {
+    './auth': { authenticateModule: async () => genericAuth },
+    './repository': { ensureNativeChild: async () => {} },
+    './presets': presets,
+  });
+  const badChild = await genericAdmin.handleAdminRequest(new Request(
+    'https://native.test/native/v1/preconfigurations/import', {
+      method: 'POST', body: JSON.stringify({ expectedChildId: 'generic-other',
+        source: 'reference-catalog', items: genericItems }),
+    }), generic.env);
+  assert.equal(badChild.status, 409);
+  const genericRead = await genericAdmin.handleAdminRequest(new Request(
+    'https://native.test/native/v1/preconfigurations'), generic.env);
+  assert.equal((await genericRead.json()).data.unmatchedCount, 1);
+
+  await presets.importPreconfigurationSource(generic.env, genericAuth, 'target-source', [
+    { sourceIndex: 1, displayName: 'Blocked', bundleId: 'org.example.blocked', desiredState: 'CANDIDATE' },
+  ]);
+  await presets.importPreconfigurationSource(generic.env, genericAuth, 'other-source', [
+    { sourceIndex: 1, displayName: 'Other parent', bundleId: 'org.example.other', desiredState: 'CANDIDATE' },
+    { sourceIndex: 2, displayName: 'Other component', bundleId: 'org.example.other.helper',
+      desiredState: 'CANDIDATE' },
+  ]);
+  generic.sqlite.prepare(`UPDATE native_app_predefined_items_v1 SET parent_source_index = 1
+    WHERE child_id = ? AND source = ? AND source_index = 2`).run('generic-child', 'other-source');
+  const blockedApp = (await repository.listApplications(generic.env, genericAuth, 'BLOCK'))
+    .find((app) => app.top_level_bundle_id === 'org.example.blocked');
+  assert(await repository.decideApplication(generic.env, genericAuth, blockedApp.id, 'IGNORE'));
+  assert(generic.sqlite.prepare(`SELECT disabled_at FROM native_app_predefined_items_v1
+    WHERE child_id = ? AND source = ? AND source_index = 1`).get('generic-child', 'target-source').disabled_at);
+  assert.equal(generic.sqlite.prepare(`SELECT disabled_at FROM native_app_predefined_items_v1
+    WHERE child_id = ? AND source = ? AND source_index = 2`).get('generic-child', 'other-source').disabled_at,
+  null, '同序号的另一来源组件不能被误停用');
+
+  const inventoryOnly = database();
+  const inventoryAuth = seed(inventoryOnly.sqlite, 'inventory-child', 'inventory-mac');
+  await repository.importNativeMacInventory(inventoryOnly.env, inventoryAuth, 'inventory-mac', [
+    { displayName: 'Unsigned Local App', bundleId: 'org.example.unsigned', signatureStatus: 'unsigned' },
+  ]);
+  await presets.importPreconfigurationSource(inventoryOnly.env, inventoryAuth, 'future-source', [
+    { sourceIndex: 1, displayName: 'Future name', bundleId: 'org.example.unsigned',
+      desiredState: 'CANDIDATE' },
+  ]);
+  const inventoryRow = (await repository.listApplications(inventoryOnly.env, inventoryAuth, 'REVIEW'))
+    .find((app) => app.bundle_id === 'org.example.unsigned');
+  assert(inventoryRow?.id.startsWith('inventory:'), '无可用规则身份的安装项仍在主应用列表');
+  const inventorySource = (await presets.listPreconfigurations(inventoryOnly.env, inventoryAuth)).items[0];
+  assert.equal(inventorySource.matchedApplicationId, inventoryRow.id,
+    '预配置项应关联已安装但无签名身份的只读主应用行');
+  assert.equal(inventorySource.installed, true);
+  assert.equal(inventorySource.observed, false, '安装来源不能伪装为 Santa 启动记录');
+  assert.equal((await repository.loadBlockedPolicy(inventoryOnly.env, inventoryAuth.child_id)).applications.length, 0,
+    '只读关联不得生成阻止规则');
   console.log('Native App predefined controls tests: passed');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

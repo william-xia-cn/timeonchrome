@@ -5,13 +5,13 @@
     REVIEW: ['待审核应用', 'Santa 发现的新应用默认允许运行，家长可在此忽略或阻止。'],
     BLOCK: ['已阻止应用', '应用规则按稳定代码身份下发；发布者规则覆盖同一 TeamID。'],
     IGNORE: ['已忽略应用', '已审核且不生成 Santa allow rule。'],
-    PREDEFINED: ['预定义管控', 'Qustodio 一次性阻止清单。身份核验后下发；安装或来源记录不代表曾启动。'],
+    PREDEFINED: ['预配置应用', '当前孩子尚未安装或被 Santa 发现的来源应用；安装清单和来源项不代表曾启动。'],
     MACS: ['Native Macs', '独立管理 Santa enrollment、同步状态和策略版本。'],
   };
   const state = {
     view: 'REVIEW', token: null, childId: null, childName: null,
     data: [], merges: [], enrollmentProfile: null, applicationQuery: '', reviewCount: 0,
-    inventoryMacId: null, predefined: null,
+    inventoryMacId: null, predefined: null, preconfigurations: null,
   };
   const CATEGORY_ORDER = ['社交', '娱乐', '游戏', '人工智能', '教育', '其它'];
   const $ = (selector) => document.querySelector(selector);
@@ -396,32 +396,26 @@
   }
 
   function renderPredefined() {
-    const payload = state.predefined || { sourceCount: 0, topLevelCount: 0, items: [] };
-    const items = payload.items || [];
-    const children = new Map();
-    for (const item of items) {
-      if (item.parent_source_index == null) continue;
-      const key = Number(item.parent_source_index);
-      children.set(key, [...(children.get(key) || []), item]);
-    }
-    const itemRow = (item, component = false) => {
-      const identities = item.identities || [];
-      const active = identities.filter((identity) => ['AUTO', 'CONFIRMED'].includes(identity.status));
-      const candidates = identities.filter((identity) => identity.status === 'NEEDS_CONFIRM');
-      return `<div class="predefined-row${component ? ' component' : ''}">
-        <div class="predefined-name"><strong>${escapeHtml(item.display_name)}</strong>${component ? '<small>组件 · 已核验归属</small>' : '<small>顶层 App</small>'}</div>
+    const sourceItems = (state.preconfigurations?.items || [])
+      .filter((item) => !item.matchedApplicationId && !item.disabled_at);
+    const legacy = new Map((state.predefined?.items || []).map((item) => [item.source_index, item]));
+    const itemRow = (item) => {
+      const old = item.source === 'qustodio-2026-09' ? legacy.get(item.source_index) : null;
+      const pending = (old?.identities || []).filter((identity) => identity.status === 'NEEDS_CONFIRM');
+      const target = item.desired_state === 'BLOCK' ? 'BLOCK' : '候选';
+      return `<div class="predefined-row${item.parent_source_index != null ? ' component' : ''}">
+        <div class="predefined-name"><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.source)}${item.parent_source_index != null ? ' · 组件' : ''}</small></div>
         <div class="predefined-bundle" title="${escapeHtml(item.bundle_id || '')}">${escapeHtml(item.bundle_id || 'Bundle ID 待核对')}</div>
-        <div><span class="badge block">BLOCK</span></div>
-        <div class="predefined-match">${active.length ? `${active.length} 个可执行身份` : candidates.length ? '身份待确认' : '身份待识别'}
-          ${identities.map((identity) => `<div class="predefined-identity"><code title="${escapeHtml(identity.identifier)}">${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code>${identity.status === 'NEEDS_CONFIRM' && !item.disabled_at ? `<button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}" title="确认此代码身份并下发阻止">确认</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}" title="排除此候选身份">排除</button>` : ''}</div>`).join('')}</div>
-        <div class="predefined-status"><strong>${escapeHtml(item.status)}</strong>${active.length ? `<small>终端 ${item.appliedMacCount}/${item.activeMacCount} 已应用</small>` : ''}</div>
-        <div class="predefined-actions">${item.disabled_at ? '' : `<button class="quiet" data-preset-action="DISABLE" data-index="${item.source_index}" title="停用此来源项及已核验组件">停用</button>`}</div>
+        <div><span class="badge ${item.desired_state === 'BLOCK' ? 'block' : ''}">${target}</span></div>
+        <div class="predefined-match">${item.desired_state === 'BLOCK' ? pending.length ? '身份需确认' : '身份待识别' : '仅供识别，不下发规则'}
+          ${pending.map((identity) => `<div class="predefined-identity"><code title="${escapeHtml(identity.identifier)}">${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code><button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">确认</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">排除</button></div>`).join('')}</div>
+        <div class="predefined-status"><strong>未匹配</strong><small>未见于当前安装清单或 Santa 记录</small></div>
+        <div class="predefined-actions">${old && item.desired_state === 'BLOCK' ? `<button class="quiet" data-preset-action="DISABLE" data-index="${item.source_index}" title="停用此来源项及已核验组件">停用</button>` : ''}</div>
       </div>`;
     };
-    $('#content').innerHTML = `<div class="toolbar"><span class="summary">${payload.sourceCount} 条来源项 · ${payload.topLevelCount} 个顶层 App</span></div>
-      ${items.length ? `<div class="predefined-table"><div class="predefined-head"><span>应用 / 组件</span><span>Bundle ID</span><span>目标</span><span>身份匹配</span><span>终端状态</span><span></span></div>
-        ${items.filter((item) => item.parent_source_index == null).map((item) => `${itemRow(item)}${(children.get(Number(item.source_index)) || []).map((child) => itemRow(child, true)).join('')}`).join('')}</div>`
-        : '<div class="empty">尚未导入核验后的 Qustodio 清单。</div>'}`;
+    $('#content').innerHTML = `<div class="toolbar"><span class="summary">${sourceItems.length} 个未匹配来源项</span></div>
+      ${sourceItems.length ? `<div class="predefined-table"><div class="predefined-head"><span>来源应用</span><span>Bundle ID</span><span>目标</span><span>身份</span><span>发现状态</span><span></span></div>
+        ${sourceItems.map(itemRow).join('')}</div>` : '<div class="empty">当前没有未匹配的预配置应用。已匹配应用请在待审核、已阻止或已忽略列表查看。</div>'}`;
   }
 
   async function loadView() {
@@ -436,8 +430,11 @@
         state.data = result.data || [];
         state.merges = [];
       } else if (state.view === 'PREDEFINED') {
-        const result = await native('/native/v1/predefined');
-        state.predefined = result.data;
+        const [preconfigurations, predefined] = await Promise.all([
+          native('/native/v1/preconfigurations'), native('/native/v1/predefined'),
+        ]);
+        state.preconfigurations = preconfigurations.data;
+        state.predefined = predefined.data;
       } else {
         const [result, merges] = await Promise.all([
           native(`/native/v1/applications?state=${state.view}`),
@@ -465,6 +462,7 @@
       ? `/native/v1/predefined/${index}/disable`
       : `/native/v1/predefined/${index}/identities/decision`;
     await native(path, { method: 'POST', body: JSON.stringify({ action, identityKey: button.dataset.key }) });
+    if ($('#application-detail-dialog').open) $('#application-detail-dialog').close();
     await loadView();
   }
 
@@ -474,9 +472,16 @@
     });
     await loadView();
   }
-  function openApplicationDetails(applicationId) {
+  async function openApplicationDetails(applicationId) {
     const app = state.data.find((item) => item.id === applicationId);
     if (!app) throw new Error('找不到该应用记录');
+    const [preconfigurations, predefined] = await Promise.all([
+      native('/native/v1/preconfigurations'), native('/native/v1/predefined'),
+    ]);
+    const appIds = new Set([app.id, ...(app.relatedApplicationIds || [])]);
+    const sources = (preconfigurations.data?.items || []).filter((item) =>
+      appIds.has(item.matchedApplicationId) && !item.disabled_at);
+    const oldItems = new Map((predefined.data?.items || []).map((item) => [item.source_index, item]));
     const components = app.components || [];
     $('#detail-application-mark').textContent = applicationInitial(app);
     $('#detail-application-kind').textContent = applicationTypeLabel(app);
@@ -492,6 +497,13 @@
     const componentSection = $('#detail-application-components');
     componentSection.hidden = components.length === 0;
     componentSection.innerHTML = components.length ? `<h3>内部组件 <span>${components.length}</span></h3><div class="detail-component-list">${components.map((item) => `<div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.bundle_id || item.top_level_bundle_id || '未提供 Bundle ID')}</small><code>${escapeHtml(item.sample_path || '未提供执行路径')}</code></div>`).join('')}</div>` : '';
+    const sourceSection = $('#detail-application-preconfiguration');
+    sourceSection.hidden = sources.length === 0;
+    sourceSection.innerHTML = sources.length ? `<h3>预配置来源 <span>${sources.length}</span></h3><div class="detail-component-list">${sources.map((item) => {
+      const old = item.source === 'qustodio-2026-09' ? oldItems.get(item.source_index) : null;
+      const pending = (old?.identities || []).filter((identity) => identity.status === 'NEEDS_CONFIRM');
+      return `<div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.source)} · ${item.desired_state === 'BLOCK' ? '期望阻止' : '候选，不下发规则'}${old ? ` · ${escapeHtml(old.status)}` : ''}</small>${pending.map((identity) => `<div class="predefined-identity"><code>${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code><button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">确认身份</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">排除</button></div>`).join('')}</div>`;
+    }).join('')}</div>` : '';
     const advanced = $('#detail-application-advanced');
     const advancedActions = [];
     if (state.view === 'REVIEW' && app.presentationClass !== 'SYSTEM_COMPONENT' && app.policyAvailable !== false) {
@@ -591,6 +603,10 @@
           ? decide(target.dataset.id, target.dataset.action)
           : macAction(target.dataset.id, target.dataset.macAction);
       Promise.resolve(promise).catch(showError);
+    });
+    $('#detail-application-preconfiguration').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-preset-action]');
+      if (button) presetAction(button).catch(showError);
     });
     $('#close-application-detail').addEventListener('click', () => $('#application-detail-dialog').close());
     $('#application-detail-dialog').addEventListener('click', (event) => {
