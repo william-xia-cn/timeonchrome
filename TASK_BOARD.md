@@ -1,14 +1,15 @@
 # TASK_BOARD
 
-## TimeWhereNative 本机拆仓（D-104，源码/CI 已完成；发布交接待凭据）
+## TimeWhereNative 本机拆仓（D-104，源码/CI 与不可变候选交接已完成）
 
 - [x] BrowserBridge v3 已通过 PR #44 合入 `origin/master@373877d`，本任务从该干净基线开始。
 - [x] 在隔离仓保留 `agents/`、`installer/` 的 40 个相关历史提交并迁入私有 `TimeWhereNative`；原生仓锁定 contracts 1.12.0/上一兼容 1.10.0 及包校验值。
 - [x] 原生仓独立 Windows/macOS/WiX CI；TimeOnChrome PR #45/#46 保留 contracts、Runtime Worker/Pages/D1/R2、Guardian adapter 与唯一 R2 发布权。
 - [x] 双仓隔离构建、当前版及上一兼容版协议验证、发布权限审计完成；旧本机源码和旧 CI 入口已通过 PR #45 从 master 移除。原生仓 PR #1（merge `d7b56ec`）修复最新 Windows CI 失败并引入最小影响测试路由。旧仓在无本机源码时完成 contracts build/compat、Guardian TypeScript/集成、Worker typecheck/Vitest `56/56`/dry-run 及 Console session 测试；原生仓 CI `5759559` 的真实安装候选已通过旧仓验真器，旧来源 SHA 的本地候选被正确拒绝。
-- [ ] 发布交接独立门：TimeOnChrome production 环境仍需只读跨仓令牌与 R2 专用凭据；随后在明确发布授权下试运行候选验真/不可变回读。`latest` 切换另行审批，本次不执行。
+- [x] 发布交接独立门：旧仓 production 环境配置了只读跨仓令牌和仅限 Runtime 发布桶的一年期 R2 对象读写凭据；受保护验真运行 `36117686246` 通过，`master@8b96cad` 的发布运行 `36131882394` 第 3 次尝试完成原生 CI `36045220406` / SHA `575955972e64c56094f77c150548e8261c66e598` 的来源与 contract 1.12.0 校验、2.6.0 Burn/MSI/manifest 条件写入和逐件回读。前两次凭据错误均未成功上传，误配 token 已吊销。R2 manifest `windows/x64/2.6.0/manifest.json` 在二进制之后写入；latest.json 仍为 2.3.1，未切换。
+- [ ] 后续独立闸门：2.6.0 未签名候选不等于公开正式发布；终端升级、真实家庭数据验收及 R2 latest 切换仍需各自明确批准。跨仓只读令牌于 2026-10-25 到期，R2 专用凭据于 2027-09-25 到期，需在到期前轮换。
 
-测试契约：架构／源码所有权迁移（高风险）；本地必须＝原生文件与 Git 历史对照、Windows 测试与 WiX 构建、macOS CI、contracts 当前版/上一版兼容、TimeOnChrome contracts/Worker/Console/Guardian 定向检查、边界与权限审计、`git diff --check`；CI＝两仓各自受影响 job；发布 smoke＝无。本轮明确排除云端部署、D1 migration、R2 latest、终端升级、真实家庭数据、网页／应用账本语义修改。
+测试契约：架构／源码所有权迁移（高风险）；本地必须＝原生文件与 Git 历史对照、Windows 测试与 WiX 构建、macOS CI、contracts 当前版/上一版兼容、TimeOnChrome contracts/Worker/Console/Guardian 定向检查、边界与权限审计、`git diff --check`；CI＝两仓各自受影响 job。源码迁移未部署 Worker/Pages/Guardian 或执行 D1 migration；另行批准的候选发布已写入不可变 R2 路径。本轮仍排除 R2 latest、终端升级、真实家庭数据、网页／应用账本语义修改。
 
 - [ ] [P1 Native App / preconfiguration presentation / deployed, visual pending] 主表与预配置页显示归属、旧来源详情核验动作及对应单测已完成：可执行 BLOCK 进入“已阻止”，预配置页只显示未匹配来源并区分 BLOCK/候选。Product Owner 于 2026-09-24 明确要求先提交部署并自行验证；部署前目视验收因浏览器安全策略未完成，仍待 Product Owner 线上确认，不记为 PASS。代码提交 `cffcee2`；Native Worker `1ff8c68b-82bc-4cdc-a498-85eb4cb44912`、Pages `c2d25d50` 已部署，稳定域名 HTML/JS 和 Worker `/health` 回读 HTTP 200。本轮未导入新生产来源，也未做跨 Child 复制。
 - [x] [P1 Native App / migration ledger repair / deployed] 生产 Native D1 的 `002/003` 表、索引及 `inventory_snapshot_id` 字段已与仓库迁移核对；仅补录缺失迁移元数据，未重放旧建表 SQL。随后应用 `004`，回查无待执行迁移，既有 21 条来源仍全部为 `BLOCK`。
