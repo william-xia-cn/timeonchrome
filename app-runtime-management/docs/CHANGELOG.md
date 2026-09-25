@@ -1,5 +1,11 @@
 # App Runtime Changelog
 
+## [TimeWhereNative 拆仓发布交接] — 2026-09-25（内部 2.6.0 不可变候选）
+
+- TimeOnChrome `master@8b96cad` 的受保护交接门先以运行 `36117686246` 验真，再以运行 `36131882394` 第 3 次尝试将 TimeWhereNative `575955972e64c56094f77c150548e8261c66e598` / CI `36045220406` 的 Burn、MSI、manifest 上传至 R2 `windows/x64/2.6.0/`；条件写入与逐件回读哈希通过，证据 artifact `10862434201`。
+- Burn 118,917,683 bytes / SHA-256 `8a7c91f696fd7360e28b15decf2e2fb3f8e0eeda5ee2ba8a6cf6019cfa88f716`；MSI 60,495,604 bytes / SHA-256 `7900205b038ec3d609b852c23e7d130b2114baa43e0c87a5ab60a75ae02ec21b`。manifest 记录 contract 1.12.0、来源 SHA 与 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
+- 前两次凭据错误未成功上传；误配 R2 token 已吊销，新凭据仅限 Runtime 发布桶。R2 latest.json 仍为 2.3.1；未部署 Worker/Pages/Guardian、执行 migration、升级终端或改写账本。
+
 ## [ARM-D-029 / Windows 2.6.0 候选] — 2026-09-22（本地实现、测试与构建完成，待实机升级验收）
 
 - BrowserBridge v2 分离 best-effort health 与 durable ledger；Ledger 使用持久待发送状态、逐项 ACK、Segment ID 幂等和启用后对账。

@@ -5,8 +5,8 @@
 - BrowserBridge v3 已于 PR #44 合入 `master@373877d`，拆仓从该干净基线开始；v3 仍是本地候选，不代表生产发布。
 - TimeOnChrome 保留 contracts、Runtime Worker/独立 Pages、D1/R2、Guardian 身份桥及生产发布权；私有 TimeWhereNative 接管 Windows/macOS Agent、RuntimeService、TimeWhereMg、Native Host 与安装器。
 - 现有 SSO、Child lifecycle、机器身份和云资源地址不迁移；新仓为私有仓，Actions 无 Cloudflare 生产 secrets 或写入 workflow。原生仓 `5759559` 的 Windows tests/installer 与 macOS 15 当前版、上一兼容契约版 CI 已通过（run `36045220406`）；PR #1（merge `d7b56ec`）的 Windows 当前/上一契约测试与新汇总门通过（run `36048525372`）。旧仓 PR #45/#46 已合并，master 不再包含本机可发布源码与旧本机 CI；旧仓隔离构建 contracts、Guardian、Worker（56 tests 与 dry-run）及 Console session 均通过。旧仓验真器对 run `36045220406` 的实际候选来源 SHA、契约锁、Burn/MSI 大小与 SHA-256 验证通过，并拒绝本地来源 SHA 不符的同版本旧候选。
-- TimeOnChrome production 环境已核实具备人工审核且只允许 master；目前只有既有 Cloudflare API secret，尚无跨仓只读令牌和 R2 S3 专用密钥。交接工作流未运行，不能宣称不可变安装包已发布或 latest 已切换。
-- 拆仓本身不部署、不执行 migration、不升级本机、不改写账本或切换 R2 latest。
+- TimeOnChrome production 环境人工审核且只允许 master，已配置只读跨仓令牌与仅限 Runtime 发布桶的一年期 R2 S3 凭据。`master@8b96cad` 的验真运行 `36117686246` 通过；发布运行 `36131882394` 第 3 次尝试完成 Windows 2.6.0 内部候选的 Burn、MSI、manifest 条件写入及逐件 R2 回读。来源为 TimeWhereNative `575955972e64c56094f77c150548e8261c66e598` / CI `36045220406`，contract 1.12.0。Burn 为 118,917,683 bytes / SHA-256 `8a7c91f696fd7360e28b15decf2e2fb3f8e0eeda5ee2ba8a6cf6019cfa88f716`；MSI 为 60,495,604 bytes / SHA-256 `7900205b038ec3d609b852c23e7d130b2114baa43e0c87a5ab60a75ae02ec21b`。R2 manifest 预览与作业证据 artifact `10862434201` 一致；latest.json 仍为 2.3.1。前两次上传因凭据误配失败，旧 R2 token 已吊销并轮换；不把失败记为通过。
+- 源码拆仓本身不部署 Worker/Pages/Guardian、不执行 migration、不升级本机、不改写账本或切换 R2 latest；另行授权的 R2 不可变候选发布已完成。
 
 ## 当前开发：ARM-D-029 BrowserBridge v2（本地候选）
 
