@@ -1,5 +1,19 @@
 # TASK_BOARD
 
+## NOW：BrowserBridge v3 完整收尾计划（2026-09-26，PO 授权连续执行）
+
+目标：在 TimeWhereNative/TimeOnChrome 拆仓边界内完成权威网页快照、纯转发 Host、应用权威账与可解释重叠影子的工程交付；不把安装成功、收到消息或等待自然日当成完整验收。不启用共享配额执行、反向控制、原账重算、历史猜测或新的生产发布。
+
+实施 checklist（逐项更新，正常进展不等待 PO 重复催促）：
+1. [x] 核对两仓远端与证据基线：TimeOnChrome `origin/master@6876e4f` 已包含先前 Guardian 收口；Native 本地尚有 2.6.1/精度/2.6.2/验收提交待集成。原 worktree、扩展加载目录和未跟踪旧 agents 残留保持不变。
+2. [x] 受控跨仓链式验证：真实 V2/v3 builder 的三个公开 JSON 夹具 deep equality 通过；Native framing/协议/守恒→临时 SQLite revision 替换/重复 ACK/脏状态→精确毫秒重叠→重启回放 6/6 PASS。网页 3 秒 + 应用 1501ms − 0 秒 = 4501ms；全覆盖 3 秒 + 4001ms − 3 秒 = 4001ms；缺证据不给共享值。未引用另一仓源码、写家庭库或改系统时间；真实 pipe/SCM 单独复用安装证据，不冒充同一夹具覆盖。
+3. [x] 故障/兼容证据矩阵：snapshot 与 local-guardian 两个聚焦文件 PASS；新增 Host 后来安装同步本周、Service 失败保留待发送、错误 revision ACK 不删除数据及恢复后清空、原账不变。旧 Service 健康-only、不发 v2 Segment、退避/手动重试/模式隔离复用固定断言及既有实机证据。新增测试首轮因模拟 v3 heartbeat 未返回能力信息超时，修正模拟响应后通过，非产品代码改动。
+4. [x] 修正权威文档：根 DESIGN/PROJECT_MASTER 与模块 TASK_BOARD/PROJECT_MASTER 已明确 v2 历史、v3 当前、2.6.2 本地安装、旧日期限制与两仓归属；Native README 对齐。过去发布/测试失败保留，不重写历史。
+5. [ ] 提交与交付：最小测试通过、范围/敏感字段/边界与 diff 检查后，本地提交并推送两仓功能分支，建立 PR 和精确 SHA CI 证据。合并保持 PR/gate 流程；若当前授权与现有发布规则不允许最终合并/生产写入，做到可合并交付并一次性说明，不重复询问或自动部署。
+6. [ ] 最终审核：Matched/Deviated/Missing/Extra 与每项 PASS/FAIL/BLOCKED；成功链提供网页秒、应用毫秒、重叠秒和共享毫秒，失效链不给伪共享值。旧历史缺口为已知不可用，不补造；自然运行观察只作补充，不作为开发等待步骤。
+
+测试契约：跨仓协议消费者及影子集成验证；本地仅扩展 fixture/Host-client 聚焦文件与 Native 新链式集成测试，既有 SharedDaily 6/6、Installer 5/5、WiX/hash/实机 UI 证据复用。CI 为真实受影响 Windows tests 和根轻量/扩展相关门；不运行 macOS、安装器重建、Worker/Console 全量、破坏性停服或无关 E2E。没有网页落账代码改动；若发现必须改变原账/配额/归属语义，按 D-076 单项批准门停止该项，不绕过。
+
 ## NOW：固定 Native Host 本地候选目录修复（2026-09-26）
 
 - 验收方式更正：不要求 PO 等待自然日作为开发完成条件。已通过的 `BrowserSharedDailyTests` 6/6 包含受控 SQLite 的跨午夜旧缺口、新日期可用、会话/用户隔离、重启回放及毫秒保真，按相同源码与产物证据复用，不重复跑测试。本机升级/数据保留/v3 通信已验收完成；真实本周旧日期因缺历史映射不可用仍是已知产品限制，不猜测补齐。后续自然运行观察仅为补充实机证据，不能伪称已通过，也不能用无限等待代替开发定位和收口。

@@ -255,6 +255,68 @@ async function run() {
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.strictEqual(snapshotAttempts, 1);
 
+  // Installing the Host later replays this week's authoritative snapshots;
+  // neither Service errors nor an ACK for another revision may discard them.
+  const laterStorage = { usage_segments_v1: { original: { id: 'original' } } };
+  const laterSnapshots = ['2026-09-21', '2026-09-22'].map((date) => ({
+    date, snapshotRevision: `snapshot-${date}`, statisticsRevision: 'stats',
+    correctionRevision: 'correction', computedAtMs: 1, activeSeconds: 3,
+    quotaBucketSeconds: { study: 3 }, complete: true, incompleteReasonCodes: [],
+    intervals: [{ startMs: 1, endMs: 3001, creditedSeconds: 3, quotaBucket: 'study' }],
+  }));
+  let hostInstalled = false;
+  let serviceAvailable = false;
+  let wrongRevision = false;
+  let laterConnections = 0;
+  const laterPayloads = [];
+  const later = await loadGuardian({
+    storage: laterStorage, policy, snapshots: laterSnapshots,
+    connectNative: () => {
+      laterConnections += 1;
+      if (!hostInstalled) throw new Error('Host not installed');
+      return createPort((payload, onMessage) => {
+        laterPayloads.push(payload);
+        queueMicrotask(() => onMessage.listeners.forEach((listener) => listener(
+          payload.messageType === 'heartbeat' || payload.messageType === 'probe' ? {
+            ok: true, receivedAt: 1787160200, supportedProtocols: [1, 3],
+            capabilities: ['authoritative-daily-snapshot'],
+          } : !serviceAvailable ? {
+            ok: false, receivedAt: 1787160201, errorCode: 'RUNTIME_SERVICE_UNAVAILABLE',
+          } : {
+            ok: true, receivedAt: 1787160202,
+            acceptedRevision: wrongRevision ? 'unrelated-revision' : payload.payload.snapshotRevision,
+          }
+        )));
+      });
+    },
+  });
+  await waitFor(() => laterStorage.local_guardian_status_v1?.lastErrorCode === 'native_host_unavailable');
+  const missingHostConnections = laterConnections;
+  await later.module.mirrorPersistedUsageSegments([{ id: 'new-settlement' }]);
+  assert.strictEqual(laterConnections, missingHostConnections, 'settlement must not connect to a missing Host');
+  hostInstalled = true;
+  await later.module.requestLocalGuardianHeartbeat({ trigger: 'host_installed', force: true });
+  await waitFor(() => laterStorage.local_guardian_status_v1?.lastErrorCode === 'runtime_service_unavailable', 1_000);
+  assert.strictEqual(Object.keys(laterStorage.browser_bridge_v3_state_v1.pendingDates).length, 2);
+  assert.deepStrictEqual(laterStorage.browser_bridge_v3_state_v1.acknowledgedRevisions, {});
+  serviceAvailable = true;
+  await later.module.requestLocalGuardianHeartbeat({ trigger: 'service_recovered', force: true });
+  await waitFor(() => Object.keys(laterStorage.browser_bridge_v3_state_v1.pendingDates).length === 0, 1_000);
+  for (const snapshot of laterSnapshots) {
+    assert.strictEqual(laterStorage.browser_bridge_v3_state_v1.acknowledgedRevisions[snapshot.date], snapshot.snapshotRevision);
+  }
+  laterSnapshots[0] = { ...laterSnapshots[0], snapshotRevision: 'corrected-revision' };
+  laterStorage.daily_usage_stats_v1 = { fixtureRevision: 2 };
+  wrongRevision = true;
+  await later.module.requestLocalGuardianHeartbeat({ trigger: 'wrong_ack', force: true });
+  await waitFor(() => laterStorage.local_guardian_status_v1?.lastErrorCode === 'native_invalid_response', 1_000);
+  assert.strictEqual(laterStorage.browser_bridge_v3_state_v1.pendingDates['2026-09-21'], 'corrected-revision');
+  wrongRevision = false;
+  await later.module.requestLocalGuardianHeartbeat({ trigger: 'ack_recovered', force: true });
+  await waitFor(() => laterStorage.browser_bridge_v3_state_v1.acknowledgedRevisions['2026-09-21'] === 'corrected-revision', 1_000);
+  assert.deepStrictEqual(laterStorage.usage_segments_v1, { original: { id: 'original' } });
+  assert.strictEqual(laterPayloads.some((payload) => payload.channel === 'ledger'), false);
+
   let rejectedResponse = null;
   const probeListener = runtime.onMessage.listeners[0];
   const rejectedReturn = probeListener(

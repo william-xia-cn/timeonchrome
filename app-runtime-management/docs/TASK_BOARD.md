@@ -1,5 +1,14 @@
 # App Runtime 任务板
 
+## NOW：BrowserBridge v3 双仓工程收尾（2026-09-26）
+
+- [x] TimeWhereNative 2.6.2 本机升级与只读保留检查已完成；扩展固定原目录 1.7.37，不需要再安装或重载。
+- [x] 真实扩展 V2/v3 builder 生成三个无私密信息的 JSON 夹具，Native framing/协议/守恒/SQLite/ACK/毫秒影子/重启链式回归 6/6 PASS，双仓夹具一致；Host 故障恢复与错误 revision ACK 聚焦断言通过。
+- [x] 当前模式为权威快照，v2 Segment 镜像仅保留历史兼容；根及模块当前状态已同步。旧日期会话映射缺口仍 unavailable，不猜测补写，不等待自然日替代回归。
+- [ ] 双仓测试/文档提交、PR、精确 SHA CI 和合并收口；没有本轮生产部署、R2/latest、配额执行或反向控制。
+
+测试契约：新增跨仓消费者测试及扩展 Host-client 聚焦文件；复用 SharedDaily 6/6、Installer 5/5、WiX/产物与实机证据，相关 Windows CI 维持门禁，无关 macOS/云端/完整 E2E 不重跑。
+
 ## NOW：TimeWhereNative 本机拆仓（ARM-D-031）
 
 - [x] BrowserBridge v3 已通过 PR #44 合入 `master@373877d`，新迁移工作树从此基线创建。
@@ -11,7 +20,7 @@
 
 测试等级：高风险所有权迁移。只运行受影响构建、协议兼容、文件/历史清单与边界检查；不因纯文档重跑无关产品测试。源码迁移不部署 Worker/Pages/Guardian 或执行 migration；另行授权的 R2 候选发布已经完成，latest、终端升级和真实家庭数据仍排除。
 
-## NOW：BrowserBridge v3 权威网页统计（本地实现与定向验证完成，未集成／发布）
+## 历史阶段：BrowserBridge v3 权威网页统计（以下为拆仓前证据，当前状态见上）
 
 - [x] Contracts 1.12.0 增加 v3 每日快照、修正版本和区间证据 schema；v1/v2 保留。
 - [x] Windows Service 建立 v3 pipe、快照守恒校验、按 revision 幂等替换与 SQLite 待投影日期；目前尚未发布共享总量。

@@ -186,5 +186,20 @@ global.readDeviceCorrectionEvidenceWeek = async () => ({
     assert.equal(day.complete, true);
     assert.deepEqual(day.quotaBucketSeconds, { [bucket]: 3 });
   }
-  console.log('[Browser Bridge v3 snapshot] focused assertions passed');
+  if (process.argv.includes('--emit-native-fixture')) {
+    // Test-only interchange: Native consumes JSON, never this repository's source.
+    process.stdout.write(JSON.stringify({ schemaVersion: 1, cases: [
+      { name: 'non-overlapping-milliseconds', snapshot: complete,
+        appStartOffsetMs: 4000, appEndOffsetMs: 5501,
+        expectedApplicationMs: 1501, expectedOverlapSeconds: 0, expectedSharedMs: 4501 },
+      { name: 'corrected-bucket-full-overlap', snapshot: corrected,
+        appStartOffsetMs: 0, appEndOffsetMs: 4001,
+        expectedApplicationMs: 4001, expectedOverlapSeconds: 3, expectedSharedMs: 4001 },
+      { name: 'missing-evidence-fails-closed', snapshot: missing,
+        appStartOffsetMs: 4000, appEndOffsetMs: 5501,
+        expectedReason: 'BROWSER_EVIDENCE_INCOMPLETE' },
+    ] }, null, 2) + '\n');
+  } else {
+    console.log('[Browser Bridge v3 snapshot] focused assertions passed');
+  }
 })().catch((error) => { console.error(error); process.exitCode = 1; });

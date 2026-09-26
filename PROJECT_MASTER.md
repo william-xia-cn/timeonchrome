@@ -12,6 +12,12 @@ PR #51 / master `7edf200` 已通过精确 Guardian CI 和 production 闸门，�
 
 共享合并值仍不可用：旧应用会话缺少可验证的 Windows 会话映射，6 个日期仍为 `SESSION_MAPPING_INCOMPLETE`。不猜测旧归属、不重算或回填历史；网页链路 PASS 不等于整周共享统计 PASS。详细发布/验收证据在 TASK_BOARD，production run `36244215759` 的不可变 manifest 记录精确 SHA 及各资源版本。
 
+## BrowserBridge v3 本地工程收尾（2026-09-26）
+
+本机已安装 TimeWhereNative 2.6.2，六个组件版本/哈希匹配干净构建 `b9e8b7a`；Service Automatic/Running、单一 Session Agent、固定原目录扩展 1.7.37 持续 v3 通信。原应用账固定前缀 payload、配对 credential 和机器密钥保留。共享读模型保留应用整数毫秒，不修改网页权威整数秒、原账或配额。
+
+受控链式回归使用扩展实际 V2 权威投影/v3 builder 的三个公开快照，经过 Native framing、协议/守恒校验、独立临时 SQLite、版本 ACK、重叠和重启恢复，6/6 PASS；两仓夹具语义完全一致。扩展 Host-client 聚焦测试通过，新增后来安装、Service 失败恢复、错误 revision ACK 保留及原账不变的断言。链式夹具不是家庭整周验收：六个旧日期的历史会话映射缺口仍不可用，不猜测回填；完整新日期由受控回归证明。源码及证据通过两仓 PR 收口，本轮没有云端/R2/latest 写入或新的安装/重载。
+
 ## 项目状态
 - **生产版本：1.7.32（内部 managed 已发布；生产观察中）**
 - **本地候选：1.7.37（固定原目录的 Unpacked Native Host v3 联调；未发布、禁止打包）**
