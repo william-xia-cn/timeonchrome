@@ -1,5 +1,11 @@
 # TASK_BOARD
 
+## COMPLETED（安装候选，未安装）：补齐应用读取的可安装本地更新包（2026-09-27）
+
+PO 指出只交编译目录不能完成升级，当前连续完成 Native 2.6.3 本地 Burn/MSI。仅新增版本/安装器结构验证及 WiX 自包含构建，复用已通过的应用/协议、契约和扩展测试；不跑无关全平台、不安装、不部署云端、不改变配对/原账/固定扩展目录。必须核对实际 MSI 版本、组件文件和 SHA-256，交付 Burn 绝对路径；安装/实机验收不伪称已完成。
+
+已完成：Native 干净源码 `3e6c327c097782a36f1d26d4c96d6e455ee0c2bd` 构建 2.6.3，InstallerPackageTests 5/5 PASS，WiX MSI/Burn 0 warning/error；实际 MSI 版本、固定 UpgradeCode、491 文件清单及四个安装组件、五个发布组件版本通过。Burn 位于 `D:\Codex\TimeOnchrome-worktrees\timewhere-native-history\artifacts\release\windows\x64\2.6.3\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.3.exe`，118956905 bytes、SHA-256 `f458782bcb85ddd66e383d85bbf54a17dc85046c865a6b926f0205b14af87bc5`；MSI 60511988 bytes、SHA-256 `7da919f54b1ad02e591022b04ea74debb8427a1d4ad6d5922a571e21888e1de3`，均与 manifest 相符。内部未签名；Matched，Deviated/Missing/Extra 无（安装候选交付范围）。本机服务仍 Automatic/Running，尚未安装新包，不宣称实机应用页签已生效。原扩展目录 1.7.38 不变；没有云端/R2/latest 发布或家庭数据库写入。
+
 ## COMPLETED（代码与本地候选）：终端使用分析增加独立应用用量（2026-09-27）
 
 PO 确认先展示应用用量，合并共享留待后续；本机源码已在 TimeWhereNative，沿用双仓边界，不回迁。变更等级：只读本地协议＋Console 行为，不改变网页/媒体原账、统计、配额及云端。
