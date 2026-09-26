@@ -2,6 +2,11 @@
 
 ## NOW：固定 Native Host 本地候选目录修复（2026-09-26）
 
+- PO 要求继续完成本机闭环：Native 候选升级为 2.6.2，固定安装身份/配对/数据/扩展目录，复用精度回归 6/6，仅新增版本与安装器结构测试和 WiX 构建。构建后校验 SHA/文件清单，以 Computer Use 原地升级（行动时确认，UAC 人工），再只读验收 Service、单 Session Agent、原身份/账本保留、v3 快照与精确毫秒 shadow；不修改或部署云端/扩展/R2。任何实机残余缺口明确记为 BLOCKED，不将装包当作完整共享 PASS。
+- 2.6.2 本机升级与只读验收完成：Native 构建 SHA `b9e8b7a75f198a6ec44b1720b943b2b5a32d57c3`，安装器结构 5/5、既有精度回归 6/6；WiX MSI/Burn 0 warning/error。Burn SHA-256 `b1c3391f803bd2ea247515911e9065a39998a0e22ecc1e48d2a01f623a3391b4`，MSI SHA-256 `b86d938ae960579fe172b0ea62fb06a751bcc2c8ae5a1f5261ce9fbda6bf792c`。PO 确认后通过 Computer Use 启动安装，Burn 日志 result=0x0、restart=None；已安装六个组件版本 2.6.2 且哈希匹配候选，Service Automatic/Running，当前会话一个 Session Agent。TimeWhereMg 截图和可访问树显示在线、已配对、Service 运行及升级后 v3 成功时间；无需扩展重载、不改固定目录。
+- 数据保留验收：SQLite 只读事务比较升级前 8,606 条原账 payload 的固定前缀哈希完全相同，升级后仅新增正常记录；credential 和机器密钥大小/更新时间不变，策略仍存在并继续正常更新。6/6 网页快照完整、待投影 0，精确毫秒 shadow 列及六行已填充。主/媒体/日志上传 outbox 为 0；安装清单 outbox 升级前已有 103 条、验收时 109 条，不能声称全部队列清空。摘要脚本首轮因 PowerShell UTF-16 结果文件解码失败，经修正编码识别后完成，不涉及数据库写入。
+- 本机升级范围审计：Matched＝已批准精度修复进入 2.6.2、原地升级、程序/身份/原账保留、v3 继续同步和界面核对；Deviated/Extra 无。完整共享统计验收仍 BLOCKED：六个旧日期保留 `SESSION_MAPPING_INCOMPLETE`，不以升级成功代替整周共享 PASS。未部署云端、发布 R2/latest、改动扩展/原账/配额，也未运行无关全量测试。
+
 - 精度问题继续执行：新增合法 1500ms 应用输入的最小回归，证明无重叠/完全重叠的表达限制与真正部分重叠歧义不同；只运行 `BrowserSharedDailyTests`。拟议精确小数读模型（不舍入、不改网页权威秒数/原账/配额）已请求 PO 单项确认，未确认前不改 product code。21:29 首轮摘要的 clock mismatch 查询误用了不存在的 `durationMs`，其 mismatch 数无效；已修正为 `monotonicDurationMilliseconds`，但修正后的 UAC 查询被取消，不能把旧结果当作有效时钟诊断，不再重复弹 UAC。
 - PO 已明确回复“按此实施”：Native Core 以整数毫秒保存应用/共享规范值，decimal 秒属性不舍入；Store 只为本地可重建 shadow 增加精确毫秒列，旧整秒行无损兼容。网页整数秒、原账、配额和 overlap 歧义校验不改；测试仅 `BrowserSharedDailyTests`。实施顺序为文档→Core→Store→回归与旧表/重启验证→审计，禁止本轮构建或安装、发布云端或契约。
 - 精度修复代码完成：Native `BrowserSharedDailyTests` 最终 6/6 PASS，证明无重叠 1+1.5=2.5 秒、全覆盖扣 1 秒后为 1.5 秒、1ms 精度不丢失；SQLite INTEGER 毫秒规范列兼容旧表/旧整秒行，重复初始化与重启回放保真，网页/应用原 payload 不变。首次编译断言类型失败已修正，不隐去失败。审计 Matched，Deviated/Missing/Extra 无（本次限本地代码与回归）；已安装 Service 尚未加载该修复，历史映射缺口/真实部分重叠歧义不被此修复消除，不宣称实机整周共享 PASS。
