@@ -2,6 +2,8 @@
 
 ## NOW（2026-09-27）：本周归属修复发布与 2.6.6 本机候选交付
 
+安装候选已验证：Native main `80d1541` / CI `36262231353` / artifact `10912752851`，contracts 1.14.0。2.6.6 Burn 118965717 bytes / SHA-256 `14e3724d555699147a5901ecd7b57479bf2afe2c6734240d1a923cbe95365b82`；MSI 60528372 bytes / SHA-256 `79a349220111f62253697e289a44906f6fdd60b3a33ffe690760645ba9d6aba6`。实际 MSI ProductVersion、固定 UpgradeCode、491 文件和组件版本核对通过；候选仅本地交付，不上传 R2/latest。Computer Use 因用户 Escape 停止，未启动安装器；已安装 2.6.4 不具备新更正读取能力。交付范围 Matched，真实升级/同步及旧 ChatGPT 无证据关联明确待处理，非 PASS。
+
 已完成：PR #55/master `9dd201f`、精确 master CI `36262025041`、production `36262088101`。Runtime Worker=`2602c1de-b778-41a8-bf3c-f7474c15d83a`，health 200、两条新读接口未认证 401；无 migration/Pages/Guardian/R2/latest 写入。Native PR #4 已合并 `80d1541`，PR CI `36261976780` 当前/上一契约 Windows 各 187/187、macOS/installer/native-gate 通过。已安装 Service 只读核对仍为 2.6.4/Automatic/Running；新包、实际升级、更正同步和旧 ChatGPT 可靠身份关联未标完成。
 
 PO 要求连续推进实际交付。Checklist：两仓提交推送/PR及精确 SHA CI → 合并到 TimeOnChrome master / TimeWhereNative main → 受保护流程仅发布 Runtime Worker → Native 2.6.6 MSI/Burn及版本/哈希 → 本机保留升级和只读通道验收。无需 Guardian/Pages/D1 migration/R2/latest/正式扩展发布；加载目录及配对不变。变更等级为已验证代码发布+Windows 安装候选，只补安装器结构测试、WiX 构建和资源 smoke，复用既有功能测试。生产更正从新的批准策略版本或完整盘点投影产生，不用 GET 悄悄重写旧版本；未完成的真机和旧 ChatGPT 可靠身份关联继续明确标记，不假报通过。
