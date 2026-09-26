@@ -14,6 +14,8 @@
 
 最小跨仓链式测试 6/6 PASS：真实扩展 builder 的 JSON 经过 framing、协议、SQLite 替换/幂等 ACK、毫秒投影与重启；公开夹具两仓语义一致，不跨仓导入源码。Host 未安装/后来安装、Service 故障恢复和错误 revision ACK 的聚焦断言通过。完整旧周共享仍因 `SESSION_MAPPING_INCOMPLETE` 不可用，未补造历史；不需要等待自然日才能完成受控工程验收。详细测试与 PR 状态见根任务板和 Native README。
 
+工程交付：TimeOnChrome PR #53 已合并为 `5821a2b`，轻量 CI `36251125392` 成功；TimeWhereNative PR #2 已合并为 `cb70ec3`，CI `36251123382` 的 Windows 当前/上一契约各 167/167、WiX 0 warning/error、native-gate 通过，macOS 按变更范围跳过。GitHub artifact `10909895029` 仅为 CI 内部候选，没有新上传 R2、安装、生产部署或 latest 切换。原账/身份保留、2.6.2 已安装产物和旧日不可用证据保持独立，不因提交合并伪称完整整周共享通过。
+
 ## 历史实现：ARM-D-029 BrowserBridge v2（由 v3 发送模式取代）
 
 - 目标版本为 contracts 1.11.0、Windows Runtime/TimeWhereMg 2.6.0、unpacked extension 1.7.34。
