@@ -8,7 +8,22 @@ export type ApplicationOriginEvidenceCode = 'exactPackageRule' | 'osMetadata' | 
 export type CatalogGroup = 'application' | 'game' | 'systemTool';
 export type CatalogGroupReasonCode = 'DEFAULT_APPLICATION' | 'CONFIRMED_GAME_TYPE'
   | 'CONFIRMED_GAME_LAUNCHER_TYPE' | 'CONFIRMED_GAME_UTILITY_TYPE' | 'EXACT_SYSTEM_TOOL_RULE';
-export type EvidenceField = 'runtimeIdentity' | 'binaryHash' | 'packageId' | 'distributionKey' | 'productKey' | 'hostedAppId' | 'signerKey' | 'productName' | 'declaredType' | 'installationSource';
+export type EvidenceField = 'runtimeIdentity' | 'binaryHash' | 'packageId' | 'distributionKey' | 'productKey' | 'hostedAppId' | 'signerKey' | 'fileSeriesKey' | 'productName' | 'declaredType' | 'installationSource';
+/** Cloud-owned immutable policy projection; consumers must not infer additional aliases. */
+export interface ProductIdentityProjection {
+  version: string;
+  knowledgeVersion: number;
+  items: ProductIdentityProjectionItem[];
+}
+export interface ProductIdentityProjectionItem {
+  platform: AppPlatform;
+  runtimeIdentity: string;
+  associationKey: string;
+  productId: string | null;
+  canonicalName: string;
+  status: 'confirmed' | 'associated' | 'unresolved' | 'conflict';
+  reasonCode: 'APPROVED_PRODUCT' | 'VERIFIED_LEAF_ALIAS' | 'IDENTITY_UNRESOLVED' | 'IDENTITY_CONFLICT';
+}
 export interface ApplicationDiscoverySummary {
   role: 'application' | 'component' | 'candidate';
   nameSource: 'appList' | 'manifest' | 'fileMetadata' | 'installation' | 'fallback';
@@ -169,7 +184,7 @@ export interface ClassificationResolution {
   typeStatus: AppTypeStatus;
   typeReasonCode: AppTypeReasonCode;
 }
-const strong = new Set<EvidenceField>(['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'signerKey']);
+const strong = new Set<EvidenceField>(['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'signerKey', 'fileSeriesKey']);
 const rank = { product: 0, family: 1, developer: 1, type: 2 };
 export function safeAutomatic(expression: MatchExpression): boolean {
   if (!expression.conditions.length) return false;

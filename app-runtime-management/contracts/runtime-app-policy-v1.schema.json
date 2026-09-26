@@ -8,6 +8,28 @@
   "properties": {
     "version": { "type": "integer", "minimum": 0 },
     "effectiveAtMs": { "type": ["integer", "null"], "minimum": 0 },
+    "productIdentityProjection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "knowledgeVersion", "items"],
+      "properties": {
+        "version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "knowledgeVersion": { "type": "integer", "minimum": 0 },
+        "items": { "type": "array", "maxItems": 20000, "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["platform", "runtimeIdentity", "associationKey", "productId", "canonicalName", "status", "reasonCode"],
+          "properties": {
+            "platform": { "enum": ["windows", "macos"] },
+            "runtimeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "associationKey": { "type": "string", "minLength": 1, "maxLength": 512 },
+            "productId": { "type": ["string", "null"], "maxLength": 128 },
+            "canonicalName": { "type": "string", "maxLength": 256 },
+            "status": { "enum": ["confirmed", "associated", "unresolved", "conflict"] },
+            "reasonCode": { "enum": ["APPROVED_PRODUCT", "VERIFIED_LEAF_ALIAS", "IDENTITY_UNRESOLVED", "IDENTITY_CONFLICT"] }
+          }
+        } }
+      }
+    },
+    "repairWeekStart": { "const": "2026-09-21" },
     "weekReclassification": {
       "type": "object",
       "additionalProperties": false,

@@ -145,6 +145,12 @@ export interface ApplicationUsageRow {
   dailyMs: Readonly<Record<string, number>>;
 }
 export interface ApplicationUsageSnapshot {
+  attribution?: {
+    complete: boolean;
+    productAssociationVersion: string | null;
+    classificationCorrectionVersion: number | null;
+    reasonCodes: readonly string[];
+  };
   fromDate: string;
   toDate: string;
   revision: string;

@@ -6,6 +6,7 @@ import { accountingMediaId, accountingUsageId, segmentContentHash } from '../src
 import type { AccountingMediaSegment, AccountingUsageSegment } from '../src/contracts';
 import { validateSegment } from '../src/validation';
 import catalogRules from '../src/data/product-catalog-rules.v3.json';
+import { syncApplicationInventory } from '../src/applicationKnowledge';
 
 const origin = 'http://runtime.test';
 const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE', y: '5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA', crv: 'P-256', d: '2Ja3Py77LNt6aspenNTttELbGzm2-u9WcF4x8BQql8w' };
@@ -1611,6 +1612,14 @@ describe('Application knowledge and installed inventory', () => {
       expect.objectContaining({displayName:'Apex Legends',appType:'game',typeStatus:'confirmed',typeReasonCode:'distributionProductRule',
         classification:'restrictedEntertainment',suggestedClassification:null,catalogGroup:'game',catalogGroupReasonCode:'CONFIRMED_GAME_TYPE'}),
     ]));
+    const readPolicy = async () => (await call('/v2/module/app-policy?childId=child-a', {headers:bearer(account)}))
+      .json<{version:number;productIdentityProjection:{version:string;items:Array<{runtimeIdentity:string;productId:string|null}>}}>();
+    const published = await readPolicy();
+    expect(published.productIdentityProjection.items.find(item=>item.runtimeIdentity===aimlabsIdentity)?.productId).toBeTruthy();
+    expect(result).toMatchObject({productAssociationVersion:published.productIdentityProjection.version});
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify({schemaVersion:2,
+      batchId:'distribution-games-reobserved',products:[product('Aimlabs renamed',4,'steam:714010'),product('Apex local title',5,'steam:1172470')],variants:[]})})).status).toBe(200);
+    expect((await readPolicy()).version).toBe(published.version);
   });
   it('groups only confirmed game launchers as games', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
@@ -1778,6 +1787,32 @@ describe('Application knowledge and installed inventory', () => {
     expect(audit.results.map(item=>item.action)).toEqual(['confirm','split','undo']);
     const other=await accountToken({account_id:'account-other',sub:'account-other',children:[]});
     expect((await call('/v2/module/application-knowledge/operations',{method:'POST',headers:{...bearer(other),'if-match':'"application-knowledge-v0"'},body:JSON.stringify({action:'undo',restoreVersion:1})})).status).toBe(404);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2').first('n')).toBe(0);
+  });
+  it('freezes the approved repair week in an audited knowledge operation regardless of execution week', async () => {
+    const {account,localUserId}=await createMachineWithUser();
+    const operation=(extra:object)=>call('/v2/module/application-knowledge/operations',{
+      method:'POST',headers:{...bearer(account),'if-match':'"application-knowledge-v0"'},
+      body:JSON.stringify({action:'confirm',knowledge:fixture(),repairWeekStart:'2026-09-21',...extra})});
+    expect((await operation({repairWeekStart:'2026-09-28'})).status).toBe(400);
+    const preview=await operation({preview:true});
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({repairWeekStart:'2026-09-21',migrationConflicts:[]});
+    expect((await operation({migrateExplicitClassifications:true})).status).toBe(200);
+    const row=await env.RUNTIME_DB.prepare(`SELECT payload_json FROM runtime_child_app_policy_versions_v1
+      WHERE child_id='child-a' ORDER BY version DESC LIMIT 1`).first<{payload_json:string}>();
+    expect(JSON.parse(row!.payload_json)).toMatchObject({repairWeekStart:'2026-09-21',
+      weekReclassification:{fromMs:Date.parse('2026-09-21T00:00:00+08:00'),toMs:Date.parse('2026-09-28T00:00:00+08:00')},
+      productIdentityProjection:{knowledgeVersion:1}});
+    const machine=await env.RUNTIME_DB.prepare('SELECT id,account_id FROM runtime_machines_v2 LIMIT 1')
+      .first<{id:string;account_id:string}>();
+    await syncApplicationInventory(env.RUNTIME_DB,machine!.account_id,machine!.id,'windows',observation(localUserId),
+      Date.parse('2026-10-05T10:00:00+08:00'));
+    const refreshed=await env.RUNTIME_DB.prepare(`SELECT payload_json FROM runtime_child_app_policy_versions_v1
+      WHERE child_id='child-a' ORDER BY version DESC LIMIT 1`).first<{payload_json:string}>();
+    expect(JSON.parse(refreshed!.payload_json)).toMatchObject({repairWeekStart:'2026-09-21',
+      weekReclassification:{fromMs:Date.parse('2026-09-21T00:00:00+08:00'),toMs:Date.parse('2026-09-28T00:00:00+08:00')}});
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_audit_v1').first('n')).toBe(1);
     expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2').first('n')).toBe(0);
   });
   it('includes installed unused and reliably preconfigured products in the Child catalog', async () => {

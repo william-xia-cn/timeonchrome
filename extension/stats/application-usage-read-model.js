@@ -46,6 +46,15 @@ export function validateApplicationUsagePage(page, from, to) {
     || !Array.isArray(page.days) || page.days.length !== dates.length
     || !Array.isArray(page.applications) || page.applications.length > 100
     || (page.nextOffset != null && (!Number.isInteger(page.nextOffset) || page.nextOffset < 1 || page.nextOffset > 20000))) invalid();
+  if (page.attribution != null) {
+    const value = page.attribution;
+    if (typeof value.complete !== 'boolean'
+      || (value.productAssociationVersion != null && !/^[a-f0-9]{64}$/.test(value.productAssociationVersion))
+      || (value.classificationCorrectionVersion != null && !ms(value.classificationCorrectionVersion))
+      || !Array.isArray(value.reasonCodes) || value.reasonCodes.length > 16
+      || value.reasonCodes.some(code => typeof code !== 'string' || !/^[A-Z_]{1,64}$/.test(code))
+      || (value.complete && value.reasonCodes.length)) invalid();
+  }
   let sum = 0;
   page.days.forEach((day, i) => {
     if (day.date !== dates[i] || !ms(day.totalMs) || day.totalMs > DAY
@@ -97,7 +106,8 @@ async function readWeek(dates, force, recheck) {
             ...(snapshot ? { expectedRevision: snapshot.revision } : {}) }, recheck && offset === 0), from, to);
           if (snapshot && (page.revision !== snapshot.revision || JSON.stringify(page.days) !== JSON.stringify(snapshot.days)
             || page.totalMs !== snapshot.totalMs || page.complete !== snapshot.complete
-            || page.computedAtMs !== snapshot.computedAtMs)) throw new Error('application_usage_revision_changed');
+            || page.computedAtMs !== snapshot.computedAtMs
+            || JSON.stringify(page.attribution ?? null) !== JSON.stringify(snapshot.attribution ?? null))) throw new Error('application_usage_revision_changed');
           snapshot ||= page;
           for (const row of page.applications) {
             if (seen.has(row.key)) invalid();
@@ -154,6 +164,10 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
     totalSeconds: d.complete ? d.totalMs / 1000 : null }));
   const incomplete = snapshot.days.filter(d => !d.complete).map(d => d.date).join('、');
   const settled = snapshot.lastSettledAtMs ? new Date(snapshot.lastSettledAtMs).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '尚无已结算记录';
+  const attribution = snapshot.attribution;
+  const attributionLabel = !attribution ? '归属同步状态：旧版服务未提供'
+    : attribution.complete ? '产品关联／分类已同步' : '产品关联／分类尚未同步完成（用量仍按已结算原账显示）';
+  const associationLabel = attribution?.productAssociationVersion ? ` · 关联版本 ${attribution.productAssociationVersion.slice(0, 12)}` : '';
   return { kind: 'application', range: { mode, from: mode === 'week' ? selectedDates[0] : selected,
     to: mode === 'week' ? selectedDates[6] : selected, label: mode === 'week' ? `${selectedDates[0]} — ${selectedDates[6]}` : selected },
     totalLabel: '应用主使用时间', totalSeconds: unavailable ? null : selectedDays.reduce((n, d) => n + d.totalMs, 0) / 1000,
@@ -163,6 +177,6 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
     targetRows, chartSeries: mode === 'week' ? series(snapshot.days) : selectedDays[0].hours.map(h => ({ label: `${h.hour}`, categories: unavailable ? {} : uiCategories(h.categoriesMs), totalSeconds: unavailable ? null : h.totalMs / 1000 })),
     weekSummarySeries: series(snapshot.days), targetColumnLabel: '应用', categoryColumnLabel: '历史管理分类',
     limitColumnLabel: '网页配额', searchTargetPlaceholder: '搜索应用名称',
-    warning, incompleteDates: incomplete,
-    meta: { syncLabel: `${warning ? '缓存／连接中断 · ' : ''}本机当前 Windows 用户 · 最近读取 ${new Date(snapshot.readAtMs).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} · 已结算至 ${settled}${incomplete ? ' · 不完整日期：' + incomplete : ''}` } };
+    warning, incompleteDates: incomplete, attribution,
+    meta: { syncLabel: `${warning ? '缓存／连接中断 · ' : ''}本机当前 Windows 用户 · 最近读取 ${new Date(snapshot.readAtMs).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} · 已结算至 ${settled}${incomplete ? ' · 不完整日期：' + incomplete : ''} · ${attributionLabel}${associationLabel}` } };
 }

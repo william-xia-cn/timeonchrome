@@ -45,7 +45,9 @@ window.chrome = { runtime: { id:'mock-preview', onMessage: {addListener: listene
   const applications = Object.entries(values).map(([classification, value],i)=>({key:String(i+1).padStart(64,'0'),name:names[i],classifications:[classification],totalMs:value,
     dailyMs:Object.fromEntries(dates.map(date=>[date,date==='2026-09-26'?value:0]))}));
   return {ok:true,applicationUsage:{fromDate:query.fromDate,toDate:query.toDate,revision:'a'.repeat(64),computedAtMs:now,lastSettledAtMs:now-60000,
-    complete:true,reasonCodes:[],totalMs:total,days,applications,nextOffset:null}};
+    complete:true,reasonCodes:[],totalMs:total,days,applications,nextOffset:null,
+    attribution:{complete:window.mockAppMode!=='attribution-pending',productAssociationVersion:'b'.repeat(64),classificationCorrectionVersion:3,
+      reasonCodes:window.mockAppMode==='attribution-pending'?['PRODUCT_IDENTITY_UNRESOLVED']:[]}}};
 } } };
 ${renderer}
 document.querySelector('#login-screen').style.display='none';

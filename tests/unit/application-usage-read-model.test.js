@@ -34,9 +34,21 @@ async function main() {
     assert.equal(view.targetRows.reduce((n, r) => n + r.todaySeconds, 0), 3.501);
     assert.equal(view.targetRows.find(r => r.label === 'Fixture 0').categoryLabel, '复合');
     assert.equal(view.chartSeries[1].categories.app_composite, 1.501);
+    assert.match(view.meta.syncLabel, /旧版服务未提供/);
     await adapter.getAdminApplicationUsageAnalysisView(); assert.equal(calls, 1);
     await adapter.getAdminApplicationUsageAnalysisView({ force: true }); assert.equal(calls, 2);
     assert.doesNotMatch(source, /usage_segments_v1|quota-read-model|chrome\.storage|setInterval/);
+
+    const attributionPending = await load(async () => ({ ok:true, applicationUsage: { ...page(),
+      attribution:{complete:false,productAssociationVersion:'b'.repeat(64),classificationCorrectionVersion:3,
+        reasonCodes:['PRODUCT_IDENTITY_UNRESOLVED']} } }));
+    const pendingView = await attributionPending.getAdminApplicationUsageAnalysisView();
+    assert.equal(pendingView.totalSeconds, 2.501);
+    assert.match(pendingView.meta.syncLabel, /尚未同步完成/);
+    assert.match(pendingView.meta.syncLabel, /关联版本 bbbbbbbbbbbb/);
+    const malformed = { ...page(), attribution:{complete:true,productAssociationVersion:'b'.repeat(64),
+      classificationCorrectionVersion:3,reasonCodes:['PRODUCT_IDENTITY_UNRESOLVED']} };
+    assert.throws(() => adapter.validateApplicationUsagePage(malformed, malformed.fromDate, malformed.toDate), /native_invalid_response/);
 
     const many = await load(async ({ query }) => {
       const result = page(query.offset, query.offset ? 1 : 100);

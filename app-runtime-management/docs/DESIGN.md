@@ -1,5 +1,13 @@
 # App Runtime 技术设计
 
+## 正在实施：ARM-D-033 产品关联与固定周修复
+
+机器 App Policy 冻结 `productIdentityProjection`（内容哈希版本、知识版本、技术身份、产品 ID、规范名称、依据及状态）。Service 只消费该投影，BrowserBridge revision 纳入投影与更正版本；用量完整性与归属同步状态分开返回。历史原始记录不变。
+
+现有 knowledge operations 增量支持显式 `repairWeekStart=2026-09-21`，仅限本轮已批准窗口；普通操作仍使用操作发生周。该参数随不可变策略保存，预览返回实际更正窗口，跨周执行不会漂移。无冲突的旧明确分类可提升到孩子产品配置；同产品明确分类冲突必须返回预览冲突，禁止静默选取。
+
+本轮只修复应用链路，不修改网页分类、网页落账、D1 schema、Guardian 或 R2 latest。真实机器身份、固定截止点账本摘要保存在本机脱敏验收材料，不提交家庭标识。
+
 > 本机拆仓交接（ARM-D-031）：TimeWhereNative CI 产出带 `sourceGitSha`、contract 版本/包哈希及 MSI/Burn 文件哈希的内部候选。TimeOnChrome 的受保护工作流只接受精确成功 CI run 与受控来源仓库，经只读跨仓凭据下载并逐项校验。只有显式选择 `publish_immutable_r2` 且生产环境批准后，旧仓才用 R2 S3 条件写入（`If-None-Match: *`）上传不可变版本对象、回读校验字节，manifest 最后发布；缺少跨仓只读凭据、R2 凭据或对象已存在时 fail closed。`latest.json` 切换仍是另一个明确批准的动作，本轮不执行。
 
 ## 当前开发：ARM-D-025 系统默认分类
@@ -172,3 +180,6 @@ Native 更正文档按 Child/policy version 保存一份 payload/hash，user/ass
 目录显示、前向策略及本机统计必须区分叶应用关联与套件分类继承。经过验证的相同 packageId/AUMID 或非多宿主 binaryHash 可关联同一叶应用；仅名称或发布者不能关联。安装产品的明确分类可经 verified productKey/parentProductKey 向非技术变体继承；入口的明确覆盖优先，包容器分类不得扩散到不同 AUMID。关联冲突不自动选择分类。App Policy PUT 和库存/知识更新均重新生成 resolvedApplications，冻结到新版本，不改旧版本/Segment。
 
 应用统计只对可信叶关联做展示区间并集，不将套件内 Word/Excel 因 productKey 相同合并，不改变主总量或历史分类。库存/关联变化纳入统计 revision；读取保持当前 Windows 用户隔离。旧身份没有可靠证据时保留，不能按名称填补。
+# 产品关联增量发布一致性
+
+盘点每批已验证事实与对应产品关联/有效分类在同一事务发布，不必等完整扫描才修正旧占位关联；“来源是否完整”和卸载清理仍严格等待完成回执。相同关联版本、知识和有效分类不产生新策略，避免重放盘点造成策略/更正版本抖动。目录返回已发布的关联版本，终端报告已应用版本；不得把目录自己的新猜测当作已下发关联。

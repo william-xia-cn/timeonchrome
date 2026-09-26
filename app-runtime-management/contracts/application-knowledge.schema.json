@@ -21,7 +21,7 @@
     "condition": {
       "type": "object", "additionalProperties": false, "required": ["field", "value"],
       "properties": {
-        "field": { "enum": ["runtimeIdentity", "binaryHash", "packageId", "distributionKey", "productKey", "hostedAppId", "signerKey", "productName", "declaredType", "installationSource"] },
+        "field": { "enum": ["runtimeIdentity", "binaryHash", "packageId", "distributionKey", "productKey", "hostedAppId", "signerKey", "fileSeriesKey", "productName", "declaredType", "installationSource"] },
         "value": { "$ref": "#/$defs/text" }
       }
     },
