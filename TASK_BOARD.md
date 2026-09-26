@@ -2,6 +2,9 @@
 
 ## NOW：固定 Native Host 本地候选目录修复（2026-09-26）
 
+- PO 同意历史缺口不猜测、不补写，完整新日期应独立可用。当前继续项为只读边界核对与固定回归：按日检查已映射/未映射的权威应用记录，验证旧日失败不阻塞新日、跨午夜未知段只影响实际覆盖日期、重启后边界保持。原生 Store 已按北京时间日期筛选，不为历史问题机械升级安装包；仅新增 BrowserSharedDailyTests 聚焦回归及 README 说明，排除云端、安装器、macOS、全量测试。若真实新记录仍缺映射，按证据另修；不放宽 unknown 的 fail-closed，不更改原账/配额/整数秒规则。
+- 边界核对完成：Native `BrowserSharedDailyTests` 4/4 PASS，固定 SQLite 回归覆盖跨午夜缺口、旧日/完整新日、重启、用户隔离、0ms 诊断及原 payload 不变。已批准 UAC 只读摘要确认当前映射边界后的主记录无新增未映射、旧缺口不跨该边界；实机未来完整日期尚未发生，不伪报整周共享通过。无需再改程序或安装，旧日不可用及精度歧义仍按现有 fail-closed 保留。
+
 - 发布与真实验收收口：PO 要求继续合并部署后，PR #51 合入 master `7edf200aa2f87bbb67b766e938bcffbb8cd791c5`；精确 SHA Guardian CI `36244181761`、Guardian-only production `36244215759` 均成功。Guardian 版本 `8d21c210-b9fd-46b5-969e-0f4c84451715`，新 `/device/usage-interval-evidence/v3` 未认证 401、health 200；未执行 migration，Runtime Worker/独立 Pages/主 Pages/R2 latest 与前次 manifest 完全相同。
 - 用户重载原固定目录 1.7.37 后，授权 UAC 只读摘要确认：本周网页快照 6/6 完整、待投影 0、总量不一致 0、有用量无区间 0，当天快照完整且有正用量和区间。网页权威统计恢复链路 PASS_WITH_MANUAL_EVIDENCE（重载/UAC 由 PO 操作，SQLite 摘要由脚本读取）；不是原始网页账本精确计时的新验收结论。
 - 共享合并仍 BLOCKED：6 个日期均为 `SESSION_MAPPING_INCOMPLETE`，已有 owner 映射存在，但本周旧应用 runtime session 缺历史 Windows 会话关联；不得按用户 ID 猜测或回填。此问题不再归因于网页证据缺失。本次部署/证据恢复范围审计 Matched，Deviated/Missing/Extra 无；整体共享统计不可用的风险保留，后续单独确定可证明的历史兼容边界。
