@@ -16,7 +16,8 @@ import { queryTerminalLogs } from './terminalLogging';
 import { isRecord } from './validation';
 import { identifyProducts, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 import { defaultGameGroupRuleId, defaultSystemApplicationRuleId, effectiveApplicationKnowledge,
-  queryInventoryScanStatus, resolveEffectiveApplication } from './applicationKnowledge';
+  listApplicationInventory, queryInventoryScanStatus, resolveEffectiveApplication, resolvePolicyApplications } from './applicationKnowledge';
+import { projectExplicitApplicationClassifications } from './applicationIdentityProjection';
 import type {
   AppEvidence,
   ApplicationOrigin,
@@ -379,8 +380,14 @@ export async function putAppPolicy(
   if (expectedEtag !== appPolicyEtag(current.version)) {
     throw new HttpError(412, 'APP_POLICY_CONFLICT', 'App policy has changed. Reload before saving.');
   }
+  const inventory = await listApplicationInventory(database, accountId);
+  const knowledge = effectiveApplicationKnowledge(current.applicationKnowledge ?? {
+    schemaVersion: 2, version: 0, products: [], rules: [], bindings: [],
+  });
+  const resolvedApplications = inventory.length ? resolvePolicyApplications(knowledge, childId,
+    inventory.map(item => item.evidence), update.classifications, current.resolvedApplications) : current.resolvedApplications;
   const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
-    applicationKnowledge: current.applicationKnowledge, resolvedApplications: current.resolvedApplications });
+    applicationKnowledge: current.applicationKnowledge, resolvedApplications });
   const version = current.version + 1;
   const payloadJson = JSON.stringify(completeUpdate);
   const statements: D1PreparedStatement[] = [database.prepare(`
@@ -937,6 +944,8 @@ export async function queryAppCatalog(
     item.installed ||= row.status==='installed'; item.machines.add(row.machine_id); item.users.add(row.local_user_id); inventory.set(key,item);
   }
   const resolvedByKey = new Map((policy.resolvedApplications ?? []).map(item=>[`${item.platform}\n${item.runtimeIdentity}`,item]));
+  const explicitProjection = projectExplicitApplicationClassifications(
+    [...inventory.values()].map(item => item.evidence), policy.classifications, catalogKnowledge, policy.resolvedApplications);
   const associations = associateApplicationEvidence([...inventory.values()].map(item=>item.evidence)
     .filter(evidence=>evidence.discovery?.role!=='component'&&evidence.discovery?.role!=='candidate'&&hasStrongApplicationIdentity(evidence)));
   const productsByDisplayName = new Map<string,AppEvidence[]>();
@@ -994,7 +1003,10 @@ export async function queryAppCatalog(
   const keys = new Set([...grouped.keys(), ...policyByKey.keys(), ...[...inventory.keys()].filter(key=>inventory.get(key)!.installed||grouped.has(key)||policyByKey.has(key))]);
   const items = [...keys].map((key) => {
     const observed = grouped.get(key);
-    const configured = policyByKey.get(key);
+    const direct = policyByKey.get(key), inherited = explicitProjection.get(key);
+    const configured = direct ?? (inherited === undefined ? undefined : {
+      classification: inherited, displayName: null,
+    });
     const [itemPlatform, runtimeIdentity] = key.split('\n');
     const found = inventory.get(key), knowledge = catalogKnowledge;
     const productIds = found && knowledge ? identifyProducts(knowledge.products,found.evidence) : [];
@@ -1035,7 +1047,7 @@ export async function queryAppCatalog(
       productId: product?.id ?? null,
       classification,
       classificationStatus: configured ? 'explicit' : resolution?.status ?? 'unclassified',
-      classificationReason: configured ? '家长明确配置' : resolution?.status==='explicit' ? '孩子产品明确分类'
+      classificationReason: configured ? (direct ? '家长明确配置' : '继承已确认应用／产品分类') : resolution?.status==='explicit' ? '孩子产品明确分类'
         : systemDefault ? '系统应用默认归为复合' : gameDefault ? '游戏默认归为受限娱乐'
           : resolution?.status==='automatic' ? '已批准规则' : resolution?.status==='conflict' ? '规则冲突，保留有效分类'
             : resolution?.status==='suggestion' ? '仅建议，尚未生效' : productTypeSuggestion ? (typeStatus==='confirmed'?'已确认游戏，建议归为受限娱乐（尚未生效）':'疑似游戏，建议归为受限娱乐（尚未生效）') : '尚未归类',

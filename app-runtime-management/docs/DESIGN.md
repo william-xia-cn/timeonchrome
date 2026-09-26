@@ -161,3 +161,8 @@ SSO 使用独立 ES256 key pair，不复用 Santa、Runtime machine、module JWT
 目标仓库改为私有 `william-xia-cn/TimeWhereNative`，仅迁出本机 `agents/` 和 `installer/` 的相关历史。TimeOnChrome 保留 Runtime contracts、Worker、独立 Pages、D1、R2、Guardian adapter、主控制台入口和全部 Cloudflare 生产写权限；新仓锁定固定版本 contract 包并只生成经测试的 MSI/Burn/manifest。TimeOnChrome 的受保护发布流程校验来源 SHA、契约版本和哈希后，独占 R2 上传与 latest 切换。旧“整体迁出 Runtime 云端”方案由 D-104/ARM-D-031 取代。两仓必须独立构建；拆仓本身不部署、不执行 migration、不升级本机、不改写数据。
 
 本机产物交接使用新仓成功 CI 的精确 `runId + headSha` 和只读仓库令牌。TimeOnChrome 的手工生产环境流程下载该 CI artifact，核对 manifest 的 `sourceGitSha`、contract 版本/包 SHA-256、MSI/Burn 大小与 SHA-256，确认目标 R2 版本路径不存在后写入、回读校验，manifest 最后写入。`latest.json` 只有单独勾选并获得生产环境批准后才可切换；没有只读交接令牌或任一哈希不符即停止。新仓 CI 本身没有 Cloudflare secret、R2 上传或 latest 权限。
+## 应用身份关联与分类继承修复（2026-09-27）
+
+目录显示、前向策略及本机统计必须区分叶应用关联与套件分类继承。经过验证的相同 packageId/AUMID 或非多宿主 binaryHash 可关联同一叶应用；仅名称或发布者不能关联。安装产品的明确分类可经 verified productKey/parentProductKey 向非技术变体继承；入口的明确覆盖优先，包容器分类不得扩散到不同 AUMID。关联冲突不自动选择分类。App Policy PUT 和库存/知识更新均重新生成 resolvedApplications，冻结到新版本，不改旧版本/Segment。
+
+应用统计只对可信叶关联做展示区间并集，不将套件内 Word/Excel 因 productKey 相同合并，不改变主总量或历史分类。库存/关联变化纳入统计 revision；读取保持当前 Windows 用户隔离。旧身份没有可靠证据时保留，不能按名称填补。

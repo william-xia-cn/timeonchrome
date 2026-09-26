@@ -837,6 +837,60 @@ describe('Runtime product API', () => {
 });
 
 describe('Application knowledge and installed inventory', () => {
+  it('freezes explicit product and leaf inheritance on save and later inventory without rewriting old policies', async () => {
+    const { account, enrolled, localUserId } = await createMachineWithUser();
+    const productKey = 'e'.repeat(64), excelHash = 'f'.repeat(64);
+    const observations = [
+      { platform: 'windows', runtimeIdentity: 'chat-old', displayName: 'ChatGPT',
+        values: { packageId: 'Chat.Package!App' }, verifiedFields: ['packageId'],
+        discovery: { role: 'application', nameSource: 'appList', sourceKinds: ['package'] } },
+      { platform: 'windows', runtimeIdentity: 'office-product', displayName: 'Office',
+        values: { productKey }, verifiedFields: ['productKey'],
+        discovery: { role: 'application', nameSource: 'installation', sourceKinds: ['registry'], objectKind: 'product' } },
+      { platform: 'windows', runtimeIdentity: 'excel-entry', displayName: 'Excel',
+        values: { productKey, binaryHash: excelHash }, verifiedFields: ['productKey', 'binaryHash'],
+        discovery: { role: 'application', nameSource: 'appList', sourceKinds: ['shortcut'], objectKind: 'variant', parentProductKey: productKey, variantRole: 'suiteMember' } },
+      { platform: 'windows', runtimeIdentity: 'excel-runtime', displayName: 'EXCEL',
+        values: { binaryHash: excelHash }, verifiedFields: ['binaryHash'],
+        discovery: { role: 'application', nameSource: 'fileMetadata', sourceKinds: ['runtime'] } },
+    ];
+    const upload = (batchId: string, evidence: typeof observations) => call('/v2/machines/application-inventory', {
+      method: 'POST', headers: bearer(enrolled.machineToken), body: JSON.stringify({ schemaVersion: 1, batchId,
+        observations: evidence.map(item => ({ localUserId, evidence: item, status: 'installed' })) }),
+    });
+    expect((await upload('inheritance-initial', observations)).status).toBe(200);
+    const before = await call('/v2/module/app-policy?childId=child-a', { headers: bearer(account) });
+    const policy = await before.json<{ quotas: unknown; version: number }>();
+    const saved = await call('/v2/module/app-policy?childId=child-a', { method: 'PUT',
+      headers: { ...bearer(account), 'If-Match': before.headers.get('etag')! }, body: JSON.stringify({ quotas: policy.quotas,
+        classifications: ['chat-old', 'office-product'].map(runtimeIdentity => ({ platform: 'windows', runtimeIdentity,
+          displayName: runtimeIdentity, classification: 'study' })) }),
+    });
+    expect(saved.status).toBe(200);
+    const first = await saved.json<{ version: number; resolvedApplications: Array<{ runtimeIdentity: string; classification: string }> }>();
+    expect(first.resolvedApplications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtimeIdentity: 'excel-entry', classification: 'study' }),
+      expect.objectContaining({ runtimeIdentity: 'excel-runtime', classification: 'study' }),
+    ]));
+    const stored = () => env.RUNTIME_DB.prepare('SELECT payload_json FROM runtime_child_app_policy_versions_v1 WHERE child_id=?1 AND version=?2')
+      .bind('child-a', first.version).first<string>('payload_json');
+    const original = await stored();
+    // Classification alone must cover later inventory, before any knowledge package is published.
+    expect((await upload('inheritance-later', [{ ...observations[0]!, runtimeIdentity: 'chat-new' }])).status).toBe(200);
+    // Publishing knowledge uses the same projection without losing explicit inherited choices.
+    const knowledge = { schemaVersion: 2, version: 0, products: [], rules: [], bindings: [] };
+    expect((await call('/v2/module/application-knowledge', { method: 'PUT', headers: { ...bearer(account), 'If-Match': '"application-knowledge-v0"' },
+      body: JSON.stringify(knowledge) })).status).toBe(200);
+    const machinePolicy = await (await call('/v2/machines/policy', { headers: bearer(enrolled.machineToken) })).json<{
+      appPolicies: Array<{ childId: string; policy: { resolvedApplications: Array<{ runtimeIdentity: string; classification: string }> } }>
+    }>();
+    expect(machinePolicy.appPolicies.find(item => item.childId === 'child-a')!.policy.resolvedApplications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtimeIdentity: 'chat-new', classification: 'study' }),
+      expect.objectContaining({ runtimeIdentity: 'excel-runtime', classification: 'study' }),
+    ]));
+    expect(await stored()).toBe(original);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2').first('n')).toBe(0);
+  });
   it('loads the curated Steam product knowledge and keeps Steamworks technical', () => {
     const gameKeys=new Set(catalogRules.products.flatMap(item=>item.selectors)
       .filter(item=>item.field==='distributionKey').map(item=>item.value));
@@ -928,7 +982,7 @@ describe('Application knowledge and installed inventory', () => {
     expect(childPolicy.classifications).toContainEqual(expect.objectContaining({runtimeIdentity:'game-bar',classification:'composite'}));
     expect(childPolicy).toMatchObject({resolvedApplications:expect.arrayContaining([
       expect.objectContaining({runtimeIdentity:'ea-product-1',classification:'restrictedEntertainment'}),
-      expect.objectContaining({runtimeIdentity:'game-bar',classification:'restrictedEntertainment'}),
+      expect.objectContaining({runtimeIdentity:'game-bar',classification:'composite'}),
       expect.objectContaining({runtimeIdentity:'solitaire',classification:'restrictedEntertainment'}),
     ])});
     const usage=await accountingUsage({runtimeIdentity:'ea-product-1',channel:'active',basis:'foregroundInteraction',start:0,end:60_000});

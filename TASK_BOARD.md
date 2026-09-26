@@ -1,5 +1,17 @@
 # TASK_BOARD
 
+## NOW（PO 已批准修复）：应用统计产品身份投影与分类继承缺口（2026-09-27）
+
+实施 checklist（关联投影/前向策略，不改历史）：① Backend 从可信包/二进制关联传播同一应用的明确分类，并从可信安装产品向套件入口继承；精确变体覆盖优先，冲突不自动继承，包容器不向不同 AUMID 扩散。② App Policy 保存、盘点/知识发布和目录读模型复用相同投影，resolvedApplications 随新策略版本冻结。③ Native 应用统计消费同用户库存的可信叶应用关联，按区间并集合并同一应用行；不按名称、发布者或套件产品键合并 Word/Excel，不套当前分类重算历史。关联变化进入 revision，分页不混版。④ 固定同名异应用、套件继承/覆盖、旧版本历史不变、用户隔离及应用行并集回归。
+
+测试契约：Worker 分类投影/API 聚焦测试与 typecheck；Native ApplicationUsageReadTests、相关 Service 编译；必要本地候选构建另记。默认排除网页/媒体原账、配额、Console 布局、macOS、无关全量 CI、生产部署/migration/R2。无可靠历史证据的同名身份保持分离，不伪造已关联；本地测试通过不等于现有云端策略/已安装 Service 已生效。
+
+PO 指出本地统计两个 ChatGPT、两个 EXCEL，并已在云端把 ChatGPT 归为学习。真实 Host/Service 响应确认各有两个不同技术键；当前 ChatGPT 记录仍为 unclassified，Excel 两个身份分别 study/unclassified，不能据此认定原账重复。代码证据：ApplicationUsageReader 只按 platform/runtimeIdentity 哈希分行，没有消费产品关联；MachinePolicyStore.SnapshotFor 仍精确匹配技术身份。浏览器只读查看当前孩子的 Runtime 应用管理，确认旧 ChatGPT 对象确有“学习/家长明确配置”，另一个已安装对象仍未归类；Microsoft 365 学习产品的 Excel 变体显示继承产品设置。此前把问题直接解释为用户未配置或网站/应用不互通不成立，未核实前不能归因于用户操作。
+
+诊断阶段沿用已批准产品/变体关系，不能按名称强行合并、要求用户重复分类或回写历史分类。诊断时未修改产品代码、云端配置或历史 Segment；agent-browser 无可附加 CDP，使用已连接 Chrome 插件只读核对并恢复原目录。浏览器未读取凭据或被禁止的 extension URL。PO 随后批准修复，实施范围和验证见上方 checklist。
+
+实施结果：Worker 关联/继承、策略版本、ETag/家庭隔离、旧客户端时段、上传分类与包容器回归 15/15，通过 typecheck；Native 读取 14/14、安装器 5/5，通过 Service 编译。修正旧 Game Bar 测试，使 resolvedApplications 与已存在的 composite 明确覆盖一致，不改变其实际分类/配额。两次生产 D1 仅 SELECT 汇总，rows_written=0；确认三个旧 ChatGPT 学习配置缺少 inventory，当前安装项有另一个包身份，不能宣称已自动关联。实施审计 Matched（可信关联/覆盖/历史不变/隔离/分页），Deviated/Extra=无；生产部署、现有家庭关联与真机升级仍待执行，不记为通过。原扩展目录、ID、绑定未改。
+
 ## COMPLETED（修复/本地包/用户安装后真实通道验证）：独立应用统计正常双时钟被误判不完整（2026-09-27）
 
 已通过真实安装 2.6.3 的 Native Host framing→Service 只读查询确认：响应成功、19 个应用，本周七天不完整原因均为 APPLICATION_CLOCK_AMBIGUOUS。非网页重叠证据缺失，不是零账本。新 ApplicationUsageReader 要求 wall/monotonic 毫秒差完全相等，与实际 UtcNow/TickCount64 独立采样及既有 2000ms 跳变容差冲突。本轮 Native 修复仅应用读取：同用户/session/epoch 固定历史锚点，monotonic 决定毫秒并集，wall 用于日期/小时放置；真正跳变/字段损坏/epoch 回拨仍不完整，不修改原始 Segment、配额或共享读模型。先固定回归，再 ApplicationUsageReadTests/编译与必要本地安装候选 2.6.4；不跑无关平台/云端，不部署或安装，不猜测历史。用户截图证明扩展 1.7.39 已读到 Service，路由修复实际生效。

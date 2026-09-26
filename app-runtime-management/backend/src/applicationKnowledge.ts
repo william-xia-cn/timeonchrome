@@ -7,6 +7,7 @@ import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { isRecord } from './validation';
 import { controlledProducts, systemToolPackageIds } from './productCatalogRules';
+import { projectExplicitApplicationClassifications } from './applicationIdentityProjection';
 
 export const knowledgeEtag = (version: number) => `"application-knowledge-v${version}"`;
 export function effectiveApplicationKnowledge(value: ApplicationKnowledge): ApplicationKnowledge {
@@ -90,6 +91,28 @@ export async function listApplicationInventory(db: D1Database, accountId: string
     firstSeenAtMs: row.first_seen_at_ms, lastSeenAtMs: row.last_seen_at_ms }));
 }
 
+export function resolvePolicyApplications(knowledge: ApplicationKnowledge, childId: string, evidence: AppEvidence[],
+    explicit: AppPolicyClassification[], previous: AppPolicyClassification[] = []): AppPolicyClassification[] {
+  const byIdentity = new Map<string, AppEvidence>();
+  const conflicted = new Set<string>();
+  for (const item of evidence) {
+    const key = `${item.platform}\n${item.runtimeIdentity}`, existing = byIdentity.get(key);
+    if (existing && canonical(existing.values) !== canonical(item.values)) conflicted.add(key);
+    if (!existing) byIdentity.set(key, item);
+  }
+  for (const key of conflicted) byIdentity.set(key, { ...byIdentity.get(key)!, values: {}, verifiedFields: [] });
+  const items = [...byIdentity.values()];
+  const configured = projectExplicitApplicationClassifications(items, explicit, knowledge, previous);
+  const resolved = items.map(item => {
+    const prior = previous.find(entry => entry.platform === item.platform && entry.runtimeIdentity === item.runtimeIdentity);
+    const classification = configured.get(`${item.platform}\n${item.runtimeIdentity}`)
+      ?? resolveEffectiveApplication(knowledge, childId, item, prior?.classification).classification;
+    return { platform: item.platform, runtimeIdentity: item.runtimeIdentity, displayName: item.displayName, classification };
+  }).filter(item => item.classification !== 'unclassified');
+  if (resolved.length > 1000) throw new HttpError(413, 'APPLICATION_POLICY_CAPACITY', 'Too many classified implementations.');
+  return resolved;
+}
+
 /** Freeze server resolutions in the same transaction as knowledge/inventory; old ledger stays unchanged. */
 async function policyStatements(db: D1Database, accountId: string, knowledge: ApplicationKnowledge,
     childIds: string[], evidence: AppEvidence[], nowMs: number): Promise<D1PreparedStatement[]> {
@@ -98,23 +121,7 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
   for (const childId of childIds) {
     const current = await getAppPolicy(db, accountId, childId);
     const previous = current.resolvedApplications ?? [];
-    const byIdentity = new Map<string, AppEvidence>();
-    for (const item of evidence) {
-      const key = `${item.platform}\n${item.runtimeIdentity}`;
-      // Conflicting observations never silently promote evidence into an automatic match.
-      const existing = byIdentity.get(key);
-      if (existing && canonical(existing.values) !== canonical(item.values)) {
-        byIdentity.set(key, { ...item, values: {}, verifiedFields: [] });
-      } else if (!existing) byIdentity.set(key, item);
-    }
-    const resolvedApplications: AppPolicyClassification[] = [...byIdentity.values()].map(item => {
-      const prior = previous.find(entry => entry.platform === item.platform && entry.runtimeIdentity === item.runtimeIdentity);
-      const resolution = resolveEffectiveApplication(effectiveKnowledge, childId, item, prior?.classification);
-      return { platform: item.platform, runtimeIdentity: item.runtimeIdentity, displayName: item.displayName, classification: resolution.classification };
-    }).filter(item => item.classification !== 'unclassified');
-    // Unknown inventory uses the existing unclassified/unlimited default; it must not inflate legacy policy arrays.
-    if (resolvedApplications.length > 1000)
-      throw new HttpError(413,'APPLICATION_POLICY_CAPACITY','Too many classified implementations for the supported machine policy capacity.');
+    const resolvedApplications = resolvePolicyApplications(effectiveKnowledge, childId, evidence, current.classifications, previous);
     const binding = effectiveKnowledge.bindings.filter(item => item.childId === childId);
     const enabled = new Set(binding.flatMap(item => item.ruleIds));
     const scoped = { ...effectiveKnowledge, bindings: binding, rules: effectiveKnowledge.rules.filter(rule => enabled.has(rule.id)) };
@@ -141,6 +148,18 @@ async function batch(db: D1Database, statements: D1PreparedStatement[]): Promise
     if (error instanceof Error && /UNIQUE|constraint/iu.test(error.message)) throw new HttpError(412, 'APPLICATION_KNOWLEDGE_CONFLICT', 'Application data changed. Reload before saving.');
     throw error;
   }
+}
+async function inventoryPolicyChildren(db: D1Database, accountId: string) {
+  // A classified Child can exist before the asynchronous lifecycle replica arrives.
+  const rows = await db.prepare(`SELECT child_id FROM runtime_children_v1 WHERE account_id=?1
+    UNION SELECT child_id FROM runtime_child_app_policy_versions_v1 WHERE account_id=?1`)
+    .bind(accountId).all<{ child_id: string }>();
+  const explicit = await db.prepare(`SELECT 1 AS found FROM runtime_child_app_policy_versions_v1 p
+    WHERE p.account_id=?1 AND p.version=(SELECT MAX(previous.version) FROM runtime_child_app_policy_versions_v1 previous
+      WHERE previous.account_id=p.account_id AND previous.child_id=p.child_id)
+      AND json_array_length(p.payload_json,'$.classifications')>0 LIMIT 1`)
+    .bind(accountId).first<{ found: number }>();
+  return { childIds: rows.results.map(item => item.child_id), hasExplicit: Boolean(explicit) };
 }
 export async function putApplicationKnowledge(db: D1Database, accountId: string, childIds: string[],
     expected: string | null, update: ApplicationKnowledge, nowMs: number, action = 'publish') {
@@ -329,10 +348,9 @@ export async function syncApplicationInventory(db: D1Database, accountId: string
   const known = await listApplicationInventory(db, accountId);
   const evidence = [...observations.map(item => item.evidence), ...known.filter(item => !observations.some(incoming =>
     item.machineId === machineId && item.localUserId === incoming.localUserId && item.evidence.runtimeIdentity === incoming.evidence.runtimeIdentity)).map(item => item.evidence)];
-  const children = await db.prepare(`SELECT child_id FROM runtime_children_v1 WHERE account_id=?1`)
-    .bind(accountId).all<{child_id:string}>();
-  if (scan ? scan.completed : knowledge.version > 0 && observations.length > 0) statements.push(...await policyStatements(db, accountId, knowledge,
-    children.results.map(item => item.child_id), evidence, nowMs));
+  const children = await inventoryPolicyChildren(db, accountId);
+  if (scan ? scan.completed : (knowledge.version > 0 || children.hasExplicit) && observations.length > 0)
+    statements.push(...await policyStatements(db, accountId, knowledge, children.childIds, evidence, nowMs));
   await batch(db, statements);
   return { batchId: value.batchId, status: 'accepted', acceptedCount: observations.length };
 }
@@ -476,9 +494,10 @@ async function syncApplicationInventoryV2(db: D1Database, accountId: string, mac
     statements.push(inventoryProjectionStatement(db,machineId,item.localUserId,item.evidence,item.status,nowMs));
   }
   const knowledge=await getApplicationKnowledge(db,accountId),known=await listApplicationInventory(db,accountId);
-  const incoming=variants.map(item=>item.evidence),evidence=[...incoming,...known.filter(item=>!incoming.some(next=>item.machineId===machineId&&item.evidence.runtimeIdentity===next.runtimeIdentity)).map(item=>item.evidence)];
-  const children=await db.prepare(`SELECT child_id FROM runtime_children_v1 WHERE account_id=?1`).bind(accountId).all<{child_id:string}>();
-  if(scan?scan.completed:knowledge.version>0&&variants.length>0)statements.push(...await policyStatements(db,accountId,knowledge,children.results.map(item=>item.child_id),evidence,nowMs));
+  const incoming=[...products,...variants].map(item=>item.evidence),evidence=[...incoming,...known.filter(item=>!incoming.some(next=>item.machineId===machineId&&item.evidence.runtimeIdentity===next.runtimeIdentity)).map(item=>item.evidence)];
+  const children=await inventoryPolicyChildren(db,accountId);
+  if(scan?scan.completed:(knowledge.version>0||children.hasExplicit)&&incoming.length>0)
+    statements.push(...await policyStatements(db,accountId,knowledge,children.childIds,evidence,nowMs));
   await batch(db,statements);
   return {batchId:value.batchId,status:'accepted',acceptedCount:products.length+variants.length};
 }
