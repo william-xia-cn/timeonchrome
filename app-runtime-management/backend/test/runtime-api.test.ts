@@ -1171,6 +1171,50 @@ describe('Application knowledge and installed inventory', () => {
     ]));
     expect(result.items.some(item=>item.displayName==='Windows Update Helper')).toBe(false);
   });
+  it('recovers legacy misrouted package containers with strict validation, original replay hashes and complete scan receipts', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const productKey='a'.repeat(64),family='Microsoft.WindowsNotepad_8wekyb3d8bbwe';
+    const container={localUserId,variantKey:`windows:product:${productKey}`,variantRole:'unknown',scope:'user',sourceKind:'user-packages',status:'installed',
+      evidence:{platform:'windows',runtimeIdentity:`windows:product:${productKey}`,displayName:'记事本包',
+        values:{productKey,packageId:family},verifiedFields:['productKey','packageId'],
+        discovery:{role:'application',nameSource:'installation',sourceKinds:['package'],objectKind:'packageContainer',
+          variantRole:'unknown',scope:'user',sourceKind:'user-packages',evidenceLevel:'strong'}}};
+    const entry={localUserId,variantKey:'notepad-entry',parentProductKey:productKey,variantRole:'main',scope:'user',sourceKind:'user-packages',status:'installed',
+      evidence:{platform:'windows',runtimeIdentity:'notepad-entry',displayName:'记事本',values:{productKey,packageId:family+'!App'},verifiedFields:['productKey','packageId'],
+        discovery:{role:'application',nameSource:'appList',sourceKinds:['package'],objectKind:'variant',parentProductKey:productKey,
+          variantRole:'main',scope:'user',sourceKind:'user-packages',evidenceLevel:'strong'}}};
+    const scan={scanId:'b'.repeat(32),localUserId,batchIndex:0,batchCount:1,productCount:1,variantCount:1,
+      sourceResults:[{source:'user-packages',status:'complete',observationCount:2,warningCodes:[]}],completed:false};
+    const payload={schemaVersion:2,batchId:'legacy-container',products:[],variants:[container,entry],scan};
+    const upload=(body:unknown)=>call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),body:JSON.stringify(body)});
+    expect((await call('/v2/module/app-policy?childId=child-a',{method:'PUT',headers:{...bearer(account),'If-Match':'"app-policy-v0"'},
+      body:JSON.stringify({classifications:[{platform:'windows',runtimeIdentity:'notepad-entry',displayName:'记事本',classification:'study'}],
+        quotas:{dailyCategoryMinutes:{study:null,composite:null,restrictedEntertainment:null,unclassified:null},weeklyRestrictedEntertainmentMinutes:null,perApplicationDailyMinutes:[]}})})).status).toBe(200);
+    for(const change of [
+      {variantKey:'wrong-identity'}, {parentProductKey:'c'.repeat(64)}, {variantRole:'main'}, {scope:'machine'},
+      {sourceKind:'registry-user'}, {status:'runtimeObserved'}, {extra:'unexpected'},
+    ]) expect((await upload({...payload,batchId:'invalid-'+Object.keys(change)[0],variants:[{...container,...change},entry]})).status).toBe(400);
+    expect((await upload({...payload,batchId:'foreign-user',variants:[{...container,localUserId:'foreign'},entry]})).status).toBe(400);
+    const unsigned=structuredClone(container);unsigned.evidence.verifiedFields=['productKey'];
+    expect((await upload({...payload,batchId:'unsigned',variants:[unsigned,entry]})).status).toBe(400);
+    await expect((await upload(payload)).json()).resolves.toMatchObject({status:'accepted',acceptedCount:2});
+    await expect((await upload(payload)).json()).resolves.toMatchObject({status:'duplicate',acceptedCount:2});
+    const {variantKey:_,variantRole:__,...rest}=container;
+    // A corrected envelope with the same batch ID is not an identical replay.
+    expect((await upload({...payload,products:[{...rest,productKey}],variants:[entry]})).status).toBe(409);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_installation_products_v1').first('n')).toBe(1);
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_variants_v1').first('n')).toBe(1);
+    await expect((await upload({...payload,batchId:'legacy-completed',products:[],variants:[],scan:{...scan,batchIndex:1,completed:true}})).json())
+      .resolves.toMatchObject({status:'accepted',acceptedCount:0});
+    expect(await env.RUNTIME_DB.prepare('SELECT completed FROM runtime_application_inventory_scans_v2').first('completed')).toBe(1);
+    const catalog=await (await call('/v2/module/app-catalog?childId=child-a',{headers:bearer(account)})).json<{items:unknown[];technicalItems:unknown[]}>();
+    expect(catalog.items).toHaveLength(1);
+    expect(catalog.items).toContainEqual(expect.objectContaining({displayName:'记事本',catalogGroup:'systemTool'}));
+    expect(catalog.technicalItems).toContainEqual(expect.objectContaining({displayName:'记事本包',projectionReasonCode:'PACKAGE_CONTAINER'}));
+    const first=await (await call('/v2/machines/app-usage-corrections',{headers:bearer(enrolled.machineToken)})).json<{cursor:string}>();
+    await expect((await call('/v2/machines/app-usage-corrections?after='+encodeURIComponent(first.cursor),{headers:bearer(enrolled.machineToken)})).json())
+      .resolves.toMatchObject({items:[expect.objectContaining({policyVersion:2})]});
+  });
   it('projects package containers as technical records and launchable AUMIDs as independent applications', async () => {
     const {account,enrolled,localUserId}=await createMachineWithUser();
     const key=(digit:string)=>digit.repeat(64);

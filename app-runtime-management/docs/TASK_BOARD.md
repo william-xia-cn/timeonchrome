@@ -1,5 +1,19 @@
 # App Runtime 任务板
 
+## NOW（2026-09-27）：盘点上传边界修复
+
+Checklist：保留原批次与 hash → 严格识别旧客户端误放 variants 的 packageContainer 并转入 products → 验证来源、身份、用户和完整 scan receipt → Native 修正序列化并覆盖真实包容器 → PR/master 仅部署 Runtime Worker → 验证原队列 ACK、完整扫描与更正生成。兼容不接受名称推断，不删除队列，不降低鉴权；保留原始请求 hash 保证重放冲突语义。
+
+变更等级：Worker 兼容 + Windows 上传序列化。最小本地测试为 Worker 包容器/扫描/重放/拒绝回归、Worker typecheck/dry-run、Native Inventory 序列化测试；CI 仅实际受影响消费者。发布 smoke 为 health/401、盘点入站和本周更正。排除 Console、macOS、WiX、网页/媒体账本、migration、Guardian、Pages/R2 和新安装包。线上重复行仍是未通过项，不能用本地回归替代真实验收。
+
+实施证据：Worker 聚焦 3/3、typecheck、Wrangler dry-run、diff --check 通过；新增回归覆盖旧误放包容器、非法 envelope/未验证身份拒绝、原 hash 重放与冲突、完整 scan receipts、目录去重及本周更正生成。Native 真实包容器序列化 2/2 通过。最初缺少工作树契约构建/还原导致测试未运行，补齐固定版本依赖后通过；未将环境失败记为通过。代码审计 Matched、Deviated/Extra=无；真实队列恢复和 ChatGPT/EXCEL 归属验收仍 Missing，单列待发布后观察。
+
+## NOW（2026-09-27）：2.6.6 已安装，端到端验收未通过
+
+用户手动安装后，只读核对六个组件为 2.6.6.0，Service Automatic/Running、当前会话一个 Session Agent。正式 Native Host→v3 Service 读取本周七天均完整，无错误原因；网页/主应用/媒体上传队列为 0。本周读取仍有两个 ChatGPT、两个 EXCEL，不能标记归属修复完成。
+
+明确阻塞：本机盘点 outbox 133 批，首批 200 对象含 64 个 packageContainer 和 136 个 product；现有 BuildApplicationInventoryPayload 只把 product 放入 products，将 packageContainer 错放 variants，与 Worker 要求 variant 对象严格为 variant 冲突。线上最新完成盘点和 App Policy 停在 9 月 21 日，本周更正策略 0、本机缓存更正 0；策略轮询正常不等于已产生更正。下一步修复上传边界、保留并重放原队列，再验证实际更正与可信身份关联。验收只读，未改 ACL/配对/配置/原账，未部署；不能以当前通道 complete=true 掩盖同步缺口，也不能以名称强行合并历史身份。
+
 ## NOW（2026-09-27）：本周归属修复发布与 2.6.6 本机候选交付
 
 安装候选已验证：Native main `80d1541` / CI `36262231353` / artifact `10912752851`，contracts 1.14.0。2.6.6 Burn 118965717 bytes / SHA-256 `14e3724d555699147a5901ecd7b57479bf2afe2c6734240d1a923cbe95365b82`；MSI 60528372 bytes / SHA-256 `79a349220111f62253697e289a44906f6fdd60b3a33ffe690760645ba9d6aba6`。实际 MSI ProductVersion、固定 UpgradeCode、491 文件和组件版本核对通过；候选仅本地交付，不上传 R2/latest。Computer Use 因用户 Escape 停止，未启动安装器；已安装 2.6.4 不具备新更正读取能力。交付范围 Matched，真实升级/同步及旧 ChatGPT 无证据关联明确待处理，非 PASS。

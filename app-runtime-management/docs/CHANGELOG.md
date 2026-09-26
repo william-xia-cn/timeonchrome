@@ -1,5 +1,15 @@
 # App Runtime Changelog
 
+## 2026-09-27：修复旧客户端 packageContainer 上传兼容
+
+- 严格兼容误放 variants 的 Windows 包容器，按正确产品计数保存，保持原批次 hash/逐批 ACK/完整 scan receipt。
+- 不变更 inventory 身份、分类、原始 Segment 或统计；仅恢复既有客户端队列。聚焦 Worker 3/3、typecheck/dry-run 通过，真实同步结果待发布验收。
+
+## [2.6.6 真机验收] — 2026-09-27（未通过完整验收）
+
+- 用户完成安装；六组件版本、Service/单 Session Agent、真实 v3 七天完整应用读取通过。
+- 发现安装清单积压 133 批：首批 64 个包容器被上传器错放变体，不符合 Worker 契约。线上尚无本周更正，ChatGPT/EXCEL 仍各两行；未声明修复完成。只读验收，无新增部署、数据清理或权限修改。
+
 ## [ARM-D-032 / Runtime Worker 已部署] — 2026-09-27
 
 - PR #55 / master `9dd201f`；CI `36262025041` 成功，受保护 production `36262088101` 仅部署 Worker `2602c1de-b778-41a8-bf3c-f7474c15d83a`。Contracts 1.14.0；health 200，机器更正及模块应用统计 API 未认证 401。

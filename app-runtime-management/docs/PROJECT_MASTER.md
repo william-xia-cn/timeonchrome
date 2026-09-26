@@ -1,5 +1,9 @@
 # App Runtime 项目真值
 
+## 最新真机验收（2026-09-27）：2.6.6 已安装，修复尚未闭环
+
+六组件 2.6.6.0、Automatic/Running、单 Session Agent 和真实 v3 本周七天完整读取通过；重复 ChatGPT/EXCEL 与分类仍未解决。只读取证确认安装清单积压 133 批，上传器把 packageContainer 错放 variants（首批 64 个），不符合 Worker 契约；线上最后完成盘点/孩子策略仍为 9 月 21 日，本周更正 0。本轮没有修改家庭配置、原账、ACL 或部署资源。须修上传边界并验收队列恢复、策略更正及可靠身份关联后，才能宣布端到端完成。
+
 ## 当前发布：应用权威统计与本周分类更正（2026-09-27）
 
 TimeOnChrome PR #55 合并为 `9dd201fbc8ab30e335eda92c0901cd538f9abd45`，精确 master CI `36262025041` 通过。production 运行 `36262088101` 只部署 Runtime Worker `2602c1de-b778-41a8-bf3c-f7474c15d83a`；contract 1.14.0，health 200，机器更正/模块应用统计未认证 401。没有执行 migration、部署 Guardian/任何 Pages 或修改 R2/latest；production manifest artifact `10912443507` 保存资源版本，latest 仍 2.3.1。TimeWhereNative PR #4 已合并 `80d1541`；新 2.6.6 包交付与实际升级分开验收，不能把云端发布当作已安装 Service 支持本周更正。
