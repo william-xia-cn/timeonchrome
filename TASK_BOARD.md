@@ -1,5 +1,14 @@
 # TASK_BOARD
 
+## NOW：固定 Native Host 本地候选目录修复（2026-09-26）
+
+- PO 要求直接修复现有加载目录 `dist/native-host-managed-candidate/package-extension`；目录名称为历史兼容，候选模式仍为 `native-host-development`，不启用正式托管策略。
+- 根因：v3 曾输出至新目录而原目录停留在 v2，两者同为 1.7.34。新增仅限 unpacked 开发候选的 `--candidate-version`，本次候选为 1.7.35；正式源码 manifest、生产 CRX 和云端版本不变。
+- 实施：保留原 manifest 公钥/Extension ID，原地生成最新 v3 代码；不改网页落账、配额或生产配置，不删除 Chrome storage。用户仅需在原扩展点一次重新加载，不移除、不重绑、不换目录。
+- 测试等级：本地打包工具修复；必须＝候选版本边界、开发激活与包隔离聚焦测试、固定目录版本/公钥/模式/v3 内容核对、`git diff --check`；排除云端、原生安装器、macOS、网页账本及全量 CI。浏览器内部页自动化受策略限制，重载由用户手工完成，再只读查询 Service。
+- [x] 候选版本边界/包隔离矩阵及开发激活 5/5 通过；原目录已原地生成 1.7.35，公钥/Extension ID 与旧候选一致、模式仍为开发、包含 v3 快照；正式源码 manifest 仍为 1.7.34。旧生成包备份至 `dist/native-host-managed-candidate-v2-backup-20260926/`，未清理浏览器数据。
+- [ ] 用户在原扩展点击重新加载后，再核对真实 v3 通信；本地文件生成成功不等于浏览器已加载。
+
 ## TimeWhereNative 本机拆仓（D-104，源码/CI 与不可变候选交接已完成）
 
 - [x] BrowserBridge v3 已通过 PR #44 合入 `origin/master@373877d`，本任务从该干净基线开始。
