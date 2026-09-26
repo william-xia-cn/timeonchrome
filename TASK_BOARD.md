@@ -19,6 +19,8 @@ Checklist：
 
 实施审计：Matched＝契约、只读权威、用户隔离、分页版本、缓存/失败、三页签及本地验证；Deviated/Missing/Extra＝无（代码实现范围）。实机通道验收为 `NOT_RUN_REQUIRES_UPDATED_SERVICE`：已安装 Service 2.6.2 尚不具备新能力，本轮未替换正式程序、安装 MSI 或重载用户扩展；本地编译与 mock 不能记为实际配对机器端到端 PASS。未部署云端、执行 migration、发布 R2/latest、启用共享配额或修改网页原账。固定开发候选目录保持不变。
 
+交付证据：TimeOnChrome 功能提交 `f24966d`，TimeWhereNative 功能提交 `3571241`，均位于 `codex/extension-application-usage-v1`。Native 锁定来自前者的 Contracts 1.13.0 打包件（SHA-256 `4f5ce5cc0dcaa4691f5dcaa705472c2966b901ffc5f926a824f7e1cc7455f2f1`）；恢复当前/上一 1.12.0 后上述原生聚焦回归各 25/25 PASS。本地开发候选已原地生成 1.7.38，仍为 `dist/native-host-managed-candidate/package-extension`、`native-host-development`，公钥/Extension ID 不变、没有 CRX；开发激活 5/5 PASS。只读系统核对确认现有 Service Automatic/Running，正式程序仍为 2.6.2/2.6.2.0，本轮没有安装。下一步是单独构建并验收支持新能力的安装候选，而非修改加载目录或重新绑定；不能仅重载扩展就宣称真实应用读取可用。
+
 ## NOW：BrowserBridge v3 完整收尾计划（2026-09-26，PO 授权连续执行）
 
 目标：在 TimeWhereNative/TimeOnChrome 拆仓边界内完成权威网页快照、纯转发 Host、应用权威账与可解释重叠影子的工程交付；不把安装成功、收到消息或等待自然日当成完整验收。不启用共享配额执行、反向控制、原账重算、历史猜测或新的生产发布。
