@@ -1,5 +1,13 @@
 # PROJECT_MASTER
 
+## 当前双仓及本机验收（2026-09-27）
+
+D-104 源码拆分已经完成，旧仓无可发布的 Agent/installer 源码和本机 CI。Native main `ce2b56839a96e418e043297c5f1d937a3080817b` 的独立 CI `36269476969` 已通过 Windows、macOS 15、WiX 和 native-gate；仅用新仓及固定包构建，不依赖旧工作树。新仓 repository secrets/environments 列表均为空，workflow 只有 contents:read 与候选 artifact 上传；R2/云端发布仍由旧仓受保护流程独占。
+
+本机 2.6.7 已由用户安装；开发候选 1.7.39 保持原加载目录。真实 Native Host 返回本周完整用量、ChatGPT/Excel 各一条且为学习；用户明确确认页面正常（PASS_WITH_MANUAL_EVIDENCE）。网页/媒体原账、原应用记录与共享配额执行均不变。独立应用展示阶段完成，未来共享合并/执行不在本轮范围。
+
+交接验真锁从过期 1.12.0 对齐已验真的 contracts 1.15.0，固定包 SHA-256 为 `5a3f3762fee88e3cf1bd8140ac2716407a40566d2248de6c497cc7fb36c07073`。现有 2.6.7 Burn/MSI 通过旧仓验真器，来源为上述 Native main；这只是本地验真与配置收口，不代表 R2 上传或 latest 切换。内部未签名风险保留。本轮不重复迁移源码、不部署任何云资源、不改变用户绑定。
+
 > App Runtime 集成状态：D-092 已经 PR #8 合并 master 并完成生产 SSO/独立部署验收；contract `1.0.0` 为当时集成版本，后续版本以 `app-runtime-management/contracts/package.json` 为准。Guardian adapter 当时版本 `b971221b-82b1-4e14-8f67-f3b884ac924c`，主控制台 Pages `3876077d-5607-4e95-8526-b666cf16d13c`；单独发布主 Pages 不改变 Runtime 资源。内部真值与不可变生产 manifest 位于 `app-runtime-management/docs/`，根项目只维护 adapter、入口和 compatibility。
 
 ## TimeWhereNative 拆仓状态（D-104，源码与 CI 边界完成）

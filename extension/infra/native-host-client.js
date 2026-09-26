@@ -22,6 +22,9 @@ export const BROWSER_BRIDGE_RECONCILE_ALARM = 'timeonchromeBrowserBridgeReconcil
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const SCHEDULE_DEDUP_MS = 55_000;
 const NATIVE_RESPONSE_TIMEOUT_MS = 3_000;
+// A settled application week is a read query, not a heartbeat. Real ledger reads
+// can exceed the health budget; retain a bounded wait without changing other ACKs.
+const APPLICATION_USAGE_RESPONSE_TIMEOUT_MS = 15_000;
 const PROBE_COOLDOWN_MS = 5_000;
 const RETRY_BASE_MS = 60_000;
 const RETRY_MAX_MS = 15 * 60_000;
@@ -356,15 +359,16 @@ function ensureNativePort() {
 
 function postToNativeHost(payload) {
   const port = ensureNativePort();
+  const applicationRead = payload.channel === 'application' && payload.messageType === 'getApplicationUsage';
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
       if (!pendingAck || pendingAck.timeoutId !== timeoutId) return;
       pendingAck = null;
       disconnectPort();
       reject(new Error('native_response_timeout'));
-    }, NATIVE_RESPONSE_TIMEOUT_MS);
+    }, applicationRead ? APPLICATION_USAGE_RESPONSE_TIMEOUT_MS : NATIVE_RESPONSE_TIMEOUT_MS);
     pendingAck = { resolve, reject, timeoutId, requestId: payload.requestId,
-      applicationRead: payload.messageType === 'getApplicationUsage' };
+      applicationRead };
     try {
       port.postMessage(payload);
     } catch (_) {

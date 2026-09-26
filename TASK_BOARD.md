@@ -1,5 +1,23 @@
 # TASK_BOARD
 
+## NOW（2026-09-27）：双仓边界最终收口
+
+源码迁移及旧本机 CI 停用已由 D-104 完成，不重复迁移。执行 checklist：合入已实机验收的应用读取超时补丁；复核 Native main 精确 SHA 的独立 Windows/macOS/WiX CI、固定契约及无生产写权限；用现有 2.6.7 包校验 SHA/版本/字节哈希后，将旧仓滞留 1.12.0 的交接锁同步为已验证 1.15.0，增加与当前契约版本一致的回归；更新两仓当前状态；分别 PR 合并。未跟踪构建残留保留，不当作可发布源码，不修改其他任务工作树。
+
+测试等级：扩展通信 + 发布交接配置 + 文档。必要验证为 local-guardian/application-usage-read-model、artifact gate/CI 路由/release-config 聚焦测试、源码边界与 diff check、现有真实 2.6.7 产物验真；Native 精确 main ce2b568 的 run 36269476969 已通过所有相关 job，复用证据。CI 仅 release-config/轻量 gate，Native 文档仅轻量 gate。无新增协议或产品行为，不重跑平台构建，不部署云端、不安装、不执行 migration、不上传 R2 或切换 latest。
+
+提交前结果：上述六组本地检查及 diff check 全部 PASS，原生 2.6.7 Burn/MSI 来源 SHA、contracts 1.15.0/包哈希、实际文件大小/哈希验真 PASS。新仓 repository secrets/environments 只读查询为空，workflow 权限和固定包消费符合边界。用户确认扩展显示正常，记为 PASS_WITH_MANUAL_EVIDENCE；独立用量展示不等于共享配额已实现。Matched＝修复收口/源码隔离/独立 CI/契约验真/权限边界/实机证据，Deviated/Missing/Extra＝无（本轮实现范围）；PR/合并状态以实际 GitHub 结果为准，不先写完成。
+
+## NOW（2026-09-27）：应用用量查询误用健康心跳超时
+
+实机已安装 2.6.7 的 Native Host→Service 本周只读查询在 4362ms 返回完整统计，而扩展 native-host-client.js 所有请求共用 3000ms 超时，导致页面提前断线。修复 checklist：①仅 application/getApplicationUsage 使用独立 15000ms 有界响应预算，健康及其他通道保持 3000ms；②计时仍从实际发送开始，保留串行调度、requestId 校验和断线清理；③固定超过 3 秒成功、15 秒无响应终止、迟到响应不串 ACK 的回归；④校验并更新原 unpacked 目录，不改 ID/模式/绑定、不安装 Service。
+
+测试等级：扩展本地通信小修。仅 local-guardian、application-usage-read-model 聚焦测试、语法与 git diff --check；必要 CI 为扩展相关。真实只读 Native Host 查询确认响应预算；页面重载后的实机显示另记，不以 mock 代替。排除 Windows/macOS/WiX/Worker/Console 全量测试与生产发布，因为不改 Service、统计算法、网页/媒体原账、配额或云端。其他产品身份缺口不借本次超时修复宣称全部解决。
+
+实施结果：local-guardian（包括 4400ms 延迟成功、15000ms 上限回调、迟到 ACK/串行队列、原 3000ms 健康超时）及 application-usage-read-model PASS；模块语法与 diff check PASS。实际安装 Host 第二次只读查询 4630ms，完整用量返回；目标 ChatGPT/Excel 各一行且为 study。用量 complete 与其他产品 attribution 缺口分别保留，不掩盖未关联项。原目录 1.7.39 native-host-development 仅替换通信文件，候选与测试源码 SHA-256 相同；没有重建或安装 Service。当前仍为 4–5 秒查询，未宣称性能优化完成。
+
+提交前审计：Matched＝独立预算/原健康预算/发送计时/串行与 ACK/有界失败/聚焦回归/原目录同步；Deviated/Missing/Extra＝无（本次超时修复范围）。用户重载后明确回复“正常”，页面验收记为 PASS_WITH_MANUAL_EVIDENCE，不伪称自动化页面通过。真实 Host 另行读取成功且目标产品各一条/学习；其他对象的笼统 attribution 标记未证实为缺陷，不作为本次目标的额外阻塞。不部署云端。
+
 ## NOW（2026-09-27 PO 产品口径更正）：应用分类调整追溯本周
 
 模块 ARM-D-032 已实现并合并：同一孩子、已确认应用的分类调整更正北京时间本周有效使用分类和独立应用配额归属；上周及更早不追溯。Contracts 1.14.0/API 留在本仓，Native 事务缓存/Service 读取留在新仓，扩展不重算或改变目录。PR #55/master `9dd201f` 通过精确 CI，production `36262088101` 仅部署 Runtime Worker `2602c1de-b778-41a8-bf3c-f7474c15d83a`，health 200、未认证 API 401，无 migration/Pages/Guardian/R2 写入。Native PR #4/main `80d1541`、CI `36262231353` 全部门禁通过，2.6.6 主分支 Burn/MSI 已回读验证版本、491 文件及哈希。用户 Escape 停止 Computer Use，未启动安装器；本机仍为 2.6.4，实际升级/修正同步及旧 ChatGPT 可信身份关联尚未通过。旧 2.6.5 不含本周更正；完整交付状态见模块任务板，不得称真机已经修复。
