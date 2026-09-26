@@ -2,6 +2,12 @@
 
 ## NOW：固定 Native Host 本地候选目录修复（2026-09-26）
 
+- 精度问题继续执行：新增合法 1500ms 应用输入的最小回归，证明无重叠/完全重叠的表达限制与真正部分重叠歧义不同；只运行 `BrowserSharedDailyTests`。拟议精确小数读模型（不舍入、不改网页权威秒数/原账/配额）已请求 PO 单项确认，未确认前不改 product code。21:29 首轮摘要的 clock mismatch 查询误用了不存在的 `durationMs`，其 mismatch 数无效；已修正为 `monotonicDurationMilliseconds`，但修正后的 UAC 查询被取消，不能把旧结果当作有效时钟诊断，不再重复弹 UAC。
+- PO 已明确回复“按此实施”：Native Core 以整数毫秒保存应用/共享规范值，decimal 秒属性不舍入；Store 只为本地可重建 shadow 增加精确毫秒列，旧整秒行无损兼容。网页整数秒、原账、配额和 overlap 歧义校验不改；测试仅 `BrowserSharedDailyTests`。实施顺序为文档→Core→Store→回归与旧表/重启验证→审计，禁止本轮构建或安装、发布云端或契约。
+- 精度修复代码完成：Native `BrowserSharedDailyTests` 最终 6/6 PASS，证明无重叠 1+1.5=2.5 秒、全覆盖扣 1 秒后为 1.5 秒、1ms 精度不丢失；SQLite INTEGER 毫秒规范列兼容旧表/旧整秒行，重复初始化与重启回放保真，网页/应用原 payload 不变。首次编译断言类型失败已修正，不隐去失败。审计 Matched，Deviated/Missing/Extra 无（本次限本地代码与回归）；已安装 Service 尚未加载该修复，历史映射缺口/真实部分重叠歧义不被此修复消除，不宣称实机整周共享 PASS。
+
+- 21:28 后继续只读核对：Service 为 Automatic/Running，本周 6 份网页快照完整、待投影 0；新映射主记录持续增加且未发现新增映射缺口。不能仅等待新日期后宣称共享可用：当前已映射应用区间并集仍有毫秒尾数，`BrowserSharedDailyProjector` 对非整秒并集返回 `APPLICATION_FRACTIONAL_SECOND`；旧映射缺口先行返回，掩盖了此独立精度门禁。该摘要为映射后区间的只读核对，不是整日共享数值或未知历史补算。不得直接 floor/round、放宽校验或改网页整数秒口径；先明确应用权威毫秒与网页 credited seconds 的精确合并表达及展示舍入边界，再按单项批准实施。整体共享验收仍 BLOCKED，原网页/应用账、现有独立配额不受本次诊断影响。
+
 - PO 同意历史缺口不猜测、不补写，完整新日期应独立可用。当前继续项为只读边界核对与固定回归：按日检查已映射/未映射的权威应用记录，验证旧日失败不阻塞新日、跨午夜未知段只影响实际覆盖日期、重启后边界保持。原生 Store 已按北京时间日期筛选，不为历史问题机械升级安装包；仅新增 BrowserSharedDailyTests 聚焦回归及 README 说明，排除云端、安装器、macOS、全量测试。若真实新记录仍缺映射，按证据另修；不放宽 unknown 的 fail-closed，不更改原账/配额/整数秒规则。
 - 边界核对完成：Native `BrowserSharedDailyTests` 4/4 PASS，固定 SQLite 回归覆盖跨午夜缺口、旧日/完整新日、重启、用户隔离、0ms 诊断及原 payload 不变。已批准 UAC 只读摘要确认当前映射边界后的主记录无新增未映射、旧缺口不跨该边界；实机未来完整日期尚未发生，不伪报整周共享通过。无需再改程序或安装，旧日不可用及精度歧义仍按现有 fail-closed 保留。
 
