@@ -1,5 +1,10 @@
 # App Runtime Changelog
 
+## [ARM-D-032 / Runtime Worker 已部署] — 2026-09-27
+
+- PR #55 / master `9dd201f`；CI `36262025041` 成功，受保护 production `36262088101` 仅部署 Worker `2602c1de-b778-41a8-bf3c-f7474c15d83a`。Contracts 1.14.0；health 200，机器更正及模块应用统计 API 未认证 401。
+- 没有 migration、Guardian/Pages/R2/latest 发布；资源版本与 R2 latest 2.3.1 已由 production manifest artifact `10912443507` 固定。Native 2.6.6 和真机验收不等同本次云端发布；既有无可信关联的同名 ChatGPT 不强行合并。
+
 ## [ARM-D-032 / Contracts 1.14.0] — 2026-09-27（本地修复，未发布）
 
 - 分类调整以新不可变 App Policy 的本周更正覆盖日/周/小时/分类及独立应用配额读模型；原始 Segment/总时长和上周不变。撤销覆盖、迟到上传和重放不重复计时；发现/已处理审计不因更正消失。

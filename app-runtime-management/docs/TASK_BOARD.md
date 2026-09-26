@@ -2,6 +2,8 @@
 
 ## NOW（2026-09-27）：本周归属修复发布与 2.6.6 本机候选交付
 
+已完成：PR #55/master `9dd201f`、精确 master CI `36262025041`、production `36262088101`。Runtime Worker=`2602c1de-b778-41a8-bf3c-f7474c15d83a`，health 200、两条新读接口未认证 401；无 migration/Pages/Guardian/R2/latest 写入。Native PR #4 已合并 `80d1541`，PR CI `36261976780` 当前/上一契约 Windows 各 187/187、macOS/installer/native-gate 通过。已安装 Service 只读核对仍为 2.6.4/Automatic/Running；新包、实际升级、更正同步和旧 ChatGPT 可靠身份关联未标完成。
+
 PO 要求连续推进实际交付。Checklist：两仓提交推送/PR及精确 SHA CI → 合并到 TimeOnChrome master / TimeWhereNative main → 受保护流程仅发布 Runtime Worker → Native 2.6.6 MSI/Burn及版本/哈希 → 本机保留升级和只读通道验收。无需 Guardian/Pages/D1 migration/R2/latest/正式扩展发布；加载目录及配对不变。变更等级为已验证代码发布+Windows 安装候选，只补安装器结构测试、WiX 构建和资源 smoke，复用既有功能测试。生产更正从新的批准策略版本或完整盘点投影产生，不用 GET 悄悄重写旧版本；未完成的真机和旧 ChatGPT 可靠身份关联继续明确标记，不假报通过。
 
 ## NOW（本地实现与聚焦验证完成，未发布）：本周应用分类有效归属修正

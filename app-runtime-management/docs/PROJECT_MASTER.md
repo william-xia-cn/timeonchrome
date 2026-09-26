@@ -1,5 +1,11 @@
 # App Runtime 项目真值
 
+## 当前发布：应用权威统计与本周分类更正（2026-09-27）
+
+TimeOnChrome PR #55 合并为 `9dd201fbc8ab30e335eda92c0901cd538f9abd45`，精确 master CI `36262025041` 通过。production 运行 `36262088101` 只部署 Runtime Worker `2602c1de-b778-41a8-bf3c-f7474c15d83a`；contract 1.14.0，health 200，机器更正/模块应用统计未认证 401。没有执行 migration、部署 Guardian/任何 Pages 或修改 R2/latest；production manifest artifact `10912443507` 保存资源版本，latest 仍 2.3.1。TimeWhereNative PR #4 已合并 `80d1541`；新 2.6.6 包交付与实际升级分开验收，不能把云端发布当作已安装 Service 支持本周更正。
+
+ARM-D-032 只更正北京时间当前周的有效分类，原始 Segment、monotonic 时长及上周不变。旧批准策略版本不在 GET 中改写；新的策略批准或完成盘点投影才生成新版本更正。无可信证据的旧 ChatGPT 同名身份仍不自动关联，真实终端升级/策略更正同步与旧身份问题尚不能标为通过。
+
 ## 当前源码边界：D-104/ARM-D-031
 
 - BrowserBridge v3 已于 PR #44 合入 `master@373877d`，拆仓从该干净基线开始；v3 仍是本地候选，不代表生产发布。
