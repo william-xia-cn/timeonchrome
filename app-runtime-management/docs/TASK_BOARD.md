@@ -1,5 +1,9 @@
 # App Runtime 任务板
 
+## NOW（2026-09-27）：本周归属修复发布与 2.6.6 本机候选交付
+
+PO 要求连续推进实际交付。Checklist：两仓提交推送/PR及精确 SHA CI → 合并到 TimeOnChrome master / TimeWhereNative main → 受保护流程仅发布 Runtime Worker → Native 2.6.6 MSI/Burn及版本/哈希 → 本机保留升级和只读通道验收。无需 Guardian/Pages/D1 migration/R2/latest/正式扩展发布；加载目录及配对不变。变更等级为已验证代码发布+Windows 安装候选，只补安装器结构测试、WiX 构建和资源 smoke，复用既有功能测试。生产更正从新的批准策略版本或完整盘点投影产生，不用 GET 悄悄重写旧版本；未完成的真机和旧 ChatGPT 可靠身份关联继续明确标记，不假报通过。
+
 ## NOW（本地实现与聚焦验证完成，未发布）：本周应用分类有效归属修正
 
 PO 已要求“先修复”，进入实现。按 DESIGN checklist 完成版本化策略更正、云端统一读取、分页机器同步和 Native 独立事务缓存/权威读取。变更等级为应用统计/权限/本地存储；本地测试限定 Contracts 兼容、Worker 更正/策略/授权 API、Windows 更正缓存与应用读取/策略客户端编译，CI 仅实际消费者。排除网页账、UI、macOS、WiX 和生产部署；发布 smoke 留待实际发布，不以本地测试充当线上完成。
