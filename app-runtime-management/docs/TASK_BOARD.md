@@ -5,7 +5,7 @@
 - [x] TimeWhereNative 2.6.2 本机升级与只读保留检查已完成；扩展固定原目录 1.7.37，不需要再安装或重载。
 - [x] 真实扩展 V2/v3 builder 生成三个无私密信息的 JSON 夹具，Native framing/协议/守恒/SQLite/ACK/毫秒影子/重启链式回归 6/6 PASS，双仓夹具一致；Host 故障恢复与错误 revision ACK 聚焦断言通过。
 - [x] 当前模式为权威快照，v2 Segment 镜像仅保留历史兼容；根及模块当前状态已同步。旧日期会话映射缺口仍 unavailable，不猜测补写，不等待自然日替代回归。
-- [ ] 双仓测试/文档提交、PR、精确 SHA CI 和合并收口；没有本轮生产部署、R2/latest、配额执行或反向控制。
+- [x] 双仓测试/文档提交及合并：TimeOnChrome #53 / `5821a2b` / CI `36251125392`，TimeWhereNative #2 / `cb70ec3` / CI `36251123382`（Windows 当前/上一契约各 167/167、WiX 0 warning/error，汇总门通过）。没有本轮生产部署、R2/latest、配额执行或反向控制；无需 PO 再安装、重载或等待自然日。
 
 测试契约：新增跨仓消费者测试及扩展 Host-client 聚焦文件；复用 SharedDaily 6/6、Installer 5/5、WiX/产物与实机证据，相关 Windows CI 维持门禁，无关 macOS/云端/完整 E2E 不重跑。
 

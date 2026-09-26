@@ -18,6 +18,8 @@ PR #51 / master `7edf200` 已通过精确 Guardian CI 和 production 闸门，�
 
 受控链式回归使用扩展实际 V2 权威投影/v3 builder 的三个公开快照，经过 Native framing、协议/守恒校验、独立临时 SQLite、版本 ACK、重叠和重启恢复，6/6 PASS；两仓夹具语义完全一致。扩展 Host-client 聚焦测试通过，新增后来安装、Service 失败恢复、错误 revision ACK 保留及原账不变的断言。链式夹具不是家庭整周验收：六个旧日期的历史会话映射缺口仍不可用，不猜测回填；完整新日期由受控回归证明。源码及证据通过两仓 PR 收口，本轮没有云端/R2/latest 写入或新的安装/重载。
 
+两仓工程收口已通过 PR 合并：TimeOnChrome #53 → `5821a2b`（CI `36251125392`）；TimeWhereNative #2 → `cb70ec3`（CI `36251123382`，当前/上一契约 Windows 各 167/167、WiX 0 warning/error、native-gate 成功，macOS 无变更跳过）。原生 CI artifact `10909895029` 不代表新安装或生产发布；已安装候选的来源仍为 `b9e8b7a`，哈希和验收证据不被纯测试/文档提交替代。本阶段完成，不再等待自然日或追加 PO 操作；历史旧日不可用与未签名风险继续保留。
+
 ## 项目状态
 - **生产版本：1.7.32（内部 managed 已发布；生产观察中）**
 - **本地候选：1.7.37（固定原目录的 Unpacked Native Host v3 联调；未发布、禁止打包）**

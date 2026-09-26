@@ -9,8 +9,10 @@
 2. [x] 受控跨仓链式验证：真实 V2/v3 builder 的三个公开 JSON 夹具 deep equality 通过；Native framing/协议/守恒→临时 SQLite revision 替换/重复 ACK/脏状态→精确毫秒重叠→重启回放 6/6 PASS。网页 3 秒 + 应用 1501ms − 0 秒 = 4501ms；全覆盖 3 秒 + 4001ms − 3 秒 = 4001ms；缺证据不给共享值。未引用另一仓源码、写家庭库或改系统时间；真实 pipe/SCM 单独复用安装证据，不冒充同一夹具覆盖。
 3. [x] 故障/兼容证据矩阵：snapshot 与 local-guardian 两个聚焦文件 PASS；新增 Host 后来安装同步本周、Service 失败保留待发送、错误 revision ACK 不删除数据及恢复后清空、原账不变。旧 Service 健康-only、不发 v2 Segment、退避/手动重试/模式隔离复用固定断言及既有实机证据。新增测试首轮因模拟 v3 heartbeat 未返回能力信息超时，修正模拟响应后通过，非产品代码改动。
 4. [x] 修正权威文档：根 DESIGN/PROJECT_MASTER 与模块 TASK_BOARD/PROJECT_MASTER 已明确 v2 历史、v3 当前、2.6.2 本地安装、旧日期限制与两仓归属；Native README 对齐。过去发布/测试失败保留，不重写历史。
-5. [ ] 提交与交付：最小测试通过、范围/敏感字段/边界与 diff 检查后，本地提交并推送两仓功能分支，建立 PR 和精确 SHA CI 证据。合并保持 PR/gate 流程；若当前授权与现有发布规则不允许最终合并/生产写入，做到可合并交付并一次性说明，不重复询问或自动部署。
-6. [ ] 最终审核：Matched/Deviated/Missing/Extra 与每项 PASS/FAIL/BLOCKED；成功链提供网页秒、应用毫秒、重叠秒和共享毫秒，失效链不给伪共享值。旧历史缺口为已知不可用，不补造；自然运行观察只作补充，不作为开发等待步骤。
+5. [x] 提交与交付：TimeOnChrome PR #53（head `abdda90`，CI `36251125392`）已合并为 `5821a2bf2978ea67b68133b70f6500beb4cfb4d2`；TimeWhereNative PR #2（head `33b9519`，CI `36251123382`）已合并为 `cb70ec3fdfe631dc39451e194961cb1891c15274`。Native 当前/上一契约各 167/167 PASS，WiX MSI/Burn 均 0 warning/error、native-gate 通过，macOS 按范围跳过；原生 CI 候选 artifact `10909895029` 仅保存 GitHub，不进入 R2。C 仓轻量 gate 通过，Worker/Console/发布 job 跳过。
+6. [x] 最终审核：实施 checklist Matched；Deviated/Missing/Extra 无。跨仓、故障恢复、边界、精度、版本/原账保留均 PASS（真机人工环节为 PASS_WITH_MANUAL_EVIDENCE）。旧日期共享为已知历史限制 BLOCKED_BY_HISTORICAL_SESSION_MAPPING，不补造；新日期与精度由受控回归证明。未宣称完整家庭整周 PASS，也未新增安装、重载、配额执行、反向控制或生产发布。
+
+交付检查：两仓 `git diff --check` 通过，TimeOnChrome 精确提交归档的边界脚本 PASS，Runtime/Guardian/Pages/Extension/Contracts/原账业务文件无本轮差异。C worktree 仅保留用户未跟踪旧 `app-runtime-management/agents/` 构建残留，不提交、不删除；D Native worktree 已提交干净。主工作目录与任务管理线已有未提交修改只读核对、不纳入本次。最后纯文档收口只运行 diff/轻量 CI，复用上述代码和已安装产物证据，不重跑产品测试。
 
 测试契约：跨仓协议消费者及影子集成验证；本地仅扩展 fixture/Host-client 聚焦文件与 Native 新链式集成测试，既有 SharedDaily 6/6、Installer 5/5、WiX/hash/实机 UI 证据复用。CI 为真实受影响 Windows tests 和根轻量/扩展相关门；不运行 macOS、安装器重建、Worker/Console 全量、破坏性停服或无关 E2E。没有网页落账代码改动；若发现必须改变原账/配额/归属语义，按 D-076 单项批准门停止该项，不绕过。
 
