@@ -12,6 +12,8 @@ PO 指出本地统计两个 ChatGPT、两个 EXCEL，并已在云端把 ChatGPT 
 
 实施结果：Worker 关联/继承、策略版本、ETag/家庭隔离、旧客户端时段、上传分类与包容器回归 15/15，通过 typecheck；Native 读取 14/14、安装器 5/5，通过 Service 编译。修正旧 Game Bar 测试，使 resolvedApplications 与已存在的 composite 明确覆盖一致，不改变其实际分类/配额。两次生产 D1 仅 SELECT 汇总，rows_written=0；确认三个旧 ChatGPT 学习配置缺少 inventory，当前安装项有另一个包身份，不能宣称已自动关联。实施审计 Matched（可信关联/覆盖/历史不变/隔离/分页），Deviated/Extra=无；生产部署、现有家庭关联与真机升级仍待执行，不记为通过。原扩展目录、ID、绑定未改。
 
+代码提交：TimeOnChrome `b5dc9aa`，TimeWhereNative `276c99b`；Worker dry-run 通过，没有生产部署。本地 2.6.5 未签名 Burn 已构建并核对 MSI/组件版本、491 文件清单、固定 UpgradeCode 和 manifest 大小/哈希，产物目录 `D:\Codex\TimeOnchrome-worktrees\timewhere-native-history\artifacts\release\windows\x64\2.6.5\`。Burn SHA-256 `ad4b928e698aa5ed909a1c939e4bd3984e7299414cc2c66a063c060bda9051e6`，源码 SHA 为 Native 实现提交；当前安装仍为 2.6.4。未推送/合并/部署/安装；端到端 Missing 为可信旧 ChatGPT 关联和发布升级后验收，不把代码测试或包生成记为已解决用户页面全部重复。
+
 ## COMPLETED（修复/本地包/用户安装后真实通道验证）：独立应用统计正常双时钟被误判不完整（2026-09-27）
 
 已通过真实安装 2.6.3 的 Native Host framing→Service 只读查询确认：响应成功、19 个应用，本周七天不完整原因均为 APPLICATION_CLOCK_AMBIGUOUS。非网页重叠证据缺失，不是零账本。新 ApplicationUsageReader 要求 wall/monotonic 毫秒差完全相等，与实际 UtcNow/TickCount64 独立采样及既有 2000ms 跳变容差冲突。本轮 Native 修复仅应用读取：同用户/session/epoch 固定历史锚点，monotonic 决定毫秒并集，wall 用于日期/小时放置；真正跳变/字段损坏/epoch 回拨仍不完整，不修改原始 Segment、配额或共享读模型。先固定回归，再 ApplicationUsageReadTests/编译与必要本地安装候选 2.6.4；不跑无关平台/云端，不部署或安装，不猜测历史。用户截图证明扩展 1.7.39 已读到 Service，路由修复实际生效。

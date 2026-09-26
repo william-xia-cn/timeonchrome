@@ -6,6 +6,8 @@ PO 已授权修复两个 ChatGPT/EXCEL：目录与策略共用可信叶关联/�
 
 最小测试：Worker 关联/策略版本/权限/旧客户端聚焦测试及 typecheck/dry-run；Native 应用读取/安装器版本测试与本地 2.6.5 包。排除网页账本、配额、Console/macOS/全平台 CI 与生产发布；已有默认分类测试改为断言 resolvedApplications 与精确覆盖一致（Game Bar composite），实际覆盖行为原已为 composite，不改变配额语义。
 
+实现与交付证据：旧仓 `b5dc9aa` 的 Worker 聚焦 15/15、typecheck/dry-run PASS；新仓 `276c99b` 的应用读取 14/14、安装器 5/5 PASS，2.6.5 本地 Burn/MSI 版本、491 文件清单和 manifest 哈希通过，WiX 0 warning/error。代码范围 Matched，Deviated/Extra 无；现有旧 ChatGPT 配置缺少库存关联证据，端到端 Missing 仍为可靠关联、受保护发布及真机升级后验收。当前无安装/云端/R2 写入，不能标整项完成。准确安装目录见根任务板，扩展加载目录与绑定未改变。
+
 ## NOW：BrowserBridge v3 双仓工程收尾（2026-09-26）
 
 - [x] TimeWhereNative 2.6.2 本机升级与只读保留检查已完成；扩展固定原目录 1.7.37，不需要再安装或重载。
