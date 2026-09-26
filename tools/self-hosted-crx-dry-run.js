@@ -199,7 +199,7 @@ function applyLocalGuardianChannelBoundary(stagingDir, nativeHostEnabled) {
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }
 
-function stageExtensionPackage(extensionDir, stagingDir, deploymentMode = null, manifestPublicKey = null) {
+function stageExtensionPackage(extensionDir, stagingDir, deploymentMode = null, manifestPublicKey = null, candidateVersion = null) {
   const managedDeployment = deploymentMode === DEPLOYMENT_MODE_MANAGED;
   const nativeHostEnabled = managedDeployment
     || deploymentMode === DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT;
@@ -218,6 +218,7 @@ function stageExtensionPackage(extensionDir, stagingDir, deploymentMode = null, 
     const manifestPath = path.join(stagingDir, 'manifest.json');
     const manifest = readJson(manifestPath);
     manifest.key = manifestPublicKey;
+    if (candidateVersion) manifest.version = candidateVersion;
     manifest.version_name = `${manifest.version} Native Host Development Candidate`;
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   }
@@ -315,7 +316,8 @@ function main() {
   const repoRoot = path.resolve(__dirname, '..');
   const extensionDir = path.join(repoRoot, 'extension');
   const manifest = readJson(path.join(extensionDir, 'manifest.json'));
-  const version = manifest.version;
+  const candidateVersion = args['candidate-version'] || null;
+  const version = candidateVersion || manifest.version;
   if (!version) throw new Error('manifest version not found');
 
   const outputDir = path.resolve(repoRoot, args['output-dir'] || path.join('dist', 'self-hosted'));
@@ -330,6 +332,11 @@ function main() {
     || args['native-host-development'] === 'true';
   if (managedDeployment && nativeHostDevelopment) {
     throw new Error('--managed-deployment and --native-host-development are mutually exclusive');
+  }
+  if (candidateVersion && (!nativeHostDevelopment || typeof candidateVersion !== 'string'
+    || !/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(candidateVersion)
+    || candidateVersion.split('.').some((part) => Number(part) > 65535))) {
+    throw new Error('--candidate-version requires an unpacked native-host development candidate and a valid Chrome version');
   }
   if (nativeHostDevelopment && (pack || args['prepare-host'] || args['host-output-dir'])) {
     throw new Error('native-host development staging is unpacked-only and cannot produce CRX/update host assets');
@@ -366,7 +373,7 @@ function main() {
   }
   if (!/^https:\/\//i.test(baseUrl)) throw new Error('base-url must be HTTPS for production policy use');
 
-  stageExtensionPackage(extensionDir, packageDir, deploymentMode, publicKeyManifest?.key || null);
+  stageExtensionPackage(extensionDir, packageDir, deploymentMode, publicKeyManifest?.key || null, candidateVersion);
 
   if (pack) {
     const chromePath = findChromeExecutable(args.chrome || process.env.CHROME_EXE || '');

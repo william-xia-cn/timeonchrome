@@ -9,6 +9,12 @@
 
 ## 1. 架构概览
 
+### BrowserBridge v3 本周缺失区间只读恢复（2026-09-26，PO 单项批准）
+
+`GET /device/usage-interval-evidence/v3?date=YYYY-MM-DD&offset=0&anchorAtMs=...` 仅使用现有设备 token，归属由服务端推导，日期限制在当前北京时间周。每页最多 100 条，固定 anchor 下返回原 ACTIVE 起止时间、原始整数秒和已有修正后的配额桶；响应不含域名、标题、路径、账号或设备标识。分页版本改变、数据读取失败或证据不合法时拒绝恢复。
+
+扩展只为缺失本地区间的日期请求；证据保存在本次投影的临时内存层，沿用现有区间整数秒切分并与 V2 权威总秒、逐桶秒数严格相等。缺页、重叠、归属冲突或秒数不符仍不发布共享结果，不回写原账、不改变统计/配额/修正语义，不猜测旧应用会话。本轮不发布托管扩展或原生包。
+
 ### 1.0.2 TimeOnChrome Native Host 与 Runtime 共享配额影子边界
 
 Managed 扩展通过 `com.timeonchrome.nativehost` 连接 Runtime-owned `TimeOnChrome.NativeHost.exe`；D-061 的旧 ID `com.timeonchrome.guardian` 只保留兼容 manifest。Host 不拥有产品逻辑，只把健康消息和已经写入 `usage_segments_v1` 的隐私裁剪 Segment 镜像转发给 `TimeOnChromeAppRuntime` Service。任何本地桥失败均 fail open，不影响网页落账、拦截、云同步或配额。

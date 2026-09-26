@@ -4,7 +4,7 @@
 import { buildLocalQuotaProjectionV2 } from '../core/quota-read-model-v2.js';
 import { getBeijingWeekPeriod } from '../core/profile-account-v2.js';
 import { splitSegmentByLocalHour } from '../core/usage-segments.js';
-import { getSyncState, readDeviceCorrectionEvidenceWeek } from './cloud-sync.js';
+import { getSyncState, readDeviceCorrectionEvidenceWeek, readDeviceIntervalEvidenceDay } from './cloud-sync.js';
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -50,7 +50,7 @@ function dayKeys(weekStart, throughDate) {
 
 export async function buildAuthoritativeDailySnapshots({
   statsByDate = {}, segmentsById = {}, compactCorrections = [], correctionEvidence = null,
-  deviceId = null, weekStart, weekEnd, throughDate, now = Date.now(),
+  deviceId = null, weekStart, weekEnd, throughDate, now = Date.now(), intervalEvidenceByDate = {},
 } = {}) {
   const local = buildLocalQuotaProjectionV2(statsByDate, {
     date: throughDate, weekStart, weekEnd, deviceId, corrections: compactCorrections,
@@ -82,17 +82,24 @@ export async function buildAuthoritativeDailySnapshots({
     }
   }
   const seenCorrections = new Set();
+  let activeSourceCount = 0;
+  let missingIdCount = 0;
+  let invalidTimeCount = 0;
+  let inWeekSourceCount = 0;
   for (const segment of Object.values(segmentsById || {})) {
     if (!segment || segment.channel !== 'active' || segment.diagnostic === true) continue;
+    activeSourceCount += 1;
     const segmentId = String(segment.id || '');
-    if (!segmentId) continue;
+    if (!segmentId) { missingIdCount += 1; continue; }
     const slices = splitSegmentByLocalHour(segment);
+    if (slices.length === 0) invalidTimeCount += 1;
     const byDate = new Map();
     for (const slice of slices) {
       if (slice.date < weekStart || slice.date > weekEnd || slice.date > throughDate) continue;
       if (!byDate.has(slice.date)) byDate.set(slice.date, []);
       byDate.get(slice.date).push(slice);
     }
+    if (byDate.size > 0) inWeekSourceCount += 1;
     for (const [date, dateSlices] of byDate) {
       const correction = correctionBySegmentDate.get(`${segmentId}\0${date}`);
       const originalBucket = String(segment.quotaBucketAtTime || segment.quotaBucket || segment.mode || 'unknown');
@@ -134,11 +141,62 @@ export async function buildAuthoritativeDailySnapshots({
     const activeSeconds = seconds(day.onlineSeconds);
     const quotaBucketSeconds = Object.fromEntries(Object.entries(day.byQuotaBucket || {})
       .map(([bucket, value]) => [bucket, seconds(value)]).filter(([, value]) => value > 0));
-    const intervals = (intervalsByDate.get(date) || []).sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+    let intervals = (intervalsByDate.get(date) || []).sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
     const reasons = new Set(reasonsByDate.get(date) || []);
+    const recovered = intervalEvidenceByDate[date];
+    let recoveredValid = false;
+    if (recovered && activeSeconds > 0 && recovered.date === date
+      && recovered.weekStart === weekStart && recovered.weekEnd === weekEnd
+      && typeof recovered.revision === 'string' && Array.isArray(recovered.items)) {
+      const replacement = [];
+      let valid = true;
+      for (const row of recovered.items) {
+        if (!Number.isSafeInteger(row.durationSeconds) || row.durationSeconds <= 0
+          || !Number.isSafeInteger(row.startMs) || !Number.isSafeInteger(row.endMs)
+          || row.endMs <= row.startMs || typeof row.quotaBucket !== 'string'
+          || row.durationSeconds > Math.ceil((row.endMs - row.startMs) / 1000)) { valid = false; break; }
+        const slices = splitSegmentByLocalHour({ ...row, channel: 'active' });
+        if (slices.length === 0 || slices.some((slice) => slice.date !== date)
+          || slices.reduce((sum, slice) => sum + seconds(slice.durationSeconds), 0) !== row.durationSeconds) {
+          valid = false; break;
+        }
+        for (const slice of slices) if (slice.durationSeconds > 0) replacement.push({
+          startMs: slice.startMs, endMs: slice.endMs, creditedSeconds: slice.durationSeconds, quotaBucket: row.quotaBucket,
+        });
+      }
+      // Known local evidence cannot be contradicted by fallback, even when totals happen to match.
+      const key = (row) => JSON.stringify([row.startMs, row.endMs, row.creditedSeconds, row.quotaBucket]);
+      const remaining = new Map();
+      for (const row of replacement) remaining.set(key(row), (remaining.get(key(row)) || 0) + 1);
+      for (const row of intervals) {
+        const count = remaining.get(key(row)) || 0;
+        if (!count) valid = false;
+        else remaining.set(key(row), count - 1);
+      }
+      for (const correction of correctionBySegmentDate.values()) {
+        if (correction.date !== date) continue;
+        if (!recovered.items.some((row) => row.startMs === correction.startMs
+          && row.endMs === correction.endMs && row.durationSeconds === correction.durationSeconds
+          && row.quotaBucket === bucketKey(correction, 'effective'))) valid = false;
+      }
+      if (valid) {
+        intervals = replacement.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+        recoveredValid = true;
+        reasons.delete('CORRECTION_SEGMENT_MISSING');
+      } else reasons.add('RECOVERED_INTERVAL_CONFLICT');
+    }
+    // Read-only diagnostics: never invent intervals from retained aggregate seconds.
+    if (activeSeconds > 0 && intervals.length === 0) {
+      if (activeSourceCount === 0) reasons.add('SOURCE_ACTIVE_SEGMENTS_ABSENT');
+      if (missingIdCount > 0) reasons.add('SOURCE_ACTIVE_ID_MISSING');
+      if (invalidTimeCount > 0) reasons.add('SOURCE_ACTIVE_TIME_INVALID');
+      if (activeSourceCount > missingIdCount + invalidTimeCount && inWeekSourceCount === 0) {
+        reasons.add('SOURCE_ACTIVE_OUTSIDE_WEEK');
+      }
+    }
     if (!evidenceValid) reasons.add('CORRECTION_EVIDENCE_UNAVAILABLE');
     if (day.complete !== true) reasons.add('AUTHORITATIVE_STATS_INCOMPLETE');
-    if (seconds(statsByDate[date]?.compactedByChannel?.active) > 0) reasons.add('COMPACTED_INTERVAL_MISSING');
+    if (!recoveredValid && seconds(statsByDate[date]?.compactedByChannel?.active) > 0) reasons.add('COMPACTED_INTERVAL_MISSING');
     if (intervals.length > 500) reasons.add('EVIDENCE_INTERVAL_LIMIT');
     for (let index = 1; index < intervals.length; index++) {
       if (intervals[index].startMs < intervals[index - 1].endMs) reasons.add('ACTIVE_INTERVAL_OVERLAP');
@@ -163,6 +221,7 @@ export async function buildAuthoritativeDailySnapshots({
       sourceRevision: evidenceValid ? correctionEvidence.revision : 'unavailable',
       compact: (compactCorrections || []).filter((row) => row.date === date),
       evidence: evidenceValid ? correctionEvidence.items.filter((row) => row.date === date) : [],
+      intervalEvidenceRevision: recoveredValid ? recovered.revision : null,
     });
     const draft = {
       date, statisticsRevision, correctionRevision, computedAtMs: now,
@@ -186,10 +245,22 @@ export async function readCurrentWeekBrowserSnapshots(now = Date.now()) {
   const deviceId = sync?.deviceId || null;
   let correctionEvidence = null;
   try { correctionEvidence = await readDeviceCorrectionEvidenceWeek(); } catch (_) { /* Incomplete, never guessed. */ }
-  return buildAuthoritativeDailySnapshots({
+  const options = {
     statsByDate: stored.daily_usage_stats_v1 || {},
     segmentsById: stored.usage_segments_v1 || {},
     compactCorrections: stored.guardian_config?.usageAccountingCorrectionsV1 || [],
     correctionEvidence, deviceId, weekStart, weekEnd, throughDate, now,
-  });
+  };
+  const snapshots = await buildAuthoritativeDailySnapshots(options);
+  const intervalEvidenceByDate = {};
+  for (const snapshot of snapshots) {
+    if (snapshot.activeSeconds > 0 && snapshot.incompleteReasonCodes.some((reason) =>
+      reason === 'EVIDENCE_TOTAL_MISMATCH' || reason === 'COMPACTED_INTERVAL_MISSING'
+      || reason === 'CORRECTION_SEGMENT_MISSING')) {
+      try { intervalEvidenceByDate[snapshot.date] = await readDeviceIntervalEvidenceDay(snapshot.date); }
+      catch (_) { /* Failure is isolated to the shadow; original accounting is untouched. */ }
+    }
+  }
+  return Object.keys(intervalEvidenceByDate).length
+    ? buildAuthoritativeDailySnapshots({ ...options, intervalEvidenceByDate }) : snapshots;
 }

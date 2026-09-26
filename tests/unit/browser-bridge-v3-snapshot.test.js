@@ -81,6 +81,7 @@ global.readDeviceCorrectionEvidenceWeek = async () => ({
     id: 'correction-1', deviceId: 'device-1', segmentId: 'one', date: '2026-09-21',
     channel: 'active', originalMode: 'study', originalQuotaBucket: 'study',
     effectiveMode: 'rest', effectiveQuotaBucket: 'rest', durationSeconds: 3,
+    startMs: base.segmentsById.one.startMs, endMs: base.segmentsById.one.endMs,
   };
   const [corrected] = await module.buildAuthoritativeDailySnapshots({
     ...base,
@@ -97,6 +98,23 @@ global.readDeviceCorrectionEvidenceWeek = async () => ({
   });
   assert.equal(missingCorrectedSegment.complete, false);
   assert.ok(missingCorrectedSegment.incompleteReasonCodes.includes('CORRECTION_SEGMENT_MISSING'));
+  assert.ok(missingCorrectedSegment.incompleteReasonCodes.includes('SOURCE_ACTIVE_SEGMENTS_ABSENT'));
+  assert.equal(missingCorrectedSegment.activeSeconds, complete.activeSeconds);
+  const [noId] = await module.buildAuthoritativeDailySnapshots({
+    ...base, segmentsById: { one: { ...base.segmentsById.one, id: '' } },
+  });
+  assert.ok(noId.incompleteReasonCodes.includes('SOURCE_ACTIVE_ID_MISSING'));
+  const [invalidTime] = await module.buildAuthoritativeDailySnapshots({
+    ...base, segmentsById: { one: { ...base.segmentsById.one, startMs: 'invalid' } },
+  });
+  assert.ok(invalidTime.incompleteReasonCodes.includes('SOURCE_ACTIVE_TIME_INVALID'));
+  const [outsideWeek] = await module.buildAuthoritativeDailySnapshots({
+    ...base, segmentsById: { one: { ...base.segmentsById.one,
+      startMs: Date.parse('2026-09-14T00:00:00Z'), endMs: Date.parse('2026-09-14T00:00:03Z') } },
+  });
+  assert.ok(outsideWeek.incompleteReasonCodes.includes('SOURCE_ACTIVE_OUTSIDE_WEEK'));
+  assert.deepEqual(outsideWeek.quotaBucketSeconds, complete.quotaBucketSeconds);
+  assert.deepEqual(outsideWeek.intervals, []);
   const crossMidnight = { ...base.segmentsById.one, id: 'cross-midnight',
     timezone: '+08:00', startMs: Date.parse('2026-09-21T15:59:58Z'),
     endMs: Date.parse('2026-09-21T16:00:02Z'), durationSeconds: 4 };
@@ -113,5 +131,60 @@ global.readDeviceCorrectionEvidenceWeek = async () => ({
   assert.deepEqual(crossDays.map((day) => day.activeSeconds), [2, 2]);
   assert.deepEqual(crossDays.map((day) => day.complete), [true, true]);
   assert.deepEqual(crossDays.map((day) => day.intervals[0]?.creditedSeconds), [2, 2]);
-  console.log('[Browser Bridge v3 snapshot] 21/21 passed');
+  const recovery = { date: '2026-09-21', weekStart: base.weekStart, weekEnd: base.weekEnd,
+    revision: 'interval-1', items: [{ ...base.segmentsById.one, quotaBucket: 'study', timezone: '+08:00' }] };
+  const recoveredInput = { ...base, segmentsById: {}, intervalEvidenceByDate: { '2026-09-21': recovery } };
+  const [recovered] = await module.buildAuthoritativeDailySnapshots(recoveredInput);
+  assert.equal(recovered.complete, true);
+  assert.equal(recovered.activeSeconds, complete.activeSeconds);
+  assert.deepEqual(recovered.quotaBucketSeconds, complete.quotaBucketSeconds);
+  assert.deepEqual(recovered.intervals, complete.intervals);
+  assert.deepEqual(recoveredInput.segmentsById, {}, 'temporary evidence must not restore raw ledger storage');
+  const [badBucket] = await module.buildAuthoritativeDailySnapshots({ ...recoveredInput,
+    intervalEvidenceByDate: { '2026-09-21': { ...recovery, items: [{ ...recovery.items[0], quotaBucket: 'rest' }] } } });
+  assert.equal(badBucket.complete, false);
+  assert.ok(badBucket.incompleteReasonCodes.includes('EVIDENCE_TOTAL_MISMATCH'));
+  const [duplicate] = await module.buildAuthoritativeDailySnapshots({ ...recoveredInput,
+    intervalEvidenceByDate: { '2026-09-21': { ...recovery, items: [...recovery.items, ...recovery.items] } } });
+  assert.equal(duplicate.complete, false);
+  assert.equal(duplicate.intervals.length, 0);
+  const [conflict] = await module.buildAuthoritativeDailySnapshots({ ...base,
+    intervalEvidenceByDate: { '2026-09-21': { ...recovery,
+      items: [{ ...recovery.items[0], startMs: recovery.items[0].startMs + 1000, endMs: recovery.items[0].endMs + 1000 }] } } });
+  assert.equal(conflict.complete, false);
+  assert.ok(conflict.incompleteReasonCodes.includes('RECOVERED_INTERVAL_CONFLICT'));
+  const [shortEvidence] = await module.buildAuthoritativeDailySnapshots({ ...recoveredInput,
+    intervalEvidenceByDate: { '2026-09-21': { ...recovery, items: [{ ...recovery.items[0], durationSeconds: 2 }] } } });
+  assert.equal(shortEvidence.complete, false);
+  assert.equal(shortEvidence.activeSeconds, 3);
+  const [restoredCorrection] = await module.buildAuthoritativeDailySnapshots({ ...recoveredInput,
+    compactCorrections: [correction],
+    correctionEvidence: { ...base.correctionEvidence, revision: 'c1', items: [correction] },
+    intervalEvidenceByDate: { '2026-09-21': { ...recovery, items: [{ ...recovery.items[0], quotaBucket: 'rest' }] } } });
+  assert.equal(restoredCorrection.complete, true);
+  assert.deepEqual(restoredCorrection.quotaBucketSeconds, { rest: 3 });
+  let recoveryCalls = 0;
+  global.chrome = { storage: { local: { get: async () => ({ daily_usage_stats_v1: base.statsByDate,
+    usage_segments_v1: base.segmentsById }) } } };
+  global.readDeviceIntervalEvidenceDay = async () => { recoveryCalls++; return recovery; };
+  await module.readCurrentWeekBrowserSnapshots(base.now);
+  assert.equal(recoveryCalls, 0, 'complete local intervals must never trigger a recovery request');
+  global.chrome.storage.local.get = async () => ({ daily_usage_stats_v1: base.statsByDate, usage_segments_v1: {} });
+  const restored = await module.readCurrentWeekBrowserSnapshots(base.now);
+  assert.equal(recoveryCalls, 1);
+  assert.equal(restored[0].complete, true);
+  global.readDeviceIntervalEvidenceDay = async () => { throw new Error('endpoint unavailable'); };
+  const unavailable = await module.readCurrentWeekBrowserSnapshots(base.now);
+  assert.equal(unavailable[0].complete, false);
+  assert.equal(unavailable[0].activeSeconds, complete.activeSeconds);
+  for (const bucket of ['study', 'composite', 'rest', 'unknown']) {
+    const input = { ...recoveredInput, statsByDate: { '2026-09-21': {
+      domains: { fixture: { activeSeconds: 3 } }, targets: { fixture: { activeByQuotaBucket: { [bucket]: 3 } } },
+    } }, intervalEvidenceByDate: { '2026-09-21': { ...recovery,
+      items: [{ ...recovery.items[0], quotaBucket: bucket }] } } };
+    const [day] = await module.buildAuthoritativeDailySnapshots(input);
+    assert.equal(day.complete, true);
+    assert.deepEqual(day.quotaBucketSeconds, { [bucket]: 3 });
+  }
+  console.log('[Browser Bridge v3 snapshot] focused assertions passed');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

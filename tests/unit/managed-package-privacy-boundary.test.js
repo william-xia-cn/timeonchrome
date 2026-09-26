@@ -22,7 +22,7 @@ const developmentExtensionId = [...developmentDigest.subarray(0, 16)]
 const publicKeyManifestPath = path.join(tempRoot, 'public-key-source.json');
 fs.writeFileSync(publicKeyManifestPath, JSON.stringify({ key: developmentPublicKey.toString('base64') }));
 
-function stage(name, mode) {
+function stage(name, mode, candidateVersion) {
   const outputDir = path.join(tempRoot, name);
   const targetExtensionId = mode === 'native-host-development' ? developmentExtensionId : extensionId;
   const args = [tool, '--output-dir', outputDir, '--extension-id', targetExtensionId];
@@ -30,6 +30,7 @@ function stage(name, mode) {
   if (mode === 'native-host-development') {
     args.push('--native-host-development', '--public-key-manifest', publicKeyManifestPath);
   }
+  if (candidateVersion) args.push('--candidate-version', candidateVersion);
   const result = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' });
   assert.strictEqual(result.status, 0, result.stderr || result.stdout);
   return { outputDir, packageDir: path.join(outputDir, 'package-extension'), result };
@@ -63,6 +64,25 @@ try {
   const developmentOutput = JSON.parse(developmentStage.result.stdout);
   assert.strictEqual(developmentOutput.deploymentMode, 'native-host-development');
   assert.strictEqual(developmentOutput.publicKeyManifestProvided, true);
+
+  const sourceVersion = JSON.parse(fs.readFileSync(path.join(root, 'extension', 'manifest.json'), 'utf8')).version;
+  const fixedStage = stage('native-host-managed-candidate', 'native-host-development', '1.7.35');
+  const fixedManifest = JSON.parse(fs.readFileSync(path.join(fixedStage.packageDir, 'manifest.json'), 'utf8'));
+  assert.strictEqual(fixedManifest.version, '1.7.35');
+  assert.strictEqual(fixedManifest.key, developmentManifest.key);
+  assert.strictEqual(fixedManifest.version_name, '1.7.35 Native Host Development Candidate');
+  assert.strictEqual(JSON.parse(fixedStage.result.stdout).version, '1.7.35');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(root, 'extension', 'manifest.json'), 'utf8')).version, sourceVersion);
+  assert.match(fs.readFileSync(path.join(fixedStage.packageDir, 'infra', 'native-host-client.js'), 'utf8'), /dailyUsageSnapshot/);
+
+  for (const modeArgs of [[], ['--managed-deployment'], ['--native-host-development', '--candidate-version', 'bad']]) {
+    const forbiddenVersion = spawnSync(process.execPath, [
+      tool, '--output-dir', path.join(tempRoot, 'forbidden-version'), '--candidate-version', '1.7.35', ...modeArgs,
+    ], { cwd: root, encoding: 'utf8' });
+    assert.notStrictEqual(forbiddenVersion.status, 0);
+    assert.match(forbiddenVersion.stderr, /candidate-version/);
+    assert.strictEqual(fs.existsSync(path.join(tempRoot, 'forbidden-version')), false);
+  }
 
   const forbiddenPack = spawnSync(process.execPath, [
     tool, '--output-dir', path.join(tempRoot, 'forbidden-pack'), '--extension-id', developmentExtensionId,

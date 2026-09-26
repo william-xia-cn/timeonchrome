@@ -1040,6 +1040,49 @@ export async function readDeviceCorrectionEvidenceWeek() {
   throw new Error('CORRECTION_EVIDENCE_INCOMPLETE');
 }
 
+// BrowserBridge-only temporary interval evidence; never modifies sync/outbox/ledger state.
+export async function readDeviceIntervalEvidenceDay(date) {
+  if (!syncState.deviceToken) throw new Error('INTERVAL_EVIDENCE_UNAVAILABLE');
+  const items = [];
+  let anchorAtMs = null;
+  let revision = null;
+  let total = null;
+  let week = null;
+  for (let offset = 0, page = 0; page < 100; page++) {
+    const params = new URLSearchParams({ date, offset: String(offset) });
+    if (anchorAtMs !== null) params.set('anchorAtMs', String(anchorAtMs));
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    let result;
+    try {
+      const response = await fetch(`${getCloudApiBase()}/device/usage-interval-evidence/v3?${params}`, {
+        method: 'GET', headers: { Authorization: `Bearer ${syncState.deviceToken}` }, signal: controller.signal,
+      });
+      if (!response.ok) throw new Error('INTERVAL_EVIDENCE_UNAVAILABLE');
+      result = await response.json();
+    } finally { clearTimeout(timeout); }
+    if (!result || result.schemaVersion !== 3 || result.date !== date || !Array.isArray(result.items)
+      || result.items.length > 100 || !Number.isSafeInteger(result.anchorAtMs)
+      || !Number.isSafeInteger(result.total) || result.total < 0 || result.total > 10000
+      || typeof result.revision !== 'string' || typeof result.weekStart !== 'string'
+      || typeof result.weekEnd !== 'string') throw new Error('INTERVAL_EVIDENCE_INCOMPLETE');
+    const resultWeek = `${result.weekStart}:${result.weekEnd}`;
+    if (anchorAtMs === null) {
+      anchorAtMs = result.anchorAtMs; revision = result.revision; total = result.total; week = resultWeek;
+    } else if (anchorAtMs !== result.anchorAtMs || revision !== result.revision
+      || total !== result.total || week !== resultWeek) throw new Error('INTERVAL_EVIDENCE_REVISION_CHANGED');
+    items.push(...result.items);
+    if (result.nextOffset === null) {
+      if (items.length !== total) throw new Error('INTERVAL_EVIDENCE_INCOMPLETE');
+      return { date, items, revision, weekStart: result.weekStart, weekEnd: result.weekEnd };
+    }
+    if (!Number.isSafeInteger(result.nextOffset) || result.nextOffset !== items.length
+      || result.items.length === 0) throw new Error('INTERVAL_EVIDENCE_INCOMPLETE');
+    offset = result.nextOffset;
+  }
+  throw new Error('INTERVAL_EVIDENCE_INCOMPLETE');
+}
+
 async function cloudRequest(method, path, body = null, retries = 3) {
   if (!syncState.deviceToken) {
     throw new Error('No device token');

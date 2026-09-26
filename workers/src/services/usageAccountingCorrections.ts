@@ -323,6 +323,52 @@ export async function listDeviceCorrectionEvidencePage(
   };
 }
 
+/** Minimal ACTIVE evidence; no writes or parent-ledger payloads. */
+export async function listDeviceIntervalEvidencePage(
+  env: Env, profileId: string, deviceId: string, date: string, anchorAtMs: number, offset: number,
+) {
+  const scope = `s.profile_id = ? AND s.device_id = ? AND s.date = ?
+    AND s.channel = 'active' AND s.duration_seconds > 0 AND s.uploaded_at <= ?`;
+  const join = `LEFT JOIN usage_segment_corrections_v1 c ON c.segment_id = s.id
+    AND c.profile_id = s.profile_id AND c.device_id = s.device_id AND c.date = s.date
+    AND c.created_at <= ?`;
+  const results = await env.DB.batch([
+    env.DB.prepare(`SELECT COUNT(*) AS total, COALESCE(MAX(s.updated_at),0) AS latest,
+      COALESCE(SUM(s.duration_seconds),0) AS seconds, COUNT(c.id) AS corrections,
+      COALESCE(MAX(c.created_at),0) AS correction_latest
+      FROM usage_segments_v1 s ${join} WHERE ${scope}`)
+      .bind(anchorAtMs, profileId, deviceId, date, anchorAtMs),
+    env.DB.prepare(`SELECT s.start_ms,s.end_ms,s.duration_seconds,s.timezone,
+      COALESCE(c.effective_quota_bucket,s.quota_bucket_at_time,s.mode,'unknown') AS quota_bucket,
+      CASE WHEN c.id IS NULL OR (c.duration_seconds = s.duration_seconds
+        AND c.start_ms = s.start_ms AND c.end_ms = s.end_ms
+        AND COALESCE(c.original_quota_bucket,c.original_mode) = COALESCE(s.quota_bucket_at_time,s.mode))
+        THEN 1 ELSE 0 END AS correction_valid
+      FROM usage_segments_v1 s ${join} WHERE ${scope}
+      ORDER BY s.start_ms,s.end_ms,s.id LIMIT 100 OFFSET ?`)
+      .bind(anchorAtMs, profileId, deviceId, date, anchorAtMs, offset),
+  ]);
+  if (results.some((result) => !result.success)) throw new Error('INTERVAL_EVIDENCE_UNAVAILABLE');
+  const metadata = results[0].results[0] as {
+    total: number; latest: number; seconds: number; corrections: number; correction_latest: number;
+  };
+  const rows = results[1].results as Array<{
+    start_ms: number; end_ms: number; duration_seconds: number; timezone: string;
+    quota_bucket: string; correction_valid: number;
+  }>;
+  if (rows.some((row) => row.correction_valid !== 1)) throw new Error('INTERVAL_EVIDENCE_CONFLICT');
+  const total = Number(metadata.total);
+  if (offset > total) throw new Error('INTERVAL_EVIDENCE_CURSOR');
+  const items = rows.map((row) => ({
+    startMs: Number(row.start_ms), endMs: Number(row.end_ms),
+    durationSeconds: Number(row.duration_seconds), timezone: row.timezone, quotaBucket: row.quota_bucket,
+  }));
+  return { items, total,
+    revision: [date, total, metadata.latest, metadata.seconds,
+      metadata.corrections, metadata.correction_latest].join(':'),
+    nextOffset: offset + items.length < total ? offset + items.length : null };
+}
+
 function correctionHourSlices(correction: UsageAccountingCorrection) {
   const total = Math.max(0, correction.durationSeconds);
   if (correction.endMs <= correction.startMs) return [{ hourKey: new Date(correction.startMs + 8 * 3600000).toISOString().slice(0, 13), seconds: total }];

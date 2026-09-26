@@ -1,7 +1,7 @@
 // Device 路由 - 设备绑定、配置拉取
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { applySystemAccessDefaultsToProfileConfig, composeDeviceConfigVersion, getSystemAccessConfigRecord } from '../config/system-access-config';
-import { compactUsageAccountingCorrectionDeltas, getBeijingWeekForTimestamp, listDeviceCorrectionEvidencePage, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
+import { compactUsageAccountingCorrectionDeltas, getBeijingWeekForTimestamp, listDeviceCorrectionEvidencePage, listDeviceIntervalEvidencePage, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
 
@@ -342,6 +342,35 @@ export const deviceRouter = {
       const page = await listDeviceCorrectionEvidencePage(env, identity.profileId, identity.deviceId,
         weekStart, weekEnd, anchorAtMs, offset);
       return json({ schemaVersion: 2, weekStart, weekEnd, anchorAtMs, ...page });
+    }
+
+    // Privacy-minimal, device-only evidence; never relax parent ledger authorization.
+    if (request.method === 'GET' && path === '/device/usage-interval-evidence/v3') {
+      const identity = await verifyDeviceTokenFromRequest(request, env);
+      if (!identity) return json({ error: 'Invalid device token' }, 401);
+      if (identity.unbound) return deviceUnboundResponse(identity.deviceId);
+      const now = Date.now();
+      const { weekStart, weekEnd } = getBeijingWeekForTimestamp(now);
+      const date = url.searchParams.get('date') || '';
+      const rawOffset = url.searchParams.get('offset') ?? '0';
+      const rawAnchor = url.searchParams.get('anchorAtMs');
+      const offset = Number(rawOffset);
+      const anchorAtMs = rawAnchor === null ? now : Number(rawAnchor);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < weekStart || date > weekEnd
+        || !/^\d+$/.test(rawOffset) || !Number.isSafeInteger(offset) || offset > 10000
+        || (rawAnchor !== null && !/^\d+$/.test(rawAnchor)) || !Number.isSafeInteger(anchorAtMs)
+        || anchorAtMs > now || anchorAtMs < Date.parse(`${weekStart}T00:00:00+08:00`)) {
+        return json({ error: 'INTERVAL_EVIDENCE_CURSOR' }, 400);
+      }
+      try {
+        const page = await listDeviceIntervalEvidencePage(env, identity.profileId, identity.deviceId,
+          date, anchorAtMs, offset);
+        const response = json({ schemaVersion: 3, date, weekStart, weekEnd, anchorAtMs, ...page });
+        response.headers.set('Cache-Control', 'no-store');
+        return response;
+      } catch {
+        return json({ error: 'INTERVAL_EVIDENCE_UNAVAILABLE' }, 503);
+      }
     }
 
     // GET /device/config
