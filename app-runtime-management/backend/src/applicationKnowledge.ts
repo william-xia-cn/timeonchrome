@@ -8,7 +8,7 @@ import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { isRecord } from './validation';
 import { controlledProducts, systemToolPackageIds } from './productCatalogRules';
-import { projectExplicitApplicationClassifications } from './applicationIdentityProjection';
+import { buildProductIdentityProjection, productIdentityItems, productProjectionEvidence, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
 
 export const knowledgeEtag = (version: number) => `"application-knowledge-v${version}"`;
 export function effectiveApplicationKnowledge(value: ApplicationKnowledge): ApplicationKnowledge {
@@ -94,19 +94,17 @@ export async function listApplicationInventory(db: D1Database, accountId: string
 
 export function resolvePolicyApplications(knowledge: ApplicationKnowledge, childId: string, evidence: AppEvidence[],
     explicit: AppPolicyClassification[], previous: AppPolicyClassification[] = []): AppPolicyClassification[] {
-  const byIdentity = new Map<string, AppEvidence>();
-  const conflicted = new Set<string>();
-  for (const item of evidence) {
-    const key = `${item.platform}\n${item.runtimeIdentity}`, existing = byIdentity.get(key);
-    if (existing && canonical(existing.values) !== canonical(item.values)) conflicted.add(key);
-    if (!existing) byIdentity.set(key, item);
-  }
-  for (const key of conflicted) byIdentity.set(key, { ...byIdentity.get(key)!, values: {}, verifiedFields: [] });
-  const items = [...byIdentity.values()];
+  const items = productProjectionEvidence(evidence, knowledge, explicit);
   const configured = projectExplicitApplicationClassifications(items, explicit, knowledge, previous);
+  const products = new Map(productIdentityItems(items, knowledge, explicit)
+    .filter(item => item.status === 'confirmed').map(item => [`${item.platform}\n${item.runtimeIdentity}`, item.productId]));
+  const productChoices = new Map(knowledge.bindings.find(item => item.childId === childId)?.products
+    .map(item => [item.productId, item.classification]) ?? []);
   const resolved = items.map(item => {
     const prior = previous.find(entry => entry.platform === item.platform && entry.runtimeIdentity === item.runtimeIdentity);
-    const classification = configured.get(`${item.platform}\n${item.runtimeIdentity}`)
+    const key = `${item.platform}\n${item.runtimeIdentity}`;
+    const classification = configured.get(key)
+      ?? productChoices.get(products.get(key) ?? '')
       ?? resolveEffectiveApplication(knowledge, childId, item, prior?.classification).classification;
     return { platform: item.platform, runtimeIdentity: item.runtimeIdentity, displayName: item.displayName, classification };
   }).filter(item => item.classification !== 'unclassified');
@@ -116,19 +114,28 @@ export function resolvePolicyApplications(knowledge: ApplicationKnowledge, child
 
 /** Freeze server resolutions in the same transaction as knowledge/inventory; old ledger stays unchanged. */
 async function policyStatements(db: D1Database, accountId: string, knowledge: ApplicationKnowledge,
-    childIds: string[], evidence: AppEvidence[], nowMs: number): Promise<D1PreparedStatement[]> {
+    childIds: string[], evidence: AppEvidence[], nowMs: number, repairWeekStart?: string,
+    preserveRepairWindow = false): Promise<D1PreparedStatement[]> {
   const statements: D1PreparedStatement[] = [];
   const effectiveKnowledge = effectiveApplicationKnowledge(knowledge);
   for (const childId of childIds) {
     const current = await getAppPolicy(db, accountId, childId);
+    const correctionWeek = repairWeekStart ?? (preserveRepairWindow ? current.repairWeekStart : undefined);
     const previous = current.resolvedApplications ?? [];
     const resolvedApplications = resolvePolicyApplications(effectiveKnowledge, childId, evidence, current.classifications, previous);
     const binding = effectiveKnowledge.bindings.filter(item => item.childId === childId);
     const enabled = new Set(binding.flatMap(item => item.ruleIds));
     const scoped = { ...effectiveKnowledge, bindings: binding, rules: effectiveKnowledge.rules.filter(rule => enabled.has(rule.id)) };
+    const productIdentityProjection = await buildProductIdentityProjection(evidence, scoped, current.classifications);
+    if (!repairWeekStart && current.productIdentityProjection?.version === productIdentityProjection.version
+        && canonical(current.resolvedApplications ?? []) === canonical(resolvedApplications)
+        && canonical(current.applicationKnowledge ?? null) === canonical(scoped)) continue;
     const payload = canonical({ classifications: current.classifications, quotas: current.quotas,
       timeWindows: current.timeWindows, applicationKnowledge: scoped, resolvedApplications,
-      weekReclassification: buildWeekReclassification({ classifications: current.classifications, resolvedApplications }, nowMs, current) });
+      productIdentityProjection,
+      ...(correctionWeek ? { repairWeekStart: correctionWeek } : {}),
+      weekReclassification: buildWeekReclassification({ classifications: current.classifications, resolvedApplications },
+        correctionWeek ? Date.parse(`${correctionWeek}T00:00:00+08:00`) : nowMs, current) });
     statements.push(db.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
       (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms)
       VALUES(?1,?2,?3,?4,?5,?6,?6)`).bind(accountId, childId, current.version + 1, payload, await sha256Hex(payload), nowMs));
@@ -138,6 +145,7 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
       VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)`).bind(accountId, childId, entry.platform, entry.runtimeIdentity,
         current.version + 1, entry.classification, entry.displayName, nowMs));
   }
+  if (!statements.length) return statements;
   statements.push(db.prepare(`UPDATE runtime_machines_v2 SET desired_policy_version=desired_policy_version+1,
     policy_state='pending',policy_error=NULL,updated_at_ms=?2 WHERE account_id=?1 AND revoked_at_ms IS NULL`).bind(accountId, nowMs));
   statements.push(db.prepare(`INSERT INTO runtime_machine_policy_versions_v2(machine_id,version,payload_hash,created_at_ms)
@@ -164,7 +172,8 @@ async function inventoryPolicyChildren(db: D1Database, accountId: string) {
   return { childIds: rows.results.map(item => item.child_id), hasExplicit: Boolean(explicit) };
 }
 export async function putApplicationKnowledge(db: D1Database, accountId: string, childIds: string[],
-    expected: string | null, update: ApplicationKnowledge, nowMs: number, action = 'publish') {
+    expected: string | null, update: ApplicationKnowledge, nowMs: number, action = 'publish', repairWeekStart?: string) {
+  validateRepairWeek(repairWeekStart);
   if (!['publish','import','confirm','merge','split','undo'].includes(action)) throw new HttpError(400, 'INVALID_KNOWLEDGE_ACTION', 'Application operation is invalid.');
   const current = await getApplicationKnowledge(db, accountId);
   if (expected !== knowledgeEtag(current.version)) throw new HttpError(412, 'APPLICATION_KNOWLEDGE_CONFLICT', 'Application data changed. Reload before saving.');
@@ -177,9 +186,38 @@ export async function putApplicationKnowledge(db: D1Database, accountId: string,
     db.prepare(`INSERT INTO runtime_application_knowledge_audit_v1
       (account_id,version,action,previous_hash,next_hash,created_at_ms) VALUES(?1,?2,?3,?4,?5,?6)`)
       .bind(accountId, next.version, action, await sha256Hex(canonical(current)), hash, nowMs),
-    ...await policyStatements(db, accountId, next, childIds, inventory.map(item => item.evidence), nowMs)];
+    ...await policyStatements(db, accountId, next, childIds, inventory.map(item => item.evidence), nowMs, repairWeekStart)];
   await batch(db, statements);
   return next;
+}
+
+export function validateRepairWeek(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (value !== '2026-09-21') throw new HttpError(400, 'INVALID_REPAIR_WEEK', 'Repair week is not approved.');
+  return value;
+}
+
+/** Migrate only unambiguous explicit choices. A preview must expose conflicts rather than pick a winner. */
+export async function promoteProductClassifications(knowledge: ApplicationKnowledge, childId: string,
+    evidence: AppEvidence[], explicit: AppPolicyClassification[]) {
+  const next = structuredClone(knowledge);
+  const projection = await buildProductIdentityProjection(evidence, effectiveApplicationKnowledge(next), explicit);
+  const byIdentity = new Map(projection.items.map(item => [`${item.platform}\n${item.runtimeIdentity}`, item]));
+  const choices = new Map<string, Set<AppClass>>();
+  let binding = next.bindings.find(item => item.childId === childId);
+  for (const entry of binding?.products ?? []) choices.set(entry.productId, new Set([entry.classification]));
+  for (const entry of explicit) {
+    const product = byIdentity.get(`${entry.platform}\n${entry.runtimeIdentity}`);
+    if (product?.status !== 'confirmed' || !product.productId) continue;
+    const values = choices.get(product.productId) ?? new Set<AppClass>();
+    values.add(entry.classification); choices.set(product.productId, values);
+  }
+  const conflicts = [...choices].filter(([, values]) => values.size > 1)
+    .map(([productId, values]) => ({ productId, classifications: [...values].sort() }));
+  if (!binding) { binding = { childId, products: [], ruleIds: [] }; next.bindings.push(binding); }
+  for (const [productId, values] of choices) if (values.size === 1 && !binding.products.some(item => item.productId === productId))
+    binding.products.push({ productId, classification: [...values][0]! });
+  return { knowledge: next, conflicts };
 }
 
 export async function knowledgeImportPreview(db: D1Database, accountId: string, childIds: string[], value: unknown) {
@@ -264,7 +302,18 @@ export async function applyKnowledgeOperation(db:D1Database,accountId:string,chi
     if (!row && value.restoreVersion!==0) throw new HttpError(404,'KNOWLEDGE_VERSION_NOT_FOUND','Knowledge version was not found.');
     knowledge = row?JSON.parse(row.payload_json):empty();
   }
-  const next=parseKnowledge(knowledge,childIds);
+  const repairWeekStart = validateRepairWeek(value.repairWeekStart);
+  let next=parseKnowledge(knowledge,childIds);
+  const migrationConflicts: Array<{ childIndex: number; productId: string; classifications: AppClass[] }> = [];
+  if (value.migrateExplicitClassifications === true) {
+    const inventory = await listApplicationInventory(db, accountId);
+    for (const [childIndex, childId] of childIds.entries()) {
+      const policy = await getAppPolicy(db, accountId, childId);
+      const migration = await promoteProductClassifications(next, childId, inventory.map(item => item.evidence), policy.classifications);
+      next = migration.knowledge;
+      migrationConflicts.push(...migration.conflicts.map(item => ({ childIndex, ...item })));
+    }
+  }
   if(value.preview===true){
     const current=await getApplicationKnowledge(db,accountId);
     if(expected!==knowledgeEtag(current.version))throw new HttpError(412,'APPLICATION_KNOWLEDGE_CONFLICT','Application data changed. Reload before saving.');
@@ -276,9 +325,11 @@ export async function applyKnowledgeOperation(db:D1Database,accountId:string,chi
         before:{classification:before.classification,status:before.status},
         after:{classification:after.classification,status:after.status}}];
     }));
-    return {version:current.version,preview:true,hits};
+    return {version:current.version,preview:true,hits, migrationConflicts,
+      ...(repairWeekStart ? { repairWeekStart } : {})};
   }
-  return putApplicationKnowledge(db,accountId,childIds,expected,next,nowMs,String(value.action));
+  if (migrationConflicts.length) throw new HttpError(409, 'PRODUCT_CLASSIFICATION_CONFLICT', 'Review conflicting product classifications before applying.');
+  return putApplicationKnowledge(db,accountId,childIds,expected,next,nowMs,String(value.action),repairWeekStart);
 }
 
 export async function syncApplicationInventory(db: D1Database, accountId: string, machineId: string,
@@ -351,8 +402,8 @@ export async function syncApplicationInventory(db: D1Database, accountId: string
   const evidence = [...observations.map(item => item.evidence), ...known.filter(item => !observations.some(incoming =>
     item.machineId === machineId && item.localUserId === incoming.localUserId && item.evidence.runtimeIdentity === incoming.evidence.runtimeIdentity)).map(item => item.evidence)];
   const children = await inventoryPolicyChildren(db, accountId);
-  if (scan ? scan.completed : (knowledge.version > 0 || children.hasExplicit) && observations.length > 0)
-    statements.push(...await policyStatements(db, accountId, knowledge, children.childIds, evidence, nowMs));
+  if (scan?.completed || observations.length > 0)
+    statements.push(...await policyStatements(db, accountId, knowledge, children.childIds, evidence, nowMs, undefined, true));
   await batch(db, statements);
   return { batchId: value.batchId, status: 'accepted', acceptedCount: observations.length };
 }
@@ -516,8 +567,8 @@ async function syncApplicationInventoryV2(db: D1Database, accountId: string, mac
   const knowledge=await getApplicationKnowledge(db,accountId),known=await listApplicationInventory(db,accountId);
   const incoming=[...products,...variants].map(item=>item.evidence),evidence=[...incoming,...known.filter(item=>!incoming.some(next=>item.machineId===machineId&&item.evidence.runtimeIdentity===next.runtimeIdentity)).map(item=>item.evidence)];
   const children=await inventoryPolicyChildren(db,accountId);
-  if(scan?scan.completed:(knowledge.version>0||children.hasExplicit)&&incoming.length>0)
-    statements.push(...await policyStatements(db,accountId,knowledge,children.childIds,evidence,nowMs));
+  if(scan?.completed||incoming.length>0)
+    statements.push(...await policyStatements(db,accountId,knowledge,children.childIds,evidence,nowMs,undefined,true));
   await batch(db,statements);
   return {batchId:value.batchId,status:'accepted',acceptedCount:products.length+variants.length};
 }

@@ -1,22 +1,99 @@
-import type { AppEvidence, ApplicationKnowledge } from '@timeonchrome/app-runtime-contracts/classification';
-import { associateApplicationEvidence, identifyProducts, matches } from '@timeonchrome/app-runtime-contracts/classification';
+import type { AppEvidence, ApplicationKnowledge, ProductIdentityProjection } from '@timeonchrome/app-runtime-contracts/classification';
+import { associateApplicationEvidence, matches } from '@timeonchrome/app-runtime-contracts/classification';
 import type { AppPolicyClassification, ApplicationClassification } from './contracts';
+import { sha256Hex } from './crypto';
 
 const keyOf = (item: Pick<AppEvidence, 'platform' | 'runtimeIdentity'>) => `${item.platform}\n${item.runtimeIdentity}`;
 const usable = (item: AppEvidence) => item.discovery?.role !== 'component'
   && item.discovery?.role !== 'candidate' && item.discovery?.objectKind !== 'packageContainer';
 
+const leafFields = new Set(['runtimeIdentity', 'packageId', 'binaryHash', 'distributionKey', 'hostedAppId', 'fileSeriesKey']);
+function approvedLeafProducts(item: AppEvidence, knowledge?: ApplicationKnowledge) {
+  if (!usable(item) || !knowledge) return [];
+  const verified = { ...item, verifiedFields: [...new Set([...item.verifiedFields, 'runtimeIdentity' as const])] };
+  return knowledge.products.filter(product => product.selectors.some(selector =>
+    selector.platform === item.platform && matches(selector.match, verified, true)
+    && (selector.match.operator === 'all' ? selector.match.conditions.some(condition => leafFields.has(condition.field))
+      : selector.match.conditions.every(condition => leafFields.has(condition.field)))));
+}
+
+/** Include approved exact historical identities, without fabricating their missing evidence. */
+export function productProjectionEvidence(evidence: AppEvidence[], knowledge: ApplicationKnowledge,
+    explicit: AppPolicyClassification[] = []): AppEvidence[] {
+  const items = new Map<string, AppEvidence>();
+  const conflicts = new Set<string>();
+  for (const item of evidence) {
+    const key = keyOf(item), prior = items.get(key);
+    if (!prior) { items.set(key, item); continue; }
+    const values = { ...prior.values };
+    const verified = new Set(prior.verifiedFields);
+    for (const field of item.verifiedFields) {
+      if (!item.values[field]) continue;
+      if (values[field] && values[field] !== item.values[field]) { conflicts.add(key); continue; }
+      values[field] = item.values[field]; verified.add(field);
+    }
+    items.set(key, { ...prior, values, verifiedFields: [...verified] });
+  }
+  for (const key of conflicts) items.set(key, { ...items.get(key)!, values: {}, verifiedFields: [] });
+  const add = (platform: AppEvidence['platform'], runtimeIdentity: string, displayName: string) => {
+    const key = `${platform}\n${runtimeIdentity}`;
+    if (!items.has(key)) items.set(key, { platform, runtimeIdentity, displayName, values: {}, verifiedFields: ['runtimeIdentity'] });
+  };
+  for (const item of explicit) add(item.platform, item.runtimeIdentity, item.displayName ?? '');
+  for (const product of knowledge.products) for (const selector of product.selectors)
+    for (const condition of selector.match.conditions)
+      if (condition.field === 'runtimeIdentity') add(selector.platform, condition.value, product.name);
+  return [...items.values()].map(item => ({ ...item,
+    verifiedFields: [...new Set([...item.verifiedFields, 'runtimeIdentity' as const])] }))
+    .sort((a,b) => keyOf(a).localeCompare(keyOf(b)));
+}
+
+export function productIdentityItems(evidence: AppEvidence[], knowledge: ApplicationKnowledge,
+    explicit: AppPolicyClassification[] = []): ProductIdentityProjection['items'] {
+  const items = productProjectionEvidence(evidence, knowledge, explicit);
+  const aliases = leafApplicationAssociations(items, knowledge);
+  const productsByRoot = new Map<string, Set<string>>();
+  const membersByRoot = new Map<string, AppEvidence[]>();
+  const productsById = new Map(knowledge.products.map(product => [product.id, product]));
+  for (const item of items) {
+    const root = aliases.get(keyOf(item)) ?? keyOf(item);
+    const members = membersByRoot.get(root) ?? [];
+    members.push(item); membersByRoot.set(root, members);
+    const products = productsByRoot.get(root) ?? new Set<string>();
+    for (const product of approvedLeafProducts(item, knowledge)) products.add(product.id);
+    productsByRoot.set(root, products);
+  }
+  const projected: ProductIdentityProjection['items'] = items.map(item => {
+    const key = keyOf(item), root = aliases.get(key) ?? key;
+    const matches = productsByRoot.get(root)!;
+    const product = matches.size === 1 ? productsById.get([...matches][0]!) : undefined;
+    const conflict = matches.size > 1;
+    const members = membersByRoot.get(root)!;
+    const associated = !conflict && members.length > 1;
+    // One cloud-selected label for a verified alias set; consumers never guess a name.
+    const canonicalName = product?.name ?? members.find(member => member.discovery?.nameSource === 'appList')?.displayName
+      ?? members.find(member => member.displayName.trim())?.displayName ?? item.displayName;
+    return { platform: item.platform, runtimeIdentity: item.runtimeIdentity,
+      associationKey: product ? `product:${item.platform}:${product.id}` : conflict ? key : root,
+      productId: product?.id ?? null, canonicalName: conflict ? item.displayName : canonicalName,
+      status: conflict ? 'conflict' : product ? 'confirmed' : associated ? 'associated' : 'unresolved',
+      reasonCode: conflict ? 'IDENTITY_CONFLICT' : product ? 'APPROVED_PRODUCT' : associated ? 'VERIFIED_LEAF_ALIAS' : 'IDENTITY_UNRESOLVED' };
+  });
+  return projected;
+}
+
+export async function buildProductIdentityProjection(evidence: AppEvidence[], knowledge: ApplicationKnowledge,
+    explicit: AppPolicyClassification[] = []): Promise<ProductIdentityProjection> {
+  const content = { knowledgeVersion: knowledge.version, items: productIdentityItems(evidence, knowledge, explicit) };
+  return { version: await sha256Hex(JSON.stringify(content)), ...content };
+}
+
 /** Leaf identity is not a suite/container. Never join by name, signer alone or productKey. */
 export function leafApplicationAssociations(evidence: AppEvidence[], knowledge?: ApplicationKnowledge): Map<string, string> {
-  const leaf = new Set(['runtimeIdentity', 'packageId', 'binaryHash', 'distributionKey', 'hostedAppId']);
   return associateApplicationEvidence(evidence.filter(usable).map(item => {
-    const verified = { ...item, verifiedFields: [...new Set([...item.verifiedFields, 'runtimeIdentity' as const])] };
-    const products = knowledge ? identifyProducts(knowledge.products, verified) : [];
-    const product = products.length === 1 ? knowledge?.products.find(candidate => candidate.id === products[0]) : undefined;
-    const approved = item.discovery?.variantRole !== 'suiteMember' && product?.selectors.some(selector =>
-      selector.platform === item.platform && matches(selector.match, verified, true)
-      && (selector.match.operator === 'all' ? selector.match.conditions.some(condition => leaf.has(condition.field))
-        : selector.match.conditions.every(condition => leaf.has(condition.field))));
+    const products = approvedLeafProducts(item, knowledge);
+    const product = products.length === 1 ? products[0] : undefined;
+    const approved = Boolean(product);
     return { ...item,
       values: { packageId: item.platform === 'windows' ? item.values.packageId?.toLowerCase() : item.values.packageId,
         binaryHash: item.values.binaryHash, ...(approved ? { productKey: `approved:${product!.id}` } : {}) },

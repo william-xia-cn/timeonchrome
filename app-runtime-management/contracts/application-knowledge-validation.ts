@@ -4,7 +4,7 @@ import { safeAutomatic } from './application-classification.js';
 const platforms = ['windows', 'macos'];
 const classes = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked'];
 const types = ['game', 'gameLauncher', 'gameUtility', 'onlineVideo', 'mediaPlayer', 'other', 'unknown'];
-const fields = ['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'signerKey', 'productName', 'declaredType', 'installationSource'];
+const fields = ['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'signerKey', 'fileSeriesKey', 'productName', 'declaredType', 'installationSource'];
 const applicationOrigins = ['user', 'operatingSystem', 'unknown'];
 const originEvidenceCodes = ['exactPackageRule', 'osMetadata', 'reviewedSystemBinary'];
 const object = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -45,7 +45,7 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
       if (!object(selector) || !keys(selector, ['platform', 'match']) || !oneOf(selector.platform, platforms)) reject('INVALID_PRODUCT_SELECTOR');
       const match = expression(selector.match);
       if (!safeAutomatic(match)) reject('WEAK_PRODUCT_SELECTOR');
-      const precise = (item: {field: string}) => ['runtimeIdentity','binaryHash','packageId','distributionKey','productKey','hostedAppId'].includes(item.field);
+      const precise = (item: {field: string}) => ['runtimeIdentity','binaryHash','packageId','distributionKey','productKey','hostedAppId','fileSeriesKey'].includes(item.field);
       const narrowedSigner = match.conditions.some(item=>item.field==='signerKey') && match.conditions.some(item=>item.field==='productName');
       if (!(match.operator==='all' ? match.conditions.some(precise)||narrowedSigner : match.conditions.every(precise))) reject('BROAD_PRODUCT_SELECTOR');
     }
@@ -64,7 +64,7 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
     for (const item of rule.exclude) expression(item);
     if (rule.mode === 'automatic' && rule.productId === undefined && !v2TypeRule && !safeAutomatic(match)) reject('WEAK_AUTOMATIC_RULE');
     if (v2TypeRule && rule.type === 'unknown') reject('INVALID_TYPE_RULE');
-    const precise = (item: {field: string}) => ['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId'].includes(item.field);
+    const precise = (item: {field: string}) => ['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'fileSeriesKey'].includes(item.field);
     if (rule.kind === 'product' && rule.productId === undefined
         && !(match.operator === 'all' ? match.conditions.some(precise) : match.conditions.every(precise))) reject('INVALID_PRODUCT_RULE_SCOPE');
     ruleIds.push(rule.id);
@@ -115,7 +115,7 @@ export function parseAppEvidence(value: unknown): AppEvidence {
   const privateValue = /[A-Za-z]:[\\/]|(?:^|\s)\/(?:Users|home|tmp|Volumes|Applications)\b|S-\d-\d+(?:-\d+){2,}|-----BEGIN|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/u;
   if (privateValue.test(value.runtimeIdentity as string) || privateValue.test(value.displayName as string)
       || Object.values(value.values).some(item=>privateValue.test(item as string))) reject('PRIVATE_APPLICATION_EVIDENCE');
-  for (const field of ['binaryHash','productKey','hostedAppId','signerKey']) if (value.values[field]!==undefined
+  for (const field of ['binaryHash','productKey','hostedAppId','signerKey','fileSeriesKey']) if (value.values[field]!==undefined
       && !/^[a-f0-9]{64}$/u.test(value.values[field] as string)) reject('INVALID_OPAQUE_APPLICATION_EVIDENCE');
   if (value.values.distributionKey !== undefined && !/^(steam|microsoft-store|ea|epic|ubisoft|gog):[A-Za-z0-9._-]{1,128}$/u.test(value.values.distributionKey as string))
     reject('INVALID_DISTRIBUTION_KEY');

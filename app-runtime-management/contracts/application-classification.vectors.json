@@ -2,6 +2,20 @@
   "schemaVersion": 1,
   "cases": [
     {
+      "name": "approved-signed-file-series-retains-child-product-choice",
+      "knowledge": {"schemaVersion":2,"version":1,"products":[{"id":"fixture-excel","name":"Excel","type":"other","selectors":[{"platform":"windows","match":{"operator":"all","conditions":[{"field":"fileSeriesKey","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}}]}],"rules":[],"bindings":[{"childId":"child-a","products":[{"productId":"fixture-excel","classification":"study"}],"ruleIds":[]}]},
+      "childId":"child-a","previous":"unclassified",
+      "evidence":{"platform":"windows","runtimeIdentity":"fixture:new-excel","displayName":"Changed label","values":{"fileSeriesKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"verifiedFields":["fileSeriesKey"]},
+      "expected":{"productId":"fixture-excel","classification":"study","status":"explicit","ruleIds":[],"suggestions":[]}
+    },
+    {
+      "name": "unverified-file-series-cannot-inherit-product-choice",
+      "knowledge": {"schemaVersion":2,"version":1,"products":[{"id":"fixture-excel","name":"Excel","type":"other","selectors":[{"platform":"windows","match":{"operator":"all","conditions":[{"field":"fileSeriesKey","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}}]}],"rules":[],"bindings":[{"childId":"child-a","products":[{"productId":"fixture-excel","classification":"study"}],"ruleIds":[]}]},
+      "childId":"child-a","previous":"unclassified",
+      "evidence":{"platform":"windows","runtimeIdentity":"fixture:spoof","displayName":"Excel","values":{"fileSeriesKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"verifiedFields":[]},
+      "expected":{"productId":null,"classification":"unclassified","status":"unclassified","ruleIds":[],"suggestions":[]}
+    },
+    {
       "name": "hidden-component-is-not-a-classification-exemption",
       "knowledge": {"schemaVersion":1,"version":1,"products":[],"rules":[{"id":"verified-file","name":"Fixture","kind":"product","match":{"operator":"all","conditions":[{"field":"binaryHash","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]},"exclude":[],"mode":"automatic","classification":"restrictedEntertainment","type":"game","enabled":true,"source":"fixture","reason":"verified file"}],"bindings":[{"childId":"child-a","products":[],"ruleIds":["verified-file"]}]},
       "childId":"child-a","previous":"unclassified",

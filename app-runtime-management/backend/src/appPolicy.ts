@@ -17,7 +17,7 @@ import { isRecord } from './validation';
 import { identifyProducts, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 import { defaultGameGroupRuleId, defaultSystemApplicationRuleId, effectiveApplicationKnowledge,
   listApplicationInventory, queryInventoryScanStatus, resolveEffectiveApplication, resolvePolicyApplications } from './applicationKnowledge';
-import { projectExplicitApplicationClassifications } from './applicationIdentityProjection';
+import { buildProductIdentityProjection, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
 import { buildWeekReclassification, correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
 import type {
   AppEvidence,
@@ -298,6 +298,9 @@ function normalizeStoredPolicy(
   return { classifications: payload.classifications, quotas: payload.quotas, timeWindows: payload.timeWindows ?? allOpenTimeWindows(),
     ...(payload.applicationKnowledge ? { applicationKnowledge: payload.applicationKnowledge } : {}),
     ...(payload.resolvedApplications ? { resolvedApplications: payload.resolvedApplications } : {}),
+    ...('productIdentityProjection' in payload && payload.productIdentityProjection
+      ? { productIdentityProjection: payload.productIdentityProjection } : {}),
+    ...('repairWeekStart' in payload && payload.repairWeekStart === '2026-09-21' ? { repairWeekStart: '2026-09-21' as const } : {}),
     ...('weekReclassification' in payload && payload.weekReclassification
       ? { weekReclassification: payload.weekReclassification } : {}) };
 }
@@ -399,6 +402,7 @@ export async function putAppPolicy(
     observed, update.classifications, current.resolvedApplications);
   const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
     applicationKnowledge: current.applicationKnowledge, resolvedApplications });
+  completeUpdate.productIdentityProjection = await buildProductIdentityProjection(observed, knowledge, update.classifications);
   completeUpdate.weekReclassification = buildWeekReclassification(completeUpdate, nowMs, current);
   const version = current.version + 1;
   const payloadJson = JSON.stringify(completeUpdate);
@@ -908,7 +912,7 @@ export async function queryAppCatalog(
   childId: string,
   nowMs: number,
   platform?: RuntimePlatform,
-): Promise<{ windowStartMs: number; windowEndMs: number; items: unknown[]; technicalItems: unknown[]; classificationRecords: ClassificationRecordSet; inventoryScans: Awaited<ReturnType<typeof queryInventoryScanStatus>> }> {
+): Promise<{ windowStartMs: number; windowEndMs: number; productAssociationVersion: string | null; items: unknown[]; technicalItems: unknown[]; classificationRecords: ClassificationRecordSet; inventoryScans: Awaited<ReturnType<typeof queryInventoryScanStatus>> }> {
   const windowEndMs = nowMs;
   const windowStartMs = Math.max(0, nowMs - 30 * 86_400_000);
   const values: unknown[] = [accountId, childId, windowStartMs, windowEndMs];
@@ -980,6 +984,9 @@ export async function queryAppCatalog(
     [...inventory.values()].map(item => item.evidence), policy.classifications, catalogKnowledge, policy.resolvedApplications);
   const associations = associateApplicationEvidence([...inventory.values()].map(item=>item.evidence)
     .filter(evidence=>evidence.discovery?.role!=='component'&&evidence.discovery?.role!=='candidate'&&hasStrongApplicationIdentity(evidence)));
+  const productProjection = new Map((policy.productIdentityProjection?.items ?? [])
+    .map(item => [`${item.platform}\n${item.runtimeIdentity}`, item]));
+  for (const [key, item] of productProjection) associations.set(key, item.associationKey);
   const productsByDisplayName = new Map<string,AppEvidence[]>();
   const productsByFamilyHint = new Map<string,AppEvidence[]>();
   for (const item of inventory.values()) {
@@ -1041,8 +1048,12 @@ export async function queryAppCatalog(
     });
     const [itemPlatform, runtimeIdentity] = key.split('\n');
     const found = inventory.get(key), knowledge = catalogKnowledge;
-    const productIds = found && knowledge ? identifyProducts(knowledge.products,found.evidence) : [];
+    const projectedProduct = productProjection.get(key);
+    const productIds = projectedProduct ? (projectedProduct.productId ? [projectedProduct.productId] : [])
+      : found && knowledge ? identifyProducts(knowledge.products,found.evidence) : [];
     const product = productIds.length===1 ? knowledge?.products.find(item=>item.id===productIds[0]) : undefined;
+    const productChoice = product ? knowledge?.bindings.find(item=>item.childId===childId)?.products
+      .find(item=>item.productId===product.id) : undefined;
     const resolution = found && knowledge ? resolveEffectiveApplication(knowledge,childId,found.evidence,resolvedByKey.get(key)?.classification) : null;
     const projection=projectCatalogEvidence(found?.evidence, product?.id ?? null, Boolean(configured));
     const authoritativeOrigin=projectApplicationOrigin(found?.evidence);
@@ -1053,15 +1064,17 @@ export async function queryAppCatalog(
       :possibleVariantKey&&!product&&!configured
         ? {catalogKind:'candidate' as const,manageability:'review' as const,projectionReasonCode:'POSSIBLE_PRODUCT_VARIANT' as const}
       : projection;
-    const displayName = product?.name || (found?.evidence.discovery?.nameSource !== 'fallback' ? found?.evidence.displayName : null)
+    const displayName = product?.name || (projectedProduct?.status === 'associated' ? projectedProduct.canonicalName : null)
+      || (found?.evidence.discovery?.nameSource !== 'fallback' ? found?.evidence.displayName : null)
       || observed?.displayName || configured?.displayName || found?.evidence.displayName || null;
-    const classification = configured?.classification || resolution?.classification || resolvedByKey.get(key)?.classification || 'unclassified';
+    const classification = configured?.classification ?? productChoice?.classification ?? resolvedByKey.get(key)?.classification
+      ?? resolution?.classification ?? 'unclassified';
     const nameSuggestedType = knownProductType(displayName);
-    const appType = resolution?.appType && resolution.appType !== 'unknown' ? resolution.appType : nameSuggestedType ?? 'unknown';
-    const typeStatus = resolution?.typeStatus === 'confirmed' ? 'confirmed' as const
+    const appType = product?.type ?? (resolution?.appType && resolution.appType !== 'unknown' ? resolution.appType : nameSuggestedType ?? 'unknown');
+    const typeStatus = product || resolution?.typeStatus === 'confirmed' ? 'confirmed' as const
       : nameSuggestedType ? 'suggested' as const : 'unknown' as const;
     const typeReasonCode = resolution?.typeStatus === 'confirmed' ? resolution.typeReasonCode
-      : nameSuggestedType ? 'exactNameSuggestion' as const : 'none' as const;
+      : product ? 'verifiedProductRule' as const : nameSuggestedType ? 'exactNameSuggestion' as const : 'none' as const;
     const productTypeSuggestion = classification === 'unclassified' && appType === 'game';
     const systemDefault = resolution?.ruleIds.includes(defaultSystemApplicationRuleId) ?? false;
     const gameDefault = resolution?.ruleIds.includes(defaultGameGroupRuleId) ?? false;
@@ -1078,8 +1091,9 @@ export async function queryAppCatalog(
       discovery: found?.evidence.discovery ?? null,
       productId: product?.id ?? null,
       classification,
-      classificationStatus: configured ? 'explicit' : resolution?.status ?? 'unclassified',
+      classificationStatus: configured || productChoice ? 'explicit' : resolution?.status ?? 'unclassified',
       classificationReason: configured ? (direct ? '家长明确配置' : '继承已确认应用／产品分类') : resolution?.status==='explicit' ? '孩子产品明确分类'
+        : productChoice ? '孩子产品明确分类'
         : systemDefault ? '系统应用默认归为复合' : gameDefault ? '游戏默认归为受限娱乐'
           : resolution?.status==='automatic' ? '已批准规则' : resolution?.status==='conflict' ? '规则冲突，保留有效分类'
             : resolution?.status==='suggestion' ? '仅建议，尚未生效' : productTypeSuggestion ? (typeStatus==='confirmed'?'已确认游戏，建议归为受限娱乐（尚未生效）':'疑似游戏，建议归为受限娱乐（尚未生效）') : '尚未归类',
@@ -1216,6 +1230,7 @@ export async function queryAppCatalog(
   const technicalItems = [...filtered.filter(item=>item.manageability!=='actionable'),...technicalVariants.filter(item=>!platform||item.platform===platform)]
     .filter((item,index,array)=>array.findIndex(other=>other.platform===item.platform&&other.runtimeIdentity===item.runtimeIdentity)===index) as CatalogEntry[];
   return { windowStartMs, windowEndMs,
+    productAssociationVersion: policy.productIdentityProjection?.version ?? null,
     items:catalogItems,
     technicalItems,
     classificationRecords:buildClassificationRecords(policy,classificationGrouped,catalogItems,technicalItems,windowStartMs,windowEndMs),
