@@ -10,7 +10,17 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.13.0');
+assert.equal(pkg.version, '1.14.0');
+const appPolicy = JSON.parse(fs.readFileSync(path.join(root, 'runtime-app-policy-v1.schema.json'), 'utf8'));
+assert(!appPolicy.required.includes('weekReclassification'), 'N-1 policy stays valid');
+assert.deepEqual(appPolicy.properties.weekReclassification.required, ['fromMs', 'toMs', 'applications']);
+assert.deepEqual(appPolicy.properties.weekReclassification.properties.applications.items.properties.classification.enum,
+  ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked']);
+assert.equal(appPolicy.properties.weekReclassification.properties.applications.maxItems, 12000);
+const machineApi = JSON.parse(fs.readFileSync(path.join(root, 'runtime-machine-api-v2.schema.json'), 'utf8'));
+assert(!machineApi.required.includes('applicationCorrectionPage'), 'N-1 machine protocol stays valid');
+assert.deepEqual(machineApi.$defs.applicationCorrectionPage.required, ['cursor', 'hasMore', 'items']);
+assert.equal(machineApi.$defs.applicationCorrectionPage.properties.items.maxItems, 1);
 for (const file of legacy) assert(fs.existsSync(path.join(root, file)), `${file} must remain for N-1 compatibility`);
 const sso = JSON.parse(fs.readFileSync(path.join(root, 'runtime-browser-sso-v1.schema.json'), 'utf8'));
 const inventoryV2 = JSON.parse(fs.readFileSync(path.join(root, 'application-inventory-v2.schema.json'), 'utf8'));

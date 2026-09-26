@@ -3,6 +3,7 @@ import { identifyProducts, matches, resolveApplication } from '@timeonchrome/app
 import { ApplicationContractError, parseApplicationKnowledge, parseAppEvidence } from '@timeonchrome/app-runtime-contracts/classification-validation';
 import type { AppPolicyClassification } from './contracts';
 import { getAppPolicy } from './appPolicy';
+import { buildWeekReclassification } from './applicationUsageCorrections';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { isRecord } from './validation';
@@ -126,7 +127,8 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
     const enabled = new Set(binding.flatMap(item => item.ruleIds));
     const scoped = { ...effectiveKnowledge, bindings: binding, rules: effectiveKnowledge.rules.filter(rule => enabled.has(rule.id)) };
     const payload = canonical({ classifications: current.classifications, quotas: current.quotas,
-      timeWindows: current.timeWindows, applicationKnowledge: scoped, resolvedApplications });
+      timeWindows: current.timeWindows, applicationKnowledge: scoped, resolvedApplications,
+      weekReclassification: buildWeekReclassification({ classifications: current.classifications, resolvedApplications }, nowMs, current) });
     statements.push(db.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
       (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms)
       VALUES(?1,?2,?3,?4,?5,?6,?6)`).bind(accountId, childId, current.version + 1, payload, await sha256Hex(payload), nowMs));

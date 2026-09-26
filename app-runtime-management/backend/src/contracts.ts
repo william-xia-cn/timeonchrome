@@ -158,6 +158,7 @@ export interface AppPolicyClassification {
 }
 
 export interface AppPolicyDocument {
+  weekReclassification?: import('@timeonchrome/app-runtime-contracts').RuntimeWeekReclassification;
   applicationKnowledge?: import('@timeonchrome/app-runtime-contracts/classification').ApplicationKnowledge;
   resolvedApplications?: AppPolicyClassification[];
   version: number;

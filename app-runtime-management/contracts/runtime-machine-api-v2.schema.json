@@ -8,9 +8,36 @@
   "properties": {
     "policy": { "$ref": "#/$defs/policy" },
     "segmentUpload": { "$ref": "#/$defs/segmentUpload" },
-    "terminalLogUpload": { "$ref": "#/$defs/terminalLogUpload" }
+    "terminalLogUpload": { "$ref": "#/$defs/terminalLogUpload" },
+    "applicationCorrectionPage": { "$ref": "#/$defs/applicationCorrectionPage" }
   },
   "$defs": {
+    "applicationCorrectionPage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cursor", "hasMore", "items"],
+      "properties": {
+        "cursor": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "hasMore": { "type": "boolean" },
+        "items": { "type": "array", "maxItems": 1, "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["childId", "policyVersion", "fromMs", "toMs", "applications", "assignments"],
+          "properties": {
+            "childId": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "policyVersion": { "type": "integer", "minimum": 1 },
+            "fromMs": { "$ref": "runtime-app-policy-v1.schema.json#/properties/weekReclassification/properties/fromMs" },
+            "toMs": { "$ref": "runtime-app-policy-v1.schema.json#/properties/weekReclassification/properties/toMs" },
+            "applications": { "$ref": "runtime-app-policy-v1.schema.json#/properties/weekReclassification/properties/applications" },
+            "assignments": { "type": "array", "maxItems": 20000, "items": {
+              "type": "object", "additionalProperties": false, "required": ["localUserId", "assignmentVersion"],
+              "properties": {
+                "localUserId": { "$ref": "#/$defs/localUserId" },
+                "assignmentVersion": { "type": "integer", "minimum": 1 }
+              }
+            } }
+          }
+        } }
+      }
+    },
     "localUserId": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{32,128}$"

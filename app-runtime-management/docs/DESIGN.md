@@ -163,6 +163,12 @@ SSO 使用独立 ES256 key pair，不复用 Santa、Runtime machine、module JWT
 本机产物交接使用新仓成功 CI 的精确 `runId + headSha` 和只读仓库令牌。TimeOnChrome 的手工生产环境流程下载该 CI artifact，核对 manifest 的 `sourceGitSha`、contract 版本/包 SHA-256、MSI/Burn 大小与 SHA-256，确认目标 R2 版本路径不存在后写入、回读校验，manifest 最后写入。`latest.json` 只有单独勾选并获得生产环境批准后才可切换；没有只读交接令牌或任一哈希不符即停止。新仓 CI 本身没有 Cloudflare secret、R2 上传或 latest 权限。
 ## 应用身份关联与分类继承修复（2026-09-27）
 
+ARM-D-032 实施 checklist（2026-09-27 PO 要求先修复）：① Contracts 增量 1.14.0，App Policy 兼容增加服务端生成的 `weekReclassification`，包含北京时间周区间和精确身份最终分类；写入不可变版本，旧版本无该字段保持旧读数。② App Policy 保存/知识与库存投影产生新版本时冻结本周更正；云端日/周/小时/分类/应用配额和账本详情按同一更正切片读取，不更新原始 Segment 或既有物化表；未归类发现/已处理记录仍保留原始证据审计，不因分类更正消失。③ 新机器鉴权 GET `/v2/machines/app-usage-corrections?after=` 以每个孩子的 policy version 游标分页（每页一个含更正的不可变版本），不使用 ROWID 或 createdAt 排序，避免删除/时钟回拨跳页；只下发该机器历史受保护用户分配涉及的孩子，附精确 assignment version；新分配时客户端重新对账，不能把旧孩子更正用于新孩子。④ Native SQLite 独立更正表+游标同事务持久化，重复幂等且冲突拒绝；策略循环即使 304 也补拉，每周期最多八页，未拉齐明确不完整，旧 Worker 404 兼容，离线使用已完整缓存的 LKG，不将网络故障伪装为零用量。⑤ Service 应用只读投影同用户/assignment/精确身份匹配更正，跨周边界切片，最后批准版本优先，更正内容进入 revision；两端 SQL 仅返回每周每个身份的最新更正，避免反复装载全部策略 JSON；原总量/monotonic 毫秒不变。⑥ 聚焦固定回归：本周/上周、改分类/撤销覆盖/重复更正、跨周、迟到上传、分类并集/配额、家庭/用户/assignment 隔离、事务与重启/游标、旧协议。只修独立应用统计，不修改网页/媒体/共享配额，不部署、安装或生产 migration；不跑无关 UI/macOS/WiX 全量。
+
+后续产品口径更正：ARM-D-032 已确认应用分类调整应同步修正北京时间本周有效归属，保留原始 Segment/历史策略快照，不追溯上周及更早。下述 2.6.5 旧候选只有可信身份展示与前向策略继承，不能作为本周更正交付包。当前按上述 checklist 实现云端和 Service 的更正读模型，扩展不自行分类；已发布旧策略不会被 GET 自动改写，更正从新保存/知识发布/完整盘点生成的不可变版本进入通道，实际发布和安装验收另记。
+
+Native 更正文档按 Child/policy version 保存一份 payload/hash，user/assignment 只保存绑定；两者与游标同事务提交，不为每个历史 assignment 复制整份应用清单。Reader 用 JSON 关系查询返回每周/assignment/身份的最后版本，不加载全部版本到内存。更正记录不是新用量，不进入 outbox 或用量累计。
+
 目录显示、前向策略及本机统计必须区分叶应用关联与套件分类继承。经过验证的相同 packageId/AUMID 或非多宿主 binaryHash 可关联同一叶应用；仅名称或发布者不能关联。安装产品的明确分类可经 verified productKey/parentProductKey 向非技术变体继承；入口的明确覆盖优先，包容器分类不得扩散到不同 AUMID。关联冲突不自动选择分类。App Policy PUT 和库存/知识更新均重新生成 resolvedApplications，冻结到新版本，不改旧版本/Segment。
 
 应用统计只对可信叶关联做展示区间并集，不将套件内 Word/Excel 因 productKey 相同合并，不改变主总量或历史分类。库存/关联变化纳入统计 revision；读取保持当前 Windows 用户隔离。旧身份没有可靠证据时保留，不能按名称填补。

@@ -18,6 +18,7 @@ import { identifyProducts, associateApplicationEvidence } from '@timeonchrome/ap
 import { defaultGameGroupRuleId, defaultSystemApplicationRuleId, effectiveApplicationKnowledge,
   listApplicationInventory, queryInventoryScanStatus, resolveEffectiveApplication, resolvePolicyApplications } from './applicationKnowledge';
 import { projectExplicitApplicationClassifications } from './applicationIdentityProjection';
+import { buildWeekReclassification, correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
 import type {
   AppEvidence,
   ApplicationOrigin,
@@ -296,7 +297,9 @@ function normalizeStoredPolicy(
 ): Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'> {
   return { classifications: payload.classifications, quotas: payload.quotas, timeWindows: payload.timeWindows ?? allOpenTimeWindows(),
     ...(payload.applicationKnowledge ? { applicationKnowledge: payload.applicationKnowledge } : {}),
-    ...(payload.resolvedApplications ? { resolvedApplications: payload.resolvedApplications } : {}) };
+    ...(payload.resolvedApplications ? { resolvedApplications: payload.resolvedApplications } : {}),
+    ...('weekReclassification' in payload && payload.weekReclassification
+      ? { weekReclassification: payload.weekReclassification } : {}) };
 }
 
 export function parseAppPolicyUpdate(value: unknown): AppPolicyUpdate {
@@ -384,10 +387,19 @@ export async function putAppPolicy(
   const knowledge = effectiveApplicationKnowledge(current.applicationKnowledge ?? {
     schemaVersion: 2, version: 0, products: [], rules: [], bindings: [],
   });
-  const resolvedApplications = inventory.length ? resolvePolicyApplications(knowledge, childId,
-    inventory.map(item => item.evidence), update.classifications, current.resolvedApplications) : current.resolvedApplications;
+  const observed = inventory.map(item => item.evidence);
+  const observedKeys = new Set(observed.map(item => `${item.platform}\n${item.runtimeIdentity}`));
+  for (const entry of [...(current.resolvedApplications ?? []), ...current.classifications, ...update.classifications])
+    if (!observedKeys.has(`${entry.platform}\n${entry.runtimeIdentity}`)) {
+      observedKeys.add(`${entry.platform}\n${entry.runtimeIdentity}`);
+      observed.push({ platform: entry.platform, runtimeIdentity: entry.runtimeIdentity,
+        displayName: entry.displayName ?? '', values: {}, verifiedFields: ['runtimeIdentity'] });
+    }
+  const resolvedApplications = resolvePolicyApplications(knowledge, childId,
+    observed, update.classifications, current.resolvedApplications);
   const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
     applicationKnowledge: current.applicationKnowledge, resolvedApplications });
+  completeUpdate.weekReclassification = buildWeekReclassification(completeUpdate, nowMs, current);
   const version = current.version + 1;
   const payloadJson = JSON.stringify(completeUpdate);
   const statements: D1PreparedStatement[] = [database.prepare(`
@@ -696,7 +708,7 @@ export async function queryAppUsage(
   const categoryDays = new Map<ApplicationClassification, Map<number, Map<string, Array<[number, number]>>>>();
   const applications = new Map<string, {
     platform: RuntimePlatform; runtimeIdentity: string; displayName: string | null;
-    classification: ApplicationClassification; groups: Map<string, Array<[number, number]>>;
+    classification: ApplicationClassification; classificationSet: Set<ApplicationClassification>; lastEnd: number; groups: Map<string, Array<[number, number]>>;
     days: Map<number, Map<string, Array<[number, number]>>>;
   }>();
   const buckets = new Map<number, Map<string, Array<[number, number]>>>();
@@ -710,7 +722,9 @@ export async function queryAppUsage(
   const bucketByDay = toMs - fromMs > 2 * 86_400_000;
   let estimatedSegmentCount = 0;
   let outsideWindowSegmentCount = 0;
-  for (const row of [...(result.results || []), ...(legacy.results || [])]) {
+  const estimatedSources = new Set<unknown>(), outsideSources = new Set<unknown>();
+  const correctionRules = await loadUsageCorrections(database, accountId, childId, fromMs, toMs);
+  for (const row of correctUsageRows([...(result.results || []), ...(legacy.results || [])], correctionRules, fromMs, toMs)) {
     const start = Math.max(fromMs, Number(row.start_wall_time_ms));
     const end = Math.min(toMs, Number(row.end_wall_time_ms));
     if (end <= start) continue;
@@ -724,15 +738,17 @@ export async function queryAppUsage(
     const key = `${row.platform}\n${row.runtime_identity}`;
     const app = applications.get(key) || {
       platform: row.platform as RuntimePlatform, runtimeIdentity: String(row.runtime_identity),
-      displayName: row.display_name == null ? null : String(row.display_name), classification: category,
+      displayName: row.display_name == null ? null : String(row.display_name), classification: category, classificationSet: new Set<ApplicationClassification>(), lastEnd: end,
       groups: new Map<string, Array<[number, number]>>(), days: new Map<number, Map<string, Array<[number, number]>>>(),
     };
+    app.classificationSet.add(category);
+    if (end >= app.lastEnd) { app.lastEnd = end; app.classification = category; }
     const appIntervals = app.groups.get(group) || []; appIntervals.push([start, end]); app.groups.set(group, appIntervals); applications.set(key, app);
     const segmentPolicyVersion = row.app_policy_version == null ? null : Number(row.app_policy_version);
     const segmentPolicy = segmentPolicyVersion == null ? null : policyHistory.get(segmentPolicyVersion);
     const outside = segmentPolicy ? outsideWindowIntervals(start, end, category, segmentPolicy.timeWindows) : [];
     if (outside.length > 0) {
-      outsideWindowSegmentCount += 1;
+      outsideSources.add(row.correctionSourceIndex);
       const outsideForGroup = outsideGroups.get(group) || [];
       outsideForGroup.push(...outside); outsideGroups.set(group, outsideForGroup);
       const outsideApp = outsideApplications.get(key) || {
@@ -775,8 +791,10 @@ export async function queryAppUsage(
       categoryBuckets.set(bucketStart, hourCategories);
       cursor = sliceEnd;
     }
-    if (Number(row.estimated)) estimatedSegmentCount += 1;
+    if (Number(row.estimated)) estimatedSources.add(row.correctionSourceIndex);
   }
+  estimatedSegmentCount = estimatedSources.size;
+  outsideWindowSegmentCount = outsideSources.size;
   const policy = await getAppPolicy(database, accountId, childId);
   const quotaByApp = new Map(policy.quotas.perApplicationDailyMinutes.map((item) => [`${item.platform}\n${item.runtimeIdentity}`, item.minutes]));
   const categoryEntries = [...categories.entries()].map(([classification, groups]) => {
@@ -791,7 +809,7 @@ export async function queryAppUsage(
     const explicit = quotaByApp.get(key);
     const limit = app.classification === 'blocked' ? 0 : explicit === undefined ? null : explicit;
     return { platform: app.platform, runtimeIdentity: app.runtimeIdentity, displayName: app.displayName,
-      classification: app.classification, durationMs, quota: dailyQuotaState(app.days, limit) };
+      classification: app.classification, classifications: [...app.classificationSet].sort(), durationMs, quota: dailyQuotaState(app.days, limit) };
   }).sort((a, b) => b.durationMs - a.durationMs);
   const shifted = new Date(fromMs + 8 * 3_600_000);
   const weekStart = beijingDayStart(fromMs) - ((shifted.getUTCDay() + 6) % 7) * 86_400_000;
@@ -801,15 +819,27 @@ export async function queryAppUsage(
   if (filters.localUserId) { weekValues.push(filters.localUserId); weekFilter += ` AND s.local_user_id=?${weekValues.length}`; }
   if (filters.platform) { weekValues.push(filters.platform); weekFilter += ` AND s.platform=?${weekValues.length}`; }
   const restrictedRows = await database.prepare(`
-    SELECT s.machine_id,s.local_user_id,s.runtime_session_id,s.clock_epoch_id,
-      s.start_wall_time_ms,s.end_wall_time_ms
+    SELECT s.machine_id,s.local_user_id,s.runtime_session_id,s.clock_epoch_id,s.platform,s.runtime_identity,
+      COALESCE(s.application_classification,'unclassified') AS classification,
+      CASE WHEN s.accounting_schema_version=2 THEN s.start_wall_time_ms ELSE s.start_at_ms END AS start_wall_time_ms,
+      CASE WHEN s.accounting_schema_version=2 THEN s.end_wall_time_ms ELSE s.end_at_ms END AS end_wall_time_ms
     FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
-    WHERE m.account_id=?1 AND s.child_id=?2 AND s.accounting_schema_version=2
-      AND s.diagnostic=0 AND s.application_classification='restrictedEntertainment'
-      AND s.start_wall_time_ms<?4 AND s.end_wall_time_ms>?3${weekFilter}
+    WHERE m.account_id=?1 AND s.child_id=?2 AND s.diagnostic=0
+      AND COALESCE(s.start_wall_time_ms,s.start_at_ms)<?4
+      AND COALESCE(s.end_wall_time_ms,s.end_at_ms)>?3${weekFilter}
   `).bind(...weekValues).all<Record<string, unknown>>();
   const restrictedGroups = new Map<string, Array<[number, number]>>();
-  for (const row of restrictedRows.results || []) {
+  const weeklyLegacy = filters.machineId || filters.localUserId ? { results: [] as Record<string, unknown>[] }
+    : await database.prepare(`SELECT s.device_id AS machine_id,'legacy-v1' AS local_user_id,s.runtime_session_id,
+      'legacy-v1' AS clock_epoch_id,s.platform,s.runtime_identity,'unclassified' AS classification,
+      s.start_at_ms AS start_wall_time_ms,s.end_at_ms AS end_wall_time_ms
+      FROM runtime_usage_segments s JOIN runtime_devices d ON d.id=s.device_id
+      WHERE d.account_id=?1 AND d.child_id=?2 AND s.start_at_ms<?4 AND s.end_at_ms>?3
+        AND (?5 IS NULL OR s.platform=?5)`)
+      .bind(accountId, childId, weekStart, weekStart + 7 * 86_400_000, filters.platform ?? null).all<Record<string, unknown>>();
+  const weeklyCorrections = await loadUsageCorrections(database, accountId, childId, weekStart, weekStart + 7 * 86_400_000);
+  for (const row of correctUsageRows([...(restrictedRows.results || []), ...(weeklyLegacy.results || [])],
+    weeklyCorrections, weekStart, weekStart + 7 * 86_400_000).filter(row => row.classification === 'restrictedEntertainment')) {
     const group = `${row.machine_id}\n${row.local_user_id}\n${row.runtime_session_id}\n${row.clock_epoch_id}`;
     const intervals = restrictedGroups.get(group) || [];
     intervals.push([Math.max(weekStart, Number(row.start_wall_time_ms)),
@@ -913,6 +943,8 @@ export async function queryAppCatalog(
   });
   const grouped = new Map<string, UsageIdentityGroup>();
   const classificationGrouped = new Map<string, UsageIdentityGroup>();
+  // Discovery/processed records are an audit of original unclassified observations,
+  // not a usage category report. Reattribution must not erase their processed history.
   for (const row of [...(rows.results || []), ...(legacyRows.results || [])]) {
     addUsageRow(grouped, row, windowStartMs, windowEndMs);
     if (row.application_classification == null || row.application_classification === 'unclassified') {
@@ -1284,6 +1316,7 @@ export async function querySegmentDetails(
   `).bind(accountId, childId, fromMs, toMs, cursor?.beforeMs ?? null,
     cursor?.beforeId ?? '', limit + 1).all<Record<string, unknown>>();
   const all = rows.results || [];
+  const detailCorrections = kind === 'usage' ? await loadUsageCorrections(database, accountId, childId, fromMs, toMs) : [];
   const page = all.slice(0, limit).map((row) => ({
     id: row.id,
     machineId: row.machine_id,
@@ -1299,6 +1332,13 @@ export async function querySegmentDetails(
     mediaKind: row.media_kind,
     presentation: row.presentation,
     applicationClassification: row.application_classification,
+    ...(kind === 'usage' ? { effectiveClassificationSlices: correctUsageRows([{
+      ...row, start_wall_time_ms: row.start_at_ms,
+    }], detailCorrections, Number(row.start_at_ms), Number(row.end_wall_time_ms), 'application_classification')
+      .map(slice => ({ fromMs: slice.start_wall_time_ms, toMs: slice.end_wall_time_ms,
+        classification: slice.application_classification ?? null,
+        originalClassification: slice.originalClassification,
+        correctionVersion: slice.classificationCorrectionVersion })) } : {}),
     appPolicyVersion: row.app_policy_version == null ? null : Number(row.app_policy_version),
     quotaBucket: row.quota_bucket,
     authoritativeForUsage: kind === 'usage',
