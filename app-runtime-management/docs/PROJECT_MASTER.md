@@ -8,7 +8,13 @@
 - TimeOnChrome production 环境人工审核且只允许 master，已配置只读跨仓令牌与仅限 Runtime 发布桶的一年期 R2 S3 凭据。`master@8b96cad` 的验真运行 `36117686246` 通过；发布运行 `36131882394` 第 3 次尝试完成 Windows 2.6.0 内部候选的 Burn、MSI、manifest 条件写入及逐件 R2 回读。来源为 TimeWhereNative `575955972e64c56094f77c150548e8261c66e598` / CI `36045220406`，contract 1.12.0。Burn 为 118,917,683 bytes / SHA-256 `8a7c91f696fd7360e28b15decf2e2fb3f8e0eeda5ee2ba8a6cf6019cfa88f716`；MSI 为 60,495,604 bytes / SHA-256 `7900205b038ec3d609b852c23e7d130b2114baa43e0c87a5ab60a75ae02ec21b`。R2 manifest 预览与作业证据 artifact `10862434201` 一致；latest.json 仍为 2.3.1。前两次上传因凭据误配失败，旧 R2 token 已吊销并轮换；不把失败记为通过。
 - 源码拆仓本身不部署 Worker/Pages/Guardian、不执行 migration、不升级本机、不改写账本或切换 R2 latest；另行授权的 R2 不可变候选发布已完成。
 
-## 当前开发：ARM-D-029 BrowserBridge v2（本地候选）
+## 当前本地实现：BrowserBridge v3 / TimeWhereNative 2.6.2（2026-09-26）
+
+当前扩展开发候选 1.7.37 发送权威日统计快照及最小区间证据，不再发送原 Segment，旧 Service 只保留健康通道。2.6.2 已本机原地安装，Service/单一 Session Agent/Manager/v3 通信与机器身份和原账保留已验收；内部未签名，不代表生产发布，R2 latest 未切换。网页统计由扩展负责，Service 仅核对并合并可证明重叠，应用/共享值保留整数毫秒。
+
+最小跨仓链式测试 6/6 PASS：真实扩展 builder 的 JSON 经过 framing、协议、SQLite 替换/幂等 ACK、毫秒投影与重启；公开夹具两仓语义一致，不跨仓导入源码。Host 未安装/后来安装、Service 故障恢复和错误 revision ACK 的聚焦断言通过。完整旧周共享仍因 `SESSION_MAPPING_INCOMPLETE` 不可用，未补造历史；不需要等待自然日才能完成受控工程验收。详细测试与 PR 状态见根任务板和 Native README。
+
+## 历史实现：ARM-D-029 BrowserBridge v2（由 v3 发送模式取代）
 
 - 目标版本为 contracts 1.11.0、Windows Runtime/TimeWhereMg 2.6.0、unpacked extension 1.7.34。
 - Health heartbeat/probe 为 best-effort；Ledger 只镜像启用后已写入网页权威账本的 Segment，持久至少一次投递并逐项 ACK。
@@ -22,7 +28,7 @@
 - Chrome 重载后 Native Host 重新连接，控件恢复正常；公开状态为 online，云端 heartbeat 成功且无待上传数据。
 - 本轮只完成本地实现、候选构建和实机联调，不发布云端或 R2。
 
-## 当前开发：ARM-D-026 通用 Native Host 与共享配额影子核算
+## 历史实现：ARM-D-026 通用 Native Host 与共享配额影子核算
 
 - `TimeOnChrome Native Host` 归 Runtime 模块，连接 Managed Chrome 扩展与现有 LocalSystem RuntimeService；旧 guardian Host ID 仅保留兼容别名。
 - 扩展只镜像已经持久化的网页 Segment，Service 独立保存并计算影子共享配额；不修改网页/App Runtime 原始账、现行配额或阻止行为。
