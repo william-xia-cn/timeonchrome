@@ -20,6 +20,12 @@
 - [ ] v3 共享统计验收未通过：经 PO 授权 UAC，只读 SQLite 聚合显示收到 6 份快照、待投影 0、完整快照 0、可用共享结果 0；6 份含 `CORRECTION_EVIDENCE_UNAVAILABLE`，其中 4 份另含 `EVIDENCE_TOTAL_MISMATCH`。保持 fail-closed，未用 Service 重算值填平差异。按 P0 继续只读排查权威统计/证据不一致，不据此断言原网页账本错误；相关发布阻断，未修改账本、ACL、凭据或生产环境。
 - 只读定位补充：生产 Guardian 默认地址的 `/device/usage-accounting-corrections/v2?offset=0` 未认证 GET 返回 404；当前源码该路由存在且未认证应返回 401，说明目标生产地址缺少该接口。v3 权威读数应用 compact corrections，但区间归属依赖该逐段证据；接口缺失可能造成桶差异，尚未证明是全部 4 份不一致的原因。现有紧急压缩也可能保留统计但缺原始区间；不得补造区间或改写账本。当前本地验收边界不含 Guardian 部署，须另行取得生产发布授权后再验证。
 - 2026-09-26 PO 后续明确批准 Guardian 发布：PR #49 / master `99a49a9`，Guardian CI `36242113745`、production `36242161483` 通过，仅发布 Guardian `a8941611-d508-47e9-80d0-65b2c5bb6fd7`，接口 401、health 200。受控浏览后 6 份快照均消除证据接口不可用，2 份完整；4 份仍有用量却没有区间（不是舍入误差），2 份完整快照共享投影被历史会话映射不足阻断，待投影 0。共享统计仍未通过，未部署其他资源、修改原账或伪造证据。
+## Guardian v3 首轮只读证据接口发布记录（2026-09-26）
+
+- PO 已批准仅发布 Guardian 只读修正证据接口并继续 v3 全链路验收；不部署 Runtime/Pages/R2，不执行 migration，不改网页账本、配额、凭据或历史数据。
+- 最新 master 的 Guardian 业务已有该接口，生产未认证请求仍返回 404。现有 production workflow 要求精确 master SHA 的 Guardian CI，而该 CI 的路径过滤跳过了最近文档/拆仓提交；补 `workflow_dispatch` 入口，保留全部原验证步骤和发布门禁。
+- 测试契约：发布配置小修；本地验证 workflow 结构与 `git diff --check`；CI 只运行现有 Guardian compatibility；发布 smoke 为接口 401/health 和已安装 v3 的摘要验收。排除 Agent、WiX、macOS、Runtime/Console 与全量跨平台测试。
+- checklist：手动 CI 入口 → PR 合并 → 精确 master Guardian CI → 受保护 Guardian-only production → 401/health → v3 摘要；不得把证据不完整或未完成验收写为通过。
 
 ## TimeWhereNative 本机拆仓（D-104，源码/CI 与不可变候选交接已完成）
 

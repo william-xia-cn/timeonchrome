@@ -1,6 +1,7 @@
 name: App Runtime Guardian Integration
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'workers/src/services/appRuntimeIdentityBridge.ts'
