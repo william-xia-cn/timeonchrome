@@ -2,6 +2,10 @@
 
 ## NOW：固定 Native Host 本地候选目录修复（2026-09-26）
 
+- 发布与真实验收收口：PO 要求继续合并部署后，PR #51 合入 master `7edf200aa2f87bbb67b766e938bcffbb8cd791c5`；精确 SHA Guardian CI `36244181761`、Guardian-only production `36244215759` 均成功。Guardian 版本 `8d21c210-b9fd-46b5-969e-0f4c84451715`，新 `/device/usage-interval-evidence/v3` 未认证 401、health 200；未执行 migration，Runtime Worker/独立 Pages/主 Pages/R2 latest 与前次 manifest 完全相同。
+- 用户重载原固定目录 1.7.37 后，授权 UAC 只读摘要确认：本周网页快照 6/6 完整、待投影 0、总量不一致 0、有用量无区间 0，当天快照完整且有正用量和区间。网页权威统计恢复链路 PASS_WITH_MANUAL_EVIDENCE（重载/UAC 由 PO 操作，SQLite 摘要由脚本读取）；不是原始网页账本精确计时的新验收结论。
+- 共享合并仍 BLOCKED：6 个日期均为 `SESSION_MAPPING_INCOMPLETE`，已有 owner 映射存在，但本周旧应用 runtime session 缺历史 Windows 会话关联；不得按用户 ID 猜测或回填。此问题不再归因于网页证据缺失。本次部署/证据恢复范围审计 Matched，Deviated/Missing/Extra 无；整体共享统计不可用的风险保留，后续单独确定可证明的历史兼容边界。
+
 - 2026-09-26 PO 已单项批准本周裁剪区间只读恢复。实施 checklist：① device route 与 correction service 新增仅 token 所属设备、本周指定日期的 ACTIVE 证据分页；② cloud-sync 只读分页和稳定版本校验；③ v3 快照仅在本地区间缺失时使用独立临时证据，与 V2 总秒/逐桶严格守恒；④ 聚焦授权、分页、冲突及快照测试。原始账本、修正和统计写入不变，旧会话映射不猜测。测试等级为安全敏感只读 API/快照消费者，运行相关 Worker/Extension 单测与 TypeScript；排除 Agent、安装包、macOS、全量回归。新接口生产部署另行过闸，不因本次批准自动发布。
 - 实施结果：设备只读接口、按日稳定分页及临时证据恢复已完成。SQLite 夹具验证同设备隔离、100 条分页、固定 anchor、裁剪字段、修正冲突和删除导致版本变化；路由验证 401/403/400/503 与 no-store；扩展验证缺页/版本变化/重复/冲突拒绝、四桶与 V2 精确一致、已有证据不发请求、接口失败不改变权威读数。5 个聚焦测试文件、开发激活/包隔离、TypeScript、Guardian Wrangler dry-run 及 diff check 通过。原固定目录生成 1.7.37 开发候选，未打包、未改正式版本、公钥与 ID 保持不变。实现审计 Matched，Deviated/Missing/Extra 均无；生产新接口部署、用户重载及真实缺失日期恢复仍待发布/验收，旧应用会话归属不足仍明确保留。
 
