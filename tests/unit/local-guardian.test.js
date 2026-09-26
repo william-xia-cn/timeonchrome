@@ -593,7 +593,47 @@ async function run() {
   });
   assert.strictEqual(bridgeReply.ok, true);
   assert(bridgeReply.applicationUsage);
+
+  // Reproduce the real 2.6.7 week read (>3s): a health timeout must not cancel it.
+  let delayedApplicationReply;
+  const slowStorage = {};
+  const slow = await loadGuardian({ storage: slowStorage, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => {
+      const reply = () => onMessage.listeners.forEach(listener => listener({ ok: true,
+        receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [1, 2, 3],
+        capabilities: ['health', 'application-usage-read'],
+        ...(payload.messageType === 'getApplicationUsage' ? { applicationUsage: { revision: 'slow-week' } } : {}) }));
+      if (payload.messageType === 'getApplicationUsage') delayedApplicationReply = reply;
+      else queueMicrotask(reply);
+    }) });
+  const slowResult = slow.module.requestApplicationUsage(query);
+  await waitFor(() => delayedApplicationReply);
+  await new Promise(resolve => setTimeout(resolve, 4_400));
+  assert.notStrictEqual(slowStorage.local_guardian_status_v1?.lastErrorCode, 'native_response_timeout');
+  delayedApplicationReply();
+  assert.strictEqual((await slowResult).applicationUsage.revision, 'slow-week');
+
+  // Exercise the real timeout callback with a controlled timer; never wait forever.
+  const realSetTimeout = global.setTimeout;
+  let applicationDeadline;
+  global.setTimeout = (callback, delay, ...args) => {
+    if (delay === 15_000) applicationDeadline = callback;
+    return realSetTimeout(callback, delay, ...args);
+  };
+  try {
+    const expired = slow.module.requestApplicationUsage(query);
+    await waitFor(() => applicationDeadline);
+    const lateReply = delayedApplicationReply;
+    applicationDeadline();
+    assert.strictEqual((await expired).errorCode, 'native_response_timeout');
+    assert.strictEqual(slowStorage.local_guardian_status_v1.portConnected, false);
+    lateReply();
+    assert.strictEqual(slowStorage.local_guardian_status_v1.lastErrorCode, 'native_response_timeout');
+  } finally {
+    global.setTimeout = realSetTimeout;
+  }
   assert.match(source, /NATIVE_RESPONSE_TIMEOUT_MS = 3_000/);
+  assert.match(source, /APPLICATION_USAGE_RESPONSE_TIMEOUT_MS = 15_000/);
   assert.match(source, /PROBE_COOLDOWN_MS = 5_000/);
   assert.match(background, /configureLocalGuardianStateProvider/);
   assert.match(background, /TIMEONCHROME_LOCAL_HEALTH_PROBE/);

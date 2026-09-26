@@ -1,5 +1,15 @@
 # TASK_BOARD
 
+## NOW（2026-09-27）：应用用量查询误用健康心跳超时
+
+实机已安装 2.6.7 的 Native Host→Service 本周只读查询在 4362ms 返回完整统计，而扩展 native-host-client.js 所有请求共用 3000ms 超时，导致页面提前断线。修复 checklist：①仅 application/getApplicationUsage 使用独立 15000ms 有界响应预算，健康及其他通道保持 3000ms；②计时仍从实际发送开始，保留串行调度、requestId 校验和断线清理；③固定超过 3 秒成功、15 秒无响应终止、迟到响应不串 ACK 的回归；④校验并更新原 unpacked 目录，不改 ID/模式/绑定、不安装 Service。
+
+测试等级：扩展本地通信小修。仅 local-guardian、application-usage-read-model 聚焦测试、语法与 git diff --check；必要 CI 为扩展相关。真实只读 Native Host 查询确认响应预算；页面重载后的实机显示另记，不以 mock 代替。排除 Windows/macOS/WiX/Worker/Console 全量测试与生产发布，因为不改 Service、统计算法、网页/媒体原账、配额或云端。其他产品身份缺口不借本次超时修复宣称全部解决。
+
+实施结果：local-guardian（包括 4400ms 延迟成功、15000ms 上限回调、迟到 ACK/串行队列、原 3000ms 健康超时）及 application-usage-read-model PASS；模块语法与 diff check PASS。实际安装 Host 第二次只读查询 4630ms，完整用量返回；目标 ChatGPT/Excel 各一行且为 study。用量 complete 与其他产品 attribution 缺口分别保留，不掩盖未关联项。原目录 1.7.39 native-host-development 仅替换通信文件，候选与测试源码 SHA-256 相同；没有重建或安装 Service。当前仍为 4–5 秒查询，未宣称性能优化完成。
+
+提交前审计：Matched＝独立预算/原健康预算/发送计时/串行与 ACK/有界失败/聚焦回归/原目录同步；Deviated/Missing/Extra＝无（本次超时修复范围）。用户重载后明确回复“正常”，页面验收记为 PASS_WITH_MANUAL_EVIDENCE，不伪称自动化页面通过。真实 Host 另行读取成功且目标产品各一条/学习；其他对象的笼统 attribution 标记未证实为缺陷，不作为本次目标的额外阻塞。不部署云端。
+
 ## NOW（2026-09-27 PO 产品口径更正）：应用分类调整追溯本周
 
 模块 ARM-D-032 已实现本地代码：同一孩子、已确认应用的分类调整更正北京时间本周有效使用分类和独立应用配额归属；上周及更早不追溯。Contracts 1.14.0 和不可变策略更正/API 留在本仓，Native 事务缓存/Service 读取留在新仓，扩展不重算或改变目录。聚焦 Worker 9/9、Contracts 24/24、Native 当前/上一契约各 20/20 及 typecheck/dry-run PASS；原账、总量、已处理审计记录保留，发布/安装/真实同步未执行。2.6.5 旧包不含此项，不再作为本周更正交付证据；完整当前状态见模块任务板，不得称线上已经修复。
