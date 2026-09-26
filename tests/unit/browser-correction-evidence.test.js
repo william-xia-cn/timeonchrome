@@ -5,19 +5,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const source = fs.readFileSync(path.join(__dirname, '../../extension/infra/cloud-sync.js'), 'utf8');
-const match = source.match(/export async function readDeviceCorrectionEvidenceWeek\(\) \{[\s\S]*?\n\}\n\nasync function cloudRequest/);
+const match = source.match(/export async function readDeviceCorrectionEvidenceWeek\(\) \{[\s\S]*?\n\}/);
 assert.ok(match, 'read-only correction evidence function exists');
-const functionSource = match[0].slice(0, -'\n\nasync function cloudRequest'.length).replace(/^export /, '');
+const functionSource = match[0].replace(/^export /, '');
 
-function createReader(pages, token = 'fixture-token') {
+function createReader(pages, token = 'fixture-token', interval = false) {
   const calls = [];
   const fetchStub = async (url, options) => {
     calls.push({ url: String(url), authorization: options.headers.Authorization });
     const next = pages.shift();
     return { ok: next?.ok !== false, async json() { return next; } };
   };
+  const selected = interval ? source.match(/export async function readDeviceIntervalEvidenceDay\(date\) \{[\s\S]*?\n\}/)[0].replace(/^export /, '') : functionSource;
   const reader = new Function('syncState', 'getCloudApiBase', 'fetch',
-    `${functionSource}; return readDeviceCorrectionEvidenceWeek;`)(
+    `${selected}; return ${interval ? 'readDeviceIntervalEvidenceDay' : 'readDeviceCorrectionEvidenceWeek'};`)(
     { deviceToken: token }, () => 'https://fixture.invalid', fetchStub);
   return { reader, calls };
 }
@@ -41,5 +42,19 @@ function createReader(pages, token = 'fixture-token') {
   const unbound = createReader([], null);
   await assert.rejects(unbound.reader(), /CORRECTION_EVIDENCE_UNAVAILABLE/);
   assert.equal(unbound.calls.length, 0);
+  const intervalPage = { ...first, schemaVersion: 3, date: '2026-09-21', items: [{ startMs: 1 }] };
+  const intervalEnd = { ...intervalPage, items: [{ startMs: 2 }], nextOffset: null };
+  const interval = createReader([intervalPage, intervalEnd], 'fixture-token', true);
+  assert.equal((await interval.reader('2026-09-21')).items.length, 2);
+  assert.ok(interval.calls[1].url.includes('anchorAtMs=100'));
+  const wrongDate = createReader([{ ...intervalPage, date: '2026-09-22' }], 'fixture-token', true);
+  await assert.rejects(wrongDate.reader('2026-09-21'), /INCOMPLETE/);
+  const changedIntervals = createReader([intervalPage, { ...intervalEnd, revision: 'v2' }], 'fixture-token', true);
+  await assert.rejects(changedIntervals.reader('2026-09-21'), /REVISION_CHANGED/);
+  const missingPage = createReader([{ ...intervalPage, nextOffset: null }], 'fixture-token', true);
+  await assert.rejects(missingPage.reader('2026-09-21'), /INCOMPLETE/);
+  const missingHostToken = createReader([], null, true);
+  await assert.rejects(missingHostToken.reader('2026-09-21'), /UNAVAILABLE/);
+  assert.equal(missingHostToken.calls.length, 0);
   console.log('[Browser correction evidence] passed');
 })().catch((error) => { console.error(error); process.exitCode = 1; });
