@@ -563,6 +563,36 @@ async function run() {
   assert.strictEqual(serializedRequests.length, requestCount); // Ordinary/CWS mode never connects for this view.
   global.__guardianReadMarker = async () => true;
   const background = fs.readFileSync(path.join(root, 'extension', 'background.js'), 'utf8');
+  // Exercise the actual background listener alongside the bridge listener.
+  // Chrome uses the first response, so a generic unknown-message response must
+  // never consume a request owned by the Native Host client.
+  const listenerStart = background.indexOf('chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {');
+  const listenerEnd = background.indexOf('\n});', listenerStart) + '\n});'.length;
+  assert(listenerStart >= 0 && listenerEnd > listenerStart);
+  let genericListener;
+  const routed = [];
+  new Function('chrome', 'runtimeActivationState', 'ensureBootstrapped', 'handleMessage',
+    background.slice(listenerStart, listenerEnd))({ runtime: { id: runtime.id,
+      getURL: runtime.getURL, onMessage: { addListener(fn) { genericListener = fn; } } } },
+    { activated: true }, async () => {}, async msg => {
+      routed.push(msg.type); return { error: 'Unknown message type' };
+    });
+  for (const type of ['TIMEONCHROME_APPLICATION_USAGE_READ', 'TIMEONCHROME_LOCAL_HEALTH_RECHECK',
+    'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE', 'TIMEONCHROME_LOCAL_HEALTH_PROBE']) {
+    const replies = [];
+    assert.strictEqual(genericListener({ type }, { id: runtime.id }, reply => replies.push(reply)), false);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepStrictEqual(replies, []);
+  }
+  assert.deepStrictEqual(routed, []);
+  const bridgeReply = await new Promise(resolve => {
+    const message = { type: appRead.module.APPLICATION_USAGE_READ_MESSAGE, query };
+    const sender = { id: runtime.id, url: runtime.getURL('admin/admin.html') };
+    genericListener(message, sender, resolve);
+    appRead.runtime.onMessage.listeners[0](message, sender, resolve);
+  });
+  assert.strictEqual(bridgeReply.ok, true);
+  assert(bridgeReply.applicationUsage);
   assert.match(source, /NATIVE_RESPONSE_TIMEOUT_MS = 3_000/);
   assert.match(source, /PROBE_COOLDOWN_MS = 5_000/);
   assert.match(background, /configureLocalGuardianStateProvider/);

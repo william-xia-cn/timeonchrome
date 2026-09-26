@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## COMPLETED（代码/候选，实机重载待验证）：应用读取请求双监听器抢答修复（2026-09-27）
+
+2.6.3 已安装：Service/Manager/Session Agent/Host/Core/Infrastructure 文件哈希与候选一致，Service Automatic/Running，当前会话单一 Session Agent。PO 实际页面仍显示连接未启用。代码证据：`native-host-client.js` 独立监听应用读取，但 `background.js` 只避让 Probe，其他请求进入通用路由返回 Unknown message type；页面把无 errorCode 的失败误映射为 managed_marker_unavailable。修复 checklist：背景监听器避让桥接专属读取/重新检查/能力通知→页面未知失败不伪称未启用→实际双监听器首响应固定回归→最小测试→原目录开发候选 1.7.39，同 ID/公钥/模式→实际通道检查，阻塞如实记录。
+
+变更等级为扩展本地通信路由；必要测试 local-guardian、application-usage-read-model 和候选开发模式结构检查，语法/diff；CI 仅扩展相关。无需重新构建/安装 Service，不改状态机/原始分段、网页/媒体统计、配额、绑定或云端，不运行 Windows/macOS/WiX/Worker 全量。真实浏览器验收只读，不修改家庭配置。
+
+固定回归提取实际 background 监听器与 Native Host 监听器共同响应，修复前失败 `true !== false`，证明通用监听器错误认领桥接消息；修复后四种专属消息均不进入通用路由，应用请求首响应为 Service 通道结果。local-guardian、application-usage-read-model、开发模式激活 5/5、语法/diff 均 PASS；未知路由错误不再误报连接未启用。原目录候选已原地生成 1.7.39，同公钥/ID、native-host-development、无 CRX 或云端发布。审计 Matched＝专属分流/错误提示/固定回归/原目录交付，Deviated/Extra 无；实机重载后页面读取仍 BLOCKED_BY_BROWSER_URL_POLICY，浏览器工具拒绝 extension URL，不绕过政策或宣称通过；需 PO 在原扩展点击重新加载后查看应用页签。Service 不需要再次安装。
+
 ## COMPLETED（安装候选，未安装）：补齐应用读取的可安装本地更新包（2026-09-27）
 
 PO 指出只交编译目录不能完成升级，当前连续完成 Native 2.6.3 本地 Burn/MSI。仅新增版本/安装器结构验证及 WiX 自包含构建，复用已通过的应用/协议、契约和扩展测试；不跑无关全平台、不安装、不部署云端、不改变配对/原账/固定扩展目录。必须核对实际 MSI 版本、组件文件和 SHA-256，交付 Burn 绝对路径；安装/实机验收不伪称已完成。

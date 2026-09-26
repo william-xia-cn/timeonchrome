@@ -79,7 +79,7 @@ async function send(query, recheck = false) {
   let response;
   try { response = await chrome.runtime.sendMessage({ type: MESSAGE, query, recheck }); }
   catch (_) { throw new Error('native_host_unavailable'); }
-  if (!response?.ok) throw new Error(response?.errorCode || 'managed_marker_unavailable');
+  if (!response?.ok) throw new Error(response?.errorCode || 'application_usage_unavailable');
   return response.applicationUsage;
 }
 async function readWeek(dates, force, recheck) {

@@ -70,6 +70,9 @@ async function main() {
       await assert.rejects(() => missing.getAdminApplicationUsageAnalysisView(), { message: code });
       assert.doesNotMatch(missing.applicationUsageErrorMessage(code), /^应用用量暂时/);
     }
+    const unexpected = await load(async () => ({ error: 'Unknown message type' }));
+    await assert.rejects(() => unexpected.getAdminApplicationUsageAnalysisView(), { message: 'application_usage_unavailable' });
+    assert.doesNotMatch(unexpected.applicationUsageErrorMessage('application_usage_unavailable'), /未启用/);
     let offline = false;
     const reconnect = await load(async () => offline ? { ok: false, errorCode: 'runtime_service_unavailable' } : { ok: true, applicationUsage: page() });
     await reconnect.getAdminApplicationUsageAnalysisView(); offline = true;
