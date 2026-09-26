@@ -1,5 +1,11 @@
 # App Runtime Changelog
 
+## 2026-09-27：盘点兼容恢复，产品归属未完成
+
+- PR #58/master b143d710、production36264006276：仅 Worker b0989880-8f2c-493f-8284-030610b6d716，health/401通过；其他资源及 latest2.3.1不变。
+- 原队列恢复 ACK、云端完整scan1、本机更正缓存1/version18/pending0、策略22已应用。仍有积压，未删除/跳过批次或改写原账。
+- ChatGPT/EXCEL 仍各两行，不记完成；签名产品 Codex 使用 ChatGPT.exe 导致错误标签，Native 快照身份/只读名称另行测试，未升级已安装2.6.6。
+
 ## 2026-09-27：修复旧客户端 packageContainer 上传兼容
 
 - 严格兼容误放 variants 的 Windows 包容器，按正确产品计数保存，保持原批次 hash/逐批 ACK/完整 scan receipt。

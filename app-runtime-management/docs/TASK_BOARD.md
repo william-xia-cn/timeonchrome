@@ -1,5 +1,11 @@
 # App Runtime 任务板
 
+## NOW（2026-09-27）：上传已恢复，产品归属仍未完成
+
+PR #58/master b143d710、PR/精确 master CI 成功，受保护 production 36264006276 仅部署 Runtime Worker b0989880-8f2c-493f-8284-030610b6d716，health200/未认证401。没有 Guardian/Pages/migration/R2/latest 变更。Native PR #6/main d0d0c4f 合并，安装仍2.6.6。经 prepareRestart 持久化后正常重启，原积压开始逐批 ACK；云端确认一次完整扫描，更正缓存1/version18/pending0、desired/applied22、Service Running、单 Session Agent。未清数据或改 ACL。
+
+真实 v3 complete=true，但 ChatGPT/EXCEL 仍各两行，归属验收未通过。只读签名验证确认一条 ChatGPT 进程身份实际为 Codex；旧 ChatGPT 三配置身份均未命中 ledger，不能按名称套学习配置。Native 另修启动/周期快照遗漏产品观察和可信名称展示，21项聚焦测试/Agent 编译通过，尚未安装。先完成真实产品证据/读模型验证再交付更新，不以包或 mock PASS 掩盖未闭环。
+
 ## NOW（2026-09-27）：盘点上传边界修复
 
 Checklist：保留原批次与 hash → 严格识别旧客户端误放 variants 的 packageContainer 并转入 products → 验证来源、身份、用户和完整 scan receipt → Native 修正序列化并覆盖真实包容器 → PR/master 仅部署 Runtime Worker → 验证原队列 ACK、完整扫描与更正生成。兼容不接受名称推断，不删除队列，不降低鉴权；保留原始请求 hash 保证重放冲突语义。
