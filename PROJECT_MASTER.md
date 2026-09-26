@@ -6,9 +6,15 @@
 
 BrowserBridge v3 已合入 `master@373877d`。PR #45/#46 已把本机源码/CI 从旧仓迁走，并建立仅旧仓可执行的受保护安装候选验真与可选不可变 R2 发布门；Runtime 云端、contracts、Guardian 身份桥和生产发布权继续留在 TimeOnChrome。私有 `TimeWhereNative` 的 40 个相关历史提交与迁移前 tree hash 已核对；原生仓 PR #1（merge `d7b56ec`）修复了最新 CI 的 Windows 测试超时，当前/上一兼容契约 Windows CI 与汇总门通过，macOS 与 WiX 使用未改动代码的已通过证据。旧仓隔离工作树在无本机源码条件下完成 contracts build/compat、Guardian TypeScript/集成、Worker typecheck/Vitest `56/56`/dry-run 与 Console session 测试；旧仓验真器对原生仓 CI run `36045220406` 的 `5759559` 安装候选完成来源 SHA、契约锁、Burn/MSI 字节哈希核对，且正确拒绝不同 SHA 的本地旧候选。2026-09-25，旧仓 `master@8b96cad` 的受保护交接门在 production 人工审核后完成真实验真运行 `36117686246`，并在运行 `36131882394` 的第 3 次尝试将未签名 Windows 2.6.0 Burn、MSI、manifest 写入不可变 R2 路径，逐件回读哈希一致；前两次因误配凭据失败，旧 token 已吊销并轮换。Burn 为 118,917,683 bytes / SHA-256 `8a7c91f696fd7360e28b15decf2e2fb3f8e0eeda5ee2ba8a6cf6019cfa88f716`，MSI 为 60,495,604 bytes / SHA-256 `7900205b038ec3d609b852c23e7d130b2114baa43e0c87a5ab60a75ae02ec21b`；证据 artifact `10862434201`。`latest.json` 仍为 2.3.1，本次未部署 Worker/Pages/Guardian、执行 migration、重新配对或升级终端；2.6.0 仅为内部未签名候选，状态 `BLOCKED_BY_AUTHENTICODE_SIGNING`。
 
+## BrowserBridge v3 设备证据恢复发布状态（2026-09-26）
+
+PR #51 / master `7edf200` 已通过精确 Guardian CI 和 production 闸门，仅发布 Guardian `8d21c210-b9fd-46b5-969e-0f4c84451715`。新增设备本周裁剪区间只读接口未认证 401、health 200；Runtime/Pages/R2/D1 schema 未改变。原固定目录开发候选 1.7.37 用户重载后，本周网页快照 6/6 完整、待投影 0、总量不一致与缺区间均为 0。原网页账本和配额算法未修改；正式托管扩展未发布。
+
+共享合并值仍不可用：旧应用会话缺少可验证的 Windows 会话映射，6 个日期仍为 `SESSION_MAPPING_INCOMPLETE`。不猜测旧归属、不重算或回填历史；网页链路 PASS 不等于整周共享统计 PASS。详细发布/验收证据在 TASK_BOARD，production run `36244215759` 的不可变 manifest 记录精确 SHA 及各资源版本。
+
 ## 项目状态
 - **生产版本：1.7.32（内部 managed 已发布；生产观察中）**
-- **本地候选：1.7.33（Unpacked Native Host 联调；未发布、禁止打包）**
+- **本地候选：1.7.37（固定原目录的 Unpacked Native Host v3 联调；未发布、禁止打包）**
 - **阶段：V1-minimal internal release / production observation（V0 baseline frozen）**
 - **当前发布状态（2026-09-15）**：`1.7.32` 功能提交 `c2841a3` 与部署记录 `29168b2` 已推送；Guardian Worker `09c2b1c4-b4d4-4de8-8e05-d51f36cdd606`、控制台 Pages `7455c3ad` 与更新站点 `0a3707ac` 已部署并回读成功。线上 feed 已指向 `1.7.32`；managed CRX 为 418,237 bytes，SHA256 `12d8e5417a34a6ec16bcf499dd55298827436adc17ba7e2e8cbf9d7cc994aa9f`，稳定扩展 ID 不变。本版包括系统分类一致性与历史归属修正、自主度配置及既有 V2 配额能力；不修改网页 ACTIVE、原始分段时长或媒体计时边界。终端升级、V2 单账形成及 `cg.163.com idleStateChanged` 风险继续保留为生产观察/Deferred。
 - **D-093/D-096 云端增量（2026-09-18）**：提交 `430a200` 与精确双标识热修 `5dd583c` 已推送；Guardian Worker `ee15be42-dde0-47b9-9e7b-4006ac1f4870`、控制台 Pages `60e66ea6` 已部署，稳定域名回读 HTTP 200。未提升扩展版本、未更新 CRX/update feed。首轮定时自愈以 immutable correction ledger 调整 92 个唯一网页分段、4,803 秒；随后依据 PO 明确批准和 canonical observation 时间线取证，以 D-096 单次修正旧 `www.4399.com` 67 个分段、7,394 秒。两次均保持原始 segment 和总网页秒数不变；D-096 将 Composite 7,386 秒与 Study 8 秒的有效归属转为 Rest 7,394 秒。决定后产生的独立 1 秒 `rejected + composite bucket` 风险仍待调查。
