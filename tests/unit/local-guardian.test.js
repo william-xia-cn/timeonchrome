@@ -56,6 +56,8 @@ async function loadGuardian({ storage, incognito = false, connectNative, policy,
     onStartup: createEvent(),
     onInstalled: createEvent(),
     onMessage: createEvent(),
+    messages: [],
+    async sendMessage(message) { this.messages.push(message); },
   };
   global.chrome = {
     alarms,
@@ -494,6 +496,72 @@ async function run() {
   assert.strictEqual(timeoutStorage.local_guardian_status_v1.portConnected, false);
 
   const source = originalSource;
+  const appPayloads = [];
+  const appRead = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => {
+      appPayloads.push(payload);
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(),
+        requestId: payload.requestId, supportedProtocols: [1, 2, 3],
+        capabilities: ['health', 'authoritative-daily-snapshot', 'application-usage-read'],
+        ...(payload.messageType === 'getApplicationUsage' ? { applicationUsage: { revision: 'fixture' } } : {}) })));
+    }) });
+  await waitFor(() => appPayloads.length > 0);
+  const query = { fromDate: '2026-09-21', toDate: '2026-09-27', offset: 0 };
+  const firstApplicationResult = await appRead.module.requestApplicationUsage(query);
+  assert.strictEqual(firstApplicationResult.ok, true, JSON.stringify(firstApplicationResult));
+  assert.strictEqual(firstApplicationResult.applicationUsage.revision, 'fixture');
+  assert.strictEqual(appPayloads.at(-1).channel, 'application');
+  assert.strictEqual(appPayloads.at(-1).messageType, 'getApplicationUsage');
+  assert.deepStrictEqual(appRead.runtime.messages, [{ type: 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE' }]);
+  assert.deepStrictEqual(appPayloads.at(-1).payload, query);
+  assert.strictEqual((await appRead.module.requestApplicationUsage({ ...query, localUserId: 'other' })).ok, false);
+  let denied;
+  appRead.runtime.onMessage.listeners[0]({ type: appRead.module.APPLICATION_USAGE_READ_MESSAGE, query },
+    { id: appRead.runtime.id, url: 'https://example.test/' }, value => { denied = value; });
+  assert.strictEqual(denied.errorCode, 'probe_sender_rejected');
+  const appOldService = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => queueMicrotask(() =>
+      onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(),
+        supportedProtocols: [1, 2, 3], capabilities: ['health', 'authoritative-daily-snapshot'] })))) });
+  assert.strictEqual((await appOldService.module.requestApplicationUsage(query)).errorCode, 'application_usage_unsupported');
+  const serializedRequests = [], appResolvers = [];
+  const serialized = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => {
+      serializedRequests.push(payload);
+      const reply = requestId => onMessage.listeners.forEach(listener => listener({ ok: true,
+        receivedAt: Date.now(), requestId: requestId || payload.requestId,
+        supportedProtocols: [1, 2, 3], capabilities: ['health', 'application-usage-read'],
+        ...(payload.messageType === 'getApplicationUsage' ? { applicationUsage: { revision: payload.requestId } } : {}) }));
+      if (payload.messageType === 'getApplicationUsage') appResolvers.push(reply);
+      else queueMicrotask(() => reply());
+    }) });
+  await waitFor(() => serializedRequests.length > 0);
+  const firstApp = serialized.module.requestApplicationUsage(query);
+  await waitFor(() => appResolvers.length === 1);
+  const firstAppId = serializedRequests.at(-1).requestId;
+  const probeDuringApp = serialized.module.requestLocalGuardianHeartbeat({ type: 'probe', force: true });
+  const secondApp = serialized.module.requestApplicationUsage(query);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.strictEqual((await serialized.module.requestApplicationUsage(query)).errorCode, 'application_usage_busy');
+  appResolvers[0]();
+  assert.strictEqual((await firstApp).applicationUsage.revision, firstAppId);
+  assert.strictEqual((await probeDuringApp).ok, true);
+  await waitFor(() => appResolvers.length === 2);
+  assert.deepStrictEqual(serializedRequests.slice(-3).map(r => r.messageType), ['getApplicationUsage', 'probe', 'getApplicationUsage']);
+  let secondFinished = false;
+  secondApp.then(() => { secondFinished = true; });
+  appResolvers[1](firstAppId); // Late duplicate ACK must not consume the new application's slot.
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.strictEqual(secondFinished, false);
+  appResolvers[1]();
+  assert.strictEqual((await secondApp).ok, true);
+  const requestCount = serializedRequests.length;
+  assert.strictEqual((await serialized.module.requestApplicationUsage({ ...query, sid: 'other' }, { recheck: true })).ok, false);
+  assert.strictEqual(serializedRequests.length, requestCount);
+  global.__guardianReadMarker = async () => false;
+  assert.strictEqual((await serialized.module.requestApplicationUsage(query)).errorCode, 'managed_marker_unavailable');
+  assert.strictEqual(serializedRequests.length, requestCount); // Ordinary/CWS mode never connects for this view.
+  global.__guardianReadMarker = async () => true;
   const background = fs.readFileSync(path.join(root, 'extension', 'background.js'), 'utf8');
   assert.match(source, /NATIVE_RESPONSE_TIMEOUT_MS = 3_000/);
   assert.match(source, /PROBE_COOLDOWN_MS = 5_000/);

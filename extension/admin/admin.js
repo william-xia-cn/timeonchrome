@@ -21,6 +21,8 @@ import { computeOnlineWindowsForDay } from '../core/time-windows.js';
 import { getPrivacyConsentPageUrl } from '../core/privacy-consent.js';
 import { canUseChromeIdentityForAdmin, resolveActivationState } from '../core/activation-gate.js';
 import { readNativeHostDeploymentMarker } from '../core/deployment-mode.js';
+import { getAdminApplicationUsageAnalysisView, applicationUsageErrorMessage,
+  APPLICATION_CATEGORY_LABELS } from '../stats/application-usage-read-model.js';
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -3431,7 +3433,7 @@ async function renderMediaSettlementsPage() {
 function setupUsageAnalysisControls() {
   document.querySelectorAll('[data-usage-ledger]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      usageAnalysisState.ledger = btn.dataset.usageLedger === 'media' ? 'media' : 'web';
+      usageAnalysisState.ledger = ['media', 'application'].includes(btn.dataset.usageLedger) ? btn.dataset.usageLedger : 'web';
       usageAnalysisState.detail = null;
       usageAnalysisState.query = '';
       await renderStatsPage();
@@ -3468,15 +3470,41 @@ function setupUsageAnalysisControls() {
     usageAnalysisState.query = event.target.value || '';
     renderUsageAnalysisList(usageAnalysisLastView);
   });
+  document.getElementById('usage-analysis-app-refresh')?.addEventListener('click', () => renderStatsPage({ force: true, recheck: true }));
+  setInterval(() => {
+    if (usageAnalysisState.ledger === 'application' && !applicationStatsReading
+      && document.visibilityState === 'visible' && document.getElementById('page-stats')?.getClientRects().length
+      && document.getElementById('page-stats')?.classList.contains('active')) {
+      renderStatsPage({ force: true, retain: true });
+    }
+  }, 60_000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && usageAnalysisState.ledger === 'application'
+      && document.getElementById('page-stats')?.getClientRects().length
+      && document.getElementById('page-stats')?.classList.contains('active')) renderStatsPage({ force: true, retain: true });
+  });
+  chrome.runtime.onMessage.addListener((message, sender) => {
+    if (message?.type === 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE' && sender?.id === chrome.runtime.id
+      && usageAnalysisState.ledger === 'application' && !applicationStatsReading
+      && document.visibilityState === 'visible' && document.getElementById('page-stats')?.getClientRects().length
+      && document.getElementById('page-stats')?.classList.contains('active')) {
+      renderStatsPage({ force: true, retain: true });
+    }
+  });
 }
 
 function shiftUsageAnalysisDate(currentKey, days) {
+  if (usageAnalysisState.ledger === 'application') {
+    const key = currentKey || new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
+    return new Date(Date.parse(`${key}T00:00:00+08:00`) + days * 86_400_000 + 8 * 3_600_000).toISOString().slice(0, 10);
+  }
   const base = currentKey ? new Date(`${currentKey}T00:00:00`) : new Date();
   base.setDate(base.getDate() + days);
   return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}`;
 }
 
 function usageCategoryLabel(key) {
+  if (key?.startsWith('app_')) return APPLICATION_CATEGORY_LABELS[key.slice(4)] || '历史分类未知';
   return ({
     study: '学习',
     composite: '待归类',
@@ -3488,6 +3516,16 @@ function usageCategoryLabel(key) {
     backgroundVideo: '后台视频',
     pip: 'PiP',
   })[key] || key || '其他';
+}
+
+function usageTime(value, view = usageAnalysisLastView) {
+  if (view?.kind !== 'application') return formatSeconds(value || 0);
+  if (value == null) return '—';
+  const milliseconds = Math.round(value * 1000);
+  const whole = Math.floor(milliseconds / 1000);
+  const fraction = milliseconds % 1000;
+  const hours = Math.floor(whole / 3600), minutes = Math.floor(whole % 3600 / 60), seconds = whole % 60;
+  return `${hours ? hours + '小时' : ''}${minutes ? minutes + '分' : ''}${seconds || (!hours && !minutes) || fraction ? seconds + '秒' : ''}${fraction ? ' ' + fraction + '毫秒' : ''}`;
 }
 
 function usageStatusClass(status) {
@@ -3520,7 +3558,7 @@ function renderUsageStackChart(id, series = [], options = {}) {
     const barHeight = Math.max(2, Math.round((total / max) * 100));
     const title = keys
       .filter(key => Number(row.categories?.[key] || 0) > 0)
-      .map(key => `${usageCategoryLabel(key)} ${formatSeconds(row.categories[key])}`)
+      .map(key => `${usageCategoryLabel(key)} ${usageTime(row.categories[key])}`)
       .join(' / ');
     return `
       <div class="usage-stack-slot" title="${escAttr(title)}">
@@ -3546,7 +3584,7 @@ function renderUsageLegend(view) {
       <span class="usage-dot ${key}"></span>
       <span>
         <div class="usage-legend-name">${usageCategoryLabel(key)}</div>
-        <div class="usage-legend-time">${formatSeconds(totals[key] || 0)}</div>
+        <div class="usage-legend-time">${usageTime(view.totalSeconds == null && view.kind === 'application' ? null : totals[key] || 0, view)}</div>
       </span>
     </div>
   `).join('');
@@ -3586,11 +3624,17 @@ function renderUsageAnalysisList(view) {
   const listModeEl = document.getElementById('usage-analysis-list-mode');
   const searchEl = document.getElementById('usage-analysis-search');
   if (listModeEl) listModeEl.value = usageAnalysisState.listMode;
+  if (listModeEl?.querySelector('[value="targets"]')) listModeEl.querySelector('[value="targets"]').textContent = view.kind === 'application' ? '应用' : '管理对象';
   if (searchEl) {
     searchEl.value = usageAnalysisState.query;
     searchEl.placeholder = usageAnalysisState.listMode === 'categories' ? '搜索分类' : (view.searchTargetPlaceholder || '搜索管理对象');
   }
   const rows = filteredUsageRows(view);
+  if (view.kind === 'application' && view.totalSeconds == null) {
+    wrap.innerHTML = '<div class="usage-empty">当前范围的应用统计证据不完整，暂不能提供完整总量或明细；这不表示零用量。</div>';
+    if (detail) detail.className = 'usage-detail-panel';
+    return;
+  }
   if (rows.length === 0) {
     wrap.innerHTML = '<div class="usage-empty">当前时间范围内没有管理对象使用记录</div>';
     if (detail) detail.className = 'usage-detail-panel';
@@ -3599,12 +3643,12 @@ function renderUsageAnalysisList(view) {
   if (usageAnalysisState.listMode === 'categories') {
     wrap.innerHTML = `
       <table class="usage-analysis-table">
-        <thead><tr><th>分类</th><th>时间</th><th>单站点限额</th><th>用量说明</th></tr></thead>
+        <thead><tr><th>分类</th><th>时间</th><th>${escHtml(view.limitColumnLabel || '单站点限额')}</th><th>用量说明</th></tr></thead>
         <tbody>
           ${rows.map(row => `
             <tr data-usage-detail-kind="category" data-usage-detail-key="${escAttr(row.key)}">
               <td><span class="usage-target-name"><span class="usage-dot ${escAttr(row.key)}"></span>${escHtml(row.label)}</span></td>
-              <td>${formatSeconds(row.seconds)}</td>
+              <td>${usageTime(row.seconds, view)}</td>
               <td>${escHtml(row.limitLabel || '—')}</td>
               <td><span class="usage-status ${usageStatusClass(row.status)}">${escHtml(row.status || '—')}</span></td>
             </tr>
@@ -3615,14 +3659,14 @@ function renderUsageAnalysisList(view) {
   } else {
     wrap.innerHTML = `
       <table class="usage-analysis-table">
-        <thead><tr><th>${escHtml(view.targetColumnLabel || '管理对象')}</th><th>${escHtml(view.categoryColumnLabel || '分类')}</th><th>今日时间</th><th>本周时间</th><th>单站点限额</th><th>用量说明</th></tr></thead>
+        <thead><tr><th>${escHtml(view.targetColumnLabel || '管理对象')}</th><th>${escHtml(view.categoryColumnLabel || '分类')}</th><th>今日时间</th><th>本周时间</th><th>${escHtml(view.limitColumnLabel || '单站点限额')}</th><th>用量说明</th></tr></thead>
         <tbody>
           ${rows.map(row => `
             <tr data-usage-detail-kind="target" data-usage-detail-key="${escAttr(row.key)}">
               <td><span class="usage-target-name"><span class="usage-target-icon">${usageTargetIcon(row)}</span><span>${escHtml(row.label || '未命名管理对象')}</span></span></td>
               <td>${escHtml(row.categoryLabel || usageCategoryLabel(row.category))}</td>
-              <td>${formatSeconds(row.todaySeconds || 0)}</td>
-              <td>${formatSeconds(row.weekSeconds || 0)}</td>
+              <td>${usageTime(row.todaySeconds, view)}</td>
+              <td>${usageTime(row.weekSeconds, view)}</td>
               <td>${escHtml(row.limitLabel || '—')}</td>
               <td><span class="usage-status ${usageStatusClass(row.status)}">${escHtml(row.status || '—')}</span>${row.displayBorrowedSeconds > 0 ? '<div style="font-size:12px;color:var(--muted);overflow-wrap:anywhere;">当前范围：其中 ' + formatSeconds(row.displayBorrowedSeconds) + '借用休息配额</div>' : ''}</td>
             </tr>
@@ -3645,6 +3689,15 @@ function renderUsageDetail(view) {
   const detail = document.getElementById('usage-analysis-detail');
   if (!detail || !usageAnalysisState.detail) {
     if (detail) detail.className = 'usage-detail-panel';
+    return;
+  }
+  if (view.kind === 'application') {
+    const selection = usageAnalysisState.detail;
+    const row = (selection.kind === 'category' ? view.categoryRows : view.targetRows).find(r => r.key === selection.key);
+    detail.className = row ? 'usage-detail-panel visible' : 'usage-detail-panel';
+    detail.innerHTML = row ? `<strong>${escHtml(row.label)}</strong><p>当前范围：${usageTime(selection.kind === 'category' ? row.seconds : row.rangeSeconds, view)}</p>
+      ${selection.kind === 'target' ? `<p>今日：${usageTime(row.todaySeconds, view)} · 本周：${usageTime(row.weekSeconds, view)}</p><p>历史管理分类：${escHtml(row.categoryLabel)}</p>` : ''}
+      <p>本机当前 Windows 用户 · 已结算应用主账；不计网页配额。明细可重叠，不相加生成总量。</p>` : '';
     return;
   }
   if (usageAnalysisState.detail.kind === 'category') {
@@ -3698,6 +3751,7 @@ function unknownUsageIdentifier(row) {
 
 function usagePresentationView(view) {
   if (!view) return view;
+  if (view.kind === 'application') return view;
   return { ...view, categoryRows: (view.categoryRows || []).map(row => ({ ...row,
     limitLabel: '—',
     status: view.kind === 'media' ? '独立媒体统计，不计网页配额' : '—' })),
@@ -3784,7 +3838,7 @@ function renderUsageAnalysisView(view) {
   const totalLabel = document.querySelector('#page-stats .usage-total-label');
   if (totalLabel) totalLabel.textContent = view.totalLabel || '使用时间';
   const total = document.getElementById('usage-analysis-total');
-  if (total) total.textContent = formatSeconds(view.totalSeconds || 0);
+  if (total) total.textContent = usageTime(view.totalSeconds, view);
   const rangeLabel = document.getElementById('usage-analysis-range-label');
   if (rangeLabel) rangeLabel.textContent = view.range.mode === 'week' ? view.range.label : `${view.range.label} ${DAY_NAMES[new Date(`${view.range.from}T00:00:00`).getDay()]}`;
   const todayBtn = document.getElementById('usage-analysis-today');
@@ -3793,28 +3847,74 @@ function renderUsageAnalysisView(view) {
   if (summaryTitle) summaryTitle.textContent = '本周每日结构';
   const mainTitle = document.getElementById('usage-analysis-main-title');
   if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : '24 小时分布';
-  renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
-  renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: usageCategoryKeys(view) });
+  if (view.kind === 'application') {
+    if (summaryTitle) summaryTitle.textContent = '所选周分类明细（分类可能重叠）';
+    if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '每日分类明细（可能重叠）' : '小时分类明细（可能重叠）';
+    const notice = document.getElementById('usage-analysis-app-notice');
+    if (notice) notice.textContent = `${view.warning || ''} 独立应用统计，不计网页配额；仅含已结算记录，明细可能重叠，不相加生成总量。${view.incompleteDates ? '不完整日期：' + view.incompleteDates + '，对应图表空白不代表零用量。' : ''}`;
+  }
+  const incompleteApp = view.kind === 'application' && view.totalSeconds == null;
+  renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: incompleteApp ? '应用统计证据不完整，不代表零用量' : '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
+  renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: incompleteApp ? '应用统计证据不完整，不代表零用量' : view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: usageCategoryKeys(view) });
   renderUsageLegend(view);
   renderUsageAnalysisList(view);
 }
 
-async function renderStatsPage() {
+let statsReadSequence = 0;
+let applicationStatsReading = false;
+async function renderStatsPage({ force = false, retain = false, recheck = false } = {}) {
+  const sequence = ++statsReadSequence;
+  const application = usageAnalysisState.ledger === 'application';
+  document.getElementById('page-stats')?.classList.toggle('usage-app-view', application);
+  applicationStatsReading = application;
+  document.querySelectorAll('[data-usage-ledger]').forEach(button => button.classList.toggle('active', button.dataset.usageLedger === usageAnalysisState.ledger));
+  const refresh = document.getElementById('usage-analysis-app-refresh');
+  if (refresh) { refresh.hidden = !application; refresh.disabled = application; }
+  const notice = document.getElementById('usage-analysis-app-notice');
+  if (notice) { notice.hidden = !application; notice.textContent = '独立应用统计，不计网页配额；正在读取本机当前 Windows 用户的已结算用量。'; }
+  if (application) {
+    document.querySelector('#page-stats .usage-total-label').textContent = '应用主使用时间';
+    document.getElementById('usage-analysis-summary-title').textContent = '所选周分类明细（分类可能重叠）';
+    document.getElementById('usage-analysis-main-title').textContent = usageAnalysisState.mode === 'week'
+      ? '每日分类明细（可能重叠）' : '小时分类明细（可能重叠）';
+    document.getElementById('usage-analysis-search').placeholder = '搜索应用名称';
+    document.querySelector('#usage-analysis-list-mode option[value="targets"]').textContent = '应用';
+  }
+  if (!retain) {
+    usageAnalysisLastView = null;
+    setStatsPageError('正在读取使用数据…');
+    const legend = document.getElementById('usage-analysis-legend');
+    if (legend) legend.innerHTML = '';
+  }
   try {
-    const getView = usageAnalysisState.ledger === 'media'
+    const getView = application ? getAdminApplicationUsageAnalysisView : usageAnalysisState.ledger === 'media'
       ? getAdminMediaUsageAnalysisView
       : getAdminUsageAnalysisView;
     const usageView = await getView({
       mode: usageAnalysisState.mode,
       date: usageAnalysisState.date || undefined,
+      ...(application ? { force, recheck } : {}),
     });
+    if (sequence !== statsReadSequence) return;
     if (!config || typeof config !== 'object') {
       config = usageView.config || { studyList: [], compositeList: [] };
     }
     renderUsageAnalysisView(usageView);
   } catch (error) {
+    if (sequence !== statsReadSequence) return;
+    if (application) {
+      usageAnalysisLastView = null;
+      setStatsPageError(applicationUsageErrorMessage(error?.message));
+      if (notice) notice.textContent = '独立应用统计，不计网页配额；本机应用数据暂时不可用，不代表零用量。';
+      return;
+    }
     console.error('[Admin] local usage analysis read failed:', error);
     setStatsPageError('部分数据暂时不可用');
+  } finally {
+    if (sequence === statsReadSequence) {
+      applicationStatsReading = false;
+      if (refresh) refresh.disabled = false;
+    }
   }
 }
 

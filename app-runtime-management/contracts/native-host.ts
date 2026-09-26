@@ -51,6 +51,7 @@ export interface NativeHostResponse {
   acceptedRevision?: string;
   duplicate?: boolean;
   stale?: boolean;
+  applicationUsage?: ApplicationUsageSnapshot;
 }
 
 export type BrowserBridgeChannel = 'health' | 'ledger';
@@ -98,9 +99,9 @@ export interface BrowserDailyUsageSnapshot {
 
 export interface BrowserBridgeV3Envelope<TPayload = unknown> {
   protocolVersion: typeof BROWSER_BRIDGE_V3_PROTOCOL_VERSION;
-  channel: 'health' | 'statistics';
+  channel: 'health' | 'statistics' | 'application';
   requestId: string;
-  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot';
+  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage';
   extensionId: string;
   profileId: string;
   sentAtMs: number;
@@ -114,4 +115,45 @@ export interface BrowserDailyUsageSnapshotResponse {
   errorCode?: string;
   acceptedRevision?: string;
   duplicate?: boolean;
+}
+
+/** Local, read-only, settled application usage; never a shared quota result. */
+export interface ApplicationUsageQuery {
+  fromDate: string;
+  toDate: string;
+  offset: number;
+  expectedRevision?: string;
+}
+export interface ApplicationUsageHour {
+  hour: number;
+  totalMs: number;
+  categoriesMs: Readonly<Record<string, number>>;
+}
+export interface ApplicationUsageDay {
+  date: string;
+  totalMs: number;
+  categoriesMs: Readonly<Record<string, number>>;
+  hours: readonly ApplicationUsageHour[];
+  complete: boolean;
+  reasonCodes: readonly string[];
+}
+export interface ApplicationUsageRow {
+  key: string;
+  name: string;
+  classifications: readonly string[];
+  totalMs: number;
+  dailyMs: Readonly<Record<string, number>>;
+}
+export interface ApplicationUsageSnapshot {
+  fromDate: string;
+  toDate: string;
+  revision: string;
+  computedAtMs: number;
+  lastSettledAtMs: number | null;
+  complete: boolean;
+  reasonCodes: readonly string[];
+  totalMs: number;
+  days: readonly ApplicationUsageDay[];
+  applications: readonly ApplicationUsageRow[];
+  nextOffset: number | null;
 }

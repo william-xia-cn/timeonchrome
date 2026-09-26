@@ -1,5 +1,24 @@
 # TASK_BOARD
 
+## COMPLETED（代码与本地候选）：终端使用分析增加独立应用用量（2026-09-27）
+
+PO 确认先展示应用用量，合并共享留待后续；本机源码已在 TimeWhereNative，沿用双仓边界，不回迁。变更等级：只读本地协议＋Console 行为，不改变网页/媒体原账、统计、配额及云端。
+
+Checklist：
+1. [x] contracts 1.13.0 增加 v3 `application/getApplicationUsage`、能力协商和裁剪响应；Native 消费固定打包件，不跨仓引用源码。
+2. [x] Service 根据已验证 pipe 客户端确定本机用户，只读已结算应用账；北京时间日/周、毫秒保留、主区间并集，未知分类不猜测。辅助媒体、0ms 诊断不计主用量；无法可靠分配的时钟区间明确不可用。
+3. [x] 扩展复用串行通道查询，首次查看/日期切换/重连/可见页签每分钟/手动刷新触发；旧 Service、Host 缺失、停止和超时显示可理解状态，不影响原通道。隐藏、离开分析页或退出登录后不查询；迟到 requestId 不占用后续 ACK。
+4. [x] 原使用分析增加“应用使用”，保留网页/媒体，日/周、图表、应用/分类列表与详情；本机当前用户、已结算数据，不显示身份/凭据，不计算共享总量或网页配额。
+5. [x] 聚焦协议/用户隔离/并集/跨日/分页/客户端/页面测试及桌面移动 mock 目视验证；typecheck/build 和 diff 检查；审计后同提交收口。
+
+必要 CI：契约真实消费者及 Native Windows 编译；本地只运行新增读模型、协议、客户端和页签回归。排除云端 Worker/Guardian、macOS、WiX、原账状态机全量测试及生产发布，因为这些路径无业务变更。发布 smoke 本轮不适用；实际安装通道未升级前不能宣称实机端到端通过。
+
+本地证据：Contracts typecheck/build/compatibility PASS；Native `ApplicationUsageReadTests|BrowserBridgeTests` 25/25 PASS，Service/Host Release 编译 0 warning/error。SQLite→真实 framing→扩展 validator 对照总量 2501ms、应用明细 3501ms，证明不相加冒充总量。扩展 application-usage-read-model、local-guardian、既有 browser-bridge-v3-snapshot PASS，原 admin-read-model 43/43 PASS。新增能力通知首次实现曾把不含 negotiation 的本地 drain summary 误当为能力缺失，聚焦测试捕获后改为仅明确协商响应更新能力，最终通过；不隐藏中间失败。
+
+隔离 mock 目视验证为 `PASS_WITH_MANUAL_EVIDENCE`：1440×1000 桌面、390×844 移动（页面 scrollWidth=390，无整页横向溢出；表与小时图表内部可横向滚动）、搜索/分类/详情、日周及日期导航、无 Host 不显示零、断线缓存截止时间、可见一分钟查询/隐藏停止、重连刷新及迟到响应不覆盖网页页签。截图位于忽略目录 `output/playwright/application-usage-{desktop,mobile,missing,cached}.png`，不提交用户资料或截图。
+
+实施审计：Matched＝契约、只读权威、用户隔离、分页版本、缓存/失败、三页签及本地验证；Deviated/Missing/Extra＝无（代码实现范围）。实机通道验收为 `NOT_RUN_REQUIRES_UPDATED_SERVICE`：已安装 Service 2.6.2 尚不具备新能力，本轮未替换正式程序、安装 MSI 或重载用户扩展；本地编译与 mock 不能记为实际配对机器端到端 PASS。未部署云端、执行 migration、发布 R2/latest、启用共享配额或修改网页原账。固定开发候选目录保持不变。
+
 ## NOW：BrowserBridge v3 完整收尾计划（2026-09-26，PO 授权连续执行）
 
 目标：在 TimeWhereNative/TimeOnChrome 拆仓边界内完成权威网页快照、纯转发 Host、应用权威账与可解释重叠影子的工程交付；不把安装成功、收到消息或等待自然日当成完整验收。不启用共享配额执行、反向控制、原账重算、历史猜测或新的生产发布。
