@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## NOW（2026-09-27）：双仓边界最终收口
+
+源码迁移及旧本机 CI 停用已由 D-104 完成，不重复迁移。执行 checklist：合入已实机验收的应用读取超时补丁；复核 Native main 精确 SHA 的独立 Windows/macOS/WiX CI、固定契约及无生产写权限；用现有 2.6.7 包校验 SHA/版本/字节哈希后，将旧仓滞留 1.12.0 的交接锁同步为已验证 1.15.0，增加与当前契约版本一致的回归；更新两仓当前状态；分别 PR 合并。未跟踪构建残留保留，不当作可发布源码，不修改其他任务工作树。
+
+测试等级：扩展通信 + 发布交接配置 + 文档。必要验证为 local-guardian/application-usage-read-model、artifact gate/CI 路由/release-config 聚焦测试、源码边界与 diff check、现有真实 2.6.7 产物验真；Native 精确 main ce2b568 的 run 36269476969 已通过所有相关 job，复用证据。CI 仅 release-config/轻量 gate，Native 文档仅轻量 gate。无新增协议或产品行为，不重跑平台构建，不部署云端、不安装、不执行 migration、不上传 R2 或切换 latest。
+
+提交前结果：上述六组本地检查及 diff check 全部 PASS，原生 2.6.7 Burn/MSI 来源 SHA、contracts 1.15.0/包哈希、实际文件大小/哈希验真 PASS。新仓 repository secrets/environments 只读查询为空，workflow 权限和固定包消费符合边界。用户确认扩展显示正常，记为 PASS_WITH_MANUAL_EVIDENCE；独立用量展示不等于共享配额已实现。Matched＝修复收口/源码隔离/独立 CI/契约验真/权限边界/实机证据，Deviated/Missing/Extra＝无（本轮实现范围）；PR/合并状态以实际 GitHub 结果为准，不先写完成。
+
 ## NOW（2026-09-27）：应用用量查询误用健康心跳超时
 
 实机已安装 2.6.7 的 Native Host→Service 本周只读查询在 4362ms 返回完整统计，而扩展 native-host-client.js 所有请求共用 3000ms 超时，导致页面提前断线。修复 checklist：①仅 application/getApplicationUsage 使用独立 15000ms 有界响应预算，健康及其他通道保持 3000ms；②计时仍从实际发送开始，保留串行调度、requestId 校验和断线清理；③固定超过 3 秒成功、15 秒无响应终止、迟到响应不串 ACK 的回归；④校验并更新原 unpacked 目录，不改 ID/模式/绑定、不安装 Service。

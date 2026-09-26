@@ -4,6 +4,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { verify } = require('../../tools/verify-timewhere-native-artifact');
+const approvedLock = require('../../tools/timewhere-native-contract-lock.json');
+const currentContracts = require('../../app-runtime-management/contracts/package.json');
+
+assert.strictEqual(approvedLock.version, currentContracts.version,
+  'Native handoff approval must track the reviewed current contract version');
+assert.match(approvedLock.sha256, /^[0-9a-f]{64}$/);
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'native-artifact-'));
 const sourceSha = 'a'.repeat(40);
