@@ -2,6 +2,8 @@
 
 ## NOW：固定 Native Host 本地候选目录修复（2026-09-26）
 
+- 验收方式更正：不要求 PO 等待自然日作为开发完成条件。已通过的 `BrowserSharedDailyTests` 6/6 包含受控 SQLite 的跨午夜旧缺口、新日期可用、会话/用户隔离、重启回放及毫秒保真，按相同源码与产物证据复用，不重复跑测试。本机升级/数据保留/v3 通信已验收完成；真实本周旧日期因缺历史映射不可用仍是已知产品限制，不猜测补齐。后续自然运行观察仅为补充实机证据，不能伪称已通过，也不能用无限等待代替开发定位和收口。
+
 - PO 要求继续完成本机闭环：Native 候选升级为 2.6.2，固定安装身份/配对/数据/扩展目录，复用精度回归 6/6，仅新增版本与安装器结构测试和 WiX 构建。构建后校验 SHA/文件清单，以 Computer Use 原地升级（行动时确认，UAC 人工），再只读验收 Service、单 Session Agent、原身份/账本保留、v3 快照与精确毫秒 shadow；不修改或部署云端/扩展/R2。任何实机残余缺口明确记为 BLOCKED，不将装包当作完整共享 PASS。
 - 2.6.2 本机升级与只读验收完成：Native 构建 SHA `b9e8b7a75f198a6ec44b1720b943b2b5a32d57c3`，安装器结构 5/5、既有精度回归 6/6；WiX MSI/Burn 0 warning/error。Burn SHA-256 `b1c3391f803bd2ea247515911e9065a39998a0e22ecc1e48d2a01f623a3391b4`，MSI SHA-256 `b86d938ae960579fe172b0ea62fb06a751bcc2c8ae5a1f5261ce9fbda6bf792c`。PO 确认后通过 Computer Use 启动安装，Burn 日志 result=0x0、restart=None；已安装六个组件版本 2.6.2 且哈希匹配候选，Service Automatic/Running，当前会话一个 Session Agent。TimeWhereMg 截图和可访问树显示在线、已配对、Service 运行及升级后 v3 成功时间；无需扩展重载、不改固定目录。
 - 数据保留验收：SQLite 只读事务比较升级前 8,606 条原账 payload 的固定前缀哈希完全相同，升级后仅新增正常记录；credential 和机器密钥大小/更新时间不变，策略仍存在并继续正常更新。6/6 网页快照完整、待投影 0，精确毫秒 shadow 列及六行已填充。主/媒体/日志上传 outbox 为 0；安装清单 outbox 升级前已有 103 条、验收时 109 条，不能声称全部队列清空。摘要脚本首轮因 PowerShell UTF-16 结果文件解码失败，经修正编码识别后完成，不涉及数据库写入。
