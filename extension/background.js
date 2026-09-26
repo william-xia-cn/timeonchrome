@@ -1566,7 +1566,12 @@ globalThis.debugTriggerAutoTransition = async (options = {}) => {
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg?.type === 'TIMEONCHROME_LOCAL_HEALTH_PROBE') return false;
+  // These messages belong exclusively to native-host-client.js (or its UI
+  // notification). Do not race its asynchronous response with generic routing.
+  if (msg?.type === 'TIMEONCHROME_LOCAL_HEALTH_PROBE'
+    || msg?.type === 'TIMEONCHROME_LOCAL_HEALTH_RECHECK'
+    || msg?.type === 'TIMEONCHROME_APPLICATION_USAGE_READ'
+    || msg?.type === 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE') return false;
 
   const isInternalTestSender = () => {
     if (sender?.id !== chrome.runtime.id) return false;

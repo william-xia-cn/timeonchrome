@@ -1652,6 +1652,18 @@
     .usage-stack-part.foregroundVideo { background: #6c63ff; }
     .usage-stack-part.backgroundVideo { background: #9b8cff; }
     .usage-stack-part.pip { background: #ef476f; }
+    .usage-stack-part.app_study, .usage-dot.app_study { background: #1d6ff2; }
+    .usage-stack-part.app_composite, .usage-dot.app_composite { background: #6c63ff; }
+    .usage-stack-part.app_restrictedEntertainment, .usage-dot.app_restrictedEntertainment { background: #37b7b7; }
+    .usage-stack-part.app_unclassified, .usage-dot.app_unclassified { background: #f59e0b; }
+    .usage-stack-part.app_blocked, .usage-dot.app_blocked { background: #ef476f; }
+    .usage-stack-part.app_unknown, .usage-dot.app_unknown { background: #b6b8bb; }
+    .usage-app-view .usage-legend { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+    .usage-app-view .usage-analysis-card { min-width: 0; }
+    .usage-app-view #usage-analysis-table-wrap { max-width: 100%; overflow-x: auto; }
+    .usage-app-view .usage-analysis-table { min-width: 760px; }
+    .usage-app-view .usage-stack-chart { gap: 4px; overflow-x: auto; overflow-y: hidden; }
+    .usage-app-view .usage-stack-slot { min-width: 14px; }
     .usage-stack-label {
       text-align: center;
       font-size: 10px;
@@ -2072,7 +2084,10 @@
         <div class="usage-segmented" aria-label="使用分析账本" style="width:max-content;margin-bottom:12px;">
           <button type="button" class="active" data-usage-ledger="web">网页使用</button>
           <button type="button" data-usage-ledger="media">媒体使用</button>
+          <button type="button" data-usage-ledger="application">应用使用</button>
+          <button type="button" id="usage-analysis-app-refresh" hidden>刷新应用</button>
         </div>
+        <p id="usage-analysis-app-notice" hidden style="color:var(--muted);overflow-wrap:anywhere;"></p>
 
         <div class="usage-analysis-card">
           <div class="usage-card-head">

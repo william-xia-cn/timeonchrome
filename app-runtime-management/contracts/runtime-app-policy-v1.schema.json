@@ -8,6 +8,27 @@
   "properties": {
     "version": { "type": "integer", "minimum": 0 },
     "effectiveAtMs": { "type": ["integer", "null"], "minimum": 0 },
+    "weekReclassification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fromMs", "toMs", "applications"],
+      "properties": {
+        "fromMs": { "type": "integer", "minimum": 0 },
+        "toMs": { "type": "integer", "minimum": 1 },
+        "applications": {
+          "type": "array", "maxItems": 12000,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["platform", "runtimeIdentity", "classification"],
+            "properties": {
+              "platform": { "enum": ["windows", "macos"] },
+              "runtimeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
+              "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "blocked"] }
+            }
+          }
+        }
+      }
+    },
     "classifications": {
       "type": "array",
       "maxItems": 5000,

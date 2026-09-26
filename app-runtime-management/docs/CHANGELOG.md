@@ -1,5 +1,11 @@
 # App Runtime Changelog
 
+## [ARM-D-032 / Contracts 1.14.0] — 2026-09-27（本地修复，未发布）
+
+- 分类调整以新不可变 App Policy 的本周更正覆盖日/周/小时/分类及独立应用配额读模型；原始 Segment/总时长和上周不变。撤销覆盖、迟到上传和重放不重复计时；发现/已处理审计不因更正消失。
+- 新机器鉴权更正分页按每个孩子的策略版本同步，隔离家庭和历史 assignment；Service 事务缓存修正与游标，以同用户/assignment/精确身份应用，最新更正进入统计 revision。旧 Worker 404 和旧策略兼容。
+- Worker 聚焦 9/9、Contracts 黄金向量 24/24、Native 当前/上一契约各 20/20、编译/typecheck/dry-run 通过；不部署/安装/生产 migration，不改扩展、网页或媒体账。2.6.5 旧候选不含此修复，真实发布与验证另记。
+
 ## [TimeWhereNative 拆仓发布交接] — 2026-09-25（内部 2.6.0 不可变候选）
 
 - TimeOnChrome `master@8b96cad` 的受保护交接门先以运行 `36117686246` 验真，再以运行 `36131882394` 第 3 次尝试将 TimeWhereNative `575955972e64c56094f77c150548e8261c66e598` / CI `36045220406` 的 Burn、MSI、manifest 上传至 R2 `windows/x64/2.6.0/`；条件写入与逐件回读哈希通过，证据 artifact `10862434201`。

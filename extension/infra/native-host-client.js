@@ -12,6 +12,7 @@ export const LOCAL_GUARDIAN_HOST = TIMEONCHROME_NATIVE_HOST;
 export const LOCAL_GUARDIAN_ALARM = 'timeonchromeLocalGuardianHeartbeat';
 export const LOCAL_GUARDIAN_PROBE_MESSAGE = 'TIMEONCHROME_LOCAL_HEALTH_PROBE';
 export const LOCAL_GUARDIAN_RECHECK_MESSAGE = 'TIMEONCHROME_LOCAL_HEALTH_RECHECK';
+export const APPLICATION_USAGE_READ_MESSAGE = 'TIMEONCHROME_APPLICATION_USAGE_READ';
 export const LOCAL_GUARDIAN_PROFILE_KEY = 'local_guardian_profile_uuid_v1';
 export const LOCAL_GUARDIAN_STATUS_KEY = 'local_guardian_status_v1';
 export const BROWSER_BRIDGE_V2_STATE_KEY = 'browser_bridge_v2_state_v1';
@@ -41,6 +42,8 @@ let pendingAck = null;
 let activeSendPromise = null;
 let queuedHeartbeat = null;
 let queuedProbe = null;
+let queuedApplicationRead = null;
+let applicationUsageSupported = false;
 let queuedLegacyLedger = null;
 let ledgerDrainRequested = false;
 let preferHealthAfterLedger = false;
@@ -245,6 +248,8 @@ function normalizeErrorCode(value) {
     'policy_read_failed',
     'profile_uuid_unavailable',
     'heartbeat_build_failed',
+    'application_usage_revision_changed',
+    'application_usage_unavailable',
   ]);
   return allowed.has(value) ? value : 'heartbeat_build_failed';
 }
@@ -274,6 +279,7 @@ function disconnectPort() {
   nativePort = null;
   v2Supported = false;
   v3Supported = false;
+  applicationUsageSupported = false;
   v3ReplayPending = true;
   lastV3LocalVersion = null;
   stopHeartbeatTimer();
@@ -299,10 +305,14 @@ function ensureNativePort() {
   nativePort = port;
   port.onMessage.addListener((response) => {
     if (!pendingAck) return;
+    // A delayed v3 response cannot consume the ACK slot of a different request.
+    if (response?.requestId && pendingAck.requestId && response.requestId !== pendingAck.requestId) return;
     if (response?.ok !== true) {
-      rejectPendingAck(response?.errorCode === 'RUNTIME_SERVICE_UNAVAILABLE'
-        ? 'runtime_service_unavailable' : 'native_invalid_response');
-      if (response?.errorCode !== 'RUNTIME_SERVICE_UNAVAILABLE') disconnectPort();
+      const code = response?.errorCode === 'RUNTIME_SERVICE_UNAVAILABLE' ? 'runtime_service_unavailable'
+        : response?.errorCode === 'APPLICATION_USAGE_REVISION_CHANGED' ? 'application_usage_revision_changed'
+        : pendingAck.applicationRead ? 'application_usage_unavailable' : 'native_invalid_response';
+      rejectPendingAck(code);
+      if (code === 'native_invalid_response') disconnectPort();
       return;
     }
     if (!Number.isFinite(response.receivedAt)) {
@@ -325,12 +335,15 @@ function ensureNativePort() {
       acceptedRevision: typeof response.acceptedRevision === 'string' ? response.acceptedRevision : null,
       duplicate: response.duplicate === true,
       stale: response.stale === true,
+      applicationUsage: response.applicationUsage,
+      requestId: response.requestId,
     });
   });
   port.onDisconnect.addListener(() => {
     if (nativePort === port) nativePort = null;
     stopHeartbeatTimer();
     const hadPendingAck = pendingAck !== null;
+    applicationUsageSupported = false;
     const detail = String(chrome.runtime?.lastError?.message || '').toLowerCase();
     const code = detail.includes('native messaging host not found') || detail.includes('specified native messaging host')
       ? 'native_host_unavailable' : 'native_port_disconnected';
@@ -350,7 +363,8 @@ function postToNativeHost(payload) {
       disconnectPort();
       reject(new Error('native_response_timeout'));
     }, NATIVE_RESPONSE_TIMEOUT_MS);
-    pendingAck = { resolve, reject, timeoutId };
+    pendingAck = { resolve, reject, timeoutId, requestId: payload.requestId,
+      applicationRead: payload.messageType === 'getApplicationUsage' };
     try {
       port.postMessage(payload);
     } catch (_) {
@@ -623,6 +637,28 @@ async function performSnapshotDrain() {
 }
 
 async function performSend(options) {
+  if (options.type === 'applicationRead') {
+    try {
+      if (!applicationUsageSupported) return { ok: false, errorCode: 'application_usage_unsupported' };
+      const payload = { protocolVersion: 3, channel: 'application', requestId: createUuid(),
+        messageType: 'getApplicationUsage', extensionId: chrome.runtime.id,
+        profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.query };
+      const ack = await postToNativeHost(payload);
+      if (ack.requestId !== payload.requestId || !ack.applicationUsage) {
+        return { ok: false, errorCode: 'native_invalid_response' };
+      }
+      return { ok: true, applicationUsage: ack.applicationUsage, receivedAt: ack.receivedAt };
+    } catch (error) {
+      const code = normalizeErrorCode(error?.message);
+      if (['native_host_unavailable', 'native_port_disconnected', 'native_response_timeout', 'runtime_service_unavailable', 'native_post_failed'].includes(code)) {
+        const status = await loadPersistedStatus();
+        const failures = Math.min(9999, (status.consecutiveFailures || 0) + 1);
+        await persistStatus({ lastErrorCode: code, consecutiveFailures: failures,
+          nextRetryAt: safeNow() + Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.min(4, failures - 1)), portConnected: nativePort !== null });
+      }
+      return { ok: false, errorCode: code };
+    }
+  }
   const trigger = String(options.trigger || 'unspecified').slice(0, 64);
   const attemptedAt = safeNow();
 
@@ -634,6 +670,16 @@ async function performSend(options) {
       : options.type === 'legacyLedger'
         ? await postToNativeHost(await buildSettledSegmentsPayload(options.segments || []))
         : await postToNativeHost(await buildHeartbeatPayload(options, v3Supported ? 3 : 1));
+    // A local drain summary has no negotiation fields and must not erase capabilities.
+    if (ack.supportedProtocols?.length) {
+      const wasApplicationAvailable = applicationUsageSupported;
+      applicationUsageSupported = ack.supportedProtocols.includes(3)
+        && ack.capabilities?.includes('application-usage-read') === true;
+      if (!wasApplicationAvailable && applicationUsageSupported) {
+        // Notify an already-visible page after reconnect; contains no usage or identity.
+        chrome.runtime.sendMessage?.({ type: 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE' })?.catch(() => {});
+      }
+    }
     if (ack.supportedProtocols?.includes(3)
       && ack.capabilities?.includes('authoritative-daily-snapshot')) {
       if (!v3Supported) {
@@ -693,6 +739,12 @@ function drainQueuedSend() {
     queuedHeartbeat = null;
     preferHealthAfterLedger = false;
     startSend(options).catch(() => {});
+    return;
+  }
+  if (queuedApplicationRead) {
+    const queued = queuedApplicationRead;
+    queuedApplicationRead = null;
+    startSend(queued.options).then(queued.resolve, () => queued.resolve({ ok: false, errorCode: 'application_usage_unavailable' }));
     return;
   }
   if (snapshotDrainRequested && v3Supported) {
@@ -784,6 +836,43 @@ function isTrustedProbeSender(sender) {
     && sender?.url === chrome.runtime.getURL('health-probe.html');
 }
 
+export async function requestApplicationUsage(query, { recheck = false } = {}) {
+  if (!await readNativeHostDeploymentMarker().catch(() => false)) {
+    return { ok: false, errorCode: 'managed_marker_unavailable' };
+  }
+  if (!query || !/^\d{4}-\d{2}-\d{2}$/.test(query.fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(query.toDate)
+    || !Number.isInteger(query.offset) || query.offset < 0 || query.offset > 20000
+    || (query.expectedRevision != null && !/^[a-f0-9]{64}$/.test(query.expectedRevision))
+    || Object.keys(query).some(key => !['fromDate', 'toDate', 'offset', 'expectedRevision'].includes(key))) {
+    return { ok: false, errorCode: 'application_usage_query_invalid' };
+  }
+  const initialStatus = await loadPersistedStatus();
+  if (recheck && (!nativePort || !applicationUsageSupported || safeNow() < initialStatus.nextRetryAt)) {
+    const health = await requestLocalGuardianHeartbeat({ type: 'probe', trigger: 'application_manual_refresh', force: true });
+    if (!health.ok) return health;
+  }
+  // First negotiate using existing health scheduling. Never open another Native Messaging port.
+  if (!applicationUsageSupported) {
+    if (activeSendPromise) await activeSendPromise;
+    if (!nativePort) {
+      const health = await requestLocalGuardianHeartbeat({ trigger: 'application_read' });
+      if (!health.ok) return health;
+      if (health.skipped && !nativePort) {
+        const status = await loadPersistedStatus();
+        return { ok: false, errorCode: status.lastErrorCode || 'native_port_disconnected' };
+      }
+    }
+    if (!applicationUsageSupported) return { ok: false, errorCode: 'application_usage_unsupported' };
+  }
+  const status = await loadPersistedStatus();
+  if (safeNow() < status.nextRetryAt) return { ok: false, errorCode: status.lastErrorCode };
+  const options = { type: 'applicationRead', query };
+  if (!activeSendPromise) return startSend(options);
+  // A page fetches serially. Bound competing page requests to one queued read.
+  if (queuedApplicationRead) return { ok: false, errorCode: 'application_usage_busy' };
+  return new Promise(resolve => { queuedApplicationRead = { options, resolve }; });
+}
+
 function isTrustedRecheckSender(sender) {
   try {
     const expected = new URL(chrome.runtime.getURL('admin/admin.html'));
@@ -815,6 +904,15 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === APPLICATION_USAGE_READ_MESSAGE) {
+    if (!isTrustedRecheckSender(sender)) {
+      sendResponse({ ok: false, errorCode: 'probe_sender_rejected' });
+      return false;
+    }
+    requestApplicationUsage(message.query, { recheck: message.recheck === true }).then(sendResponse,
+      () => sendResponse({ ok: false, errorCode: 'application_usage_unavailable' }));
+    return true;
+  }
   if (message?.type === LOCAL_GUARDIAN_RECHECK_MESSAGE) {
     if (!isTrustedRecheckSender(sender)) {
       sendResponse({ ok: false, errorCode: 'probe_sender_rejected' });

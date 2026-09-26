@@ -120,6 +120,7 @@ export type RuntimeApplicationClassification =
   | 'blocked';
 
 export interface RuntimeAppPolicyV1 {
+  weekReclassification?: RuntimeWeekReclassification;
   version: number;
   effectiveAtMs: number | null;
   classifications: Array<{
@@ -142,4 +143,25 @@ export interface RuntimeAppPolicyV1 {
 export interface RuntimeMachineChildAppPolicyV1 {
   childId: string;
   policy: RuntimeAppPolicyV1;
+}
+
+/** Server-approved effective attribution; never mutates an original UsageSegment. */
+export interface RuntimeWeekReclassification {
+  fromMs: number;
+  toMs: number;
+  applications: Array<{
+    platform: 'windows' | 'macos';
+    runtimeIdentity: string;
+    classification: RuntimeApplicationClassification;
+  }>;
+}
+
+export interface RuntimeApplicationCorrectionPage {
+  cursor: string;
+  hasMore: boolean;
+  items: Array<RuntimeWeekReclassification & {
+    childId: string;
+    policyVersion: number;
+    assignments: Array<{ localUserId: string; assignmentVersion: number }>;
+  }>;
 }

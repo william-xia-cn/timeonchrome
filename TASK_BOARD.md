@@ -1,5 +1,68 @@
 # TASK_BOARD
 
+## NOW（2026-09-27 PO 产品口径更正）：应用分类调整追溯本周
+
+模块 ARM-D-032 已实现本地代码：同一孩子、已确认应用的分类调整更正北京时间本周有效使用分类和独立应用配额归属；上周及更早不追溯。Contracts 1.14.0 和不可变策略更正/API 留在本仓，Native 事务缓存/Service 读取留在新仓，扩展不重算或改变目录。聚焦 Worker 9/9、Contracts 24/24、Native 当前/上一契约各 20/20 及 typecheck/dry-run PASS；原账、总量、已处理审计记录保留，发布/安装/真实同步未执行。2.6.5 旧包不含此项，不再作为本周更正交付证据；完整当前状态见模块任务板，不得称线上已经修复。
+
+## NOW（PO 已批准修复）：应用统计产品身份投影与分类继承缺口（2026-09-27）
+
+实施 checklist（关联投影/前向策略，不改历史）：① Backend 从可信包/二进制关联传播同一应用的明确分类，并从可信安装产品向套件入口继承；精确变体覆盖优先，冲突不自动继承，包容器不向不同 AUMID 扩散。② App Policy 保存、盘点/知识发布和目录读模型复用相同投影，resolvedApplications 随新策略版本冻结。③ Native 应用统计消费同用户库存的可信叶应用关联，按区间并集合并同一应用行；不按名称、发布者或套件产品键合并 Word/Excel，不套当前分类重算历史。关联变化进入 revision，分页不混版。④ 固定同名异应用、套件继承/覆盖、旧版本历史不变、用户隔离及应用行并集回归。
+
+测试契约：Worker 分类投影/API 聚焦测试与 typecheck；Native ApplicationUsageReadTests、相关 Service 编译；必要本地候选构建另记。默认排除网页/媒体原账、配额、Console 布局、macOS、无关全量 CI、生产部署/migration/R2。无可靠历史证据的同名身份保持分离，不伪造已关联；本地测试通过不等于现有云端策略/已安装 Service 已生效。
+
+PO 指出本地统计两个 ChatGPT、两个 EXCEL，并已在云端把 ChatGPT 归为学习。真实 Host/Service 响应确认各有两个不同技术键；当前 ChatGPT 记录仍为 unclassified，Excel 两个身份分别 study/unclassified，不能据此认定原账重复。代码证据：ApplicationUsageReader 只按 platform/runtimeIdentity 哈希分行，没有消费产品关联；MachinePolicyStore.SnapshotFor 仍精确匹配技术身份。浏览器只读查看当前孩子的 Runtime 应用管理，确认旧 ChatGPT 对象确有“学习/家长明确配置”，另一个已安装对象仍未归类；Microsoft 365 学习产品的 Excel 变体显示继承产品设置。此前把问题直接解释为用户未配置或网站/应用不互通不成立，未核实前不能归因于用户操作。
+
+诊断阶段沿用已批准产品/变体关系，不能按名称强行合并、要求用户重复分类或回写历史分类。诊断时未修改产品代码、云端配置或历史 Segment；agent-browser 无可附加 CDP，使用已连接 Chrome 插件只读核对并恢复原目录。浏览器未读取凭据或被禁止的 extension URL。PO 随后批准修复，实施范围和验证见上方 checklist。
+
+实施结果：Worker 关联/继承、策略版本、ETag/家庭隔离、旧客户端时段、上传分类与包容器回归 15/15，通过 typecheck；Native 读取 14/14、安装器 5/5，通过 Service 编译。修正旧 Game Bar 测试，使 resolvedApplications 与已存在的 composite 明确覆盖一致，不改变其实际分类/配额。两次生产 D1 仅 SELECT 汇总，rows_written=0；确认三个旧 ChatGPT 学习配置缺少 inventory，当前安装项有另一个包身份，不能宣称已自动关联。实施审计 Matched（可信关联/覆盖/历史不变/隔离/分页），Deviated/Extra=无；生产部署、现有家庭关联与真机升级仍待执行，不记为通过。原扩展目录、ID、绑定未改。
+
+代码提交：TimeOnChrome `b5dc9aa`，TimeWhereNative `276c99b`；Worker dry-run 通过，没有生产部署。本地 2.6.5 未签名 Burn 已构建并核对 MSI/组件版本、491 文件清单、固定 UpgradeCode 和 manifest 大小/哈希，产物目录 `D:\Codex\TimeOnchrome-worktrees\timewhere-native-history\artifacts\release\windows\x64\2.6.5\`。Burn SHA-256 `ad4b928e698aa5ed909a1c939e4bd3984e7299414cc2c66a063c060bda9051e6`，源码 SHA 为 Native 实现提交；当前安装仍为 2.6.4。未推送/合并/部署/安装；端到端 Missing 为可信旧 ChatGPT 关联和发布升级后验收，不把代码测试或包生成记为已解决用户页面全部重复。
+
+## COMPLETED（修复/本地包/用户安装后真实通道验证）：独立应用统计正常双时钟被误判不完整（2026-09-27）
+
+已通过真实安装 2.6.3 的 Native Host framing→Service 只读查询确认：响应成功、19 个应用，本周七天不完整原因均为 APPLICATION_CLOCK_AMBIGUOUS。非网页重叠证据缺失，不是零账本。新 ApplicationUsageReader 要求 wall/monotonic 毫秒差完全相等，与实际 UtcNow/TickCount64 独立采样及既有 2000ms 跳变容差冲突。本轮 Native 修复仅应用读取：同用户/session/epoch 固定历史锚点，monotonic 决定毫秒并集，wall 用于日期/小时放置；真正跳变/字段损坏/epoch 回拨仍不完整，不修改原始 Segment、配额或共享读模型。先固定回归，再 ApplicationUsageReadTests/编译与必要本地安装候选 2.6.4；不跑无关平台/云端，不部署或安装，不猜测历史。用户截图证明扩展 1.7.39 已读到 Service，路由修复实际生效。
+
+Native 修复源码已提交 `39a41d6`；ApplicationUsageReadTests 9/9、InstallerPackageTests 5/5 PASS，包含正常采样差、ACTIVE/PiP 并集、固定历史锚点、跨午夜相邻记录、日/周/小时守恒和真实异常。原网页/媒体账本、扩展目录及云端未改动。2.6.4 本地 WiX MSI/Burn 已构建，0 warning/error；实际版本、固定 UpgradeCode、491 文件清单、组件版本和 manifest 大小/哈希均通过。当前实机仍为 2.6.3，不能把夹具通过等同于真实整周统计已恢复。
+
+安装包：`D:\Codex\TimeOnchrome-worktrees\timewhere-native-history\artifacts\release\windows\x64\2.6.4\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.4.exe`，118944979 bytes，SHA-256 `22de02449ce8dbaac430c40d782dea46e218fe757efe8dbc68d7406d6ad43d47`；未签名、未安装、不发布云端/R2。审计 Matched＝读取纠错/毫秒并集/边界/真实异常/最小测试/本地包，Deviated/Missing/Extra 无（本地修复交付范围）。下一步只需原地升级后重新读应用页签，核对真实日期完整性；不需要换扩展目录或重新配对。
+
+后续实机验收完成：用户安装/截图后，六个实际组件版本和 SHA-256 全部与 2.6.4 候选一致，Service Automatic/Running，当前会话单一 Session Agent。正式 Native Host→v3 pipe→运行中的 Service 七天只读响应全部 complete=true、无 reasonCodes，21 个应用；日/周独立查询相同，同 revision 重读一致，日/小时、分类/小时、各应用/每日毫秒守恒均 PASS。用户截图显示图表/分类/应用明细，为 PASS_WITH_MANUAL_EVIDENCE；真实多页未发生，分页能力仍以既有 101 项夹具证明，不伪称实机多页。截图后当前日增加正常 60 秒 checkpoint。本项从 mock/构建推进为实际通道已验证；仅解决独立应用读取，不改变网页/媒体原账、配额、共享合并、云端或原加载目录。Matched，Deviated/Missing/Extra 无（本项范围）；内部未签名风险保留。
+
+## COMPLETED（代码/候选，用户页面已证实 Service 响应）：应用读取请求双监听器抢答修复（2026-09-27）
+
+2.6.3 已安装：Service/Manager/Session Agent/Host/Core/Infrastructure 文件哈希与候选一致，Service Automatic/Running，当前会话单一 Session Agent。PO 实际页面仍显示连接未启用。代码证据：`native-host-client.js` 独立监听应用读取，但 `background.js` 只避让 Probe，其他请求进入通用路由返回 Unknown message type；页面把无 errorCode 的失败误映射为 managed_marker_unavailable。修复 checklist：背景监听器避让桥接专属读取/重新检查/能力通知→页面未知失败不伪称未启用→实际双监听器首响应固定回归→最小测试→原目录开发候选 1.7.39，同 ID/公钥/模式→实际通道检查，阻塞如实记录。
+
+变更等级为扩展本地通信路由；必要测试 local-guardian、application-usage-read-model 和候选开发模式结构检查，语法/diff；CI 仅扩展相关。无需重新构建/安装 Service，不改状态机/原始分段、网页/媒体统计、配额、绑定或云端，不运行 Windows/macOS/WiX/Worker 全量。真实浏览器验收只读，不修改家庭配置。
+
+固定回归提取实际 background 监听器与 Native Host 监听器共同响应，修复前失败 `true !== false`，证明通用监听器错误认领桥接消息；修复后四种专属消息均不进入通用路由，应用请求首响应为 Service 通道结果。local-guardian、application-usage-read-model、开发模式激活 5/5、语法/diff 均 PASS；未知路由错误不再误报连接未启用。原目录候选已原地生成 1.7.39，同公钥/ID、native-host-development、无 CRX 或云端发布。审计 Matched＝专属分流/错误提示/固定回归/原目录交付，Deviated/Extra 无；实机重载后页面读取仍 BLOCKED_BY_BROWSER_URL_POLICY，浏览器工具拒绝 extension URL，不绕过政策或宣称通过；需 PO 在原扩展点击重新加载后查看应用页签。Service 不需要再次安装。
+
+## COMPLETED（安装候选，未安装）：补齐应用读取的可安装本地更新包（2026-09-27）
+
+PO 指出只交编译目录不能完成升级，当前连续完成 Native 2.6.3 本地 Burn/MSI。仅新增版本/安装器结构验证及 WiX 自包含构建，复用已通过的应用/协议、契约和扩展测试；不跑无关全平台、不安装、不部署云端、不改变配对/原账/固定扩展目录。必须核对实际 MSI 版本、组件文件和 SHA-256，交付 Burn 绝对路径；安装/实机验收不伪称已完成。
+
+已完成：Native 干净源码 `3e6c327c097782a36f1d26d4c96d6e455ee0c2bd` 构建 2.6.3，InstallerPackageTests 5/5 PASS，WiX MSI/Burn 0 warning/error；实际 MSI 版本、固定 UpgradeCode、491 文件清单及四个安装组件、五个发布组件版本通过。Burn 位于 `D:\Codex\TimeOnchrome-worktrees\timewhere-native-history\artifacts\release\windows\x64\2.6.3\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.3.exe`，118956905 bytes、SHA-256 `f458782bcb85ddd66e383d85bbf54a17dc85046c865a6b926f0205b14af87bc5`；MSI 60511988 bytes、SHA-256 `7da919f54b1ad02e591022b04ea74debb8427a1d4ad6d5922a571e21888e1de3`，均与 manifest 相符。内部未签名；Matched，Deviated/Missing/Extra 无（安装候选交付范围）。本机服务仍 Automatic/Running，尚未安装新包，不宣称实机应用页签已生效。原扩展目录 1.7.38 不变；没有云端/R2/latest 发布或家庭数据库写入。
+
+## COMPLETED（代码与本地候选）：终端使用分析增加独立应用用量（2026-09-27）
+
+PO 确认先展示应用用量，合并共享留待后续；本机源码已在 TimeWhereNative，沿用双仓边界，不回迁。变更等级：只读本地协议＋Console 行为，不改变网页/媒体原账、统计、配额及云端。
+
+Checklist：
+1. [x] contracts 1.13.0 增加 v3 `application/getApplicationUsage`、能力协商和裁剪响应；Native 消费固定打包件，不跨仓引用源码。
+2. [x] Service 根据已验证 pipe 客户端确定本机用户，只读已结算应用账；北京时间日/周、毫秒保留、主区间并集，未知分类不猜测。辅助媒体、0ms 诊断不计主用量；无法可靠分配的时钟区间明确不可用。
+3. [x] 扩展复用串行通道查询，首次查看/日期切换/重连/可见页签每分钟/手动刷新触发；旧 Service、Host 缺失、停止和超时显示可理解状态，不影响原通道。隐藏、离开分析页或退出登录后不查询；迟到 requestId 不占用后续 ACK。
+4. [x] 原使用分析增加“应用使用”，保留网页/媒体，日/周、图表、应用/分类列表与详情；本机当前用户、已结算数据，不显示身份/凭据，不计算共享总量或网页配额。
+5. [x] 聚焦协议/用户隔离/并集/跨日/分页/客户端/页面测试及桌面移动 mock 目视验证；typecheck/build 和 diff 检查；审计后同提交收口。
+
+必要 CI：契约真实消费者及 Native Windows 编译；本地只运行新增读模型、协议、客户端和页签回归。排除云端 Worker/Guardian、macOS、WiX、原账状态机全量测试及生产发布，因为这些路径无业务变更。发布 smoke 本轮不适用；实际安装通道未升级前不能宣称实机端到端通过。
+
+本地证据：Contracts typecheck/build/compatibility PASS；Native `ApplicationUsageReadTests|BrowserBridgeTests` 25/25 PASS，Service/Host Release 编译 0 warning/error。SQLite→真实 framing→扩展 validator 对照总量 2501ms、应用明细 3501ms，证明不相加冒充总量。扩展 application-usage-read-model、local-guardian、既有 browser-bridge-v3-snapshot PASS，原 admin-read-model 43/43 PASS。新增能力通知首次实现曾把不含 negotiation 的本地 drain summary 误当为能力缺失，聚焦测试捕获后改为仅明确协商响应更新能力，最终通过；不隐藏中间失败。
+
+隔离 mock 目视验证为 `PASS_WITH_MANUAL_EVIDENCE`：1440×1000 桌面、390×844 移动（页面 scrollWidth=390，无整页横向溢出；表与小时图表内部可横向滚动）、搜索/分类/详情、日周及日期导航、无 Host 不显示零、断线缓存截止时间、可见一分钟查询/隐藏停止、重连刷新及迟到响应不覆盖网页页签。截图位于忽略目录 `output/playwright/application-usage-{desktop,mobile,missing,cached}.png`，不提交用户资料或截图。
+
+实施审计：Matched＝契约、只读权威、用户隔离、分页版本、缓存/失败、三页签及本地验证；Deviated/Missing/Extra＝无（代码实现范围）。实机通道验收为 `NOT_RUN_REQUIRES_UPDATED_SERVICE`：已安装 Service 2.6.2 尚不具备新能力，本轮未替换正式程序、安装 MSI 或重载用户扩展；本地编译与 mock 不能记为实际配对机器端到端 PASS。未部署云端、执行 migration、发布 R2/latest、启用共享配额或修改网页原账。固定开发候选目录保持不变。
+
+交付证据：TimeOnChrome 功能提交 `f24966d`，TimeWhereNative 功能提交 `3571241`，均位于 `codex/extension-application-usage-v1`。Native 锁定来自前者的 Contracts 1.13.0 打包件（SHA-256 `4f5ce5cc0dcaa4691f5dcaa705472c2966b901ffc5f926a824f7e1cc7455f2f1`）；恢复当前/上一 1.12.0 后上述原生聚焦回归各 25/25 PASS。本地开发候选已原地生成 1.7.38，仍为 `dist/native-host-managed-candidate/package-extension`、`native-host-development`，公钥/Extension ID 不变、没有 CRX；开发激活 5/5 PASS。只读系统核对确认现有 Service Automatic/Running，正式程序仍为 2.6.2/2.6.2.0，本轮没有安装。下一步是单独构建并验收支持新能力的安装候选，而非修改加载目录或重新绑定；不能仅重载扩展就宣称真实应用读取可用。
+
 ## NOW：BrowserBridge v3 完整收尾计划（2026-09-26，PO 授权连续执行）
 
 目标：在 TimeWhereNative/TimeOnChrome 拆仓边界内完成权威网页快照、纯转发 Host、应用权威账与可解释重叠影子的工程交付；不把安装成功、收到消息或等待自然日当成完整验收。不启用共享配额执行、反向控制、原账重算、历史猜测或新的生产发布。

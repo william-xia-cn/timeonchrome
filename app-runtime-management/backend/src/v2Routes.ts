@@ -1,4 +1,5 @@
 import { requireAccountModule, requireMachine } from './auth';
+import { machineUsageCorrections } from './applicationUsageCorrections';
 import { getApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
   putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
   applyKnowledgeOperation } from './applicationKnowledge';
@@ -329,6 +330,10 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
   }
 
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs);
+  if (url.pathname === '/v2/machines/app-usage-corrections') {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    return jsonResponse(await machineUsageCorrections(env.RUNTIME_DB, machine, url.searchParams.get('after')));
+  }
   if (url.pathname === '/v2/machines/application-inventory') {
     if (request.method !== 'POST') return methodNotAllowed('POST');
     return jsonResponse(await syncApplicationInventory(env.RUNTIME_DB, machine.accountId, machine.machineId,

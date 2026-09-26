@@ -10,7 +10,17 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.12.0');
+assert.equal(pkg.version, '1.14.0');
+const appPolicy = JSON.parse(fs.readFileSync(path.join(root, 'runtime-app-policy-v1.schema.json'), 'utf8'));
+assert(!appPolicy.required.includes('weekReclassification'), 'N-1 policy stays valid');
+assert.deepEqual(appPolicy.properties.weekReclassification.required, ['fromMs', 'toMs', 'applications']);
+assert.deepEqual(appPolicy.properties.weekReclassification.properties.applications.items.properties.classification.enum,
+  ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked']);
+assert.equal(appPolicy.properties.weekReclassification.properties.applications.maxItems, 12000);
+const machineApi = JSON.parse(fs.readFileSync(path.join(root, 'runtime-machine-api-v2.schema.json'), 'utf8'));
+assert(!machineApi.required.includes('applicationCorrectionPage'), 'N-1 machine protocol stays valid');
+assert.deepEqual(machineApi.$defs.applicationCorrectionPage.required, ['cursor', 'hasMore', 'items']);
+assert.equal(machineApi.$defs.applicationCorrectionPage.properties.items.maxItems, 1);
 for (const file of legacy) assert(fs.existsSync(path.join(root, file)), `${file} must remain for N-1 compatibility`);
 const sso = JSON.parse(fs.readFileSync(path.join(root, 'runtime-browser-sso-v1.schema.json'), 'utf8'));
 const inventoryV2 = JSON.parse(fs.readFileSync(path.join(root, 'application-inventory-v2.schema.json'), 'utf8'));
@@ -44,8 +54,11 @@ assert(nativeHostV2.required.includes('channel'));
 assert(nativeHostV2.allOf.some((rule) => rule.then?.required?.includes('batchId')));
 const nativeHostV3 = JSON.parse(fs.readFileSync(path.join(root, 'native-host-v3.schema.json'), 'utf8'));
 assert.equal(nativeHostV3.properties.protocolVersion.const, 3);
-assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics']);
-assert.deepEqual(nativeHostV3.properties.messageType.enum, ['heartbeat', 'probe', 'dailyUsageSnapshot']);
+assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics', 'application']);
+assert.deepEqual(nativeHostV3.properties.messageType.enum, ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage']);
+assert.equal(nativeHostV3.$defs.applicationQuery.additionalProperties, false);
+assert.deepEqual(nativeHostV3.$defs.applicationQuery.required, ['fromDate', 'toDate', 'offset']);
+assert.equal(nativeHostV3.$defs.applicationQuery.properties.offset.maximum, 20000);
 assert.equal(nativeHostV3.$defs.dailySnapshot.properties.activeSeconds.type, 'integer');
 assert(nativeHostV3.$defs.dailySnapshot.required.includes('correctionRevision'));
 assert(nativeHostV3.$defs.dailySnapshot.required.includes('snapshotRevision'));

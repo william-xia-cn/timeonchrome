@@ -1,5 +1,25 @@
 # App Runtime 任务板
 
+## NOW（2026-09-27）：本周归属修复发布与 2.6.6 本机候选交付
+
+PO 要求连续推进实际交付。Checklist：两仓提交推送/PR及精确 SHA CI → 合并到 TimeOnChrome master / TimeWhereNative main → 受保护流程仅发布 Runtime Worker → Native 2.6.6 MSI/Burn及版本/哈希 → 本机保留升级和只读通道验收。无需 Guardian/Pages/D1 migration/R2/latest/正式扩展发布；加载目录及配对不变。变更等级为已验证代码发布+Windows 安装候选，只补安装器结构测试、WiX 构建和资源 smoke，复用既有功能测试。生产更正从新的批准策略版本或完整盘点投影产生，不用 GET 悄悄重写旧版本；未完成的真机和旧 ChatGPT 可靠身份关联继续明确标记，不假报通过。
+
+## NOW（本地实现与聚焦验证完成，未发布）：本周应用分类有效归属修正
+
+PO 已要求“先修复”，进入实现。按 DESIGN checklist 完成版本化策略更正、云端统一读取、分页机器同步和 Native 独立事务缓存/权威读取。变更等级为应用统计/权限/本地存储；本地测试限定 Contracts 兼容、Worker 更正/策略/授权 API、Windows 更正缓存与应用读取/策略客户端编译，CI 仅实际消费者。排除网页账、UI、macOS、WiX 和生产部署；发布 smoke 留待实际发布，不以本地测试充当线上完成。
+
+依据 ARM-D-032，分类调整同时更正北京时间本周已有应用主用量；上周及更早不追溯，原始 Segment/总时长不变。Contracts 1.14.0、不可变策略更正、云端日/周/小时/分类及独立应用配额读取、分页机器鉴权 API 已实现；Native 独立 SQLite 缓存/游标事务和 Service 精确 user/assignment/identity 切片已实现。扩展不改代码或加载目录。2.6.5 旧候选不含本周更正，本次不构建/安装候选或生产部署。
+
+本地证据：Contracts 兼容与分类黄金向量 24/24 PASS；Worker 聚焦 9/9、typecheck、Wrangler dry-run PASS；Native 应用读取/修正缓存/API 聚焦当前契约 1.14.0、上一契约 1.13.0 各 20/20，Service 编译 PASS。本轮实现审计 Matched＝本周/旧周、并集毫秒、撤销/迟到/幂等、客户端不能伪造更正、分页时钟回拨/家庭隔离、原账不变与处理历史保留；Deviated/Missing/Extra 无。范围外未验证＝线上 Worker、新 Service 可安装包/真机同步验收，当前代码通过不等于生产已修正，仍不得把旧 ChatGPT 无可信关联记为已合并。
+
+## NOW：应用统计可信关联与前向分类继承修复（2026-09-27）
+
+PO 已授权修复两个 ChatGPT/EXCEL：目录与策略共用可信叶关联/套件父产品继承，明确变体覆盖优先；保存策略立即冻结逐身份结果，后续库存即使 knowledge v0 也刷新已有明确分类。Native 按同用户可信包/二进制或已批准精确产品关系合并统计行，历史类别和主总量不改变。无证据的旧 ChatGPT 身份不能自动与新包合并；只读生产汇总已证实旧明确分类缺少库存，不作名称映射。当前仅实现/本地回归，不部署、不改云端家庭配置；真实关联和实际策略 ACK 尚不能标通过。
+
+最小测试：Worker 关联/策略版本/权限/旧客户端聚焦测试及 typecheck/dry-run；Native 应用读取/安装器版本测试与本地 2.6.5 包。排除网页账本、配额、Console/macOS/全平台 CI 与生产发布；已有默认分类测试改为断言 resolvedApplications 与精确覆盖一致（Game Bar composite），实际覆盖行为原已为 composite，不改变配额语义。
+
+实现与交付证据：旧仓 `b5dc9aa` 的 Worker 聚焦 15/15、typecheck/dry-run PASS；新仓 `276c99b` 的应用读取 14/14、安装器 5/5 PASS，2.6.5 本地 Burn/MSI 版本、491 文件清单和 manifest 哈希通过，WiX 0 warning/error。代码范围 Matched，Deviated/Extra 无；现有旧 ChatGPT 配置缺少库存关联证据，端到端 Missing 仍为可靠关联、受保护发布及真机升级后验收。当前无安装/云端/R2 写入，不能标整项完成。准确安装目录见根任务板，扩展加载目录与绑定未改变。
+
 ## NOW：BrowserBridge v3 双仓工程收尾（2026-09-26）
 
 - [x] TimeWhereNative 2.6.2 本机升级与只读保留检查已完成；扩展固定原目录 1.7.37，不需要再安装或重载。
