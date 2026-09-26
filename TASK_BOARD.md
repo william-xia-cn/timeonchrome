@@ -1,5 +1,12 @@
 # TASK_BOARD
 
+## NOW：Guardian v3 只读证据接口发布与验收（2026-09-26）
+
+- PO 已批准仅发布 Guardian 只读修正证据接口并继续 v3 全链路验收；不部署 Runtime/Pages/R2，不执行 migration，不改网页账本、配额、凭据或历史数据。
+- 最新 master 的 Guardian 业务已有该接口，生产未认证请求仍返回 404。现有 production workflow 要求精确 master SHA 的 Guardian CI，而该 CI 的路径过滤跳过了最近文档/拆仓提交；补 `workflow_dispatch` 入口，保留全部原验证步骤和发布门禁。
+- 测试契约：发布配置小修；本地验证 workflow 结构与 `git diff --check`；CI 只运行现有 Guardian compatibility；发布 smoke 为接口 401/health 和已安装 v3 的摘要验收。排除 Agent、WiX、macOS、Runtime/Console 与全量跨平台测试。
+- checklist：手动 CI 入口 → PR 合并 → 精确 master Guardian CI → 受保护 Guardian-only production → 401/health → v3 摘要；不得把证据不完整或未完成验收写为通过。
+
 ## TimeWhereNative 本机拆仓（D-104，源码/CI 与不可变候选交接已完成）
 
 - [x] BrowserBridge v3 已通过 PR #44 合入 `origin/master@373877d`，本任务从该干净基线开始。
