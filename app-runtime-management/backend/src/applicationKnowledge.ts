@@ -422,13 +422,31 @@ async function syncApplicationInventoryV2(db: D1Database, accountId: string, mac
         || discovery.scope!==item.scope) throw new HttpError(400,'APPLICATION_PLATFORM_MISMATCH','Inventory v2 evidence does not match its envelope.');
     return {item,evidence,localUserId:item.localUserId as string,scope:String(item.scope),sourceKind:String(item.sourceKind),status:String(item.status)};
   };
-  const products=value.products.map(raw=>{
+  // Older Windows uploaders misrouted package containers into variants. Normalize only
+  // that exact envelope; scan counts already classified containers as products.
+  const legacyContainers: Record<string,unknown>[]=[];
+  const variantEnvelopes: unknown[]=[];
+  for(const raw of value.variants){
+    if(!isRecord(raw)||!isRecord(raw.evidence)||!isRecord(raw.evidence.discovery)||raw.evidence.discovery.objectKind!=='packageContainer'){
+      variantEnvelopes.push(raw);continue;
+    }
+    const evidence=contract(()=>parseAppEvidence(raw.evidence)),discovery=evidence.discovery;
+    const productKey=evidence.values.productKey,packageId=evidence.values.packageId;
+    if(Object.keys(raw).some(key=>!['localUserId','variantKey','parentProductKey','evidence','variantRole','scope','sourceKind','status'].includes(key))
+        ||platform!=='windows'||raw.variantKey!==evidence.runtimeIdentity||evidence.runtimeIdentity!==`windows:product:${productKey}`
+        ||raw.parentProductKey!=null||discovery?.parentProductKey!==undefined||raw.variantRole!=='unknown'||discovery?.variantRole!=='unknown'
+        ||raw.scope!=='user'||raw.sourceKind!=='user-packages'||typeof packageId!=='string'||packageId.includes('!')
+        ||!evidence.verifiedFields.includes('productKey')||!evidence.verifiedFields.includes('packageId'))
+      throw new HttpError(400,'INVALID_APPLICATION_INVENTORY','Legacy package container envelope is invalid.');
+    legacyContainers.push({localUserId:raw.localUserId,productKey,evidence:raw.evidence,scope:raw.scope,sourceKind:raw.sourceKind,status:raw.status});
+  }
+  const products=[...value.products,...legacyContainers].map(raw=>{
     const parsed=parseCommon(raw,'product'),item=parsed.item;
     if(typeof item.productKey!=='string'||!/^[a-f0-9]{64}$/u.test(item.productKey)||item.productKey!==parsed.evidence.values.productKey
         || !['installed','notObserved'].includes(parsed.status)) throw new HttpError(400,'INVALID_APPLICATION_INVENTORY','Product observation is invalid.');
     return {...parsed,productKey:item.productKey};
   });
-  const variants=value.variants.map(raw=>{
+  const variants=variantEnvelopes.map(raw=>{
     const parsed=parseCommon(raw,'variant'),item=parsed.item;
     if(typeof item.variantKey!=='string'||item.variantKey!==parsed.evidence.runtimeIdentity
         || item.parentProductKey!==undefined&&(typeof item.parentProductKey!=='string'||!/^[a-f0-9]{64}$/u.test(item.parentProductKey))
