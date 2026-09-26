@@ -97,6 +97,23 @@ global.readDeviceCorrectionEvidenceWeek = async () => ({
   });
   assert.equal(missingCorrectedSegment.complete, false);
   assert.ok(missingCorrectedSegment.incompleteReasonCodes.includes('CORRECTION_SEGMENT_MISSING'));
+  assert.ok(missingCorrectedSegment.incompleteReasonCodes.includes('SOURCE_ACTIVE_SEGMENTS_ABSENT'));
+  assert.equal(missingCorrectedSegment.activeSeconds, complete.activeSeconds);
+  const [noId] = await module.buildAuthoritativeDailySnapshots({
+    ...base, segmentsById: { one: { ...base.segmentsById.one, id: '' } },
+  });
+  assert.ok(noId.incompleteReasonCodes.includes('SOURCE_ACTIVE_ID_MISSING'));
+  const [invalidTime] = await module.buildAuthoritativeDailySnapshots({
+    ...base, segmentsById: { one: { ...base.segmentsById.one, startMs: 'invalid' } },
+  });
+  assert.ok(invalidTime.incompleteReasonCodes.includes('SOURCE_ACTIVE_TIME_INVALID'));
+  const [outsideWeek] = await module.buildAuthoritativeDailySnapshots({
+    ...base, segmentsById: { one: { ...base.segmentsById.one,
+      startMs: Date.parse('2026-09-14T00:00:00Z'), endMs: Date.parse('2026-09-14T00:00:03Z') } },
+  });
+  assert.ok(outsideWeek.incompleteReasonCodes.includes('SOURCE_ACTIVE_OUTSIDE_WEEK'));
+  assert.deepEqual(outsideWeek.quotaBucketSeconds, complete.quotaBucketSeconds);
+  assert.deepEqual(outsideWeek.intervals, []);
   const crossMidnight = { ...base.segmentsById.one, id: 'cross-midnight',
     timezone: '+08:00', startMs: Date.parse('2026-09-21T15:59:58Z'),
     endMs: Date.parse('2026-09-21T16:00:02Z'), durationSeconds: 4 };
@@ -113,5 +130,5 @@ global.readDeviceCorrectionEvidenceWeek = async () => ({
   assert.deepEqual(crossDays.map((day) => day.activeSeconds), [2, 2]);
   assert.deepEqual(crossDays.map((day) => day.complete), [true, true]);
   assert.deepEqual(crossDays.map((day) => day.intervals[0]?.creditedSeconds), [2, 2]);
-  console.log('[Browser Bridge v3 snapshot] 21/21 passed');
+  console.log('[Browser Bridge v3 snapshot] focused assertions passed');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

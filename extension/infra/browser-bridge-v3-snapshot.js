@@ -82,17 +82,24 @@ export async function buildAuthoritativeDailySnapshots({
     }
   }
   const seenCorrections = new Set();
+  let activeSourceCount = 0;
+  let missingIdCount = 0;
+  let invalidTimeCount = 0;
+  let inWeekSourceCount = 0;
   for (const segment of Object.values(segmentsById || {})) {
     if (!segment || segment.channel !== 'active' || segment.diagnostic === true) continue;
+    activeSourceCount += 1;
     const segmentId = String(segment.id || '');
-    if (!segmentId) continue;
+    if (!segmentId) { missingIdCount += 1; continue; }
     const slices = splitSegmentByLocalHour(segment);
+    if (slices.length === 0) invalidTimeCount += 1;
     const byDate = new Map();
     for (const slice of slices) {
       if (slice.date < weekStart || slice.date > weekEnd || slice.date > throughDate) continue;
       if (!byDate.has(slice.date)) byDate.set(slice.date, []);
       byDate.get(slice.date).push(slice);
     }
+    if (byDate.size > 0) inWeekSourceCount += 1;
     for (const [date, dateSlices] of byDate) {
       const correction = correctionBySegmentDate.get(`${segmentId}\0${date}`);
       const originalBucket = String(segment.quotaBucketAtTime || segment.quotaBucket || segment.mode || 'unknown');
@@ -136,6 +143,15 @@ export async function buildAuthoritativeDailySnapshots({
       .map(([bucket, value]) => [bucket, seconds(value)]).filter(([, value]) => value > 0));
     const intervals = (intervalsByDate.get(date) || []).sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
     const reasons = new Set(reasonsByDate.get(date) || []);
+    // Read-only diagnostics: never invent intervals from retained aggregate seconds.
+    if (activeSeconds > 0 && intervals.length === 0) {
+      if (activeSourceCount === 0) reasons.add('SOURCE_ACTIVE_SEGMENTS_ABSENT');
+      if (missingIdCount > 0) reasons.add('SOURCE_ACTIVE_ID_MISSING');
+      if (invalidTimeCount > 0) reasons.add('SOURCE_ACTIVE_TIME_INVALID');
+      if (activeSourceCount > missingIdCount + invalidTimeCount && inWeekSourceCount === 0) {
+        reasons.add('SOURCE_ACTIVE_OUTSIDE_WEEK');
+      }
+    }
     if (!evidenceValid) reasons.add('CORRECTION_EVIDENCE_UNAVAILABLE');
     if (day.complete !== true) reasons.add('AUTHORITATIVE_STATS_INCOMPLETE');
     if (seconds(statsByDate[date]?.compactedByChannel?.active) > 0) reasons.add('COMPACTED_INTERVAL_MISSING');
