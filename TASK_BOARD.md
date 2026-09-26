@@ -1,6 +1,14 @@
 # TASK_BOARD
 
-## COMPLETED（代码/候选，实机重载待验证）：应用读取请求双监听器抢答修复（2026-09-27）
+## COMPLETED（修复/本地安装包，升级后实机待验证）：独立应用统计正常双时钟被误判不完整（2026-09-27）
+
+已通过真实安装 2.6.3 的 Native Host framing→Service 只读查询确认：响应成功、19 个应用，本周七天不完整原因均为 APPLICATION_CLOCK_AMBIGUOUS。非网页重叠证据缺失，不是零账本。新 ApplicationUsageReader 要求 wall/monotonic 毫秒差完全相等，与实际 UtcNow/TickCount64 独立采样及既有 2000ms 跳变容差冲突。本轮 Native 修复仅应用读取：同用户/session/epoch 固定历史锚点，monotonic 决定毫秒并集，wall 用于日期/小时放置；真正跳变/字段损坏/epoch 回拨仍不完整，不修改原始 Segment、配额或共享读模型。先固定回归，再 ApplicationUsageReadTests/编译与必要本地安装候选 2.6.4；不跑无关平台/云端，不部署或安装，不猜测历史。用户截图证明扩展 1.7.39 已读到 Service，路由修复实际生效。
+
+Native 修复源码已提交 `39a41d6`；ApplicationUsageReadTests 9/9、InstallerPackageTests 5/5 PASS，包含正常采样差、ACTIVE/PiP 并集、固定历史锚点、跨午夜相邻记录、日/周/小时守恒和真实异常。原网页/媒体账本、扩展目录及云端未改动。2.6.4 本地 WiX MSI/Burn 已构建，0 warning/error；实际版本、固定 UpgradeCode、491 文件清单、组件版本和 manifest 大小/哈希均通过。当前实机仍为 2.6.3，不能把夹具通过等同于真实整周统计已恢复。
+
+安装包：`D:\Codex\TimeOnchrome-worktrees\timewhere-native-history\artifacts\release\windows\x64\2.6.4\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.4.exe`，118944979 bytes，SHA-256 `22de02449ce8dbaac430c40d782dea46e218fe757efe8dbc68d7406d6ad43d47`；未签名、未安装、不发布云端/R2。审计 Matched＝读取纠错/毫秒并集/边界/真实异常/最小测试/本地包，Deviated/Missing/Extra 无（本地修复交付范围）。下一步只需原地升级后重新读应用页签，核对真实日期完整性；不需要换扩展目录或重新配对。
+
+## COMPLETED（代码/候选，用户页面已证实 Service 响应）：应用读取请求双监听器抢答修复（2026-09-27）
 
 2.6.3 已安装：Service/Manager/Session Agent/Host/Core/Infrastructure 文件哈希与候选一致，Service Automatic/Running，当前会话单一 Session Agent。PO 实际页面仍显示连接未启用。代码证据：`native-host-client.js` 独立监听应用读取，但 `background.js` 只避让 Probe，其他请求进入通用路由返回 Unknown message type；页面把无 errorCode 的失败误映射为 managed_marker_unavailable。修复 checklist：背景监听器避让桥接专属读取/重新检查/能力通知→页面未知失败不伪称未启用→实际双监听器首响应固定回归→最小测试→原目录开发候选 1.7.39，同 ID/公钥/模式→实际通道检查，阻塞如实记录。
 
