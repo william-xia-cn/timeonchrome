@@ -6,6 +6,9 @@
 - 最新 master 的 Guardian 业务已有该接口，生产未认证请求仍返回 404。现有 production workflow 要求精确 master SHA 的 Guardian CI，而该 CI 的路径过滤跳过了最近文档/拆仓提交；补 `workflow_dispatch` 入口，保留全部原验证步骤和发布门禁。
 - 测试契约：发布配置小修；本地验证 workflow 结构与 `git diff --check`；CI 只运行现有 Guardian compatibility；发布 smoke 为接口 401/health 和已安装 v3 的摘要验收。排除 Agent、WiX、macOS、Runtime/Console 与全量跨平台测试。
 - checklist：手动 CI 入口 → PR 合并 → 精确 master Guardian CI → 受保护 Guardian-only production → 401/health → v3 摘要；不得把证据不完整或未完成验收写为通过。
+- 发布证据：PR #49 merge `99a49a9`；Guardian 定向 CI `36242113745` 通过；production `36242161483` 通过且 manifest 的 deployedResources 仅为 guardianWorker、runtimeMigrations 为空。Guardian 版本 `a8941611-d508-47e9-80d0-65b2c5bb6fd7`；接口从 404 恢复为 401，health 200。未发布其他资源或安装包。
+- 真机只读验收：受控浏览后 6 份快照均已消除 `CORRECTION_EVIDENCE_UNAVAILABLE`；2 份 complete、4 份 `EVIDENCE_TOTAL_MISMATCH`，4 份均有权威用量但 intervals 为空；待投影 0。共享结果仍为 unavailable（4 份证据缺失、2 份 `SESSION_MAPPING_INCOMPLETE`），不可记为全链路 PASS。现有会话映射 1 条；未伪造历史映射、补造区间或改变网页账本。
+- 后续 P0：在允许的扩展只读诊断入口核对区间缺失来源（历史保留/压缩、过滤或候选未采集等尚未证实）；核对历史应用会话映射证据。禁止用重新结算填平差异；涉及原始账本保留或恢复的实现需 D-076 单项批准。生产接口恢复 PASS，整体共享统计验收 FAIL/未完成。
 
 ## TimeWhereNative 本机拆仓（D-104，源码/CI 与不可变候选交接已完成）
 
