@@ -1,5 +1,17 @@
 # TASK_BOARD
 
+## 当前整合结果：Task 云端已合入并独立发布（2026-09-28）
+
+本节覆盖下方阶段性“未注册／未部署”状态。PR #78 已合入 `12b5c274adcd09055390de87ee7b3c087afdd68f`；功能提交为 `e6b0ac7`、`175d225`。最终 PR 范围门 `36342765504` 通过，精确 master 的 Task Cloud `36342837031`、Guardian compatibility `36342837038` 均通过。没有绕过前一轮过期断言失败；补正阶段断言及精确测试路径声明后再合并。
+
+受保护生产流程 `36342931431` 成功，仅部署 Guardian Worker `cd95182c-4edb-4eb3-9b25-880f87852baa`，来源为上述 master SHA、Contracts `1.15.0`。未执行迁移：已存在的 Task schema 只恢复源码来源，不因空的 d1_migrations 登记而重复应用或伪造记录。发布后无凭据 smoke：根路由 200；家长 Task 列表、设备 Task 列表／progress、Guardian SSO 均为401。没有创建测试家庭任务、读取任务内容或主动修改生产数据。
+
+发布清单核实未改变：Runtime Worker `b00deec4-b3ca-40f7-8b10-6536af07f10b`；Runtime Pages `f2a6ca68-8e6f-42f7-b82e-9bf42b06e6ad`；主 Pages `861552b0-c362-4101-8ade-6f44de64a0e2`；R2 latest `2.3.1`。GitHub Pages 原有自动构建不是这两个 Cloudflare Pages 的发布证据，不混同。
+
+整体目标保持进行中：Task 家长页面、终端 default-off 整合及激活前异常隔离／存储预算验证、真实联合验收仍未完成；Rest／复合页面分析脏工作树继续原地保留，由所属任务提交明确证据。Native PR #11 仍是独立活跃工作线：所属任务报告新 macOS 扫描修复因其 GitHub CI 计费限制未获 runner，不能用旧绿色结果覆盖新提交；不因此停止其他可完成工作，也不修改计费或强行发布。
+
+本批仅文档证据，职责 release：只运行 diff／范围检查和轻量 CI，复用既有精确 SHA 代码证据，不重复产品测试或部署。审计 Matched＝本批 PR/CI/Guardian 发布/无凭据 smoke/资源隔离；Deviated、Extra＝无；完整目标 Missing 保持上述清单。未删除分支、worktree、候选产物或唯一证据。
+
 ## NOW：Task schema 来源恢复与 Guardian 独立入口整合（2026-09-28）
 
 文档先行：恢复8603fbb已批准最终两份SPEC-002，使用D-106映射旧分支编号，不能覆盖主线D-058等既有决策。真实生产只读结果改变了下一步：四张Task表和七个显式索引已经存在且与最终021结构一致；当前聚合行数1/1/10/1，d1_migrations为空。恢复原SQL来源而非新建033或盲跑旧迁移；不读任务内容、不写生产。
