@@ -1,6 +1,6 @@
 {
   "name": "@timeonchrome/app-runtime-contracts",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "private": false,
   "type": "module",
   "exports": {
@@ -32,7 +32,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node contract-compatibility.test.cjs && node classification.test.mjs"
+    "test": "node contract-compatibility.test.cjs && node classification.test.mjs && node machine-control.test.mjs"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

@@ -1,5 +1,25 @@
 # App Runtime 任务板
 
+## NOW：ARM-D-035/036 固定契约与接收端（2026-09-28）
+
+固定包阶段：Contracts 1.16.0本地构建、兼容断言、26分类向量与机器控制向量通过；最终Worker心跳/旧新卸载9/9通过（59项排除），typecheck、Wrangler dry-run通过。npm pack dry-run确认34项含机器控制schema/向量。根package-lock.json仅同步workspace版本，为任务级精确例外；backend旧锁的contracts条目同时对齐。源码尚未合并/部署，包实际SHA-256和Native消费验收待交付。
+
+提交前实现审计：Matched＝035字段验证/能力ETag、036原子消费与撤销/结果持久化/窄权限证明/7天失效/旧接口兼容、本地migration与安全聚焦回归；Deviated/Extra＝无。本地实现阶段无已知缺项；整体交付Missing＝PR/CI、固定包精确SHA/哈希交接、Native消费与真实平台验证、单独授权的生产migration及发布。不得将该源码提交称为完整上线。
+
+心跳聚焦回归发现：authenticateMachine 在校验 body 前刷新 last_seen_at_ms，造成无效心跳也更新在线时间。按 ARM-D-035，心跳鉴权只读，成功校验后的 recordMachineHeartbeat 负责更新时间；其他接口保持既有鉴权在线更新语义。保留失败证据，复验无效请求不得更新 OS/last_seen/updated 时间。
+
+2026-09-28 本地进展：心跳只读鉴权修复后 `vitest run --run test/runtime-api.test.ts -t 'platform neutral'` 2/2通过（其余60项未运行），Worker typecheck及git diff --check通过。覆盖Windows旧/新/相同双字段、冲突与非法字段不写入、Mac拒绝Windows别名、认证平台优先、能力变化ETag失效与未认证304拒绝。该结果仅证明这两项；卸载原子事务、固定包/向量及完整035/036安全验收仍未完成，不发布能力。
+
+职责 runtime-cloud-contract。复合云端源码已PR #96独立合入；本批仅本地Contracts/Runtime Worker，不部署、不执行生产migration、不升级Native或R2。当前已核实契约1.15.0、migration至0010；下一固定Minor拟1.16.0，新增0011仅本地。Native不得在固定包/接收端验证前宣告能力上线。
+
+清单：①共享心跳osVersion验证、能力/ETag语义及卸载请求/结果定义和跨端固定向量；②兼容接收端，按认证平台验证，不接受客户端指定平台；③一次性码消费、撤销和操作结果同一原子事务，独立窄权限结果查询；④旧Windows兼容、错误/重放/并发/回滚/失效证明安全聚焦测试；⑤受测固定包哈希交Native，后续真实平台验收分别记录。新旧数据、身份与原账不迁移或改写。
+
+卸载实现细化：0011结果表使用单条条件INSERT及同语句触发器消费码、撤销机器，任一步失败RAISE(ABORT)回滚整条语句；旧接口复用该原子入口。结果查询只校验独立证明、不经过机器token鉴权；未知/错误/过期证明统一404，秘密按32随机字节base64url无填充编码，SHA-256针对该ASCII编码字符串，operationId使用小写UUID v4。结果只返回operationId/status/revoked/committedAtMs。此为本地实现细节，接收端能力待安全测试和固定包交付后才启用。
+
+卸载本地实现进展：新增0011及独立结果查询、旧接口原子兼容。`vitest run --run test/uninstall-operations.test.ts` 6/6通过，包含响应丢失后秘密确认/旧token保持401、错误未知与过期证明、同ID幂等及跨机器冲突、并发单次提交、消费码后故障整条回滚、旧接口成功和非法/过期码不修改。首次测试文件括号遗漏导致0项执行，修正后重跑通过；Worker typecheck通过。迁移仅由隔离D1测试应用。固定跨端向量、包版本/哈希、安全复核、PR/CI和部署尚未完成，不能宣称035/036上线。
+
+最小测试为契约兼容/新增固定向量、Worker心跳/ETag与卸载安全专项、typecheck、migration本地夹具、dry-run、diff/边界。默认不运行Console/网页账本/Windows/macOS/WiX；Native消费者由所属任务验证。涉及权限和原子性，不以测试节流取消专项门禁。本批未完成，不发布或启用新能力。
+
 ## NOW：三会话边界治理（ARM-D-034）
 
 生效证据：TimeOnChrome PR #62 / master b806cf7（PR CI 36304847873、master CI 36304927094）通过；Native 所属任务实现七个治理文件，PR #9 / main 28373a9（PR CI 36305190730）通过，平台/安装器 job 跳过。Native 原业务工作未提交部分不在治理 PR，当前架构任务只审查并履行 PO 已批准的治理合并，不修改 Native 实现。旧仓 master 自动触发的历史 GitHub Pages 36304926841 已取消，deploy cancelled；无 Cloudflare/终端/R2 操作。

@@ -73,6 +73,50 @@ export interface AppRuntimeBrowserSessionResponse {
 
 export type RuntimeMachinePolicyState = 'pending' | 'cached' | 'applied' | 'failed' | 'offline';
 
+/** Receiver capabilities are independent of the child's applied policy version. */
+export type RuntimeReceiverCapability = 'heartbeat-os-version-v1' | 'uninstall-operation-receipt-v1';
+
+export type RuntimeOsVersionResult =
+  | { ok: true; osVersion: string }
+  | { ok: false; code: 'INVALID_REQUEST' | 'HEARTBEAT_VERSION_CONFLICT' };
+
+/** platform comes from authenticated machine state, never the request body. */
+export function resolveRuntimeOsVersion(platform: 'windows' | 'macos', input: {
+  osVersion?: unknown; windowsVersion?: unknown;
+}): RuntimeOsVersionResult {
+  const valid = (value: unknown): value is string => typeof value === 'string'
+    && value.length >= 1 && value.length <= 128 && value.trim().length > 0
+    && !/[\u0000-\u001f\u007f-\u009f]/u.test(value);
+  const hasOs = Object.prototype.hasOwnProperty.call(input, 'osVersion');
+  const hasWindows = Object.prototype.hasOwnProperty.call(input, 'windowsVersion');
+  if ((hasOs && !valid(input.osVersion)) || (hasWindows && !valid(input.windowsVersion))
+    || (platform === 'macos' && hasWindows) || (!hasOs && !hasWindows)) {
+    return {ok:false,code:'INVALID_REQUEST'};
+  }
+  if(hasOs && hasWindows && input.osVersion !== input.windowsVersion) {
+    return {ok:false,code:'HEARTBEAT_VERSION_CONFLICT'};
+  }
+  const osVersion=hasOs?input.osVersion:input.windowsVersion;
+  return valid(osVersion)?{ok:true,osVersion}:{ok:false,code:'INVALID_REQUEST'};
+}
+
+export interface RuntimeUninstallOperationRequest {
+  operationId: string;
+  code: string;
+  /** Lowercase SHA-256 hex of a locally persisted CSPRNG 256-bit secret. */
+  confirmationSecretHash: string;
+}
+
+/** No machine, account, child or credential fields may be returned. */
+export interface RuntimeUninstallOperationReceipt {
+  operationId: string;
+  status: 'committed';
+  revoked: true;
+  committedAtMs: number;
+}
+
+export const RUNTIME_UNINSTALL_RECEIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export interface RuntimeMachineUserAssignmentV2 {
   localUserId: string;
   assignmentVersion: number;
@@ -81,6 +125,7 @@ export interface RuntimeMachineUserAssignmentV2 {
 }
 
 export interface RuntimeMachinePolicyV2 {
+  capabilities?: RuntimeReceiverCapability[];
   version: number;
   defaultChildId: string | null;
   users: RuntimeMachineUserAssignmentV2[];

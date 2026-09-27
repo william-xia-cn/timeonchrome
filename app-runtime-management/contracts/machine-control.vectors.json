@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "1.16.0",
+  "heartbeat": [
+    {"platform":"windows","input":{"windowsVersion":"11"},"expected":{"ok":true,"osVersion":"11"}},
+    {"platform":"windows","input":{"osVersion":"11"},"expected":{"ok":true,"osVersion":"11"}},
+    {"platform":"windows","input":{"windowsVersion":"11","osVersion":"11"},"expected":{"ok":true,"osVersion":"11"}},
+    {"platform":"windows","input":{"windowsVersion":"11","osVersion":"11 "},"expected":{"ok":false,"code":"HEARTBEAT_VERSION_CONFLICT"}},
+    {"platform":"macos","input":{"osVersion":"15.7"},"expected":{"ok":true,"osVersion":"15.7"}},
+    {"platform":"macos","input":{"osVersion":"15.7","windowsVersion":"15.7"},"expected":{"ok":false,"code":"INVALID_REQUEST"}},
+    {"platform":"windows","input":{},"expected":{"ok":false,"code":"INVALID_REQUEST"}},
+    {"platform":"windows","input":{"osVersion":null},"expected":{"ok":false,"code":"INVALID_REQUEST"}},
+    {"platform":"windows","input":{"osVersion":"   "},"expected":{"ok":false,"code":"INVALID_REQUEST"}},
+    {"platform":"windows","input":{"osVersion":"11\n"},"expected":{"ok":false,"code":"INVALID_REQUEST"}}
+  ],
+  "receipt": {
+    "testOnly": true,
+    "operationId": "12345678-1234-4234-8234-123456789abc",
+    "confirmationSecret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "confirmationSecretHash": "0f007385b6f9d4b7eeb2748605afe1a984a0a3bfa3f014d09e2a784ce9e5cd1a",
+    "hashEncoding": "sha256-hex-of-utf8-base64url-string",
+    "committedAtMs": 1800000000000,
+    "validAtMs": 1800604799999,
+    "expiredAtMs": 1800604800000,
+    "ttlMs": 604800000
+  }
+}

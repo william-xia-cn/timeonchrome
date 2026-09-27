@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.15.0');
+assert.equal(pkg.version, '1.16.0');
 const appPolicy = JSON.parse(fs.readFileSync(path.join(root, 'runtime-app-policy-v1.schema.json'), 'utf8'));
 assert(!appPolicy.required.includes('productIdentityProjection'), 'N-1 policy does not require product projection');
 assert.deepEqual(appPolicy.properties.productIdentityProjection.required, ['version','knowledgeVersion','items']);

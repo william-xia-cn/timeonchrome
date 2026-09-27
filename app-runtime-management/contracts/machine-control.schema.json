@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.local/contracts/app-runtime/machine-control.schema.json",
+  "title": "机器卸载请求与窄权限结果",
+  "$defs": {
+    "confirmationSecret": {"type":"string","pattern":"^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$","description":"32 CSPRNG bytes, base64url without padding. SHA-256 hashes UTF-8 bytes of this encoded string. GET Authorization: UninstallReceipt <secret>. Never put secret in URL or logs. Valid strictly before committedAtMs + 604800000; unavailable never means uncommitted."},
+    "operationId": {"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+    "request": {
+      "type":"object","required":["operationId","code","confirmationSecretHash"],
+      "properties": {
+        "operationId":{"$ref":"#/$defs/operationId"},
+        "code":{"type":"string","minLength":1,"maxLength":128},
+        "confirmationSecretHash":{"type":"string","pattern":"^[0-9a-f]{64}$","description":"SHA-256 lowercase hex of the UTF-8 base64url confirmationSecret string."}
+      }
+    },
+    "receipt": {
+      "type":"object","additionalProperties":false,"required":["operationId","status","revoked","committedAtMs"],
+      "properties": {
+        "operationId":{"$ref":"#/$defs/operationId"},"status":{"const":"committed"},
+        "revoked":{"const":true},"committedAtMs":{"type":"integer","minimum":0}
+      }
+    }
+  }
+}

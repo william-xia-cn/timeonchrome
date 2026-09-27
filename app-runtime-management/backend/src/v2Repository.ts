@@ -10,6 +10,7 @@ import type {
   UploadAcceptance,
 } from './contracts';
 import { randomToken, sha256Hex } from './crypto';
+import { commitUninstallOperation } from './uninstallOperations';
 import { getAppPolicy, resolveClassification } from './appPolicy';
 import { getLoggingPolicy } from './terminalLogging';
 
@@ -123,6 +124,7 @@ export async function authenticateMachine(
   database: D1Database,
   token: string,
   nowMs: number,
+  recordActivity = true,
 ): Promise<MachineSelfResponse | null> {
   const row = await database.prepare(`
     SELECT id, account_id, platform, display_name, default_child_id,
@@ -130,8 +132,10 @@ export async function authenticateMachine(
     FROM runtime_machines_v2 WHERE token_hash=?1 AND revoked_at_ms IS NULL
   `).bind(await sha256Hex(token)).first<MachineRow>();
   if (!row) return null;
-  await database.prepare('UPDATE runtime_machines_v2 SET last_seen_at_ms=?1, updated_at_ms=?1 WHERE id=?2')
-    .bind(nowMs, row.id).run();
+  if (recordActivity) {
+    await database.prepare('UPDATE runtime_machines_v2 SET last_seen_at_ms=?1, updated_at_ms=?1 WHERE id=?2')
+      .bind(nowMs, row.id).run();
+  }
   return machineResponse(row);
 }
 
@@ -405,13 +409,19 @@ export async function getMachinePolicy(
   })));
   const loggingPolicy = await getLoggingPolicy(database, machine.accountId, machine.machineId);
   const policy = {
+    capabilities: ['heartbeat-os-version-v1', 'uninstall-operation-receipt-v1'],
     version: machine.desiredPolicyVersion,
     defaultChildId: machine.defaultChildId,
     users: policyUsers,
     appPolicies,
     loggingPolicy,
   };
-  return { etag: `"policy-${machine.machineId}-${machine.desiredPolicyVersion}"`, policy };
+  return { etag: await machinePolicyEtag(machine.machineId,machine.desiredPolicyVersion,policy.capabilities), policy };
+}
+
+export async function machinePolicyEtag(machineId:string,version:number,capabilities:readonly string[]):Promise<string> {
+  const receiver=await sha256Hex(JSON.stringify([...capabilities].sort()));
+  return `"policy-${machineId}-${version}-${receiver}"`;
 }
 
 export async function acknowledgePolicy(
@@ -436,7 +446,7 @@ export async function acknowledgePolicy(
 export async function recordMachineHeartbeat(
   database: D1Database,
   machine: MachineSelfResponse,
-  input: { serviceVersion: string; windowsVersion: string; architecture: string; tamperCount: number; policyState: PolicyState },
+  input: { serviceVersion: string; osVersion: string; architecture: string; tamperCount: number; policyState: PolicyState },
   nowMs: number,
 ): Promise<void> {
   await database.prepare(`
@@ -444,7 +454,7 @@ export async function recordMachineHeartbeat(
       tamper_count=MAX(tamper_count, ?4),
       last_tamper_at_ms=CASE WHEN ?4>tamper_count THEN ?5 ELSE last_tamper_at_ms END,
       policy_state=?6, last_seen_at_ms=?5, updated_at_ms=?5 WHERE id=?7
-  `).bind(input.serviceVersion, input.windowsVersion, input.architecture, input.tamperCount,
+  `).bind(input.serviceVersion, input.osVersion, input.architecture, input.tamperCount,
     nowMs, input.policyState, machine.machineId).run();
 }
 
@@ -856,15 +866,12 @@ export async function authorizeUninstall(
   code: string,
   nowMs: number,
 ): Promise<boolean> {
-  const result = await database.prepare(`
-    UPDATE runtime_uninstall_codes_v2 SET consumed_at_ms=?1
-    WHERE code_hash=?2 AND machine_id=?3 AND account_id=?4
-      AND consumed_at_ms IS NULL AND expires_at_ms>=?1
-  `).bind(nowMs, await sha256Hex(code), machine.machineId, machine.accountId).run();
-  if ((result.meta.changes ?? 0) !== 1) return false;
-  await database.prepare('UPDATE runtime_machines_v2 SET revoked_at_ms=?1, updated_at_ms=?1 WHERE id=?2')
-    .bind(nowMs, machine.machineId).run();
-  return true;
+  // Legacy callers retain their boolean response, but share the atomic commit.
+  if (code.length < 1 || code.length > 128) return false;
+  return (await commitUninstallOperation(database, machine, {
+    operationId: crypto.randomUUID(), code,
+    confirmationSecretHash: await sha256Hex(randomToken('')),
+  }, nowMs)) !== null;
 }
 
 export async function queryAccountUsage(
