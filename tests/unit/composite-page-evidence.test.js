@@ -11,6 +11,7 @@ new Function('exports', 'module', ts.transpileModule(
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
 ).outputText)(loaded.exports, loaded);
 const { receivePageEvidence: receive, deleteReviewDetails: remove, hashEvidence: hash } = loaded.exports;
+const { refreshEvidenceRequest: refresh, saveReviewOpinion: opinion } = loaded.exports;
 
 (async () => {
   const mf = new Miniflare(convertV4MiniflareOptions({ workers: [{ name: 'evidence-test', modules: true,
@@ -21,16 +22,19 @@ const { receivePageEvidence: receive, deleteReviewDetails: remove, hashEvidence:
     const db = await mf.getD1Database('DB');
     const schema = `CREATE TABLE profiles(id TEXT PRIMARY KEY,config TEXT);
       CREATE TABLE devices(id TEXT PRIMARY KEY,profile_id TEXT,status TEXT);
+      CREATE TABLE device_account_heads_v2(profile_id TEXT,device_id TEXT,date TEXT,manifest_id TEXT,
+        PRIMARY KEY(profile_id,device_id,date));
       INSERT INTO profiles VALUES ('p','{"compositeReviewConfig":{"enabled":true}}');
       INSERT INTO devices VALUES ('d','p','bound');
       ${fs.readFileSync('tests/fixtures/composite-page-evidence-schema.sql', 'utf8')}`;
     await db.batch(schema.replace(/--[^\n]*/g, '').split(';').map(s => s.trim()).filter(Boolean).map(s => db.prepare(s)));
     const now = 100_000;
-    async function seed(id) {
+    async function seed(id, withRequest = true) {
       await db.prepare(`INSERT INTO composite_page_reviews_v1
         (id,profile_id,date,site,total_seconds,as_of,created_at) VALUES (?,'p',?,'example.test',1800,100000,100000)`)
         .bind(id,id).run();
-      await db.prepare(`INSERT INTO composite_page_requests_v1
+      await db.prepare("INSERT INTO device_account_heads_v2 VALUES ('p','d',?,'m')").bind(id).run();
+      if(withRequest) await db.prepare(`INSERT INTO composite_page_requests_v1
         (id,review_id,profile_id,device_id,manifest_id,cutoff,day_start,expected_seconds)
         VALUES (?,?,'p','d','m',100000,0,1800)`).bind(id,id).run();
       return { id,profile_id:'p',device_id:'d',manifest_id:'m',cutoff:100000 };
@@ -161,6 +165,81 @@ const { receivePageEvidence: receive, deleteReviewDetails: remove, hashEvidence:
       const duplicate=await seed('duplicateids');
       assert.deepEqual(await receive(db,duplicate,await body([{id:'a'},{id:'a'}]),now),{conflict:true});
       assert.equal((await request(duplicate.id)).status,'pending');
+    });
+    const scanInput=q=>({...q,review_id:q.id,day_start:0,expected_seconds:1800});
+    const nextHead=q=>db.prepare("UPDATE device_account_heads_v2 SET manifest_id='next' WHERE date=?").bind(q.id).run();
+    const reviewOpinion={pageKey:'a'.repeat(64),verdict:'study',reason:'fixture explanation'};
+    const savedOpinion=id=>db.prepare('SELECT * FROM composite_page_opinions_v1 WHERE review_id=?').bind(id).first();
+    await check('first current-head request and identical scan preserve received evidence',async()=>{
+      const q=await seed('newrequest',false);
+      assert.equal(await refresh(db,scanInput(q)),true);
+      await receive(db,q,await body(),now);
+      assert.equal(await refresh(db,scanInput(q)),false);
+      assert.equal(await count(q.id),1);
+      assert.equal((await request(q.id)).status,'ready');
+    });
+    await check('old head cannot erase evidence, new head refreshes atomically',async()=>{
+      const q=await seed('headchange'), b=await body();
+      await receive(db,q,b,now);
+      await nextHead(q);
+      assert.equal(await refresh(db,scanInput(q)),false);
+      assert.equal(await count(q.id),1);
+      assert.equal(await refresh(db,{...scanInput(q),manifest_id:'next'}),true);
+      assert.equal(await count(q.id),0);
+      assert.equal((await request(q.id)).status,'pending');
+      assert.deepEqual(await receive(db,q,b,now),{conflict:true});
+    });
+    await check('deleted review cannot create or refresh requests',async()=>{
+      for(const exists of [true,false]) {
+        const q=await seed(`scan-deleted-${exists}`,exists);
+        await remove(db,'p',q.id,123);
+        await nextHead(q);
+        assert.equal(await refresh(db,{...scanInput(q),manifest_id:'next'}),false);
+        assert.equal(await count(q.id),0);
+        assert.equal((await request(q.id))?.status,exists?'deleted':undefined);
+      }
+    });
+    await check('scan disabled, unbound and foreign ownership fail closed',async()=>{
+      const q=await seed('scan-auth',false);
+      await db.prepare("UPDATE profiles SET config='{}'").run();
+      assert.equal(await refresh(db,scanInput(q)),false);
+      await db.prepare('UPDATE profiles SET config=?').bind('{"compositeReviewConfig":{"enabled":true}}').run();
+      await db.prepare("UPDATE devices SET status='unbound'").run();
+      assert.equal(await refresh(db,scanInput(q)),false);
+      await db.prepare("UPDATE devices SET status='bound'").run();
+      assert.equal(await refresh(db,{...scanInput(q),profile_id:'other'}),false);
+      assert.equal(await request(q.id),null);
+    });
+    await check('scan interruption preserves prior chunks and review completion',async()=>{
+      const q=await seed('scan-abort');
+      await receive(db,q,await body(),now);
+      await db.prepare('UPDATE composite_page_reviews_v1 SET reviewed_at=88 WHERE id=?').bind(q.id).run();
+      await nextHead(q);
+      await db.prepare(`CREATE TRIGGER abort_scan BEFORE UPDATE ON composite_page_requests_v1
+        WHEN NEW.id='scan-abort' AND NEW.manifest_id='next' BEGIN SELECT RAISE(ABORT,'scan interruption'); END`).run();
+      await assert.rejects(refresh(db,{...scanInput(q),manifest_id:'next'}));
+      assert.equal(await count(q.id),1);
+      assert.equal((await request(q.id)).manifest_id,'m');
+      assert.equal((await db.prepare('SELECT reviewed_at FROM composite_page_reviews_v1 WHERE id=?').bind(q.id).first()).reviewed_at,88);
+      await db.prepare('DROP TRIGGER abort_scan').run();
+    });
+    await check('deleted and revised detail cannot restore opinion text',async()=>{
+      const q=await seed('opinion-delete');
+      await receive(db,q,await body(),now);
+      const versions=[await request(q.id)];
+      assert.equal(await opinion(db,'other',q.id,reviewOpinion,versions,now),false);
+      assert.equal(await opinion(db,'p',q.id,reviewOpinion,versions,now),true);
+      await remove(db,'p',q.id,123);
+      assert.equal((await savedOpinion(q.id)).reason,'');
+      assert.equal(await opinion(db,'p',q.id,reviewOpinion,versions,now),false);
+      assert.equal((await savedOpinion(q.id)).reason,'');
+      const changed=await seed('opinion-revision');
+      await receive(db,changed,await body(),now);
+      const old=[await request(changed.id)];
+      await nextHead(changed);
+      await refresh(db,{...scanInput(changed),manifest_id:'next'});
+      assert.equal(await opinion(db,'p',changed.id,reviewOpinion,old,now),false);
+      assert.equal(await savedOpinion(changed.id),null);
     });
     await check('fixture schema matches original reviewed source and module is not registered', async () => {
       const normalized=fs.readFileSync('tests/fixtures/composite-page-evidence-schema.sql','utf8')

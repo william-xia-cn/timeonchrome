@@ -109,3 +109,74 @@ export async function deleteReviewDetails(
       WHERE review_id IN (${owned})`).bind(reviewId, profileId),
   ]);
 }
+
+/** Called only after the scanner has verified the published usage threshold.
+ * The head and privacy checks remain inside the write transaction. */
+export async function refreshEvidenceRequest(
+  database: D1Database,
+  request: EvidenceRequest & { review_id: string; day_start: number; expected_seconds: number },
+): Promise<boolean> {
+  if (!Number.isSafeInteger(request.cutoff) || !Number.isSafeInteger(request.day_start)
+    || request.cutoff < request.day_start || request.cutoff > request.day_start + 86_400_000
+    || !Number.isSafeInteger(request.expected_seconds) || request.expected_seconds <= 0) return false;
+  const eligible = `SELECT r.id FROM composite_page_reviews_v1 r
+    JOIN profiles p ON p.id=r.profile_id
+    JOIN devices d ON d.profile_id=p.id AND d.id=?4 AND d.status='bound'
+    JOIN device_account_heads_v2 h ON h.profile_id=p.id AND h.device_id=d.id AND h.date=r.date
+    WHERE r.id=?2 AND p.id=?3 AND r.details_deleted_at IS NULL AND h.manifest_id=?5
+      AND CASE WHEN json_valid(p.config)
+        THEN json_type(p.config,'$.compositeReviewConfig.enabled')='true' ELSE 0 END
+      AND NOT EXISTS (SELECT 1 FROM composite_page_requests_v1 q WHERE q.id=?1
+        AND (q.review_id<>?2 OR q.profile_id<>?3 OR q.device_id<>?4
+          OR q.manifest_id=?5 OR q.cutoff>?6))`;
+  const values = [request.id,request.review_id,request.profile_id,request.device_id,
+    request.manifest_id,request.cutoff];
+  const results = await database.batch([
+    database.prepare(`UPDATE composite_page_reviews_v1 SET reviewed_at=NULL WHERE id IN (${eligible})`).bind(...values),
+    database.prepare(`DELETE FROM composite_page_chunks_v1 WHERE request_id=?1 AND EXISTS (${eligible})`).bind(...values),
+    database.prepare(`INSERT INTO composite_page_requests_v1
+      (id,review_id,profile_id,device_id,manifest_id,cutoff,day_start,expected_seconds)
+      SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE EXISTS (${eligible})
+      ON CONFLICT(id) DO UPDATE SET manifest_id=excluded.manifest_id,cutoff=excluded.cutoff,
+        day_start=excluded.day_start,expected_seconds=excluded.expected_seconds,
+        evidence_hash=NULL,row_count=NULL,chunk_count=NULL,complete=0,status='pending'`)
+      .bind(...values,request.day_start,request.expected_seconds),
+  ]);
+  return results[2].meta.changes === 1;
+}
+
+export interface EvidenceRequestVersion {
+  id: string;
+  manifest_id: string;
+  cutoff: number;
+  evidence_hash: string | null;
+  status: string;
+  complete: number;
+}
+
+/** The caller must verify pageKey belongs to its derived detail result. Passing
+ * that result's request versions prevents a stale result from writing back. */
+export async function saveReviewOpinion(
+  database: D1Database, profileId: string, reviewId: string,
+  opinion: { pageKey: string; verdict: 'study' | 'rest' | 'unknown'; reason: string },
+  versions: EvidenceRequestVersion[], now = Date.now(),
+): Promise<boolean> {
+  if (!/^[a-f0-9]{64}$/.test(opinion.pageKey) || !['study','rest','unknown'].includes(opinion.verdict)
+    || typeof opinion.reason !== 'string' || opinion.reason.length > 300 || !versions.length) return false;
+  const result = await database.prepare(`INSERT INTO composite_page_opinions_v1
+    (review_id,page_key,verdict,reason,updated_at)
+    SELECT ?1,?3,?4,?5,?7 FROM composite_page_reviews_v1 r
+    WHERE r.id=?1 AND r.profile_id=?2 AND r.details_deleted_at IS NULL
+      AND COALESCE(r.reviewed_at,r.created_at)>=?8
+      AND (SELECT COUNT(*) FROM composite_page_requests_v1 WHERE review_id=?1)=json_array_length(?6)
+      AND NOT EXISTS (SELECT 1 FROM composite_page_requests_v1 q WHERE q.review_id=?1
+        AND NOT EXISTS (SELECT 1 FROM json_each(?6) j
+          WHERE q.id=json_extract(j.value,'$.id') AND q.manifest_id=json_extract(j.value,'$.manifest_id')
+            AND q.cutoff=json_extract(j.value,'$.cutoff') AND q.evidence_hash IS json_extract(j.value,'$.evidence_hash')
+            AND q.status=json_extract(j.value,'$.status') AND q.complete=json_extract(j.value,'$.complete')))
+    ON CONFLICT(review_id,page_key) DO UPDATE SET verdict=excluded.verdict,
+      reason=excluded.reason,updated_at=excluded.updated_at`)
+    .bind(reviewId,profileId,opinion.pageKey,opinion.verdict,opinion.reason,JSON.stringify(versions),now,now-30*86_400_000)
+    .run();
+  return result.meta.changes === 1;
+}
