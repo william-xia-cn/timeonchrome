@@ -2,16 +2,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createRequire } = require('node:module');
-const ts = require('typescript');
 const backendRequire = createRequire(path.resolve('app-runtime-management/backend/package.json'));
 const { Miniflare, convertV4MiniflareOptions } = backendRequire('miniflare');
 const cache = new Map();
 function load(file) {
   file = path.resolve(file);
   if(cache.has(file)) return cache.get(file);
-  const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+  const code=backendRequire('esbuild').buildSync({entryPoints:[file],bundle:true,format:'cjs',platform:'node',write:false}).outputFiles[0].text;
   const module={exports:{}};
-  new Function('exports','require','module',code)(module.exports,p=>load(path.resolve(path.dirname(file),p+'.ts')),module);
+  new Function('exports','require','module',code)(module.exports,require,module);
   cache.set(file,module.exports);return module.exports;
 }
 
@@ -22,10 +21,11 @@ function load(file) {
   try {
     const db=await mf.getD1Database('DB');
     const sql=`CREATE TABLE accounts(id TEXT PRIMARY KEY);
-      CREATE TABLE profiles(id TEXT PRIMARY KEY,account_id TEXT);
+      CREATE TABLE profiles(id TEXT PRIMARY KEY,account_id TEXT,config TEXT);
+      CREATE TABLE system_access_config_v1(id TEXT PRIMARY KEY,config_json TEXT);
       CREATE TABLE devices(id TEXT PRIMARY KEY,profile_id TEXT,status TEXT,device_token TEXT,device_name TEXT,last_seen INTEGER);
       INSERT INTO accounts VALUES ('owner'),('other');
-      INSERT INTO profiles VALUES ('p','owner'),('foreign','other');
+      INSERT INTO profiles VALUES ('p','owner','{}'),('foreign','other','{}');
       INSERT INTO devices VALUES ('d','p','bound','test-device','test',0),('other-d','foreign','bound','foreign-device','other',0);
       ${fs.readFileSync('tests/fixtures/task-management-schema.sql','utf8')}`;
     await db.batch(sql.replace(/--[^\n]*/g,'').split(';').map(s=>s.trim()).filter(Boolean).map(s=>db.prepare(s)));
@@ -56,6 +56,14 @@ function load(file) {
       assert.equal((await (await call(parent)).json()).capabilitySummary.canCreateTasks,true);
     });
     let taskId;
+    await check('blocked task resources rejected without Task or audit writes',async()=>{
+      const before=await db.prepare('SELECT COUNT(*) n FROM tasks_v1').first();
+      const audits=await db.prepare('SELECT COUNT(*) n FROM task_events_v1').first();
+      const response=await call(parent,'POST',owner,{...definition,resourceSpec:{hosts:['tiktok.com']}});
+      assert.equal(response.status,400);assert.equal((await response.json()).code,'TASK_RESOURCE_BLOCKED');
+      assert.deepEqual(await db.prepare('SELECT COUNT(*) n FROM tasks_v1').first(),before);
+      assert.deepEqual(await db.prepare('SELECT COUNT(*) n FROM task_events_v1').first(),audits);
+    });
     await check('create and update use atomic repository with one audit per revision',async()=>{
       const created=await call(parent,'POST',owner,definition);assert.equal(created.status,201);
       taskId=(await created.json()).task.id;
@@ -63,6 +71,10 @@ function load(file) {
       assert.equal(edited.status,200);assert.equal((await edited.json()).task.revision,2);
       assert.equal((await db.prepare('SELECT COUNT(*) n FROM task_events_v1 WHERE task_id=?').bind(taskId).first()).n,2);
       assert.equal((await call(parent+'/'+taskId,'PATCH',owner,{expectedRevision:2,requiredSeconds:'bad'})).status,400);
+      const blocked=await call(parent+'/'+taskId,'PATCH',owner,{expectedRevision:2,resourceSpec:{hosts:['tiktok.com']}});
+      assert.equal(blocked.status,400);assert.equal((await blocked.json()).code,'TASK_RESOURCE_BLOCKED');
+      assert.equal((await repo.getTask('p',taskId)).revision,2);
+      assert.equal((await db.prepare('SELECT COUNT(*) n FROM task_events_v1 WHERE task_id=?').bind(taskId).first()).n,2);
     });
     await check('HTTP action retry and changed-payload conflict',async()=>{
       const url=parent+'/'+taskId+'/actions'; const body={action:'pause',actionId:'one',expectedRevision:2};
