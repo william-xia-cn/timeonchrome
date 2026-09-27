@@ -1,5 +1,15 @@
 # TASK_BOARD
 
+## 当前整合：Task安全准入已发布，整体仍进行中（2026-09-28）
+
+PR #82（功能1859278、同步主线37a66f1）合入master b46d17662d56abc98059fa80ba54167f97bf82d2。PR Task Cloud 36344952784及App Runtime轻量门36344952778成功；精确master Guardian门36345062971成功。受保护生产36345123042成功，仅Guardian部署为0d040402-210b-4b29-a390-9f7908bfe329。没有执行migration或部署Runtime/Pages/R2；发布manifest artifact 10940505176，ZIP摘要b20fb8b90482ab38d41256b679276fda2ffae0895ca179c41f67b10ae8770e05。未回读该ZIP内容，不把上一部署资源版本冒充本次逐件核实。
+
+发布后无认证smoke：根200、家长Task列表/创建401、设备Task列表/progress401、SSO401。不带凭据，不创建生产任务。首次误用非Task路径命中通用200，已按实际router更正后复验；该错误路径不记为安全通过证据。生产配置/数据未主动写入。
+
+剩余工作分开推进：通用云端模块入口尚未整合/部署；终端PR #80已default-off合入37d2e48，所属任务继续message/alarm/UI宿主，ACCESS_OBSERVED跳过核心开段需先完成网页落账硬门的具体影响审查，不用“核心文件无diff”替代语义证明。Rest/复合页面分析原脏目录继续保留；控件任务当前返回空回合，不能标记已完成。Native图形配对有本地提交及便携测试报告，但真实macOS/Swift、安装升级卸载仍未通过，保留未完成。
+
+本批仅文档证据：diff/职责检查，复用精确代码与CI，不重跑产品测试或生产部署。Matched＝本批安全补丁合并/发布/无认证smoke；Deviated/Extra＝无；整体Missing为上述未决项。未删除分支、目录或候选，目标继续active。
+
 本批提交前审计：Matched＝创建/编辑前当前有效域名与精确对象黑名单校验、策略读失败503、拒绝无Task/审计写入、最小消费CI；Deviated/Extra＝无。本地资源校验15/15、真实鉴权+D1路由10/10、实际Worker入口6/6、typecheck和Wrangler dry-run通过（795.53KiB/gzip154.31KiB），diff通过。未改网页原账、配额、扩展、Native或生产数据。整体Missing仍为通用入口、终端访问前置硬门裁决与联合验收、Rest/复合工作线和Native实机验证；本批不声称完整目标完成。
 
 安全回归发现：既有resolveSiteAccessClassification的decisionToClassification未映射blocked规则，精确URL夹具首次失败。Task准入按SPEC-002不可穿透黑名单要求，显式复用normalizeSiteClassificationRule/siteDecisionMatchesUrl检查已配置blocked对象，再使用原effective域名分类；不修改共享解析器或网页运行时。精确URL/YouTube及不同对象反例必须通过后才提交；既有解析器缺口转终端任务只读调查。
