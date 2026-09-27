@@ -8,6 +8,8 @@
 
 本地验证：真实入口/迁移6/6、router9/9、Guardian integration、TypeScript及Wrangler dry-run通过，bundle 792.64KiB/gzip153.51KiB。首轮夹具缺少通用设备审计表产生warning；补入既有017仅在本地运行后重测无warning，未关闭审计或修改产品代码。新增本地试验在有既存Task/网页行时重复运行021，Task行、网页行完全保留；Task关闭的对照bundle在四条原路由行为相同。Task CI新增master精确SHA触发供后续发布验真；不增加部署权限。
 
+PR #78首轮Task CI `36342430000` 因旧domain测试第41行仍断言入口未注册失败，非领域函数失败。补充精确范围例外tests/unit/task-worker-domain.test.js：移除仅适用于PR #73阶段的未接入断言，保留领域无fetch/DB/env副作用的约束；实际接入、拔除及原路由行为由新增真实Worker测试覆盖。按实际变更仅追加运行该domain测试，不扩大全平台测试；失败未合并。
+
 本批审计Matched＝最终规格/编号映射、现存schema恢复、独立入口、真实运行时鉴权与原路由对照；Deviated/Extra＝无。整体Missing仍包括页面/终端/受控联合验收。终端所属任务发现optional host异常隔离和Task队列字节预算两项激活门禁，正在独立default-off包处理；本批不激活扩展、不开家长创建页、不把旧生产少量Task数据当作正式验收。
 
 ## 整合连续推进与迁移来源核对（2026-09-28）

@@ -37,7 +37,6 @@ assert.equal(domain.canEditTaskCoreFields(task, 100), true);
 assert.equal(domain.canEditTaskCoreFields(task, 200), false);
 assert.equal(domain.canEditTaskCoreFields({ ...task, completedSeconds: 1 }, 100), false);
 assert.equal(domain.canEditTaskCoreFields({ ...task, lifecycleStatus: 'completed' }, 100), false);
-// 纯规则整合不得顺带启用路由或引入数据库访问。
-assert.equal(fs.readFileSync(path.resolve(__dirname, '../../workers/src/index.ts'), 'utf8').includes('taskModuleRouter'), false);
+// 领域规则仍保持纯函数；入口接入/拔除由 task-worker-entry 实际运行时测试覆盖。
 assert.equal(/fetch\(|\.prepare\(|env\./.test(source), false);
-console.log('Task Worker domain: 5 canonical vectors, invalid inputs, edit boundary and inactive integration PASS');
+console.log('Task Worker domain: 5 canonical vectors, invalid inputs, edit boundary and pure domain PASS');
