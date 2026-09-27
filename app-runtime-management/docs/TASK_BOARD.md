@@ -2,6 +2,8 @@
 
 ## NOW：三会话边界治理（ARM-D-034）
 
+边界复核补充：Guardian/Santa/主控制台任务同时维护根 TASK_BOARD/AGENTS 时，不能因此被三个模块的角色集合接管；只有涉及本模块实现/治理脚本，或 PR 主动声明本组角色时启用职责匹配。增加固定回归，不放宽已声明任务的路径检查。
+
 本仓实施与最小验证通过：职责固定用例、现有 CI 路由、源码边界及 diff check。PR 描述声明角色和逐文件例外，changes 失败传递至 gate；描述变更重新触发。架构任务已回读确认；两端通知已发送，Native 确认并独立处理其仓治理，业务现场保持不动。提交前审计：Matched＝矩阵/交接/路径门/轻量回归；Deviated/Extra＝无；Missing＝两仓 PR 合入与最终回执（待收口，非业务验收）。
 
 职责 runtime-cloud-contract；允许修改治理文档、职责检查脚本/测试、轻量 CI。逐文件例外：.github/workflows/app-runtime.yml（接入轻量门）。步骤：文档 → 通知既有任务 → 差异检查与固定回归 → 两端确认及两仓 PR。必要测试：职责范围、CI 路由、源码边界、diff check；CI changes/release-config/gate；无部署 smoke。不运行产品/Windows/macOS/WiX 或 UI 测试，因为不改业务。

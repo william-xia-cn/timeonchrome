@@ -52,7 +52,8 @@ function checkScope(paths, { role, exceptions = {} }) {
   return failures;
 }
 function relevant(paths) {
-  return paths.some(p => owner(p) || governance.has(p) || p.startsWith('app-runtime-management/'));
+  // Shared root status documents must not claim Guardian/Santa/main-console tasks.
+  return paths.some(p => owner(p) || (governance.has(p) && !p.endsWith('.md')) || p.startsWith('app-runtime-management/'));
 }
 function changed(base, head) {
   return execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', base, head], { encoding: 'utf8' }).split('\0').filter(Boolean);
@@ -65,7 +66,7 @@ if (require.main === module) {
     const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
     if (!event.pull_request) throw new Error('PR event required');
     paths = changed(event.pull_request.base.sha, event.pull_request.head.sha);
-    if (!relevant(paths)) { console.log('Task scope: unrelated module, existing gates apply'); process.exit(0); }
+    if (!relevant(paths) && !/^Task-Role:/m.test(event.pull_request.body || '')) { console.log('Task scope: unrelated module, existing gates apply'); process.exit(0); }
     config = declaration(event.pull_request.body || '');
   } else {
     if ((!args.includes('--base') && !args.includes('--staged')) || !args.includes('--declaration')) throw new Error('--base (or --staged) and --declaration are required');
