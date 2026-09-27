@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "hosts normalize aliases and preserve independent subdomains",
+      "input": {"hosts": ["www.example.com", "m.example.com", "child.example.com"]},
+      "expected": {"hosts": ["child.example.com", "example.com"], "urlRules": [], "specialTargets": []}
+    },
+    {
+      "name": "exact URL removes tracking hash and trailing slash but preserves business query",
+      "input": {"urlRules": [{"url": "http://www.example.com/practice/?section=2&utm_source=test&mode=sat#answer", "match": "exact"}]},
+      "expected": {"hosts": [], "urlRules": [{"url": "https://example.com/practice?mode=sat&section=2", "match": "exact"}], "specialTargets": []}
+    },
+    {
+      "name": "path prefix ignores query",
+      "input": {"urlRules": [{"url": "https://example.com/lesson/?chapter=2", "match": "path_prefix"}]},
+      "expected": {"hosts": [], "urlRules": [{"url": "https://example.com/lesson", "match": "path_prefix"}], "specialTargets": []}
+    },
+    {
+      "name": "legacy urls become exact rules",
+      "input": {"urls": ["https://example.com/practice/"]},
+      "expected": {"hosts": [], "urlRules": [{"url": "https://example.com/practice", "match": "exact"}], "specialTargets": []}
+    },
+    {
+      "name": "YouTube URLs auto detect video playlist and channel",
+      "input": {"specialTargets": ["https://www.youtube.com/watch?v=video123", "https://www.youtube.com/watch?v=video123&list=PL123", "https://www.youtube.com/@study-channel"]},
+      "expected": {
+        "hosts": [],
+        "urlRules": [],
+        "specialTargets": [
+          {"platform": "youtube", "type": "channel", "canonicalTarget": "https://youtube.com/@study-channel"},
+          {"platform": "youtube", "type": "playlist", "canonicalTarget": "https://youtube.com/playlist?list=PL123"},
+          {"platform": "youtube", "type": "video", "canonicalTarget": "https://youtube.com/watch?v=video123"}
+        ]
+      }
+    }
+  ]
+}
