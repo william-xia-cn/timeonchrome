@@ -1,5 +1,12 @@
 # App Runtime Changelog
 
+## 2026-09-27：补录历史发布证据（不是重新发布）
+
+- 来源 `5f14cab` / 旧 PR #12：恢复 `docs/release/APP_RUNTIME_CLASSIFICATION_RELEASE_2026-09-15.json` 原始文件，保留当时的测试、批准例外、未验收项和风险，不把其中 2.0.6/latest 或历史部署当作当前版本。
+- 来源 `52ec058` / `b7d8278`：2026-09-16 PR #14 / master `fa2c3d4` 曾发布 Runtime 0009、Worker `c7a57148`、Pages `54ebbd84`；当时 38/38 Worker 与类型/binding/dry-run 通过。随后手工安装 2.2.1，版本/Automatic Service/单一 Agent/策略13/13及456个唯一扫描身份有当时只读证据，但仍有弱快捷方式证据，不能推断全用户盘点完整或数据全部干净。这里只恢复来源事实，不复跑或宣称今天重新验收。
+- 来源 `8da97d5`：旧 Guardian v3 发布记录涉及 PR #49 / `99a49a9`、CI 36242113745、production 36242161483。其当时 v3 证据不完整与影子不可用记录保留为历史，不覆盖今天状态，也不在本轮修改或重新发布 Guardian。
+
+
 ## 2026-09-27：双仓及独立应用展示收口
 
 - Native 2.6.7 已安装并完成目标产品实机验收；Excel、用户确认的 ChatGPT 产品各一条，学习分类和本周有效更正正常，原始记录保留。
