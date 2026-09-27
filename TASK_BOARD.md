@@ -1,5 +1,36 @@
 # TASK_BOARD
 
+## NOW（2026-09-27）：分支处置复核补充
+
+本节是下方初查表的后续裁决，保留初查记录而不混淆时点。职责 runtime-cloud-contract；只读 Git/所属任务报告及文档，最小验证 diff check，不运行产品测试，不修改终端或迁移。
+
+| 工作线／对象 | 复核证据 | 当前处置 |
+|---|---|---|
+| 项目契约 b2c5b22 | PR #64 合并 b028662；CI/Pages run 36328067144/36328066839 成功 | 已整合，旧工作树仍有工具状态，不删除 |
+| 盘点清单 | PR #65 合并 d965f85；Pages run 36328248058 成功 | 已整合，持续追加处置 |
+| 历史发布证据 5f14cab、52ec058/b7d8278、8da97d5 | PR #66 合并 bd4b9ef；原 manifest Git blob 一致；CI/Pages run 36328384661/36328384289 成功 | 缺失 manifest 已恢复、历史出处已补录，旧 PR #12 已关闭；不恢复旧 NOW |
+| release/v0.0.1-profile-config-integrity@df03d19 | 主线祖先 4054598 明确记录 PR #2 压缩合并；git diff 4054598 df03d19 为空（整树相等） | 已等价整合，不重复合入7个历史提交；保留引用待单独清理批准 |
+| audit/codex-full-review@8086b96 | 仅2个旧审查上下文文档提交；宣称 event_log_v1 为时长真值，与现行 usage_segments_v1/D-076 不一致 | 已替代待归档，不能恢复成当前架构真值；原引用保留 |
+| codex/task-management-v1@8603fbb | 所属任务确认14个提交均非patch等价；主线没有等价Task模块。最终独立模块替代了中间核心账本接入实现 | 保留活跃；未来以最终树分为云端/终端整合包，禁止整体强合或逐提交恢复旧账本方案 |
+| 主目录未提交 Rest/复合页面分析/时间段输入 | 原 TASK_BOARD 明确 verification/real-site/visual pending，当前范围约31条未提交/未跟踪路径 | 存在未决改动；不把代码存在当作可发布。保留原地，按所属功能验收后独立整合 |
+| Native 2.6.8 统计 | 隔离整合 c5c9b85→56dd562、6c51a0d→0dd9829；所属任务报告树相等、21/21及TRX、包哈希一致 | 待整合；远端推送被安全审批拒绝任务转交授权，等待用户直接确认；不绕过拒绝 |
+
+### Task 工作线逐项来源映射
+
+- 63aca3e：保留批准语义，但 D-056～D-060 编号与主线冲突，后续重排，不直接覆盖。
+- a5644f1/f37853b/62622eb：保留最终领域基础、Worker、缓存能力；旧路径已被79cd507重构，不独立恢复中间结构。
+- f06e13f/e5018b6：只留历史，向核心Segment写Task字段/从核心Segment投影进度已被独立Task ledger替代。
+- 7faf8eb/28cfa91/432630c：只提取最终optional-module UI、独立/task与模块接口，不恢复旧嵌入或直接mode逻辑。
+- 78287e0/40467d5：历史gate/完成表述，不移作当前验收结论。
+- 79cd507/d788f8c/8603fbb：最终模块架构、heartbeat可靠性和30分钟capability gate，应在后续受控整合保留。
+- 原021/022 migration与主线编号冲突；主目录又有未提交032，本轮不分配/执行新migration。直接文本冲突涉及19个重叠路径中的admin/background/pages/worker等，必须按职责分包。
+- Cf805 未提交 P16：任务板/界面说明、admin模块入口、required页面按钮调整及 output/9张截图均归原任务，原地保护。
+
+### 仍未完成
+
+Native远端PR及最终主线整合；扩展timing/stats/recovery/pip等历史工作线的逐项行为审查；活跃功能的后续独立验收。没有删除分支/目录，没有安装或切换R2。当前已发布的是GitHub Pages随治理主线的既有流程，不冒充Runtime Worker/Cloudflare Pages业务发布。Matched＝证据复核/三批合并/发布作业/原地保护；Missing＝上述未决项；Deviated/Extra＝无。
+
+
 ## NOW（2026-09-27）：恢复遗漏的历史发布证据
 
 职责 runtime-cloud-contract；仅文档/既有历史 manifest。将 5f14cab 的 2026-09-15 原始 manifest 按原路径、原内容恢复，记录 52ec058/b7d8278 和 8da97d5 的历史来源，不移植旧 NOW/完成结论覆盖现状。验证 JSON 解析、Git blob 与来源一致、diff check；不运行产品测试，不触发 Cloudflare 发布、安装、migration 或 R2 写入。PR #64/#65 已分别合并为 b028662/d965f85；PO 最新授权允许既有 GitHub Pages 随 master 合并发布。旧 PR #12 待本批合入并证明证据保留后再关闭。
