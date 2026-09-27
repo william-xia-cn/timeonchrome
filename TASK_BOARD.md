@@ -1,5 +1,17 @@
 # TASK_BOARD
 
+## NOW：复合分析接收入口与发布隔离（2026-09-28）
+
+页面 PR #100 已合入 master 056160b；四项 CI 全部成功，源码与 mock 验收完成，不等于部署。职责 runtime-cloud-contract；本批允许 workers/src/index.ts、workers/src/routes/profiles.ts、workers/migrations/032_composite_page_reviews.sql、相关最小接入测试和既有轻量 CI。先对照原草稿与已合并服务，再接配置白名单/严格布尔校验、路由、维护调用和 additive schema；不修改原账/配额，不复制原草稿的旧服务。最小验证为配置边界、路由鉴权、migration 与既有测试 schema 一致性、复合云端专项、typecheck/dry-run、diff/职责。禁止生产 migration、部署或家庭开关写入，完成源码验收后单独核对发布前提。
+
+发布阻断已核实：pages/optional-modules.json 当前包含 task-management-v1 → /task/，主入口链接 /modules/；直接整目录部署会发布用户明确排除的 Task 创建入口。后续需按现有发布流程隔离候选资源并验证目录及直达路径均不可用，不通过隐藏单个按钮伪称未发布。此项未解决前不部署主 Pages；Task 源码仍保留，不删除已有工作。
+
+维护入口审查：已合并 maintainCompositeReviews 会枚举全部 profiles 并扫描三天；原草稿 catch(()=>{}) 会吞掉失败。接线前需确认有界执行及稳定无隐私诊断，不能把旧草稿直接复制视为生产就绪。
+
+发布隔离实施子项：新增 tools/stage-main-console-release.js 和对应纯文件测试；在新临时目录复制主 Pages（排除 task/），过滤 optional-modules.json 的 Task 项并为 /task、/task/* 写回主页重定向，保留其他入口。仅发布产物变化，不删除源码、不动 Task API 或家庭配置；输出目录必须不存在，禁止覆盖或清理。接入既有 production workflow 的主 Pages 步骤及轻量页面 CI。最小验证：文件排除、目录过滤、重定向、其他文件字节一致、重复目标拒绝、diff与workflow语法；不运行浏览器/平台/账本测试，不实际部署。
+
+隔离子项提交前审计：Matched＝Task文件/目录项排除、直达路径重定向、保留原源码、拒绝覆盖、主入口字节一致；Deviated/Extra＝无，本地实现 Missing＝无，线上直达验收仍待实际授权发布后执行。固定文件测试、实际 pages 产物核对、node --check、两个 workflow YAML 解析、diff检查通过。实际候选位于系统临时目录 toc-main-pages-77ed98fdfef2441e89840cc29fc9d0e6，模块列表为空、task目录不存在；未上传。该子项独立提交，不包含尚未完成的032 migration。发布脚本/测试/两个workflow为本任务精确范围例外。
+
 ## NOW：复合分析家长页面独立整合（2026-09-28）
 
 提交前审计：Matched＝原草稿独立区块、服务端详情口径、代际隔离、设备标识裁剪、确认/保存/恢复、桌面与390px mock控件可达；Deviated/Extra＝无；本页面源码范围 Missing＝无，整体功能仍缺生产路由/schema和部署，禁止当作已上线。Node VM 7项通过；实际 CSS/HTML 区块/脚本的隔离 mock 桌面1280×900、移动390px全页已目视，移动 scrollWidth=390 无横溢。仅证明该区块布局，不冒称完整登录全流程；截图在本机 Temp 的 composite-parent-desktop-full.png / composite-parent-mobile.png，不含私人数据。复用既有主页面轻量 CI 加入专项，不触发平台构建；精确例外为该 workflow 与本次测试文件。原失败/中间状态保留于下文，以上为最新状态。

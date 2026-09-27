@@ -119,7 +119,10 @@ jobs:
       - name: Main Pages
         if: inputs.deploy_main_pages
         working-directory: app-runtime-management/backend
-        run: npx wrangler pages deploy ../../pages --project-name timeonchrome-console --branch master --commit-hash "${GITHUB_SHA}"
+        run: |
+          stage="$RUNNER_TEMP/main-console-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          node ../../tools/stage-main-console-release.js ../../pages "$stage"
+          npx wrangler pages deploy "$stage" --project-name timeonchrome-console --branch master --commit-hash "${GITHUB_SHA}"
       - name: Runtime Worker smoke
         if: inputs.deploy_runtime_worker
         run: |
