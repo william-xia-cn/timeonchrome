@@ -49,7 +49,7 @@ export async function beforeAccess(context = {}) {
   for (const runtime of modules.values()) {
     try {
       const result = await runtime.beforeAccess?.(context);
-      if (result?.handled === true) return result;
+      if (result?.handled === true) return { ...result, optionalModuleId: runtime.id };
     } catch (error) {
       recordModuleDiagnostic(runtime, 'beforeAccess', error);
     }
@@ -61,18 +61,44 @@ export async function dispatchOptionalModuleMessage(message, sender) {
   const requestedId = String(message?.optionalModuleId || '').trim();
   const candidates = requestedId ? [modules.get(requestedId)].filter(Boolean) : [...modules.values()];
   for (const runtime of candidates) {
-    const result = await runtime.handleMessage?.(message, sender);
-    if (result?.handled === true) return result;
+    try {
+      const result = await runtime.handleMessage?.(message, sender);
+      if (result?.handled === true) return { ...result, optionalModuleId: runtime.id };
+    } catch (error) {
+      recordModuleDiagnostic(runtime, 'handleMessage', error);
+      if (requestedId) {
+        return {
+          handled: true,
+          optionalModuleId: runtime.id,
+          response: { ok: false, code: 'OPTIONAL_MODULE_ERROR', error: '扩展模块暂时不可用' },
+        };
+      }
+    }
   }
   return { handled: false };
 }
 
 export async function dispatchOptionalModuleAlarm(alarm) {
-  for (const runtime of modules.values()) await runtime.handleAlarm?.(alarm);
+  const handledBy = [];
+  for (const runtime of modules.values()) {
+    try {
+      const result = await runtime.handleAlarm?.(alarm);
+      if (result?.handled === true) handledBy.push(runtime.id);
+    } catch (error) {
+      recordModuleDiagnostic(runtime, 'handleAlarm', error);
+    }
+  }
+  return { handled: handledBy.length > 0, handledBy };
 }
 
 export async function notifyOptionalModules(event, payload = {}) {
-  for (const runtime of modules.values()) await runtime.handleLifecycle?.(event, payload);
+  for (const runtime of modules.values()) {
+    try {
+      await runtime.handleLifecycle?.(event, payload);
+    } catch (error) {
+      recordModuleDiagnostic(runtime, 'handleLifecycle', error);
+    }
+  }
 }
 
 export function getOptionalModuleEntries() {

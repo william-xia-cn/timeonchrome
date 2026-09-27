@@ -285,6 +285,7 @@ function ensureTaskAdminStyles(root = document.body) {
 
 export async function mountOptionalModulePanel(root = document.body) {
   taskAdminRoot = root;
+  root.classList.add('optional-module-body');
   draft = { hosts: [], urlRules: [], specialTargets: [] };
   hydratedTaskId = null;
   ensureTaskAdminStyles(root);

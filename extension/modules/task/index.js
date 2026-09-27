@@ -184,7 +184,6 @@ export function createOptionalModule() {
       if (buildProfile.taskLocalDebugEnabled !== true) await purgeLocalDebugTasksForProduction();
       await pruneTaskProgressLedger();
       setupTaskAlarms(globalThis.chrome?.alarms || null);
-      globalThis.chrome?.alarms?.onAlarm?.addListener?.((alarm) => runtime.handleAlarm(alarm));
       globalThis.chrome?.storage?.onChanged?.addListener?.((changes, area) => {
         if (area === 'local' && changes.cloud_device_token?.newValue) {
           sendTaskHeartbeat({ reason: 'cloud_bound' })
