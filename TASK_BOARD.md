@@ -1,5 +1,21 @@
 # TASK_BOARD
 
+## NOW：Task 进度持久确认与恢复修复（2026-09-28）
+
+本批实现结果：本地 Miniflare/D1 11/11 通过，包括真实 SQLite trigger 中断后的整个 batch 回滚、相同消息重复确认、旧事实无投影恢复、并发设备区间并集、完成审计幂等、暂停重放、绑定隔离和100项限额。TypeScript、原领域5组黄金向量及 diff check 通过。Miniflare 5 alpha 的构造接口与旧README不一致，已使用该锁定版本导出的 convertV4MiniflareOptions；此前两次初始化失败不是数据库测试结果。一个测试区间误超90秒已修正为合法区间，未放宽产品校验。
+
+本批审计：Matched＝原规格校验、原子写入/投影/完成审计、重复ACK、部分写入恢复和本地D1验证；Deviated/Extra＝无。整体Missing＝生命周期原子性与router/鉴权/迁移整合、终端真实链路和生产发布，继续保持未完成。repository其余方法按8603fbb保留，尚未注册至生产入口；不能因本批通过就宣称完整Task可上线。终端任务已返回独立ACK修复7aa6b1b及90/90测试，本批不修改扩展或候选产物。
+
+测试路径职责例外仅限 tests/unit/task-progress-repository.test.js（云端持久确认测试）与 tests/fixtures/task-management-schema.sql（本地D1夹具，非生产migration）。GitHub CLI在沙箱及正常网络下均报告既有凭据无效；不创建新凭据，不把本地提交当作已推送/合并。
+
+职责 runtime-cloud-contract。原Task任务已回读SPEC-002及终端代码：有效区间不超过90秒，seconds必须等于区间floor秒数；没有部分区间裁剪协议；acceptedIds表示已持久确认（包括一致重复）。依此修复，不新增计时语义。
+
+实施清单：①提取8603fbb的repository，保持其余方法原样，进度写入委托独立实现；②严格校验身份/有限整数/区间/秒数，拒绝同ID内容冲突；③按任务在D1 batch中原子执行事实插入、并集投影、自动完成事件和状态更新，提交后逐项确认；④重放一致记录可恢复旧的事实已存/投影缺失状态；⑤本地D1验证重复、事务中断、并发、家庭/设备隔离、暂停/完成后重放与合法毫秒边界。
+
+性能边界：每次最多处理前100项，每组最多50项；只返回已确认ID，旧客户端会保留其余项补发。按任务分组重建并集，不逐段重建；不新增表、路由或生产migration。设备必须仍绑定到请求的profile；相同ID跨设备不确认。原终端ACK收紧由所属任务独立实现。
+
+最小验证：Task领域原向量、进度本地D1测试、TypeScript、职责与diff检查；安装依赖仅使用既有backend锁文件中的本地D1运行时。测试夹具保存旧021表结构但不登记为生产migration。排除Native/安装器/网页账本/E2E；完整Task路由、生命周期写入、页面与终端整合仍有独立闸门，当前不部署。
+
 ## NOW：Task 云端合并前可靠性阻塞（2026-09-28）
 
 来源严格固定 `codex/task-management-v1@8603fbb`，不是当前生产 Worker。按 Cloudflare/Workers 规范审查该最终树的 router/repository，并在内存 D1 适配器中执行原 repository 经 TypeScript transpile 后的函数；没有改源文件，没有访问生产数据。此证据是受控逻辑复现，不是实际 D1 事务或浏览器验收。
