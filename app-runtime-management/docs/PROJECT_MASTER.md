@@ -1,5 +1,9 @@
 # App Runtime 项目真值
 
+## 当前治理：ARM-D-034
+
+模块职责入口为根 PROJECT_WORKFLOW.md。当前架构任务保留结构/接口/契约及 Runtime 云端实现；扩展本地、Native 分别归既有任务。规则实施与两仓 PR 合入状态见任务板，不以通知代替生效证据。
+
 ## 最新收口（2026-09-27）：独立应用展示与双仓边界
 
 本机已安装 Native 2.6.7（main `ce2b568`，CI `36269476969`），contracts 1.15.0/上一兼容 1.14.0 的新仓独立验证通过。旧仓交接锁同步已验证的 1.15.0 包及哈希，现有 Burn/MSI 的来源和字节校验通过；不触发生产上传。Native 无 Cloudflare repository secrets 或 environment，旧仓继续独占云端、鉴权、契约和 R2 发布。

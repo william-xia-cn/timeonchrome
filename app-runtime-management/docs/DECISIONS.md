@@ -1,5 +1,9 @@
 # App Runtime 决策记录
 
+## ARM-D-034：三会话模块职责与契约统筹
+
+2026-09-27 PO 批准。PROJECT_WORKFLOW.md 固定模块矩阵：架构任务统筹协议并实施 Runtime 云端；扩展本地与 Native 分别由既有所属任务实施。允许只读跨端诊断，不允许跨端补丁或候选目录修改。固定版本契约单一来源、双方兼容证据和职责 diff 门禁共同约束；不增加发布权限，不改变业务协议和各自账本权威。
+
 ## ARM-D-033：产品关联单一权威与固定修复周
 
 2026-09-27 PO 批准完整身份修复。Application Knowledge 的稳定 productId 是管理对象；runtimeIdentity 保留为不可变技术事实。云端生成版本化产品关联，目录、分类、机器策略共用；Service 消费已应用投影，扩展只展示 Service 快照，不再分别猜测。确认的 Excel 叶身份可跨版本归属 Excel，但 Office 容器/签名不能合并 Word。ChatGPT/Codex 必须依据实际文件、包及保留观察辨别，名字不能作为关联证据。

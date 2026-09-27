@@ -66,7 +66,7 @@ const workflow = fs.readFileSync(path.join(root, '.github/workflows/app-runtime.
 for (const job of ['changes', 'contracts-worker-console', 'console', 'release-config', 'app-runtime-gate']) {
   assert(new RegExp(`^  ${job}:`, 'm').test(workflow), `missing job ${job}`);
 }
-assert(/pull_request:\r?\n  push:/.test(workflow), 'PR workflow must always provide the required gate');
+assert(/pull_request:\r?\n    types: \[opened, synchronize, reopened, edited\]\r?\n  push:/.test(workflow), 'PR workflow must provide gate including declaration edits, without path filters');
 assert(workflow.includes("if: needs.changes.outputs.console == 'true'"));
 assert(!workflow.includes('dotnet test app-runtime-management/agents/windows/'));
 assert(!workflow.includes('swift test --package-path app-runtime-management/agents/macos'));

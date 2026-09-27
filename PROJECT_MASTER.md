@@ -1,5 +1,9 @@
 # PROJECT_MASTER
 
+## 三会话模块治理
+
+ARM-D-034 / PROJECT_WORKFLOW.md 定义架构与 Runtime 云端、扩展本地、Native 的所有权；阶段角色和生产发布权不变。
+
 ## 当前双仓及本机验收（2026-09-27）
 
 D-104 源码拆分已经完成，旧仓无可发布的 Agent/installer 源码和本机 CI。Native main `ce2b56839a96e418e043297c5f1d937a3080817b` 的独立 CI `36269476969` 已通过 Windows、macOS 15、WiX 和 native-gate；仅用新仓及固定包构建，不依赖旧工作树。新仓 repository secrets/environments 列表均为空，workflow 只有 contents:read 与候选 artifact 上传；R2/云端发布仍由旧仓受保护流程独占。
