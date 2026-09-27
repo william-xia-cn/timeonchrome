@@ -26,8 +26,8 @@
 
 ### 整合批次与未决项
 
-1. 优先项目契约 b2c5b22，已推送并创建 PR #64；task-scope、CI routing、diff check PASS，CI 进行中。受 master 自动发布副作用阻塞，未合并；不混入扩展或 Native 实现。
-2. 已安装 Native 2.6.8 的 c5c9b85/6c51a0d 交 Native 所属任务审查整合。当前会话不改本机实现。
+1. 优先项目契约 b2c5b22，已推送并创建 PR #64；task-scope、CI routing、diff check 及 CI gate（run 36326348537）PASS。盘点 PR #65 首次文档 CI gate（run 36326408264）PASS。受 master 自动发布副作用阻塞，未合并；不混入扩展或 Native 实现。
+2. Native 所属任务已确认 c5c9b85/6c51a0d 尚未推送或整合，建议契约先行后单独统计 PR。复用原 21 项聚焦测试、Manager/Service 编译和实机记录；未找到独立 TRX，证据来源为既有提交/README，不能记为本轮重测。Native README 已追加未提交整合跟踪；Assets/Brand 是另一项已交付未接入图标，不混入统计 PR。统计 PR 须声明 native-local，并精确解释 .github/workflows/native.yml 的 2.6.8 artifact 路径例外。2.6.8 包、usage-statistics-ui 证据、固定契约及旧克隆三个工作树继续保留。当前会话不改本机实现。
 3. 扩展历史工作线及主目录混合脏改动交控件任务核对；云端部分由当前任务协调。任务管理工作树独立保留。涉及网页账本的历史补丁只读核对，不能因整合而绕过 D-076。
 4. PR #12（5f14cab）及 b7d8278/52ec058/8da97d5 为未整合历史发布证据，不能将旧 NOW 状态整体覆盖当前任务板。先保留来源，审查后只迁入仍缺失的历史事实。
 5. 4408b16 虽 patch-id 不等价，但相关扩展实现及测试与 master 文件比较已无差异；仍有文档差异，不能重复合入实现。
