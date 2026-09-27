@@ -27,8 +27,11 @@ export function sanitizeCompositePage(urlValue, title = '') {
     .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '[redacted]')
     .replace(/\b\d{7,}\b/g, '[redacted]')
     .replace(/[\u0000-\u001f\u007f]/g, '');
-  // Redact embedded URLs as well: a title must not leak a query string.
-  const safeTitle = redact(String(title).replace(/https?:\/\/\S+/gi, '[link]')).slice(0, 160);
+  // Chrome may temporarily use a scheme-less URL as the document title.
+  // Remove the whole URL before truncation/redaction, including query/fragment.
+  const safeTitle = redact(String(title)
+    .replace(/https?:\/\/\S+/gi, '[link]')
+    .replace(/(?:\/\/)?\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?[/?#]\S*/gi, '[link]')).slice(0, 160);
   return { host: url.hostname.toLowerCase(), path: redact(decoded).slice(0, 512), title: safeTitle };
 }
 

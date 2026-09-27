@@ -35,6 +35,17 @@ async function vectors(api) {
   assert.equal(actual[17],createHash('sha256').update(JSON.stringify({id:'public'})).digest('hex'));
   assert.notEqual(actual[18],await api.hashPageEvidence([{id:'b'},{id:'a'}]));
   assert.equal(api.sanitizeCompositePage('https://site.test/'+'a'.repeat(600),'测'.repeat(200)).title.length,160);
+  for (const title of [
+    'en.wikipedia.org/wiki/Mathematics?observation=public-fixture#probe',
+    '//en.wikipedia.org/wiki/Mathematics?observation=public-fixture#probe',
+    'EN.WIKIPEDIA.ORG:443/wiki/Mathematics?observation=public-fixture#probe',
+    'site.test?observation=public-fixture#probe',
+    'site.test#public-fixture',
+  ]) {
+    assert.equal(api.sanitizeCompositePage('https://en.wikipedia.org/wiki/Mathematics',title).title,'[link]');
+  }
+  assert.equal(api.sanitizeCompositePage('https://site.test/wiki/A','Mathematics — introduction').title,'Mathematics — introduction');
+  assert.equal(api.sanitizeCompositePage('https://site.test/wiki/A','Read site.test/wiki/A?secret=private#fragment now').title,'Read [link] now');
   const temp = fs.mkdtempSync(path.join(os.tmpdir(),'toc-evidence-contract-'));
   const copy = path.join(temp,'copy.js');
   try {
