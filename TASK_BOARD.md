@@ -1,5 +1,18 @@
 # TASK_BOARD
 
+## 2026-09-28：两仓已批准整合结果（覆盖下方旧审批阻塞）
+
+- 用户直接允许 Native 分支推送、创建并合并通过 CI 的 PR 后，已推送并合并 TimeWhereNative PR #10；main 为 `c770bb85f39c6173b314a476b794d0ecd7eace29`。来源 c5c9b85/6c51a0d → 56dd562/0dd9829，追加测试修复986d1ec；不重复合并原统计分支。
+- 首次 PR CI 36331374355：安装器通过、窗口测试15秒超时，215/216；没有绕过。Native所属任务将固定延时改为Dispatcher空闲等待，完成信号移至STA退出后，并隔离WPF并行；保留15秒上限和所有断言，不声称已证实唯一远端根因。
+- 修复后实际 PR CI 36331875038：当前1.15.0、上一兼容1.14.0各216/216；WiX/Burn与native-gate通过。macOS与本改动无关，跳过不记作本轮通过。与原6c51a0d整树比较仅测试和WPF-TESTS.md有差异，已安装产品代码未变。
+- 本机Host/Service/Manager仍2.6.8.0，Service Automatic/Running；原目录扩展1.7.39保持。包来源c5c9b85与哈希沿用初查表，不将新CI产物伪装成已安装产物。本轮未安装、上传R2或切换latest。
+- TimeOnChrome治理/盘点/历史证据PR #64～#68已合入，当前记录基线626e7d2；对应最终GitHub Pages run36328878048成功。没有Runtime业务代码变更，因此没有重复部署Cloudflare Worker/Pages/Guardian；不能把GitHub Pages部署说成上述资源更新。
+- 保留活跃工作：Task最终模块及P16、主目录Rest/复合页面分析/时间段输入、Native另行开发的macOS及图标。它们不是本次可直接发布的历史残留，未强合、覆盖或删除；按所属任务和既有验收门禁继续。新提出的macOS heartbeat `windowsVersion`必填兼容缺口单独登记，不混入2.6.8统计整合。
+- 清理执行清单仍为空：原扩展加载目录、全部脏/活跃工作树、唯一包与截图证据保留。已祖先/已等价引用有来源SHA可追溯，但删除仍须逐项批准，不自动prune。
+
+本批审计：Matched＝直接授权/Native受测PR合并/固定契约/失败修复再验/版本分离/原地保护；Deviated/Extra＝无；Missing＝无（本批2.6.8统计源码整合）。不能据此宣称所有保留活跃功能已开发、验收或部署完成。此更新仅文档，diff check和轻量CI，不重复产品测试。
+
+
 ## NOW（2026-09-27）：分支处置复核补充
 
 后续来源审查：
