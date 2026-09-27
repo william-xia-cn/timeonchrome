@@ -2,6 +2,10 @@
 
 ## NOW：ARM-D-035/036 固定契约与接收端（2026-09-28）
 
+Native 消费 1.16.0 已核对哈希，但指出包缺 HTTP 封套定义；补丁 1.16.1 仅补状态、错误、响应形状及契约断言，不改变 Worker 行为。1.16.0 已交付包保持不可变。POST/GET 结果直接返回四字段、HTTP 200；GET 错误证明、未知操作和过期证明统一 404，心跳既有 200 响应和顶层 capabilities 明确固定。接收端行为不因说明补丁变化。1.16.1 构建、兼容测试、26 个分类向量、机器控制向量和 diff 检查通过；审计 Matched，Deviated / Missing / Extra 均无（仅本次说明补丁范围）。不重复 Worker 产品测试，不执行部署。
+
+交接进展：PR #98 为 draft，源码 3c7edb2 的 App Runtime CI 已通过；1.16.0 固定包 SHA-256 为 be698fd5c9c18d68977b90817f7f73f3728f8a35ab221a8c005e5dd0f59d7a2d，Native 已验证并开始消费。以下为初次提交时记录；真实平台验收、合并与生产发布仍分别待办，不因本次文档补丁记为完成。
+
 固定包阶段：Contracts 1.16.0本地构建、兼容断言、26分类向量与机器控制向量通过；最终Worker心跳/旧新卸载9/9通过（59项排除），typecheck、Wrangler dry-run通过。npm pack dry-run确认34项含机器控制schema/向量。根package-lock.json仅同步workspace版本，为任务级精确例外；backend旧锁的contracts条目同时对齐。源码尚未合并/部署，包实际SHA-256和Native消费验收待交付。
 
 提交前实现审计：Matched＝035字段验证/能力ETag、036原子消费与撤销/结果持久化/窄权限证明/7天失效/旧接口兼容、本地migration与安全聚焦回归；Deviated/Extra＝无。本地实现阶段无已知缺项；整体交付Missing＝PR/CI、固定包精确SHA/哈希交接、Native消费与真实平台验证、单独授权的生产migration及发布。不得将该源码提交称为完整上线。

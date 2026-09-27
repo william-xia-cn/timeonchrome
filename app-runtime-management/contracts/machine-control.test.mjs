@@ -7,6 +7,11 @@ for(const vector of vectors.heartbeat) assert.deepEqual(resolveRuntimeOsVersion(
 assert.equal(createHash('sha256').update(vectors.receipt.confirmationSecret).digest('hex'),vectors.receipt.confirmationSecretHash);
 assert.equal(vectors.receipt.expiredAtMs-vectors.receipt.committedAtMs,RUNTIME_UNINSTALL_RECEIPT_TTL_MS);
 assert.equal(vectors.receipt.validAtMs+1,vectors.receipt.expiredAtMs);
+assert.equal(vectors.contractVersion,JSON.parse(readFileSync(new URL('./package.json',import.meta.url),'utf8')).version);
+assert.deepEqual(vectors.http.commit.body,vectors.http.receipt.body);
+assert.deepEqual(Object.keys(vectors.http.receipt.body).sort(),['committedAtMs','operationId','revoked','status']);
+assert.equal(vectors.http.unavailable.status,404);
+assert.equal(vectors.http.unavailable.body.error.code,'UNINSTALL_RESULT_UNAVAILABLE');
 for(const [platform,input,expected] of [
   ['windows',{windowsVersion:'10.0.26100'},{ok:true,osVersion:'10.0.26100'}],
   ['windows',{osVersion:'10.0.26100'},{ok:true,osVersion:'10.0.26100'}],

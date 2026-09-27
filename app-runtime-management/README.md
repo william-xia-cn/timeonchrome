@@ -1,6 +1,6 @@
 # App Runtime Management
 
-## 开发中：Contracts 1.16.0 机器控制兼容
+## 开发中：Contracts 1.16.1 机器控制兼容
 
 ARM-D-035/036 的平台中立心跳与卸载结果确认由本仓定义。`machine-control.vectors.json` 为固定跨端向量，`machine-control.schema.json` 定义卸载消息；`osVersion` 按认证平台验证。确认秘密为32随机字节的无填充base64url字符串，SHA-256对该字符串UTF-8字节计算，而非原始随机字节。operationId为小写UUID v4。结果证明7天有效，只读确认、不恢复机器token。Native收到精确包哈希和接收端验收证据后才接入；当前为本地开发，未部署或启用生产能力，旧契约包1.15.0保持不可变。
 

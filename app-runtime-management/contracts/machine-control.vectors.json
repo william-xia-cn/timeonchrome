@@ -1,6 +1,15 @@
 {
   "schemaVersion": 1,
-  "contractVersion": "1.16.0",
+  "contractVersion": "1.16.1",
+  "http": {
+    "commit": {"method":"POST","path":"/v2/machines/uninstall-operations","authorization":"Bearer <machineToken>","status":200,"body":{"operationId":"12345678-1234-4234-8234-123456789abc","status":"committed","revoked":true,"committedAtMs":1800000000000}},
+    "receipt": {"method":"GET","path":"/v2/uninstall-operations/{operationId}","authorization":"UninstallReceipt <confirmationSecret>","status":200,"body":{"operationId":"12345678-1234-4234-8234-123456789abc","status":"committed","revoked":true,"committedAtMs":1800000000000}},
+    "unavailable": {"status":404,"body":{"error":{"code":"UNINSTALL_RESULT_UNAVAILABLE","message":"Uninstall result is unavailable."}}},
+    "commitErrors": [{"status":400,"code":"INVALID_REQUEST"},{"status":409,"code":"OPERATION_CONFLICT"},{"status":401,"code":"UNINSTALL_CODE_INVALID"},{"status":401,"code":"UNAUTHORIZED"}],
+    "heartbeat": {"method":"POST","path":"/v2/machines/heartbeat","status":200,"body":{"success":true,"nextHeartbeatSeconds":300,"policyPollSeconds":60}},
+    "capabilitiesLocation": "policy.capabilities (top-level response property)",
+    "unavailableMeaning": "Unknown outcome, never proof of failure or permission to repeat destructive removal. HTTP 401 never confirms revocation. Error messages are descriptive; clients branch on status and code."
+  },
   "heartbeat": [
     {"platform":"windows","input":{"windowsVersion":"11"},"expected":{"ok":true,"osVersion":"11"}},
     {"platform":"windows","input":{"osVersion":"11"},"expected":{"ok":true,"osVersion":"11"}},
