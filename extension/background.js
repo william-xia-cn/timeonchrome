@@ -1,6 +1,7 @@
 // background-new.js — 完整 wiring 入口
 
 import { initSignal } from './core/signal.js';
+import { initCompositePageObserver } from './infra/composite-page-observer.js';
 import { dispatchTimingSignal, drainPendingModeBoundaries } from './core/timing-dispatcher.js';
 import { confirmForegroundPageCheckpoint, resolveUnknownDomainForSettlement } from './core/foreground-timing.js';
 import { closeMediaForTabLifecycle, handleMediaTabActivated, handleMediaTabReplaced, handleMediaWindowFocusChanged, handleMediaWindowStateChanged, runMediaCheckpoint } from './core/media-timing.js';
@@ -37,6 +38,7 @@ import { configureRestUsageReminder, evaluateRestUsageReminder, handleRestUsageR
 import { dispatchOptionalModuleAlarm, dispatchOptionalModuleMessage, getOptionalModuleEntries } from './runtime/optional-module-host.js';
 
 registerStoragePressureHandler((options) => runV1StorageMaintenance(options));
+initCompositePageObserver();
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;

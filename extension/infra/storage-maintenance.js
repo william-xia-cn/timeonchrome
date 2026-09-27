@@ -31,6 +31,7 @@ const SESSION_DIAGNOSTIC_LEGACY_KEYS = [
   'mode_effect_trace_v1',
 ];
 const PRESSURE_DIAGNOSTIC_KEYS = [
+  'composite_page_observations_v1',
   'timing_checkpoint_health_v1',
   'foreground_page_diagnostics_v1',
 ];

@@ -1,5 +1,30 @@
 # TASK_BOARD
 
+## 复合分析终端整合（2026-09-28）
+
+最终单项真实复验：PO授权call_OhHNkwHpj3e3K7NRpnTmvUnF，仅运行COMPOSITE_ACCEPTANCE_FALLBACK_ONLY=1场景一次，19.5秒通过。全新隔离Profile先断言真实分类为pending/null，启用采集并访问真实Wikipedia，显式观察后记录数0；证据.tmp/composite-wikipedia-UWlOs1/fallback-evidence.json。此前长测试失败不改写成整套一次通过，验收使用分项证据：真实导航/标题/模拟SPA、隐私、默认关闭/关闭清理、11秒原账不变及10+1守恒，加本次待归类排除。observer专项、生成副本逐字节检查、typecheck、扩展根目录1.90MB及diff检查通过。职责路径仅TASK_BOARD、extension与专项测试，Worker/Pages/Native/计时/原账/版本未改；Matched=本批提取与上述验证，Deviated/Extra=无。授权上传与预算压力为单测证据，尚未生产联调；完整云端功能未发布，不能宣称已上线。原主目录及固定候选保留。
+
+保留真实证据的独立只读归属复核：.tmp/composite-wikipedia-2wFd59/observed-before-checks.json 中真实已结算网页账11秒，规范云端函数分配页面10秒、无法归属1秒，10+1=11，输入原账未变。函数来源现已提交d33540e，源码SHA256仍为fa00172d987a6fe41081497b0ad1c883c480e11e19e02f051946efcd6041ca43；此前“尚未提交”仅描述当时状态。该复核不启动浏览器，不替代最后非复合排除验收。完整真实测试仍失败/待验收，不提交复合批次，不发布。代码核实normalizer从defaultCompositeSites/defaultUserCompositeSites/customCompositeList合并effective清单，支持夹具失败原因；修正夹具尚未运行真实浏览器，等待新的单次复验授权。
+
+PO经架构任务批准共享修复后一次Wikipedia隐私与原账不变复验（60–90秒）。测试仅在Node侧读取COMPOSITE_ANALYSIS_TEST_SOURCE指定的尚未提交云端纯函数，记录哈希和未提交来源；不打入扩展。真实普通非复合网站排除、关闭清理与旧原账不变同步核对。此次仅运行一次，失败不追加重跑。
+
+此次真实复验失败：先因缺helper在启动浏览器前退出，补齐原隔离helper后执行唯一真实运行。Wikipedia真实导航/标题/模拟SPA观察、默认关闭及共享修复后的query/fragment排除断言通过；读取原始账时未找到Wikipedia已结算分段，仅两个about-page.chrome-local零秒分段，原因未明。关闭/非复合排除/原账不变/归属守恒后续断言未执行，不记通过；不修改网页计时、身份认证或账本来迁就测试，不再启动浏览器。证据.tmp/composite-wikipedia-4oxYoy/observed-before-checks.json、wikipedia-real.png及test-results保留。只读云端分析源SHA256为fa00172d987a6fe41081497b0ad1c883c480e11e19e02f051946efcd6041ca43，尚未执行归属函数，不能把哈希视为算法验收。
+
+只读诊断已核实：runtime/session.js的getSession读取storage.session.session_v1与storage.local.session_v1_persistent并选较新者，测试误读local.session_v1；signal合并与后台dispatch/串行结算均异步，goto完成不等于原段已持久化。测试尚未记录真实激活/监控/焦点或等待Wiki ACTIVE，所以缺段根因仍未知；裸profile/device ID不参与activation-gate判定，不能认定假身份必然关闭监控。仅补测试阶段读取真实getTimingSession、脱敏activation/monitoring/focus及等待ACTIVE/正时长结算，保留失败现场，不执行浏览器。若在可信ACTIVE及结算完成证据下仍缺账则独立登记P0，禁止混改复合功能。
+
+新增一次诊断复验已执行并失败在最后非复合夹具：此前ACTIVE/同tab/window/focus、真实11秒Wiki分段、标题隐私、关闭清理、旧分段不变及Node云端归属守恒断言均通过。清空compositeList后仍观察到site=wikipedia.org的复合记录，说明来源清单未清空，不能把仍明确定义为复合的网站当作普通待归类。仅修测试为同时清空隔离配置defaultCompositeSites/defaultUserCompositeSites/customCompositeList及规则，并在导航前先核验resolveManagedTargetAttribution为pending_composite/fallback；不改生产规则、不再浏览器运行。旧缺段场景未证明真实计时缺陷，不宣称已关闭历史风险。
+
+职责extension-local，基线19eecdc。先提取原终端观察、诊断预算淘汰、授权证据上传和隐私说明；共享规范只从contracts/composite-page-evidence/v1.js受控生成到extension/core/generated/composite-page-evidence-v1.js，并校验精确字节。排除云端/Pages/Native/Popup/网页计时/原账与配额，不提升版本、不部署、不替换原候选。
+
+顺序：共享副本与observer → 终端启动/预算/授权接线 → 终端专项 → Wikipedia真实导航/标题/SPA与已结算分段只读对照 → 类型/diff/scope/隐私与职责审查。接口、删除保护或隐私语义有差异交给架构任务，不能自行改协议。真实站点不可访问即保留阻塞，mock不替代真实验收；未完成不得提交为已验收。分类更正投影只由云端处理，不改终端原账。
+
+当前终端observer/shared专项、typecheck/root/diff通过。真实Wikipedia观察测试只验证真实站点、真实扩展观察和结算事实；云端归属守恒仍等待规范分析模块测试出口，不使用原草稿冒充新主线算法，不因观察测试通过而关闭完整验收。
+
+真实Wikipedia初次运行失败且保留阻塞：Chrome导航加载临时标题为无协议的en.wikipedia.org/wiki/Mathematics?observation=public-fixture#probe；共享sanitize仅去除带http(s)协议标题URL，导致查询参数通过title进入观察，路径本身正确排除查询。未上传家庭/生产数据，测试无云token。证据test-results/composite-wikipedia-unpack-10508--not-fabricate-ledger-facts/error-context.md与隔离.tmp Profile保留。不得自行更改共享规则或继续发布；提交架构任务修复规范源，终端等待更新后再生成副本。标题/SPA观察已真实产生，关闭/原账守恒后续断言尚未运行，不记通过。
+
+共享修复接入：基于a754e95建立新隔离树；原复合树和任务记录完整保留。仅从该提交生成副本，未再次运行真实浏览器；此前隐私失败仍阻断完整验收。
+
+
 ## 复合页面标题隐私阻断（2026-09-28）
 
 控件所属任务在隔离真实 Wikipedia 导航中发现 Chrome 临时标题为无协议 URL，现有共享 sanitizer 只替换 http(s) URL，导致 query/fragment 残留。当前任务修复唯一共享源：标题中的域名 URL（含无协议形式）整体替换为 [link]，并以真实失败形态补固定向量；不改网页原账、配额、页面归属算法或扩展候选。终端生成副本由所属任务同步。最小验证为共享向量/副本检查、现有证据与云端聚焦测试；真实复验未通过前保持发布阻断，不把单元通过记为完整隐私验收。

@@ -126,6 +126,7 @@ export const DEFAULT_CONFIG = {
   lockedDomains: [],
   restConfig: { reminderInterval: 15, maxRestDuration: 60, firstReminderMinutes: 120, repeatReminderMinutes: 60 },
   autonomyConfig: { restrictedEntryConfirmationRequired: true, softReminderTimeoutAction: 'end_rest' },
+  compositeReviewConfig: { enabled: false },
   clientLoggingPolicyV1: {
     localEnabled: true,
     localMinLevel: 'warning',

@@ -1,5 +1,6 @@
 // infra/cloud-sync.js — 云同步 + 心跳
 import { getStatsRange, getDateKey } from './storage.js';
+import { syncCompositePageEvidence } from './composite-page-observer.js';
 import { pumpQuotaAudit } from './quota-audit-upload.js';
 import { recordSyncHealth } from './diagnostic-evidence.js';
 import { DEFAULT_CONFIG } from './storage.js';
@@ -4119,6 +4120,13 @@ export async function syncStatsFoundationV1({ enabled = false, forceRetryExhaust
   const hourlyStatsResult = usageStatsResult.hourlyStats;
   const targetStatsResult = usageStatsResult.targetStats;
   const hourlyTargetStatsResult = usageStatsResult.hourlyTargetStats;
+  // Optional evidence cannot change ledger success or upload acknowledgments.
+  if (enabled) {
+    const local = await chrome.storage.local.get('guardian_config').catch(() => ({}));
+    if (local.guardian_config?.compositeReviewConfig?.enabled === true) {
+      await syncCompositePageEvidence(cloudRequest).catch(() => {});
+    }
+  }
   if (usageStatsResult.failed > 0 || usageStatsResult.errors.length > 0) {
     hadFailure = true;
     errors.push(...usageStatsResult.errors);
