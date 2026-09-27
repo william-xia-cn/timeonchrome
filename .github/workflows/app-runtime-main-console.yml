@@ -4,7 +4,12 @@ on:
   pull_request:
     paths:
       - 'pages/index.html'
+      - 'pages/composite-review.js'
+      - 'tests/unit/composite-parent-console.test.js'
+      - '.github/workflows/app-runtime-main-console.yml'
       - 'pages/_redirects'
+      - 'tools/stage-main-console-release.js'
+      - 'tests/unit/main-console-release-stage.test.js'
       - 'tests/unit/app-runtime-integration.test.js'
   push:
     branches: [master]
@@ -20,3 +25,5 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - run: node tests/unit/app-runtime-integration.test.js
+      - run: node tests/unit/composite-parent-console.test.js
+      - run: node tests/unit/main-console-release-stage.test.js

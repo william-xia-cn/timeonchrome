@@ -1188,6 +1188,20 @@
             </div>
           </div>
 
+          <section id="composite-page-review" class="composite-review-section" aria-labelledby="composite-review-heading">
+            <h3 id="composite-review-heading">复合内容复核</h3>
+            <p class="composite-review-note">启用后记录复合网站的脱敏页面路径与标题；不采集搜索词、正文或隐身页面。每站当日全设备已确认网页用量达到 30 分钟后上传页面证据。复核意见不改变配额或网站规则。</p>
+            <div class="composite-review-controls">
+              <label><input id="composite-review-enabled" type="checkbox"> 启用复合页面分析</label>
+              <button id="composite-review-save" class="btn-add" type="button">保存</button>
+              <button id="composite-review-refresh" class="btn-add" type="button">刷新</button>
+            </div>
+            <p class="composite-review-note">本地证据最多保留 3 天；待处理详情 30 天后清除，处理后再保留 30 天。关闭停止采集，已有详情可逐项删除。证据不足不代表没有使用。</p>
+            <div id="composite-review-status" role="status"></div>
+            <div id="composite-review-usage"></div>
+            <div id="composite-review-list"></div>
+          </section>
+
           <div class="card" id="unclassified-notification-settings-card">
             <div class="card-header">
               <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/notice.svg" alt="">未归类网站超长使用通知</div><div class="card-subtitle">当前孩子的功能规则；消息通道由家长账号统一管理</div></div>
@@ -2297,6 +2311,7 @@ function renderProfileOptions() {
 
 async function selectProfile(id) {
   currentProfileId = id;
+  window.resetCompositeReviews?.();
   remoteConfigVersion = null;
   profileNotificationSettingsState = { profileId: null, loading: false, settings: null };
   rulesSitePolicyState.usedUnclassified = [];
@@ -2504,6 +2519,7 @@ function syncRulesManagementTabs() {
 
 function renderRulesManagementPage() {
   syncRulesManagementTabs();
+  if (cloudRulesManagementActiveTab === 'site-management') void window.loadCompositeReviews?.();
   if (cloudRulesManagementActiveTab === 'site-management') renderRulesPage();
   if (cloudRulesManagementActiveTab === 'quota') renderQuotaPage();
   if (cloudRulesManagementActiveTab === 'autonomy') renderAutonomyPage();
@@ -9621,5 +9637,6 @@ function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>
+<script src="composite-review.js"></script>
 </body>
 </html>

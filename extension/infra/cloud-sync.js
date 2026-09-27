@@ -1,5 +1,7 @@
 // infra/cloud-sync.js — 云同步 + 心跳
 import { getStatsRange, getDateKey } from './storage.js';
+import { syncCompositePageEvidence } from './composite-page-observer.js';
+import { createOptionalEvidenceRunner } from './optional-evidence-runner.js';
 import { pumpQuotaAudit } from './quota-audit-upload.js';
 import { recordSyncHealth } from './diagnostic-evidence.js';
 import { DEFAULT_CONFIG } from './storage.js';
@@ -1083,7 +1085,7 @@ export async function readDeviceIntervalEvidenceDay(date) {
   throw new Error('INTERVAL_EVIDENCE_INCOMPLETE');
 }
 
-async function cloudRequest(method, path, body = null, retries = 3) {
+async function cloudRequest(method, path, body = null, retries = 3, signal = null) {
   if (!syncState.deviceToken) {
     throw new Error('No device token');
   }
@@ -1092,7 +1094,10 @@ async function cloudRequest(method, path, body = null, retries = 3) {
   const batchId = createCloudRequestId('batch');
   await markCloudConnectionAttempt(path);
   for (let attempt = 0; attempt < retries; attempt++) {
+    if (signal?.aborted) throw new DOMException('Optional request cancelled', 'AbortError');
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
     const timeoutId = setTimeout(() => controller.abort(), CLOUD_CONFIG.REQUEST_TIMEOUT_MS);
     const requestId = syncState.currentRequestId || createCloudRequestId('request');
     try {
@@ -1169,6 +1174,8 @@ async function cloudRequest(method, path, body = null, retries = 3) {
 
     } catch (e) {
       clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) throw e;
       lastError = e;
       e.requestId = requestId;
       e.batchId = batchId;
@@ -1191,6 +1198,8 @@ async function cloudRequest(method, path, body = null, retries = 3) {
       if (attempt < retries - 1) {
         await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
       }
+    } finally {
+      signal?.removeEventListener('abort', abort);
     }
   }
 
@@ -1206,6 +1215,12 @@ async function cloudRequest(method, path, body = null, retries = 3) {
   await markCloudConnectionFailure(path, error);
   throw error;
 }
+
+const optionalCompositeEvidenceSync = createOptionalEvidenceRunner(async (signal) => {
+  const local = await chrome.storage.local.get('guardian_config');
+  if (signal.aborted || local.guardian_config?.compositeReviewConfig?.enabled !== true || !syncState.deviceToken || syncState.monitoringEnabled === 0) return;
+  await syncCompositePageEvidence((method, path, body) => cloudRequest(method, path, body, 1, signal), { signal });
+});
 
 async function cloudAnonymousRequest(method, path, body = null) {
   await markCloudConnectionAttempt(path);
@@ -1976,6 +1991,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     syncState.currentRequestId = previousRequestId;
     syncState.isSyncing = false;
     syncState.syncStartedAt = 0;
+    if (!shouldRunFollowUpSync) optionalCompositeEvidenceSync.start();
     if (shouldRunFollowUpSync) {
       await syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesFn, {
         ...options,

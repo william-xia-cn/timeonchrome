@@ -1,5 +1,72 @@
 # TASK_BOARD
 
+## NOW：复合分析接收入口与发布隔离（2026-09-28）
+
+PR102首次CI阻断：持久化专项前19项通过，最后一项仍断言032文件不存在，这是接入前的隔离阶段条件。按本轮已批准schema接入改为实际migration与冻结夹具逐字规范化一致；保留固定SHA、删除竞态及原账保护测试。不改产品语义、不绕过测试；本项测试文件为接入阶段精确范围补充。
+
+接收批次提交前审计：Matched＝路由接线、严格显式布尔开关、032 additive表与既有夹具一致、10档案轮转、逐日/清理/通知失败隔离、稳定码计数及既有CI接入；Deviated/Extra＝无，本批源码Missing＝无。接线测试（鉴权stub）、维护测试（绑定stub）、真实本地D1专项（auth/provider夹具）、TypeScript及Wrangler4.127.1 dry-run通过；不将这些证据称为生产通知或真实账号联调。测试最初VM不支持export已只修提取器，复跑通过。没有生产migration/部署/配置写入；整体目标仍含发布与版本收口。维护服务文件、对应接线测试和既有composite-evidence workflow为本批明确范围，未触及扩展/Native/账本。
+
+维护实现清单：现有 CONFIG_CACHE 保存非权威轮转游标，每轮按 id 读取至多11条、处理10个档案及各自最近三天，末尾回绕；KV迟延可能重复扫描，由现有幂等写入保护，不用游标证明账本完整。配置损坏或某日失败不阻断其余档案；过期详情清理最多100条，通知继续使用既有20条及重试租约。各阶段失败只输出稳定码和计数。新增维护纯函数夹具覆盖轮转、回绕及失败隔离，并在既有复合CI运行接线测试；不增加平台/E2E测试。单个档案内部工作量未因此获得全局时间上界，不宣称解决所有规模问题。
+
+最新进展：发布隔离 PR #101 已经两项 CI 通过并合入 0e4a8f7，尚未执行生产发布。本地接收分支已加入精确复合路由分发、配置白名单与严格 enabled 布尔校验；接线/配置/migration parity测试、锁定 Contracts构建和根 TypeScript检查通过。既有真实本地 D1专项通过：显式开启、阈值、逐批ACK、归属过滤、意见、删除及原账不变；鉴权/provider仍用受控夹具，不能冒称真实token/外部通知验收。维护调度的有界执行和稳定错误诊断仍未完成，当前补丁保持未提交，不部署。隔离依赖按锁安装，未运行安装脚本。
+
+页面 PR #100 已合入 master 056160b；四项 CI 全部成功，源码与 mock 验收完成，不等于部署。职责 runtime-cloud-contract；本批允许 workers/src/index.ts、workers/src/routes/profiles.ts、workers/migrations/032_composite_page_reviews.sql、相关最小接入测试和既有轻量 CI。先对照原草稿与已合并服务，再接配置白名单/严格布尔校验、路由、维护调用和 additive schema；不修改原账/配额，不复制原草稿的旧服务。最小验证为配置边界、路由鉴权、migration 与既有测试 schema 一致性、复合云端专项、typecheck/dry-run、diff/职责。禁止生产 migration、部署或家庭开关写入，完成源码验收后单独核对发布前提。
+
+发布阻断已核实：pages/optional-modules.json 当前包含 task-management-v1 → /task/，主入口链接 /modules/；直接整目录部署会发布用户明确排除的 Task 创建入口。后续需按现有发布流程隔离候选资源并验证目录及直达路径均不可用，不通过隐藏单个按钮伪称未发布。此项未解决前不部署主 Pages；Task 源码仍保留，不删除已有工作。
+
+维护入口审查：已合并 maintainCompositeReviews 会枚举全部 profiles 并扫描三天；原草稿 catch(()=>{}) 会吞掉失败。接线前需确认有界执行及稳定无隐私诊断，不能把旧草稿直接复制视为生产就绪。
+
+发布隔离实施子项：新增 tools/stage-main-console-release.js 和对应纯文件测试；在新临时目录复制主 Pages（排除 task/），过滤 optional-modules.json 的 Task 项并为 /task、/task/* 写回主页重定向，保留其他入口。仅发布产物变化，不删除源码、不动 Task API 或家庭配置；输出目录必须不存在，禁止覆盖或清理。接入既有 production workflow 的主 Pages 步骤及轻量页面 CI。最小验证：文件排除、目录过滤、重定向、其他文件字节一致、重复目标拒绝、diff与workflow语法；不运行浏览器/平台/账本测试，不实际部署。
+
+隔离子项提交前审计：Matched＝Task文件/目录项排除、直达路径重定向、保留原源码、拒绝覆盖、主入口字节一致；Deviated/Extra＝无，本地实现 Missing＝无，线上直达验收仍待实际授权发布后执行。固定文件测试、实际 pages 产物核对、node --check、两个 workflow YAML 解析、diff检查通过。实际候选位于系统临时目录 toc-main-pages-77ed98fdfef2441e89840cc29fc9d0e6，模块列表为空、task目录不存在；未上传。该子项独立提交，不包含尚未完成的032 migration。发布脚本/测试/两个workflow为本任务精确范围例外。
+
+## NOW：复合分析家长页面独立整合（2026-09-28）
+
+提交前审计：Matched＝原草稿独立区块、服务端详情口径、代际隔离、设备标识裁剪、确认/保存/恢复、桌面与390px mock控件可达；Deviated/Extra＝无；本页面源码范围 Missing＝无，整体功能仍缺生产路由/schema和部署，禁止当作已上线。Node VM 7项通过；实际 CSS/HTML 区块/脚本的隔离 mock 桌面1280×900、移动390px全页已目视，移动 scrollWidth=390 无横溢。仅证明该区块布局，不冒称完整登录全流程；截图在本机 Temp 的 composite-parent-desktop-full.png / composite-parent-mobile.png，不含私人数据。复用既有主页面轻量 CI 加入专项，不触发平台构建；精确例外为该 workflow 与本次测试文件。原失败/中间状态保留于下文，以上为最新状态。
+
+职责 runtime-cloud-contract；从 master d38e456 建立独立工作树。原主目录 pages/index.html 混有 Rest、时间窗及复合页面草稿，保留原地，仅提取复合分析部分。实施清单：①核对已合并 API 与草稿；②独立页面脚本和既有页面入口；③孩子切换/并发读取/错误恢复与配置保存的聚焦测试；④桌面及移动 mock 目视；⑤范围、语法、diff 检查后单主题 PR。允许 pages/index.html、pages/composite-review.js、对应聚焦测试与本文档；必要 CI 仅接入页面专项。排除扩展、Native、Task、Rest、网页账本、生产配置和部署；不重复已通过真实扩展验收。
+
+只读审查已确认草稿尚不能原样合入：详情使用列表旧 total_seconds 而非详情返回的更正后 review.total_seconds；设备展示原始 deviceId；详情及保存请求仅部分检查孩子切换，缺少同孩子刷新后的代际隔离；配置保存仍需核对共用函数实际目标捕获。应以当前服务端详情为准，设备使用局部编号，迟到结果不得覆盖新视图；这只修派生页面，不修改原账或当前配额。尚未完成页面实现和目视，不宣称通过。
+
+实施进展：已独立提取页面区块及脚本，加入刷新代际、切换孩子立即清空、详情使用服务端更正后值、设备局部编号和保存后配置读回隔离。四项 Node VM 聚焦场景通过（跨孩子、同孩子刷新竞态、详情权威值/设备标识裁剪、配置读回迟到）；node --check 与 git diff --check 通过。尚缺桌面/移动 mock 目视、完整错误/保存流程覆盖及 CI 接入，保持未提交、未发布。共用 selectProfile 的其他配置读取竞态不在本补丁中擅自重构。
+
+## 复合源码整合与轻量CI收尾（2026-09-28）
+
+PR #96云端服务已合入a080c454，PR #97终端已合入3cdfe92；PR97精确head ff8c55b8的CI36354433676/36354433677通过。真实分项隐私/原账证据保留，最后普通未归类排除单次19.5秒通过（真实fallback/null且观察0），不是一次整套通过。额外受控单测证实并修复关闭后续传及可选上传占用主同步等待链：每批重核开关/绑定，独立单飞与真实AbortSignal。原扩展目录/候选/云端生产均未改变；完整功能仍缺家长页面与生产接入验收，保持默认关闭。Task仍不得发布或激活。
+
+本收尾职责runtime-cloud-contract，仅改本记录及.github/workflows/composite-evidence.yml：将optional-evidence-runner及其单测加入现有CI路径和执行入口，避免该文件单独修订时漏检。必要本地验证仅YAML语法、路径/命令断言和diff；复用原提交产品证据，不跑浏览器或全平台。精确workflow例外用于既有兼容测试治理，不接管终端实现。
+
+## 复合分析终端整合（2026-09-28）
+
+PR97架构审查待证问题：证据冻结与POST之间、或首批ACK后关闭采集/切换档案时，终端可能继续发送旧证据；主云同步await可选证据上传可能延长单飞锁。先用受控单测与调用链核实，若证实只修本终端模块，不动原账/云端协议/生产。PR97当前CI范围门禁还因旧基线混入后续云端提交失败，需将最新主线合并并保留双方TASK_BOARD记录；暂不合并PR或发布。
+
+已证实并获架构任务最小修复授权：冻结后关闭的受控测试原为actual POST1、expected0；主同步调用链在isSyncing=true期间await可选上传，catch不能隔离延迟。仅在终端证据上传每批重读开关/绑定、独立单飞与可取消总时限，取消后不得继续下一批；不修改主账ACK、云端协议或计时。新测试覆盖冻结后关闭、首批后换绑与挂起请求的主同步非阻塞。修复后仍须合入当前master以剔除PR旧基线带入的云端文件，保留双方任务记录。
+
+修复后专项结果：observer单测含冻结后关闭和首批后换绑通过；optional-evidence-runner单测验证主同步返回时可选请求仍挂起、重入被拒、20ms期限发出AbortController真实取消且完成后可重试；typecheck/diff通过。生产默认期限15秒，cloudRequest单次请求接受独立AbortSignal，不采用仅Promise.race超时。可选任务在syncNow finally释放主锁后启动，不更改主账上传ACK；无功能时读取配置后立即退出。源代码分项审计Matched=关闭/换绑/主同步性能隔离及最小测试，Deviated/Extra=无。暂不宣称生产联调通过。
+
+最终单项真实复验：PO授权call_OhHNkwHpj3e3K7NRpnTmvUnF，仅运行COMPOSITE_ACCEPTANCE_FALLBACK_ONLY=1场景一次，19.5秒通过。全新隔离Profile先断言真实分类为pending/null，启用采集并访问真实Wikipedia，显式观察后记录数0；证据.tmp/composite-wikipedia-UWlOs1/fallback-evidence.json。此前长测试失败不改写成整套一次通过，验收使用分项证据：真实导航/标题/模拟SPA、隐私、默认关闭/关闭清理、11秒原账不变及10+1守恒，加本次待归类排除。observer专项、生成副本逐字节检查、typecheck、扩展根目录1.90MB及diff检查通过。职责路径仅TASK_BOARD、extension与专项测试，Worker/Pages/Native/计时/原账/版本未改；Matched=本批提取与上述验证，Deviated/Extra=无。授权上传与预算压力为单测证据，尚未生产联调；完整云端功能未发布，不能宣称已上线。原主目录及固定候选保留。
+
+保留真实证据的独立只读归属复核：.tmp/composite-wikipedia-2wFd59/observed-before-checks.json 中真实已结算网页账11秒，规范云端函数分配页面10秒、无法归属1秒，10+1=11，输入原账未变。函数来源现已提交d33540e，源码SHA256仍为fa00172d987a6fe41081497b0ad1c883c480e11e19e02f051946efcd6041ca43；此前“尚未提交”仅描述当时状态。该复核不启动浏览器，不替代最后非复合排除验收。完整真实测试仍失败/待验收，不提交复合批次，不发布。代码核实normalizer从defaultCompositeSites/defaultUserCompositeSites/customCompositeList合并effective清单，支持夹具失败原因；修正夹具尚未运行真实浏览器，等待新的单次复验授权。
+
+PO经架构任务批准共享修复后一次Wikipedia隐私与原账不变复验（60–90秒）。测试仅在Node侧读取COMPOSITE_ANALYSIS_TEST_SOURCE指定的尚未提交云端纯函数，记录哈希和未提交来源；不打入扩展。真实普通非复合网站排除、关闭清理与旧原账不变同步核对。此次仅运行一次，失败不追加重跑。
+
+此次真实复验失败：先因缺helper在启动浏览器前退出，补齐原隔离helper后执行唯一真实运行。Wikipedia真实导航/标题/模拟SPA观察、默认关闭及共享修复后的query/fragment排除断言通过；读取原始账时未找到Wikipedia已结算分段，仅两个about-page.chrome-local零秒分段，原因未明。关闭/非复合排除/原账不变/归属守恒后续断言未执行，不记通过；不修改网页计时、身份认证或账本来迁就测试，不再启动浏览器。证据.tmp/composite-wikipedia-4oxYoy/observed-before-checks.json、wikipedia-real.png及test-results保留。只读云端分析源SHA256为fa00172d987a6fe41081497b0ad1c883c480e11e19e02f051946efcd6041ca43，尚未执行归属函数，不能把哈希视为算法验收。
+
+只读诊断已核实：runtime/session.js的getSession读取storage.session.session_v1与storage.local.session_v1_persistent并选较新者，测试误读local.session_v1；signal合并与后台dispatch/串行结算均异步，goto完成不等于原段已持久化。测试尚未记录真实激活/监控/焦点或等待Wiki ACTIVE，所以缺段根因仍未知；裸profile/device ID不参与activation-gate判定，不能认定假身份必然关闭监控。仅补测试阶段读取真实getTimingSession、脱敏activation/monitoring/focus及等待ACTIVE/正时长结算，保留失败现场，不执行浏览器。若在可信ACTIVE及结算完成证据下仍缺账则独立登记P0，禁止混改复合功能。
+
+新增一次诊断复验已执行并失败在最后非复合夹具：此前ACTIVE/同tab/window/focus、真实11秒Wiki分段、标题隐私、关闭清理、旧分段不变及Node云端归属守恒断言均通过。清空compositeList后仍观察到site=wikipedia.org的复合记录，说明来源清单未清空，不能把仍明确定义为复合的网站当作普通待归类。仅修测试为同时清空隔离配置defaultCompositeSites/defaultUserCompositeSites/customCompositeList及规则，并在导航前先核验resolveManagedTargetAttribution为pending_composite/fallback；不改生产规则、不再浏览器运行。旧缺段场景未证明真实计时缺陷，不宣称已关闭历史风险。
+
+职责extension-local，基线19eecdc。先提取原终端观察、诊断预算淘汰、授权证据上传和隐私说明；共享规范只从contracts/composite-page-evidence/v1.js受控生成到extension/core/generated/composite-page-evidence-v1.js，并校验精确字节。排除云端/Pages/Native/Popup/网页计时/原账与配额，不提升版本、不部署、不替换原候选。
+
+顺序：共享副本与observer → 终端启动/预算/授权接线 → 终端专项 → Wikipedia真实导航/标题/SPA与已结算分段只读对照 → 类型/diff/scope/隐私与职责审查。接口、删除保护或隐私语义有差异交给架构任务，不能自行改协议。真实站点不可访问即保留阻塞，mock不替代真实验收；未完成不得提交为已验收。分类更正投影只由云端处理，不改终端原账。
+
+当前终端observer/shared专项、typecheck/root/diff通过。真实Wikipedia观察测试只验证真实站点、真实扩展观察和结算事实；云端归属守恒仍等待规范分析模块测试出口，不使用原草稿冒充新主线算法，不因观察测试通过而关闭完整验收。
+
+真实Wikipedia初次运行失败且保留阻塞：Chrome导航加载临时标题为无协议的en.wikipedia.org/wiki/Mathematics?observation=public-fixture#probe；共享sanitize仅去除带http(s)协议标题URL，导致查询参数通过title进入观察，路径本身正确排除查询。未上传家庭/生产数据，测试无云token。证据test-results/composite-wikipedia-unpack-10508--not-fabricate-ledger-facts/error-context.md与隔离.tmp Profile保留。不得自行更改共享规则或继续发布；提交架构任务修复规范源，终端等待更新后再生成副本。标题/SPA观察已真实产生，关闭/原账守恒后续断言尚未运行，不记通过。
+
+共享修复接入：基于a754e95建立新隔离树；原复合树和任务记录完整保留。仅从该提交生成副本，未再次运行真实浏览器；此前隐私失败仍阻断完整验收。
+
+
 ## 复合页面标题隐私阻断（2026-09-28）
 
 控件所属任务在隔离真实 Wikipedia 导航中发现 Chrome 临时标题为无协议 URL，现有共享 sanitizer 只替换 http(s) URL，导致 query/fragment 残留。当前任务修复唯一共享源：标题中的域名 URL（含无协议形式）整体替换为 [link]，并以真实失败形态补固定向量；不改网页原账、配额、页面归属算法或扩展候选。终端生成副本由所属任务同步。最小验证为共享向量/副本检查、现有证据与云端聚焦测试；真实复验未通过前保持发布阻断，不把单元通过记为完整隐私验收。
