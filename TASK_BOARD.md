@@ -7,7 +7,9 @@
 - 验证：页面配置聚焦测试、主控制台入口测试、桌面/移动 mock 目视与添加行为、职责差异检查、git diff --check；CI 使用现有主控制台/轻量 gate。不运行 Windows/macOS/WiX/账本全量测试。
 - 通过后 PR 合并，仅发布主 Cloudflare Pages，核对精确 SHA 和静态回读；不发布 Worker、Guardian、Runtime Pages、安装包或 R2。生产不写家庭配置。
 - 本地结果：pages-config-v12-fields 242/242、app-runtime-integration PASS；独立 file 页面禁止 fetch 后，三种入口输入 ` 8:00 ` / ` 24:00 ` 均保存 08:00–24:00，1440×1000 与 390×844 截图目视通过（output/schedule-desktop.png、schedule-mobile.png，本地忽略证据）。未登录、未写家庭配置。
-- 提交前审计：Matched＝仅提取格式规范化/取消与非法输入保持/三入口回归/桌面移动布局；Deviated/Missing/Extra＝无（本批实现）。发布尚未执行，不能称线上已更新。
+- 提交前审计：Matched＝仅提取格式规范化/取消与非法输入保持/三入口回归/桌面移动布局；Deviated/Missing/Extra＝无（本批实现）。
+- 已发布：PR #70（076cedb）合并为 c76de935680fabb2d0c9f4bf5f1f1fcc5180a38d；PR gate/launch-route 和主线精确 SHA CI 36334102016 均成功。production run 36334138843 成功，仅部署 mainPages，deployment 861552b0-c362-4101-8ade-6f44de64a0e2。稳定地址 HTTP 200，回读包含 normalizeScheduleTimeInput 和六处 prompt 调用。
+- 部署 manifest 核对：Runtime Worker b00deec4、Guardian 8d21c210、Runtime Pages f2a6ca68 均保持盘点基线，R2 latest 仍2.3.1；migration 为空。原脏主目录及固定扩展目录未改动。此项已整合/已部署，不代表 Rest、复合页面分析或 Task 模块已验收。
 
 ## 2026-09-28：两仓已批准整合结果（覆盖下方旧审批阻塞）
 
