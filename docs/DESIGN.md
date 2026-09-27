@@ -1,5 +1,9 @@
 # TimeOnChrome — 技术设计文档
 
+### 日周休息软配额云端配置（D-107）
+
+restConfig.weeklyFirstReminderMinutes为null或1–10080整数分钟，缺省840；日字段独立缺省120，repeatReminderMinutes为两周期共用间隔。Pages自主度以小时/分钟编辑周值，保持expectedVersion写保护和导入差异逐项选择；读取缺省值不写回生产配置。Worker新档案默认含840，旧档案由消费端缺省解释。此项不是硬配额，不改timeQuota/账本；终端展示和触发由所属任务实现，发布等待联合验证。
+
 > App Runtime 的独立模块设计位于 `app-runtime-management/docs/DESIGN.md`。本文件只维护 Guardian adapter、主控制台 launch 入口和 `@timeonchrome/app-runtime-contracts` 兼容边界。
 
 版本：1.7.34

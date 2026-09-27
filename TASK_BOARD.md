@@ -1,5 +1,15 @@
 # TASK_BOARD
 
+## NOW：日周休息软配额云端页面整合（2026-09-28）
+
+PR #84通用入口fbb7846已合入1308981a9df59fb05d30b4b528deefe75fe4fb09；Task Console36345837970、主入口36345837985、App Runtime36345837987通过。没有Pages部署，终端联合门仍保留。
+
+本批职责runtime-cloud-contract，来源为主目录现有未提交且已批准的日周Rest改动；原目录不动。实施：①将旧D-100软配额决策映射到D-107，保留主线原D-100；②只提取profiles默认weeklyFirstReminderMinutes=840、主Pages自主度日/周独立开关/时分编辑及导入导出，不提取compositeReview或终端；③复用已有可选字段验证，补云端聚焦测试及桌面/手机mock；④通过后独立PR，仅源码整合。上线须与终端提醒实现及真实验收共同收口，不因页面通过就宣称功能生效。
+
+最小验证：Worker默认/校验、Pages配置与日周开关/保存/导入导出聚焦测试、TypeScript、桌面/手机截图、职责与diff。精确例外docs/DESIGN.md、docs/UI_STYLE_MAP.md、tests/unit/rest-weekly-cloud.test.js、tests/manual/rest-weekly-cloud-ui-smoke.mjs及.github/workflows/rest-weekly-cloud.yml（同一主题的最小消费CI）。不运行Native/安装器/全量扩展/账本测试，不部署、不写生产配置。保留媒体不计、借用Rest计入、硬上限优先的既有语义，但本批不触碰这些计算。
+
+本批提交前审计：Matched＝13个来源页面hunk及Worker默认、独立日周配置/共用间隔、原导入差异选择/null保留、最小消费CI；Deviated/Missing/Extra＝本批无。Worker原校验23/23、新云端默认及view测试、Pages字段242/242、mock保存/无效时分拒绝/两者关闭/导入导出选择通过；1440×1000及390×844截图目视通过，typecheck/内联JS语法/YAML/diff/职责通过。首轮mock误用config而非实际接口data，保存回读为空使断言失败；修正夹具后通过，未改变产品回读语义。整体仍缺终端独立整合与真实联合验收，不部署、不修改旧工作树。
+
 ## NOW：云端通用模块入口（2026-09-28）
 
 职责runtime-cloud-contract；仅pages/index.html增加通用/modules/链接（桌面次级导航及移动更多），恢复旧8603fbb独立模块目录和optional-modules.json，不往主控制台加入Task状态或业务。目录严格验证同源路径和字符串字段，加载/空目录/错误可辨识；保留返回控制台，长标签窄屏可达。通过现有Task页面mock追加目录与导航验证，不访问真实家庭或启用终端。该批只整合源码，部署仍等待SPEC-002终端能力及受控验收。

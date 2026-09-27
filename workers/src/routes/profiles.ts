@@ -165,7 +165,7 @@ function buildSchemaDefaults(): object {
         sunday:    { studyWindows: null, compositeWindows: null, restWindows: [{ start: '15:30', end: '24:00' }] },
       },
     },
-    restConfig:         { reminderInterval: 15, maxRestDuration: 60, firstReminderMinutes: 120, repeatReminderMinutes: 60 },
+    restConfig:         { reminderInterval: 15, maxRestDuration: 60, firstReminderMinutes: 120, repeatReminderMinutes: 60, weeklyFirstReminderMinutes: 840 },
     autonomyConfig:     { restrictedEntryConfirmationRequired: true, softReminderTimeoutAction: 'end_rest' },
     autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
     clientLoggingPolicyV1: {

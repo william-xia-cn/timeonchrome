@@ -1,0 +1,33 @@
+name: Rest Weekly Cloud
+on:
+  pull_request:
+    paths:
+      - 'pages/index.html'
+      - 'workers/src/routes/profiles.ts'
+      - 'tests/unit/rest-weekly-cloud.test.js'
+      - 'tests/manual/rest-weekly-cloud-ui-smoke.mjs'
+      - 'package-lock.json'
+      - '.github/workflows/rest-weekly-cloud.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rest-weekly-cloud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build:app-runtime-contracts
+      - run: npm run typecheck
+      - run: node tests/unit/rest-weekly-cloud.test.js
+      - run: node tests/unit/worker-rest-weekly-config.test.js
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/manual/rest-weekly-cloud-ui-smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rest-weekly-cloud-mock
+          path: output/playwright/rest-weekly-cloud-*.png
