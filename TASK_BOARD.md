@@ -1,5 +1,28 @@
 # TASK_BOARD
 
+## Rest 终端整合（D-107，2026-09-28）
+
+收口审查：日周840默认/独立阈值/合并弹层/继续硬限制核验/Admin只读为Matched；Popup、D-099、Worker/Pages/Native及计时账本均排除，无Extra/Deviated。提醒109项、终端配置、storage配置、Content媒体边界专项、typecheck、extension-root、diff与extension-local职责检查通过。真实扩展用量夹具场景和硬窗口单场景证据分别保留，不宣称未修改夹具后的整个长流程一次通过，不宣称真实计时精度；Admin仅实际HTML/CSS/函数的mock配置桌面及390px目视通过。原失败证据保留。准备独立源码PR，不合并、不部署、不升级版本。
+
+PO追加批准仅补跑硬时间窗优先单场景（约20秒），通过后按既有授权审查并提交独立源码PR；不重复60秒流程，不部署、不更新固定候选。测试通过环境变量REST_ACCEPTANCE_HARD_ONLY=1选择这一场景，证据必须区分局部复验与此前完整流程的部分通过记录。
+
+硬时间窗独立复验通过（8.6秒），使用真实SW/Content/访问路由，记录hard_limit并进入既有Reminder。补齐本地Admin只读面板的桌面/390px目视证据：复用实际HTML/CSS及渲染函数、隔离mock配置，明确不等同登录/同步全流程验收。
+
+PO经架构任务明确批准修复超时关闭竞态及一次聚焦真实复验：Content仅关闭匹配token的弹层；旧token不得关闭或恢复新提醒。无弹层的其他frame继续既有媒体恢复。修复不改变超时、自主度、配额或账本语义。
+
+修复后证据：提醒专项109项通过，终端配置专项和typecheck通过；一次获批真实复验已执行。超时继续的状态、弹层关闭和媒体恢复断言全部通过，桌面/390px截图已目视核对。随后结束场景未出现提醒按钮而失败；尚未取得该次evaluate返回及阈值现场，不能判定产品错误或夹具问题，硬限制路径仍未运行。本批保持待验收，不提交/PR，禁止把该次部分通过写成整体通过。新增证据位于.tmp/rest-unpacked-cenzZ8及test-results。
+
+后续仅增强测试诊断：逐次保存脱敏evaluate结果（原因、日周阈值、prompt摘要）与真实session/活动tab/窗口焦点；结束前等待ACTIVE且Rest桶与活动tab匹配并断言已投递prompt。不得改产品逻辑或伪造会话；本轮不重新启动浏览器。唯一后续真实验证命令为npx playwright test tests/e2e/rest-weekly-unpacked.test.js --reporter=line，预计约2分钟，需另行授权。
+
+追加授权复验结果：日/周各自到期、合并、继续、跨日/跨周、真实60秒超时继续及结束休息通过；最后硬时间窗断言失败。已证实测试把restWindows=[]误当禁止，core/time-windows.js的normalizeWindowList空数组返回null且isWithinWindowList(null)为true，实际为不限时间。本轮仅修正测试为合法且不覆盖当前小时的窗口；不修改产品时间窗。证据.tmp/rest-unpacked-KV9JPJ/diagnostic-events.json保留真实ACTIVE+rest及120秒日周阈值/投递结果。硬限制场景仍待对修正夹具追加验证；未再次启动浏览器，不提交未通过整包。
+
+职责 extension-local；基线 5eb5855，按 PO 批准方案仅提取日周 Rest 阈值、合并弹层、继续硬限制核验及 Admin 只读配置。排除 Popup 应用/网页计算、D-099 页面观察、云端、Native、版本和发布。主目录与固定候选保持原样。
+
+检查表：补丁块提取 → 提醒/配置专项 → 隔离 unpacked 真实 SW/Content/媒体页测试 → 类型、diff、职责检查 → 独立提交和回报。用量夹具只加速阈值，不证明计时精度；真实验收缺失或失败不得记为通过。不写家庭数据，不改网页 ACTIVE/原账/聚合。
+
+当前状态：Rest 补丁已提取，提醒专项106项、终端配置专项、storage配置专项、typecheck及extension-root通过。真实unpacked日提醒、日周合并、滑动继续恢复媒体、跨日与跨周场景通过；超时继续后弹层未关闭，两次真实运行失败，按执行次数门禁停止复验。后台已记录timeout_continue，Content仍显示弹层；代码存在后台只恢复媒体未关闭弹层、页面迟到继续请求返回stale_prompt的竞态。结束与硬限制后续场景尚未执行，不记通过。未提交、未发布，截图和失败记录位于隔离树.tmp/rest-unpacked-*与test-results，均不纳入版本库。
+
+复合批次等待架构任务交付共享规范源SHA及固定向量：contracts/composite-page-evidence/v1.js为唯一来源，终端仅使用受控生成副本extension/core/generated/composite-page-evidence-v1.js；不手工维护第二套算法。原主目录31项脏路径及固定加载候选保持原样。
 ## NOW：复合页面证据共享来源（2026-09-28）
 
 职责 runtime-cloud-contract；契约级源码整合，不启用采集。清单：①在根 contracts/composite-page-evidence/v1.js 提取既有身份、脱敏、JSON SHA-256、北京时间日期和容量/保留期常量；②固定向量及生成副本逐字节检查；③现有轻量复合证据 CI 接入。云端阈值/归属/建议算法不进入本契约。终端生成副本与 import 由控件任务实施，本任务不修改 extension 或 dist。

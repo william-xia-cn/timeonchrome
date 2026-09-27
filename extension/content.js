@@ -591,7 +591,14 @@
         });
       return true;
     } else if (msg.type === 'RESUME_REST_USAGE_MEDIA') {
-      resumeMediaAfterRestReminder();
+      if (msg.token && msg.token === restReminderToken) {
+        clearRestUsageReminder({ resumeMedia: true });
+      } else if (!restReminderToken) {
+        resumeMediaAfterRestReminder();
+      } else {
+        sendResponse?.({ ok: false, resumed: false, reason: 'stale_prompt' });
+        return;
+      }
       sendResponse?.({ ok: true, resumed: true });
       return;
     }
@@ -1005,10 +1012,24 @@
     const isRepeat = payload.reminderKind === 'repeat';
     const softLimitMinutes = Math.max(1, Math.floor(Number(payload.softLimitMinutes) || 120));
     const overageMinutes = Math.max(0, Math.floor((Number(payload.overageSeconds) || 0) / 60));
-    const reminderTitle = isRepeat ? '已超过今日休息软限额' : '已达到今日休息软限额';
-    const reminderSubtitle = isRepeat
+    let reminderTitle = isRepeat ? '已超过今日休息软限额' : '已达到今日休息软限额';
+    let reminderSubtitle = isRepeat
       ? `已超过你设定的软限额 ${overageMinutes} 分钟。`
       : `你设定的今日休息软限额为 ${softLimitMinutes} 分钟。`;
+    const reminders = Array.isArray(payload.reminders) ? payload.reminders.filter(r => ['daily', 'weekly'].includes(r.scope)) : [];
+    if (reminders.length) {
+      const describe = (r) => {
+        const period = r.scope === 'weekly' ? '本周' : '今日';
+        const minutes = Math.max(1, Math.floor(Number(r.softLimitMinutes) || 1));
+        const excess = Math.max(0, Math.floor((Number(r.overageSeconds) || 0) / 60));
+        return r.reminderKind === 'repeat'
+          ? `已超过${period}休息软配额 ${excess} 分钟。`
+          : `已达到${period}休息软配额，你设定的提醒线为 ${minutes} 分钟。`;
+      };
+      reminderTitle = reminders.length > 1 ? '今日与本周休息软配额提醒'
+        : `已${reminders[0].reminderKind === 'repeat' ? '超过' : '达到'}${reminders[0].scope === 'weekly' ? '本周' : '今日'}休息软配额`;
+      reminderSubtitle = reminders.map(describe).join('<br>');
+    }
 
     restReminderHost = document.createElement('div');
     restReminderHost.id = '__toc_rest_usage_reminder__';
@@ -1021,9 +1042,9 @@
           <p class="subtitle">${reminderSubtitle}</p>
           <div class="stats">
             <div class="stat"><div class="label">本周已用</div><div class="value">${formatReminderDuration(payload.weekUsedSeconds)}</div></div>
-            <div class="stat"><div class="label">本周剩余</div><div class="value">${formatReminderDuration(payload.weekRemainingSeconds)}</div></div>
+            <div class="stat"><div class="label">本周剩余（硬配额）</div><div class="value">${formatReminderDuration(payload.weekRemainingSeconds)}</div></div>
             <div class="stat"><div class="label">今日已用</div><div class="value">${formatReminderDuration(payload.todayUsedSeconds)}</div></div>
-            <div class="stat"><div class="label">今日剩余</div><div class="value">${formatReminderDuration(payload.todayRemainingSeconds)}</div></div>
+            <div class="stat"><div class="label">今日剩余（硬配额）</div><div class="value">${formatReminderDuration(payload.todayRemainingSeconds)}</div></div>
           </div>
           <div class="countdown" id="toc-rest-reminder-countdown"></div>
           <div class="slider" id="toc-rest-reminder-slider">

@@ -71,6 +71,12 @@ configureRestUsageReminder({
   getDateKey,
   getQuotaUsageView: (date, { config } = {}) => getQuotaUsageForConfig(config || {}, date),
   getTimingSession,
+  canContinueRest: async ({ prompt }) => {
+    const tab = await chrome.tabs.get(prompt.sourceTabId).catch(() => null);
+    if (!tab?.url) return false;
+    const result = await dispatchModeEvent({ type: 'ACCESS_OBSERVED', tabId: tab.id, url: tab.url, source: 'soft_reminder_continue_check' });
+    return result?.ok !== false && result?.blocked !== true && result?.reminderSent !== true;
+  },
   endRestUsage: async ({ prompt, reason }) => dispatchModeEvent({
     type: 'REQUEST_MODE_CHANGE',
     requestedMode: 'study',
