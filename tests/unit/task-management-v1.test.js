@@ -254,8 +254,22 @@ async function runOptionalHostChecks() {
   check('optional precheck failure is retained as module-only diagnostics', diagnostic?.hook === 'beforeAccess' && diagnostic?.errorCount === 1 && diagnostic?.lastError === 'precheck failed');
   host.resetOptionalModulesForTest();
   await host.activateOptionalModule({ id:'test-module', entry:{label:'Test',href:'test.html'}, beforeAccess:()=>({handled:true,action:'redirect',redirectUrl:'test.html'}) });
-  check('installed optional module participates through generic beforeAccess', (await host.beforeAccess({ url:'https://example.com' })).handled === true);
+  const handledAccess = await host.beforeAccess({ url:'https://example.com' });
+  check('installed optional module participates through generic beforeAccess', handledAccess.handled === true && handledAccess.optionalModuleId === 'test-module');
   check('generic host exposes module entry without domain knowledge', host.getOptionalModuleEntries()[0]?.id === 'test-module');
+  host.resetOptionalModulesForTest();
+  await host.activateOptionalModule({
+    id:'throwing-hooks',
+    async handleMessage(){ throw new Error('message failed'); },
+    async handleAlarm(){ throw new Error('alarm failed'); },
+    async handleLifecycle(){ throw new Error('lifecycle failed'); },
+  });
+  const failedMessage = await host.dispatchOptionalModuleMessage({ optionalModuleId:'throwing-hooks', type:'TEST' }, {});
+  check('optional message failure is isolated to the requested module', failedMessage.handled === true && failedMessage.response?.code === 'OPTIONAL_MODULE_ERROR' && host.getOptionalModuleDiagnostics('throwing-hooks')?.hook === 'handleMessage');
+  const failedAlarm = await host.dispatchOptionalModuleAlarm({ name:'test-alarm' });
+  check('optional alarm failure cannot abort base alarms', failedAlarm.handled === false && host.getOptionalModuleDiagnostics('throwing-hooks')?.hook === 'handleAlarm');
+  await host.notifyOptionalModules('test-lifecycle');
+  check('optional lifecycle failure is diagnostic-only', host.getOptionalModuleDiagnostics('throwing-hooks')?.hook === 'handleLifecycle');
   host.resetOptionalModulesForTest();
 }
 
@@ -264,6 +278,8 @@ function runBoundaryChecks() {
   const installRefs = background.match(/\.\/modules\/task\/install\.js/g) || [];
   check('default-off package does not install the Task module', installRefs.length === 0);
   check('background does not use runtime dynamic import for optional modules', !/installOptionalModule|import\(\s*['\"]\.\/modules\/task/.test(background));
+  check('background wires generic messages and alarms without access precheck activation', background.includes('dispatchOptionalModuleMessage') && background.includes('dispatchOptionalModuleAlarm') && background.includes('GET_OPTIONAL_MODULE_ENTRIES') && !background.includes('beforeAccess('));
+  check('optional alarm dispatch cannot delay the start of core alarm handling', background.includes('const optionalModuleAlarmDispatch = dispatchOptionalModuleAlarm(alarm)') && background.indexOf("if (alarm.name === 'periodicCheckpoint')") > background.indexOf('const optionalModuleAlarmDispatch = dispatchOptionalModuleAlarm(alarm)') && !background.includes('await dispatchOptionalModuleAlarm(alarm)'));
   check('Task install file registers through the generic host', read('extension/modules/task/install.js').includes('activateOptionalModule(createOptionalModule())'));
 
   const hostFiles = [
@@ -273,14 +289,16 @@ function runBoundaryChecks() {
   ];
   const forbidden = /task-management|task_required|GET_TASK|SET_LOCAL_DEBUG_TASK|task-runtime|modules\/task/i;
   check('extension host UI, access, sync and ledgers contain no Task semantics', hostFiles.every((file) => !forbidden.test(read(file))));
-  check('main Admin has no Task activation or Task messages', !/GET_TASK|SET_LOCAL_DEBUG_TASK|task-runtime|modules\/task|GET_OPTIONAL_MODULE_ENTRIES/i.test(read('extension/admin/admin.js')));
+  check('main Admin mounts generic optional-module entries without Task messages', read('extension/admin/admin.js').includes('GET_OPTIONAL_MODULE_ENTRIES') && read('extension/admin/admin.js').includes('mountOptionalModulePanel') && !/GET_TASK|SET_LOCAL_DEBUG_TASK|task-runtime|modules\/task/i.test(read('extension/admin/admin.js')));
   check('core ledgers contain no Task snapshot fields', !/matchedTaskIdsAtTime|progressTaskIdAtTime|taskRevisionAtTime/.test(read('extension/runtime/session.js') + read('extension/core/usage-segments.js')));
+  check('Task runtime relies on generic alarm forwarding without a duplicate alarm listener', !read('extension/modules/task/index.js').includes('alarms?.onAlarm?.addListener'));
   const buildProfile = read('extension/modules/task/build-profile.js');
   check('unpacked Task module defaults local debug on inside its own boundary', buildProfile.includes("source: 'unpacked_default'") && buildProfile.includes('taskLocalDebugEnabled: true'));
 }
 
 function runUiChecks() {
   check('local Task status/debug panel is exported by Task module for inline mounting', exists('extension/modules/task/ui/admin.html') && read('extension/modules/task/ui/admin.js').includes('export async function mountOptionalModulePanel') && read('extension/modules/task/ui/admin.js').includes('optionalModuleId'));
+  check('inline Task panel activates its scoped visual system on the host container', read('extension/modules/task/ui/admin.js').includes("root.classList.add('optional-module-body')"));
   const taskRuntime = read('extension/modules/task/index.js');
   check('debug checkpoint is limited to Task page and debug-only cache', taskRuntime.includes('CHECKPOINT_LOCAL_DEBUG_TASK') && taskRuntime.includes("cache?.reason !== 'local_admin_debug'") && taskRuntime.includes('task.debugOnly !== true') && taskRuntime.includes('isTaskPageSender(sender)'));
   check('Task module prunes its independent progress ledger on startup', taskRuntime.includes('await pruneTaskProgressLedger()'));
@@ -292,6 +310,7 @@ function runUiChecks() {
   check('local Task panel exposes capability heartbeat diagnostics', read('extension/modules/task/ui/admin.js').includes('task-diagnostics') && read('extension/modules/task/ui/admin.js').includes('Task capability') && read('extension/modules/task/sync.js').includes('sendTaskHeartbeat'));
   check('Task required resources are rendered as clickable destinations', read('extension/modules/task/ui/required.js').includes('resource-link') && read('extension/modules/task/ui/required.js').includes('href='));
   check('generic extension module entry uses inline local UI with fallback href', read('extension/modules/task/index.js').includes("uiKind: 'inline'") && read('extension/modules/task/index.js').includes('inlineScript') && read('extension/modules/task/index.js').includes('modules/task/ui/admin.html'));
+  check('local Admin exposes a generic extension-modules tab and inline host', read('extension/admin/admin.html').includes('data-system-management-tab="extension-modules"') && read('extension/admin/admin.html').includes('optional-modules-list') && read('extension/admin/admin.js').includes('renderOptionalModulesPage'));
 }
 
 (async()=>{

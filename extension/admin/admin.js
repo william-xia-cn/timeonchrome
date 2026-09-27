@@ -1303,6 +1303,64 @@ function syncSystemManagementTabs() {
   });
 }
 
+async function renderOptionalModulesPage() {
+  const container = document.getElementById('optional-modules-list');
+  if (!container) return;
+  container.innerHTML = '<div class="optional-modules-empty">正在读取已安装模块…</div>';
+  const response = await sendMsg({ type: 'GET_OPTIONAL_MODULE_ENTRIES' });
+  const entries = Array.isArray(response?.entries) ? response.entries : [];
+  if (!entries.length) {
+    container.innerHTML = '<div class="optional-modules-empty">当前没有已安装的扩展模块。</div>';
+    return;
+  }
+  container.innerHTML = entries.map((entry) => {
+    const id = escId(entry.id || 'module');
+    const inline = entry.uiKind === 'inline' && typeof entry.inlineScript === 'string';
+    return `
+      <section class="optional-module-item" data-optional-module="${escAttr(entry.id || '')}">
+        <div class="optional-module-summary">
+          <div>
+            <div class="optional-module-title">${escHtml(entry.label || entry.id || '扩展模块')}</div>
+            <div class="optional-module-description">${escHtml(entry.description || '独立扩展模块')}</div>
+          </div>
+          <button type="button" class="optional-module-toggle" data-optional-module-toggle="${escAttr(entry.id || '')}">${inline ? '展开' : '打开'}</button>
+        </div>
+        ${inline ? `<div class="optional-module-panel" id="optional-module-panel-${id}" hidden></div>` : ''}
+      </section>`;
+  }).join('');
+
+  container.querySelectorAll('[data-optional-module-toggle]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const entry = entries.find((item) => item.id === button.dataset.optionalModuleToggle);
+      if (!entry) return;
+      if (entry.uiKind !== 'inline' || !entry.inlineScript) {
+        if (entry.href) await chrome.tabs.create({ url: chrome.runtime.getURL(entry.href) });
+        return;
+      }
+      const panel = document.getElementById(`optional-module-panel-${escId(entry.id)}`);
+      if (!panel) return;
+      if (!panel.hidden) {
+        panel.hidden = true;
+        button.textContent = '展开';
+        return;
+      }
+      panel.hidden = false;
+      button.textContent = '收起';
+      if (panel.dataset.mounted === 'true') return;
+      panel.innerHTML = '<div class="optional-modules-empty">正在加载模块界面…</div>';
+      try {
+        const moduleUrl = chrome.runtime.getURL(entry.inlineScript);
+        const ui = await import(moduleUrl);
+        if (typeof ui.mountOptionalModulePanel !== 'function') throw new Error('module_mount_unavailable');
+        await ui.mountOptionalModulePanel(panel, { entry });
+        panel.dataset.mounted = 'true';
+      } catch (error) {
+        panel.innerHTML = `<div class="optional-module-error">模块界面加载失败：${escHtml(error?.message || 'unknown_error')}</div>`;
+      }
+    });
+  });
+}
+
 async function renderSystemManagementPage() {
   syncSystemManagementTabs();
   if (systemManagementActiveTab === 'device-status') {
@@ -1313,6 +1371,8 @@ async function renderSystemManagementPage() {
     await renderMediaSettlementsPage();
   } else if (systemManagementActiveTab === 'client-logs') {
     await renderClientLogsPage();
+  } else if (systemManagementActiveTab === 'extension-modules') {
+    await renderOptionalModulesPage();
   }
 }
 
@@ -1321,6 +1381,10 @@ function setSystemManagementPageError(message) {
   else if (systemManagementActiveTab === 'web-settlements') setSettlementsPageError(message);
   else if (systemManagementActiveTab === 'media-settlements') setMediaSettlementsPageError(message);
   else if (systemManagementActiveTab === 'client-logs') setClientLogsPageError(message);
+  else if (systemManagementActiveTab === 'extension-modules') {
+    const container = document.getElementById('optional-modules-list');
+    if (container) container.innerHTML = `<div class="optional-module-error">${escHtml(message || '扩展模块加载失败')}</div>`;
+  }
 }
 
 function isLatestAdminRefreshRequest(requestSeq) {

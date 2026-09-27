@@ -1113,12 +1113,14 @@ Checklist：
   - 文档：`docs/specs/SPEC-001-CALENDAR-ROUTINE-MANAGEMENT.md`
   - 状态：Draft 已建立，等待 Product Owner 审核；获批前不进入代码、schema、API 或迁移设计。
   - 核心：固定自然时间内的常态内容策略；支持周期与一次性例程；任一时刻最多一个有效日历例程。
-- [ ] [Spec + Technical Design Draft] 任务管理 V1
+- [ ] [Approved / Integration in progress] 任务管理 V1
   - 产品规格：`docs/specs/SPEC-002-TASK-MANAGEMENT.md`
   - 技术设计：`docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md`
-  - 状态：产品规则和技术结构 Draft 已建立，等待 Product Owner 最终审核；获批前不进入代码、schema、API、migration 或外部事件接入。
+  - 状态：产品规则和技术结构已批准；独立 domain、Worker、Pages 与默认关闭的终端模块已分包合入，当前继续受控整合，不代表已发布。
   - 核心：一次性强制 Chrome 任务；按有效任务使用时长完成；不支持周期任务或固定截止时间；多设备按有效区间并集累计。
   - 实施闸门：先由 Product Owner 整理当前未提交改动，确认干净工作区并对齐最新 `origin/master`，再创建 `codex/task-management-v1`；任务实现不得与其他功能提交混合。
+  - [x] 通用宿主 message/alarm 与本地 Admin“扩展模块”页内挂载已在独立整合分支实现并完成临时扩展副本 smoke；源码候选继续 default-off，模块缺失 smoke 通过。
+  - [ ] `ACCESS_OBSERVED` 前置访问接点仍受 D-076 网页账本硬门约束；完成开段/停段/idle/repair 影响矩阵并获 Product Owner 单项批准前，不接入阻断与放行运行路径。
 
 ## Current Fix Focus（2026-07-28）
 - [x] **[Pages/Mobile] 家长控制台手机端交互重排**

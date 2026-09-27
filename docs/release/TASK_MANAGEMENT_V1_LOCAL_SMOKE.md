@@ -34,13 +34,15 @@ node tests/manual/task-v1-module-removal-smoke.mjs
 
 该 smoke 会复制扩展并排除整个 `extension/modules/task/`，验证 Service Worker、Popup 与 Admin 在 Task 文件完全不存在时仍能启动。当前包未在 `background.js` 安装 Task，因此不得运行依赖激活入口的 `task-v1-local-cache-smoke.mjs`。
 
-后续独立激活提交加入唯一安装调用后，再运行：
+通用宿主的消息、Alarm 和本地 Admin 页内挂载接线完成后运行：
 
 ```powershell
-node tests/manual/task-v1-local-cache-smoke.mjs
+node tests/manual/task-v1-host-wiring-smoke.mjs
 ```
 
-该脚本使用临时 Chrome profile，写入 `debugOnly` 本地任务；自动化环境通过仅限 Task 调试页的活跃 checkpoint 验证独立进度账本，避免系统无真实键鼠输入时 `chrome.idle` 正确阻止计时。该 checkpoint 不适用于云端正式任务。脚本同时验证独立 Task Admin、Task required 页面、任务资源放行和核心账本隔离。
+该脚本复制扩展到临时目录，仅在临时副本插入唯一 Task 安装行，再使用临时 Chrome profile 写入 `debugOnly` 本地任务。源代码和正式候选继续 default-off。脚本只验证本地 Admin 的通用扩展模块入口、Task 页内挂载、通用消息转发和 Task Alarm 注册，不接入或验证访问阻断。
+
+`task-v1-local-cache-smoke.mjs` 中的阻断、放行与活跃 checkpoint 验证继续保留，但当前不得作为宿主接线门禁运行。Task 的 `ACCESS_OBSERVED` 前置接点可能改变核心网页 session 开段、修复和关闭时机，必须先完成网页记账影响矩阵并获得 Product Owner 单项批准。
 
 模块删除 smoke 复制扩展到临时目录并移除整个 `extension/modules/task/`，随后验证基础 Service Worker、Popup、Admin 和原运行路径仍能启动。
 
