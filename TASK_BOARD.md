@@ -1,5 +1,51 @@
 # TASK_BOARD
 
+## 两仓现状复核与处置清单（2026-09-28 04:25 +08:00）
+
+本节覆盖下方历史盘点时点。TimeOnChrome fetch 后 origin/master=7c87dd4，87个本地引用、102个origin引用（含HEAD）、32个工作树；GitHub当前无开放PR。Native origin/main=c770bb8，唯一开放PR #11仍为draft；PR远端0724d36、本地活跃5ccad87是不同进度，不将本地提交冒充已推送/CI通过。没有prune/pull/reset/stash或删除。
+
+| 工作线 | 独有改动/合并证据 | 工作区与依赖 | 当前处置 |
+|---|---|---|---|
+| 治理、历史证据、时间段输入、Task安全云端 | 下方逐批来源映射；本轮后续PR #88→774b744、#89→7c87dd4已合入 | 当前隔离树干净，仍持有mock/本地D1依赖 | 已整合；生产状态另列，不重复合入 |
+| Task最终模块与7aa6b1b旧ACK补丁 | 主线progress-ledger保留显式acceptedIds/current batch交集；固定测试覆盖缺失/空/非法/批次外ACK。#85分支0d4ad24为主线祖先 | 原f805仍6项改动，含UI草稿/output；宿主树干净但有截图输出 | 已安全整合default-off；旧整体分支保留可追溯，P16草稿保留未决；不启用/发布创建入口 |
+| 日周Rest | Worker校验/default840及页面PR #72/#86已合；原终端尚未独立收口 | D:/Codex/TimeOnchrome 31项modified/untracked，47项ignored目录/文件入口 | 云端源码已合，完整功能待终端及真实验收；不发布新页面/默认配置 |
+| 复合页面分析 | 安全持久化e7e61a7→7c87dd4；CI36347563898和36347563817通过 | 原service/schema哈希仍为068d27ae…/7c05bdae…，原工作树未改 | 只完成不可达持久化组件；原扫描/审核/脱敏/通知/终端仍未合，不执行032，不宣称线上修复 |
+| Native 2.6.8统计 | PR #10已合c770bb8；986d1ec与main整树完全一致；c5c9b85/6c51a0d来源已由56dd562/0dd9829保留 | 原Native主目录32项脏路径，37项ignored入口；独立整合树干净但有16项产物/固定包依赖 | 已整合源码与已安装证据分开；原树不能删除，旧来源提交不重复合入 |
+| Native跨平台PR #11 | 活跃开发，最新本地相对main领先51提交、远端35；不把旧CI当新提交证据 | 活跃隔离树干净但有22项构建/契约/产物入口 | 保留活跃，由Native任务推进；不以整理名义强合或发布 |
+| 旧Runtime文档/旧网页计时分支 | b7d8278/52ec058/5f14cab/8da97d5不是祖先，但已有下方内容恢复映射；网页旧引用按已记录patch-id/整树证据处置 | 不仅凭ahead/behind或分支存在判断未整合 | 已等价保留/已替代待归档；不重放旧账本行为 |
+
+本次跨工作树首次受沙箱Git所有权限制，错误被重定向导致空输出；这些“dirty=0/ignored=0”结果已作废。随后在用户上下文逐项检查退出码复核：主目录31、81a1为1、f805为6、归属修复树为2、职责树为1、拆仓树为1项脏路径；其余列举工作树干净。未读取ignored文件内容，涉及运行候选、安装包和私有证据的目录全部保留。
+
+### 版本与线上证据（本次实际回读）
+
+| 对象 | 实际状态 | 不得混同 |
+|---|---|---|
+| 已安装Native | 11个TimeOnChrome exe/dll均2.6.8.0；Service Running/Auto | 不等于R2 latest或活跃Mac分支 |
+| 原扩展候选 | 固定81a1/dist/native-host-managed-candidate/package-extension，manifest1.7.39 | 未替换，非正式托管发布 |
+| Guardian | deployment fb981642-336f-476f-80cc-7fc836e89253；version0d040402-210b-4b29-a390-9f7908bfe329，100% | 后续#84–#89源码合并没有再次发布 |
+| Runtime Worker | deployment80a30421-6d72-4f22-a973-1b48425785a0；versionb00deec4-b3ca-40f7-8b10-6536af07f10b，100% | 保持原版本 |
+| Runtime Pages | f2a6ca68-8e6f-42f7-b82e-9bf42b06e6ad，source aa5382e | 与主Pages独立 |
+| 主Pages | 861552b0-c362-4101-8ade-6f44de64a0e2，source c76de93 | 新Task入口/日周页面尚未部署 |
+| R2 latest | API仍2.3.1；size118739813；sha2563109d6bbd147f5bfba88549a240dae42e84e724aa86bd1baef724d2df7b17563 | 只回读声明，未重复下载大包复算；未切换latest |
+
+Wrangler4.127.1只读deployment核对；Runtime health200，Runtime目录无认证401，两稳定Pages200，Guardian SSO无认证401。不带家庭凭据、不创建业务数据；这些smoke不能代替登录后业务验收。
+
+### 精确清理候选（只列清单，未批准删除）
+
+以下均已验证主线祖先、工作区干净且ignored入口为0；不代表可以立即删除。尚需实际清理前确认没有其他任务使用，故当前执行删除数为0。恢复可使用表内保留SHA重建分支/工作树，无需回退主线。
+
+| 目录 | 分支 / 保留SHA | 建议 |
+|---|---|---|
+| D:/Codex/TimeOnchrome-worktrees/runtime-historical-evidence-recovery | codex/runtime-historical-evidence-recovery / 711a5da6989a5ccb5dcb682da7accf7f645b0f73 | 已合并，列入单独批准清理清单 |
+| D:/Codex/TimeOnchrome-worktrees/two-repo-inventory | codex/two-repo-inventory / 75ee2c95538b8ad262385cb6a3b41772dfe1220c | 已合并，列入单独批准清理清单 |
+| D:/Codex/TimeOnchrome-worktrees/inventory-disposition-closeout | codex/two-repo-integration-result / 3fd53900343cd032079f5948c07121be0bc39d52 | 已合并，列入单独批准清理清单 |
+| D:/Codex/TimeOnchrome-worktrees/timewhere-split-final-20260927 | codex/timewhere-split-final-20260927 / b9819b190215ce0c7929cab66dd534b3e89d1144 | 已合并，列入单独批准清理清单 |
+| D:/Codex/TimeOnchrome-worktrees/task-domain-integration | codex/task-cloud-premerge-audit / 4a94ee69c5b09cd2ab6369bbaff18043646f08f2 | 已合并，列入单独批准清理清单 |
+
+当前运行工作树、81a1候选、主目录、f805、Native活跃树、含唯一安装包/截图/运行依赖的发布树均不在可直接清理范围。未推送的C:/tmp/TimeOnchrome-task-ack-strict虽实现已保留，仍先保留原引用，不因无upstream直接删。
+
+本批职责runtime-cloud-contract，纯盘点证据：仅diff/文档与轻量CI，排除产品测试、构建、安装、部署与迁移。Matched＝新合并证据、版本分层、实际线上回读、精确处置与脏树保护；Deviated/Extra＝无。整体未验收的Rest/复合功能继续如实保留，不宣称全部功能完成；Task启用已由PO明确排除本轮，Native新跨平台开发保留活跃，不隐式扩大整理目标。
+
 ## NOW：复合页面证据持久化安全整合（2026-09-28）
 
 职责 runtime-cloud-contract。先处理已复现的删除/在途上传竞态：从原未提交服务提取独立持久化模块，保留原 JSON 哈希、分块和 ACK 语义；写入、读回、标 ready 均校验当前请求版本、同档案有效设备、显式启用和删除墓碑。删除在事务内完成。只集成不可达组件，不接主 Worker 路由/cron，不增加生产 migration 或采集；原工作树不动。原扫描请求重建、脱敏、通知、终端与页面仍须后续单独整合，不能把组件测试称为完整功能可用。
