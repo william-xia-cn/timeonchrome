@@ -1,5 +1,9 @@
 # TimeOnChrome — 技术设计文档
 
+### 复合页面证据共享契约来源
+
+`contracts/composite-page-evidence/v1.js` 是网页与 Guardian 共用的纯 JavaScript 规范源，维护身份、裁剪脱敏、摘要与保留期，不含网页计时或配额逻辑。原草稿行为原样提取不代表完整隐私验收通过。Worker 从根契约导入；扩展因 unpacked 根边界，使用由控件任务生成的 `extension/core/generated/composite-page-evidence-v1.js` 字节相同副本，禁止手工维护分叉。构建/CI 用检查器强制核对；尚未接入终端时不得宣称已实现消费者一致。云端候选筛选、阈值、页面归属和人工建议留在云端服务；Native 不消费此协议，不提升 App Runtime 契约版本。正文中既有更广泛隐私与发布门禁继续有效。
+
 ### 日周休息软配额云端配置（D-107）
 
 restConfig.weeklyFirstReminderMinutes为null或1–10080整数分钟，缺省840；日字段独立缺省120，repeatReminderMinutes为两周期共用间隔。Pages自主度以小时/分钟编辑周值，保持expectedVersion写保护和导入差异逐项选择；读取缺省值不写回生产配置。Worker新档案默认含840，旧档案由消费端缺省解释。此项不是硬配额，不改timeQuota/账本；终端展示和触发由所属任务实现，发布等待联合验证。

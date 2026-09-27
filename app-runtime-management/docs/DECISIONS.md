@@ -1,5 +1,27 @@
 # App Runtime 决策记录
 
+## ARM-D-035：平台中立心跳与兼容协商
+
+2026-09-28 架构裁决；待独立契约及接收端实施，不表示生产已支持。规范字段为 osVersion，平台只从认证机器记录读取，architecture 保持现有语义。Windows 可用旧 windowsVersion 或新 osVersion；双字段必须逐字相同。macOS 只接受 osVersion，携带 windowsVersion 拒绝。任一已提供字段必须为 1–128 字符、非全空白且无控制字符的字符串；不裁剪后掩盖双字段冲突。无效字段返回 400 INVALID_REQUEST，双字段不同返回 400 HEARTBEAT_VERSION_CONFLICT，不更新最后成功心跳。其他在线和策略语义不变。
+
+能力通过已认证 GET /v2/machines/policy 响应的可选 capabilities 字符串数组发布，heartbeat-os-version-v1 表示上述接收规则已上线。缺失或未知能力不等于支持；不能将普通 400 或本地版本用于协商。旧 Windows 保持旧字段，新 Windows 在能力确认后才采用新字段；Mac 缺少能力时显示不支持，独立继续可用的策略读取。客户端保存最近成功能力信息，但能力过期/服务回滚造成请求失败时不得冒报心跳成功，也不伪造 Windows 字段。
+
+固定包的下一个可用 Minor 版本统一定义字段、能力及错误码；先发布兼容 Worker，再启用 Native。本记录不预占未核验包版本，不部署 Guardian、Pages 或 Native；契约实际发布编号和哈希须由实施 PR 确定。
+
+capabilities 必须纳入 policy 响应的 ETag/缓存版本；能力新增、撤回或变化不得被旧 ETag 永久遮蔽。304 只能复用之前已认证的完整缓存；没有该缓存时必须重新无条件读取，不能从 304 推断支持。能力改变不伪装成孩子策略已应用，策略版本与接收端能力分别记录。
+
+## ARM-D-036：卸载撤销不可逆与窄权限结果确认
+
+2026-09-28 架构裁决；待独立安全实现与验收。一次性卸载码消费、机器撤销及操作结果持久化必须原子提交；当前两次独立 UPDATE 不满足要求。旧接口保持响应兼容，但必须补原子性，不能把安全缺口称为兼容行为。授权成功即撤销旧 token，之后卸载失败、取消或重装均不恢复它；修复、普通升级与停止服务不得调用卸载授权。
+
+首版只支持家长显式新配对生成新 machineId/token，不提供同 ID 恢复。旧账、outbox、策略及身份映射留档隔离，不跨身份补传、不改旧机器 ID；残留 credential 不能永远阻止显式新配对。旧数据保留不等于可重新认证。清除数据是独立、明确授权操作。新配对流程须原子切换身份命名空间，不能以删除旧数据绕过。
+
+新协议使用独立 POST /v2/machines/uninstall-operations，须有效机器认证及一次性卸载码，提交 operationId 与 confirmationSecretHash。客户端在请求前将随机 operationId 和独立 CSPRNG 256-bit confirmationSecret 持久化于受保护存储；请求只传 SHA-256 摘要。服务端将操作、机器、目的、请求指纹和秘密摘要绑定；不同参数复用 ID 返回 409 OPERATION_CONFLICT。同一次请求只有一个原子授权结果，不能通过普通重放恢复 token。
+
+响应丢失后只用 GET /v2/uninstall-operations/{operationId} 确认结果，Authorization: UninstallReceipt <confirmationSecret>；秘密不得出现在 URL、日志或普通 API。该路由独立于已撤销机器 token，比较摘要后仅返回该操作 committed/revoked 和提交时间，不返回机器/用户数据、不重放卸载。operationId 本身不具备权限；错误证明、未知操作统一不可用。证明有效期为提交后 7 天，结果审计保留但证明到期失效；未知、超时或过期不能推断未执行，转家长已认证管理确认，不自动重发旧接口。证明只允许读结果，不能调用策略、上传、配对或撤销接口。
+
+以 uninstall-operation-receipt-v1 能力声明新协议支持；缺失时旧接口仍可显式使用，但不确定结果禁止自动重放、禁止开始破坏性移除。已确认撤销后本机移除可重试且不再次消费码；未确认时显示未知，不将任意 401 视为成功。新持久化设计需要独立 additive migration 与安全审查，本轮不执行。验收覆盖原子回滚、并发消费、确认秘密隔离、响应丢失、过期、安装失败、新旧身份队列隔离和旧 Windows 兼容；Mac 实机由用户在 Mac 环境验证。
+
 ## ARM-D-034：三会话模块职责与契约统筹
 
 2026-09-27 范围更新：根 D-105 把当前任务职责明确为本仓架构与云端开发，包括 Guardian/主控制台及 Runtime；控件任务仅终端。原 Runtime-only 限制被取代，Native/Santa 边界、数据权威和专项门禁不变。以 PROJECT_WORKFLOW.md 为统一职责矩阵。

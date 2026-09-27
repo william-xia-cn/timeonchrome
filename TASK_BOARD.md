@@ -23,6 +23,27 @@ PO经架构任务明确批准修复超时关闭竞态及一次聚焦真实复验
 当前状态：Rest 补丁已提取，提醒专项106项、终端配置专项、storage配置专项、typecheck及extension-root通过。真实unpacked日提醒、日周合并、滑动继续恢复媒体、跨日与跨周场景通过；超时继续后弹层未关闭，两次真实运行失败，按执行次数门禁停止复验。后台已记录timeout_continue，Content仍显示弹层；代码存在后台只恢复媒体未关闭弹层、页面迟到继续请求返回stale_prompt的竞态。结束与硬限制后续场景尚未执行，不记通过。未提交、未发布，截图和失败记录位于隔离树.tmp/rest-unpacked-*与test-results，均不纳入版本库。
 
 复合批次等待架构任务交付共享规范源SHA及固定向量：contracts/composite-page-evidence/v1.js为唯一来源，终端仅使用受控生成副本extension/core/generated/composite-page-evidence-v1.js；不手工维护第二套算法。原主目录31项脏路径及固定加载候选保持原样。
+## NOW：复合页面证据共享来源（2026-09-28）
+
+职责 runtime-cloud-contract；契约级源码整合，不启用采集。清单：①在根 contracts/composite-page-evidence/v1.js 提取既有身份、脱敏、JSON SHA-256、北京时间日期和容量/保留期常量；②固定向量及生成副本逐字节检查；③现有轻量复合证据 CI 接入。云端阈值/归属/建议算法不进入本契约。终端生成副本与 import 由控件任务实施，本任务不修改 extension 或 dist。
+
+最小测试：共享纯函数固定向量、原草稿导出行为对照、检查器接受一致/拒绝不同或缺失副本、diff 和 YAML。无 UI、平台、安装器、账本或生产测试；无部署。新目录为网页与 Guardian 共享，不关联 Native 固定包版本。精确例外为本契约、检查工具、专项测试及既有 composite-evidence workflow。
+
+提交前证据：固定向量与原草稿导出 parity 通过；副本检查器拒绝缺失/字节差异，通过一致副本；YAML/diff/职责检查通过。首轮截断测试错误使用连续长英文，先命中既有长标识脱敏，改为中文长度夹具后通过，未修改产品规则。Matched＝本批源提取/向量/检查器/CI；Deviated/Missing/Extra＝本批无。终端生成副本尚由所属任务接入，完整复合分析隐私和真实验收未通过，不宣称上线。
+
+## PO 补充边界：TaskManage 可整合，不发布（2026-09-28）
+
+PO 明确允许 TaskManage 继续代码审查、最小相关测试、提交和 PR 源码整合，但本轮不得发布。合并前核对自动部署触发器；若会触发部署，先停止该合并而不是借源码整合绕过发布边界。保持 Task 默认关闭，不部署 Worker/Pages、不更新扩展候选、不发布创建入口；网页记账开关段专项改动仍未批准。已通知 Task 所属任务和控件任务。源码已合并与产品已发布必须分别记录。
+
+## NOW：复合证据请求与意见删除保护（2026-09-28）
+
+延续已复现隐私缺口，不增加产品能力。职责runtime-cloud-contract；只修改现有compositePageEvidence.ts及其D1测试。清单：①扫描生成/替换请求必须在事务内校验当前设备V2 head、档案显式开启、绑定和review删除墓碑；相同manifest不清空已收证据，旧head不得替换新请求；②复核意见写入必须校验同档案未删除review及调用方已验证的请求版本快照，删除/新扫描后旧页面结果不得回写；③删除与上述写入顺序、解绑/关闭、旧版本及事务回滚固定测试。保持原32 schema，仅本地夹具补既有head表；不接路由/cron，不执行migration，不改扩展、账本、配额或生产。
+
+最小验证为既有composite-page-evidence.test.js新增相关用例、typecheck、diff/范围与现有Composite Evidence CI；无需新workflow、UI/平台/账本全量测试。完整原服务仍须单独接入、脱敏及真实终端验收，不因补齐repository而宣称已上线。
+
+本地执行证据：Miniflare D1 聚焦回归 20/20 通过，root TypeScript typecheck 与 git diff --check 通过。包含扫描旧版本、删除墓碑、绑定/启用检查、事务中断和过期意见回写保护；仍未接生产路由或 cron，未部署。
+
+提交前审计：本批 Matched＝请求事务保护、相同版本不清空、删除后不能重建请求/意见、意见版本检查及回滚回归；Deviated/Missing/Extra＝无。职责差异检查通过，测试文件使用精确例外。完整功能待接入与终端验收的范围不变。
 
 ## 两仓现状复核与处置清单（2026-09-28 04:25 +08:00）
 
