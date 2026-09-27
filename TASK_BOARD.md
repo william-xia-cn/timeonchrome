@@ -1,5 +1,19 @@
 # TASK_BOARD
 
+## PO 补充边界：TaskManage 可整合，不发布（2026-09-28）
+
+PO 明确允许 TaskManage 继续代码审查、最小相关测试、提交和 PR 源码整合，但本轮不得发布。合并前核对自动部署触发器；若会触发部署，先停止该合并而不是借源码整合绕过发布边界。保持 Task 默认关闭，不部署 Worker/Pages、不更新扩展候选、不发布创建入口；网页记账开关段专项改动仍未批准。已通知 Task 所属任务和控件任务。源码已合并与产品已发布必须分别记录。
+
+## NOW：复合证据请求与意见删除保护（2026-09-28）
+
+延续已复现隐私缺口，不增加产品能力。职责runtime-cloud-contract；只修改现有compositePageEvidence.ts及其D1测试。清单：①扫描生成/替换请求必须在事务内校验当前设备V2 head、档案显式开启、绑定和review删除墓碑；相同manifest不清空已收证据，旧head不得替换新请求；②复核意见写入必须校验同档案未删除review及调用方已验证的请求版本快照，删除/新扫描后旧页面结果不得回写；③删除与上述写入顺序、解绑/关闭、旧版本及事务回滚固定测试。保持原32 schema，仅本地夹具补既有head表；不接路由/cron，不执行migration，不改扩展、账本、配额或生产。
+
+最小验证为既有composite-page-evidence.test.js新增相关用例、typecheck、diff/范围与现有Composite Evidence CI；无需新workflow、UI/平台/账本全量测试。完整原服务仍须单独接入、脱敏及真实终端验收，不因补齐repository而宣称已上线。
+
+本地执行证据：Miniflare D1 聚焦回归 20/20 通过，root TypeScript typecheck 与 git diff --check 通过。包含扫描旧版本、删除墓碑、绑定/启用检查、事务中断和过期意见回写保护；仍未接生产路由或 cron，未部署。
+
+提交前审计：本批 Matched＝请求事务保护、相同版本不清空、删除后不能重建请求/意见、意见版本检查及回滚回归；Deviated/Missing/Extra＝无。职责差异检查通过，测试文件使用精确例外。完整功能待接入与终端验收的范围不变。
+
 ## 两仓现状复核与处置清单（2026-09-28 04:25 +08:00）
 
 本节覆盖下方历史盘点时点。TimeOnChrome fetch 后 origin/master=7c87dd4，87个本地引用、102个origin引用（含HEAD）、32个工作树；GitHub当前无开放PR。Native origin/main=c770bb8，唯一开放PR #11仍为draft；PR远端0724d36、本地活跃5ccad87是不同进度，不将本地提交冒充已推送/CI通过。没有prune/pull/reset/stash或删除。
