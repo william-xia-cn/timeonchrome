@@ -100,12 +100,11 @@ function load(file) {
       await db.prepare("UPDATE devices SET status='unbound' WHERE id='d'").run();
       assert.equal((await call(device+'tasks','GET','test-device')).status,403);
     });
-    await check('stale capability is not current readiness and production entry remains untouched',async()=>{
+    await check('stale capability is not current readiness',async()=>{
       await db.prepare("UPDATE devices SET status='bound',last_seen=? WHERE id='d'").bind(Date.now()).run();
       await db.prepare("UPDATE task_device_state_v1 SET reported_at=1 WHERE device_id='d'").run();
       const summary=(await (await call('/profiles/foreign/task-runtime/v1/tasks','GET',other)).json()).capabilitySummary;
       assert.equal(summary.canCreateTasks,false);
-      assert.doesNotMatch(fs.readFileSync('workers/src/index.ts','utf8'),/taskModuleRouter/);
     });
     console.log(`${passed}/${passed} Task router auth/local D1 checks passed`);
   }finally{await mf.dispose();}

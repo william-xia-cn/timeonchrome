@@ -5,9 +5,9 @@
 - Spec ID: `SPEC-002`
 - Date: 2026-08-03
 - Owner: Product&Project Mg
-- Status: Draft
-- Related task: `TASK_BOARD.md` - 任务管理规格 Draft
-- Related decisions: D-030、D-045、D-046
+- Status: Approved
+- Related task: `TASK_BOARD.md` - 任务管理 V1 开发
+- Related decisions: D-030、D-045、D-046、D-106；Task 分支旧编号以 `8603fbb:DECISIONS.md` 为来源，不指代主线同号决策
 - Technical design: `docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md`
 - Related handoff: None
 
@@ -62,11 +62,15 @@ Chrome 关闭、失焦、系统空闲、停留在非任务页面或任务暂停�
 
 ### 任务允许资源
 
-任务可以组合网站管理类型、具体网站和已支持的特殊网站对象。同一任务内的资源取去重并集。任务只限制允许访问的内容，不改变资源原有网站性质。
+任务只允许配置明确资源集合：域名、URL 和已支持的任务资源对象。同一任务内的资源取去重并集。任务只限制允许访问的内容，不改变资源原有网站性质。
 
-- 类型级资源只允许选择学习网站和复合网站；
-- 受限娱乐网站和未归类网站不能通过类型级范围整体放行，只能作为明确域名、URL 或特殊网站对象加入；
-- 黑名单对象不能加入任何任务资源；
+- 第一版不支持按访问管理分类创建任务资源，不允许选择学习网站、复合网站、受限娱乐网站或黑名单网站这类类型级范围；
+- 域名资源覆盖该域名自身及其所有子域；填写具体子域时只覆盖该子域范围，不扩大到兄弟子域；
+- URL 资源必须明确选择“精确页面”或“路径范围”：精确页面保留业务 query，路径范围忽略 query 并只覆盖相同 host 下的同一路径边界及子路径；
+- URL 规范化忽略 hash、尾斜杠差异和常见 tracking 参数；
+- YouTube 视频、播放列表和频道由粘贴 URL 自动识别为任务资源对象，不要求用户手写对象类型；
+- 受限娱乐网站和未归类网站如需纳入任务，只能作为明确域名、URL 或任务资源对象加入；
+- 黑名单对象不能加入任何任务资源；黑名单校验属于任务命中后的基础安全阻断，任务本身不能穿透；
 - 同一资源在多个任务中出现时，只形成一个当前允许对象，不重复放行、落账或扣减配额。
 
 ### 任务核心字段冻结
@@ -138,9 +142,9 @@ This spec does not include:
 
 运行优先级固定为：
 
-`网站分类与安全解析 > 黑名单 > 未完成任务 > 配额 > 日历例程/旧时间段 > 基础场景`
+`未完成任务内容约束 > 原访问管理流程（网站事实、黑名单、安全、配额、日历例程/旧时间段和基础场景）`
 
-这里的任务优先级只控制允许内容范围。命中任务资源时可以覆盖旧时间段限制，但仍按网站原始性质检查配额、计时和落账，且不能绕过安全规则或黑名单。
+这里的任务优先级只控制“当前必须使用任务资源”的内容范围：有生效任务且当前页面不是任务资源时，由 Task 独立模块阻断；当前页面命中任务资源时，Task 不附加任何放行或绕过标志，原访问管理流程从头按现有规则继续执行。任务资源仍可能被黑名单、安全、配额或时间段阻断。
 
 ### 任务进度
 
@@ -234,10 +238,11 @@ Implementation must comply with:
 16. 要求有效使用时长只能配置为 1 分钟至 24 小时。
 17. 任务开始或产生进度后，核心字段冻结；家长只能执行暂停、恢复、留痕完成或取消。
 18. 完成和取消任务保留为不可删除历史记录。
-19. 类型级资源只接受学习和复合；受限娱乐或未归类只能作为明确对象加入；黑名单对象始终拒绝。
-20. 命中任务资源时覆盖旧时间段限制，但网站性质、统计性质和配额来源保持不变。
+19. 第一版任务资源只接受明确域名、URL 和任务资源对象，不接受访问管理分类作为资源。
+20. 命中任务资源时只通过 Task 内容约束，随后继续执行原时间段限制；网站性质、统计性质和配额来源保持不变。
 21. 多设备重叠的有效使用区间按并集累计，同一自然秒最多计入一次。
 22. 只有当前档案所有受管在线设备都报告 `taskManagementV1` capability 时，Pages 才允许创建任务。
+23. 域名资源覆盖自身与子域；URL 资源按显式的精确页面或路径范围规则匹配，扩展与 Worker 必须使用同一 canonical 结果。
 
 ## Required Tests
 
@@ -245,7 +250,7 @@ Implementation must comply with:
 - Integration: 任务强制范围与网站分类、日历例程、配额检查、idle/focus 边界和当前网页重评估的组合行为。
 - E2E: 延迟打开 Chrome、分段完成、跨日继续、暂停恢复、单任务、多任务重叠、提前人工/外部完成、配额耗尽和旧设备 capability 阻断。
 - Manual: 家长创建、暂停、恢复、留痕完成和取消任务，查看剩余时长、当前强制任务、有效资源摘要和不可删除历史。
-- Release gate: 由后续实现设计确定；本 Draft 不定义发布版本或发布门禁。
+- Release gate: 由后续实现设计确定；本规格不定义发布版本或发布门禁。
 
 ## Release Risk
 
@@ -268,12 +273,12 @@ Rollback concerns:
 
 ## Handoff Requirements
 
-本规格和独立技术设计经 Product Owner 审核并转为 Approved 后，Build&Test 才可进入代码实现。进入代码前必须先完成以下隔离闸门：
+本规格和独立技术设计已由 Product Owner 批准为 Approved。Build&Test 进入代码实现前必须先完成以下隔离闸门：
 
 1. 由 Product Owner 选择并整理当前工作区已有改动；
 2. 确认 `git status` 干净；
 3. 执行 `git fetch origin` 并确认本地 `master` 与最新远端基线一致；
-4. 创建并切换到 `codex/task-management-v1`；
+4. 创建并使用 `codex/task-management-v1`；
 5. 任务代码、migration 和测试不得与其他功能提交混合。
 
 Build&Test must report:
@@ -289,4 +294,4 @@ Product&Project Mg must review conformance before releaseMg acceptance.
 
 ## Technical Design Reference
 
-任务数据模型、状态机、API、同步、运行时策略、用量 segment 扩展、多设备区间并集、UI read model、capability gate 和分阶段发布方案，统一由 `docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md` 定义。该文档当前同样为 Draft，不代表相关功能已经实现。
+任务数据模型、状态机、API、同步、运行时策略、独立 Task progress segment、多设备区间并集、UI read model、capability gate 和分阶段发布方案，统一由 `docs/specs/SPEC-002-TASK-MANAGEMENT-TECHNICAL-DESIGN.md` 定义。该文档同样已转为 Approved，但不代表相关功能已经上线。2026-09-28 整合来源固定为 `8603fbb`，旧分支已批准的独立模块方案取代主线此前 Draft；不恢复被最终方案移除的网页 segment 扩展。

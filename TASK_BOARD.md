@@ -1,5 +1,23 @@
 # TASK_BOARD
 
+## NOW：Task schema 来源恢复与 Guardian 独立入口整合（2026-09-28）
+
+文档先行：恢复8603fbb已批准最终两份SPEC-002，使用D-106映射旧分支编号，不能覆盖主线D-058等既有决策。真实生产只读结果改变了下一步：四张Task表和七个显式索引已经存在且与最终021结构一致；当前聚合行数1/1/10/1，d1_migrations为空。恢复原SQL来源而非新建033或盲跑旧迁移；不读任务内容、不写生产。
+
+本批清单：①恢复原名021/022 SQL并本地验证schema等价、幂等和已有数据保留；②独立Task router在Guardian通用路由之前分发，其他路由不变；③真实Worker bundle＋本地D1验证无认证401、跨家庭拒绝、设备绑定、合法生命周期/ACK及Task拔除后的原路由；④补齐Task专项CI路径与受保护发布所需精确SHA证据。职责例外为tests/unit/task-worker-entry.test.js、tests/unit/task-router.test.js、两份SPEC-002和Task专项workflow（云端测试/最终规格/CI），不扩权扩展或Native。最小测试：新增迁移/入口、受影响router、Guardian集成、typecheck、Wrangler dry-run；不重跑无改动生命周期/进度全组、Windows/macOS/WiX或浏览器E2E。本轮不会执行生产迁移；发布仅在合并与专项门禁通过后进行。
+
+本地验证：真实入口/迁移6/6、router9/9、Guardian integration、TypeScript及Wrangler dry-run通过，bundle 792.64KiB/gzip153.51KiB。首轮夹具缺少通用设备审计表产生warning；补入既有017仅在本地运行后重测无warning，未关闭审计或修改产品代码。新增本地试验在有既存Task/网页行时重复运行021，Task行、网页行完全保留；Task关闭的对照bundle在四条原路由行为相同。Task CI新增master精确SHA触发供后续发布验真；不增加部署权限。
+
+本批审计Matched＝最终规格/编号映射、现存schema恢复、独立入口、真实运行时鉴权与原路由对照；Deviated/Extra＝无。整体Missing仍包括页面/终端/受控联合验收。终端所属任务发现optional host异常隔离和Task队列字节预算两项激活门禁，正在独立default-off包处理；本批不激活扩展、不开家长创建页、不把旧生产少量Task数据当作正式验收。
+
+## 整合连续推进与迁移来源核对（2026-09-28）
+
+Task 生命周期批次已通过 PR #77 合入 master `b44b4add3d038add9ff2819d113e191e8357d79e`；功能提交 `0d7e516`，Task Cloud CI `36341535920` 成功（24秒），App Runtime 轻量门 `36341535849` 成功，无关产品 job 跳过。本地生命周期10/10、路由9/9、进度11/11证据沿用，不为文档重复执行。工作区干净后从该远端主线建立 `codex/integration-migration-review`，未切换用户主工作树。
+
+下一批职责仍为 runtime-cloud-contract：先核对旧最终 Task schema、现有迁移编号及已执行记录，再整合必要云端入口；终端实现已交原 Task 所属任务审查，不能由当前任务越界修改。旧 `8603fbb` 的 `021_task_management_v1.sql` 包含四张独立 Task 表；`022_task_management_device_capability.sql` 已全部为 superseded 注释。主线已有不同用途的021/022并到031，主目录另有未提交 `032_composite_page_reviews.sql`。不能直接复制旧编号执行，也不能覆盖032；新迁移编号与生产是否已执行仍须核实。当前未新增或执行生产 migration，未注册 Task router，未部署。
+
+本审查批次只运行 Git来源、文件内容及 diff 检查，不跑产品全量测试。实施清单：①保存PR合并及CI证据；②核对迁移来源/编号/远端执行状态；③按所属任务继续页面与终端整合；④满足专项门禁后才发布。整体目标仍 active：Rest、复合页面分析、完整Task联合验收与对应发布尚未完成；Native跨平台草稿保留活跃，不因本批整合而强行合并。目录清理仍只列清单，不执行删除。
+
 ## NOW：Task 生命周期原子写入与动作幂等（2026-09-28）
 
 上一批PR #76已合入a7dee75；真实本地D1 11/11，不代表完整Task上线。GitHub CLI失效但原Chrome登录可用，已通过现有浏览器完成PR，没有创建凭据。

@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'workers/src/modules/task/**'
+      - 'workers/src/index.ts'
+      - 'workers/migrations/*task*.sql'
       - 'workers/src/db/middleware.ts'
       - 'workers/src/routes/deviceIdentity.ts'
       - 'package-lock.json'
@@ -12,8 +14,22 @@ on:
       - 'tests/unit/task-progress-repository.test.js'
       - 'tests/unit/task-lifecycle-repository.test.js'
       - 'tests/unit/task-router.test.js'
+      - 'tests/unit/task-worker-entry.test.js'
       - 'tests/fixtures/task-*.json'
       - 'tests/fixtures/task-management-schema.sql'
+      - '.github/workflows/task-cloud.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'workers/src/modules/task/**'
+      - 'workers/src/index.ts'
+      - 'workers/src/db/middleware.ts'
+      - 'workers/src/routes/deviceIdentity.ts'
+      - 'workers/migrations/*task*.sql'
+      - 'tests/unit/task-*.test.js'
+      - 'tests/fixtures/task-*'
+      - 'package-lock.json'
+      - 'app-runtime-management/backend/package-lock.json'
       - '.github/workflows/task-cloud.yml'
   workflow_dispatch:
 
@@ -36,3 +52,4 @@ jobs:
       - run: node tests/unit/task-progress-repository.test.js
       - run: node tests/unit/task-lifecycle-repository.test.js
       - run: node tests/unit/task-router.test.js
+      - run: node tests/unit/task-worker-entry.test.js
