@@ -1,9 +1,9 @@
 import { ingestTaskProgress } from './progress-repository';
+import { applyTaskLifecycle, type TaskLifecycleActionInput } from './lifecycle-repository';
 import type { Env } from '../../db/middleware';
 import {
   normalizeTaskName,
   normalizeTaskResourceSpec,
-  normalizeTaskLifecycleStatus,
   validateTaskRequiredSeconds,
   canEditTaskCoreFields,
   type TaskLifecycleStatus,
@@ -33,6 +33,17 @@ export type TaskEventInput = {
   occurredAt?: number;
   now?: number;
 };
+
+function eventStatement(db: D1Database, input: TaskEventInput, onlyAfterChange = false) {
+  const now = input.now ?? Date.now();
+  return db.prepare(`INSERT INTO task_events_v1
+    (id, task_id, profile_id, event_type, task_revision, source_type, source_id,
+     payload_json, occurred_at, created_at)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ${onlyAfterChange ? 'WHERE changes() = 1' : ''}`)
+    .bind(input.id, input.taskId, input.profileId, input.eventType, input.taskRevision,
+      input.sourceType, input.sourceId ?? null, input.payload ? JSON.stringify(input.payload) : null,
+      input.occurredAt ?? now, now);
+}
 
 export function taskRowToRecord(row: any) {
   if (!row) return null;
@@ -115,7 +126,7 @@ export function createTaskRepository(env: Env) {
       if (!validation.ok || !validation.normalized) return validation;
       const task = validation.normalized;
       const now = Number(input.now || Date.now());
-      await env.DB.prepare(
+      const insert = env.DB.prepare(
         `INSERT INTO tasks_v1
          (id, profile_id, name, normalized_name, planned_start_at, display_timezone,
           required_seconds, resource_spec_json, lifecycle_status, revision,
@@ -134,8 +145,8 @@ export function createTaskRepository(env: Env) {
         task.createdByAccountId || null,
         now,
         now,
-      ).run();
-      await this.appendTaskEvent({
+      );
+      await env.DB.batch([insert, eventStatement(env.DB, {
         id: `${task.id}:created:1`,
         taskId: task.id,
         profileId: task.profileId,
@@ -146,7 +157,7 @@ export function createTaskRepository(env: Env) {
         payload: { name: task.name, requiredSeconds: task.requiredSeconds },
         occurredAt: now,
         now,
-      });
+      })]);
       return { ok: true, task: await this.getTask(task.profileId, task.id), errors: [] };
     },
 
@@ -168,29 +179,8 @@ export function createTaskRepository(env: Env) {
       return (result.results || []).map(taskRowToRecord).filter(Boolean);
     },
 
-    async appendTaskEvent(input: TaskEventInput) {
-      const now = Number(input.now || Date.now());
-      const occurredAt = Number(input.occurredAt || now);
-      await env.DB.prepare(
-        `INSERT OR IGNORE INTO task_events_v1
-         (id, task_id, profile_id, event_type, task_revision, source_type, source_id,
-          payload_json, occurred_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(
-        input.id,
-        input.taskId,
-        input.profileId,
-        input.eventType,
-        input.taskRevision,
-        input.sourceType,
-        input.sourceId || null,
-        input.payload ? JSON.stringify(input.payload) : null,
-        occurredAt,
-        now,
-      ).run();
-    },
-
-    async updateTaskCoreFields(profileId: string, taskId: string, patch: Partial<TaskCreateInput> & { expectedRevision: number }, now = Date.now()) {
+    async updateTaskCoreFields(profileId: string, taskId: string, patch: Partial<TaskCreateInput> & { expectedRevision: number }, now = Date.now(), actorAccountId: string | null = null) {
+      if (!Number.isSafeInteger(patch.expectedRevision) || patch.expectedRevision <= 0) return { ok: false, code: 'EXPECTED_REVISION_REQUIRED' };
       const current = await this.getTask(profileId, taskId);
       if (!current) return { ok: false, code: 'TASK_NOT_FOUND' };
       if (!canEditTaskCoreFields(current, now)) return { ok: false, code: 'TASK_CORE_FIELDS_FROZEN' };
@@ -207,7 +197,7 @@ export function createTaskRepository(env: Env) {
       });
       if (!validation.ok || !validation.normalized) return validation;
       const task = validation.normalized;
-      const result = await env.DB.prepare(
+      const update = env.DB.prepare(
         `UPDATE tasks_v1
          SET name = ?, normalized_name = ?, planned_start_at = ?, display_timezone = ?,
              required_seconds = ?, resource_spec_json = ?, revision = revision + 1, updated_at = ?
@@ -225,38 +215,43 @@ export function createTaskRepository(env: Env) {
         taskId,
         patch.expectedRevision,
         now,
-      ).run();
-      const changed = Number(result.meta?.changes || 0) > 0;
+      );
+      const result = await env.DB.batch([update, eventStatement(env.DB, {
+        id: `${taskId}:updated:${patch.expectedRevision + 1}`, taskId, profileId,
+        eventType: 'updated', taskRevision: patch.expectedRevision + 1,
+        sourceType: 'parent', sourceId: actorAccountId,
+        payload: { expectedRevision: patch.expectedRevision }, now,
+      }, true)]);
+      const changed = Number(result[0].meta?.changes || 0) > 0;
       if (!changed) return { ok: false, code: 'REVISION_CONFLICT_OR_FROZEN' };
       return { ok: true, task: await this.getTask(profileId, taskId), errors: [] };
     },
 
-    async updateLifecycle(profileId: string, taskId: string, lifecycleStatus: TaskLifecycleStatus, expectedRevision: number, now = Date.now()) {
-      const status = normalizeTaskLifecycleStatus(lifecycleStatus) as TaskLifecycleStatus;
-      const completionSource = status === 'completed' ? 'parent' : null;
-      const completedAt = status === 'completed' ? now : null;
-      const cancelledAt = status === 'cancelled' ? now : null;
-      const allowedCurrent = status === 'open' ? "'paused'" : "'open', 'paused'";
-      const result = await env.DB.prepare(
-        `UPDATE tasks_v1
-         SET lifecycle_status = ?, revision = revision + 1, completion_source = COALESCE(?, completion_source),
-             completed_at = COALESCE(?, completed_at), cancelled_at = COALESCE(?, cancelled_at), updated_at = ?
-         WHERE profile_id = ? AND id = ? AND revision = ? AND lifecycle_status IN (${allowedCurrent})`
-      ).bind(status, completionSource, completedAt, cancelledAt, now, profileId, taskId, expectedRevision).run();
-      const changed = Number(result.meta?.changes || 0) > 0;
-      return { ok: changed, code: changed ? null : 'REVISION_CONFLICT_OR_TERMINAL' };
+    async applyLifecycleAction(input: TaskLifecycleActionInput) {
+      const result = await applyTaskLifecycle(env.DB, input);
+      if (!result.ok) return result;
+      return { ...result, task: await this.getTask(input.profileId, input.taskId) };
     },
 
     async recordDeviceState(input: { profileId: string; deviceId: string; taskVersion?: number; activeSummary?: unknown; now?: number }) {
-      const now = Number(input.now || Date.now());
-      await env.DB.prepare(
+      const now = input.now ?? Date.now();
+      const version = input.taskVersion ?? 0;
+      if (!Number.isSafeInteger(version) || version < 0 || !Number.isSafeInteger(now) || now <= 0) return false;
+      const raw = input.activeSummary && typeof input.activeSummary === 'object' ? input.activeSummary as Record<string, unknown> : {};
+      const activeTaskIds = Array.isArray(raw.activeTaskIds) ? [...new Set(raw.activeTaskIds.filter(
+        (id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 80).slice(0, 100))] : [];
+      const nextTaskAt = typeof raw.nextTaskAt === 'number' && Number.isSafeInteger(raw.nextTaskAt) && raw.nextTaskAt > 0 ? raw.nextTaskAt : null;
+      const summary = JSON.stringify({ activeTaskIds, activeTaskCount: activeTaskIds.length, nextTaskAt });
+      const result = await env.DB.prepare(
         `INSERT INTO task_device_state_v1
          (device_id, profile_id, capable, task_version, active_summary_json, reported_at, updated_at)
-         VALUES (?, ?, 1, ?, ?, ?, ?)
+         SELECT ?, ?, 1, ?, ?, ?, ? WHERE EXISTS
+           (SELECT 1 FROM devices WHERE id = ? AND profile_id = ? AND COALESCE(status, 'bound') = 'bound')
          ON CONFLICT(device_id) DO UPDATE SET profile_id = excluded.profile_id, capable = 1,
            task_version = excluded.task_version, active_summary_json = excluded.active_summary_json,
            reported_at = excluded.reported_at, updated_at = excluded.updated_at`
-      ).bind(input.deviceId, input.profileId, Math.max(0, Number(input.taskVersion || 0)), input.activeSummary ? JSON.stringify(input.activeSummary).slice(0, 2000) : null, now, now).run();
+      ).bind(input.deviceId, input.profileId, version, summary, now, now, input.deviceId, input.profileId).run();
+      return Number(result.meta.changes) > 0;
     },
 
     async ingestProgressSegments(profileId: string, deviceId: string, values: unknown, now = Date.now()) {
