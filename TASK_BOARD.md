@@ -1,5 +1,33 @@
 # TASK_BOARD
 
+## 当前整合入口（2026-09-28，覆盖下方历次盘点快照）
+
+本节是两仓整理的当前状态；下方保留初查和执行证据，不再把旧的“等待授权/尚未推送”当作当前阻塞。职责 runtime-cloud-contract；本批仅文档与 Git 来源复核，验证 diff check、职责检查及轻量 CI，不运行产品测试、不部署 Cloudflare、不操作安装或 R2。
+
+| 工作线 | 已核对的整合结果 | 剩余工作与处置 |
+|---|---|---|
+| 项目契约、盘点、历史证据 | PR #64–#69 已合入；缺失原始 manifest 与来源映射保留 | 已整合；旧工作树/引用仍保留，不需要重复合并 |
+| Native 2.6.8 独立应用统计 | Native PR #10 → main c770bb8；当前/上一契约各216/216 | 已整合；本机四个 exe 为2.6.8.0，Service Running/Auto；未切换R2 latest |
+| 时间段输入格式规范化 | PR #70/#71；主 Pages deployment 861552b0-c362-4101-8ade-6f44de64a0e2 | 已整合、已部署；其他云资源未随该批发布 |
+| 日周 Rest | PR #72 → 325961e，仅可选 weeklyFirstReminderMinutes 校验 | 完整功能未完成：默认值、云端页面、终端提醒与真实浏览器验证仍待所属任务；本批未部署 Guardian |
+| Task 最终独立模块 | PR #73 → dc3e2dd，保存最终 domain.ts 与五组黄金向量 | 完整模块未完成：router/repository、迁移编号、鉴权、页面/终端接入及验收未整合；不恢复被最终方案替代的核心账本接入 |
+| 复合页面分析 | 主目录未提交内容原地保留 | 真实站点/unpacked证据未收齐；不将 mock 当真实验收，不部署未验收部分 |
+| Native 跨平台与图标 | 唯一开放 PR #11 为 draft；主目录另有未提交内容 | 保留活跃，由 Native 任务推进；离线自签/同版本恢复证据不等于跨版本升级与完整实机验收，不合并或部署草稿 |
+
+现场核对：TimeOnChrome origin/master dc3e2dd，Native origin/main c770bb8；TimeOnChrome 开放 PR 为0，Native开放PR只有#11。固定原目录扩展候选manifest为1.7.39，不替换目录、不重新绑定。Native脏目录保持原状。这里只核对了上述本地/远端Git状态；云资源版本沿用已记录的发布回读时点，不伪称本批重新发布或重新核验全部线上资源。
+
+### 旧引用补充裁决（精确 patch-id 与主线祖先）
+
+| 旧引用/来源 | origin/master 中的等价提交 | 处置 |
+|---|---|---|
+| codex/perform-final-code-audit-for-project、v0/release-verify：a9a029d | 5522478（stable patch-id一致） | 已等价整合；不重放旧OpenCode工作流 |
+| release/v0.1-duration-accuracy：b7fc476 | 3d5fcbd（stable patch-id一致） | 已等价整合；不能据旧测试基线改动现行账本 |
+| stg：c68e779/a452a3f/f36366e/47eb41d/78cff02/107f5a4 | 83bb3ce/b1bb857/a0c3c5d/8a26f65/41753e3/70cf96e | 六项patch-id一致，stg最终树与70cf96e整树一致；不重复合并 |
+
+清理仍只出清单、不执行：上述引用具备内容保留证据，但尚未逐项证明没有构建/运行/证据依赖，不能据此删除目录。原扩展目录、脏工作树、活跃工作线和唯一安装包/截图继续保留。
+
+本批审计：Matched＝遗漏引用等价映射、PR #72/#73合并状态、候选/安装版本分离、原地保护；Deviated/Extra＝无。整体Missing＝Rest/复合页面分析/Task未验收整合项及Native活跃开发项；不能把当前整理记录当作这些功能已发布。后续按所属任务和真实验收继续，不为版本统一重复构建、安装或部署。
+
 ## NOW：Task 最终领域规则保存与整合（2026-09-28）
 
 - 职责 runtime-cloud-contract；来源 codex/task-management-v1@8603fbb 最终树。仅原样提取 workers/src/modules/task/domain.ts 和 tests/fixtures/task-resource-canonical-v1.json，并增加独立服务端回归，不依赖旧扩展源码。
