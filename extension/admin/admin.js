@@ -1814,8 +1814,12 @@ function getAdminRestReminderView() {
     return Number.isInteger(minutes) && minutes >= 1 && minutes <= 1440 ? minutes : fallback;
   };
   const enabled = firstRaw !== null;
+  const weeklyRaw = restConfig.weeklyFirstReminderMinutes;
+  const weeklyEnabled = weeklyRaw !== null;
   return {
     enabled,
+    weeklyEnabled,
+    weeklyMinutes: !weeklyEnabled ? null : Number.isInteger(weeklyRaw) && weeklyRaw >= 1 && weeklyRaw <= 10080 ? weeklyRaw : 840,
     firstMinutes: enabled ? normalizeMinutes(firstRaw, 120) : null,
     repeatMinutes: normalizeMinutes(repeatRaw, 60),
   };
@@ -1883,8 +1887,9 @@ function renderAutonomySection() {
   if (summaryEl) {
     summaryEl.innerHTML = `<div class="rules-reminder-summary">
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">进入受限内容</div><div class="rules-reminder-stat-value">${entryText}</div></div>
-      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">休息软限额</div><div class="rules-reminder-stat-value">${reminder.enabled ? formatQuotaText(reminder.firstMinutes) : '已关闭'}</div></div>
-      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">无人响应</div><div class="rules-reminder-stat-value">${reminder.enabled ? timeoutText : '启用提醒后生效'}</div></div>
+      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">今日软限额</div><div class="rules-reminder-stat-value">${reminder.enabled ? formatQuotaText(reminder.firstMinutes) : '已关闭'}</div></div>
+      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">本周软配额</div><div class="rules-reminder-stat-value">${reminder.weeklyEnabled ? formatQuotaText(reminder.weeklyMinutes) : '已关闭'}</div></div>
+      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">无人响应</div><div class="rules-reminder-stat-value">${reminder.enabled || reminder.weeklyEnabled ? timeoutText : '启用提醒后生效'}</div></div>
     </div>`;
   }
 
@@ -1901,7 +1906,7 @@ function renderAutonomySection() {
     reminderEl.innerHTML = `
       <div class="rules-reminder-summary">
         <div class="rules-reminder-stat">
-          <div class="rules-reminder-stat-label">提醒状态</div>
+          <div class="rules-reminder-stat-label">今日提醒状态</div>
           <div class="rules-reminder-stat-value">${reminder.enabled ? '已启用' : '已关闭'}</div>
         </div>
         <div class="rules-reminder-stat">
@@ -1909,11 +1914,15 @@ function renderAutonomySection() {
           <div class="rules-reminder-stat-value">${reminder.enabled ? formatQuotaText(reminder.firstMinutes) : '不提醒'}</div>
         </div>
         <div class="rules-reminder-stat">
+          <div class="rules-reminder-stat-label">本周休息软配额</div>
+          <div class="rules-reminder-stat-value">${reminder.weeklyEnabled ? formatQuotaText(reminder.weeklyMinutes) : '不提醒'}</div>
+        </div>
+        <div class="rules-reminder-stat">
           <div class="rules-reminder-stat-label">超额后提醒间隔</div>
-          <div class="rules-reminder-stat-value">${formatQuotaText(reminder.repeatMinutes)}${reminder.enabled ? '' : '（启用后生效）'}</div>
+          <div class="rules-reminder-stat-value">${formatQuotaText(reminder.repeatMinutes)}${reminder.enabled || reminder.weeklyEnabled ? '' : '（启用后生效）'}</div>
         </div>
       </div>
-      <div class="rules-reminder-note"><strong>说明：</strong>软限额只做提醒，不会锁定网站访问。提醒只按已结算的 Rest 配额网页账本触发；复合或待归类网站借用的休息配额会计入，媒体时长不计入。提醒最多可能晚一个 3 分钟结算周期，显示后 60 秒未处理会${autonomy.softReminderTimeoutAction === 'continue' ? '默认继续休息' : '结束休息'}。</div>
+      <div class="rules-reminder-note"><strong>说明：</strong>日周软配额只做提醒，不会锁定网站访问，同时到期合并提醒；周一北京时间 00:00 重置周状态。提醒只按已结算的 Rest 配额网页账本触发；复合或待归类网站借用的休息配额会计入，媒体时长不计入。提醒最多可能晚一个 3 分钟结算周期，显示后 60 秒未处理会${autonomy.softReminderTimeoutAction === 'continue' ? '默认继续休息' : '结束休息'}。硬配额和时间窗仍强制执行。</div>
     `;
   }
 }
