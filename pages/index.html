@@ -6338,6 +6338,10 @@ function validateScheduleWindowInput(start, end) {
   return null;
 }
 
+function normalizeScheduleTimeInput(value) {
+  return String(value ?? '').trim().replace(/^(\d):/, '0$1:');
+}
+
 function reportScheduleWindowValidationError(error) {
   if (!error) return true;
   if (error === 'start_end_of_day') toast('24:00 不能作为开始时间', false);
@@ -6349,9 +6353,9 @@ function reportScheduleWindowValidationError(error) {
 window.addStudyWindow = (day) => {
   ensureTimeWindowsDaily();
   const dayCfg = remoteConfig.timeWindows.daily[day];
-  const start = prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加学习时段\n开始时间 (HH:MM):`, '08:00');
+  const start = normalizeScheduleTimeInput(prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加学习时段\n开始时间 (HH:MM):`, '08:00'));
   if (!start) return;
-  const end = prompt(`结束时间 (HH:MM):`, '12:00');
+  const end = normalizeScheduleTimeInput(prompt(`结束时间 (HH:MM，允许 24:00):`, '12:00'));
   if (!end) return;
   if (!reportScheduleWindowValidationError(validateScheduleWindowInput(start, end))) return;
 
@@ -6376,9 +6380,9 @@ window.removeStudyWindow = (day, idx) => {
 window.addCompositeWindow = (day) => {
   ensureTimeWindowsDaily();
   const dayCfg = remoteConfig.timeWindows.daily[day];
-  const start = prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加复合时段\n开始时间 (HH:MM):`, '18:00');
+  const start = normalizeScheduleTimeInput(prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加复合时段\n开始时间 (HH:MM):`, '18:00'));
   if (!start) return;
-  const end = prompt(`结束时间 (HH:MM):`, '21:00');
+  const end = normalizeScheduleTimeInput(prompt(`结束时间 (HH:MM，允许 24:00):`, '21:00'));
   if (!end) return;
   if (!reportScheduleWindowValidationError(validateScheduleWindowInput(start, end))) return;
 
@@ -6408,9 +6412,9 @@ window.setCompositeUnlimited = (day) => {
 window.addRestWindow = (day) => {
   ensureTimeWindowsDaily();
   const dayCfg = remoteConfig.timeWindows.daily[day];
-  const start = prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加休息时段\n开始时间 (HH:MM):`, '19:00');
+  const start = normalizeScheduleTimeInput(prompt(`为 ${SCHEDULE_DAY_LABELS[day]} 添加休息时段\n开始时间 (HH:MM):`, '19:00'));
   if (!start) return;
-  const end = prompt(`结束时间 (HH:MM):`, '22:00');
+  const end = normalizeScheduleTimeInput(prompt(`结束时间 (HH:MM，允许 24:00):`, '22:00'));
   if (!end) return;
   if (!reportScheduleWindowValidationError(validateScheduleWindowInput(start, end))) return;
 
