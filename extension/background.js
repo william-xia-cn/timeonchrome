@@ -34,6 +34,7 @@ import { resolveActivationState } from './core/activation-gate.js';
 import { getSiteClassificationSpecialTargets } from './core/site-classification.js';
 import { getQuotaUsageForConfig, getQuotaAccountingVersion, buildQuotaStateFromUsage } from './product/quota.js';
 import { configureRestUsageReminder, evaluateRestUsageReminder, handleRestUsageReminderAction, restoreRestUsageReminderForTab, REST_USAGE_REMINDER_DEADLINE_ALARM, REST_USAGE_REMINDER_RETRY_ALARM } from './product/rest-usage-reminder.js';
+import { dispatchOptionalModuleAlarm, dispatchOptionalModuleMessage, getOptionalModuleEntries } from './runtime/optional-module-host.js';
 
 registerStoragePressureHandler((options) => runV1StorageMaintenance(options));
 
@@ -1224,6 +1225,7 @@ function setupAlarms() {
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  const optionalModuleAlarmDispatch = dispatchOptionalModuleAlarm(alarm).catch(() => ({ handled: false, handledBy: [] }));
   if (alarm.name === 'periodicCheckpoint') {
     if (!isMonitoringEnabled()) {
       await runTimingCheckpoints({
@@ -1302,6 +1304,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   } else if (alarm.name === 'cloudHeartbeat') {
     await sendHeartbeat(() => syncNowWithRuntimeEffects({}, 'cloudHeartbeat_recovery_sync'));
   }
+  await optionalModuleAlarmDispatch;
 });
 
 // ── 消息路由 ────────────────────────────────────────────────────────────────────
@@ -1578,6 +1581,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!sender?.url) return true;
     return sender.url.startsWith(chrome.runtime.getURL(''));
   };
+
+  if (msg?.type === 'GET_OPTIONAL_MODULE_ENTRIES') {
+    sendResponse(isInternalTestSender()
+      ? { ok: true, entries: getOptionalModuleEntries() }
+      : { ok: false, code: 'OPTIONAL_MODULE_FORBIDDEN', entries: [] });
+    return true;
+  }
+
+  if (msg?.optionalModuleId) {
+    (async () => {
+      if (!isInternalTestSender()) {
+        sendResponse({ ok: false, code: 'OPTIONAL_MODULE_FORBIDDEN' });
+        return;
+      }
+      const result = await dispatchOptionalModuleMessage(msg, sender);
+      sendResponse(result.handled === true
+        ? (result.response ?? { ok: true })
+        : { ok: false, code: 'OPTIONAL_MODULE_UNAVAILABLE' });
+    })().catch((error) => {
+      sendResponse({ ok: false, code: 'OPTIONAL_MODULE_HOST_ERROR', error: error?.message || String(error) });
+    });
+    return true;
+  }
 
   if (msg.type === 'GET_PRIVACY_CONSENT_STATUS') {
     (async () => {
