@@ -2,6 +2,10 @@
 
 ## NOW：三会话边界治理（ARM-D-034）
 
+生效证据：TimeOnChrome PR #62 / master b806cf7（PR CI 36304847873、master CI 36304927094）通过；Native 所属任务实现七个治理文件，PR #9 / main 28373a9（PR CI 36305190730）通过，平台/安装器 job 跳过。Native 原业务工作未提交部分不在治理 PR，当前架构任务只审查并履行 PO 已批准的治理合并，不修改 Native 实现。旧仓 master 自动触发的历史 GitHub Pages 36304926841 已取消，deploy cancelled；无 Cloudflare/终端/R2 操作。
+
+职责确认：当前架构任务已回读；Native Host 开发已明确回传确认；TimeOnchrome 访问管理策略通知送达且任务执行结束，但读取接口返回空内容，PR 也无可审计确认，保持“确认待回执”，不伪记通过。最终审计 Matched＝职责文档/契约交接/路径与引用检查/轻量 CI/两仓治理 PR；Deviated/Extra＝无；Missing＝扩展任务可读取的职责回执。此状态不改变其既定职责，不要求用户重做授权。
+
 边界复核补充：Guardian/Santa/主控制台任务同时维护根 TASK_BOARD/AGENTS 时，不能因此被三个模块的角色集合接管；只有涉及本模块实现/治理脚本，或 PR 主动声明本组角色时启用职责匹配。增加固定回归，不放宽已声明任务的路径检查。
 
 本仓实施与最小验证通过：职责固定用例、现有 CI 路由、源码边界及 diff check。PR 描述声明角色和逐文件例外，changes 失败传递至 gate；描述变更重新触发。架构任务已回读确认；两端通知已发送，Native 确认并独立处理其仓治理，业务现场保持不动。提交前审计：Matched＝矩阵/交接/路径门/轻量回归；Deviated/Extra＝无；Missing＝两仓 PR 合入与最终回执（待收口，非业务验收）。
