@@ -4,6 +4,7 @@ on:
   # Always provide the single lightweight required check for every PR. The
   # changes job routes Runtime work; unrelated PRs skip every heavy job.
   pull_request:
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [master]
     paths:
@@ -16,6 +17,8 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'tools/check-app-runtime-boundaries.js'
+      - 'tools/check-task-scope.js'
+      - 'tests/unit/task-scope.test.js'
       - 'tools/classify-app-runtime-ci-changes.js'
       - '.github/workflows/app-runtime.yml'
       - '.github/workflows/app-runtime-production.yml'
@@ -71,6 +74,9 @@ jobs:
             echo ''
             sed 's/^/- `/' changed-files.txt | sed 's/$/`/'
           } >> "$GITHUB_STEP_SUMMARY"
+      - name: Check declared task scope
+        if: github.event_name == 'pull_request'
+        run: node tools/check-task-scope.js --github-event
       - name: Classify change impact
         id: classify
         shell: bash
@@ -124,6 +130,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: node tests/unit/app-runtime-ci-routing.test.js
+      - run: node tests/unit/task-scope.test.js
       - run: node tests/unit/app-runtime-release-config.test.js
       - run: node tests/unit/timewhere-native-artifact.test.js
       - run: npm run check:app-runtime-boundaries

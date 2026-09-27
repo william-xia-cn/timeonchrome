@@ -1,5 +1,26 @@
 # PROJECT_WORKFLOW
 
+## 三会话模块职责（ARM-D-034）
+
+模块归属与 Product / Build / Release 阶段职责同时适用；不扩大发布权限。
+
+| 职责档案 | 所属任务 | 可修改范围 |
+|---|---|---|
+| runtime-cloud-contract | App Runtime Management（现名 TimeWhere native 架构管理） | 跨端架构、契约、兼容测试、黄金向量、边界检查、Runtime backend/console/规则 |
+| extension-local | TimeOnchrome 访问管理策略 | extension 本地实现、统计、配额、UI、Host 客户端、扩展打包 |
+| native-local | Native Host 开发 | TimeWhereNative 的 Host/Service/Agent/Manager/本机统计/安装器、固定契约包消费 |
+| release | releaseMg | 发布证据与既有授权发布流程，不修产品代码 |
+
+Guardian、主控制台与 Santa 归属不变。当前架构任务不修改 extension、dist 候选或 Native 本机代码，即使只有几行；可以只读取证，再交给对应任务修复。Native Host 只做 framing/转发；网页和应用分别保持统计权威。
+
+普通单模块修复由所属任务直接处理。消息字段、能力协商、错误码、版本、权威、隐私或兼容行为变化，先由架构任务确定契约语义、失败行为、兼容范围、最小测试及上线依赖，再向两端发送包含版本、允许路径、验收与禁止事项的精简任务。契约只在 TimeOnChrome 定义；Native 锁定版本及哈希，不引用其他仓库源码。两端返回提交/PR、测试和实机证据，架构任务核对兼容状态。不得以等价实现自行改变契约。网页落账、安全和生产专项批准继续有效。
+
+每项任务在任务板或 PR 声明职责档案、允许路径、最小测试；公共锁文件/CI 等例外必须逐文件说明原因，不接受根目录白名单。提交前运行 `tools/check-task-scope.js` 检查本任务 diff。PR 描述使用 `Task-Role: runtime-cloud-contract`（或其他档案），例外使用 `Scope-Exception: 精确路径 | 原因`；跨职责路径不能靠例外放行，须拆分交接。CI 只证明声明与路径匹配，不能证明哪个聊天窗口编写代码，不使用 CODEOWNERS 伪造同账号独立审批。发现越界停止提交并转交，不自动回滚他人修改。
+
+治理测试只运行职责检查固定用例、现有 CI 路由/源码边界及 diff check；文档只走轻量门，不运行产品/平台测试。本轮无业务、协议、安装或部署变更。
+
+检查示例：将上述声明放入临时文本文件（不要保存敏感信息），提交前运行 `node tools/check-task-scope.js --base origin/master --head HEAD --declaration <声明文件>`；暂存未提交时使用 `--staged --declaration <声明文件>`。重命名同时检查新旧路径。PR 的 changes job 读取 PR 描述与实际 diff，失败阻断现有 app-runtime-gate；修改 PR 描述会重新检查。master push 复用 PR 审查，不引入可发布的第二份职责声明。与这三个模块无关的任务仍遵守原所属模块规则。
+
 ## Lightweight Three-Role Codex Workflow
 
 TimeOnChrome is currently a personal / small-team product experiment preparing for its first Chrome Web Store release. The workflow should be traceable but lightweight.

@@ -1,0 +1,30 @@
+const assert = require('assert/strict');
+const { checkScope, declaration, relevant } = require('../../tools/check-task-scope');
+const check = (role, paths, exceptions) => checkScope(paths, { role, exceptions });
+assert.deepEqual(check('runtime-cloud-contract', ['app-runtime-management/contracts/src/index.ts', 'app-runtime-management/backend/src/index.ts', 'app-runtime-management/console/index.html']), []);
+for (const file of ['extension/infra/native-host-client.js', 'dist/native-host-managed-candidate/package-extension/a.js', 'agents/Service/a.cs']) {
+  assert.equal(check('runtime-cloud-contract', [file], { [file]: 'tiny patch' }).length, 1);
+}
+assert.equal(check('extension-local', ['app-runtime-management/contracts/src/index.ts']).length, 1);
+assert.deepEqual(check('extension-local', ['extension/background.js', 'tests/unit/local-guardian.test.js']), []);
+assert.deepEqual(check('native-local', ['agents/a.cs', 'third_party/contracts-1.15.tgz', 'contracts.lock.json']), []);
+assert.equal(check('native-local', ['app-runtime-management/backend/a.ts']).length, 1);
+assert.equal(check('runtime-cloud-contract', ['workers/src/index.ts'], { 'workers/src/index.ts': 'not a transfer' }).length, 1);
+assert.equal(check('runtime-cloud-contract', ['package-lock.json']).length, 1);
+assert.deepEqual(check('runtime-cloud-contract', ['package-lock.json'], { 'package-lock.json': 'pin contract dependency only' }), []);
+assert.throws(() => declaration('Task-Role: runtime-cloud-contract\nScope-Exception: * | all'));
+assert.throws(() => declaration('Task-Role: nope'));
+assert.throws(() => declaration('Task-Role: release\nTask-Role: extension-local'));
+assert.throws(() => check('native-local', ['../TimeOnchrome/extension/a.js']));
+assert.equal(relevant(['workers/src/index.ts']), false);
+assert.equal(relevant(['app-runtime-management/docs/TASK_BOARD.md']), true);
+assert.deepEqual(check('release', ['docs/release/checklist.md']), []);
+assert.equal(check('release', ['extension/a.js']).length, 1);
+const fs = require('fs');
+const workflow = fs.readFileSync('.github/workflows/app-runtime.yml', 'utf8');
+assert.ok(workflow.includes('node tools/check-task-scope.js --github-event'));
+assert.ok(workflow.includes('node tests/unit/task-scope.test.js'));
+const { classifyPaths } = require('../../tools/classify-app-runtime-ci-changes');
+assert.equal(classifyPaths(['app-runtime-management/docs/TASK_BOARD.md']).worker, false);
+assert.equal(classifyPaths(['tools/check-task-scope.js']).release_config, true);
+console.log('Task scope fixed cases: PASS');

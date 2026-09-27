@@ -17,6 +17,8 @@ const GOVERNANCE_DOCS = new Set([
 ]);
 
 const RELEASE_CONFIG_FILES = new Set([
+  'tools/check-task-scope.js',
+  'tests/unit/task-scope.test.js',
   '.github/workflows/app-runtime.yml',
   '.github/workflows/app-runtime-production.yml',
   '.github/workflows/timewhere-native-artifact-gate.yml',
