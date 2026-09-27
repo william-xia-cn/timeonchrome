@@ -149,6 +149,59 @@ async function runHeartbeatChecks() {
     globalThis.fetch = originalFetch;
   }
 }
+
+async function runVerifiedProgressFactChecks() {
+  const originalChrome = globalThis.chrome;
+  const now = 10_000;
+  const store = {
+    task_management_v1_cache: {
+      schemaVersion: 1,
+      capability: 'taskManagementV1',
+      tasks: [{
+        id:'task-facts', name:'Facts', lifecycleStatus:'open', plannedStartAt:1,
+        requiredSeconds:600, completedSeconds:0, revision:1,
+        resourceSpec:{ hosts:['example.com'], urlRules:[], specialTargets:[] },
+      }],
+    },
+  };
+  const local = {
+    async get(keys) {
+      const list = Array.isArray(keys) ? keys : [keys];
+      return Object.fromEntries(list.filter((key) => key in store).map((key) => [key, store[key]]));
+    },
+    async set(values) { Object.assign(store, values); },
+    async remove(keys) { for (const key of (Array.isArray(keys) ? keys : [keys])) delete store[key]; },
+  };
+  globalThis.chrome = {
+    runtime:{ id:'task-facts-extension', getURL:(value)=>`chrome-extension://task-facts-extension/${value}` },
+    storage:{ local },
+    tabs:{ async query(){ return [{ id:1, windowId:7, url:'https://example.com/lesson' }]; } },
+    windows:{ async get(){ throw new Error('window lookup failed'); } },
+    idle:{ async queryState(){ return 'active'; } },
+  };
+  try {
+    const taskModule = await import(pathToFileURL(path.join(root, 'extension/modules/task/index.js')).href + `?facts=${Date.now()}`);
+    store.task_progress_state_v1 = { taskId:'task-facts', revision:1, startedAt:now - 1000, url:'https://example.com/lesson' };
+    const focusMissing = await taskModule.checkpointCurrentPage(now);
+    check('window lookup failure closes Task progress instead of assuming foreground', focusMissing.active === false && focusMissing.reason === 'window_focus_unavailable' && !store.task_progress_state_v1);
+
+    store.task_progress_segments_v1 = {};
+    store.task_progress_state_v1 = { taskId:'task-facts', revision:1, startedAt:now, url:'https://example.com/lesson' };
+    globalThis.chrome.windows.get = async () => ({ id:7, focused:true });
+    globalThis.chrome.idle.queryState = async () => { throw new Error('idle lookup failed'); };
+    const idleMissing = await taskModule.checkpointCurrentPage(now + 1000);
+    check('idle lookup failure closes Task progress instead of assuming active', idleMissing.active === false && idleMissing.reason === 'idle_state_unavailable' && !store.task_progress_state_v1);
+
+    store.task_progress_segments_v1 = {};
+    store.task_progress_state_v1 = { taskId:'task-facts', revision:1, startedAt:now + 1000, url:'https://example.com/lesson' };
+    const access = await taskModule.createOptionalModule().beforeAccess({ url:'https://example.com/lesson', foreground:true, nowMs:now + 2000 });
+    check('idle lookup failure during precheck continues base access without Task progress', access.handled === false && !store.task_progress_state_v1);
+    check('verified-fact failure path never writes the core web ledger', !('usage_segments_v1' in store) && !('session_v1' in store));
+  } finally {
+    globalThis.chrome = originalChrome;
+  }
+}
+
 async function runProductionDebugGateChecks() {
   const originalChrome = globalThis.chrome;
   const originalFetch = globalThis.fetch;
@@ -246,6 +299,7 @@ function runUiChecks() {
   await runResourceProtocolChecks();
   await runLedgerChecks();
   await runHeartbeatChecks();
+  await runVerifiedProgressFactChecks();
   await runProductionDebugGateChecks();
   await runOptionalHostChecks();
   runBoundaryChecks();

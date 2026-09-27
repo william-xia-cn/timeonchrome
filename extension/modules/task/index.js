@@ -51,7 +51,18 @@ function normalizeDebugTask(payload = {}, nowMs = Date.now()) {
   };
 }
 
-async function checkpointCurrentPage(nowMs = Date.now()) {
+async function queryTaskIdleState() {
+  const queryState = globalThis.chrome?.idle?.queryState;
+  if (typeof queryState !== 'function') return null;
+  try {
+    const state = await queryState.call(globalThis.chrome.idle, 60);
+    return typeof state === 'string' && state ? state : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function checkpointCurrentPage(nowMs = Date.now()) {
   const tabs = await globalThis.chrome?.tabs?.query?.({ active: true, lastFocusedWindow: true }).catch(() => []);
   const tab = tabs?.[0] || null;
   if (!tab?.url || !/^https?:/i.test(tab.url)) {
@@ -61,8 +72,16 @@ async function checkpointCurrentPage(nowMs = Date.now()) {
   const win = Number.isInteger(tab.windowId)
     ? await globalThis.chrome?.windows?.get?.(tab.windowId).catch(() => null)
     : null;
-  const idleState = await globalThis.chrome?.idle?.queryState?.(60).catch(() => 'active') || 'active';
-  return checkpointTaskProgress({ url: tab.url, foreground: win?.focused !== false, idleState, nowMs });
+  if (win?.focused !== true) {
+    await flushTaskProgress(nowMs);
+    return { active: false, reason: win ? 'window_not_focused' : 'window_focus_unavailable' };
+  }
+  const idleState = await queryTaskIdleState();
+  if (!idleState) {
+    await flushTaskProgress(nowMs);
+    return { active: false, reason: 'idle_state_unavailable' };
+  }
+  return checkpointTaskProgress({ url: tab.url, foreground: true, idleState, nowMs });
 }
 async function recheckActiveTab() {
   const tabs = await globalThis.chrome?.tabs?.query?.({ active: true, lastFocusedWindow: true }).catch(() => []);
@@ -200,8 +219,9 @@ export function createOptionalModule() {
         return { handled: false };
       }
       if (policy.allowed === true) {
-        const idleState = await globalThis.chrome?.idle?.queryState?.(60).catch(() => 'active') || 'active';
-        await ignoreTaskProgressFailure(() => checkpointTaskProgress({ url, foreground: foreground === true || isFocused === true, idleState, nowMs }));
+        const idleState = await queryTaskIdleState();
+        if (!idleState) await ignoreTaskProgressFailure(() => flushTaskProgress(nowMs));
+        else await ignoreTaskProgressFailure(() => checkpointTaskProgress({ url, foreground: foreground === true || isFocused === true, idleState, nowMs }));
         return { handled: false };
       }
       await ignoreTaskProgressFailure(() => flushTaskProgress(nowMs));

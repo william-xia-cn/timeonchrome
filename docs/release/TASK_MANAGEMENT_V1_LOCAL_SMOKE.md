@@ -10,6 +10,8 @@
 
 通用 host 必须隔离可选模块异常：任一模块的 `beforeAccess()` 抛错时，只记录 host 内存诊断并继续原访问流程。Task 独立进度账本同时受条数、Task 自有字节预算和全局保守写入水位约束；容量不足时只丢弃最旧 Task pending 并回退本地 Task 投影，不调用网页账维护器，也不修改 `session_v1`、`usage_segments_v1` 或网页存储限额。
 
+Task 有效进度必须同时具备明确的前台聚焦事实和 `chrome.idle` 活跃事实。窗口查询、聚焦状态或 idle 查询缺失/失败时，Task 模块必须结算并关闭自己的当前进度区间，不得以 `active` 作为兜底；该失败关闭不得读写核心网页账本。
+
 ## 目的
 
 在不部署 Worker / Pages、不执行 D1 migration、不发布控件的前提下，验证完全独立的 Task 模块：
