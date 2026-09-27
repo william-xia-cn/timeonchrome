@@ -5,11 +5,19 @@ const { createRequire } = require('node:module');
 const ts = require('typescript');
 const backendRequire = createRequire(path.resolve('app-runtime-management/backend/package.json'));
 const { Miniflare, convertV4MiniflareOptions } = backendRequire('miniflare');
-const loaded = { exports: {} };
-new Function('exports', 'module', ts.transpileModule(
-  fs.readFileSync('workers/src/services/compositePageEvidence.ts', 'utf8'),
-  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
-).outputText)(loaded.exports, loaded);
+function load(relative) {
+  const module={exports:{}};
+  new Function('exports','module','require',ts.transpileModule(fs.readFileSync(relative,'utf8'),
+    {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)
+    (module.exports,module,name=>{
+      let file=path.posix.normalize(path.posix.join(path.posix.dirname(relative),name));
+      if(!path.posix.extname(file))file+='.ts';
+      if(!file.startsWith('workers/src/services/')&&!file.startsWith('contracts/'))throw Error('Unexpected dependency');
+      return load(file);
+    });
+  return module.exports;
+}
+const loaded={exports:load('workers/src/services/compositePageEvidence.ts')};
 const { receivePageEvidence: receive, deleteReviewDetails: remove, hashEvidence: hash } = loaded.exports;
 const { refreshEvidenceRequest: refresh, saveReviewOpinion: opinion } = loaded.exports;
 
