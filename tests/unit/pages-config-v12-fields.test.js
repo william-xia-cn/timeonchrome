@@ -419,6 +419,29 @@ function run() {
   expectEqual('时间段应拒绝非法分钟', scheduleValidationContext.__validateScheduleWindowInput('19:00', '19:60'), 'format');
   expectEqual('时间段应拒绝 24:00 作为开始时间', scheduleValidationContext.__validateScheduleWindowInput('24:00', '24:00'), 'start_end_of_day');
   expectEqual('学习复合休息入口应统一使用共享校验', (source.match(/if \(!reportScheduleWindowValidationError\(validateScheduleWindowInput\(start, end\)\)\) return;/g) || []).length, 3);
+  for (const [kind, field] of [['Study', 'studyWindows'], ['Composite', 'compositeWindows'], ['Rest', 'restWindows']]) {
+    const addSource = source.slice(source.indexOf(`window.add${kind}Window =`), source.indexOf(`window.remove${kind}Window =`));
+    const runAdd = (inputs) => {
+      const context = {
+        window: {}, remoteConfig: { timeWindows: { daily: { monday: { [field]: null } } } },
+        SCHEDULE_DAY_LABELS: { monday: 'Monday' }, ensureTimeWindowsDaily() {},
+        prompt: () => inputs.shift(), toast() {}, renderSchedulePage() {},
+        reportScheduleWindowValidationError: (error) => !error,
+      };
+      vm.runInNewContext(`
+        ${extractFunctionSource(source, 'scheduleTimeToMinutes')}
+        ${extractFunctionSource(source, 'validateScheduleWindowInput')}
+        ${extractFunctionSource(source, 'normalizeScheduleTimeInput')}
+        ${addSource}
+        window.add${kind}Window('monday');
+      `, context);
+      return context.remoteConfig.timeWindows.daily.monday[field];
+    };
+    expectEqual(`${kind} 添加入口应规范化并允许结束 24:00`, JSON.stringify(runAdd([' 8:00 ', ' 24:00 '])), '[{"start":"08:00","end":"24:00"}]');
+    expectEqual(`${kind} 添加入口应拒绝开始 24:00`, runAdd(['24:00', '24:00']), null);
+    expectEqual(`${kind} 添加入口应拒绝双冒号`, runAdd(['08:00', '24::00']), null);
+    expectEqual(`${kind} 添加入口取消应不改变配置`, runAdd([null]), null);
+  }
   expectTrue('页面不应保留结束时间仅限整点的旧正则', !source.includes("|24):00$/.test(end)"));
 
   // 最小行为级断言：网站管理绑定策略目录入口

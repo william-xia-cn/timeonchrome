@@ -1,5 +1,14 @@
 # TASK_BOARD
 
+## NOW：时间段输入规范化独立整合（2026-09-28）
+
+- 职责 runtime-cloud-contract；从最新 master 独立提取主目录已有小修，只修改 pages/index.html、对应 pages-config-v12-fields 聚焦测试和本记录，不复制 Rest/复合页面分析等其他脏改动。
+- 将已有校验允许的单数字小时及首尾空格规范为 HH:MM，再进行重复检查和保存；结束 24:00 保持允许，开始 24:00、非法格式和取消保持拒绝/无变更。不修改时间段语义、账本、配额算法或已有用户配置。
+- 验证：页面配置聚焦测试、主控制台入口测试、桌面/移动 mock 目视与添加行为、职责差异检查、git diff --check；CI 使用现有主控制台/轻量 gate。不运行 Windows/macOS/WiX/账本全量测试。
+- 通过后 PR 合并，仅发布主 Cloudflare Pages，核对精确 SHA 和静态回读；不发布 Worker、Guardian、Runtime Pages、安装包或 R2。生产不写家庭配置。
+- 本地结果：pages-config-v12-fields 242/242、app-runtime-integration PASS；独立 file 页面禁止 fetch 后，三种入口输入 ` 8:00 ` / ` 24:00 ` 均保存 08:00–24:00，1440×1000 与 390×844 截图目视通过（output/schedule-desktop.png、schedule-mobile.png，本地忽略证据）。未登录、未写家庭配置。
+- 提交前审计：Matched＝仅提取格式规范化/取消与非法输入保持/三入口回归/桌面移动布局；Deviated/Missing/Extra＝无（本批实现）。发布尚未执行，不能称线上已更新。
+
 ## 2026-09-28：两仓已批准整合结果（覆盖下方旧审批阻塞）
 
 - 用户直接允许 Native 分支推送、创建并合并通过 CI 的 PR 后，已推送并合并 TimeWhereNative PR #10；main 为 `c770bb85f39c6173b314a476b794d0ecd7eace29`。来源 c5c9b85/6c51a0d → 56dd562/0dd9829，追加测试修复986d1ec；不重复合并原统计分支。
