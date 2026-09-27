@@ -19,6 +19,7 @@ import {
   scanCurrentDayUnclassifiedEmailNotifications,
 } from './services/siteClassificationEmail';
 import { notificationSettingsRouter } from './routes/notificationSettings';
+import { taskModuleRouter } from './modules/task/router';
 import { clientLogsRouter } from './routes/clientLogs';
 import { exportRouter } from './routes/export';
 import { restoreRouter } from './routes/restore';
@@ -154,6 +155,8 @@ async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext):
   // 路由分发
   if (path.startsWith('/auth/')) {
     return await authRouter.handle(request, env);
+  } else if (taskModuleRouter.matches(path)) {
+    return await taskModuleRouter.handle(request, env);
   } else if (PROFILE_STATS_ROUTE_RE.test(path)) {
     return await statsRouter.handle(request, env, ctx);
   } else if (path.match(/^\/profiles\/[^/]+\/device-access-audit\/v1$/)) {
