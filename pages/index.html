@@ -860,6 +860,7 @@
         background: linear-gradient(180deg, rgba(240,250,246,0), var(--bg) 28%);
       }
       .save-bar .btn-save { width: 100%; }
+      [data-rules-management-panel="autonomy"] .save-bar { margin-inline: 0; }
       .usage-analysis-topbar { display: grid; gap: 14px; }
       .usage-analysis-controls { display: grid; grid-template-columns: 1fr; gap: 10px; justify-content: stretch; }
       .usage-segmented { width: 100% !important; }
@@ -1346,11 +1347,19 @@
           </div>
           <div class="rest-reminder-editor">
             <div class="rest-reminder-toggle-row">
-              <div><strong style="font-size:13px;">启用今日休息软限额提醒</strong><div class="weekly-rest-meta">关闭后不显示使用时长检查点</div></div>
+              <div><strong style="font-size:13px;">启用今日休息软限额提醒</strong><div class="weekly-rest-meta">关闭只停止今日提醒，本周提醒独立设置</div></div>
               <label class="toggle" title="切换今日休息软限额提醒">
                 <input type="checkbox" id="a-rest-reminder-enabled">
                 <span class="toggle-track"></span><span class="toggle-thumb"></span>
               </label>
+            </div>
+            <div class="rest-reminder-toggle-row">
+              <div><strong style="font-size:13px;">启用本周休息软配额提醒</strong><div class="weekly-rest-meta">周一 00:00 重置；达到后可确认继续，不产生访问锁</div></div>
+              <label class="toggle" title="切换本周休息软配额提醒"><input type="checkbox" id="a-rest-weekly-enabled"><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+            </div>
+            <div class="rest-reminder-fields" id="a-rest-weekly-fields">
+              <label class="rest-reminder-field" for="a-rest-weekly-hours"><span class="quota-control-label">本周休息软配额</span><span class="rest-reminder-input"><input class="quota-input" type="number" id="a-rest-weekly-hours" min="0" max="168" step="1" inputmode="numeric" aria-label="本周软配额小时"><span class="quota-unit">小时</span></span></label>
+              <label class="rest-reminder-field" for="a-rest-weekly-minutes"><span class="quota-control-label">分钟</span><span class="rest-reminder-input"><input class="quota-input" type="number" id="a-rest-weekly-minutes" min="0" max="59" step="1" inputmode="numeric" aria-label="本周软配额分钟"><span class="quota-unit">分钟</span></span></label>
             </div>
             <div class="rest-reminder-fields" id="a-rest-reminder-fields">
               <label class="rest-reminder-field" for="a-rest-first-reminder">
@@ -1369,7 +1378,7 @@
                 <label><input type="radio" name="a-rest-timeout-action" value="continue"><span>默认继续</span></label>
               </div>
             </div>
-            <div class="weekly-rest-meta">默认 120 / 60 分钟；提醒最多可能比设定值晚一个 3 分钟网页结算周期。</div>
+            <div class="weekly-rest-meta">默认今日 2 小时、本周 14 小时；日周共用超额后提醒间隔，默认 60 分钟。同时到期合并提醒，最多可能晚一个 3 分钟网页结算周期。软配额不替代硬上限。</div>
           </div>
         </div>
 
@@ -4150,6 +4159,7 @@ function buildProfileConfigExportData(classificationRequests = [], notificationS
           ? null
           : quotaFiniteNumber(cfg.restConfig?.firstReminderMinutes) ?? 120,
         repeatReminderMinutes: quotaFiniteNumber(cfg.restConfig?.repeatReminderMinutes) ?? 60,
+        weeklyFirstReminderMinutes: cfg.restConfig?.weeklyFirstReminderMinutes === null ? null : quotaFiniteNumber(cfg.restConfig?.weeklyFirstReminderMinutes) ?? 840,
       },
       autonomyConfig: {
         restrictedEntryConfirmationRequired: cfg.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
@@ -4518,6 +4528,8 @@ function normalizeProfileConfigImportData(data) {
   const importedRepeatReminder = data.quota?.restConfig && Object.prototype.hasOwnProperty.call(data.quota.restConfig, 'repeatReminderMinutes')
     ? quotaFiniteNumber(data.quota.restConfig.repeatReminderMinutes)
     : 60;
+  const importedWeeklyReminder = data.quota?.restConfig?.weeklyFirstReminderMinutes === null ? null
+    : quotaFiniteNumber(data.quota?.restConfig?.weeklyFirstReminderMinutes) ?? 840;
   const importedAutonomy = data.quota?.autonomyConfig && typeof data.quota.autonomyConfig === 'object'
     ? data.quota.autonomyConfig
     : {};
@@ -4539,6 +4551,7 @@ function normalizeProfileConfigImportData(data) {
     restConfig: {
       firstReminderMinutes: importedFirstReminder === undefined ? 120 : importedFirstReminder,
       repeatReminderMinutes: importedRepeatReminder === undefined ? 60 : importedRepeatReminder,
+      weeklyFirstReminderMinutes: importedWeeklyReminder,
     },
     autonomyConfig: {
       restrictedEntryConfirmationRequired: importedAutonomy.restrictedEntryConfirmationRequired !== false,
@@ -4679,6 +4692,9 @@ function buildProfileConfigImportDiffs(importedConfig) {
     addConfigImportDiff(diffs, { type: 'modify', area: 'rest-reminder', key: 'firstReminderMinutes', label: '今日休息软限额', currentValue: configImportValueLabel(currentFirstReminder), importedValue: configImportValueLabel(importedFirstReminder), importedRawValue: importedFirstReminder });
   }
   const currentRepeatReminder = quotaFiniteNumber(remoteConfig?.restConfig?.repeatReminderMinutes) ?? 60;
+  const currentWeeklyReminder = remoteConfig?.restConfig?.weeklyFirstReminderMinutes === null ? null : quotaFiniteNumber(remoteConfig?.restConfig?.weeklyFirstReminderMinutes) ?? 840;
+  const importedWeeklyReminder = importedConfig?.restConfig?.weeklyFirstReminderMinutes === null ? null : quotaFiniteNumber(importedConfig?.restConfig?.weeklyFirstReminderMinutes) ?? 840;
+  addConfigImportDiff(diffs, { type: currentWeeklyReminder === importedWeeklyReminder ? 'same' : 'modify', area: 'rest-reminder', key: 'weeklyFirstReminderMinutes', label: '本周休息软配额', currentValue: configImportValueLabel(currentWeeklyReminder), importedValue: configImportValueLabel(importedWeeklyReminder), importedRawValue: importedWeeklyReminder });
   const importedRepeatReminder = quotaFiniteNumber(importedConfig?.restConfig?.repeatReminderMinutes) ?? 60;
   if (configImportJsonKey(currentRepeatReminder) === configImportJsonKey(importedRepeatReminder)) {
     addConfigImportDiff(diffs, { type: 'same', area: 'rest-reminder', key: 'repeatReminderMinutes', label: '超额后提醒间隔', currentValue: configImportValueLabel(currentRepeatReminder), importedValue: configImportValueLabel(importedRepeatReminder) });
@@ -4781,6 +4797,7 @@ function buildProfileConfigImportPayload(selectedDiffs) {
         ? null
         : quotaFiniteNumber(remoteConfig?.restConfig?.firstReminderMinutes) ?? 120,
       repeatReminderMinutes: quotaFiniteNumber(remoteConfig?.restConfig?.repeatReminderMinutes) ?? 60,
+      weeklyFirstReminderMinutes: remoteConfig?.restConfig?.weeklyFirstReminderMinutes === null ? null : quotaFiniteNumber(remoteConfig?.restConfig?.weeklyFirstReminderMinutes) ?? 840,
     },
     autonomyConfig: {
       restrictedEntryConfirmationRequired: remoteConfig?.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
@@ -5394,24 +5411,30 @@ function autonomyConfigView(config = {}) {
     reminderEnabled: config?.restConfig?.firstReminderMinutes !== null,
     firstReminderMinutes: quotaFiniteNumber(config?.restConfig?.firstReminderMinutes) ?? 120,
     repeatReminderMinutes: quotaFiniteNumber(config?.restConfig?.repeatReminderMinutes) ?? 60,
+    weeklyReminderEnabled: config?.restConfig?.weeklyFirstReminderMinutes !== null,
+    weeklyFirstReminderMinutes: quotaFiniteNumber(config?.restConfig?.weeklyFirstReminderMinutes) ?? 840,
   };
 }
 
 function updateAutonomyInputs() {
   const enabled = document.getElementById('a-rest-reminder-enabled')?.checked === true;
-  document.querySelectorAll('#a-rest-reminder-fields input, #a-rest-timeout-actions input').forEach(input => {
-    input.disabled = !enabled;
+  const weeklyEnabled = document.getElementById('a-rest-weekly-enabled')?.checked === true;
+  document.getElementById('a-rest-first-reminder').disabled = !enabled;
+  document.querySelectorAll('#a-rest-weekly-fields input').forEach(input => { input.disabled = !weeklyEnabled; });
+  document.querySelectorAll('#a-rest-timeout-actions input, #a-rest-repeat-reminder').forEach(input => {
+    input.disabled = !enabled && !weeklyEnabled;
   });
-  document.getElementById('a-rest-reminder-fields')?.classList.toggle('disabled', !enabled);
-  document.getElementById('a-rest-timeout-actions')?.classList.toggle('disabled', !enabled);
+  document.getElementById('a-rest-weekly-fields')?.classList.toggle('disabled', !weeklyEnabled);
+  document.getElementById('a-rest-timeout-actions')?.classList.toggle('disabled', !enabled && !weeklyEnabled);
 
   const confirmationRequired = document.getElementById('a-restricted-entry-confirmation')?.checked !== false;
   const first = Number(document.getElementById('a-rest-first-reminder')?.value) || 120;
   const repeat = Number(document.getElementById('a-rest-repeat-reminder')?.value) || 60;
   const timeoutAction = document.querySelector('input[name="a-rest-timeout-action"]:checked')?.value === 'continue' ? 'continue' : 'end_rest';
   document.getElementById('autonomy-summary-entry').textContent = confirmationRequired ? '完整确认' : '短提示后直接进入';
-  document.getElementById('autonomy-summary-reminder').textContent = enabled ? `${first} 分钟；每 ${repeat} 分钟再次提醒` : '已关闭';
-  document.getElementById('autonomy-summary-timeout').textContent = enabled ? (timeoutAction === 'continue' ? '默认继续' : '结束休息') : '启用提醒后生效';
+  const weeklyMinutes = Number(document.getElementById('a-rest-weekly-hours')?.value) * 60 + Number(document.getElementById('a-rest-weekly-minutes')?.value);
+  document.getElementById('autonomy-summary-reminder').textContent = `今日 ${enabled ? first + '分' : '关闭'} · 本周 ${weeklyEnabled ? Math.floor(weeklyMinutes / 60) + '小时' + (weeklyMinutes % 60 ? weeklyMinutes % 60 + '分' : '') : '关闭'}${enabled || weeklyEnabled ? '；每 ' + repeat + ' 分再次提醒' : ''}`;
+  document.getElementById('autonomy-summary-timeout').textContent = enabled || weeklyEnabled ? (timeoutAction === 'continue' ? '默认继续' : '结束休息') : '启用提醒后生效';
 }
 
 function quotaLegacyMinutes(value, fallback) {
@@ -5651,6 +5674,9 @@ function setupAutonomy() {
   document.getElementById('a-rest-reminder-enabled').addEventListener('change', updateAutonomyInputs);
   document.getElementById('a-rest-first-reminder').addEventListener('input', updateAutonomyInputs);
   document.getElementById('a-rest-repeat-reminder').addEventListener('input', updateAutonomyInputs);
+  document.getElementById('a-rest-weekly-enabled').addEventListener('change', updateAutonomyInputs);
+  document.getElementById('a-rest-weekly-hours').addEventListener('input', updateAutonomyInputs);
+  document.getElementById('a-rest-weekly-minutes').addEventListener('input', updateAutonomyInputs);
   document.querySelectorAll('input[name="a-rest-timeout-action"]').forEach(input => {
     input.addEventListener('change', updateAutonomyInputs);
   });
@@ -5663,6 +5689,9 @@ function renderAutonomyPage() {
   document.getElementById('a-rest-reminder-enabled').checked = view.reminderEnabled;
   document.getElementById('a-rest-first-reminder').value = String(view.firstReminderMinutes);
   document.getElementById('a-rest-repeat-reminder').value = String(view.repeatReminderMinutes);
+  document.getElementById('a-rest-weekly-enabled').checked = view.weeklyReminderEnabled;
+  document.getElementById('a-rest-weekly-hours').value = String(Math.floor(view.weeklyFirstReminderMinutes / 60));
+  document.getElementById('a-rest-weekly-minutes').value = String(view.weeklyFirstReminderMinutes % 60);
   const timeoutInput = document.querySelector(`input[name="a-rest-timeout-action"][value="${view.softReminderTimeoutAction}"]`);
   if (timeoutInput) timeoutInput.checked = true;
   updateAutonomyInputs();
@@ -5673,6 +5702,13 @@ async function saveAutonomyConfig() {
   const reminderEnabled = document.getElementById('a-rest-reminder-enabled').checked;
   const firstReminderMinutes = Number(document.getElementById('a-rest-first-reminder').value);
   const repeatReminderMinutes = Number(document.getElementById('a-rest-repeat-reminder').value);
+  const weeklyEnabled = document.getElementById('a-rest-weekly-enabled').checked;
+  const weeklyHours = Number(document.getElementById('a-rest-weekly-hours').value);
+  const weeklyMinutes = Number(document.getElementById('a-rest-weekly-minutes').value);
+  const weeklyFirstReminderMinutes = weeklyHours * 60 + weeklyMinutes;
+  if (weeklyEnabled && (!Number.isInteger(weeklyHours) || weeklyHours < 0 || !Number.isInteger(weeklyMinutes) || weeklyMinutes < 0 || weeklyMinutes > 59 || weeklyFirstReminderMinutes < 1 || weeklyFirstReminderMinutes > 10080)) {
+    toast('本周休息软配额请输入 1 分钟至 168 小时，分钟为 0-59 整数', false); return;
+  }
   if (reminderEnabled && !validRestReminderMinutes(firstReminderMinutes)) {
     toast('今日休息软限额请输入 1-1440 的整数分钟', false);
     return;
@@ -5694,6 +5730,7 @@ async function saveAutonomyConfig() {
       ...(remoteConfig.restConfig || {}),
       firstReminderMinutes: reminderEnabled ? firstReminderMinutes : null,
       repeatReminderMinutes,
+      weeklyFirstReminderMinutes: weeklyEnabled ? weeklyFirstReminderMinutes : null,
     },
   };
 
