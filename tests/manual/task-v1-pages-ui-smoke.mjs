@@ -8,7 +8,7 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)),'..','..');
 const pagesRoot=resolve(root,'pages');
 const output=resolve(root,'output','playwright');
 mkdirSync(output,{recursive:true});
-const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json'};
+const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.svg':'image/svg+xml','.png':'image/png'};
 function assert(value,message){if(!value)throw new Error(message);console.log('PASS '+message)}
 const server=createServer((request,response)=>{
   const pathname=new URL(request.url,'http://127.0.0.1').pathname;
@@ -127,6 +127,40 @@ try{
   assert((await actionsPage.locator('#resource-draft-list').innerText()).includes('after.example'),'old creation response cannot clear new profile draft');
   assert(actionRequests.every(entry=>entry.url.includes('/profiles/profile-1/')),'lifecycle mutations stay on their owning profile');
   await actionsPage.close();
+  const modulesPage=await context.newPage();
+  await modulesPage.goto(`http://127.0.0.1:${port}/`,{waitUntil:'networkidle'});
+  assert(await modulesPage.locator('.sidebar-nav a[href="/modules/"]').isVisible(),'desktop main navigation exposes generic module entry');
+  assert(await modulesPage.locator('.sidebar-nav a[href="/task/"]').count()===0,'main navigation does not embed Task-specific entry');
+  await modulesPage.locator('#toast').waitFor({state:'hidden'});
+  await modulesPage.screenshot({path:join(output,'task-v1-cloud-module-navigation-desktop.png'),fullPage:true});
+  await modulesPage.setViewportSize({width:430,height:900});
+  await modulesPage.click('#mobile-more-btn');
+  assert(await modulesPage.locator('.mobile-more-action[href="/modules/"]').isVisible(),'mobile More exposes generic module entry');
+  await modulesPage.screenshot({path:join(output,'task-v1-cloud-module-navigation-narrow.png'),fullPage:true});
+  await modulesPage.locator('.mobile-more-action[href="/modules/"]').click();
+  await modulesPage.locator('#modules .card').waitFor();
+  assert(await modulesPage.locator('#modules .card').count()===1&&await modulesPage.locator('#modules .card').getAttribute('href')==='/task/','module directory restores independent Task link');
+  assert(await modulesPage.locator('main > a').getAttribute('href')==='/','module directory has return to parent console');
+  await modulesPage.setViewportSize({width:1366,height:900});
+  await modulesPage.screenshot({path:join(output,'task-v1-cloud-module-directory-desktop.png'),fullPage:true});
+  let directoryStatus=200,directoryPayload=[];
+  await modulesPage.route('**/optional-modules.json',route=>route.fulfill({status:directoryStatus,json:directoryPayload}));
+  await modulesPage.reload();
+  await modulesPage.waitForFunction(()=>document.getElementById('status').textContent.includes('没有可用模块'));
+  assert(await modulesPage.locator('#modules .card').count()===0&&!(await modulesPage.locator('#retry').isVisible()),'empty directory is distinct from failure');
+  for(const payload of [{invalid:true},[{id:'x',label:'x',description:'x',href:'https://example.com/'}],[{id:'x',label:'x',description:'x',href:'//example.com/'}],[{id:'x',label:3,description:'x',href:'/task/'}]]){
+    directoryPayload=payload;await modulesPage.reload();await modulesPage.locator('#retry').waitFor();
+    assert(await modulesPage.locator('#modules .card').count()===0,'invalid directory fails closed without partial cards');
+  }
+  directoryStatus=503;directoryPayload=[];await modulesPage.reload();await modulesPage.locator('#retry').waitFor();
+  assert((await modulesPage.locator('#status').innerText()).includes('暂不可用'),'HTTP error does not masquerade as empty directory');
+  directoryStatus=200;directoryPayload=[{id:'long',label:'长名称模块'.repeat(12),description:'独立边界与模块说明'.repeat(18),href:'/task/'}];
+  await modulesPage.click('#retry');await modulesPage.locator('#modules .card').waitFor();
+  await modulesPage.setViewportSize({width:430,height:900});
+  assert(await modulesPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'long module labels remain reachable without horizontal overflow');
+  await modulesPage.screenshot({path:join(output,'task-v1-cloud-module-directory-narrow.png'),fullPage:true});
+  assert(!(await modulesPage.locator('#retry').isVisible()),'retry recovers a valid directory');
+  await modulesPage.close();
   console.log('Task V1 cloud UI smoke PASS');
 }finally{
   await browser?.close().catch(()=>{});
