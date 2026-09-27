@@ -365,6 +365,12 @@ function validateRestConfig(config: Record<string, unknown>): string | null {
       return 'restConfig.repeatReminderMinutes 必须是 1-1440 的整数分钟';
     }
   }
+  if (Object.prototype.hasOwnProperty.call(restConfig, 'weeklyFirstReminderMinutes')) {
+    const value = restConfig.weeklyFirstReminderMinutes;
+    if (value !== null && (!Number.isInteger(value) || value < 1 || value > 10080)) {
+      return 'restConfig.weeklyFirstReminderMinutes 必须是 null 或 1-10080 的整数分钟';
+    }
+  }
   return null;
 }
 

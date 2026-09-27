@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## NOW：日周 Rest 云端兼容校验分批整合（2026-09-28）
+
+- 职责 runtime-cloud-contract；从主目录未提交日周软配额实现仅提取 profiles.ts 的 weeklyFirstReminderMinutes 校验。允许 null 或1–10080整数分钟，字段缺失兼容旧客户端，纯校验不改配置对象。
+- 本批不加入默认840、不接入管理页、不启用终端提醒，不复制复合页面分析、migration032、扩展或候选文件。剩余默认值/页面/终端仍待独立整合与真实浏览器验收；不得称日周功能完成。
+- 必须验证：独立服务端字段边界与旧字段兼容、配置并发聚焦回归、TypeScript、diff check及职责检查；不跑 Native/Console/全量终端测试。只提交和PR整合，不部署Guardian或修改生产配置。
+- 结果：独立 Worker 校验23/23、配置并发回归PASS、contracts1.15.0 build与根TypeScript检查PASS、diff check PASS。测试证明合法边界/非法类型/旧字段及无对象修改，不代表真实终端提醒验收。
+- 本批审计：Matched＝只提取六行可选字段校验及独立回归；Deviated/Missing/Extra＝无（此兼容校验批次）。日周软配额完整功能仍未完成，不触发生产发布。
+
 ## NOW：时间段输入规范化独立整合（2026-09-28）
 
 - 职责 runtime-cloud-contract；从最新 master 独立提取主目录已有小修，只修改 pages/index.html、对应 pages-config-v12-fields 聚焦测试和本记录，不复制 Rest/复合页面分析等其他脏改动。
