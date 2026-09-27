@@ -452,6 +452,18 @@ function buildDefaultConfig(siteAccessDefaults: SystemAccessConfig): object {
   };
 }
 
+function validateCompositeReviewConfig(config: Record<string, unknown>): string | null {
+  if (!Object.prototype.hasOwnProperty.call(config, 'compositeReviewConfig')) return null;
+  const value = config.compositeReviewConfig;
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || !Object.prototype.hasOwnProperty.call(value, 'enabled')
+      || typeof (value as Record<string, unknown>).enabled !== 'boolean'
+      || Object.keys(value).some(key => key !== 'enabled')) {
+    return 'compositeReviewConfig.enabled must be boolean';
+  }
+  return null;
+}
+
 export const profilesRouter = {
   async handle(request: Request, env: Env): Promise<Response> {
     const url  = new URL(request.url);
@@ -773,12 +785,14 @@ export const profilesRouter = {
           'dailyUndeterminedQuota', 'weeklyRestQuota',
           'domainQuotas', 'classificationRules', 'siteClassificationRulesV1',
           'quotaState', 'schedule',
-          'restConfig', 'autonomyConfig', 'autoStudyConfig',
+          'restConfig', 'autonomyConfig', 'autoStudyConfig', 'compositeReviewConfig',
           'clientLoggingPolicyV1',
           'timeQuota', 'timeWindows',
         ]);
 
         const incomingConfig = data as Record<string, unknown>;
+        const reviewError = validateCompositeReviewConfig(incomingConfig);
+        if (reviewError) return json({ error: reviewError, code: 'INVALID_COMPOSITE_REVIEW_CONFIG' }, 400);
         const loggingPolicy = incomingConfig.clientLoggingPolicyV1 as any;
         if (loggingPolicy?.policyVersion === 2 &&
             (!['warning', 'error'].includes(loggingPolicy.uploadMinLevel) ||
