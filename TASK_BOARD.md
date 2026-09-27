@@ -1,5 +1,336 @@
 # TASK_BOARD
 
+## NOW（2026-09-27）：两仓分支与版本盘点、分批整合
+
+执行更新：PO 最新持续目标已明确授权提交、合并及部署，解除此前“不部署”约束；不授权删除目录、覆盖脏改动或绕过账本专项门禁。契约 PR #64 已合并为 b028662，GitHub Pages 既有自动流程随该提交执行；盘点分支保留任务板两侧章节。后续 Native/控件分别按所属任务审查，不混合发布未经验证的功能。
+
+职责：runtime-cloud-contract。阶段一仅 Git、文件元数据、版本及哈希核验；文档仅 diff check，无产品测试、安装、部署、migration 或 R2 写入。已 fetch 两仓（包含 Native 旧历史克隆），未 prune/pull/reset/stash。以下为核验时点快照，不代表其他活跃任务之后没有新改动。
+
+### 版本证据（分别记录，不强求一致）
+
+| 对象 | 核验结果 | 证据／限制 |
+|---|---|---|
+| TimeOnChrome origin/master | 8afc4ba6bf9f24f343081257862603da9056d05f | fetch；本地主目录 master 仍为 2b9d461 且脏，不更新 |
+| Native origin/main | 28373a955c14bdd91d82c1bfe341fb21442724c1 | 新克隆及旧历史克隆均 fetch |
+| Native 活跃源码 | codex/manager-usage-statistics@6c51a0d；产品提交 c5c9b85 | 两个提交尚未推送，不等于 main |
+| Contracts 当前 | 1.15.0；SHA256 5a3f3762fee88e3cf1bd8140ac2716407a40566d2248de6c497cc7fb36c07073 | Native 固定包实际哈希匹配锁 |
+| Contracts 上一兼容版 | 1.14.0；SHA256 05fdff9a4480f0dd32736ecdc4aee0113b5a6189427082351ea54dfab71d0518 | 固定包实际哈希匹配锁 |
+| 扩展 master manifest | 1.7.34 | git show origin/master:extension/manifest.json |
+| 原目录候选 | 1.7.39；native-host-development | 81a1 工作树 dist/native-host-managed-candidate/package-extension；保留加载目录，不宣称正式托管发布 |
+| 本机已安装 Native | 11 个 TimeOnChrome exe/dll 均 2.6.8.0；Service Automatic/Running | 文件版本及 SCM 只读查询；不等于 main 或 R2 latest |
+| 本地 2.6.8 Burn | SHA256 de5b9a841ff6e51ac2abdab2d10d40878f94a032acce3ffcc9f87e501ce27d9a | 实际文件哈希匹配 manifest；源码 c5c9b85 |
+| 本地 2.6.8 MSI | SHA256 44402c1dc98440baa455b14bd6c45ef8aebd20a5ff4337ef440084c5972a9b3f | 实际文件哈希匹配 manifest；内部未签名 |
+| Runtime Worker | deployment 80a30421-6d72-4f22-a973-1b48425785a0；version b00deec4-b3ca-40f7-8b10-6536af07f10b | Wrangler deployments list 当前最新记录，2026-09-26T20:20:08Z |
+| Guardian Worker | deployment 887ee2ba-d062-472c-b8ca-c1840c7c5374；version 8d21c210-b9fd-46b5-969e-0f4c84451715 | Wrangler 当前最新记录，2026-09-26T13:10:07Z |
+| Runtime Pages | f2a6ca68-8e6f-42f7-b82e-9bf42b06e6ad；source aa5382e | production deployment list；未另行证明稳定域名响应字节 |
+| 主 Pages | c2d25d50-18ed-4d49-8938-9b7e67c07a17；source cffcee2 | production deployment list |
+| R2 latest 公共 API | 2.3.1；Burn 118739813 bytes；SHA256 3109d6bbd147f5bfba88549a240dae42e84e724aa86bd1baef724d2df7b17563 | 现场只读 latest 响应；本轮未下载大包复算，不把 manifest 声明当下载实测 |
+
+### 整合批次与未决项
+
+1. 优先项目契约 b2c5b22，已推送并创建 PR #64；task-scope、CI routing、diff check 及 CI gate（run 36326348537）PASS。盘点 PR #65 首次文档 CI gate（run 36326408264）PASS。受 master 自动发布副作用阻塞，未合并；不混入扩展或 Native 实现。
+2. Native 所属任务已确认 c5c9b85/6c51a0d 尚未推送或整合，建议契约先行后单独统计 PR。复用原 21 项聚焦测试、Manager/Service 编译和实机记录；未找到独立 TRX，证据来源为既有提交/README，不能记为本轮重测。Native README 已追加未提交整合跟踪；Assets/Brand 是另一项已交付未接入图标，不混入统计 PR。统计 PR 须声明 native-local，并精确解释 .github/workflows/native.yml 的 2.6.8 artifact 路径例外。2.6.8 包、usage-statistics-ui 证据、固定契约及旧克隆三个工作树继续保留。当前会话不改本机实现。
+3. 扩展历史工作线及主目录混合脏改动交控件任务核对；云端部分由当前任务协调。任务管理工作树独立保留。涉及网页账本的历史补丁只读核对，不能因整合而绕过 D-076。
+4. PR #12（5f14cab）及 b7d8278/52ec058/8da97d5 为未整合历史发布证据，不能将旧 NOW 状态整体覆盖当前任务板。先保留来源，审查后只迁入仍缺失的历史事实。
+5. 4408b16 虽 patch-id 不等价，但相关扩展实现及测试与 master 文件比较已无差异；仍有文档差异，不能重复合入实现。
+6. GitHub Pages legacy source 指向 master，合并可能触发 pages build and deployment；在保证本轮不发布前不得直接合并。不能把事后取消当作保证无部署的门禁。
+
+### 全部分支／跟踪引用清单
+
+祖先表示完整可达，不仅是 ahead/behind。非祖先额外以 git cherry 检查 patch 等价；“独有”仍需功能审查，不自动代表必须合入。下表精简 SHA 仅用于阅读，完整对象仍保留在 Git；未执行任何 ref 删除。历史混合分支默认保留，不整体 merge。
+
+<details>
+<summary>TimeOnChrome：137 个本地／跟踪引用</summary>
+
+| 工作线 | SHA | 独有／等价提交 | 合并状态 | 所属／处置 |
+|---|---|---|---|---|
+| codex/app-runtime-2.2.1-release-evidence | b7d82784d571 | 2 / 0 | 未决独有改动 | 架构／云端；保留，所属任务审查 |
+| codex/app-runtime-2.2.2-release-evidence | cc0c49831863 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-2.3.1-release-evidence | 2661ea08a6d8 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-attribution-release-evidence | 5f33bdd0978f | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-catalog-ambiguity-hotfix | 2da362dc1ca1 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-catalog-closeout | 626d8d701bb6 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-catalog-correction-v1 | 38e0be3a5cec | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-catalog-groups-v1 | 85f337862e4e | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-catalog-hotfix-evidence | 78d8cd2171fa | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-catalog-hotfix-v1 | 357709962743 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-child-context-v1 | b551bb97aea9 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-ci-throttle-v1 | 250b7fecc853 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-classification-v1 | 328ef2f64191 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-cloud-origin-v1 | d35e4feea89e | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-default-classification-release | aa5382e149ea | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-default-classification-v1 | 3ae569d25c5e | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-distribution-evidence-v1 | cdc5a263c5aa | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-distribution-source-fix | 4324d3624ffe | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-game-system-rules-evidence | 722d1529940f | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-game-system-rules-v1 | 0fc963a1c801 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-integration-v1 | 27f6fa00b847 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-inventory-client-fix | e4c8bd9631fd | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-inventory-envelope-fix | 7f598e95f137 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-inventory-quality-v1 | 7537a4a4a4a1 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-inventory-reconciliation-v1 | 7f04ea14e913 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-inventory-v4-hotfix | cbacb1d8bf29 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-native-host-v1 | 3a963e41da0d | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-orphan-variant-hotfix | 86aa19393143 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-product-catalog-v2 | 9891eb2dd9cf | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-product-catalog-v3 | 64bf6b7022e0 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-product-catalog-v4 | 24afcca5a22e | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-product-catalog-v5 | 0e9677663a28 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-product-identity-complete-v1 | c3d9b7ff1195 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-product-projection-v1 | e38aec1e92a7 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-product-type-v1 | cf641cc12228 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-production-closeout-v1 | 6607903087b6 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-production-evidence | 0cfec7529836 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-production-gate-fix | 00e3b6d57b88 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-recovery-evidence-20260927 | 0db58b2fef18 | 0 / 0 | 主线祖先 | 控件；已合并，清理仍需依赖审查 |
+| codex/app-runtime-release-config-v1 | a67eadddea06 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-release-evidence-v1 | 5f14cabd7306 | 1 / 0 | 未决独有改动 | 架构／云端；保留，所属任务审查 |
+| codex/app-runtime-system-app-grouping-v1 | baca6180e106 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-system-tools-evidence | 910c82945441 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-system-tools-v1 | 91bbcf8dd70f | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/app-runtime-windows-release-v1 | b1b4440aae0c | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/browser-bridge-v3-final-closeout | 8e8bddad3c91 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/browser-bridge-v3-release-evidence | abdda90aacdd | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/extension-application-usage-v1 | 4408b16d8cbc | 1 / 0 | 未决独有改动 | 控件；保留，所属任务审查 |
+| codex/guardian-v3-release-gate | 8da97d5da63b | 1 / 0 | 未决独有改动 | 架构／云端；保留，所属任务审查 |
+| codex/macos-app-management-v1 | 9acba21ccb9a | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/native-host-fixed-candidate-v3 | 20a99b2b15eb | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/project-cloud-extension-contract | b2c5b22d2fd8 | 1 / 0 | 未决独有改动 | 控件；保留，所属任务审查 |
+| codex/runtime-session-boundaries | 265b3880296a | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/runtime-session-boundaries-closeout | f28bdcb86bae | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/task-management-v1 | 8603fbbb8506 | 14 / 0 | 未决独有改动 | 任务管理；保留，所属任务审查 |
+| codex/timewhere-native-handoff-evidence | 642d814855f6 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/timewhere-native-release-gate | f62107f286c0 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/timewhere-native-split | 7dda0bb479a4 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/timewhere-native-split-closeout | 0dd58ce82ce1 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| codex/timewhere-split-final-20260927 | b9819b190215 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| master | 2b9d461a6cfa | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin | 8afc4ba6bf9f | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/audit/codex-full-review | 8086b964098c | 2 / 0 | 未决独有改动 | 架构／云端；保留，所属任务审查 |
+| origin/codex/app-runtime-2.2.1-release-evidence | b7d82784d571 | 2 / 0 | 未决独有改动 | 架构／云端；保留，所属任务审查 |
+| origin/codex/app-runtime-2.2.2-release-evidence | cc0c49831863 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-attribution-release-evidence | 5f33bdd0978f | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-catalog-ambiguity-hotfix | 2da362dc1ca1 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-catalog-closeout | 626d8d701bb6 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-catalog-correction-v1 | 38e0be3a5cec | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-catalog-groups-v1 | 85f337862e4e | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-catalog-hotfix-evidence | 78d8cd2171fa | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-catalog-hotfix-v1 | 357709962743 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-child-context-v1 | b551bb97aea9 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-ci-throttle-v1 | 250b7fecc853 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-classification-v1 | 328ef2f64191 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-cloud-origin-v1 | d35e4feea89e | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-default-classification-v1 | 3ae569d25c5e | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-distribution-evidence-v1 | cdc5a263c5aa | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-distribution-source-fix | 4324d3624ffe | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-game-system-rules-evidence | 722d1529940f | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-game-system-rules-v1 | 0fc963a1c801 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-integration-v1 | 27f6fa00b847 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-inventory-client-fix | e4c8bd9631fd | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-inventory-envelope-fix | 7f598e95f137 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-inventory-quality-v1 | 7537a4a4a4a1 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-inventory-reconciliation-v1 | 7f04ea14e913 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-inventory-v4-hotfix | cbacb1d8bf29 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-native-host-v1 | 3a963e41da0d | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-orphan-variant-hotfix | 86aa19393143 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-product-catalog-v2 | 9891eb2dd9cf | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-product-catalog-v3 | 64bf6b7022e0 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-product-catalog-v4 | 24afcca5a22e | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-product-catalog-v5 | 0e9677663a28 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-product-identity-complete-v1 | c3d9b7ff1195 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-product-projection-v1 | e38aec1e92a7 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-product-type-v1 | cf641cc12228 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-production-closeout-v1 | 6607903087b6 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-recovery-evidence-20260927 | 0db58b2fef18 | 0 / 0 | 主线祖先 | 控件；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-release-config-v1 | a67eadddea06 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-release-evidence-v1 | 5f14cabd7306 | 1 / 0 | 未决独有改动 | 架构／云端；保留，所属任务审查 |
+| origin/codex/app-runtime-system-app-grouping-v1 | baca6180e106 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-system-tools-evidence | 910c82945441 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-system-tools-v1 | 91bbcf8dd70f | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/app-runtime-windows-release-v1 | b1b4440aae0c | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/browser-bridge-v3-final-closeout | 8e8bddad3c91 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/browser-bridge-v3-release-evidence | abdda90aacdd | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/extension-application-usage-v1 | bdf945f284c3 | 0 / 0 | 主线祖先 | 控件；已合并，清理仍需依赖审查 |
+| origin/codex/guardian-v3-release-gate | 8da97d5da63b | 1 / 0 | 未决独有改动 | 架构／云端；保留，所属任务审查 |
+| origin/codex/macos-app-management-v1 | 9acba21ccb9a | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/media-reporting-semantics | 374a12aa761e | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/native-host-fixed-candidate-v3 | 20a99b2b15eb | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/p0-foreground-reliability | b2552052485f | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/perform-final-code-audit-for-project | a9a029d30f47 | 0 / 1 | patch 等价，非祖先 | 架构／云端；保留，所属任务审查 |
+| origin/codex/restore-pre-repair-baseline | 0d6c99584dcc | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/runtime-session-boundaries | 265b3880296a | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/runtime-session-boundaries-closeout | f28bdcb86bae | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/stats-accuracy-min-verify | a09cb359d58d | 11 / 0 | 未决独有改动 | 控件；保留，所属任务审查 |
+| origin/codex/suspect-segment-cleanup | d5bbc99b070f | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/task-management-v1 | 8603fbbb8506 | 14 / 0 | 未决独有改动 | 任务管理；保留，所属任务审查 |
+| origin/codex/timewhere-native-handoff-evidence | 642d814855f6 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/timewhere-native-release-gate | f62107f286c0 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/timewhere-native-split | 7dda0bb479a4 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/timewhere-native-split-closeout | 0dd58ce82ce1 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/timewhere-split-final-20260927 | b9819b190215 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/codex/timing-functional-completion | 31870a9b2fdc | 0 / 0 | 主线祖先 | 控件；已合并，清理仍需依赖审查 |
+| origin/codex/timing-functional-completion-m1-real-profile | 79dccfd11850 | 0 / 0 | 主线祖先 | 控件；已合并，清理仍需依赖审查 |
+| origin/codex/timing-productization | 28f90d6e4751 | 2 / 0 | 未决独有改动 | 控件；保留，所属任务审查 |
+| origin/develop | 07e3ae22f068 | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/master | 8afc4ba6bf9f | 0 / 0 | 主线祖先 | 架构／云端；已合并，清理仍需依赖审查 |
+| origin/pr-1-timing-trace-verify | 485e33643aaf | 4 / 0 | 未决独有改动 | 控件；保留，所属任务审查 |
+| origin/pr-2-recovery-crossday | 8f1138f8eb74 | 5 / 0 | 未决独有改动 | 控件；保留，所属任务审查 |
+| origin/pr-3-pip-background-media | a09cb359d58d | 11 / 0 | 未决独有改动 | 控件；保留，所属任务审查 |
+| origin/release/v0.0.1-profile-config-integrity | df03d199f3ed | 7 / 0 | 未决独有改动 | 架构／云端；保留，所属任务审查 |
+| origin/release/v0.1-duration-accuracy | b7fc47685385 | 0 / 1 | patch 等价，非祖先 | 控件；保留，所属任务审查 |
+| origin/release/v0.1-duration-diagnostics | c74d4d4c41cd | 2 / 0 | 未决独有改动 | 控件；保留，所属任务审查 |
+| origin/stg | 107f5a4c27c8 | 0 / 6 | patch 等价，非祖先 | 架构／云端；保留，所属任务审查 |
+| origin/v0/release-verify | a9a029d30f47 | 0 / 1 | patch 等价，非祖先 | 架构／云端；保留，所属任务审查 |
+
+</details>
+
+<details>
+<summary>TimeWhereNative：14 个本地／跟踪引用</summary>
+
+| 工作线 | SHA | 独有／等价提交 | 合并状态 | 所属／处置 |
+|---|---|---|---|---|
+| codex/manager-usage-statistics | 6c51a0d04049 | 2 / 0 | 未决独有改动 | Native；保留，所属任务审查 |
+| codex/native-session-boundaries | 6987266cc3a3 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| main | cd970eda3294 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin | 28373a955c14 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/browser-bridge-v3-date-boundary | 33b951927210 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/browser-bridge-v3-final-closeout | 033d098a1c97 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/extension-application-usage-v1 | 357ad9200699 | 0 / 0 | 主线祖先 | 控件；已合并，清理仍需依赖审查 |
+| origin/codex/native-attribution-2.6.6-evidence | a3849a10559c | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/native-closeout-20260927 | 74ed4d45d237 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/native-inventory-envelope-fix | c8def4661b0f | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/native-runtime-identity-read-fix | 1cbd1c6975fe | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/native-session-boundaries | 6987266cc3a3 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/windows-ci-timeout-v1 | da83ff05a8d3 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/main | 28373a955c14 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+
+</details>
+
+<details>
+<summary>TimeWhereNative（旧历史克隆）：22 个本地／跟踪引用</summary>
+
+| 工作线 | SHA | 独有／等价提交 | 合并状态 | 所属／处置 |
+|---|---|---|---|---|
+| codex/browser-bridge-v3-date-boundary | 33b951927210 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| codex/browser-bridge-v3-final-closeout | 033d098a1c97 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| codex/browser-bridge-v3-version-2.6.1 | 697c88912cb7 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| codex/extension-application-usage-v1 | 357ad9200699 | 0 / 0 | 主线祖先 | 控件；已合并，清理仍需依赖审查 |
+| codex/native-attribution-2.6.6-evidence | a3849a10559c | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| codex/native-closeout-20260927 | 74ed4d45d237 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| codex/native-inventory-envelope-fix | c8def4661b0f | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| codex/native-runtime-identity-read-fix | 1cbd1c6975fe | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| codex/windows-ci-timeout-v1 | da83ff05a8d3 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| main | c4c6ddf90bf2 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin | 28373a955c14 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/browser-bridge-v3-date-boundary | 33b951927210 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/browser-bridge-v3-final-closeout | 033d098a1c97 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/extension-application-usage-v1 | 357ad9200699 | 0 / 0 | 主线祖先 | 控件；已合并，清理仍需依赖审查 |
+| origin/codex/native-attribution-2.6.6-evidence | a3849a10559c | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/native-closeout-20260927 | 74ed4d45d237 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/native-inventory-envelope-fix | c8def4661b0f | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/native-runtime-identity-read-fix | 1cbd1c6975fe | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/native-session-boundaries | 6987266cc3a3 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/codex/windows-ci-timeout-v1 | da83ff05a8d3 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/main | 28373a955c14 | 0 / 0 | 主线祖先 | Native；已合并，清理仍需依赖审查 |
+| origin/master | e3afecbec44a | 40 / 0 | 已消失远端的旧跟踪引用 | Native；迁移历史，禁止合入旧 40 个提交 |
+
+</details>
+
+### 工作树与保护范围
+
+ignored 仅列顶层类别和条目数，不读取内容；可能含私人证据/运行依赖，未证明可重建之前均保留。条目数不是递归文件总数。
+
+| 工作树 | HEAD／分支 | 未提交／未跟踪 | ignored 条目数／用途 | 处置 |
+|---|---|---|---|---|
+| D:/Codex/TimeOnchrome | 2b9d461a / master | 31 | 47 / 依赖、候选/发布/证据、本地 Wrangler 状态 | 未决改动原地保护 |
+| C盘工作树/81a1/TimeOnchrome | 4408b16d / codex/extension-application-usage-v1 | 1 | 44 / 依赖、候选/发布/证据、编译缓存、本地 Wrangler 状态 | 未决改动原地保护 |
+| C盘工作树/f805/TimeOnchrome | 8603fbbb / codex/task-management-v1 | 6 | 12 / 依赖、候选/发布/证据、本地 Wrangler 状态 | 未决改动原地保护 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-2.3.0-release | d4a6abb0 / detached | 0 | 17 / 候选/发布/证据、编译缓存 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-2.3.1-release | c407d0f1 / detached | 0 | 18 / 候选/发布/证据、编译缓存 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-attribution-release-20260927 | c3d9b7ff / codex/app-runtime-product-identity-complete-v1 | 2 | 3 / 依赖、候选/发布/证据、本地 Wrangler 状态 | 未决改动原地保护 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-catalog-correction | 38e0be3a / codex/app-runtime-catalog-correction-v1 | 0 | 6 / 依赖、候选/发布/证据、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-catalog-groups-v1 | 85f33786 / codex/app-runtime-catalog-groups-v1 | 0 | 5 / 依赖、候选/发布/证据、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-ci-throttle-v1 | 250b7fec / codex/app-runtime-ci-throttle-v1 | 0 | 1 / 本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-classification | 7537a4a4 / codex/app-runtime-inventory-quality-v1 | 0 | 25 / 依赖、候选/发布/证据、编译缓存、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-distribution-evidence | cdc5a263 / codex/app-runtime-distribution-evidence-v1 | 0 | 25 / 依赖、候选/发布/证据、编译缓存、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-integration | 27f6fa00 / codex/app-runtime-integration-v1 | 0 | 26 / 依赖、候选/发布/证据、编译缓存、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-product-catalog-v2 | 9891eb2d / codex/app-runtime-product-catalog-v2 | 0 | 28 / 依赖、候选/发布/证据、编译缓存、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-product-projection | e38aec1e / codex/app-runtime-product-projection-v1 | 0 | 6 / 依赖、候选/发布/证据、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-production | 66079030 / codex/app-runtime-production-closeout-v1 | 0 | 6 / 依赖、候选/发布/证据、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-release-2.2.1 | b7d82784 / codex/app-runtime-2.2.1-release-evidence | 0 | 4 / 依赖、候选/发布/证据、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-release-2.2.2 | cc0c4983 / codex/app-runtime-2.2.2-release-evidence | 0 | 18 / 候选/发布/证据、编译缓存、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-release-20260915 | b133f78f / detached | 0 | 4 / 依赖、候选/发布/证据、本地 Wrangler 状态 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/app-runtime-release-default-classification | aa5382e1 / codex/app-runtime-default-classification-release | 0 | 0 / 需核对 | 暂保留，未批准清理 |
+| D:/Codex/TimeOnchrome-worktrees/guardian-v3-release-gate | 8da97d5d / codex/guardian-v3-release-gate | 0 | 0 / 需核对 | 暂保留，未批准清理 |
+| D:/Codex/TimeOnchrome-worktrees/runtime-session-boundaries | b2c5b22d / codex/project-cloud-extension-contract | 0 | 0 / 需核对 | 暂保留，未批准清理 |
+| D:/Codex/TimeOnchrome-worktrees/timewhere-native-split | 0dd58ce8 / codex/timewhere-native-split-closeout | 1 | 4 / 依赖、候选/发布/证据、本地 Wrangler 状态 | 未决改动原地保护 |
+| D:/Codex/TimeOnchrome-worktrees/timewhere-split-final-20260927 | b9819b19 / codex/timewhere-split-final-20260927 | 0 | 0 / 需核对 | 暂保留，未批准清理 |
+| D:/Codex/TimeWhereNative | 6c51a0d0 / codex/manager-usage-statistics | 0 | 22 / 候选/发布/证据、编译缓存 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/timewhere-native-history | 357ad920 / codex/extension-application-usage-v1 | 0 | 25 / 候选/发布/证据、编译缓存 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/timewhere-native-attribution-2.6.6 | 1cbd1c69 / codex/native-runtime-identity-read-fix | 0 | 18 / 候选/发布/证据、编译缓存 | 保留依赖和唯一证据 |
+| D:/Codex/TimeOnchrome-worktrees/timewhere-native-closeout-20260927 | 74ed4d45 / codex/native-closeout-20260927 | 0 | 0 / 需核对 | 暂保留，未批准清理 |
+
+盘点后新建本任务 D:/Codex/TimeOnchrome-worktrees/two-repo-inventory，分支 codex/two-repo-inventory，基线 8afc4ba；只写任务板。runtime-session-boundaries 此后出现未跟踪 .wrangler/（只读部署查询的本地工具状态），不清除、不提交。Native 活跃任务此后新增未跟踪 agents/windows/src/TimeOnChrome.AppRuntime.Setup/Assets/；由原任务继续管理，不包含在本次提交，也不能沿用初查 clean 结论。
+
+已向既有 TimeOnChrome-Extension、TimeWhere Native Host 任务发送最小交接，请其确认工作线去向及依赖，不新建实施任务、不要求改动原加载目录；回复未收到前不记作确认或已整合。
+
+### 脏工作树逐项路径（不包含 ignored 私人证据）
+
+- D:/Codex/TimeOnchrome：
+  - `M DECISIONS.md`
+  - `M TASK_BOARD.md`
+  - `M docs/DESIGN.md`
+  - `M docs/SITE_ACCESS_POLICY.md`
+  - `M docs/UI_STYLE_MAP.md`
+  - `M extension/admin/admin.js`
+  - `M extension/background.js`
+  - `M extension/content.js`
+  - `M extension/infra/cloud-sync.js`
+  - `M extension/infra/storage-maintenance.js`
+  - `M extension/infra/storage.js`
+  - `M extension/popup/popup.html`
+  - `M extension/popup/popup.js`
+  - `M extension/privacy.html`
+  - `M extension/product/rest-usage-reminder.js`
+  - `M pages/index.html`
+  - `M tests/unit/pages-config-v12-fields.test.js`
+  - `M tests/unit/rest-usage-reminder.test.js`
+  - `M workers/src/index.ts`
+  - `M workers/src/routes/profiles.ts`
+  - `?? extension/core/composite-page-review.js`
+  - `?? extension/infra/composite-page-observer.js`
+  - `?? pages/composite-review.js`
+  - `?? tests/e2e/composite-page-observer-unpacked.test.js`
+  - `?? tests/e2e/composite-page-review-visual.test.js`
+  - `?? tests/e2e/rest-weekly-visual.test.js`
+  - `?? tests/unit/composite-page-review.test.js`
+  - `?? tests/unit/rest-weekly-config.test.js`
+  - `?? workers/migrations/032_composite_page_reviews.sql`
+  - `?? workers/src/routes/compositePageReviews.ts`
+  - `?? workers/src/services/compositePageReviews.ts`
+- C盘工作树/81a1/TimeOnchrome：
+  - `?? app-runtime-management/agents/`
+- C盘工作树/f805/TimeOnchrome：
+  - `M TASK_BOARD.md`
+  - `M docs/UI_STYLE_MAP.md`
+  - `M extension/admin/admin.js`
+  - `M extension/modules/task/ui/required.html`
+  - `M extension/modules/task/ui/required.js`
+  - `?? output/`
+- D:/Codex/TimeOnchrome-worktrees/app-runtime-attribution-release-20260927：
+  - `M app-runtime-management/docs/TASK_BOARD.md`
+  - `?? artifacts/`
+- D:/Codex/TimeOnchrome-worktrees/timewhere-native-split：
+  - `?? app-runtime-management/backend/NUL`
+
+### 清理建议与恢复条件
+
+本轮删除项为空。表中主线祖先引用仅属于“已整合候选”，不等于可删除工作树。特别保护原 81a1 扩展加载目录、所有活跃/脏工作树、Native 2.6.8 包与来源提交、旧发布证据和旧 Native 历史克隆。之后逐项批准前必须确认运行依赖、ignored 唯一证据和 owner 状态；分支恢复使用表内保留 SHA，产物恢复必须有实际副本/可验证构建来源，仅 Git SHA 不能恢复未跟踪文件。
+
+阶段一审计：Matched＝两仓及旧克隆 fetch/引用与工作树/patch 检查/版本分离/现场云端只读/保护清单；Missing＝历史工作线逐项 owner 裁决、后续 PR 与整合、旧产物依赖逐项确认；Deviated/Extra＝无。整合与最终收口尚未完成，不把盘点完成写成全部完成。
+
+
+
 ## NOW：明确项目开发契约 D-105
 
 职责 runtime-cloud-contract；范围为项目契约文档及既有轻量职责检查/固定用例。当前任务负责架构及 Guardian/主控制台/Runtime 云端，控件任务仅终端，Native/Santa 不接管。先同步文档，再同步路径检查；仅职责固定测试、CI 路由、diff check，无产品测试、业务修改或部署。本轮只在功能分支形成契约，不擅自合并/发布；后续合并后 CI 方按新范围执行。
