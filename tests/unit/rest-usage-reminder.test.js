@@ -46,6 +46,7 @@ function loadModule(injected) {
     'REST_USAGE_REMINDER_RETRY_MS',
     'restUsageReminderConfigValue',
     'restUsageReminderRepeatConfigValue',
+    'restUsageReminderWeeklyConfigValue',
     'restUsageReminderTimeoutAction',
     'evaluateRestUsageReminder',
     'handleRestUsageReminderAction',
@@ -270,7 +271,7 @@ async function main() {
   check('failed invisible delivery does not resume media that was never paused', !messages.some(item => item.type === 'RESUME_REST_USAGE_MEDIA'));
 
   reset();
-  config = { restConfig: { firstReminderMinutes: null, repeatReminderMinutes: 60 } };
+  config = { restConfig: { firstReminderMinutes: null, repeatReminderMinutes: 60, weeklyFirstReminderMinutes: null } };
   usage = { ok: true, restSeconds: 7200, weekRestSeconds: 7200 };
   result = await module.evaluateRestUsageReminder({ deps, now: 1_780_030_000_000 });
   equal('disabled soft limit does not prompt', result.skipped, 'disabled');
@@ -290,11 +291,76 @@ async function main() {
   result = await module.evaluateRestUsageReminder({ deps, now: 1_780_126_400_000 });
   equal('new local date resets threshold', result.state.nextThresholdSeconds, 300);
 
+  equal('weekly defaults to fourteen hours', module.restUsageReminderWeeklyConfigValue({}), 840);
+  for (const value of [1, 10080, null]) equal('weekly boundary ' + value, module.restUsageReminderWeeklyConfigValue({ restConfig: { weeklyFirstReminderMinutes: value } }), value);
+  for (const value of [0, 10081, 1.5, '840']) equal('weekly rejects ' + value, module.restUsageReminderWeeklyConfigValue({ restConfig: { weeklyFirstReminderMinutes: value } }), 840);
+  reset();
+  config = { restConfig: { firstReminderMinutes: 120, weeklyFirstReminderMinutes: 840, repeatReminderMinutes: 60 } };
+  usage = { ok: true, restSeconds: 7200, weekRestSeconds: 50400 };
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_050_000_000 });
+  equal('daily and weekly combine into one dialog', result.prompt.reminders.length, 2);
+  equal('only one SHOW is delivered for both periods', messages.filter(m => m.type === 'SHOW_REST_USAGE_REMINDER').length, 1);
+  result = await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'continue' }, { tab: { id: 11 } }, { deps, now: 1_780_050_001_000 });
+  equal('daily covered threshold advances', result.state.nextThresholdSeconds, 10800);
+  equal('weekly covered threshold advances', result.state.weekly.nextThresholdSeconds, 54000);
+  dateKey = '2026-08-30'; usage = { ok: true, restSeconds: 0, weekRestSeconds: 51000 };
+  result = await module.evaluateRestUsageReminder({ deps });
+  equal('weekly acknowledgement survives midnight', result.state.weekly.nextThresholdSeconds, 54000);
+  equal('daily acknowledgement resets at midnight', result.state.lastAcknowledgedUsageSeconds, null);
+  usage.weekRestSeconds = 54000;
+  result = await module.evaluateRestUsageReminder({ deps });
+  equal('only weekly is due after midnight', result.prompt.reminders[0].scope, 'weekly');
+  equal('weekly repeat is explicit', result.prompt.reminders[0].reminderKind, 'repeat');
+  await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'continue' }, { tab: { id: 11 } }, { deps });
+  dateKey = '2026-08-31'; usage = { ok: true, restSeconds: 0, weekRestSeconds: 0 };
+  result = await module.evaluateRestUsageReminder({ deps });
+  equal('weekly resets Monday in Beijing calendar', result.state.weekly.nextThresholdSeconds, 50400);
+  equal('weekly new week is first reminder', result.state.weekly.lastAcknowledgedUsageSeconds, null);
+
+  reset();
+  config = { restConfig: { firstReminderMinutes: 1, weeklyFirstReminderMinutes: 10, repeatReminderMinutes: 3 } };
+  usage = { ok: true, restSeconds: 60, weekRestSeconds: 500 };
+  result = await module.evaluateRestUsageReminder({ deps });
+  const token = result.prompt.token;
+  usage.weekRestSeconds = 600;
+  result = await module.evaluateRestUsageReminder({ deps });
+  equal('new weekly due cannot change active daily prompt', result.state.prompt.reminders.length, 1);
+  result = await module.handleRestUsageReminderAction({ token, action: 'continue' }, { tab: { id: 11 } }, { deps });
+  equal('unshown weekly threshold is not acknowledged', result.state.weekly.lastAcknowledgedUsageSeconds, null);
+  result = await module.evaluateRestUsageReminder({ deps });
+  equal('weekly due is shown on next evaluation', result.prompt.reminders[0].scope, 'weekly');
+  deps.canContinueRest = async () => false;
+  messages.length = 0;
+  result = await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'continue' }, { tab: { id: 11 } }, { deps });
+  equal('hard restriction prevents soft continue', result.action, 'end');
+  check('hard restriction does not resume media', !messages.some(m => m.type === 'RESUME_REST_USAGE_MEDIA'));
+  delete deps.canContinueRest;
+
+  reset();
+  config = { restConfig: { firstReminderMinutes: null, weeklyFirstReminderMinutes: 1, repeatReminderMinutes: 3 }, autonomyConfig: { softReminderTimeoutAction: 'continue' } };
+  usage = { ok: true, restSeconds: 0, weekRestSeconds: 60 };
+  deliveryMode = 'show_fail';
+  result = await module.evaluateRestUsageReminder({ deps, now: failedAt });
+  result = await module.evaluateRestUsageReminder({ deps, now: failedAt + module.REST_USAGE_REMINDER_RETRY_MS });
+  equal('weekly-only failed delivery continues by policy', result.action, 'continue');
+  equal('weekly-only failed delivery advances weekly threshold', result.state.weekly.nextThresholdSeconds, 240);
+  equal('weekly-only does not enable daily reminders', result.state.nextThresholdSeconds, null);
+
   const content = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'content.js'), 'utf8');
   check('content uses modal top-layer dialog', content.includes('restReminderDialog.showModal()'));
   check('content distinguishes first and repeat wording', content.includes('已达到今日休息软限额') && content.includes('已超过今日休息软限额'));
   check('content renders four quota values', ['本周已用', '本周剩余', '今日已用', '今日剩余'].every(label => content.includes(label)));
   check('content uses separate activation message', content.includes("msg.type === 'ACTIVATE_REST_USAGE_REMINDER'"));
+  const resumeBranch = content.split("msg.type === 'RESUME_REST_USAGE_MEDIA'")[1].split('\n  });')[0];
+  const applyResume = new Function('msg', 'restReminderToken', 'clearRestUsageReminder', 'resumeMediaAfterRestReminder', 'sendResponse', resumeBranch.slice(resumeBranch.indexOf('{') + 1, resumeBranch.lastIndexOf('}')));
+  const resumed = [];
+  applyResume({ token: 'current' }, 'current', options => resumed.push(options), () => resumed.push('media'), () => {});
+  equal('matching resume closes prompt and restores media', JSON.stringify(resumed), JSON.stringify([{ resumeMedia: true }]));
+  resumed.length = 0;
+  applyResume({ token: 'old' }, 'current', options => resumed.push(options), () => resumed.push('media'), () => {});
+  equal('stale resume does not close or resume a newer prompt', resumed.length, 0);
+  applyResume({ token: 'current' }, null, options => resumed.push(options), () => resumed.push('media'), () => {});
+  equal('frame without prompt keeps media resume behavior', resumed[0], 'media');
 
   const background = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'background.js'), 'utf8');
   check('background handles retry alarm', background.includes('REST_USAGE_REMINDER_RETRY_ALARM') && background.includes("reason: 'delivery_retry'"));
