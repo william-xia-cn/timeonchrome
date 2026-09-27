@@ -1,5 +1,15 @@
 # TASK_BOARD
 
+## PO 裁决：Task 本轮收口为默认关闭（2026-09-28）
+
+PO 已明确选择「保持 Task 默认关闭，本轮只收口已安全整合部分」。取代下方“等待 Task 网页记账裁决”的阶段状态：本轮不实施 background/foreground-timing/session 的访问与开关段协调，不激活 Task，不发布创建入口，不替换原扩展候选。正式启用与真实网页原账专项验收移为后续独立任务，不再用它阻塞本轮其他安全整合，也不将其写成已验收。
+
+所属任务已核实 codex/task-host-wiring-v1 工作区干净，无未提交/未跟踪新增，HEAD 与远端均为 0d4ad24；相对当时 origin/master 为 0 ahead / 6 behind。PR #85 已合入，保留 default-off message/alarm/Admin 宿主、异常隔离和整体移除证据，无需重复 push/rebase/测试。该分支只列为已合并待清理，实际删除仍为零。
+
+本批职责 runtime-cloud-contract，纯文档：只运行 diff 与轻量职责门；不跑产品测试、不部署。Matched＝PO 裁决、所属任务回读和代码/部署状态分离；Deviated/Extra＝无。整体尚待收口的复合隐私与 Rest 终端工作不因本裁决被宣称完成；Native 跨平台 PR #11 保留活跃，不强行整合未验收新功能。
+
+Native 卸载只读兼容核对：当前 v2Repository.authorizeUninstall 成功消费一次性码后立即设置机器 revoked_at_ms；authenticateMachine 排除已撤销机器。因此保留本机数据/Keychain 不等于重装后旧 token 可恢复。当前两条 run 非同一 batch，部分失败与重装恢复须另行明确；已通知 Native 任务，不自行删除身份、改变协议或执行卸载。该发现是后续生命周期风险，不扩大本轮整合为卸载重构。
+
 ## 当前整合状态与下一阻塞（2026-09-28，覆盖下方阶段快照）
 
 | 工作线 | 最新可核验结果 | 下一步／不能冒充的完成 |
