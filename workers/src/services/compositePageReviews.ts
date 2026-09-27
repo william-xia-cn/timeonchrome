@@ -183,14 +183,40 @@ export async function deleteReviewDetails(env: Env, reviewId: string, now = Date
   if(owner) await deleteSafe(env.DB, owner.profile_id, reviewId, now);
 }
 export async function maintainCompositeReviews(env: Env, now = Date.now()) {
-  const profiles = await env.DB.prepare('SELECT id, config FROM profiles').all<any>();
-  for (const profile of profiles.results || []) if (reviewEnabled(JSON.parse(profile.config))) {
-    for (let day = 0; day < 3; day++) await scanCompositeReviews(env, profile.id, now, reviewDate(now - day * DAY));
+  const summary = { profiles: 0, scanFailures: 0, cleanupFailures: 0, notificationFailures: 0, cursorFailures: 0 };
+  // Scheduling hint only: stale KV reads may replay an idempotent scan.
+  const cursorKey = 'composite-review-maintenance:cursor:v1';
+  try {
+    const cursor = await env.CONFIG_CACHE.get(cursorKey) || '';
+    const profiles = await env.DB.prepare('SELECT id, config FROM profiles WHERE id > ? ORDER BY id LIMIT 11')
+      .bind(cursor).all<{ id: string; config: string }>();
+    const batch = (profiles.results || []).slice(0, 10);
+    for (const profile of batch) {
+      summary.profiles++;
+      let enabled = false;
+      try { enabled = reviewEnabled(JSON.parse(profile.config)); }
+      catch { summary.scanFailures++; continue; }
+      if (!enabled) continue;
+      for (let day = 0; day < 3; day++) {
+        try { await scanCompositeReviews(env, profile.id, now, reviewDate(now - day * DAY)); }
+        catch { summary.scanFailures++; }
+      }
+    }
+    await env.CONFIG_CACHE.put(cursorKey, (profiles.results || []).length > 10 ? batch[batch.length - 1].id : '');
+  } catch {
+    summary.cursorFailures++;
   }
-  const expired = await env.DB.prepare('SELECT id FROM composite_page_reviews_v1 WHERE details_deleted_at IS NULL AND COALESCE(reviewed_at, created_at) < ? LIMIT 100')
-    .bind(now - 30 * DAY).all<any>();
-  for (const review of expired.results || []) await deleteReviewDetails(env, review.id, now);
-  await processCompositeNotifications(env, now);
+  try {
+    const expired = await env.DB.prepare('SELECT id FROM composite_page_reviews_v1 WHERE details_deleted_at IS NULL AND COALESCE(reviewed_at, created_at) < ? LIMIT 100')
+      .bind(now - 30 * DAY).all<{ id: string }>();
+    for (const review of expired.results || []) {
+      try { await deleteReviewDetails(env, review.id, now); }
+      catch { summary.cleanupFailures++; }
+    }
+  } catch { summary.cleanupFailures++; }
+  try { await processCompositeNotifications(env, now); }
+  catch { summary.notificationFailures++; }
+  return summary;
 }
 
 export async function processCompositeNotifications(env: Env, now = Date.now()) {

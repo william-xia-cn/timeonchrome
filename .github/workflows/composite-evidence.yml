@@ -16,6 +16,10 @@ on:
       - 'workers/src/services/compositePageCorrections.ts'
       - 'tests/unit/composite-corrections.test.js'
       - 'workers/src/routes/compositePageReviews.ts'
+      - 'workers/src/index.ts'
+      - 'workers/src/routes/profiles.ts'
+      - 'workers/migrations/032_composite_page_reviews.sql'
+      - 'tests/unit/composite-receiver-wiring.test.js'
       - 'tests/unit/composite-cloud-integration.test.js'
       - 'tests/unit/composite-page-analysis.test.js'
       - 'tests/unit/composite-page-evidence.test.js'
@@ -44,5 +48,6 @@ jobs:
         run: node tests/unit/composite-page-observer.test.js
       - run: node tests/unit/optional-evidence-runner.test.js
       - run: node tests/unit/composite-cloud-integration.test.js
+      - run: node tests/unit/composite-receiver-wiring.test.js
       - run: node tests/unit/composite-corrections.test.js
       - run: node tests/unit/composite-page-analysis.test.js

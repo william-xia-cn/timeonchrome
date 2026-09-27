@@ -19,6 +19,8 @@ import {
   scanCurrentDayUnclassifiedEmailNotifications,
 } from './services/siteClassificationEmail';
 import { notificationSettingsRouter } from './routes/notificationSettings';
+import { compositePageReviewsRouter } from './routes/compositePageReviews';
+import { maintainCompositeReviews } from './services/compositePageReviews';
 import { taskModuleRouter } from './modules/task/router';
 import { clientLogsRouter } from './routes/clientLogs';
 import { exportRouter } from './routes/export';
@@ -175,6 +177,8 @@ async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext):
     return await siteClassificationRequestsRouter.handle(request, env);
   } else if (notificationSettingsRouter.matches(path)) {
     return await notificationSettingsRouter.handle(request, env);
+  } else if (compositePageReviewsRouter.matches(path)) {
+    return await compositePageReviewsRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/(pending-reviews|appeals|classify|resolve-appeal|classification-rules)$/)) {
     return await compositeSessionsRouter.handle(request, env);
   } else if (path.match(/^\/profiles\/[^/]+\/changelog/)) {
@@ -388,6 +392,11 @@ export default {
       processNativeAppLifecycleOutbox(env),
       processAppRuntimeLifecycleOutbox(env),
       processRestrictedReattributions(env, { maxBatchesPerRequest: 4 }),
+      maintainCompositeReviews(env).then((summary) => {
+        if (summary.scanFailures || summary.cleanupFailures || summary.notificationFailures || summary.cursorFailures) {
+          console.warn('COMPOSITE_MAINTENANCE_PARTIAL_FAILURE', summary);
+        }
+      }).catch(() => console.warn('COMPOSITE_MAINTENANCE_FAILED')),
     ];
     if (event.cron === '0 12 * * *') work.push(sendPendingReviewNotifications(env));
     ctx.waitUntil(Promise.all(work));

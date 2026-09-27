@@ -249,14 +249,14 @@ const { refreshEvidenceRequest: refresh, saveReviewOpinion: opinion } = loaded.e
       assert.equal(await opinion(db,'p',changed.id,reviewOpinion,old,now),false);
       assert.equal(await savedOpinion(changed.id),null);
     });
-    await check('fixture schema matches original reviewed source and module is not registered', async () => {
+    await check('migration schema matches the original reviewed fixture', async () => {
       const normalized=fs.readFileSync('tests/fixtures/composite-page-evidence-schema.sql','utf8')
         .replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim();
       assert.equal(require('node:crypto').createHash('sha256').update(normalized).digest('hex'),
         '064607245f24a8eb0d65def1839656f474e3bea3a30dd379edf7cd227d1fb70d');
-      const files=['workers/src/index.ts'];
-      for(const file of files) assert.ok(!fs.readFileSync(file,'utf8').includes('compositePageEvidence'));
-      assert.ok(!fs.existsSync('workers/migrations/032_composite_page_reviews.sql'));
+      const migration=fs.readFileSync('workers/migrations/032_composite_page_reviews.sql','utf8')
+        .replace(/--[^\n]*/g,'').replace(/\s+/g,' ').trim();
+      assert.equal(migration,normalized);
     });
     console.log(`${passed}/${passed} composite evidence persistence checks passed`);
   } finally { await mf.dispose(); }
