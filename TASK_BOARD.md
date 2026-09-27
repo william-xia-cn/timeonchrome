@@ -1,5 +1,10 @@
 # TASK_BOARD
 
+## 复合页面标题隐私阻断（2026-09-28）
+
+控件所属任务在隔离真实 Wikipedia 导航中发现 Chrome 临时标题为无协议 URL，现有共享 sanitizer 只替换 http(s) URL，导致 query/fragment 残留。当前任务修复唯一共享源：标题中的域名 URL（含无协议形式）整体替换为 [link]，并以真实失败形态补固定向量；不改网页原账、配额、页面归属算法或扩展候选。终端生成副本由所属任务同步。最小验证为共享向量/副本检查、现有证据与云端聚焦测试；真实复验未通过前保持发布阻断，不把单元通过记为完整隐私验收。
+
+
 ## Rest 终端整合（D-107，2026-09-28）
 
 收口审查：日周840默认/独立阈值/合并弹层/继续硬限制核验/Admin只读为Matched；Popup、D-099、Worker/Pages/Native及计时账本均排除，无Extra/Deviated。提醒109项、终端配置、storage配置、Content媒体边界专项、typecheck、extension-root、diff与extension-local职责检查通过。真实扩展用量夹具场景和硬窗口单场景证据分别保留，不宣称未修改夹具后的整个长流程一次通过，不宣称真实计时精度；Admin仅实际HTML/CSS/函数的mock配置桌面及390px目视通过。原失败证据保留。准备独立源码PR，不合并、不部署、不升级版本。
