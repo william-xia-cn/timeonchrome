@@ -5,6 +5,8 @@ on:
       - 'contracts/composite-page-evidence/**'
       - 'extension/core/generated/composite-page-evidence-v1.js'
       - 'extension/infra/composite-page-observer.js'
+      - 'extension/infra/optional-evidence-runner.js'
+      - 'tests/unit/optional-evidence-runner.test.js'
       - 'tests/unit/composite-page-observer.test.js'
       - 'tools/check-composite-evidence-copy.js'
       - 'tests/unit/composite-evidence-contract.test.js'
@@ -40,6 +42,7 @@ jobs:
         run: node tools/check-composite-evidence-copy.js extension/core/generated/composite-page-evidence-v1.js
       - if: ${{ hashFiles('tests/unit/composite-page-observer.test.js') != '' }}
         run: node tests/unit/composite-page-observer.test.js
+      - run: node tests/unit/optional-evidence-runner.test.js
       - run: node tests/unit/composite-cloud-integration.test.js
       - run: node tests/unit/composite-corrections.test.js
       - run: node tests/unit/composite-page-analysis.test.js
