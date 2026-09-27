@@ -2,6 +2,18 @@
 
 ## NOW（2026-09-27）：分支处置复核补充
 
+后续来源审查：
+
+- `codex/stats-accuracy-min-verify` 与 `pr-3-pip-background-media` 同指 a09cb35；GitHub PR #5 确认已压缩合并为主线祖先 3bbb411，两者整树比较无差异。归为已等价整合，不重放11个旧提交。
+- `release/v0.1-duration-diagnostics@c74d4d4` 是 a09cb35 的祖先，因此已被上述压缩合并保留，不重复合入。
+- `pr-1-timing-trace-verify` 的受控测试提交 d45ff2a 对 a09cb35 patch 等价；后续485e336的测试稳定化已在a09cb35演进（允许真实ACTIVE/非ACTIVE链路并按受控domain筛选事件）。旧测试期望不是当前产品规则，不恢复旧版本；保留来源，列为已替代待归档。
+- `pr-2-recovery-crossday` 的5a10998/3d92e28/8f1138f由range-diff映射至5418bd9/aa98143/f414279；对应最终runtime/recovery.js与runtime/session.js逐文件比较一致，signal和测试混有后续媒体/校准演进，不能称整树等价。列为已替代待归档，禁止为清理回放旧账本补丁。
+- `codex/timing-productization@28f90d6` 的新增测试、两个smoke文档与主线祖先241c4d6逐文件相同；popup实现随后增加本地未绑定支持，之后测试又改为“本次”口径。归为已替代待归档，不恢复旧“今日＋live”实现。
+- 当前TimeOnChrome主线已包含本次有效治理/证据整合，未发现需要借历史分支重写现行网页账本的依据。活跃Task和主目录未验收功能继续保留，不把它们算作废弃。
+- Native远端PR再次只读查询仍为空；0dd9829整合推送被安全审批拒绝，已向用户请求直接确认，尚未收到。不得换工具或由其他任务代推绕过。
+
+当前完成审计：Matched＝引用/工作树/版本清单、来源映射、治理及历史证据PR #64–#67合并、GitHub Pages对应部署成功、未删目录/未动候选；Missing＝Native受测整合的远端PR/CI/合并、活跃功能独立验收与相应业务发布。整体目标保持未完成。统计源码未合入前不发布新包；治理文档发布不能冒充Cloudflare业务部署。剩余审批阻塞不通过重复测试或重复发布绕开。
+
 本节是下方初查表的后续裁决，保留初查记录而不混淆时点。职责 runtime-cloud-contract；只读 Git/所属任务报告及文档，最小验证 diff check，不运行产品测试，不修改终端或迁移。
 
 | 工作线／对象 | 复核证据 | 当前处置 |
