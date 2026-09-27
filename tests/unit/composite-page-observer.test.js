@@ -20,6 +20,7 @@ async function main() {
   checkCopy('extension/core/generated/composite-page-evidence-v1.js');
   const shared = load('extension/core/generated/composite-page-evidence-v1.js');
   let state = { guardian_config: {}, cloud_device_id: 'test-device', cloud_profile_id: 'test-profile' };
+  let afterStorageSet = null;
   let classification = 'composite';
   const tab = { id: 1, windowId: 2, url: 'https://en.wikipedia.org/wiki/Physics?x=private#fragment', title: 'Physics', incognito: false };
   const observer = load('extension/infra/composite-page-observer.js', {
@@ -28,7 +29,7 @@ async function main() {
       targetClassificationAtTime: classification, managedTargetValue: 'wikipedia.org',
     }) },
     './storage-budget.js': { runStorageMutation: task => task({
-      get: async () => structuredClone(state), set: async items => Object.assign(state, items),
+      get: async () => structuredClone(state), set: async items => { Object.assign(state, items); if (afterStorageSet) afterStorageSet(); },
       remove: async key => { delete state[key]; },
     }) },
   }, { chrome: { tabs: { get: async () => tab }, storage: { local: { get: async () => structuredClone(state) } } } });
@@ -87,6 +88,26 @@ async function main() {
     }), new RegExp(`http_${status}`));
   }
   await observer.syncCompositePageEvidence(async () => ({ requests: [{ ...authorization, deviceId: 'other' }] }));
+  const closedBeforePost = [];
+  afterStorageSet = () => { state.guardian_config.compositeReviewConfig.enabled = false; afterStorageSet = null; };
+  await observer.syncCompositePageEvidence(async (method, _path, body) => {
+    if (method === 'GET') return { requests: [authorization] };
+    closedBeforePost.push(body);
+    return { index: body.index, hash: body.hash };
+  });
+  assert.equal(closedBeforePost.length, 0, 'closing after freeze must not send evidence');
+  state.guardian_config.compositeReviewConfig.enabled = true;
+  state.cloud_profile_id = 'test-profile';
+  state[observer.COMPOSITE_PAGE_KEY] = { rows: Array.from({ length: 201 }, (_, i) => ({ ...row, id: `row-${i}` })),
+    frozen: {}, coverageStart: now - 2000, droppedBefore: 0 };
+  const postedAfterBindingChange = [];
+  await observer.syncCompositePageEvidence(async (method, _path, body) => {
+    if (method === 'GET') return { requests: [authorization] };
+    postedAfterBindingChange.push(body);
+    state.cloud_profile_id = 'next-profile';
+    return { index: body.index, hash: body.hash };
+  });
+  assert.equal(postedAfterBindingChange.length, 1, 'changed binding must stop later chunks');
   assert.ok(!JSON.stringify(state).includes('cloud_device_token'));
   console.log('Composite observer: default-off, explicit classification, privacy, retention, budget, authorization and ACK PASS');
 }

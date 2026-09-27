@@ -99,9 +99,11 @@ export function initCompositePageObserver() {
   void Promise.resolve(chrome.alarms.create(ALARM, { periodInMinutes: 1 })).catch(() => {});
 }
 
-export async function syncCompositePageEvidence(request) {
+export async function syncCompositePageEvidence(request, { signal } = {}) {
+  if (signal?.aborted) return;
   const authorization = await request('GET', '/device/composite-reviews/v1');
   for (const item of authorization.requests || []) {
+    if (signal?.aborted) return;
     let frozen;
     await mutate(async (state, data) => {
       if (data.cloud_profile_id !== item.profileId || data.cloud_device_id !== item.deviceId) return;
@@ -119,6 +121,10 @@ export async function syncCompositePageEvidence(request) {
     if (!frozen) continue;
     const chunks = Math.max(1, Math.ceil(frozen.rows.length / 200));
     for (let index = 0; index < chunks; index++) {
+      if (signal?.aborted) return;
+      const current = await chrome.storage.local.get(['guardian_config', 'cloud_device_id', 'cloud_profile_id']);
+      if (current.guardian_config?.compositeReviewConfig?.enabled !== true ||
+          current.cloud_profile_id !== item.profileId || current.cloud_device_id !== item.deviceId) return;
       const response = await request('POST', '/device/composite-reviews/v1', {
         requestId: item.id, cutoff: item.cutoff, count: frozen.rows.length, chunks, index,
         hash: frozen.hash, complete: frozen.complete, rows: frozen.rows.slice(index * 200, (index + 1) * 200),

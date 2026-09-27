@@ -2,6 +2,12 @@
 
 ## 复合分析终端整合（2026-09-28）
 
+PR97架构审查待证问题：证据冻结与POST之间、或首批ACK后关闭采集/切换档案时，终端可能继续发送旧证据；主云同步await可选证据上传可能延长单飞锁。先用受控单测与调用链核实，若证实只修本终端模块，不动原账/云端协议/生产。PR97当前CI范围门禁还因旧基线混入后续云端提交失败，需将最新主线合并并保留双方TASK_BOARD记录；暂不合并PR或发布。
+
+已证实并获架构任务最小修复授权：冻结后关闭的受控测试原为actual POST1、expected0；主同步调用链在isSyncing=true期间await可选上传，catch不能隔离延迟。仅在终端证据上传每批重读开关/绑定、独立单飞与可取消总时限，取消后不得继续下一批；不修改主账ACK、云端协议或计时。新测试覆盖冻结后关闭、首批后换绑与挂起请求的主同步非阻塞。修复后仍须合入当前master以剔除PR旧基线带入的云端文件，保留双方任务记录。
+
+修复后专项结果：observer单测含冻结后关闭和首批后换绑通过；optional-evidence-runner单测验证主同步返回时可选请求仍挂起、重入被拒、20ms期限发出AbortController真实取消且完成后可重试；typecheck/diff通过。生产默认期限15秒，cloudRequest单次请求接受独立AbortSignal，不采用仅Promise.race超时。可选任务在syncNow finally释放主锁后启动，不更改主账上传ACK；无功能时读取配置后立即退出。源代码分项审计Matched=关闭/换绑/主同步性能隔离及最小测试，Deviated/Extra=无。暂不宣称生产联调通过。
+
 最终单项真实复验：PO授权call_OhHNkwHpj3e3K7NRpnTmvUnF，仅运行COMPOSITE_ACCEPTANCE_FALLBACK_ONLY=1场景一次，19.5秒通过。全新隔离Profile先断言真实分类为pending/null，启用采集并访问真实Wikipedia，显式观察后记录数0；证据.tmp/composite-wikipedia-UWlOs1/fallback-evidence.json。此前长测试失败不改写成整套一次通过，验收使用分项证据：真实导航/标题/模拟SPA、隐私、默认关闭/关闭清理、11秒原账不变及10+1守恒，加本次待归类排除。observer专项、生成副本逐字节检查、typecheck、扩展根目录1.90MB及diff检查通过。职责路径仅TASK_BOARD、extension与专项测试，Worker/Pages/Native/计时/原账/版本未改；Matched=本批提取与上述验证，Deviated/Extra=无。授权上传与预算压力为单测证据，尚未生产联调；完整云端功能未发布，不能宣称已上线。原主目录及固定候选保留。
 
 保留真实证据的独立只读归属复核：.tmp/composite-wikipedia-2wFd59/observed-before-checks.json 中真实已结算网页账11秒，规范云端函数分配页面10秒、无法归属1秒，10+1=11，输入原账未变。函数来源现已提交d33540e，源码SHA256仍为fa00172d987a6fe41081497b0ad1c883c480e11e19e02f051946efcd6041ca43；此前“尚未提交”仅描述当时状态。该复核不启动浏览器，不替代最后非复合排除验收。完整真实测试仍失败/待验收，不提交复合批次，不发布。代码核实normalizer从defaultCompositeSites/defaultUserCompositeSites/customCompositeList合并effective清单，支持夹具失败原因；修正夹具尚未运行真实浏览器，等待新的单次复验授权。
