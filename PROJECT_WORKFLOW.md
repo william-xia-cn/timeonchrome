@@ -1,17 +1,21 @@
 # PROJECT_WORKFLOW
 
-## 三会话模块职责（ARM-D-034）
+## 项目开发契约：架构与云端 / 终端控件 / Native（D-105）
+
+2026-09-27 PO 再次明确：在 TimeOnChrome 仓库，当前「TimeWhere native 架构管理」任务负责全局架构、接口契约及云端开发；「TimeOnchrome 访问管理策略」（控件任务）只负责终端 Chrome 扩展开发。此契约取代 ARM-D-034 中仅允许当前任务修改 Runtime 云端、Guardian/主控制台另行归属的限制。不因仓库、分支或工作树共用而交叉接管。
 
 模块归属与 Product / Build / Release 阶段职责同时适用；不扩大发布权限。
 
 | 职责档案 | 所属任务 | 可修改范围 |
 |---|---|---|
-| runtime-cloud-contract | App Runtime Management（现名 TimeWhere native 架构管理） | 跨端架构、契约、兼容测试、黄金向量、边界检查、Runtime backend/console/规则 |
+| runtime-cloud-contract | TimeWhere native 架构管理（当前；保留旧档案 key 兼容） | 全局架构、共享接口/契约、兼容测试、治理；Guardian Worker、主家长控制台、Runtime Worker/独立管理页及云端配置与数据设计 |
 | extension-local | TimeOnchrome 访问管理策略 | extension 本地实现、统计、配额、UI、Host 客户端、扩展打包 |
 | native-local | Native Host 开发 | TimeWhereNative 的 Host/Service/Agent/Manager/本机统计/安装器、固定契约包消费 |
 | release | releaseMg | 发布证据与既有授权发布流程，不修产品代码 |
 
-Guardian、主控制台与 Santa 归属不变。当前架构任务不修改 extension、dist 候选或 Native 本机代码，即使只有几行；可以只读取证，再交给对应任务修复。Native Host 只做 framing/转发；网页和应用分别保持统计权威。
+当前任务负责 workers/、pages/ 和 app-runtime-management/ 内的云端与契约实现；但 Santa 专项（native-app-control/、pages/native-apps/、既有 Santa 身份桥）仍由其所属任务维护。扩展任务负责 extension/、其终端测试/打包和原 dist 候选目录，不开发 Worker、云端管理页、数据库或共享契约。Native 本机仍由独立仓所属任务负责。当前架构任务不修改 extension、dist 候选或 Native 本机代码，即使只有几行；可以只读取证，再交给对应任务修复。Native Host 只做 framing/转发；网页和应用分别保持统计权威。
+
+终端设置/使用分析等扩展页面属于控件任务；浏览器打开的家长云端页面属于当前任务，不能按“都是网页”混淆。控件可按既定契约修客户端适配，但不能单方改服务端协议。云端可按既定契约独立修复，不能以兼容为由修改终端候选。跨端需求由当前任务确定接口、兼容范围和上线顺序，再由各所有者实现。所有权不等于自动修改生产数据、部署、发布扩展或安装终端的授权；仍逐任务确定范围和发布门禁。
 
 普通单模块修复由所属任务直接处理。消息字段、能力协商、错误码、版本、权威、隐私或兼容行为变化，先由架构任务确定契约语义、失败行为、兼容范围、最小测试及上线依赖，再向两端发送包含版本、允许路径、验收与禁止事项的精简任务。契约只在 TimeOnChrome 定义；Native 锁定版本及哈希，不引用其他仓库源码。两端返回提交/PR、测试和实机证据，架构任务核对兼容状态。不得以等价实现自行改变契约。网页落账、安全和生产专项批准继续有效。
 

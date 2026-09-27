@@ -2,7 +2,7 @@
 
 ## 当前治理：ARM-D-034
 
-模块职责入口为根 PROJECT_WORKFLOW.md。当前架构任务保留结构/接口/契约及 Runtime 云端实现；扩展本地、Native 分别归既有任务。规则实施与两仓 PR 合入状态见任务板，不以通知代替生效证据。
+模块职责入口为根 PROJECT_WORKFLOW.md。D-105 将当前任务明确为全局架构/接口/契约及本仓云端实现（Guardian/主家长控制台/Runtime）；扩展任务仅终端，Native/Santa 保留专项归属。原 ARM-D-034 的 Runtime-only 云端限制已被 PO 更正，代码门的合入状态见根任务板，不以文档变更宣称 master 已更新。
 
 治理已通过 TimeOnChrome PR #62 和 TimeWhereNative PR #9 分别合入；轻量门验证，不部署业务。当前/Native 回读确认已取得，扩展任务通知已送达但确认正文未能读取，任务板保留待回执状态。
 
