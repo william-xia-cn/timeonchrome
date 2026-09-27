@@ -17,6 +17,8 @@ assert.throws(() => declaration('Task-Role: nope'));
 assert.throws(() => declaration('Task-Role: release\nTask-Role: extension-local'));
 assert.throws(() => check('native-local', ['../TimeOnchrome/extension/a.js']));
 assert.equal(relevant(['workers/src/index.ts']), false);
+assert.equal(relevant(['workers/src/index.ts', 'TASK_BOARD.md', 'AGENTS.md']), false);
+assert.equal(relevant(['tools/check-task-scope.js']), true);
 assert.equal(relevant(['app-runtime-management/docs/TASK_BOARD.md']), true);
 assert.deepEqual(check('release', ['docs/release/checklist.md']), []);
 assert.equal(check('release', ['extension/a.js']).length, 1);
