@@ -1,5 +1,22 @@
 # TASK_BOARD
 
+## 当前整合状态与下一阻塞（2026-09-28，覆盖下方阶段快照）
+
+| 工作线 | 最新可核验结果 | 下一步／不能冒充的完成 |
+|---|---|---|
+| 云端通用模块入口 | PR #84 fbb7846→1308981；Task Console36345837970、主入口36345837985、轻量门36345837987通过 | 已合源码；未部署主Pages |
+| 终端默认关闭宿主 | 所属任务PR #85 0d4ad24→3ac8da1；CI36346038007成功；实际diff无Task install或ACCESS_OBSERVED接入 | 默认关闭；原候选未替换。78/78 Task、114/114 Admin、独立browser/removal smoke为所属任务证据，当前任务只读审查，不伪报自己重跑 |
+| 日周软配额云端 | PR #86 aba2b4e，同步后45e7d27→8f598b2；36346347732/738/723/709四组CI成功 | 默认840及页面独立日周配置已合；终端原工作线和真实验收未完成，不部署或写生产配置 |
+| Guardian Task安全准入 | PR #82，生产36345123042，Guardian版本0d040402-210b-4b29-a390-9f7908bfe329 | 已发布；本轮后续源码合并没有重复生产发布 |
+| 复合页面分析 | 原脏目录保留；只读审查复现删除与在途上传竞态 | 未合并，不执行032 migration；需先修复云端证据删除原子性及真实终端隐私验收 |
+| Native跨平台PR #11 | 继续保留活跃；有所属任务本地编译/便携测试报告 | 真Mac/Swift、系统权限与安装恢复证据缺失；不强合、不发布，不把新功能扩展混作历史分支清理 |
+
+Task专项门：所属任务确认先于原handleModeEvent/executeModeDecision直接return会跳过分类/mode副作用，独立timing监听还可能已打开ACTIVE；直接close也可能错误关闭并发旧段。已向PO提交窄项选择：保留core访问副作用与失焦/idle事实链，仅增加Task阻断，并原子协调前台边界、后台不干扰、无模块等价；固定竞态及真实原账对照后才启用。未获该单项裁决前保持default-off，不能用总体整合授权替代D-076。其他独立工作不因此暂停。
+
+复合隐私复现（非生产）：使用原032 schema及从receivePageEvidence源码提取的UPDATE/INSERT，在内存SQLite模拟“请求已读→删除详情→上传继续”，结果details_deleted_at=99但request.status='ready'且chunks=1。该结果证明原SQL允许删除后重存储，不代表真实生产已发生。原服务SHA256=068d27ae891441bf04a0035b19d7fddcbef2d888b01bb12256a38e9b432b0759；router=8aaa7b46c78dc5c43340f1c19ab459573ffdb1251158fbd4dbe565816767e074；schema=7c05bdae2dc20386cc3e447f2d486e455fee453a6e6e26d91309953680b0e4a3。云端修复须在事务写入时重新核对请求版本、有效配置/绑定及删除状态，详情删除完成后在途请求不能重建证据；当前仅登记，不称已修复。
+
+本次证据收口只改TASK_BOARD/PROJECT_MASTER，职责runtime-cloud-contract，diff与轻量CI；不重跑产品测试、不部署。Matched＝三批源码合并/对应CI与发布分离/原地保护/隐私SQL复现；Deviated/Extra＝无；整体Missing＝上述专项边界、终端联合验收与复合隐私修复。分支/目录清理执行为零；没有凭此删除任何旧产物或脏目录。
+
 ## NOW：日周休息软配额云端页面整合（2026-09-28）
 
 PR #84通用入口fbb7846已合入1308981a9df59fb05d30b4b528deefe75fe4fb09；Task Console36345837970、主入口36345837985、App Runtime36345837987通过。没有Pages部署，终端联合门仍保留。
