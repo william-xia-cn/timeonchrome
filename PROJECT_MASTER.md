@@ -1,5 +1,9 @@
 # PROJECT_MASTER
 
+## 两仓整合最新进展（2026-09-28）
+
+Task独立API/页面/default-off终端分别已合入，创建/编辑黑名单资源准入由PR #82合入master b46d176并发布Guardian 0d040402-210b-4b29-a390-9f7908bfe329（生产36345123042）。Task家长页面尚未部署，终端尚未激活；完整功能与两仓整合仍未完成。所有阶段测试、版本及阻塞以TASK_BOARD顶部为准，不将源码合入等同线上或安装完成。本次不涉及Runtime/Pages/R2、migration、原扩展候选或本机安装更新。
+
 ## 三会话模块治理
 
 D-105 / PROJECT_WORKFLOW.md 为最新契约：当前任务负责架构与本仓云端（Guardian/主控制台/Runtime）；控件任务只负责终端扩展，Native 归独立仓，Santa 保留专项归属。阶段角色和发布权不变，取代 ARM-D-034 的 Runtime-only 云端范围。
