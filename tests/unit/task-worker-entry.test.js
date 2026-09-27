@@ -39,11 +39,12 @@ function token(account) {
     const db = await mf.getD1Database('DB', 'task-entry');
     const old = await mf.getWorker('without-task');
     const sql = `CREATE TABLE accounts(id TEXT PRIMARY KEY);
-      CREATE TABLE profiles(id TEXT PRIMARY KEY,account_id TEXT);
+      CREATE TABLE profiles(id TEXT PRIMARY KEY,account_id TEXT,config TEXT);
+      CREATE TABLE system_access_config_v1(id TEXT PRIMARY KEY,config_json TEXT);
       CREATE TABLE devices(id TEXT PRIMARY KEY,profile_id TEXT,status TEXT,device_token TEXT,device_name TEXT,last_seen INTEGER,unbound_at INTEGER);
       CREATE TABLE usage_segments_v1(id TEXT PRIMARY KEY,duration_sec INTEGER);
       INSERT INTO accounts VALUES ('owner'),('other');
-      INSERT INTO profiles VALUES ('p','owner'),('foreign','other');
+      INSERT INTO profiles VALUES ('p','owner','{}'),('foreign','other','{}');
       INSERT INTO devices VALUES ('d','p','bound','fixture-device-token','fixture',0,NULL);
       INSERT INTO usage_segments_v1 VALUES ('untouched',17);`;
     await db.batch(statements(sql).map(s => db.prepare(s)));

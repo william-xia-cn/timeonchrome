@@ -2,6 +2,7 @@ import { json, Env, verifyAccountToken } from '../../db/middleware';
 import { deviceUnboundResponse, verifyDeviceTokenFromRequest } from '../../routes/deviceIdentity';
 import { createTaskRepository } from './repository';
 import { TASK_CAPABILITY } from './domain';
+import { validateTaskResourcePolicy } from './resource-policy';
 
 const TASK_CAPABILITY_ONLINE_WINDOW_MS = 30 * 60 * 1000;
 
@@ -140,6 +141,9 @@ export const taskModuleRouter = {
       const body = await readBody(request);
       if (body instanceof Response) return body;
       if (typeof body.name !== 'string' || typeof body.plannedStartAt !== 'number' || typeof body.requiredSeconds !== 'number') return json({ code: 'INVALID_TASK' }, 400);
+      const resourceSpec = body.resourceSpec && typeof body.resourceSpec === 'object' ? body.resourceSpec as Record<string, unknown> : {};
+      const policyError = await validateTaskResourcePolicy(env, profileId, resourceSpec);
+      if (policyError) return policyError;
       const result = await repo.createTask({
         id: crypto.randomUUID(),
         profileId,
@@ -147,7 +151,7 @@ export const taskModuleRouter = {
         plannedStartAt: body.plannedStartAt,
         displayTimezone: typeof body.displayTimezone === 'string' ? body.displayTimezone : null,
         requiredSeconds: body.requiredSeconds,
-        resourceSpec: body.resourceSpec && typeof body.resourceSpec === 'object' ? body.resourceSpec as Record<string, unknown> : {},
+        resourceSpec,
         createdByAccountId: accountId,
         now: Date.now(),
       });
@@ -167,6 +171,11 @@ export const taskModuleRouter = {
       if (typeof expectedRevision !== 'number' || !Number.isSafeInteger(expectedRevision) || expectedRevision <= 0) {
         return json({ error: 'expectedRevision required', code: 'EXPECTED_REVISION_REQUIRED' }, 400);
       }
+      const currentTask = await repo.getTask(profileId, taskId);
+      if (!currentTask) return json({ code: 'TASK_NOT_FOUND' }, 404);
+      const policyError = await validateTaskResourcePolicy(env, profileId,
+        body.resourceSpec === undefined ? currentTask.resourceSpec : body.resourceSpec as Record<string, unknown>);
+      if (policyError) return policyError;
       const result = await repo.updateTaskCoreFields(profileId, taskId, {
         name: typeof body.name === 'string' ? body.name : undefined,
         plannedStartAt: typeof body.plannedStartAt === 'number' ? body.plannedStartAt : undefined,

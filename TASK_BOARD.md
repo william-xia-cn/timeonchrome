@@ -1,5 +1,21 @@
 # TASK_BOARD
 
+本批提交前审计：Matched＝创建/编辑前当前有效域名与精确对象黑名单校验、策略读失败503、拒绝无Task/审计写入、最小消费CI；Deviated/Extra＝无。本地资源校验15/15、真实鉴权+D1路由10/10、实际Worker入口6/6、typecheck和Wrangler dry-run通过（795.53KiB/gzip154.31KiB），diff通过。未改网页原账、配额、扩展、Native或生产数据。整体Missing仍为通用入口、终端访问前置硬门裁决与联合验收、Rest/复合工作线和Native实机验证；本批不声称完整目标完成。
+
+安全回归发现：既有resolveSiteAccessClassification的decisionToClassification未映射blocked规则，精确URL夹具首次失败。Task准入按SPEC-002不可穿透黑名单要求，显式复用normalizeSiteClassificationRule/siteDecisionMatchesUrl检查已配置blocked对象，再使用原effective域名分类；不修改共享解析器或网页运行时。精确URL/YouTube及不同对象反例必须通过后才提交；既有解析器缺口转终端任务只读调查。
+
+本批补充（2026-09-28）：PR #80 已在缺失焦点/idle事实不累计进度修复后，以8ef79a6通过CI 36344367668并合入37d2e48；仍默认关闭，未改原扩展候选、未部署。云端安全批次补齐精确URL及YouTube对象回归，CI仅补实际消费的系统配置/分类解析器路径；.github/workflows/task-cloud.yml为该轻量CI的精确职责例外。整合目标继续进行，不因本批测试完成收口。
+
+## 当前整合：独立Task页面已合入，入口/安全核对继续（2026-09-28）
+
+本批安全校验实施清单（runtime-cloud-contract）：①独立resource-policy读取当前profile配置及系统配置，复用既有effective配置和网站分类解析器，只读且不修改网页分类；②POST创建/PATCH编辑在写入前校验canonical域名、URL、YouTube对象，命中blocked拒绝，读取失败/损坏配置503不写任务；③以本地夹具验证系统/自定义黑名单、子域、精确对象、受限非黑名单可用及无写入；④再运行受影响router/真实入口回归、typecheck/dry-run。允许精确测试路径tests/unit/task-resource-policy.test.js、task-router.test.js、task-worker-entry.test.js；专项CI只增加本测试。现有终端基础安全阻断不变，旧任务和原账不追溯修改。通用UI入口另批提交，避免安全修复混入UI。
+
+PR #81功能提交0da0313549d4f6ae97ebfb86e59b13d7d37aafc7已合入master e6215f1b38fa30bd28d485fb682181a7b526b163。Task Console CI 36344019422（真实mock浏览器28项及截图artifact）和App Runtime轻量门36344019268成功；无关产品job跳过。fetch/祖先关系已验证，原页面分支干净。没有Cloudflare Pages部署，源码合入不等于生产入口开放。
+
+下一批codex/task-cloud-entry-and-safety继续D-106：恢复通用模块目录入口，核对并补齐SPEC-002创建/编辑黑名单资源拒绝。当前router/repository未读取档案黑名单，不能用终端访问时基础阻断替代保存校验。实施前读取网站策略权威及现有解析器，再明确最小安全回归，不改网站分类、网页账或配额。
+
+终端PR #80（8a6f9b2）default-off代码和范围CI已核对，但只读审查发现checkpointCurrentPage把idle查询失败视作active、窗口查询失败视作前台，缺事实可能累计Task进度。已交所属终端任务限定修复并追加同一PR，先不合并或激活；当前任务不越界修改。Native分支仍活跃、Mac CI额度与真实验收待解决，不用本地编译冒充实机通过。完整目标保持未完成。
+
 ## NOW：Task 家长页面独立整合（2026-09-28）
 
 追加页面专项CI：.github/workflows/task-console.yml只匹配pages/task、页面mock脚本、锁文件及自身；运行现有浏览器mock，保存脱敏夹具截图，不触发Worker/Agent全组。此workflow为本任务精确职责例外。通用入口与生产启用保持下一独立批次，当前页面实现提交不等于完成入口或部署。
