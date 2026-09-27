@@ -2,7 +2,7 @@
 
 ## 三会话模块治理
 
-ARM-D-034 / PROJECT_WORKFLOW.md 定义架构与 Runtime 云端、扩展本地、Native 的所有权；阶段角色和生产发布权不变。
+D-105 / PROJECT_WORKFLOW.md 为最新契约：当前任务负责架构与本仓云端（Guardian/主控制台/Runtime）；控件任务只负责终端扩展，Native 归独立仓，Santa 保留专项归属。阶段角色和发布权不变，取代 ARM-D-034 的 Runtime-only 云端范围。
 
 ## 当前双仓及本机验收（2026-09-27）
 

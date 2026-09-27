@@ -105,6 +105,11 @@
 | D-103 | 通用 Native Host 为 Runtime 本地桥，共享配额先影子运行 | Active | 原分支 D-098 与已在 master 使用的编号冲突，合并时仅调整编号，产品语义不变。2026-09-21 PO 批准把 `GuardianNativeHost` 收敛为 Runtime-owned `TimeOnChrome Native Host`；新 ID 为 `com.timeonchrome.nativehost`，旧 ID 只作一个 managed 发布周期兼容。扩展仅在现有网页 Segment 成功持久化后发送不含页面身份的只读镜像，Host 只转发，RuntimeService 校验进程/session/SID并独立持久化。共享配额首阶段仅影子核算：实际前台优先、网页覆盖 Chrome 容器、待归类网站与未归类应用合并 Composite、媒体辅助记录排除；不得改变网页 ACTIVE、原始分段、上传、现有配额读取或阻止。Host/Service/installer 均归 `app-runtime-management/`，根扩展只依赖版本化 contract，未来拆仓边界以后续已批准决策为准。 |
 | D-104 | TimeWhereNative 仅接管本机源码，Runtime 云端继续留在 TimeOnChrome | Active | 2026-09-25 PO 批准从干净 master 将 Windows/macOS Agent、RuntimeService、TimeWhereMg、Native Host 和安装器迁入私有 `william-xia-cn/TimeWhereNative`。Runtime Worker、独立 Pages、D1、R2、共享契约及唯一生产发布权继续由 TimeOnChrome 持有；Guardian 继续负责家长身份桥和 Child lifecycle。新仓锁定不含凭据的固定契约版本和校验值，双方 CI 验证当前及上一兼容版本，不跨仓导入源码。新仓只生成并交付受测安装产物，TimeOnChrome 受保护流程独占 R2 上传和 latest 切换。拆仓本身不部署、不迁移数据库、不改写账本或要求重新配对；云端合并统计只去除有证据的重叠，不重算网页和应用任一权威账本。D-092 和 ARM-D-026 中“未来整体迁出 Runtime 云端”表述由本决策取代。 |
 
+### D-105：TimeOnChrome 仓库架构/云端与终端控件开发分离
+
+Active，2026-09-27 PO 明确授权。当前架构任务统筹接口契约并负责 Guardian/主控制台/Runtime 云端开发；TimeOnchrome 控件任务仅负责 Chrome 终端实现、终端 UI、既有协议客户端和打包。双方不可直接修对端，即使微小补丁。Native 归独立仓，Santa 保持专项所有者。取代 ARM-D-034 对当前任务的 Runtime-only 云端限制；不改变统计权威、协议内容、阶段角色或专项发布/网页落账门禁。执行矩阵、交接与路径口径统一见 PROJECT_WORKFLOW.md。
+
 ## 变更规则
+
 - 新决策必须追加一条记录（不改历史 ID）。
 - 决策状态：`Active / Superseded / Dropped / Pending PO`。

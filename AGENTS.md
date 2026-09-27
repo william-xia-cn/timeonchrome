@@ -2,7 +2,9 @@
 
 ## 三会话模块边界
 
-必须遵守 PROJECT_WORKFLOW.md「三会话模块职责」和 ARM-D-034。任务开始声明 runtime-cloud-contract / extension-local / native-local / release、允许路径及最小测试。架构任务只实施契约与 Runtime 云端；扩展客户端、候选目录交由 TimeOnchrome 访问管理策略；本机代码交由 Native Host 开发。只读诊断不授予修复权限，几行补丁也不得越界。阶段角色、网页落账及发布专项批准不变。提交前检查职责 diff，越界保留现场并转交。
+D-105 为最新项目契约：当前架构任务负责本仓架构/接口/契约及云端开发（Guardian、主家长控制台和 Runtime），控件任务只负责终端扩展开发。ARM-D-034 的 Runtime-only 旧范围由 D-105 取代；Santa 专项和独立 Native 归属不变。终端页面与云端页面按运行位置及职责区分，不按 HTML 文件类型混归。所有权不是部署或生产数据写入授权。
+
+必须遵守 PROJECT_WORKFLOW.md「项目开发契约」和 D-105。任务开始声明 runtime-cloud-contract / extension-local / native-local / release、允许路径及最小测试。架构任务实施架构/契约和本仓云端；扩展客户端、候选目录交由 TimeOnchrome 访问管理策略；本机代码交由 Native Host 开发。只读诊断不授予修复权限，几行补丁也不得越界。阶段角色、网页落账及发布专项批准不变。提交前检查职责 diff，越界保留现场并转交。
 
 > 本文档供 AI 代理（Codex/OpenCode/Claude Code 等）和开发者阅读，定义项目的工作规则和约束。
 
