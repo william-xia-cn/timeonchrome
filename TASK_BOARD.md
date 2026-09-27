@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## NOW：Task 最终领域规则保存与整合（2026-09-28）
+
+- 职责 runtime-cloud-contract；来源 codex/task-management-v1@8603fbb 最终树。仅原样提取 workers/src/modules/task/domain.ts 和 tests/fixtures/task-resource-canonical-v1.json，并增加独立服务端回归，不依赖旧扩展源码。
+- 规则语义沿用该工作线已批准最终设计：hosts/urlRules/specialTargets，保留业务query、去除tracking/hash，YouTube对象独立解析。此批是不可达的纯函数库，不安装router、不接入repository、不建表、不添加管理入口，不改变访问管理或网页账本。
+- 最小验证：原文件Git blob一致、既有五组黄金向量、无效输入与核心字段可编辑边界、TypeScript独立编译、diff与职责检查。无浏览器/Native/生产测试；不部署任何资源。
+- Task完整功能仍待：终端验收、旧migration编号与决策编号迁移、当前鉴权兼容复验及各层接入；不以纯函数合入宣称Task上线。原P16脏目录原地保留。
+- 结果：两个提取文件与8603fbb来源Git blob完全一致；五组既有向量、非法输入、编辑边界与未启用运行入口检查PASS；独立TypeScript编译及diff check PASS。Matched＝原样来源/纯函数隔离/聚焦测试；Deviated/Missing/Extra＝无（此保存批次），完整模块仍待后续。
+
 ## NOW：日周 Rest 云端兼容校验分批整合（2026-09-28）
 
 - 职责 runtime-cloud-contract；从主目录未提交日周软配额实现仅提取 profiles.ts 的 weeklyFirstReminderMinutes 校验。允许 null 或1–10080整数分钟，字段缺失兼容旧客户端，纯校验不改配置对象。
