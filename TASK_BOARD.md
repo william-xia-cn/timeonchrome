@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## NOW：复合页面证据持久化安全整合（2026-09-28）
+
+职责 runtime-cloud-contract。先处理已复现的删除/在途上传竞态：从原未提交服务提取独立持久化模块，保留原 JSON 哈希、分块和 ACK 语义；写入、读回、标 ready 均校验当前请求版本、同档案有效设备、显式启用和删除墓碑。删除在事务内完成。只集成不可达组件，不接主 Worker 路由/cron，不增加生产 migration 或采集；原工作树不动。原扫描请求重建、脱敏、通知、终端与页面仍须后续单独整合，不能把组件测试称为完整功能可用。
+
+实施清单：①本记录先行；②workers/src/services/compositePageEvidence.ts；③原032 schema仅作tests/fixtures/composite-page-evidence-schema.sql，新增tests/unit/composite-page-evidence.test.js使用本地D1验证删除前/中途、版本切换、停用、解绑、重复/冲突、完整/分块和事务中断；④最小CI、typecheck、diff/范围及审计。精确例外为上述两项测试文件与.github/workflows/composite-evidence.yml；无页面/Agent改动，不跑UI/平台/账本全量。无生产 smoke，因为不部署或启用。
+
+提交前审计：Matched＝持久化组件写时校验、元数据冲突拒绝、逐块幂等、整体哈希与唯一ID后ready、删除墓碑及同档案删除、D1原子回滚；本批Deviated/Missing/Extra＝无。Miniflare真实D1固定回归14/14、root typecheck、YAML、范围和diff通过。schema去注释/空白归一后SHA256=064607245f24a8eb0d65def1839656f474e3bea3a30dd379edf7cd227d1fb70d，与原032一致但只在测试夹具保存。Node yaml依赖未安装，改用现有Python yaml解析通过，未新增依赖。Cloudflare当前D1 batch文档核对事务回滚；类型按仓内4.20260529.1验证。完整功能仍未接入：原请求生成、行级隐私脱敏、审核意见删除竞态、通知及终端联合验收继续待审；不得把本组件通过称为原脏服务或线上已修复。
+
 ## PO 裁决：Task 本轮收口为默认关闭（2026-09-28）
 
 PO 已明确选择「保持 Task 默认关闭，本轮只收口已安全整合部分」。取代下方“等待 Task 网页记账裁决”的阶段状态：本轮不实施 background/foreground-timing/session 的访问与开关段协调，不激活 Task，不发布创建入口，不替换原扩展候选。正式启用与真实网页原账专项验收移为后续独立任务，不再用它阻塞本轮其他安全整合，也不将其写成已验收。
