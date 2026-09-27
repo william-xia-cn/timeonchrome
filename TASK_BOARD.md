@@ -1,5 +1,21 @@
 # TASK_BOARD
 
+## NOW：Task 生命周期原子写入与动作幂等（2026-09-28）
+
+上一批PR #76已合入a7dee75；真实本地D1 11/11，不代表完整Task上线。GitHub CLI失效但原Chrome登录可用，已通过现有浏览器完成PR，没有创建凭据。
+
+本批职责runtime-cloud-contract，变更等级为云端持久化/权限相关修复。依据8603fbb最终SPEC-002：创建、编辑和家长动作必须审计；action ID幂等、revision冲突不得覆盖、完成/取消不可恢复。旧router仅凭事件ID存在就返回成功，且先更新任务再单独写审计，存在内容冲突与中断缺审计风险。
+
+生命周期本地D1已10/10通过，继续同主题接入未注册的Task router，替换其两阶段写入，验证真实账号JWT/设备token、错误归属、过期/损坏认证、设备重绑后的capability隔离。Task heartbeat摘要只保存已有activeTaskIds/count/nextTaskAt字段，保持有界合法JSON；绑定在实际写入时再次检查。请求体限定256KiB且必须为JSON对象，避免旧代码把解析失败静默当空对象。Task专用轻量CI只针对模块/测试路径运行上述聚焦检查，不触发平台或产品全量测试；不改现有生产workflow。
+
+实施顺序：①repository创建与编辑和对应审计置于同一D1 batch；②生命周期动作在repository内校验固定动作、revision、actionId与操作者，条件更新与审计原子提交，重复仅当任务/档案/操作者/动作/revision/备注一致才成功；③固定真实本地D1回归覆盖事件写失败、同动作重试、冲突重用、并发动作、终态、进度与动作竞争；④后续router只调用原子接口，不保留独立审计写入口。当前不注册生产router，不执行migration，不部署。
+
+最小测试为Task生命周期本地D1、受同库影响的进度11项、domain、TypeScript、职责/diff检查；现有CI汇总门；无部署smoke。排除扩展/Native/全平台/UI测试。本地夹具和生命周期测试允许精确路径例外，不扩权其他模块；不改原网页账、策略或生产数据。
+
+本批本地结果：生命周期10/10、router真实JWT/设备token与本地D1验证9/9、原进度11/11、domain五组黄金向量及TypeScript通过；workflow YAML、7文件职责及diff检查通过。node yaml依赖不存在，改用环境现有PyYAML完成纯语法检查，没有安装或修改依赖。独立task-cloud CI仅跑这些必要测试，共享鉴权或锁文件变化也触发真实消费者。新增路径例外：tests/unit/task-lifecycle-repository.test.js、tests/unit/task-router.test.js（云端专项回归），.github/workflows/task-cloud.yml（本批最小CI，不含发布权限）。
+
+本批审计：Matched＝创建/编辑/动作原子审计、完整动作幂等比较、revision/终态、家庭隔离、设备改绑能力、请求有界及对应D1测试；Deviated/Extra＝无。完整Task的Missing＝入口/迁移编号与生产审查、云端页面/终端集成及真实联合验收，仍不称上线。本批未修改workers/src/index.ts、原网页账本、云端生产配置、扩展候选或任何Native代码。
+
 ## NOW：Task 进度持久确认与恢复修复（2026-09-28）
 
 本批实现结果：本地 Miniflare/D1 11/11 通过，包括真实 SQLite trigger 中断后的整个 batch 回滚、相同消息重复确认、旧事实无投影恢复、并发设备区间并集、完成审计幂等、暂停重放、绑定隔离和100项限额。TypeScript、原领域5组黄金向量及 diff check 通过。Miniflare 5 alpha 的构造接口与旧README不一致，已使用该锁定版本导出的 convertV4MiniflareOptions；此前两次初始化失败不是数据库测试结果。一个测试区间误超90秒已修正为合法区间，未放宽产品校验。

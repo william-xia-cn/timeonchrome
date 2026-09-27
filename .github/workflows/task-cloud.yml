@@ -1,0 +1,38 @@
+name: Task Cloud
+
+on:
+  pull_request:
+    paths:
+      - 'workers/src/modules/task/**'
+      - 'workers/src/db/middleware.ts'
+      - 'workers/src/routes/deviceIdentity.ts'
+      - 'package-lock.json'
+      - 'app-runtime-management/backend/package-lock.json'
+      - 'tests/unit/task-worker-domain.test.js'
+      - 'tests/unit/task-progress-repository.test.js'
+      - 'tests/unit/task-lifecycle-repository.test.js'
+      - 'tests/unit/task-router.test.js'
+      - 'tests/fixtures/task-*.json'
+      - 'tests/fixtures/task-management-schema.sql'
+      - '.github/workflows/task-cloud.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  task-cloud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm ci --prefix app-runtime-management/backend --ignore-scripts --no-audit --no-fund
+      - run: npm run build:app-runtime-contracts
+      - run: npm run typecheck
+      - run: node tests/unit/task-worker-domain.test.js
+      - run: node tests/unit/task-progress-repository.test.js
+      - run: node tests/unit/task-lifecycle-repository.test.js
+      - run: node tests/unit/task-router.test.js
