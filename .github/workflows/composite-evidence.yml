@@ -3,9 +3,19 @@ on:
   pull_request:
     paths:
       - 'contracts/composite-page-evidence/**'
+      - 'extension/core/generated/composite-page-evidence-v1.js'
+      - 'extension/infra/composite-page-observer.js'
+      - 'tests/unit/composite-page-observer.test.js'
       - 'tools/check-composite-evidence-copy.js'
       - 'tests/unit/composite-evidence-contract.test.js'
       - 'workers/src/services/compositePageEvidence.ts'
+      - 'workers/src/services/compositePageReviews.ts'
+      - 'workers/src/services/compositePageAnalysis.js'
+      - 'workers/src/services/compositePageCorrections.ts'
+      - 'tests/unit/composite-corrections.test.js'
+      - 'workers/src/routes/compositePageReviews.ts'
+      - 'tests/unit/composite-cloud-integration.test.js'
+      - 'tests/unit/composite-page-analysis.test.js'
       - 'tests/unit/composite-page-evidence.test.js'
       - 'tests/fixtures/composite-page-evidence-schema.sql'
       - '.github/workflows/composite-evidence.yml'
@@ -26,3 +36,10 @@ jobs:
       - run: npm run typecheck
       - run: node tests/unit/composite-page-evidence.test.js
       - run: node tests/unit/composite-evidence-contract.test.js
+      - if: ${{ hashFiles('extension/infra/composite-page-observer.js') != '' }}
+        run: node tools/check-composite-evidence-copy.js extension/core/generated/composite-page-evidence-v1.js
+      - if: ${{ hashFiles('tests/unit/composite-page-observer.test.js') != '' }}
+        run: node tests/unit/composite-page-observer.test.js
+      - run: node tests/unit/composite-cloud-integration.test.js
+      - run: node tests/unit/composite-corrections.test.js
+      - run: node tests/unit/composite-page-analysis.test.js
