@@ -2,6 +2,9 @@ name: Composite Evidence Persistence
 on:
   pull_request:
     paths:
+      - 'contracts/composite-page-evidence/**'
+      - 'tools/check-composite-evidence-copy.js'
+      - 'tests/unit/composite-evidence-contract.test.js'
       - 'workers/src/services/compositePageEvidence.ts'
       - 'tests/unit/composite-page-evidence.test.js'
       - 'tests/fixtures/composite-page-evidence-schema.sql'
@@ -22,3 +25,4 @@ jobs:
       - run: npm run build:app-runtime-contracts
       - run: npm run typecheck
       - run: node tests/unit/composite-page-evidence.test.js
+      - run: node tests/unit/composite-evidence-contract.test.js
