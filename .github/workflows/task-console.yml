@@ -3,6 +3,9 @@ name: Task Console
 on:
   pull_request:
     paths:
+      - 'pages/modules/**'
+      - 'pages/optional-modules.json'
+      - 'pages/index.html'
       - 'pages/task/**'
       - 'tests/manual/task-v1-pages-ui-smoke.mjs'
       - 'tests/fixtures/task-resource-canonical-v1.json'
@@ -11,6 +14,9 @@ on:
   push:
     branches: [master]
     paths:
+      - 'pages/modules/**'
+      - 'pages/optional-modules.json'
+      - 'pages/index.html'
       - 'pages/task/**'
       - 'tests/manual/task-v1-pages-ui-smoke.mjs'
       - 'tests/fixtures/task-resource-canonical-v1.json'

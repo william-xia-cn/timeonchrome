@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## NOW：云端通用模块入口（2026-09-28）
+
+职责runtime-cloud-contract；仅pages/index.html增加通用/modules/链接（桌面次级导航及移动更多），恢复旧8603fbb独立模块目录和optional-modules.json，不往主控制台加入Task状态或业务。目录严格验证同源路径和字符串字段，加载/空目录/错误可辨识；保留返回控制台，长标签窄屏可达。通过现有Task页面mock追加目录与导航验证，不访问真实家庭或启用终端。该批只整合源码，部署仍等待SPEC-002终端能力及受控验收。
+
+最小测试：现有Task页面mock与桌面/窄屏截图、JS语法、diff/职责；精确例外docs/UI_STYLE_MAP.md、tests/manual/task-v1-pages-ui-smoke.mjs、.github/workflows/task-console.yml。CI仅补目录与导航消费路径，不运行Worker/Native/账本或安装器测试。
+
+提交前审计：Matched＝桌面次级入口、移动更多入口、独立目录/返回链接、同源路径及完整字段验证、加载/空/失败/重试、长内容窄屏。Deviated/Missing/Extra＝本批无。现有mock共41项检查通过（含原Task回归及13项目录/导航检查），directory.js语法、diff与职责检查通过；4张1366/430px截图已目视核对。主控制台截图仅验证真实导航布局，其统计API故意未提供mock，不作为主统计成功证据。静态测试服务器补SVG/PNG MIME，等提示自然消失后截图，未隐藏产品错误。Task Console CI仅增加实际入口消费路径；无生产自动触发，Pages部署仍待终端专项门。
+
 ## 当前整合：Task安全准入已发布，整体仍进行中（2026-09-28）
 
 PR #82（功能1859278、同步主线37a66f1）合入master b46d17662d56abc98059fa80ba54167f97bf82d2。PR Task Cloud 36344952784及App Runtime轻量门36344952778成功；精确master Guardian门36345062971成功。受保护生产36345123042成功，仅Guardian部署为0d040402-210b-4b29-a390-9f7908bfe329。没有执行migration或部署Runtime/Pages/R2；发布manifest artifact 10940505176，ZIP摘要b20fb8b90482ab38d41256b679276fda2ffae0895ca179c41f67b10ae8770e05。未回读该ZIP内容，不把上一部署资源版本冒充本次逐件核实。

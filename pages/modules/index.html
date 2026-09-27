@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>扩展模块 · TimeOnChrome</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f4f8f7; color: #173c32; font: 16px/1.6 system-ui, sans-serif; }
+    main { max-width: 900px; margin: auto; padding: 40px 20px; }
+    a { color: #087e68; }
+    h1 { margin-bottom: 8px; }
+    .intro { color: #53776d; margin-top: 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 16px; }
+    .card { display: flex; flex-direction: column; gap: 8px; padding: 24px; border: 1px solid #c9e4db; border-radius: 16px; background: white; text-decoration: none; overflow-wrap: anywhere; }
+    .card:hover, .card:focus-visible { border-color: #087e68; outline: 2px solid #087e68; outline-offset: 2px; }
+    .card strong { font-size: 20px; }
+    .card span { color: #53776d; }
+    button { padding: 10px 20px; border: 1px solid #087e68; border-radius: 8px; background: white; color: #087e68; font: inherit; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <a href="/">返回家长控制台</a>
+    <h1>扩展模块</h1>
+    <p class="intro">独立模块拥有自己的配置、状态和运行边界。</p>
+    <p id="status" role="status" aria-live="polite">正在加载模块目录…</p>
+    <div id="modules" class="grid"></div>
+    <button id="retry" type="button" hidden>重新加载</button>
+  </main>
+  <script type="module" src="./directory.js"></script>
+</body>
+</html>
