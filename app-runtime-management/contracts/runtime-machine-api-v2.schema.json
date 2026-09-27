@@ -66,6 +66,7 @@
       "properties": {
         "version": { "type": "integer", "minimum": 1 },
         "defaultChildId": { "type": ["string", "null"] },
+        "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
         "users": { "type": "array", "items": { "$ref": "#/$defs/assignment" } },
         "appPolicies": {
           "type": "array",

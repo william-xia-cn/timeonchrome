@@ -7,6 +7,7 @@ import type { AccountingMediaSegment, AccountingUsageSegment } from '../src/cont
 import { validateSegment } from '../src/validation';
 import catalogRules from '../src/data/product-catalog-rules.v3.json';
 import { syncApplicationInventory } from '../src/applicationKnowledge';
+import { machinePolicyEtag } from '../src/v2Repository';
 
 const origin = 'http://runtime.test';
 const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE', y: '5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA', crv: 'P-256', d: '2Ja3Py77LNt6aspenNTttELbGzm2-u9WcF4x8BQql8w' };
@@ -333,6 +334,40 @@ describe('Runtime product API', () => {
       SELECT child_id, protected FROM runtime_user_assignments_v2
       WHERE machine_id=?1 AND local_user_id=?2 ORDER BY assignment_version DESC LIMIT 1
     `).bind(machine.machineId, localUserId).first()).resolves.toMatchObject({ child_id: null, protected: 0 });
+  });
+
+  it('platform neutral heartbeat uses authenticated platform and rejects invalid updates', async () => {
+    const {enrolled}=await createMachineWithUser();
+    const headers=bearer(enrolled.machineToken);
+    const heartbeat=(fields:Record<string,unknown>)=>call('/v2/machines/heartbeat',{method:'POST',headers,
+      body:JSON.stringify({serviceVersion:'fixture',architecture:'x64',tamperCount:0,policyState:'applied',...fields})});
+    for(const fields of [{windowsVersion:'11'},{osVersion:'11'},{windowsVersion:'11',osVersion:'11'},
+      {windowsVersion:'11',platform:'macos'}]) expect((await heartbeat(fields)).status).toBe(200);
+    const prior=await env.RUNTIME_DB.prepare('SELECT os_version,last_seen_at_ms FROM runtime_machines_v2 WHERE id=?').bind(enrolled.machineId).first();
+    const conflict=await heartbeat({windowsVersion:'11',osVersion:'11 '});
+    expect(conflict.status).toBe(400);
+    expect(await conflict.json()).toMatchObject({error:{code:'HEARTBEAT_VERSION_CONFLICT'}});
+    for(const value of [null,12,'','  ','11\n','a'.repeat(129)]) expect((await heartbeat({osVersion:value})).status).toBe(400);
+    expect(await env.RUNTIME_DB.prepare('SELECT os_version,last_seen_at_ms FROM runtime_machines_v2 WHERE id=?').bind(enrolled.machineId).first()).toEqual(prior);
+    await env.RUNTIME_DB.prepare("UPDATE runtime_machines_v2 SET platform='macos' WHERE id=?").bind(enrolled.machineId).run();
+    expect((await heartbeat({osVersion:'15.7'})).status).toBe(200);
+    expect((await heartbeat({windowsVersion:'15.7',platform:'windows'})).status).toBe(400);
+    expect((await heartbeat({windowsVersion:'15.7',osVersion:'15.7'})).status).toBe(400);
+  });
+
+  it('platform neutral policy capabilities participate in ETag without changing child policy', async () => {
+    const {enrolled}=await createMachineWithUser();
+    const headers=bearer(enrolled.machineToken);
+    const response=await call('/v2/machines/policy',{headers});
+    const policy=await response.json<{version:number;capabilities:string[]}>();
+    expect(policy.capabilities).toEqual(['heartbeat-os-version-v1', 'uninstall-operation-receipt-v1']);
+    const etag=response.headers.get('etag')!;
+    expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':etag}})).status).toBe(304);
+    expect((await call('/v2/machines/policy',{headers:{'If-None-Match':etag}})).status).toBe(401);
+    const removed=await machinePolicyEtag(enrolled.machineId,policy.version,[]);
+    expect(removed).not.toBe(etag);
+    expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':removed}})).status).toBe(200);
+    expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':`"policy-${enrolled.machineId}-${policy.version}"`}})).status).toBe(200);
   });
 
   it('enrolls one machine and applies default and per-user policy without exposing SID', async () => {

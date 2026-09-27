@@ -1,4 +1,6 @@
 import { requireAccountModule, requireMachine } from './auth';
+import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
+import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
 import { machineUsageCorrections } from './applicationUsageCorrections';
 import { getApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
   putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
@@ -329,7 +331,17 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
       : errorResponse(401, 'ENROLLMENT_INVALID', 'Enrollment code is invalid, expired, or consumed.');
   }
 
-  const machine = await requireMachine(request, env.RUNTIME_DB, nowMs);
+  if (url.pathname.startsWith('/v2/uninstall-operations/')) {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const result = await readUninstallReceipt(env.RUNTIME_DB,
+      url.pathname.slice('/v2/uninstall-operations/'.length), request.headers.get('authorization') ?? '', nowMs);
+    return result ? jsonResponse(result)
+      : errorResponse(404, 'UNINSTALL_RESULT_UNAVAILABLE', 'Uninstall result is unavailable.');
+  }
+
+  // Heartbeat records activity only after the complete payload passes validation.
+  const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
+    url.pathname !== '/v2/machines/heartbeat');
   if (url.pathname === '/v2/machines/app-usage-corrections') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
     return jsonResponse(await machineUsageCorrections(env.RUNTIME_DB, machine, url.searchParams.get('after')));
@@ -377,17 +389,19 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
     if (request.method !== 'POST') return methodNotAllowed('POST');
     const body = await readJsonBody(request, 16_384);
     if (!isRecord(body)) throw new HttpError(400, 'INVALID_REQUEST', 'Heartbeat is invalid.');
-    for (const field of ['serviceVersion', 'windowsVersion', 'architecture'] as const) {
+    for (const field of ['serviceVersion', 'architecture'] as const) {
       if (typeof body[field] !== 'string' || body[field].length < 1 || body[field].length > 128) {
         throw new HttpError(400, 'INVALID_REQUEST', `${field} is invalid.`);
       }
     }
+    const version=resolveRuntimeOsVersion(machine.platform,body);
+    if(!version.ok) throw new HttpError(400,version.code,'Operating system version is invalid or conflicting.');
     if (!Number.isSafeInteger(body.tamperCount) || Number(body.tamperCount) < 0
       || typeof body.policyState !== 'string' || !policyStates.has(body.policyState)) {
       throw new HttpError(400, 'INVALID_REQUEST', 'Heartbeat state is invalid.');
     }
     await recordMachineHeartbeat(env.RUNTIME_DB, machine, {
-      serviceVersion: String(body.serviceVersion), windowsVersion: String(body.windowsVersion),
+      serviceVersion: String(body.serviceVersion), osVersion: version.osVersion,
       architecture: String(body.architecture), tamperCount: Number(body.tamperCount),
       policyState: body.policyState as 'pending' | 'cached' | 'applied' | 'failed' | 'offline',
     }, nowMs);
@@ -423,6 +437,19 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
     if (!isRecord(body) || typeof body.code !== 'string') throw new HttpError(400, 'INVALID_REQUEST', 'Uninstall code is invalid.');
     return await authorizeUninstall(env.RUNTIME_DB, machine, body.code, nowMs)
       ? jsonResponse({ authorized: true }) : errorResponse(401, 'UNINSTALL_CODE_INVALID', 'Uninstall code is invalid, expired, or consumed.');
+  }
+  if (url.pathname === '/v2/machines/uninstall-operations') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    const body = await readJsonBody(request, 4096);
+    if (!isRecord(body) || typeof body.operationId !== 'string' || typeof body.code !== 'string'
+      || typeof body.confirmationSecretHash !== 'string') {
+      throw new HttpError(400, 'INVALID_REQUEST', 'Uninstall operation is invalid.');
+    }
+    const result = await commitUninstallOperation(env.RUNTIME_DB, machine, {
+      operationId: body.operationId, code: body.code, confirmationSecretHash: body.confirmationSecretHash,
+    }, nowMs);
+    return result ? jsonResponse(result)
+      : errorResponse(401, 'UNINSTALL_CODE_INVALID', 'Uninstall code is invalid, expired, or consumed.');
   }
   return errorResponse(404, 'NOT_FOUND', 'Route was not found.');
 }

@@ -131,11 +131,12 @@ export async function requireMachine(
   request: Request,
   database: D1Database,
   nowMs: number,
+  recordActivity = true,
 ): Promise<MachineSelfResponse> {
   const authorization = request.headers.get('authorization') ?? '';
   const match = /^Bearer ([A-Za-z0-9_-]{32,256})$/u.exec(authorization);
   if (!match?.[1]) throw new HttpError(401, 'UNAUTHORIZED', 'Runtime machine authentication failed.');
-  const machine = await authenticateMachine(database, match[1], nowMs);
+  const machine = await authenticateMachine(database, match[1], nowMs, recordActivity);
   if (!machine) throw new HttpError(401, 'UNAUTHORIZED', 'Runtime machine authentication failed.');
   return machine;
 }
