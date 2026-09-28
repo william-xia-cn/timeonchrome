@@ -2,6 +2,8 @@
 
 ## 当前发布结果（2026-09-28，覆盖下方未部署状态）
 
+登记收口（2026-09-28 07:09:13 UTC）：PO 随后明确批准仅向 d1_migrations 登记已执行032。先只读确认目标五表齐全、登记为空，再条件插入032_composite_page_reviews.sql，changes=1；回读迁移登记仅此一条。本项 Missing 已消除，下方安全审核拒绝记录保留为历史；不再等待登记批准。未重跑建表、未补录其他迁移、未重新部署。真实已认证业务联调仍未完成，不以登记成功冒充端到端通过。
+
 PO 明确批准 Guardian 032 及 Guardian/隔离 Task 主 Pages。本次仅发布 master 81949cc5542b1490a2c4f31a1ddd006d11ea5de6；PR104 增加 Main Console 手动 CI 入口，Guardian 36381984505 与 Main Console 36381981663 在精确 SHA 成功。production 运行 36382107413 经环境审核成功；不可变 artifact app-runtime-production-manifest-81949cc5542b1490a2c4f31a1ddd006d11ea5de6 保存资源版本。
 
 - Guardian 032：仅执行审核过的六条建表/建索引语句，五表回读均存在；未执行其他 migration。Git blob SHA256=7c05bdae2dc20386cc3e447f2d486e455fee453a6e6e26d91309953680b0e4a3。安全审核拒绝单独写入 d1_migrations 登记，故数据库结构已应用、登记未完成，不能再次直接执行本文件，也不能运行全部 pending。登记需要 PO 单独明确批准；未绕过审核。
