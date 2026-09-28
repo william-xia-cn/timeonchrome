@@ -1,5 +1,16 @@
 # TASK_BOARD
 
+## 当前发布结果（2026-09-28，覆盖下方未部署状态）
+
+PO 明确批准 Guardian 032 及 Guardian/隔离 Task 主 Pages。本次仅发布 master 81949cc5542b1490a2c4f31a1ddd006d11ea5de6；PR104 增加 Main Console 手动 CI 入口，Guardian 36381984505 与 Main Console 36381981663 在精确 SHA 成功。production 运行 36382107413 经环境审核成功；不可变 artifact app-runtime-production-manifest-81949cc5542b1490a2c4f31a1ddd006d11ea5de6 保存资源版本。
+
+- Guardian 032：仅执行审核过的六条建表/建索引语句，五表回读均存在；未执行其他 migration。Git blob SHA256=7c05bdae2dc20386cc3e447f2d486e455fee453a6e6e26d91309953680b0e4a3。安全审核拒绝单独写入 d1_migrations 登记，故数据库结构已应用、登记未完成，不能再次直接执行本文件，也不能运行全部 pending。登记需要 PO 单独明确批准；未绕过审核。
+- Guardian Worker：82c312d4-41e1-4f8b-ad7f-d9056c31ea59；主 Pages：1ecd6133-4697-44cf-be18-1ddf2e304fbb（source 81949cc）。设备/家长复合读取接口无认证均401，主页面200，/task/返回302至/，optional-modules.json为[]。
+- 未改资源：Runtime Worker b00deec4-b3ca-40f7-8b10-6536af07f10b；Runtime Pages f2a6ca68-8e6f-42f7-b82e-9bf42b06e6ad；R2 latest 2.3.1及原哈希保持不变。未修改家庭开关、终端、原账或启用Task。
+- ARM-D-035/036：PR98已合入63e4f97，contracts1.16.1已交付；Runtime0011和接收端仍未部署，不与Guardian032混淆。Mac编译/实机/配对恢复闭环由PO明确延后；macOS配对支持及安全响应恢复仍是未实现项，不以DEFERRED冒充PASS。
+
+发布审计：Matched＝精确SHA/受保护流程/唯一032建表/Guardian与主Pages/Task隔离/未认证fail-closed/其他资源不变；Deviated/Extra＝无；Missing＝032迁移登记、真实已认证业务联调证据。部署成功不等于家庭开关已开启或所有产品验收已完成。本次收口仅文档，运行diff检查，不触发重复生产或产品测试。
+
 ## NOW：已批准 Guardian 032 与隔离 Task 主 Pages 发布（2026-09-28）
 
 PO 已明确批准仅执行 Guardian 032 additive migration，再部署 Guardian/主 Pages；不部署 Runtime，不修改 R2、家庭开关、终端或原账。Mac 编译/实机/云端闭环按 PO 决定延后，不伪称通过。
