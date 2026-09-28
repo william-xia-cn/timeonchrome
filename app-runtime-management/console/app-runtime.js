@@ -299,8 +299,8 @@
     $('#outside-window-summary').textContent = `本周期时段外使用 ${duration(state.usage.outsideTimeWindows?.durationMs || 0)}`;
   }
   function assignmentOptions(selectedId, protectedValue = true) { return `<option value="u"${!protectedValue ? ' selected' : ''}>成人／不保护</option>` + state.children.map((item, index) => `<option value="${index}"${protectedValue && item.id === selectedId ? ' selected' : ''}>${escape(item.name)}</option>`).join(''); }
-  function renderMachines() { $('#machines').innerHTML = state.machines.map((machine) => `<button type="button" class="machine-card" data-open-machine="${escape(machine.id)}"><span class="platform-icon">${machine.platform === 'macos' ? '●' : '⊞'}</span><div><strong>${escape(machine.displayName || '电脑')}</strong><p>${escape(machine.windowsVersion || machine.platform)} · ${escape(machine.architecture || '—')} · 最近在线 ${time(machine.lastSeenAtMs)}</p></div><span class="policy ${escape(machine.policyState)}">${policyLabel(machine.policyState)}</span><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span><span>›</span></button>`).join('') || '<p class="empty">尚未添加 Runtime 电脑</p>'; }
-  function renderHealth() { $('#health-list').innerHTML = state.machines.map((machine) => `<article class="health-card"><strong>${escape(machine.displayName || '电脑')}</strong><p>Service ${escape(machine.serviceVersion || '未报告')} · Agent ${machine.status === 'online' ? '运行中' : '未连接'}</p><p>策略 ${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}</p><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span></article>`).join('') || '<p>暂无设备</p>'; }
+  function renderMachines() { $('#machines').innerHTML = state.machines.map((machine) => `<button type="button" class="machine-card" data-open-machine="${escape(machine.id)}"><span class="platform-icon">${machine.platform === 'macos' ? '●' : '⊞'}</span><div><strong>${escape(machine.displayName || '电脑')}</strong><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')} · 最近在线 ${time(machine.lastSeenAtMs)}</p></div><span class="policy ${escape(machine.policyState)}">${policyLabel(machine.policyState)}</span><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span><span>›</span></button>`).join('') || '<p class="empty">尚未添加 Runtime 电脑</p>'; }
+  function renderHealth() { $('#health-list').innerHTML = state.machines.map((machine) => `<article class="health-card"><strong>${escape(machine.displayName || '电脑')}</strong><p>Service ${escape(machine.serviceVersion || '未报告')} · Agent 运行状态未单独报告</p><p>策略 ${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}</p><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span></article>`).join('') || '<p>暂无设备</p>'; }
   function renderTechnicalRecords() {
     const items = state.catalog.technicalItems || [];
     $('#technical-record-count').textContent = `${items.length} 条`;
@@ -310,7 +310,7 @@
       return `<article class="technical-record"><div><strong>${escape(item.displayName || '未知技术进程')}</strong><p><span class="platform-chip ${escape(item.platform)}">${item.platform === 'macos' ? 'macOS' : 'Windows'}</span> · ${item.lastSeenAtMs ? `最近使用 ${time(item.lastSeenAtMs)}` : '最近 30 天无使用'}</p></div><div><strong>${duration(item.mainDurationMs || 0)}</strong><p>${escape(reason)}</p></div><span class="badge offline">只读</span></article>`;
     }).join('') : '<p>暂无技术进程记录</p>';
   }
-  function openDrawer(machineId) { const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(machine.windowsVersion || machine.platform)} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(machine.lastUploadAtMs)}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${policyLabel(user.policyState)}</small></label>`).join('') || '<p>等待 Service 上报本机账户。</p>'}</div><div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
+  function openDrawer(machineId) { const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(AppRuntimeDevices.syncAt(machine))}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${AppRuntimeDevices.accountStatus(user)} · ${policyLabel(user.policyState)}</small></label>`).join('') || '<p>已配对；等待本机服务首次上报账户。</p>'}</div><div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
   function closeDrawer() { $('#device-drawer').classList.remove('open'); $('#device-drawer').setAttribute('aria-hidden', 'true'); $('#mobile-backdrop').hidden = true; }
   function openUsageDetail(kind, value) { const item = kind === 'app' ? state.usage.applications?.[Number(value)] : state.usage.categories?.find((entry) => entry.classification === value); if (!item) return; const title = kind === 'app' ? item.displayName || '未知应用' : categoryLabels[item.classification]; $('#drawer-content').innerHTML = `<h2>${escape(title)}</h2><p>${kind === 'app' ? `${escape(item.platform)} · ${categoryLabels[item.classification] || '未归类'}` : '分类使用详情'}</p><div class="drawer-section"><h3>本周期主使用</h3><p class="detail-duration">${duration(item.durationMs)}</p><p>${item.quota?.limitMs == null ? '配额：无限制' : `配额：${duration(item.quota.limitMs)}<br>剩余：${duration(item.quota.remainingMs)}<br>状态：${item.quota.exceeded ? '已超额' : '未超额'}`}</p></div><div class="notice warning"><span>统计只读取主账本区间并集；辅助媒体不进入此详情或配额。</span></div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
 
@@ -353,7 +353,43 @@
     }
     state.policy = AppRuntimePolicy.withTimeWindows(state.policy, next); renderSchedule();
   }
-  function openPair() { $('#pair-default-child').innerHTML = state.children.map((item, index) => `<option value="${index}"${item.id === state.childId ? ' selected' : ''}>${escape(item.name)}</option>`).join(''); $('#pair-result').hidden = true; $('#pair-dialog').showModal(); }
+  let pairingGeneration = 0;
+  function resetPairing() {
+    pairingGeneration++; clearInterval(state.timer);
+    $('#pair-result').hidden = true; $('#pair-code').textContent = '----';
+    $('#pair-copy-status').hidden = true;
+    $('#download-installer').hidden = true; $('#download-installer').removeAttribute('href');
+    $('#pair-install-hint').textContent = AppRuntimeDevices.installHint($('#pair-platform').value);
+    $('#pair-server-url').value = RUNTIME_API;
+  }
+  function openPair() { $('#pair-default-child').innerHTML = state.children.map((item, index) => `<option value="${index}"${item.id === state.childId ? ' selected' : ''}>${escape(item.name)}</option>`).join(''); resetPairing(); $('#pair-dialog').showModal(); }
+  async function createPairing() {
+    const platform = $('#pair-platform').value;
+    const displayName = AppRuntimeDevices.pairingName(platform);
+    const selected = childFromIndex($('#pair-default-child').value);
+    if (!selected) throw new Error('请先选择孩子');
+    resetPairing();
+    const generation = pairingGeneration;
+    $('#create-pairing').disabled = true;
+    try {
+      const result = mock ? { code: 'ABCD-EFGH-JKLM', expiresAtMs: Date.now() + 600000 }
+        : await runtime('/v2/module/pairing-codes', { method: 'POST', body: JSON.stringify({ defaultChildId: selected.id, displayName }) });
+      if (generation !== pairingGeneration || !$('#pair-dialog').open) return;
+      showCode('pair', result.code, result.expiresAtMs); $('#pair-result').hidden = false;
+      const releasePath = AppRuntimeDevices.releasePath(platform);
+      if (!mock && releasePath) {
+        try {
+          const release = await runtime(releasePath);
+          if (generation !== pairingGeneration || !$('#pair-dialog').open) return;
+          if (!/^\d+\.\d+\.\d+$/.test(release.version)) throw new Error('安装包版本无效');
+          $('#download-installer').href = `${RUNTIME_API}/v1/releases/windows/x64/${encodeURIComponent(release.version)}/installer`;
+          $('#download-installer').hidden = false;
+        } catch {
+          if (generation === pairingGeneration && $('#pair-dialog').open) $('#pair-install-hint').textContent += ' 安装包查询暂不可用；配对码仍有效，已安装的管理应用可以继续配对。';
+        }
+      }
+    } finally { $('#create-pairing').disabled = false; }
+  }
   function showCode(kind, code, expiresAtMs) { const prefix = kind === 'pair' ? 'pair' : 'uninstall'; $(`#${prefix}-code`).textContent = code; clearInterval(state.timer); const tick = () => { const seconds = Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 1000)); $(`#${prefix}-countdown`).textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} 后过期`; }; tick(); state.timer = setInterval(tick, 1000); }
   async function copyCode(kind) { const prefix = kind === 'pair' ? 'pair' : 'uninstall'; const status = $(`#${prefix}-copy-status`); try { await AppRuntimeClipboard.copyText($(`#${prefix}-code`).textContent); status.textContent = '已复制到剪贴板'; } catch (error) { status.textContent = error.message || '复制失败，请手动选择代码'; } status.hidden = false; }
   function renderLogMachineOptions() { const select = $('#log-machine-filter'); const selected = select.value; select.innerHTML = '<option value="">全部电脑</option>' + state.machines.filter((item) => item.status !== 'revoked').map((item) => `<option value="${escape(item.id)}">${escape(item.displayName || '电脑')}</option>`).join(''); select.value = selected; const policySelect = $('#logging-machine'); const policySelected = policySelect.value || state.machines.find((item) => item.platform === 'windows' && item.status !== 'revoked')?.id || ''; policySelect.innerHTML = '<option value="">选择 Windows 电脑</option>' + state.machines.filter((item) => item.platform === 'windows' && item.status !== 'revoked').map((item) => `<option value="${escape(item.id)}">${escape(item.displayName || 'Windows 电脑')}</option>`).join(''); policySelect.value = policySelected; }
@@ -422,7 +458,7 @@
     if (button.id === 'today') { state.offset = 0; if (!mock) await loadUsage(); renderUsage(); }
     if (button.id === 'save-quotas') await saveQuotas();
     if (button.id === 'add-machine') openPair();
-    if (button.id === 'create-pairing') { const selected = childFromIndex($('#pair-default-child').value); const result = mock ? { code: 'ABCD-EFGH-JKLM', expiresAtMs: Date.now() + 600000 } : await runtime('/v2/module/pairing-codes', { method: 'POST', body: JSON.stringify({ defaultChildId: selected.id, displayName: 'Windows 电脑' }) }); showCode('pair', result.code, result.expiresAtMs); $('#pair-result').hidden = false; if (!mock) { const release = await runtime('/v1/releases/windows/x64/latest'); $('#download-installer').href = `${RUNTIME_API}/v1/releases/windows/x64/${encodeURIComponent(release.version)}/installer`; } }
+    if (button.id === 'create-pairing') await createPairing();
     if (button.id === 'copy-code') await copyCode('pair'); if (button.id === 'copy-uninstall') await copyCode('uninstall');
     if (button.dataset.openMachine) openDrawer(button.dataset.openMachine);
     if (button.dataset.usageApp) openUsageDetail('app', button.dataset.usageApp);
@@ -447,6 +483,7 @@
     if (button.id === 'confirm-import') { const incoming = JSON.parse($('#import-diff').dataset.payload); const next = AppRuntimePolicy.normalize({ ...state.policy, classifications: $('#import-classifications').checked ? incoming.classifications : state.policy.classifications, quotas: $('#import-quotas').checked ? incoming.quotas : state.policy.quotas, timeWindows: $('#import-time-windows').checked ? incoming.timeWindows : state.policy.timeWindows }); await savePolicy(next); $('#import-diff').hidden = true; }
   } catch (error) { showError(error); } });
   document.addEventListener('change', async (event) => { const control = event.target; try {
+    if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
     if (['directory-scope','management-platform'].includes(control.id)) { renderAppDirectory(); return; }
     if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { state.childId = selected.id; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
     else if (control.id === 'machine-filter') { renderFilters(); if (!mock) await loadUsage(); renderUsage(); }
