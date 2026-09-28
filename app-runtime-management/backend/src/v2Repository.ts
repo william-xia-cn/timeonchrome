@@ -90,7 +90,7 @@ export async function enrollMachine(
     FROM runtime_machine_pairing_codes_v2
     WHERE code_hash=?1 AND consumed_at_ms IS NULL AND expires_at_ms>=?2
   `).bind(codeHash, nowMs).first<{ account_id: string; default_child_id: string; display_name: string | null }>();
-  if (!pending || input.platform !== 'windows') return null;
+  if (!pending || (input.platform !== 'windows' && input.platform !== 'macos')) return null;
   const machineId = `rt_machine_${crypto.randomUUID()}`;
   const machineToken = randomToken('rt_machine_token_', 32);
   const tokenHash = await sha256Hex(machineToken);

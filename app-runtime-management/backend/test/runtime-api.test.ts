@@ -370,7 +370,7 @@ describe('Runtime product API', () => {
     expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':`"policy-${enrolled.machineId}-${policy.version}"`}})).status).toBe(200);
   });
 
-  it('enrolls one machine and applies default and per-user policy without exposing SID', async () => {
+  it.each(['windows', 'macos'] as const)('enrolls %s machine and applies default and per-user policy without exposing SID', async (platform) => {
     const account = await accountToken();
     const pairingResponse = await call('/v2/module/pairing-codes', {
       method: 'POST', headers: bearer(account),
@@ -379,11 +379,18 @@ describe('Runtime product API', () => {
     expect(pairingResponse.status).toBe(201);
     const pairing = await pairingResponse.json<{ code: string }>();
     const enrolledResponse = await call('/v2/machines/enroll', {
-      method: 'POST', body: JSON.stringify({ code: pairing.code, platform: 'windows', displayName: 'Family PC' }),
+      method: 'POST', body: JSON.stringify({ code: pairing.code, platform, displayName: 'Family PC' }),
     });
     expect(enrolledResponse.status).toBe(201);
     const enrolled = await enrolledResponse.json<{ machineId: string; machineToken: string }>();
     const machineHeaders = bearer(enrolled.machineToken);
+    expect((await call('/v2/machines/enroll', { method: 'POST', body: JSON.stringify({ code: pairing.code, platform }) })).status).toBe(401);
+    expect((await call('/v2/machines/policy')).status).toBe(401);
+    expect((await call('/v2/machines/heartbeat', { method: 'POST', headers: machineHeaders,
+      body: JSON.stringify({ serviceVersion: 'fixture', osVersion: platform === 'macos' ? '15.7' : '11',
+        architecture: platform === 'macos' ? 'arm64' : 'x64', tamperCount: 0, policyState: 'pending' }) })).status).toBe(200);
+    expect(await env.RUNTIME_DB.prepare('SELECT platform, default_child_id FROM runtime_machines_v2 WHERE id=?')
+      .bind(enrolled.machineId).first()).toMatchObject({ platform, default_child_id: 'child-a' });
     const localUserId = `user_${'a'.repeat(32)}`;
     const emptyPolicy = await call('/v2/machines/policy', { headers: machineHeaders });
     expect((await emptyPolicy.clone().json<{ version: number; users: unknown[] }>())).toMatchObject({ version: 1, users: [] });
@@ -435,6 +442,24 @@ describe('Runtime product API', () => {
     const policy = await call('/v2/machines/policy', { headers: machineHeaders });
     expect(policy.headers.get('etag')).toContain('policy-');
     await expect(policy.json()).resolves.toMatchObject({ users: [{ localUserId, protected: false, childId: null }] });
+  });
+
+  it('rejects expired and unsupported machine enrollment without consuming valid codes', async () => {
+    const account = await accountToken();
+    const create = () => call('/v2/module/pairing-codes', { method: 'POST', headers: bearer(account),
+      body: JSON.stringify({ defaultChildId: 'child-a' }) });
+    const submit = (code: string, platform: string) => call('/v2/machines/enroll', { method: 'POST', body: JSON.stringify({ code, platform }) });
+    expect((await call('/v2/module/pairing-codes', { method: 'POST', headers: bearer(account),
+      body: JSON.stringify({ defaultChildId: 'foreign-child' }) })).status).toBe(404);
+    const first = await (await create()).json<{code: string}>();
+    expect((await submit(first.code, 'linux')).status).toBe(400);
+    expect((await submit(first.code, 'macos')).status).toBe(201);
+    const expired = await (await create()).json<{code: string}>();
+    await env.RUNTIME_DB.prepare('UPDATE runtime_machine_pairing_codes_v2 SET expires_at_ms=1 WHERE consumed_at_ms IS NULL').run();
+    const rejected = await submit(expired.code, 'macos');
+    expect(rejected.status).toBe(401);
+    expect(await rejected.json()).toMatchObject({error: {code: 'ENROLLMENT_INVALID'}});
+    expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_machines_v2').first()).toEqual({count: 1});
   });
 
   it('attributes v2 segments from assignment history and keeps upload idempotent', async () => {
