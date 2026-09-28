@@ -74,7 +74,7 @@ export interface CompositeAttributionSnapshot {
 }
 
 /** SQL compare-and-set fence. The JSON is built by the server, never from a request body. */
-export function compositeSnapshotGuard(parameter: string, allHeads = false): string {
+export function compositeSnapshotGuard(parameter: string, allHeads = false, requireCollectionEnabled = true): string {
   if (!/^\?[1-9][0-9]*$/.test(parameter)) throw new Error('INVALID_SNAPSHOT_BIND');
   const scope = `c.profile_id=json_extract(v.value,'$.profileId')
     AND c.device_id=json_extract(v.value,'$.deviceId') AND c.date=json_extract(v.value,'$.date')
@@ -95,7 +95,7 @@ export function compositeSnapshotGuard(parameter: string, allHeads = false): str
         JOIN profiles p ON p.id=h.profile_id WHERE h.profile_id=json_extract(v.value,'$.profileId')
         AND h.device_id=json_extract(v.value,'$.deviceId') AND h.date=json_extract(v.value,'$.date')
         AND h.manifest_id=json_extract(v.value,'$.manifestId') AND d.status='bound'
-        AND CASE WHEN json_valid(p.config) THEN json_type(p.config,'$.compositeReviewConfig.enabled')='true' ELSE 0 END)
+        ${requireCollectionEnabled ? "AND CASE WHEN json_valid(p.config) THEN json_type(p.config,'$.compositeReviewConfig.enabled')='true' ELSE 0 END" : ''})
       OR (SELECT COUNT(*) FROM usage_segment_corrections_v1 c WHERE ${scope})<>json_array_length(v.value,'$.corrections')
       OR EXISTS (SELECT 1 FROM usage_segment_corrections_v1 c WHERE ${scope}
         AND NOT EXISTS (SELECT 1 FROM json_each(v.value,'$.corrections') j WHERE ${match}

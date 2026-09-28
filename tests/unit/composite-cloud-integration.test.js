@@ -106,6 +106,27 @@ function interceptWrite(db,pattern,before) {
     const list=await router.handle(request(listRoute),env);
     assert.equal(list.status,200);
     assert.equal((await list.json()).usage[0].weekSeconds,1800);
+    const enabledConfig='{"compositeReviewConfig":{"enabled":true}}';
+    const disabledConfig='{"compositeReviewConfig":{"enabled":false}}';
+    for (const config of ['{}',disabledConfig]) {
+      await db.prepare('UPDATE profiles SET config=?').bind(config).run();
+      const disabledList=await router.handle(request(listRoute),env);
+      assert.equal(disabledList.status,200);
+      const disabledData=await disabledList.json();
+      assert.equal(disabledData.enabled,false);
+      assert.equal(disabledData.usage[0].weekSeconds,1800);
+      assert.equal((await router.handle(request('/device/composite-reviews/v1','POST','device',body),env)).status,403);
+      assert.equal((await router.handle(request(listRoute.replace('/p/','/foreign/')),env)).status,404);
+      assert.equal(JSON.stringify((await db.prepare('SELECT * FROM usage_segments_v1').all()).results),before);
+    }
+    manifestRead=async id=>{await db.prepare('UPDATE profiles SET config=?').bind(enabledConfig).run();return manifests[id];};
+    assert.equal((await router.handle(request(listRoute),env)).status,503); // Config changed during read.
+    await db.prepare('UPDATE profiles SET config=?').bind(disabledConfig).run();
+    manifestRead=async id=>{await db.prepare("UPDATE device_account_heads_v2 SET manifest_id='changed'").run();return manifests[id];};
+    assert.equal((await router.handle(request(listRoute),env)).status,503);
+    await db.prepare("UPDATE device_account_heads_v2 SET manifest_id='m'").run();
+    manifestRead=async id=>manifests[id];
+    await db.prepare('UPDATE profiles SET config=?').bind(enabledConfig).run();
     const validManifest=manifests.m;
     let reads=0;
     manifestRead=async id=>++reads===1?manifests[id]:null;
