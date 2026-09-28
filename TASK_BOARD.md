@@ -12,6 +12,12 @@
 
 ## 两仓清理执行（2026-09-29，PO批准）
 
+第三轮完成：9个残留目录全部同盘移入本地恢复区residual-worktrees，原9路径均已不存在；9,501份文件共377,621,077字节逐文件SHA-256一致，junction不遍历目标、不强删。该操作不释放磁盘，保留至至少2026-10-29。清单为round3-residual-results.json及residual-*-hashes.json。对应8条本地、8条远端已合并且无PR/工作树占用的功能分支已删除，先核对bundle、实时SHA及主线祖先，远端使用expected-SHA lease。TimeOnChrome当前18个登记工作树、本地22分支、远端31分支；Native维持2/2/2。本轮残留目录目标已处理；其他活跃/脏树/独有提交/隔离Profile/运行依赖仍保留，不代表全仓工作完成。
+
+本轮审计：Matched＝9目录可恢复整理、哈希核对、8对分支安全清理、保护路径仍在；未运行产品测试、未改业务或运行配置、未部署。清理方式为后续PO“继续处理”下的保留归档，而非重试强制删除。主目录其他会话改动不纳入本轮提交；只提交当前证据树TASK_BOARD，git diff --check通过。
+
+第三轮续处理：9个已取消Git登记的残留目录共同包含指向自身已移除contracts路径的npm workspace junction。只做可恢复整理：复核无进程引用、无未跟踪敏感数据后，同盘移动到既有恢复区residual-worktrees，保留junction本身且不遍历其目标，逐文件SHA-256核对；不是强删或释放磁盘。之后才清理匹配清单且主线已包含的对应闲置分支。仍只运行Git/哈希/diff，不运行产品测试或发布。
+
 第二轮结果：TimeOnChrome登记工作树31→18，但其中9项Git非强制remove报告目录非空、登记已移除而磁盘残留，**不能算目录完整清理**。真正完整移除4树：app-runtime-2.3.0-release、app-runtime-2.3.1-release、app-runtime-ci-throttle-v1、app-runtime-release-2.2.2。对应原目录逻辑文件5,083,482,672字节（约4.73GiB，非净磁盘释放）；108份截图/安装包/manifest等证据已备份且SHA-256复验通过。另删除2条已合并本地及2条远端分支，本地32→30、远端41→39；Native未变。累计完整移除13树、本地分支79条、远端93条。
 
 更正前轮保留理由：多个旧树的workers/.wrangler SQLite属于早期Git已跟踪且未修改的文件，历史/bundle已有副本，不是独有运行数据库；未跟踪的Runtime数据库与浏览器Profile仍原地保护。实际残留9目录及HEAD/恢复办法见本地round2-residual-directories.json，按原计划拒绝后停止单项，未强删、未递归清空。后续如需恢复完整源码，在新目录按所记HEAD重建，不覆盖残留目录。产品目录v2、Rest/复合隔离Profile、脏树、未合并树、共享依赖及固定保护树仍保留。
