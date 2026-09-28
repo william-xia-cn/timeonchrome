@@ -43,8 +43,16 @@ function load(file){
       db.prepare('INSERT INTO device_account_heads_v2 VALUES (?,?,?,?)').bind('p','d',date,'m'),
     ]);
     const snapshot={profileId:'p',deviceId:'d',date,cutoff:end,manifestId:'m',corrections:corrected.items};
-    const guard=async(items=[snapshot],allHeads=false)=>(await db.prepare('SELECT '+compositeSnapshotGuard('?1',allHeads)+' AS valid').bind(JSON.stringify(items)).first()).valid;
+    const guard=async(items=[snapshot],allHeads=false,requireEnabled=true)=>(await db.prepare('SELECT '+compositeSnapshotGuard('?1',allHeads,requireEnabled)+' AS valid').bind(JSON.stringify(items)).first()).valid;
     assert.equal(await guard(),1);
+    for (const config of ['{}','{"compositeReviewConfig":{"enabled":false}}']) {
+      await db.prepare('UPDATE profiles SET config=?').bind(config).run();
+      assert.equal(await guard(),0); // Collection/write callers remain fail-closed.
+      assert.equal(await guard([snapshot],false,false),1);
+      assert.equal(await guard([{...snapshot,manifestId:'stale'}],false,false),0);
+      assert.equal(await guard([{...snapshot,corrections:[]}],false,false),0);
+    }
+    await db.prepare('UPDATE profiles SET config=?').bind('{"compositeReviewConfig":{"enabled":true}}').run();
     assert.equal(await guard([]),0);
     assert.throws(()=>compositeSnapshotGuard('?1 OR 1=1'),/INVALID_SNAPSHOT_BIND/);
     assert.equal(await guard([{...snapshot,corrections:[]}]),0);
@@ -63,6 +71,7 @@ function load(file){
     await db.prepare('UPDATE profiles SET config=?').bind('{"compositeReviewConfig":{"enabled":true}}').run();
     await db.prepare("UPDATE devices SET status='unbound'").run();
     assert.equal(await guard(),0);
+    assert.equal(await guard([snapshot],false,false),0);
     await db.prepare("UPDATE devices SET status='bound'").run();
     assert.equal(corrected.items.length,1);assert.notEqual(corrected.revision,baseline.revision);
     assert.equal((await readCompositeCorrections(db,'foreign','d',date,end)).items.length,0);

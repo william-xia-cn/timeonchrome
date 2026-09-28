@@ -1,5 +1,23 @@
 # TASK_BOARD
 
+## 执行：关闭复合采集时家长列表可读（PO逐项批准，2026-09-28）
+
+提交前结果：corrections和cloud-integration两组真实本地D1聚焦测试通过（鉴权/provider为受控夹具），根typecheck、Wrangler4.127.1 dry-run、6文件职责检查及diff检查通过。回归证明关闭列表可读、设备上传仍403、外部归属404、配置/账头变化503、默认写入guard仍要求enabled、原账不变。Matched＝上述批准清单；Deviated/Extra＝无，本地修复Missing＝无；生产发布和真实页面复验仍待执行。依赖使用既有目录junction，未重新安装，不影响受保护工作树。
+
+职责runtime-cloud-contract；允许compositePageCorrections.ts、compositePageReviews路由及两份对应聚焦测试、项目状态文档。实施顺序：保留默认严格写入guard，仅家长列表显式选择只读一致性校验；读取末尾核对档案配置未变化；回归关闭/开启、归属、账头/更正/配置并发变化及原账不变。只运行corrections/cloud-integration聚焦测试、Worker typecheck/dry-run、diff和职责检查及相关CI，不跑Agent/WiX/全平台/扩展E2E。合并后仅Guardian Worker发布，真实页面只读复验；不改采集、上传、通知门禁，不修改统计算法/原账，不启用家庭开关。上一节只读排查的未修复状态由后续证据更新。
+
+## 当前收口：Mac 延后，真实登录读取未通过（2026-09-28）
+
+职责 runtime-cloud-contract；本批只读浏览器、Git、版本和生产schema核验及文档。不改业务代码、家庭开关或原账，不部署、不清理；仅diff检查，不跑产品测试。
+
+- 已登录主控制台统计正常，但复合内容复核在关闭状态刷新后仍显示“复核数据暂不可用”。发现列表GET复用compositeSnapshotGuard，其中要求enabled=true；关闭功能但存在本周账头时必然失败。生产依赖表已齐全，关闭档案本周账头计数2，rows_written=0。尚未取得浏览器具体错误响应，不排除并存原因，不通过开启采集绕过错误。需另行分离只读一致性与采集/写入启用门禁；本批未修复。
+- 远端主线核实：TimeOnChrome34254275e8c12e0939d334df0202ae0856f1d1f0；Nativec770bb85f39c6173b314a476b794d0ecd7eace29。前者无打开PR，后者#11 draft保留。Mac编译/实机/配对恢复延后。首次fetch因D盘无空间失败，空间恢复约906MiB后成功，未删除文件。
+- 安装的11个Native组件均2.6.8.0，Service Running/Automatic；原目录候选manifest1.7.39未改变。部署源仍81949cc，文档SHA不等于部署SHA。Runtime0011/接收端仍未部署。
+
+清理仅建议：D:/Codex/TimeOnchrome-worktrees/main-console-release-gate-dispatch 的25bc591已合入主线、tracked/untracked/ignored为空，未见对应可执行进程，可列待批准候选；仍需排除其他会话/打开文件依赖，可从保留提交恢复。runtime-session-boundaries有未跟踪.wrangler，暂保留。guardian-release-81949cc有.wrangler及.tmp生产manifest必须保留。两仓主目录、原扩展候选、当前树未跟踪agents和Native跨平台修改均保留。其余旧树尚未完成逐项依赖审计，不批量推荐删除。
+
+审计：Matched＝只读验收、版本核实、保护脏树、未清理、Mac延后；Deviated/Extra＝无；Missing＝复合列表读取通过、开启后证据/通知闭环及剩余旧树依赖审计。未新增生产写入，不宣称全部完成。
+
 ## 当前发布结果（2026-09-28，覆盖下方未部署状态）
 
 登记收口（2026-09-28 07:09:13 UTC）：PO 随后明确批准仅向 d1_migrations 登记已执行032。先只读确认目标五表齐全、登记为空，再条件插入032_composite_page_reviews.sql，changes=1；回读迁移登记仅此一条。本项 Missing 已消除，下方安全审核拒绝记录保留为历史；不再等待登记批准。未重跑建表、未补录其他迁移、未重新部署。真实已认证业务联调仍未完成，不以登记成功冒充端到端通过。

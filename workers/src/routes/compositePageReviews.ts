@@ -90,9 +90,12 @@ export const compositePageReviewsRouter = {
         const currentHeads=await env.DB.prepare(headSql).bind(profile.id,weekStart,today).all();
         if(JSON.stringify(currentHeads.results)!==JSON.stringify(heads.results)) throw new Error('COMPOSITE_REVIEW_CHANGED');
         if(snapshots.length) {
-          const stable=await env.DB.prepare(`SELECT ${compositeSnapshotGuard('?1')} AS valid`).bind(JSON.stringify(snapshots)).first<{valid:number}>();
+          // Reading confirmed usage does not require enabling collection. Writes retain the default strict guard.
+          const stable=await env.DB.prepare(`SELECT ${compositeSnapshotGuard('?1', false, false)} AS valid`).bind(JSON.stringify(snapshots)).first<{valid:number}>();
           if(stable?.valid!==1) throw new Error('COMPOSITE_REVIEW_CHANGED');
         }
+        const currentProfile = await env.DB.prepare('SELECT config FROM profiles WHERE id = ? AND account_id = ?').bind(profile.id, accountId).first<{config:string}>();
+        if (!currentProfile || currentProfile.config !== profile.config) throw new Error('COMPOSITE_REVIEW_CHANGED');
         return json({ reviews: rows.results || [], usage: [...usage.values()], asOf: now, enabled: reviewEnabled(JSON.parse(profile.config)) });
       }
       const review = await env.DB.prepare('SELECT * FROM composite_page_reviews_v1 WHERE id = ? AND profile_id = ?').bind(match[2] || '', profile.id).first<any>();
