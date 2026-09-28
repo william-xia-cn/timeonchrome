@@ -26,7 +26,7 @@
         if (mayRetryNetwork && !networkRetried && friendlyError(error).message === NETWORK_MESSAGE) {
           networkRetried = true;
           try {
-            token = await getToken(true);
+            token = await getToken(false);
           } catch (retryError) {
             throw friendlyError(retryError);
           }
@@ -48,7 +48,6 @@
       } catch (error) {
         if (mayRetryNetwork && !networkRetried) {
           networkRetried = true;
-          await getToken(true).catch((retryError) => { throw friendlyError(retryError); });
           continue;
         }
         throw friendlyError(error);
