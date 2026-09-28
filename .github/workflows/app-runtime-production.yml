@@ -28,6 +28,10 @@ on:
         type: string
         required: false
         default: ''
+      defer_0011_macos_enrollment_hotfix:
+        description: Approved Mac enrollment hotfix only; retain 0011 unapplied
+        type: boolean
+        default: false
 
 concurrency:
   group: app-runtime-production
@@ -89,6 +93,8 @@ jobs:
         env:
           EXPECTED_RUNTIME_MIGRATIONS: ${{ inputs.expected_runtime_migrations }}
           APPLY_RUNTIME_MIGRATIONS: ${{ inputs.apply_runtime_migrations }}
+          DEFER_MACOS_HOTFIX: ${{ inputs.defer_0011_macos_enrollment_hotfix }}
+          HOTFIX_WORKER_ONLY: ${{ inputs.deploy_runtime_worker && !inputs.deploy_runtime_pages && !inputs.deploy_guardian_worker && !inputs.deploy_main_pages }}
         run: |
           npx wrangler d1 migrations list timeonchrome-app-runtime --remote | tee pending-migrations.txt
           actual="$( { grep -oE '[0-9]{4}_[A-Za-z0-9_-]+\.sql' pending-migrations.txt || true; } | awk '!seen[$0]++' | paste -sd, -)"
@@ -97,10 +103,19 @@ jobs:
             exit 1
           fi
           if [ -n "$actual" ] && [ "$APPLY_RUNTIME_MIGRATIONS" != true ]; then
-            echo 'Pending Runtime migrations require explicit apply authorization' >&2
-            exit 1
+            export ACTUAL_PENDING="$actual"
+            export HOTFIX_BACKEND_TREE="$(git rev-parse HEAD:app-runtime-management/backend)"
+            node -e '
+              const e = process.env;
+              const allowed = e.DEFER_MACOS_HOTFIX === "true" && e.HOTFIX_WORKER_ONLY === "true"
+                && e.APPLY_RUNTIME_MIGRATIONS === "false"
+                && e.ACTUAL_PENDING === "0011_runtime_uninstall_operations.sql"
+                && e.HOTFIX_BACKEND_TREE === "20f790cb73feeef9d20852ff46edc0a6fec34b8f";
+              if (!allowed) { console.error("Pending Runtime migrations require explicit apply authorization or exact approved hotfix"); process.exit(1); }
+            '
+            echo 'Approved Mac enrollment hotfix: 0011 remains unapplied' >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ -n "$actual" ]; then
+          if [ -n "$actual" ] && [ "$APPLY_RUNTIME_MIGRATIONS" = true ]; then
             npx wrangler d1 migrations apply timeonchrome-app-runtime --remote
             echo "applied=$actual" >> "$GITHUB_OUTPUT"
           fi
