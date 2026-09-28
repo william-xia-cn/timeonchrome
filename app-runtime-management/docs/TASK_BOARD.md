@@ -1,5 +1,11 @@
 # App Runtime 任务板
 
+## NOW：Mac云端接入（2026-09-29）
+
+本地实现已完成：Mac/Windows 平台选择、共用根地址、平台配对名称、下载失败隔离、切换后废弃迟到结果、OS/同步旧字段兼容和账户 sessionActive 展示。Native 所属任务只读确认：Apple Silicon/macOS 13+，尚无已验收签名安装包或稳定 HTTPS 下载地址；页面给出已安装配对步骤和候选获取边界，不提供 Windows 包替代。`node app-runtime-management/console/app-runtime-devices.test.js`、两个改动 JS 的 `node --check`、`git diff --check` 通过。独立浏览器 mock 桌面/390px 移动配对和设备抽屉目视通过，移动底部复制按钮可滚动到达；截图仅本地 `.wrangler/mac-{pair,device}-*.png`。范围审计：Matched=上述本地 Console 功能；Deviated/Extra=无；Missing=正式 Mac 下载产物与真实 Mac 配对闭环，未声明上线完成。未部署、未改 Native/扩展/API/账本，未运行无关平台测试。
+
+PO确认Mac本机开发完成、等待配对测试。本轮runtime-cloud-contract仅补Console添加入口/安装指引/状态：index.html增加平台选择与共同HTTPS根地址，app-runtime.js沿用通用pairing-codes接口，按平台命名；下载查询失败不吞配对结果，不给Mac返回Windows包。Mac包正式下载地址未经确认时仅给已安装TimeWhere的配对步骤与候选包获取提示。设备/账户按已上报OS、架构、sessionActive及同步字段展示，不从在线状态猜测Agent运行。保持旧API别名兼容、不新增契约或migration、不改Native/扩展。最小验证为Console设备单测、node语法、桌面/移动mock截图及diff；不跑产品全量或平台构建，不部署。真实Mac配对另记验收，不能用mock代替。
+
 ## NOW：ARM-D-035/036 固定契约与接收端（2026-09-28）
 
 最新交接核对：Native PR11已消费1.16.1，所属任务报告机器控制/卸载/同步69项、上一版账本5项及WindowsRuntime20项通过，Daemon/Control编译通过；真实Mac、完整本机移除仍未完成。契约包本地重新计算SHA仍为cdf0aaca41764cb776743944b601d5d1503ca92f85aa98c1f60d57e9840ef629。PR98同步最新master bc78aba无冲突，backend/contracts相对2dc7076逐文件diff为空，复用既有产品测试，不把同步主线视为新平台验证。保持草稿与源码交接状态，不部署0011/Worker，不升级终端或R2。

@@ -1,5 +1,7 @@
 # App Runtime 应用管理 UI 约定
 
+设备接入：添加电脑弹窗选择Windows/macOS、默认孩子，显示共同Runtime HTTPS根地址。Mac在TimeWhere输入服务根地址与一次性配对码；无已确认正式下载入口时明确提示使用已交付匹配架构候选，不展示Windows下载链接。机器卡片/抽屉优先使用osVersion并兼容windowsVersion，最近同步兼容lastSyncAtMs，账户单列sessionActive；机器在线不等同Agent运行。Mac配对测试待真实验收。
+
 ARM-D-025：confirmed 游戏、游戏平台和游戏工具的默认管理归类显示为“受限娱乐”，系统应用的默认管理归类显示为“复合”；归类理由显示“系统默认分类”。家长仍可使用既有分类操作覆盖默认。疑似游戏继续显示未归类/建议，不得伪装为已生效分类。
 
 ARM-D-018/ARM-D-020/ARM-D-022/ARM-D-024：应用管理五分类目录不新增左侧“游戏”分类。每个目录右侧依次显示“普通应用”“游戏”“系统应用”；三个组都支持展开／折叠并分别显示数量，“已处理历史”也按同样方式惰性展开。普通应用默认展开，游戏和系统应用的状态由用户控制；搜索命中时自动展开对应组，清除搜索后恢复用户选择。折叠组不创建产品行和分类按钮 DOM，避免长清单仍在后台完整渲染。confirmed `game/gameLauncher/gameUtility` 才进入游戏组，疑似游戏仍在普通应用；系统应用必须读取 Worker 返回的兼容 `catalogGroup=systemTool`，页面不得按名称、发布者或 `applicationOrigin` 猜测。技术记录继续只在系统管理中显示。
