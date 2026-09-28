@@ -1,5 +1,31 @@
 # TASK_BOARD
 
+## 最新结果：关闭复核读取已修复并验收；Mac延后（2026-09-28）
+
+PR107功能提交72c6f0f，相关CI36392160648/36392160674通过，merge e288da2411fdb5cccc5899363bc5d7251b7c69d0；精确SHA Guardian门禁36392295656通过。PO明确授权的production运行36392392513成功，仅部署Guardian Worker 801665c0-1e3f-4389-886d-11f59cf82d41。不可变manifest artifact app-runtime-production-manifest-e288da2411fdb5cccc5899363bc5d7251b7c69d0记录contract1.16.1、deployedResources=[guardianWorker]、runtimeMigrations=[]。
+
+真实Chrome既有登录只读验收通过：复核区显示“已关闭 · 云端已确认账”，空列表显示“暂无达到复核线的复合网站”，保存控件恢复可用但未点击；开关仍false。此前“复核数据暂不可用”不再出现。没有读取凭据、开启采集、发送通知或修改家庭配置。开启后证据/通知闭环不在此次只读验收范围，不能冒称通过。写入、上传、通知默认严格guard不变，原账及统计算法不变。
+
+资源核对：主Pages仍1ecd6133-4697-44cf-be18-1ddf2e304fbb/source81949cc；Runtime Worker仍b00deec4-b3ca-40f7-8b10-6536af07f10b；Runtime Pages仍f2a6ca68-8e6f-42f7-b82e-9bf42b06e6ad/sourceaa5382e；R2 latest仍2.3.1/118739813 bytes/SHA256 3109d6bbd147f5bfba88549a240dae42e84e724aa86bd1baef724d2df7b17563。无需重装或重载扩展。Guardian032登记已完成，不执行全部pending。
+
+版本分层：TimeOnChrome代码基线e288da2；Native main c770bb8；已安装11组件2.6.8.0且Service Running/Automatic；原目录扩展候选1.7.39。云端contracts源码1.16.1不代表Native主线已消费：Native主线锁1.15.0（SHA256 5a3f3762fee88e3cf1bd8140ac2716407a40566d2248de6c497cc7fb36c07073）/上一版1.14.0（05fdff9a4480f0dd32736ecdc4aee0113b5a6189427082351ea54dfab71d0518），本机包字节均已校验；Native draft跨平台工作线锁1.16.1/上一版1.15.0。不为统一版本号升级或部署。
+
+全部已登记worktree已执行status、ignored目录清单及祖先检查，处置如下（不执行删除）：
+
+| 工作线组 | 核实结果/建议处置 |
+|---|---|
+| main-console-release-gate-dispatch、app-runtime-release-default-classification、composite-title-privacy-merge、inventory-disposition-closeout、runtime-historical-evidence-recovery、task-domain-integration、timewhere-split-final-20260927、two-repo-inventory | 已合入且tracked/untracked/ignored为空；可列单独批准的清理候选，批准前再确认没有会话/打开文件依赖。恢复分别依靠25bc591、aa5382e、9cc07a3、3fd5390、711a5da、4a94ee6、b9819b1、75ee2c9。 |
+| 其余旧Runtime构建/发布/规则工作树 | 已有提交祖先或旧文档恢复映射，但存在node_modules、输出、安装产物、测试或发布证据；保留，不能因已合并直接删除。rest-weekly-cloud-validation还为当前测试提供依赖junction。 |
+| app-runtime-attribution-release-20260927 | 主提交已合；仍有模块TASK_BOARD修改及未跟踪artifacts，保留未决证据。 |
+| composite-terminal-integration | 已合提交19eecdc之外仍有11项本地修改/未跟踪观察器与测试，由控件任务确认；不复制或覆盖主线。 |
+| 原主目录/原扩展加载树/Task混合树 | 有未提交内容、运行依赖或未采用的旧语义，继续保留。7aa6b1b虽非祖先，但严格acceptedIds处理已在主线且PR76等已完成后续原子ACK整合；不得整条重放旧15提交。Task保持默认关闭，不发布入口。 |
+| runtime-session-boundaries、timewhere-native-split | 分别有未跟踪.wrangler、backend/NUL，未审查清理，保留。 |
+| guardian-release-81949cc | 当前修复/证据工作树；.tmp含两次生产manifest，.wrangler及依赖junction仍有用途，保留。 |
+| Native主目录及跨平台/临时2.6.9构建树 | 主目录32项未决文件；draft PR11与d1b08d6候选未合main，Mac延后；保留全部，不用安装2.6.8冒充2.6.9验收。 |
+| Native usage-statistics-integration | 986d1ec已合，但有.contracts、构建/安装产物，保留证据；主目录c5c9b85/6c51a0d的统计已patch等价整合，不重复合并。 |
+
+当前审计：本次批准的修复/合并/Guardian发布/真实关闭状态读取为Matched，Deviated/Extra无；Mac为PO明确DEFERRED，Task启用和线上采集通知闭环未执行。两仓脏树归属清单与非删除清理建议已产出，但脏草稿逐项所有者裁决不冒称完成。纯文档收口只diff与轻量CI，不重复产品测试或生产发布。
+
 ## 执行：关闭复合采集时家长列表可读（PO逐项批准，2026-09-28）
 
 提交前结果：corrections和cloud-integration两组真实本地D1聚焦测试通过（鉴权/provider为受控夹具），根typecheck、Wrangler4.127.1 dry-run、6文件职责检查及diff检查通过。回归证明关闭列表可读、设备上传仍403、外部归属404、配置/账头变化503、默认写入guard仍要求enabled、原账不变。Matched＝上述批准清单；Deviated/Extra＝无，本地修复Missing＝无；生产发布和真实页面复验仍待执行。依赖使用既有目录junction，未重新安装，不影响受保护工作树。
