@@ -1,6 +1,24 @@
 # TASK_BOARD
 
+## 托管扩展发布前阻塞：Native Host 注册身份与兼容入口收口（2026-09-29，PO确认）
+
+状态：**OPEN / BLOCKS_NEXT_MANAGED_EXTENSION_RELEASE**。必须在下一次正式托管扩展打包发布前处理完成并验收；不是已完成项，不影响当前本地候选继续使用。本次仅登记，不改协议、代码、候选目录、注册表或安装包。
+
+- 已核对现状：Native协议实现定义正式Host `com.timeonchrome.nativehost` 与旧别名 `com.timeonchrome.guardian`；NativeMessagingManifestWriter生成两个JSON并指向同一可执行文件，MSI同时注册两者；允许连接的扩展ID当前写在Native协议实现中。旧JSON不代表第二个Guardian服务。
+- 当前架构/契约任务负责明确正式Host名称、兼容别名退出条件、连接身份配置归属及版本兼容；TimeOnChrome发布配置持有正式/开发扩展身份，双方审核；Native消费确定版本的配置，负责manifest生成、本机路径、注册、升级清理与卸载；扩展所属任务负责调用适配。Native Host继续只framing/转发，不迁入Guardian业务。
+- 处理前核对现用正式托管扩展、开发候选与受支持旧版本是否仍调用旧Host。不得只删文件而切断旧客户端；若仍有消费者，先完成迁移并明确兼容截止，不允许无期限保留且不登记。满足退出条件后，安装器须在升级时清除旧注册项和旧JSON，而非仅停止生成。
+- 完成证据：共享契约/发布配置单一来源明确；正式包使用正确Host和精确allowed_origins，不夹带native-host-development配置；安装/升级/修复/卸载路径与旧版兼容验证；真实扩展→Host→Service健康及现有统计读取通过。Native与扩展各由所属任务实施，本会话核对一致性，releaseMg检查阻塞项关闭后才可放行正式托管发布。
+- 最小验证：登记阶段仅文档diff检查，不运行产品测试/CI；实施时按实际差异执行契约兼容、扩展Host选择、Native manifest/安装器聚焦测试及必要实机通信验收，不默认全平台回归。无本轮发布smoke，因为不发布。
+
 ## 两仓清理执行（2026-09-29，PO批准）
+
+第二轮结果：TimeOnChrome登记工作树31→18，但其中9项Git非强制remove报告目录非空、登记已移除而磁盘残留，**不能算目录完整清理**。真正完整移除4树：app-runtime-2.3.0-release、app-runtime-2.3.1-release、app-runtime-ci-throttle-v1、app-runtime-release-2.2.2。对应原目录逻辑文件5,083,482,672字节（约4.73GiB，非净磁盘释放）；108份截图/安装包/manifest等证据已备份且SHA-256复验通过。另删除2条已合并本地及2条远端分支，本地32→30、远端41→39；Native未变。累计完整移除13树、本地分支79条、远端93条。
+
+更正前轮保留理由：多个旧树的workers/.wrangler SQLite属于早期Git已跟踪且未修改的文件，历史/bundle已有副本，不是独有运行数据库；未跟踪的Runtime数据库与浏览器Profile仍原地保护。实际残留9目录及HEAD/恢复办法见本地round2-residual-directories.json，按原计划拒绝后停止单项，未强删、未递归清空。后续如需恢复完整源码，在新目录按所记HEAD重建，不覆盖残留目录。产品目录v2、Rest/复合隔离Profile、脏树、未合并树、共享依赖及固定保护树仍保留。
+
+第二轮验证：round2-evidence-hashes.json与round2-summary.json保存证据；主目录TASK_BOARD.md与docs/UI_STYLE_MAP.md相对上轮快照已有变化，本任务未写这些文件，不声称全仓哈希不变；其余被比对的保留修改文件未变化。Matched＝已确认目录、证据备份、分支SHA保护与最小检查；Missing/待处理＝9个非强制移除失败的残留目录及保留项，不能宣称整理全部完成；无强制清理、产品改动、安装或发布。
+
+续清理：逐项审查第二批ignored实际文件（不仅依赖git忽略列表），已合并/无依赖目录中的可重建缓存允许随非强制worktree remove移除；截图、安装包、manifest先本地备份并验哈希。发现数据库、Profile、凭据或未知文件立即保留该树，不为减少数量绕过保护。仅Git/文件/哈希/diff验证，无产品测试或发布。
 
 执行结果：清理9个普通Git工作树、77条本地功能分支、91条GitHub功能分支。TimeOnChrome工作树40→31、本地分支108→32、实时远端分支122→41；TimeWhereNative工作树2→2、本地分支3→2、实时远端分支12→2。未删除tag或长期用途分支，没有部署、安装、账本或R2操作。
 
