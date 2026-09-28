@@ -1,5 +1,11 @@
 # TASK_BOARD
 
+## NOW：已批准 Guardian 032 与隔离 Task 主 Pages 发布（2026-09-28）
+
+PO 已明确批准仅执行 Guardian 032 additive migration，再部署 Guardian/主 Pages；不部署 Runtime，不修改 R2、家庭开关、终端或原账。Mac 编译/实机/云端闭环按 PO 决定延后，不伪称通过。
+
+发布前发现 master 63e4f97 的 Guardian CI 已成功，但 Main Console CI 缺少同 SHA 运行且没有 workflow_dispatch。实施 checklist：仅为现有轻量 Main Console 检查增加手动入口；不删减生产精确 SHA 闸门。职责 runtime-cloud-contract，精确公共文件例外为 .github/workflows/app-runtime-main-console.yml；本地仅校验 YAML 及触发器/步骤保持、git diff --check，CI 仅既有轻量相关门禁，不跑 Agent/WiX/账本/E2E。迁移文件 Git blob SHA256=7c05bdae2dc20386cc3e447f2d486e455fee453a6e6e26d91309953680b0e4a3，checkout 差异仅 CRLF。所有发布前提就绪前不写生产 D1。
+
 ## 当前整合快照（2026-09-28，覆盖下方历史状态）
 
 职责 runtime-cloud-contract；本次仅只读两仓fetch、祖先/patch状态和生产schema检查及本文档，不运行产品测试、不清理、不部署。TimeOnChrome origin/master=bc78aba，Native origin/main=c770bb8；本地主目录/脏工作树未切换、覆盖或stash。
