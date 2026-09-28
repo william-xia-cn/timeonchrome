@@ -2,6 +2,8 @@
 
 ## NOW：Mac 注册拒绝热修（2026-09-29）
 
+PO已批准精确发布例外：仅本次已验证 backend tree `20f790cb73feeef9d20852ff46edc0a6fec34b8f` 可在保留0011未执行的情况下发布 Runtime Worker。默认关闭、显式输入、精确待执行清单匹配、禁止同时执行migration或其他资源部署；未知待执行项和后续不同代码树均拒绝。补运行发布配置聚焦测试；production保护及精确master CI仍有效，不启用或验收卸载回执功能。
+
 实现验证：仅扩展 enrollMachine 已有平台检查为 windows/macos；本地隔离 D1 HTTP 回归 5/5（另59项跳过）、typecheck、Wrangler dry-run 通过。覆盖两平台真实注册、单次码重放、过期、未知平台不消费有效码、跨 Child 拒绝、账户上报/策略/heartbeat。Matched=修复及上述测试；Deviated/Extra=无；Missing=生产发布/真实Mac重试。只读发现生产待执行0011_runtime_uninstall_operations.sql，本次不需要该表，但既有发布门禁阻断；不擅自应用，精确保留待执行项的发布例外另请PO裁决。
 
 已确认错误：v2Repository.enrollMachine 在有效配对码后仍要求 platform=windows，导致 Mac 返回误导性 ENROLLMENT_INVALID；前轮页面接入遗漏此分支。PO 批准立即修复并发布。仅放行已有契约的 windows/macos，不改变配对码有效期、单次消费事务、家庭/孩子归属或鉴权。数据库已有 macos CHECK 支持，无需 migration。实施顺序：修正平台条件；本地 D1 HTTP 回归覆盖 Mac 注册、重放、过期、未知平台、用户上报/策略/heartbeat；typecheck 与 dry-run；PR/精确主线 CI 后仅部署 Runtime Worker，线上只读 smoke。不升级 Native、不再部署 Pages/Guardian、不改 R2 或历史数据。测试等级为配对安全门，排除 Windows/macOS 构建和无关 UI；真实 Mac 成功注册单独记录，不能用本地测试替代。

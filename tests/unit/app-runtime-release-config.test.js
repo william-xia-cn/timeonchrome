@@ -32,6 +32,17 @@ assert(workflow.includes("default: ''"));
 assert(workflow.includes('if [ "$actual" != "$EXPECTED_RUNTIME_MIGRATIONS" ]'));
 assert(workflow.includes('[ "$APPLY_RUNTIME_MIGRATIONS" != true ]'));
 assert(workflow.includes('APPLIED_RUNTIME_MIGRATIONS: ${{ steps.migrations.outputs.applied }}'));
+const vm = require('vm');
+const hotfixGuard = workflow.match(/node -e '\s*(const e = process\.env;[\s\S]*?)\n\s*'/)[1];
+const approved = { DEFER_MACOS_HOTFIX: 'true', HOTFIX_WORKER_ONLY: 'true', APPLY_RUNTIME_MIGRATIONS: 'false',
+  ACTUAL_PENDING: '0011_runtime_uninstall_operations.sql', HOTFIX_BACKEND_TREE: '20f790cb73feeef9d20852ff46edc0a6fec34b8f' };
+const guard = (overrides = {}) => vm.runInNewContext(hotfixGuard, { process: { env: { ...approved, ...overrides }, exit() { throw new Error('blocked'); } }, console: { error() {} } });
+guard();
+for (const overrides of [{ DEFER_MACOS_HOTFIX: 'false' }, { HOTFIX_WORKER_ONLY: 'false' }, { APPLY_RUNTIME_MIGRATIONS: 'true' },
+  { ACTUAL_PENDING: '0011_runtime_uninstall_operations.sql,0012_unknown.sql' }, { HOTFIX_BACKEND_TREE: 'different' }]) {
+  assert.throws(() => guard(overrides), /blocked/);
+}
+assert(workflow.includes('if [ -n "$actual" ] && [ "$APPLY_RUNTIME_MIGRATIONS" = true ]; then'));
 
 const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'app-runtime-release-config-'));
 try {
