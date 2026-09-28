@@ -47,5 +47,36 @@
 
   function clear(storage) { storage.removeItem(storageKey); }
 
-  return { storageKey, consumeLaunchTicket, load, save, clear };
+  const recoveryKey = 'timeonchrome_runtime_auth_recovery_v1';
+  function createRecovery(storage, redirect) {
+    let redirecting = false;
+    let rejected = false;
+    function fail() {
+      const error = new Error('登录恢复失败，请点击“从家长控制台进入”手动重新登录。');
+      error.code = 'AUTH_RECOVERY_FAILED';
+      throw error;
+    }
+    return {
+      recover() {
+        rejected = true;
+        if (redirecting) throw new Error('正在返回家长控制台，请稍候');
+        try {
+          if (storage.getItem(recoveryKey)) return fail();
+          // 无法持久保存标记时停止恢复，不能冒险形成跨页面循环。
+          storage.setItem(recoveryKey, '1');
+          if (storage.getItem(recoveryKey) !== '1') return fail();
+        } catch { return fail(); }
+        clear(storage);
+        redirecting = true;
+        redirect();
+        throw new Error('Runtime 会话已过期，正在返回家长控制台');
+      },
+      protectedLoadSucceeded() {
+        // 同一文档中的迟到成功不能清除已经触发的认证失败。
+        if (!rejected) storage.removeItem(recoveryKey);
+      },
+    };
+  }
+
+  return { storageKey, recoveryKey, createRecovery, consumeLaunchTicket, load, save, clear };
 });

@@ -1,6 +1,7 @@
 (() => {
   const RUNTIME_API = 'https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev';
   const MAIN_CONSOLE = 'https://timeonchrome-console.pages.dev/?launch=app-runtime';
+  const authRecovery = AppRuntimeSession.createRecovery(sessionStorage, () => location.assign(MAIN_CONSOLE));
   const mock = new URLSearchParams(location.search).has('mock');
   const categoryLabels = { study: '学习', composite: '复合', restrictedEntertainment: '受限娱乐', unclassified: '未归类', blocked: '黑名单' };
   const categoryColors = { study: '#178f6a', composite: '#4d9fd8', restrictedEntertainment: '#ed9f38', unclassified: '#9aa6a0', blocked: '#d64545' };
@@ -37,7 +38,7 @@
   function showError(error) {
     const message = AppRuntimeNetwork.friendlyError(error).message;
     $('#status-strip').className = 'error';
-    if (!state.loaded) {
+    if (!state.loaded || error?.code === 'AUTH_RECOVERY_FAILED') {
       document.querySelector('main').classList.remove('initial-load-pending');
       document.querySelector('main').classList.add('initial-load-failed');
       $('#status-strip').hidden = true;
@@ -51,7 +52,7 @@
   function showSuccess(message) { $('#status-strip').className = 'success'; $('#status-message').textContent = message; $('#retry').hidden = true; $('#status-strip').hidden = false; setTimeout(() => { if ($('#status-strip').className === 'success' && $('#status-message').textContent === message) clearError(); }, 3500); }
   function clearError() { $('#status-strip').hidden = true; }
   function setLoading(active) { const main = document.querySelector('main'); main.setAttribute('aria-busy', String(active)); $('#refresh').disabled = active; if (active) { if (!state.loaded) { main.classList.add('initial-load-pending'); main.classList.remove('initial-load-failed'); $('#load-empty-state').hidden = true; } $('#status-strip').className = 'loading'; $('#status-message').textContent = '正在加载 Runtime 数据…'; $('#retry').hidden = true; $('#status-strip').hidden = false; } else if ($('#status-strip').className === 'loading') clearError(); }
-  function markLoaded() { state.loaded = true; const main = document.querySelector('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
+  function markLoaded() { if (!mock) authRecovery.protectedLoadSucceeded(); state.loaded = true; const main = document.querySelector('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
   async function issue() {
     state.session = AppRuntimeSession.load(sessionStorage);
     if (window.__runtimeLaunchTicket) {
@@ -80,10 +81,7 @@
   }
   async function moduleToken(renew = false) {
     if (renew) {
-      AppRuntimeSession.clear(sessionStorage);
-      state.session = null;
-      location.assign(MAIN_CONSOLE);
-      throw new Error('Runtime 会话已过期，正在返回家长控制台');
+      authRecovery.recover();
     }
     if (!state.session) await issue();
     return state.session.token;

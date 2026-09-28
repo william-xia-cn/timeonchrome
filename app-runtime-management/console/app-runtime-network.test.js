@@ -10,7 +10,7 @@ function response(status, body) {
   };
 }
 
-test('GET renews the module token and retries once after a network failure', async () => {
+test('GET retries once with the existing session after a network failure', async () => {
   const renewals = [];
   const tokens = ['old-token', 'new-token'];
   let calls = 0;
@@ -23,14 +23,32 @@ test('GET renews the module token and retries once after a network failure', asy
     fetchImpl: async (_url, options) => {
       calls += 1;
       if (calls === 1) throw new TypeError('Failed to fetch');
-      assert.equal(options.headers.Authorization, 'Bearer new-token');
+      assert.equal(options.headers.Authorization, 'Bearer old-token');
       return response(200, { devices: [] });
     },
   });
 
   assert.deepEqual(payload, { devices: [] });
   assert.equal(calls, 2);
-  assert.deepEqual(renewals, [false, true, false]);
+  assert.deepEqual(renewals, [false, false]);
+});
+
+test('persistent network failure never renews authentication', async () => {
+  let calls = 0;
+  await assert.rejects(requestJson({ url: 'https://runtime.example.test/resource',
+    getToken: async renew => { assert.equal(renew, false); return 'existing'; },
+    fetchImpl: async () => { calls++; throw new TypeError('Failed to fetch'); },
+  }), new RegExp(NETWORK_MESSAGE));
+  assert.equal(calls, 2);
+});
+
+test('network failure acquiring a session retries without authentication redirect', async () => {
+  let calls = 0;
+  await requestJson({ url: 'https://runtime.example.test/resource',
+    getToken: async renew => { assert.equal(renew, false); if (++calls === 1) throw new TypeError('Failed to fetch'); return 'existing'; },
+    fetchImpl: async () => response(200, {}),
+  });
+  assert.equal(calls, 2);
 });
 
 test('POST never replays an unknown network result', async () => {
