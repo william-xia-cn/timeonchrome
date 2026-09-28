@@ -2,6 +2,8 @@
 
 ## 最新结果：关闭复核读取已修复并验收；Mac延后（2026-09-28）
 
+所有者复核补充：控件任务已只读裁定composite-terminal-integration的11项草稿无应重放的独有能力：主线PR97 b33d776/526bd54包含接线、关闭换绑及逐批身份重核/Abort；a754e95/PR95包含scheme-less标题隐私修复；storage-maintenance/privacy/隔离helper与主线逐字相同；主线测试与分项实机证据覆盖旧首轮测试。旧.tmp与test-results的失败现场仅为历史证据，原地保留，不作为现行失败、不清理、不重放。Runtime旧attribution树的8行未提交文档亦已由模块TASK_BOARD的ARM-D-033最终证据覆盖（策略58、目标单行study、固定原账8909条不变），不重复导入中间“整体未完成”状态；artifacts继续保留。上述两项不再是源码整合遗漏，余下Native跨平台为PO明确延后、Task为明确不启用，旧脏目录保留不是重新合并许可。
+
 PR107功能提交72c6f0f，相关CI36392160648/36392160674通过，merge e288da2411fdb5cccc5899363bc5d7251b7c69d0；精确SHA Guardian门禁36392295656通过。PO明确授权的production运行36392392513成功，仅部署Guardian Worker 801665c0-1e3f-4389-886d-11f59cf82d41。不可变manifest artifact app-runtime-production-manifest-e288da2411fdb5cccc5899363bc5d7251b7c69d0记录contract1.16.1、deployedResources=[guardianWorker]、runtimeMigrations=[]。
 
 真实Chrome既有登录只读验收通过：复核区显示“已关闭 · 云端已确认账”，空列表显示“暂无达到复核线的复合网站”，保存控件恢复可用但未点击；开关仍false。此前“复核数据暂不可用”不再出现。没有读取凭据、开启采集、发送通知或修改家庭配置。开启后证据/通知闭环不在此次只读验收范围，不能冒称通过。写入、上传、通知默认严格guard不变，原账及统计算法不变。
