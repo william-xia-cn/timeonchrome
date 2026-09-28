@@ -1,5 +1,11 @@
 # TASK_BOARD
 
+## NOW：非Mac剩余验收补齐（2026-09-28）
+
+本批本地结果：现有D1闭环已移除家长/设备鉴权stub，真实generateToken/verifyAccountToken/verifyDeviceTokenFromRequest运行通过；错误签名/过期/无令牌401、跨家庭读写404、跨设备上传404、已解绑GET/POST403及DEVICE_UNBOUND通过。原有开关、逐批ACK、意见、删除竞态、通知丢失确认/租约/重试上限/迟到回调与原账不变断言继续通过。manifest读数和外部通知provider仍是受控替身，不冒称真实设备上传或邮件/Telegram送达。语法、diff、两文件职责检查通过；Matched＝本次本地鉴权补齐，Deviated/Extra＝无；线上完整闭环仍需指定受控档案与通知许可。测试补齐无需重新部署产品。
+
+PO要求Mac延后并完成可继续事项。本批职责runtime-cloud-contract，先补现有composite-cloud-integration测试的真实家长JWT/设备令牌鉴权，保留本地D1与通知provider替身；不改产品、原账、协议、生产开关或凭据。允许该测试及本文档。依次移除鉴权stub、使用真实生成/验证代码、覆盖错误签名/过期/跨家庭/无令牌/设备解绑与原有上传/重试闭环。最小测试仅该文件、node语法、diff/职责检查，CI复用已有复合专项；不跑终端/安装器/Mac/E2E、不部署测试提交。线上开启/实际通知需明确受控档案与消息授权，已询问；等待期间继续安全本地验证。Task继续关闭，旧目录不删除，共享配额不进入实现。
+
 ## 最新结果：关闭复核读取已修复并验收；Mac延后（2026-09-28）
 
 所有者复核补充：控件任务已只读裁定composite-terminal-integration的11项草稿无应重放的独有能力：主线PR97 b33d776/526bd54包含接线、关闭换绑及逐批身份重核/Abort；a754e95/PR95包含scheme-less标题隐私修复；storage-maintenance/privacy/隔离helper与主线逐字相同；主线测试与分项实机证据覆盖旧首轮测试。旧.tmp与test-results的失败现场仅为历史证据，原地保留，不作为现行失败、不清理、不重放。Runtime旧attribution树的8行未提交文档亦已由模块TASK_BOARD的ARM-D-033最终证据覆盖（策略58、目标单行study、固定原账8909条不变），不重复导入中间“整体未完成”状态；artifacts继续保留。上述两项不再是源码整合遗漏，余下Native跨平台为PO明确延后、Task为明确不启用，旧脏目录保留不是重新合并许可。
