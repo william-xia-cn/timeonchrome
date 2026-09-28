@@ -14,8 +14,6 @@ const overrides = {
   'workers/src/services/profileAccountsV2.ts': {readManifestAccountV2:async(_env,id)=>manifestRead(id)},
   'workers/src/services/notificationSettings.ts': {loadAccountNotificationSettings:async()=>({emailEnabled:true,telegramEnabled:true,telegramConnected:true,telegramChatId:'fixture'})},
   'workers/src/services/siteClassificationEmail.ts': {isEmailClassificationEnabled:()=>true,sendResendEmail:async(_env,input)=>{sent.push(input.text);await emailEffect();},sendTelegramMessage:async(_env,_chat,text)=>sent.push(text)},
-  'workers/src/db/middleware.ts': {json:(body,status=200)=>new Response(JSON.stringify(body),{status}),verifyAccountToken:async r=>r.headers.get('Authorization')==='Bearer parent'?'a':null},
-  'workers/src/routes/deviceIdentity.ts': {verifyDeviceTokenFromRequest:async r=>r.headers.get('Authorization')==='Bearer device'?{profileId:'p',deviceId:'d'}:null,deviceUnboundResponse:()=>new Response('{}',{status:410})},
 };
 function load(relative) {
   if(overrides[relative])return overrides[relative];
@@ -27,7 +25,7 @@ function load(relative) {
     if(!path.posix.extname(resolved))resolved+='.ts';
     if(!resolved.startsWith('workers/')&&!resolved.startsWith('contracts/'))throw new Error('Unexpected dependency');
     return load(resolved);
-  },crypto:webcrypto,TextEncoder,TextDecoder,URL,Request,Response,Date,console},{filename:relative});
+  },crypto:webcrypto,TextEncoder,TextDecoder,URL,Request,Response,Date,console,atob,btoa,ArrayBuffer,Uint8Array},{filename:relative});
   return module.exports;
 }
 function interceptWrite(db,pattern,before) {
@@ -50,7 +48,7 @@ function interceptWrite(db,pattern,before) {
     const db=await mf.getD1Database('DB');
     const schema=`CREATE TABLE profiles(id TEXT PRIMARY KEY,account_id TEXT,config TEXT);
       CREATE TABLE accounts(id TEXT PRIMARY KEY,email TEXT);
-      CREATE TABLE devices(id TEXT PRIMARY KEY,profile_id TEXT,status TEXT);
+      CREATE TABLE devices(id TEXT PRIMARY KEY,profile_id TEXT,status TEXT,device_token TEXT);
       CREATE TABLE device_account_heads_v2(profile_id TEXT,device_id TEXT,date TEXT,manifest_id TEXT);
       CREATE TABLE usage_segment_corrections_v1(profile_id TEXT,date TEXT,id TEXT,segment_id TEXT,device_id TEXT,domain TEXT,channel TEXT,start_ms INTEGER,end_ms INTEGER,duration_seconds INTEGER,original_mode TEXT,original_target_classification TEXT,original_quota_bucket TEXT,effective_mode TEXT,effective_target_classification TEXT,effective_quota_bucket TEXT);
       CREATE TABLE usage_segments_v1(id TEXT,profile_id TEXT,device_id TEXT,date TEXT,tab_id TEXT,window_id INTEGER,start_ms INTEGER,end_ms INTEGER,duration_seconds INTEGER,domain TEXT,channel TEXT,target_classification_at_time TEXT,managed_target_value TEXT,mode TEXT DEFAULT 'composite',quota_bucket_at_time TEXT DEFAULT 'composite',managed_target_id TEXT DEFAULT 'target');
@@ -60,12 +58,24 @@ function interceptWrite(db,pattern,before) {
     const core=load('workers/src/services/compositePageAnalysis.js');
     const router=load('workers/src/routes/compositePageReviews.ts').compositePageReviewsRouter;
     const env={DB:db,JWT_SECRET:'fixture',RESEND_API_KEY:'fixture',TELEGRAM_BOT_TOKEN:'fixture'};
+    const {generateToken}=load('workers/src/db/middleware.ts');
+    const expiry=Math.floor(Date.now()/1000)+3600;
+    const tokens={
+      parent:await generateToken({account_id:'a',exp:expiry},env.JWT_SECRET),
+      foreign:await generateToken({account_id:'other-family',exp:expiry},env.JWT_SECRET),
+      expired:await generateToken({account_id:'a',exp:1},env.JWT_SECRET),
+      badSignature:await generateToken({account_id:'a',exp:expiry},'different-test-secret'),
+      device:'local-test-device-token',
+      otherDevice:'local-test-other-device-token',
+    };
     const now=Date.now(),date=core.reviewDate(now),start=Date.parse(date+'T00:00:00+08:00');
     const cutoff=Math.min(now,start+3600000);
     await db.batch([
       db.prepare('INSERT INTO profiles VALUES (?,?,?)').bind('p','a','{}'),
+      db.prepare('INSERT INTO profiles VALUES (?,?,?)').bind('other-profile','other-family','{"compositeReviewConfig":{"enabled":true}}'),
       db.prepare('INSERT INTO accounts VALUES (?,?)').bind('a','parent@example.test'),
-      db.prepare('INSERT INTO devices VALUES (?,?,?)').bind('d','p','bound'),
+      db.prepare('INSERT INTO devices VALUES (?,?,?,?)').bind('d','p','bound',tokens.device),
+      db.prepare('INSERT INTO devices VALUES (?,?,?,?)').bind('other-device','other-profile','bound',tokens.otherDevice),
       db.prepare('INSERT INTO device_account_heads_v2 VALUES (?,?,?,?)').bind('p','d',date,'m'),
     ]);
     manifests.m={profileId:'p',deviceId:'d',manifestId:'m',date,generatedAt:cutoff,rows:[{kind:'daily_target',targetKey:'target',mode:'composite',quotaBucket:'composite',channel:'active',targetClassificationAtTime:'composite',managedTargetType:'domain',managedTargetValue:'example.test',isFallback:false,durationSeconds:1800}]};
@@ -79,7 +89,28 @@ function interceptWrite(db,pattern,before) {
     assert.equal(review.total_seconds,1800);
     const row={id:'e',profileId:'p',deviceId:'d',tabId:1,windowId:2,site:'example.test',startMs:start,endMs:cutoff,lastObservedAt:cutoff,page:{host:'example.test',path:'/lesson/public',title:'Public'}};
     const body={requestId:q.id,cutoff,index:0,count:1,chunks:1,hash:await core.hashPageEvidence([row]),complete:true,rows:[row]};
-    const request=(route,method='GET',auth='parent',data)=>new Request('https://fixture.test'+route,{method,headers:auth?{Authorization:'Bearer '+auth}:{},body:data?JSON.stringify(data):undefined});
+    const request=(route,method='GET',auth='parent',data)=>new Request('https://fixture.test'+route,{method,headers:auth?{Authorization:'Bearer '+(tokens[auth]||auth)}:{},body:data?JSON.stringify(data):undefined});
+    for (const auth of [null,'expired','badSignature','malformed','device']) {
+      assert.equal((await router.handle(request('/profiles/p/composite-reviews/v1','GET',auth),env)).status,401);
+    }
+    assert.equal((await router.handle(request('/profiles/p/composite-reviews/v1','GET','foreign'),env)).status,404);
+    for (const auth of [null,'parent','not-a-device-token']) {
+      assert.equal((await router.handle(request('/device/composite-reviews/v1','GET',auth),env)).status,401);
+    }
+    await db.prepare("UPDATE devices SET status='unbound' WHERE id='d'").run();
+    for (const method of ['GET','POST']) {
+      const unbound=await router.handle(request('/device/composite-reviews/v1',method,'device',method==='POST'?body:undefined),env);
+      assert.equal(unbound.status,403);
+      assert.equal((await unbound.json()).code,'DEVICE_UNBOUND');
+    }
+    await db.prepare("UPDATE devices SET status='bound' WHERE id='d'").run();
+    const pending=await router.handle(request('/device/composite-reviews/v1','GET','device'),env);
+    assert.equal(pending.status,200);
+    assert.equal((await pending.json()).requests[0].id,q.id);
+    assert.equal((await router.handle(request('/device/composite-reviews/v1','POST','otherDevice',body),env)).status,404);
+    for (const [route,method] of [[`/profiles/p/composite-reviews/v1/${review.id}`,'GET'],[`/profiles/p/composite-reviews/v1/${review.id}`,'DELETE'],[`/profiles/p/composite-reviews/v1/${review.id}/opinion`,'POST']]) {
+      assert.equal((await router.handle(request(route,method,'foreign',method==='POST'?{}:undefined),env)).status,404);
+    }
     assert.equal((await router.handle(request('/device/composite-reviews/v1','POST',null,body),env)).status,401);
     assert.equal((await router.handle(request('/device/composite-reviews/v1','POST','device',{...body,rows:[null]}),env)).status,400);
     assert.equal((await router.handle(request('/device/composite-reviews/v1','POST','device',body),env)).status,200);
@@ -219,6 +250,6 @@ function interceptWrite(db,pattern,before) {
     await service.scanCompositeReviews(env,'p',now,date);
     assert.equal((await db.prepare('SELECT status FROM composite_page_requests_v1').first()).status,'deleted');
     assert.equal(JSON.stringify((await db.prepare('SELECT * FROM usage_segments_v1').all()).results),before);
-    console.log('Composite cloud integration PASS: opt-in, threshold, D1 ACK, owner filtering, opinion, deletion, no ledger writes; auth/provider boundaries use fixtures');
+    console.log('Composite cloud integration PASS: real JWT/device authentication, opt-in, threshold, D1 ACK, owner filtering, opinion, deletion, notification retry, no ledger writes; manifest/provider boundaries use fixtures');
   } finally {await mf.dispose();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
