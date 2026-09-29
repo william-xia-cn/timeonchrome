@@ -2,6 +2,14 @@
 
 ## NOW：一条架构集成主线与四条开发旁路（2026-09-29，PO修订）
 
+### 治理收口续项：固定工作树位置与两条未就绪旁路（D-110）
+
+2026-09-29核对：PR #117 已合入`master@d9ab84a`，职责文档与范围检查生效。标准云端`codex/cloud-management`及Task`codex/task-management-v1`已有固定分支；`codex/extension-local`与`codex/santa-management`本地及远端均尚不存在。主目录`D:\Codex\TimeOnchrome`仍有控件、Santa及云端混合未提交内容，`81a1`仍是扩展加载源，Task`f805`仍有未提交内容。本次不创建空占位分支、不切换原候选、不搬移或覆盖草稿；不能将规则生效等同于五条工作线迁移完成。
+
+固定目录目标：主线`D:\Codex\TimeOnchrome`，旁路在同级`D:\Codex\TimeOnchrome-worktrees\`按工作线命名。当前标准云端继续复用`guardian-release-81949cc`，不因旧名字不匹配而重建。控件与Santa各自先核对独有提交、未提交hunk、ignored构建/运行依赖和会话引用；所属任务确认迁移顺序后再建立对应固定分支与工作树。扩展候选完成新目录加载复验前，原`81a1`不得移动；Santa草稿未分离前，主目录不得更新或清理。Task`f805`保留至所有者处理完脏内容。新分支/目录创建、功能整合、旧目录清理分别记状态，不混称完成。
+
+本续项为纯治理文档：只运行`git diff --check`和文档结构检查；不运行产品测试，不安装、不部署、不改变生产或候选运行状态。
+
 本轮职责`architecture-integration`，允许本任务治理文档、职责检查和固定用例。实施清单：①D-109及PROJECT_WORKFLOW/AGENTS修订；②范围检查区分架构契约、控件、标准云端、Task和Santa；③聚焦测试、CI路由和`git diff --check`；④审计后通过过渡PR合入。本次不移动目录、不清理分支、不部署。目标五个常用目录，不把过渡状态冒称已完成。
 
 目标映射：`master`=架构/集成；`codex/extension-local`=控件（原81a1加载目录先保留，分支尚未切换）；`codex/cloud-management`=标准云端（复用`WT\guardian-release-81949cc`）；`codex/task-management-v1`=Task（f805脏树保留）；`codex/santa-management`=Santa（主目录混合草稿先分离，固定分支/目录尚未就绪）。产品/发布阶段不额外占一条工作线。Task默认关闭且不发布。
