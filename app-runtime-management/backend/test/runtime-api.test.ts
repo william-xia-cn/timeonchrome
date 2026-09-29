@@ -475,6 +475,63 @@ describe('Runtime product API', () => {
     expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_machines_v2').first()).toEqual({count: 1});
   });
 
+  it('recovers a lost enrollment response using the pre-stored token without consuming another code', async () => {
+    const account = await accountToken();
+    const pairing = await (await call('/v2/module/pairing-codes', { method: 'POST', headers: bearer(account),
+      body: JSON.stringify({ defaultChildId: 'child-a' }) })).json<{ code: string }>();
+    const clientMachineToken = `rt_machine_token_${'A'.repeat(43)}`;
+    const request = (token: string, platform = 'macos') => call('/v2/machines/enroll', { method: 'POST',
+      body: JSON.stringify({ code: pairing.code, platform, clientMachineToken: token }) });
+    // The first response is intentionally discarded, as it would be on a connection loss.
+    expect((await request(clientMachineToken)).status).toBe(201);
+    const self = await call('/v2/machines/self', { headers: bearer(clientMachineToken) });
+    expect(self.status).toBe(200);
+    const machineId = (await self.json<{ machineId: string }>()).machineId;
+    await env.RUNTIME_DB.prepare('UPDATE runtime_machine_pairing_codes_v2 SET expires_at_ms=1 WHERE code_hash=(SELECT code_hash FROM runtime_machine_pairing_codes_v2 WHERE consumed_by_machine_id=?1)')
+      .bind(machineId).run();
+    const replay = await request(clientMachineToken);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toEqual({ machineId, machineToken: clientMachineToken, platform: 'macos' });
+    expect((await request(`rt_machine_token_${'B'.repeat(43)}`)).status).toBe(401);
+    expect((await request(clientMachineToken, 'windows')).status).toBe(401);
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_machines_v2').first<{ count: number }>())?.count).toBe(1);
+    expect((await call(`/v2/module/machines/${machineId}/revoke`, { method: 'POST', headers: bearer(account), body: '{}' })).status).toBe(200);
+    expect((await request(clientMachineToken)).status).toBe(401);
+    expect((await call('/v2/machines/self', { headers: bearer(clientMachineToken) })).status).toBe(401);
+  });
+
+  it('does not consume pairing codes for malformed client tokens and preserves legacy Windows behavior', async () => {
+    const account = await accountToken();
+    const pairing = await (await call('/v2/module/pairing-codes', { method: 'POST', headers: bearer(account),
+      body: JSON.stringify({ defaultChildId: 'child-a' }) })).json<{ code: string }>();
+    const submit = (body: object) => call('/v2/machines/enroll', { method: 'POST', body: JSON.stringify({ code: pairing.code, platform: 'windows', ...body }) });
+    expect((await submit({ clientMachineToken: 'weak' })).status).toBe(400);
+    const legacy = await submit({});
+    expect(legacy.status).toBe(201);
+    const body = await legacy.json<{ machineToken: string }>();
+    expect(body.machineToken).toMatch(/^rt_machine_token_[A-Za-z0-9_-]{43}$/u);
+    expect((await submit({})).status).toBe(401);
+    expect((await submit({ clientMachineToken: body.machineToken })).status).toBe(200);
+  });
+
+  it('accepts only one concurrent enrollment and never binds a token to a second pairing code', async () => {
+    const account = await accountToken();
+    const create = async () => (await (await call('/v2/module/pairing-codes', { method: 'POST', headers: bearer(account),
+      body: JSON.stringify({ defaultChildId: 'child-a' }) })).json<{ code: string }>()).code;
+    const firstCode = await create();
+    const secondCode = await create();
+    const clientMachineToken = `rt_machine_token_${'C'.repeat(43)}`;
+    const submit = (code: string, token: string) => call('/v2/machines/enroll', { method: 'POST',
+      body: JSON.stringify({ code, platform: 'macos', clientMachineToken: token }) });
+    const results = await Promise.all([submit(firstCode, clientMachineToken), submit(firstCode, clientMachineToken)]);
+    expect(results.map(result => result.status).sort()).toEqual([200, 201]);
+    const ids = await Promise.all(results.map(async result => (await result.json<{ machineId: string }>()).machineId));
+    expect(ids[0]).toBe(ids[1]);
+    expect((await submit(secondCode, clientMachineToken)).status).toBe(401);
+    expect((await submit(secondCode, `rt_machine_token_${'D'.repeat(43)}`)).status).toBe(201);
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_machines_v2').first<{ count: number }>())?.count).toBe(2);
+  });
+
   it('attributes v2 segments from assignment history and keeps upload idempotent', async () => {
     const account = await accountToken();
     const pairing = await (await call('/v2/module/pairing-codes', {

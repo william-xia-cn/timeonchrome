@@ -327,8 +327,11 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
   if (url.pathname === '/v2/machines/enroll') {
     if (request.method !== 'POST') return methodNotAllowed('POST');
     const result = await enrollMachine(env.RUNTIME_DB, parseEnrollDevice(await readJsonBody(request)), nowMs);
-    return result ? jsonResponse(result, { status: 201 })
-      : errorResponse(401, 'ENROLLMENT_INVALID', 'Enrollment code is invalid, expired, or consumed.');
+    if (result) {
+      const { replayed, ...body } = result;
+      return jsonResponse(body, { status: replayed ? 200 : 201 });
+    }
+    return errorResponse(401, 'ENROLLMENT_INVALID', 'Enrollment code is invalid, expired, or consumed.');
   }
 
   if (url.pathname.startsWith('/v2/uninstall-operations/')) {

@@ -4,6 +4,8 @@
 
 职责 `runtime-cloud-contract`。已确认云端现状：一次性码在创建机器时消费，云端只存机器 token 哈希；若响应丢失或 Native 落盘失败，旧请求无法恢复同一机器。此项采用请求前持久化的客户端 256-bit token 作恢复证明，不另加 D1 migration；同码同 token 幂等，同码异 token 拒绝，`GET /v2/machines/self` 为重启恢复入口。先发布兼容契约/Worker，再由 Native 所属工作线接入；旧 Windows 请求保持兼容。本轮只实施本地契约和 Worker，不部署、不安装、不改 Native、Guardian、Pages、R2、账本或生产数据。必须验证新旧配对、响应丢失、重放、并发、过期、撤销及异平台拒绝；运行 Contracts/Worker 聚焦测试、typecheck、`git diff --check`，排除无关 UI 与平台构建。云端代码完成不能记作 Mac 实机闭环。
 
+进度：契约 `1.17.0` 经 PR #135 合入 `master@aae76f6`，CI 通过；Worker 同码/同 token/同平台重放与旧请求兼容实现已完成本地聚焦验证，待单独 PR/合并。Native 所属会话已收到固定协议与验收条件；生产 Worker 未部署，Mac 实机未验收，不能标记整体完成。
+
 ## COMPLETED：设备管理按视图隔离（2026-09-30）
 
 已完成：PR #132 / `master@089a4a7` 发布独立 Runtime Pages deployment `1ba325f2`；真实登录确认 Windows/macOS 机器列表、详情、账户分配和状态可读取。旧设备刷新同时请求 App Policy、应用目录与归类记录，故其他接口失败会显示全局错误；修正后设备视图只请求机器与账户，使用统计单独请求，管理数据进入其视图时加载。聚焦浏览器 8 场景（含目录 500 与设备刷新隔离）、设备测试、语法/typecheck、`git diff --check` 和桌面故障场景目视均通过。最终 Pages-only 发布以 PR #133 / `master@62c4700`、deployment `9c2701c2` 后续修正记录为准；真实登录再次点击设备“刷新”，机器列表更新且无错误横幅，Windows/macOS 抽屉及账户分配均可查看。Worker、Guardian、主 Pages 和 `0011` migration 未部署。统计 `SQLITE_NOMEM` 仍独立待修，不能标记统计恢复。最终审计：Matched＝设备管理恢复、隔离与线上实测；Deviated/Extra＝无；Missing＝无（统计故障不属于本轮完成目标）。

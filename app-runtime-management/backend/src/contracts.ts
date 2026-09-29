@@ -291,6 +291,8 @@ export interface EnrollDeviceRequest {
   code: string;
   platform: RuntimePlatform;
   displayName?: string | null;
+  /** Optional 256-bit CSPRNG secret durably stored before enrollment is sent. */
+  clientMachineToken?: string;
 }
 
 export interface EnrollDeviceResponse {
