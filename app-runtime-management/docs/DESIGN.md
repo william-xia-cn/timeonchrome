@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## ARM-D-037：可恢复的首次机器配对
+
+`POST /v2/machines/enroll` 保留旧 `{code,platform,displayName?}` 请求：服务端生成机器 token，首次 `201`，配对码不可重试。新增可选 `clientMachineToken`，其格式为 `rt_machine_token_` 加 32 个 CSPRNG 字节的无填充 base64url（43 字符）；Native 必须在第一次网络请求前将其写入受保护持久存储，写入失败禁止请求。首次成功仍返回 `{machineId,machineToken,platform}` 和 `201`；同一配对码、同一 token 哈希与同一平台的重复请求返回同一机器和 `200`，不创建新机器或新策略版本。此重试在码过期后仍可进行；不同 token、不同平台、撤销机器或跨配对码复用 token 返回通用 `401 ENROLLMENT_INVALID`。客户端也可直接凭预存 token 调现有 `GET /v2/machines/self` 恢复 machineId；未得到成功证明时不得创建新配对码并将旧身份静默遗弃。
+
+Service 仅存 SHA-256 token 哈希，不存明文或可解密副本；token 已是 256-bit 幂等证明，因此协议不另要求 operationId。首次消费继续使用同一 D1 batch 事务，条件更新、机器插入和初始策略版本顺序执行；并发败者不得写入孤立策略，成功后再按配对码与 token 哈希核对恢复。D1 batch 的原子回滚语义见 Cloudflare 官方 D1 Database API 文档。本增量不新增 migration，不修改历史机器、账本或家长归属。先部署兼容 Worker，再由 Native 对应分支接入和完成 Mac 实机复验；当前本地代码测试不代表线上或实机已完成。
+
 ## 正在实施：ARM-D-033 产品关联与固定周修复
 
 机器 App Policy 冻结 `productIdentityProjection`（内容哈希版本、知识版本、技术身份、产品 ID、规范名称、依据及状态）。Service 只消费该投影，BrowserBridge revision 纳入投影与更正版本；用量完整性与归属同步状态分开返回。历史原始记录不变。

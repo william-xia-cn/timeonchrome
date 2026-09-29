@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.local/contracts/app-runtime/machine-enrollment-recovery-v1.schema.json",
+  "title": "Recoverable machine enrollment (additive to v2)",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "platform"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$" },
+        "platform": { "enum": ["windows", "macos"] },
+        "displayName": { "type": ["string", "null"], "maxLength": 128 },
+        "clientMachineToken": {
+          "type": "string",
+          "pattern": "^rt_machine_token_[A-Za-z0-9_-]{43}$",
+          "description": "Optional 256-bit CSPRNG secret. Client must durably store it before sending. Its 43-character base64url form is a shape requirement; secure generation is a client obligation."
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machineId", "machineToken", "platform"],
+      "properties": {
+        "machineId": { "type": "string", "minLength": 1 },
+        "machineToken": { "type": "string", "pattern": "^rt_machine_token_[A-Za-z0-9_-]{43}$" },
+        "platform": { "enum": ["windows", "macos"] }
+      }
+    }
+  }
+}
