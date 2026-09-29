@@ -2153,6 +2153,7 @@ Checklist：
 - `npx playwright test tests/e2e/mode-switch-pip-close.test.js --reporter=line`
 
 ## 维护约定
+- [ ] [V1 Native App Control] Santa 每日阻止时间段：Native D1 migration、Worker 定时切换/同步前补偿、应用/预配置/发布者 UI 与本地测试已实现；仍需生产 migration、部署及真实 Mac 在时间边界的人工验收。此项与 Chrome 网页记账无关。
 - 每个任务必须标注阶段（V0/V1）
 - 每次只推进单主题小包
 - 完成后同步更新本板与 DECISIONS

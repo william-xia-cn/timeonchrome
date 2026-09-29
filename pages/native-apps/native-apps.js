@@ -3,7 +3,7 @@
   const NATIVE_API = 'https://timeonchrome-native-app-api.william-xia-cn.workers.dev';
   const TITLES = {
     REVIEW: ['待审核应用', 'Santa 发现的新应用默认允许运行，家长可在此忽略或阻止。'],
-    BLOCK: ['已阻止应用', '应用规则按稳定代码身份下发；发布者规则覆盖同一 TeamID。'],
+    BLOCK: ['已阻止应用', '每日时间段按孩子时区执行；终端下一次成功同步后生效。'],
     IGNORE: ['已忽略应用', '已审核且不生成 Santa allow rule。'],
     PREDEFINED: ['预配置应用', '当前孩子尚未安装或被 Santa 发现的来源应用；安装清单和来源项不代表曾启动。'],
     MACS: ['Native Macs', '独立管理 Santa enrollment、同步状态和策略版本。'],
@@ -12,6 +12,7 @@
     view: 'REVIEW', token: null, childId: null, childName: null,
     data: [], merges: [], enrollmentProfile: null, applicationQuery: '', reviewCount: 0,
     inventoryMacId: null, predefined: null, preconfigurations: null,
+    blockSchedules: null, editingBlockSource: null,
   };
   const CATEGORY_ORDER = ['社交', '娱乐', '游戏', '人工智能', '教育', '其它'];
   const $ = (selector) => document.querySelector(selector);
@@ -23,6 +24,37 @@
   };
   const writeLocal = (key, value) => localStorage.setItem(`toc_${key}`, JSON.stringify(value));
   const formatTime = (value) => value ? new Date(Number(value)).toLocaleString('zh-CN') : '尚未同步';
+  const clockTime = (minute) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+  const scheduleFor = (type, key) => state.blockSchedules?.schedules?.find((item) =>
+    item.source_type === type && item.source_key === key);
+  const scheduleLabel = (type, key) => {
+    const schedule = scheduleFor(type, key);
+    return schedule ? `${clockTime(schedule.start_minute)}–${clockTime(schedule.end_minute)}` : '全天';
+  };
+  const syncPending = () => (state.blockSchedules?.macs || []).some((mac) =>
+    Number(mac.applied_policy_version) < Number(mac.desired_policy_version));
+  const syncStateLabel = () => !(state.blockSchedules?.macs || []).length ? '暂无已绑定终端'
+    : syncPending() ? '终端待同步' : '终端已同步';
+  const blockSourcesForApp = (app) => {
+    const sources = [];
+    if (app.directBlockApplicationId) sources.push(['APPLICATION', app.directBlockApplicationId]);
+    if (app.publisher_blocked && app.team_id) sources.push(['PUBLISHER', app.team_id]);
+    const appIds = new Set([app.id, ...(app.relatedApplicationIds || [])]);
+    for (const item of state.preconfigurations?.items || []) {
+      if (item.desired_state === 'BLOCK' && !item.disabled_at && appIds.has(item.matchedApplicationId)) {
+        sources.push(['PREDEFINED', JSON.stringify([item.source, item.source_index])]);
+      }
+    }
+    return sources;
+  };
+  const appScheduleSummary = (app) => {
+    const sources = blockSourcesForApp(app);
+    if (!sources.length) return '暂无可执行阻止来源';
+    const active = sources.some(([type, key]) => !scheduleFor(type, key)
+      || Number(scheduleFor(type, key).effective_active) === 1);
+    const range = sources.length === 1 ? scheduleLabel(...sources[0]) : `${sources.length} 条阻止来源`;
+    return `${range} · ${active ? '云端目标阻止' : '云端目标放行'} · ${syncStateLabel()}`;
+  };
   const escapeXml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&apos;', '"': '&quot;',
   })[char]);
@@ -270,7 +302,7 @@
       <button class="secondary" data-action="IGNORE" data-id="${escapeHtml(app.id)}">忽略</button>
       <button class="danger" data-action="BLOCK" data-id="${escapeHtml(app.id)}">阻止</button>
       <button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
-    if (state.view === 'BLOCK') return `<button class="secondary" data-action="IGNORE" data-id="${escapeHtml(app.id)}">改为忽略</button><button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
+    if (state.view === 'BLOCK') return `${app.directBlockApplicationId ? `<button class="secondary" data-action="SCHEDULE" data-id="${escapeHtml(app.directBlockApplicationId)}" data-schedule-name="${escapeHtml(app.display_name)}">时间段</button>` : ''}<button class="secondary" data-action="IGNORE" data-id="${escapeHtml(app.id)}">改为忽略</button><button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
     if (state.view === 'IGNORE') return `<button class="danger" data-action="BLOCK" data-id="${escapeHtml(app.id)}">改为阻止</button><button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
     return '';
   }
@@ -314,7 +346,7 @@
             <strong>${escapeHtml(app.display_name)}</strong>
             <small><span class="kind-label">${escapeHtml(typeLabel)}</span>${escapeHtml(publisher)}</small>
           </div>
-          <div class="observation"><span>${escapeHtml(observation)}</span>${app.policyAvailable === false ? '<span class="identity-warning">缺少可用规则身份，仅供查看</span>' : ''}${app.installed && app.ruleCoversInstalledVersion === true && app.signatureStatus !== 'signed_valid' ? '<span class="identity-warning">仅有版本哈希，更新后需重新核验</span>' : ''}${app.installed && app.ruleCoversInstalledVersion === false ? '<span class="identity-warning">安装身份尚未关联可用规则</span>' : ''}${state.view !== 'REVIEW' ? `<span class="badge ${app.state === 'BLOCK' ? 'block' : app.state === 'IGNORE' ? 'ignore' : ''}">${app.state === 'BLOCK' ? '已阻止' : '已忽略'}</span>` : ''}</div>
+          <div class="observation"><span>${escapeHtml(observation)}</span>${app.policyAvailable === false ? '<span class="identity-warning">缺少可用规则身份，仅供查看</span>' : ''}${app.installed && app.ruleCoversInstalledVersion === true && app.signatureStatus !== 'signed_valid' ? '<span class="identity-warning">仅有版本哈希，更新后需重新核验</span>' : ''}${app.installed && app.ruleCoversInstalledVersion === false ? '<span class="identity-warning">安装身份尚未关联可用规则</span>' : ''}${state.view !== 'REVIEW' ? `<span class="badge ${app.state === 'BLOCK' ? 'block' : app.state === 'IGNORE' ? 'ignore' : ''}">${app.state === 'BLOCK' ? '阻止策略' : '已忽略'}</span>` : ''}${state.view === 'BLOCK' ? `<span class="schedule-line${syncPending() ? ' pending' : ''}">${escapeHtml(appScheduleSummary(app))}</span>` : ''}</div>
           <div class="actions">${applicationActions(app)}</div>
         </div>
       </article>`;
@@ -357,7 +389,7 @@
     }
     $('#content').innerHTML = `
       <div class="toolbar">
-        <span class="summary">${primaryRows.length} 个应用${state.view === 'REVIEW' ? ` · ${primaryRows.filter((app) => Number(app.observed)).length} 个 Santa 已发现` : ''}</span>
+        <span class="summary">${primaryRows.length} 个应用${state.view === 'REVIEW' ? ` · ${primaryRows.filter((app) => Number(app.observed)).length} 个 Santa 已发现` : ''}${state.view === 'BLOCK' ? ` · 时区 ${escapeHtml(state.blockSchedules?.timeZone || 'Asia/Shanghai')} <button class="quiet" id="edit-time-zone" type="button">设置时区</button>` : ''}</span>
         <input id="application-search" class="application-search" type="search" value="${escapeHtml(state.applicationQuery)}" placeholder="搜索应用、Bundle ID 或进程路径" aria-label="搜索应用">
       </div>
       ${CATEGORY_ORDER.map((category) => {
@@ -375,6 +407,10 @@
       `).join('')}</details>` : ''}
     `;
     bindApplicationSearch();
+    $('#edit-time-zone')?.addEventListener('click', () => {
+      $('#time-zone-input').value = state.blockSchedules?.timeZone || 'Asia/Shanghai';
+      $('#time-zone-dialog').showModal();
+    });
   }
 
   function renderMacs() {
@@ -410,7 +446,7 @@
         <div class="predefined-match">${item.desired_state === 'BLOCK' ? pending.length ? '身份需确认' : '身份待识别' : '仅供识别，不下发规则'}
           ${pending.map((identity) => `<div class="predefined-identity"><code title="${escapeHtml(identity.identifier)}">${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code><button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">确认</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">排除</button></div>`).join('')}</div>
         <div class="predefined-status"><strong>未匹配</strong><small>未见于当前安装清单或 Santa 记录</small></div>
-        <div class="predefined-actions">${old && item.desired_state === 'BLOCK' ? `<button class="quiet" data-preset-action="DISABLE" data-index="${item.source_index}" title="停用此来源项及已核验组件">停用</button>` : ''}</div>
+        <div class="predefined-actions">${item.desired_state === 'BLOCK' ? `<button class="quiet" data-schedule-type="PREDEFINED" data-schedule-key="${escapeHtml(JSON.stringify([item.source, item.source_index]))}" data-schedule-name="${escapeHtml(item.display_name)}">${escapeHtml(scheduleLabel('PREDEFINED', JSON.stringify([item.source, item.source_index])))}</button>` : ''}${old && item.desired_state === 'BLOCK' ? `<button class="quiet" data-preset-action="DISABLE" data-index="${item.source_index}" title="停用此来源项及已核验组件">停用</button>` : ''}</div>
       </div>`;
     };
     $('#content').innerHTML = `<div class="toolbar"><span class="summary">${sourceItems.length} 个未匹配来源项</span></div>
@@ -430,18 +466,23 @@
         state.data = result.data || [];
         state.merges = [];
       } else if (state.view === 'PREDEFINED') {
-        const [preconfigurations, predefined] = await Promise.all([
-          native('/native/v1/preconfigurations'), native('/native/v1/predefined'),
+        const [preconfigurations, predefined, schedules] = await Promise.all([
+          native('/native/v1/preconfigurations'), native('/native/v1/predefined'), native('/native/v1/block-schedules'),
         ]);
         state.preconfigurations = preconfigurations.data;
         state.predefined = predefined.data;
+        state.blockSchedules = schedules.data;
       } else {
-        const [result, merges] = await Promise.all([
+        const [result, merges, schedules, preconfigurations] = await Promise.all([
           native(`/native/v1/applications?state=${state.view}`),
           native('/native/v1/application-merges'),
+          native('/native/v1/block-schedules'),
+          state.view === 'BLOCK' ? native('/native/v1/preconfigurations') : Promise.resolve({ data: null }),
         ]);
         state.data = result.data || [];
         state.merges = merges.data || [];
+        state.blockSchedules = schedules.data;
+        state.preconfigurations = preconfigurations.data;
       }
       if (state.view === 'MACS') renderMacs();
       else if (state.view === 'PREDEFINED') renderPredefined();
@@ -470,6 +511,36 @@
     await native(`/native/v1/applications/${encodeURIComponent(applicationId)}/decision`, {
       method: 'POST', body: JSON.stringify({ action }),
     });
+    await loadView();
+  }
+  function openBlockSchedule(type, key, name) {
+    state.editingBlockSource = { type, key };
+    const scope = type === 'PUBLISHER' ? '该发布者 TeamID 下的全部应用'
+      : type === 'PREDEFINED' ? '这条预配置项核验过的所有组件身份' : '这个应用的独立阻止规则';
+    $('#block-schedule-title').textContent = name;
+    $('#block-schedule-scope').textContent = `作用范围：${scope}。其他阻止来源仍独立生效。`;
+    const existing = scheduleFor(type, key);
+    $('#block-schedule-all-day').checked = !existing;
+    $('#block-schedule-start').value = existing ? clockTime(existing.start_minute) : '09:00';
+    $('#block-schedule-end').value = existing ? clockTime(existing.end_minute) : '18:00';
+    $('#block-schedule-time-range').hidden = !existing;
+    $('#block-schedule-start').required = !!existing;
+    $('#block-schedule-end').required = !!existing;
+    $('#block-schedule-dialog').showModal();
+  }
+  async function saveBlockSchedule(event) {
+    event.preventDefault();
+    const source = state.editingBlockSource;
+    if (!source) return;
+    const allDay = $('#block-schedule-all-day').checked;
+    const start = $('#block-schedule-start').value;
+    const end = $('#block-schedule-end').value;
+    if (!allDay && start === end) throw new Error('开始和结束时间不能相同；全天请勾选“全天阻止”');
+    await native('/native/v1/block-schedules', {
+      method: 'POST', body: JSON.stringify({ sourceType: source.type, sourceKey: source.key, allDay, start, end }),
+    });
+    $('#block-schedule-dialog').close();
+    if ($('#application-detail-dialog').open) $('#application-detail-dialog').close();
     await loadView();
   }
   async function openApplicationDetails(applicationId) {
@@ -502,10 +573,13 @@
     sourceSection.innerHTML = sources.length ? `<h3>预配置来源 <span>${sources.length}</span></h3><div class="detail-component-list">${sources.map((item) => {
       const old = item.source === 'qustodio-2026-09' ? oldItems.get(item.source_index) : null;
       const pending = (old?.identities || []).filter((identity) => identity.status === 'NEEDS_CONFIRM');
-      return `<div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.source)} · ${item.desired_state === 'BLOCK' ? '期望阻止' : '候选，不下发规则'}${old ? ` · ${escapeHtml(old.status)}` : ''}</small>${pending.map((identity) => `<div class="predefined-identity"><code>${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code><button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">确认身份</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">排除</button></div>`).join('')}</div>`;
+      return `<div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.source)} · ${item.desired_state === 'BLOCK' ? '期望阻止' : '候选，不下发规则'}${old ? ` · ${escapeHtml(old.status)}` : ''}</small>${item.desired_state === 'BLOCK' ? `<button class="quiet" data-schedule-type="PREDEFINED" data-schedule-key="${escapeHtml(JSON.stringify([item.source, item.source_index]))}" data-schedule-name="${escapeHtml(item.display_name)}">时间段 ${escapeHtml(scheduleLabel('PREDEFINED', JSON.stringify([item.source, item.source_index])))}</button>` : ''}${pending.map((identity) => `<div class="predefined-identity"><code>${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code><button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">确认身份</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">排除</button></div>`).join('')}</div>`;
     }).join('')}</div>` : '';
     const advanced = $('#detail-application-advanced');
     const advancedActions = [];
+    if (state.view === 'BLOCK' && app.team_id && app.publisher_blocked) {
+      advancedActions.push(`<button class="secondary" type="button" data-schedule-type="PUBLISHER" data-schedule-key="${escapeHtml(app.team_id)}" data-schedule-name="${escapeHtml(app.publisher || app.team_id)}">发布者时间段 ${escapeHtml(scheduleLabel('PUBLISHER', app.team_id))}</button>`);
+    }
     if (state.view === 'REVIEW' && app.presentationClass !== 'SYSTEM_COMPONENT' && app.policyAvailable !== false) {
       if (app.team_id) advancedActions.push(`<button class="danger" type="button" data-detail-action="BLOCK_PUBLISHER" data-id="${escapeHtml(app.id)}">阻止发布者</button>`);
       advancedActions.push(`<button class="secondary" type="button" data-detail-action="MERGE" data-id="${escapeHtml(app.id)}">合并应用身份</button>`);
@@ -587,14 +661,33 @@
       loadView();
     }));
     $('#refresh-button').addEventListener('click', loadView);
+    $('#block-schedule-all-day').addEventListener('change', (event) => {
+      const timed = !event.target.checked;
+      $('#block-schedule-time-range').hidden = !timed;
+      $('#block-schedule-start').required = timed;
+      $('#block-schedule-end').required = timed;
+    });
+    $('#cancel-block-schedule').addEventListener('click', () => $('#block-schedule-dialog').close());
+    $('#block-schedule-form').addEventListener('submit', (event) => saveBlockSchedule(event).catch(showError));
+    $('#cancel-time-zone').addEventListener('click', () => $('#time-zone-dialog').close());
+    $('#time-zone-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      native('/native/v1/child/time-zone', {
+        method: 'POST', body: JSON.stringify({ timeZone: $('#time-zone-input').value.trim() }),
+      }).then(() => { $('#time-zone-dialog').close(); return loadView(); }).catch(showError);
+    });
     $('#download-profile-button').addEventListener('click', () => {
       try { downloadEnrollmentProfile(); } catch (error) { showError(error); }
     });
     $('#content').addEventListener('click', (event) => {
-      const target = event.target.closest('[data-action], [data-mac-action], [data-preset-action]');
+      const target = event.target.closest('[data-action], [data-mac-action], [data-preset-action], [data-schedule-type]');
       if (!target) return;
-      const promise = target.dataset.presetAction ? presetAction(target) : target.dataset.action === 'DETAIL'
+      const promise = target.dataset.scheduleType
+        ? openBlockSchedule(target.dataset.scheduleType, target.dataset.scheduleKey, target.dataset.scheduleName)
+        : target.dataset.presetAction ? presetAction(target) : target.dataset.action === 'DETAIL'
         ? openApplicationDetails(target.dataset.id)
+        : target.dataset.action === 'SCHEDULE'
+          ? openBlockSchedule('APPLICATION', target.dataset.id, target.dataset.scheduleName || '应用')
         : target.dataset.action === 'MERGE'
           ? openMerge(target.dataset.id)
         : target.dataset.action === 'UNMERGE'
@@ -605,11 +698,15 @@
       Promise.resolve(promise).catch(showError);
     });
     $('#detail-application-preconfiguration').addEventListener('click', (event) => {
+      const scheduled = event.target.closest('[data-schedule-type]');
+      if (scheduled) { event.stopPropagation(); openBlockSchedule(scheduled.dataset.scheduleType, scheduled.dataset.scheduleKey, scheduled.dataset.scheduleName); return; }
       const button = event.target.closest('[data-preset-action]');
       if (button) presetAction(button).catch(showError);
     });
     $('#close-application-detail').addEventListener('click', () => $('#application-detail-dialog').close());
     $('#application-detail-dialog').addEventListener('click', (event) => {
+      const scheduled = event.target.closest('[data-schedule-type]');
+      if (scheduled) { openBlockSchedule(scheduled.dataset.scheduleType, scheduled.dataset.scheduleKey, scheduled.dataset.scheduleName); return; }
       const target = event.target.closest('[data-detail-action]');
       if (!target) return;
       $('#application-detail-dialog').close();

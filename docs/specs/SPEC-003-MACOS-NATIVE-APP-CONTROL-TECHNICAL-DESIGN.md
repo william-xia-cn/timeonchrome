@@ -45,6 +45,12 @@ No table contains Chrome device IDs, Device Tokens, website classifications, tim
 
 SyncBaseURL contains a public endpoint ID and a random scoped secret. D1 stores only the secret hash. The Worker implements standard `preflight`, `eventupload`, `ruledownload` and `postflight` endpoints.
 
+### 每日阻止时间段（本地实现，待部署验收）
+
+Native App Control 独立保存 Child 时区（默认 `Asia/Shanghai`）及应用、预定义项、发布者三类阻止来源的每日时间段。未配置时间段表示全天；非全天时间段为开始包含、结束不包含，允许跨午夜。多个来源命中同一 Santa 身份时取阻止并集。发布者时间段覆盖该 TeamID 的全部应用。
+
+本阶段不升级 Santa。Native Worker 每分钟并在 Santa preflight 前核对时间边界，阻止来源的生效状态改变时提升策略版本；多个来源覆盖同一身份时可能产生一次冗余 clean sync，但不会放行。clean sync 下发当前完整规则集，时间段结束时不生成 ALLOWLIST。终端离线时保留最后一次同步的策略；控制台以 applied/desired 版本显示待同步，不承诺准点切换。既有进程不因新阻止规则而被终止。历史 `BLOCK_PUBLISHER` 同时写入的应用 BLOCK 需要按来源处理，避免发布者时段结束后留下隐性全天阻止。
+
 - First preflight binds an HMAC of Santa MachineID; later mismatches are rejected.
 - Preflight returns Monitor mode, bundle discovery enabled and a 60-second full-sync interval.
 - Preflight 必须返回 `enable_all_event_upload: true`，使 Santa 将明确允许及 macOS 平台应用的主动、未缓存执行决策上传到独立 Native Worker；该云端运行配置不要求重新安装设备 `.mobileconfig`。Santa 的允许决策缓存仍意味着该数据用于应用发现，而不是精确的逐次启动计数。

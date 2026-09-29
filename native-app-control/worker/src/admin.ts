@@ -14,6 +14,7 @@ import {
   unmergeApplication,
 } from './repository';
 import type { Env } from './types';
+import { changeChildTimeZone, listBlockSchedules, reconcileChildSchedules, saveBlockSchedule } from './blockSchedules';
 import {
   decidePredefinedIdentity, disablePredefinedItem, importPreconfigurationSource, listPreconfigurations,
   importPredefinedItems, listPredefinedItems, reconcilePredefinedItems,
@@ -69,6 +70,29 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
 
   if (path === '/native/v1/child' && request.method === 'GET') {
     return json({ accountId: auth.account_id, childId: auth.child_id });
+  }
+  if (path === '/native/v1/block-schedules' && request.method === 'GET') {
+    await reconcileChildSchedules(env, auth.child_id);
+    return json({ data: await listBlockSchedules(env, auth.child_id) });
+  }
+  if (path === '/native/v1/block-schedules' && request.method === 'POST') {
+    try {
+      return json({ data: await saveBlockSchedule(env, auth, {
+        sourceType: body.sourceType as 'APPLICATION' | 'PREDEFINED' | 'PUBLISHER',
+        sourceKey: String(body.sourceKey || ''), allDay: body.allDay as boolean,
+        start: typeof body.start === 'string' ? body.start : undefined,
+        end: typeof body.end === 'string' ? body.end : undefined,
+      }) });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'invalid_schedule' }, 400);
+    }
+  }
+  if (path === '/native/v1/child/time-zone' && request.method === 'POST') {
+    try {
+      return json({ data: await changeChildTimeZone(env, auth, String(body.timeZone || '')) });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'invalid_time_zone' }, 400);
+    }
   }
 
   if (path === '/native/v1/macs' && request.method === 'GET') {

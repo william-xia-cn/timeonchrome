@@ -11,6 +11,7 @@ import {
 } from './repository';
 import type { Env } from './types';
 import { reconcilePredefinedItems } from './presets';
+import { reconcileChildSchedules } from './blockSchedules';
 
 const SANTA_ROUTE = /^\/santa\/v1\/([^/]+)\/([^/]+)\/(preflight|eventupload|ruledownload|postflight)\/([^/]+)$/;
 
@@ -28,6 +29,12 @@ export async function handleSantaRequest(request: Request, env: Env): Promise<Re
   const [, endpointId, secret, stage, machineId] = match;
   const context = await authenticateSanta(env, endpointId, secret, machineId);
   if (!context) return json({ error: 'invalid_or_revoked_enrollment' }, 401);
+  if (stage === 'preflight' || stage === 'ruledownload') {
+    await reconcileChildSchedules(env, context.childId);
+    const version = await env.DB.prepare(`SELECT desired_policy_version FROM native_macs_v1 WHERE id = ?`)
+      .bind(context.nativeMacId).first<{ desired_policy_version: number }>();
+    context.desiredPolicyVersion = Number(version?.desired_policy_version || context.desiredPolicyVersion);
+  }
   const body = await readSantaJsonObject(request);
 
   if (!context.machineHash && stage !== 'preflight') {

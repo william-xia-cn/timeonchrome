@@ -80,6 +80,28 @@
       </div>
     </form>
   </dialog>
+  <dialog id="block-schedule-dialog">
+    <form class="dialog-body" id="block-schedule-form">
+      <div><p class="eyebrow">应用阻止时间段</p><h2 id="block-schedule-title">设置时间段</h2></div>
+      <p class="muted" id="block-schedule-scope"></p>
+      <label class="checkbox-label"><input id="block-schedule-all-day" type="checkbox" checked> 全天阻止</label>
+      <div class="time-range" id="block-schedule-time-range" hidden>
+        <label>开始时间<input id="block-schedule-start" type="time" value="09:00" required></label>
+        <label>结束时间<input id="block-schedule-end" type="time" value="18:00" required></label>
+      </div>
+      <p class="muted">每天按当前孩子的时区重复；允许跨午夜。终端下一次成功同步后生效，离线时保留上次策略。</p>
+      <div class="dialog-actions"><button class="secondary" type="button" id="cancel-block-schedule">取消</button><button class="primary" type="submit">保存</button></div>
+    </form>
+  </dialog>
+  <dialog id="time-zone-dialog">
+    <form class="dialog-body" id="time-zone-form">
+      <div><p class="eyebrow">时间基准</p><h2>孩子的时区</h2></div>
+      <label>IANA 时区<input id="time-zone-input" list="common-time-zones" required></label>
+      <datalist id="common-time-zones"><option value="Asia/Shanghai"><option value="Europe/London"><option value="America/New_York"><option value="America/Los_Angeles"></datalist>
+      <p class="muted">同一孩子的所有 Native Mac 使用此时区。</p>
+      <div class="dialog-actions"><button class="secondary" type="button" id="cancel-time-zone">取消</button><button class="primary" type="submit">保存</button></div>
+    </form>
+  </dialog>
   <dialog id="application-detail-dialog" class="application-detail-dialog">
     <div class="dialog-body">
       <div class="detail-heading">
