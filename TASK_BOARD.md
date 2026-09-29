@@ -4,15 +4,15 @@
 
 ### 治理收口续项：固定工作树位置与遗留目录（D-110）
 
-2026-09-29核对：PR #117 已合入`master@d9ab84a`，目录决策PR #118 已合入`master@a37429b`。标准云端`codex/cloud-management`及Task`codex/task-management-v1`已有固定分支。控件旁路已在`D:\Codex\TimeOnchrome-worktrees\extension-local`落地并推送`codex/extension-local@10621e3`：主线已包含Rest与复合观察的产品代码，本次只修订过时的隔离测试断言；未切换原`81a1`加载目录，也未完成延后的真实30分钟复合分析验收。Santa旁路已在`D:\Codex\TimeOnchrome-worktrees\santa-management`建立本地`codex/santa-management`，从`master@a37429b`逐项提取Santa草稿；目前仍有未提交内容，验证及推送未完成，不视为已整合。主目录`D:\Codex\TimeOnchrome`的控件、Santa及云端混合未提交内容仍保留，Task`f805`仍有未提交内容。
+2026-09-29核对：治理PR #117、#118、#119、#120均已合入`master`。控件旁路已在`D:\Codex\TimeOnchrome-worktrees\extension-local`落地并推送`codex/extension-local@10621e3`：本次只修订过时的隔离测试断言；未切换原`81a1`加载目录，也未完成延后的真实30分钟复合分析验收。Santa旁路已在`D:\Codex\TimeOnchrome-worktrees\santa-management`落地并推送`codex/santa-management@2fa1a1a`，迁入Santa专属草稿；五组Native App单测、类型检查与本地mock桌面/窄屏目视核对通过，真实Mac时间边界和同步尚未验收，未PR合并、未部署。标准云端`codex/cloud-management`及Task`codex/task-management-v1`保留各自固定分支。主目录`D:\Codex\TimeOnchrome`的控件、Santa及云端混合未提交内容仍保留，Task`f805`仍有未提交内容。
 
-固定目录目标：主线`D:\Codex\TimeOnchrome`，旁路在同级`D:\Codex\TimeOnchrome-worktrees\`按工作线命名。当前标准云端继续复用`guardian-release-81949cc`，不因旧名字不匹配而重建。Codex托管工具额外创建了`C:\Users\William\.codex\worktrees\extension-local\TimeOnchrome`（detached，未使用）；归档工具因受保护而拒绝移除，保持原样并单列后续处理，不能用文件删除绕过。扩展候选完成新目录加载复验前，原`81a1`不得移动；Santa草稿验证并逐项分离前，主目录不得更新或清理。Task`f805`保留至所有者处理完脏内容。新分支/目录创建、功能整合、运行引用切换和旧目录清理分别记状态，不混称完成。
+固定目录目标：主线`D:\Codex\TimeOnchrome`，旁路在同级`D:\Codex\TimeOnchrome-worktrees\`按工作线命名。当前标准云端继续复用`guardian-release-81949cc`，不因旧名字不匹配而重建。2026-09-29实时登记为21个工作树、27条本地分支、39条远端分支；五条固定工作线已经有对应分支/目录，但大量旧验收、发布和任务目录仍在，不能冒称收敛至五目录。Codex托管工具额外创建了`C:\Users\William\.codex\worktrees\extension-local\TimeOnchrome`（detached，未使用）；归档工具因受保护而拒绝移除，保持原样并单列后续处理，不能用文件删除绕过。扩展候选完成新目录加载复验前，原`81a1`不得移动；Santa原始草稿仍在脏主目录，必须由所属任务核对残余后才能更新或清理。Task`f805`保留至所有者处理完脏内容。新分支/目录创建、功能整合、运行引用切换和旧目录清理分别记状态，不混称完成。
 
 本续项为纯治理文档：只运行`git diff --check`和文档结构检查；不运行产品测试，不安装、不部署、不改变生产或候选运行状态。
 
 本轮职责`architecture-integration`，允许本任务治理文档、职责检查和固定用例。实施清单：①D-109及PROJECT_WORKFLOW/AGENTS修订；②范围检查区分架构契约、控件、标准云端、Task和Santa；③聚焦测试、CI路由和`git diff --check`；④审计后通过过渡PR合入。本次不移动目录、不清理分支、不部署。目标五个常用目录，不把过渡状态冒称已完成。
 
-目标映射：`master`=架构/集成；`codex/extension-local`=控件（固定D盘工作树已建立，原81a1加载目录仍保留）；`codex/cloud-management`=标准云端（复用`WT\guardian-release-81949cc`）；`codex/task-management-v1`=Task（f805脏树保留）；`codex/santa-management`=Santa（固定D盘工作树已建立，迁移内容仍未提交）。产品/发布阶段不额外占一条工作线。Task默认关闭且不发布。
+目标映射：`master`=架构/集成；`codex/extension-local`=控件（固定D盘工作树已推送，原81a1加载目录仍保留）；`codex/cloud-management`=标准云端（复用`WT\guardian-release-81949cc`）；`codex/task-management-v1`=Task（f805脏树保留）；`codex/santa-management`=Santa（固定D盘工作树已推送，未PR合入）。产品/发布阶段不额外占一条工作线。Task默认关闭且不发布。
 
 下面2026-09-29初查与四工作线表为D-108时点历史，结构以D-109为准；处置清单的HEAD/数量不得直接当作此刻实时状态。
 
