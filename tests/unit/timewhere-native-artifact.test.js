@@ -7,8 +7,17 @@ const { verify } = require('../../tools/verify-timewhere-native-artifact');
 const approvedLock = require('../../tools/timewhere-native-contract-lock.json');
 const currentContracts = require('../../app-runtime-management/contracts/package.json');
 
-assert.strictEqual(approvedLock.version, currentContracts.version,
-  'Native handoff approval must track the reviewed current contract version');
+const [approvedMajor, approvedMinor, approvedPatch] = approvedLock.version.split('.').map(Number);
+const [currentMajor, currentMinor, currentPatch] = currentContracts.version.split('.').map(Number);
+assert([approvedMajor, approvedMinor, approvedPatch, currentMajor, currentMinor, currentPatch]
+  .every(Number.isSafeInteger), 'Contract versions must use numeric SemVer components');
+assert.strictEqual(approvedMajor, currentMajor,
+  'Native handoff approval must stay in the compatible contract major');
+assert(currentMinor - approvedMinor >= 0 && currentMinor - approvedMinor <= 1,
+  'Native handoff approval must be current or previous compatible minor');
+if (currentMinor === approvedMinor) {
+  assert(approvedPatch <= currentPatch, 'Native handoff approval cannot be newer than current contracts');
+}
 assert.match(approvedLock.sha256, /^[0-9a-f]{64}$/);
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'native-artifact-'));

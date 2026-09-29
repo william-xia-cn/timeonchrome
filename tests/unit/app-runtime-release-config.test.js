@@ -35,9 +35,10 @@ assert(workflow.includes('APPLIED_RUNTIME_MIGRATIONS: ${{ steps.migrations.outpu
 const vm = require('vm');
 const hotfixGuard = workflow.match(/node -e '\s*(const e = process\.env;[\s\S]*?)\n\s*'/)[1];
 const approved = { DEFER_MACOS_HOTFIX: 'true', HOTFIX_WORKER_ONLY: 'true', APPLY_RUNTIME_MIGRATIONS: 'false',
-  ACTUAL_PENDING: '0011_runtime_uninstall_operations.sql', HOTFIX_BACKEND_TREE: '20f790cb73feeef9d20852ff46edc0a6fec34b8f' };
+  ACTUAL_PENDING: '0011_runtime_uninstall_operations.sql', HOTFIX_BACKEND_TREE: '4d2f53b0fd0bea05da2a6afc6fbbf07dd2ad2bbb' };
 const guard = (overrides = {}) => vm.runInNewContext(hotfixGuard, { process: { env: { ...approved, ...overrides }, exit() { throw new Error('blocked'); } }, console: { error() {} } });
 guard();
+guard({ HOTFIX_BACKEND_TREE: '20f790cb73feeef9d20852ff46edc0a6fec34b8f' });
 for (const overrides of [{ DEFER_MACOS_HOTFIX: 'false' }, { HOTFIX_WORKER_ONLY: 'false' }, { APPLY_RUNTIME_MIGRATIONS: 'true' },
   { ACTUAL_PENDING: '0011_runtime_uninstall_operations.sql,0012_unknown.sql' }, { HOTFIX_BACKEND_TREE: 'different' }]) {
   assert.throws(() => guard(overrides), /blocked/);
