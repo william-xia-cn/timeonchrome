@@ -1,29 +1,36 @@
 const assert = require('assert/strict');
 const { checkScope, declaration, relevant } = require('../../tools/check-task-scope');
 const check = (role, paths, exceptions) => checkScope(paths, { role, exceptions });
-assert.deepEqual(check('runtime-cloud-contract', ['app-runtime-management/contracts/src/index.ts', 'app-runtime-management/backend/src/index.ts', 'app-runtime-management/console/index.html']), []);
+assert.deepEqual(check('architecture-integration', ['contracts/composite-page-evidence/v1.js', 'app-runtime-management/contracts/src/index.ts', 'PROJECT_WORKFLOW.md', 'tools/check-task-scope.js']), []);
+assert.deepEqual(check('standard-cloud', ['app-runtime-management/backend/src/index.ts', 'app-runtime-management/console/index.html', 'workers/src/index.ts', 'pages/index.html']), []);
 for (const file of ['extension/infra/native-host-client.js', 'dist/native-host-managed-candidate/package-extension/a.js', 'agents/Service/a.cs']) {
-  assert.equal(check('runtime-cloud-contract', [file], { [file]: 'tiny patch' }).length, 1);
+  assert.equal(check('architecture-integration', [file], { [file]: 'tiny patch' }).length, 1);
 }
 assert.equal(check('extension-local', ['app-runtime-management/contracts/src/index.ts']).length, 1);
+assert.equal(check('standard-cloud', ['app-runtime-management/contracts/src/index.ts']).length, 1);
+assert.equal(check('architecture-integration', ['app-runtime-management/backend/src/index.ts']).length, 1);
+assert.equal(check('architecture-integration', ['workers/src/index.ts']).length, 1);
 assert.deepEqual(check('extension-local', ['extension/background.js', 'tests/unit/local-guardian.test.js']), []);
 assert.deepEqual(check('task-local', ['extension/modules/task/domain.js', 'pages/task/index.html', 'workers/src/modules/task/router.ts', 'workers/migrations/021_task_management_v1.sql']), []);
 assert.equal(check('task-local', ['extension/background.js']).length, 1);
 assert.equal(check('extension-local', ['extension/modules/task/domain.js']).length, 1);
-assert.deepEqual(check('santa-specialist', ['native-app-control/a.ts', 'pages/native-apps/index.html', 'workers/src/services/nativeAppIdentityBridge.ts']), []);
+assert.equal(check('standard-cloud', ['workers/src/modules/task/router.ts']).length, 1);
+assert.deepEqual(check('santa-specialist', ['native-app-control/a.ts', 'pages/native-apps/index.html', 'workers/src/services/nativeAppIdentityBridge.ts', 'workers/migrations/022_native_app_identity_bridge.sql']), []);
 assert.equal(check('santa-specialist', ['workers/src/index.ts']).length, 1);
+assert.equal(check('standard-cloud', ['workers/migrations/022_native_app_identity_bridge.sql']).length, 1);
 assert.deepEqual(check('native-local', ['agents/a.cs', 'third_party/contracts-1.15.tgz', 'contracts.lock.json']), []);
 assert.equal(check('native-local', ['app-runtime-management/backend/a.ts']).length, 1);
-assert.deepEqual(check('runtime-cloud-contract', ['workers/src/index.ts', 'workers/migrations/035.sql', 'pages/index.html']), []);
+assert.deepEqual(check('standard-cloud', ['workers/src/index.ts', 'workers/migrations/035.sql', 'pages/index.html']), []);
 for (const file of ['workers/src/index.ts', 'pages/index.html']) {
   assert.equal(check('extension-local', [file], { [file]: 'small fix' }).length, 1);
 }
 for (const file of ['native-app-control/a.ts', 'pages/native-apps/index.html', 'workers/src/services/nativeAppIdentityBridge.ts']) {
-  assert.equal(check('runtime-cloud-contract', [file], { [file]: 'cloud' }).length, 1);
+  assert.equal(check('standard-cloud', [file], { [file]: 'cloud' }).length, 1);
 }
-assert.equal(check('runtime-cloud-contract', ['package-lock.json']).length, 1);
-assert.deepEqual(check('runtime-cloud-contract', ['package-lock.json'], { 'package-lock.json': 'pin contract dependency only' }), []);
-assert.throws(() => declaration('Task-Role: runtime-cloud-contract\nScope-Exception: * | all'));
+assert.equal(check('architecture-integration', ['package-lock.json']).length, 1);
+assert.deepEqual(check('architecture-integration', ['package-lock.json'], { 'package-lock.json': 'pin contract dependency only' }), []);
+assert.throws(() => declaration('Task-Role: architecture-integration\nScope-Exception: * | all'));
+assert.throws(() => declaration('Task-Role: runtime-cloud-contract'));
 assert.throws(() => declaration('Task-Role: nope'));
 assert.throws(() => declaration('Task-Role: release\nTask-Role: extension-local'));
 assert.throws(() => check('native-local', ['../TimeOnchrome/extension/a.js']));
@@ -31,6 +38,7 @@ assert.equal(relevant(['workers/src/index.ts']), true);
 assert.equal(relevant(['workers/src/index.ts', 'TASK_BOARD.md', 'AGENTS.md']), true);
 assert.equal(relevant(['native-app-control/a.ts', 'TASK_BOARD.md']), true);
 assert.equal(relevant(['tools/check-task-scope.js']), true);
+assert.equal(relevant(['contracts/composite-page-evidence/v1.js']), true);
 assert.equal(relevant(['app-runtime-management/docs/TASK_BOARD.md']), true);
 assert.deepEqual(check('release', ['docs/release/checklist.md']), []);
 assert.equal(check('release', ['extension/a.js']).length, 1);

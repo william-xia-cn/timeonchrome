@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 
-const roles = new Set(['runtime-cloud-contract', 'extension-local', 'task-local', 'santa-specialist', 'native-local', 'release']);
+const roles = new Set(['architecture-integration', 'standard-cloud', 'extension-local', 'task-local', 'santa-specialist', 'native-local', 'release']);
 const governance = new Set([
   'AGENTS.md', 'PROJECT_WORKFLOW.md', 'PROJECT_MASTER.md', 'TASK_BOARD.md', 'DECISIONS.md',
   'tools/check-task-scope.js', 'tests/unit/task-scope.test.js',
@@ -29,11 +29,13 @@ function owner(file) {
     || file.startsWith('workers/src/modules/task/')
     || /^workers\/migrations\/\d+_task(?:_|\.)/.test(file)) return 'task-local';
   if (file.startsWith('native-app-control/') || file.startsWith('pages/native-apps/')
-    || file === 'workers/src/services/nativeAppIdentityBridge.ts') return 'santa-specialist';
+    || file === 'workers/src/services/nativeAppIdentityBridge.ts'
+    || /^workers\/migrations\/\d+_native_app(?:_|\.)/.test(file)) return 'santa-specialist';
   if (/^(extension|dist)\//.test(file)) return 'extension-local';
   if (/^(agents|installer)\//.test(file) || /^app-runtime-management\/(agents|installer)\//.test(file)) return 'native-local';
-  if (/^app-runtime-management\/(contracts|backend|console)\//.test(file)) return 'runtime-cloud-contract';
-  if (/^(workers|pages)\//.test(file)) return 'runtime-cloud-contract';
+  if (file.startsWith('contracts/') || file.startsWith('app-runtime-management/contracts/')) return 'architecture-integration';
+  if (/^app-runtime-management\/(backend|console)\//.test(file)) return 'standard-cloud';
+  if (/^(workers|pages)\//.test(file)) return 'standard-cloud';
   return null;
 }
 function checkScope(paths, { role, exceptions = {} }) {
@@ -46,7 +48,8 @@ function checkScope(paths, { role, exceptions = {} }) {
     if (actual && actual !== role) { failures.push(file + ': belongs to ' + actual); continue; }
     const docs = /\.md$/.test(file);
     const allowed = actual === role
-      || (role === 'runtime-cloud-contract' && (governance.has(file) || file.startsWith('app-runtime-management/docs/') || file === 'app-runtime-management/README.md'))
+      || (role === 'architecture-integration' && (governance.has(file) || file.startsWith('app-runtime-management/docs/') || file === 'app-runtime-management/README.md'))
+      || (role === 'standard-cloud' && (file.startsWith('app-runtime-management/docs/') || file === 'app-runtime-management/README.md' || (docs && (file.startsWith('docs/') || ['TASK_BOARD.md', 'PROJECT_MASTER.md'].includes(file)))))
       || (role === 'extension-local' && (file.startsWith('tests/') || (docs && (file.startsWith('docs/') || ['TASK_BOARD.md', 'PROJECT_MASTER.md'].includes(file)))))
       || (role === 'task-local' && ((/^tests\/(unit|e2e)\/task[-/]/.test(file)) || (docs && (file.startsWith('docs/') || ['TASK_BOARD.md', 'PROJECT_MASTER.md'].includes(file)))))
       || (role === 'santa-specialist' && ((/^tests\/(unit|e2e)\/native-app[-/]/.test(file)) || (docs && (file.startsWith('docs/') || ['TASK_BOARD.md', 'PROJECT_MASTER.md'].includes(file)))))

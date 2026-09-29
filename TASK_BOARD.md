@@ -1,6 +1,12 @@
 # TASK_BOARD
 
-## NOW：四工作线与轻量治理收敛（2026-09-29，PO批准）
+## NOW：一条架构集成主线与四条开发旁路（2026-09-29，PO修订）
+
+本轮职责`architecture-integration`，允许本任务治理文档、职责检查和固定用例。实施清单：①D-109及PROJECT_WORKFLOW/AGENTS修订；②范围检查区分架构契约、控件、标准云端、Task和Santa；③聚焦测试、CI路由和`git diff --check`；④审计后通过过渡PR合入。本次不移动目录、不清理分支、不部署。目标五个常用目录，不把过渡状态冒称已完成。
+
+目标映射：`master`=架构/集成；`codex/extension-local`=控件（原81a1加载目录先保留，分支尚未切换）；`codex/cloud-management`=标准云端（复用`WT\guardian-release-81949cc`）；`codex/task-management-v1`=Task（f805脏树保留）；`codex/santa-management`=Santa（主目录混合草稿先分离，固定分支/目录尚未就绪）。产品/发布阶段不额外占一条工作线。Task默认关闭且不发布。
+
+下面2026-09-29初查与四工作线表为D-108时点历史，结构以D-109为准；处置清单的HEAD/数量不得直接当作此刻实时状态。
 
 职责runtime-cloud-contract。固定master控件主线、TaskMg、SantaMg、云端管理四工作线；不再按修复/发布建工作树。先文档→流程检查→精确处置清单→聚焦测试/PR。只修改治理文档、CI路由和发布判断，不改业务、候选、数据库或运行目录。本轮不执行清理，不创建Santa新目录，不迁移混合脏树。
 
