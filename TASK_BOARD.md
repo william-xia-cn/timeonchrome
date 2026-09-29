@@ -4,6 +4,8 @@
 
 ### 治理收口续项：固定工作树位置与遗留目录（D-110）
 
+2026-09-29 历史契约工作树续清理：`D:\Codex\TimeOnchrome-worktrees\runtime-session-boundaries@b2c5b22` 已是主线祖先，精确提交在验证过的 `timeonchrome.bundle` 内；目录无 tracked 改动或运行进程引用，唯一额外内容为两份 `.wrangler/cache` JSON（账户/Pages 缓存，不是 D1 或浏览器 Profile）。先同盘移至 `D:\Codex\worktree-cleanup-backups\2026-09-29\runtime-session-boundaries-cache`，逐份 SHA-256 核对一致，再以非强制 `git worktree remove` 完整移除旧目录。对应本地分支以 `-d`、远端分支以实时 SHA lease 删除。回读：TimeOnChrome 登记工作树 17、本地分支 18、远端分支 29；固定五工作线、原扩展候选、Task `f805`、Santa 旁路和主目录均未改变。备份至少保留至 2026-10-29，不上传云端；本轮未部署或安装。
+
 2026-09-29 云端草稿核对：主目录 `D:\Codex\TimeOnchrome` 中未提交的复合页面复核路由、独立脚本、migration、页面入口及本周 Rest 配置，与现行 `origin/master@6d2028c` 的对应功能逐项对照，主线已有后续修正（复合只读关闭状态见 `72c6f0f`）。旧主目录停在 `2b9d461`，文件哈希不同主要不能被当作遗漏功能证据；本轮不复制旧实现、不改主目录。Santa 专属改动已由所属线核对等价；主目录仍混有控件、云端、Santa 未提交内容及运行依赖，继续整体保护。
 
 2026-09-29 孤立分支续清理：`codex/task-terminal-default-off-v1@8ef79a6` 已为 `origin/master` 祖先，无工作树占用；精确 SHA 已包含在验证过的 `timeonchrome.bundle`。删除对应本地分支，并在实时远端 SHA 相同的条件下以 lease 删除远端分支；残留 `C:\tmp\TimeOnchrome-task-terminal-default-off` 目录和其中可能含认证字段的本地文件未触碰，未进入通用备份。当前登记工作树仍 18，本地分支 19、实时远端分支 30；五个固定目录之外的保留项不因此变成可删除。
