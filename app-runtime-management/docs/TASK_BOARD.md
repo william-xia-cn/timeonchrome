@@ -4,7 +4,7 @@
 
 职责 `runtime-cloud-contract`。已确认云端现状：一次性码在创建机器时消费，云端只存机器 token 哈希；若响应丢失或 Native 落盘失败，旧请求无法恢复同一机器。此项采用请求前持久化的客户端 256-bit token 作恢复证明，不另加 D1 migration；同码同 token 幂等，同码异 token 拒绝，`GET /v2/machines/self` 为重启恢复入口。先发布兼容契约/Worker，再由 Native 所属工作线接入；旧 Windows 请求保持兼容。本轮只实施本地契约和 Worker，不部署、不安装、不改 Native、Guardian、Pages、R2、账本或生产数据。必须验证新旧配对、响应丢失、重放、并发、过期、撤销及异平台拒绝；运行 Contracts/Worker 聚焦测试、typecheck、`git diff --check`，排除无关 UI 与平台构建。云端代码完成不能记作 Mac 实机闭环。
 
-进度：契约 `1.17.0` 经 PR #135 合入 `master@aae76f6`，CI 通过；Worker 同码/同 token/同平台重放与旧请求兼容实现已完成本地聚焦验证，待单独 PR/合并。Native 所属会话已收到固定协议与验收条件；生产 Worker 未部署，Mac 实机未验收，不能标记整体完成。
+进度：契约 `1.17.0` 经 PR #135 合入 `master@aae76f6`，Worker 恢复实现经 PR #136 合入 `master@838a13a`，对应 CI 与聚焦配对回归通过。Native 所属会话已收到固定协议与验收条件；生产 Worker 未部署，Native 适配与 Mac 实机仍待验，不能标记整体完成。
 
 ## COMPLETED：设备管理按视图隔离（2026-09-30）
 
