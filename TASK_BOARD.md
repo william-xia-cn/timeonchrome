@@ -12,9 +12,11 @@
 
 2026-09-29工作线核对续项：Task 所有者确认旧`C:\tmp\TimeOnchrome-task-ack-strict@7aa6b1b`的 ACK 行为和测试已由主线 `55825fb` 的重构实现覆盖，目录干净、无 ignored 文件、会话或进程引用。精确提交在已验证的`timeonchrome.bundle`内；经绝对路径边界复核，以非强制`git worktree remove`移除该检出目录，保留本地/远端分支。TimeOnChrome登记工作树由19减至18。活动`f805`保留，其 P16 五个未提交文件与九张 UI 截图尚未并入主线；是否实施 P16 属于独立产品裁决，Task 仍默认关闭且不发布。`task-host-wiring`虽已合并仍是其会话附加工作树，暂留。控件所有者确认旧 Rest 与复合隐私工作树的代码已在主线，但 `.tmp` 有未备份的隔离浏览器截图、诊断和 Profile，暂不退出；原`81a1`仍是运行中的扩展候选与当前会话目录，不移动。云端旧`app-runtime-attribution-release-20260927`的两份非凭据生产 manifest 已精确复制到`D:\Codex\worktree-cleanup-backups\2026-09-29\attribution-release-manifests\`并逐份核对 SHA-256；其脏工作树仍保留，不重置。旧`app-runtime-release-2.2.1`含本地 D1 状态，不能按普通缓存清理。
 
+Santa 所有者只读对账：原主目录与固定`codex/santa-management@2fa1a1a`的18个 Santa 代码/测试文件及三处专属文档段落内容一致；三个新增文件仅 CRLF/LF 不同，未发现尚未迁入固定旁路的有效 Santa 功能改动。主目录仍是 Santa 会话所在目录，固定旁路的`node_modules` junction 指向主目录，且主目录存在 Native D1、构建临时数据与控件/云端未提交改动；在解除这些依赖前不能移动、删除或同步主目录。此结论仅收口源码归属，不等于 Santa 已合并或发布。
+
 2026-09-29核对：治理PR #117、#118、#119、#120均已合入`master`。控件旁路已在`D:\Codex\TimeOnchrome-worktrees\extension-local`落地并推送`codex/extension-local@10621e3`：本次只修订过时的隔离测试断言；未切换原`81a1`加载目录，也未完成延后的真实30分钟复合分析验收。Santa旁路已在`D:\Codex\TimeOnchrome-worktrees\santa-management`落地并推送`codex/santa-management@2fa1a1a`，迁入Santa专属草稿；五组Native App单测、类型检查与本地mock桌面/窄屏目视核对通过，真实Mac时间边界和同步尚未验收，未PR合并、未部署。标准云端`codex/cloud-management`及Task`codex/task-management-v1`保留各自固定分支。主目录`D:\Codex\TimeOnchrome`的控件、Santa及云端混合未提交内容仍保留，Task`f805`仍有未提交内容。
 
-固定目录目标：主线`D:\Codex\TimeOnchrome`，旁路在同级`D:\Codex\TimeOnchrome-worktrees\`按工作线命名。当前标准云端继续复用`guardian-release-81949cc`，不因旧名字不匹配而重建。最新登记工作树数量见上方工作树清理续项；五条固定工作线已经有对应分支/目录，但大量旧验收、发布和任务目录仍在，不能冒称收敛至五目录。Codex托管工具额外创建了`C:\Users\William\.codex\worktrees\extension-local\TimeOnchrome`（detached，未使用）；归档工具因受保护而拒绝移除，保持原样并单列后续处理，不能用文件删除绕过。扩展候选完成新目录加载复验前，原`81a1`不得移动；Santa原始草稿仍在脏主目录，必须由所属任务核对残余后才能更新或清理。Task`f805`保留至所有者处理完脏内容。新分支/目录创建、功能整合、运行引用切换和旧目录清理分别记状态，不混称完成。
+固定目录目标：主线`D:\Codex\TimeOnchrome`，旁路在同级`D:\Codex\TimeOnchrome-worktrees\`按工作线命名。当前标准云端继续复用`guardian-release-81949cc`，不因旧名字不匹配而重建。最新登记工作树数量见上方工作树清理续项；五条固定工作线已经有对应分支/目录，但大量旧验收、发布和任务目录仍在，不能冒称收敛至五目录。Codex托管工具额外创建了`C:\Users\William\.codex\worktrees\extension-local\TimeOnchrome`（detached，未使用）；归档工具因受保护而拒绝移除，保持原样并单列后续处理，不能用文件删除绕过。扩展候选完成新目录加载复验前，原`81a1`不得移动；Santa 原始草稿的有效内容已由所属任务确认迁入固定旁路，但主目录仍有会话、junction、Native D1 与跨线脏内容依赖，不能清理或原地同步。Task`f805`保留至所有者处理完脏内容。新分支/目录创建、功能整合、运行引用切换和旧目录清理分别记状态，不混称完成。
 
 本续项为纯治理文档：只运行`git diff --check`和文档结构检查；不运行产品测试，不安装、不部署、不改变生产或候选运行状态。
 
