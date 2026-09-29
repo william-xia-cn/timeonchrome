@@ -29,7 +29,7 @@ on:
         required: false
         default: ''
       defer_0011_macos_enrollment_hotfix:
-        description: Approved Mac enrollment hotfix only; retain 0011 unapplied
+        description: Approved exact-tree Worker-only release; retain 0011 unapplied
         type: boolean
         default: false
 
@@ -107,13 +107,17 @@ jobs:
             export HOTFIX_BACKEND_TREE="$(git rev-parse HEAD:app-runtime-management/backend)"
             node -e '
               const e = process.env;
+              const approvedBackendTrees = new Set([
+                "20f790cb73feeef9d20852ff46edc0a6fec34b8f",
+                "4d2f53b0fd0bea05da2a6afc6fbbf07dd2ad2bbb",
+              ]);
               const allowed = e.DEFER_MACOS_HOTFIX === "true" && e.HOTFIX_WORKER_ONLY === "true"
                 && e.APPLY_RUNTIME_MIGRATIONS === "false"
                 && e.ACTUAL_PENDING === "0011_runtime_uninstall_operations.sql"
-                && e.HOTFIX_BACKEND_TREE === "20f790cb73feeef9d20852ff46edc0a6fec34b8f";
+                && approvedBackendTrees.has(e.HOTFIX_BACKEND_TREE);
               if (!allowed) { console.error("Pending Runtime migrations require explicit apply authorization or exact approved hotfix"); process.exit(1); }
             '
-            echo 'Approved Mac enrollment hotfix: 0011 remains unapplied' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Approved exact-tree Worker-only release: 0011 remains unapplied' >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -n "$actual" ] && [ "$APPLY_RUNTIME_MIGRATIONS" = true ]; then
             npx wrangler d1 migrations apply timeonchrome-app-runtime --remote

@@ -6,6 +6,8 @@
 
 进度：契约 `1.17.0` 经 PR #135 合入 `master@aae76f6`，Worker 恢复实现经 PR #136 合入 `master@838a13a`，对应 CI 与聚焦配对回归通过。Native 所属会话已收到固定协议与验收条件；生产 Worker 未部署，Native 适配与 Mac 实机仍待验，不能标记整体完成。
 
+发布裁决（2026-09-30）：PO 明确批准先部署兼容 Runtime Worker，再等待 Native 完善。生产仍有待执行的 `0011_runtime_uninstall_operations.sql`；本次配对恢复只依赖既有配对码、机器和策略版本表，不执行卸载操作，不依赖 `0011`。仅允许已验证的 backend tree `4d2f53b0fd0bea05da2a6afc6fbbf07dd2ad2bbb` 走显式 Worker-only 延期例外；待执行清单必须精确为 `0011`，不执行 migration，不部署 Pages/Guardian/R2。发布配置聚焦测试、精确 master CI 和生产环境审核不得省略；部署后只核对健康、未认证拒绝及新协议的非破坏性校验，不生成真实配对码。Native 实现和 Mac 实机仍独立待验。
+
 ## COMPLETED：设备管理按视图隔离（2026-09-30）
 
 已完成：PR #132 / `master@089a4a7` 发布独立 Runtime Pages deployment `1ba325f2`；真实登录确认 Windows/macOS 机器列表、详情、账户分配和状态可读取。旧设备刷新同时请求 App Policy、应用目录与归类记录，故其他接口失败会显示全局错误；修正后设备视图只请求机器与账户，使用统计单独请求，管理数据进入其视图时加载。聚焦浏览器 8 场景（含目录 500 与设备刷新隔离）、设备测试、语法/typecheck、`git diff --check` 和桌面故障场景目视均通过。最终 Pages-only 发布以 PR #133 / `master@62c4700`、deployment `9c2701c2` 后续修正记录为准；真实登录再次点击设备“刷新”，机器列表更新且无错误横幅，Windows/macOS 抽屉及账户分配均可查看。Worker、Guardian、主 Pages 和 `0011` migration 未部署。统计 `SQLITE_NOMEM` 仍独立待修，不能标记统计恢复。最终审计：Matched＝设备管理恢复、隔离与线上实测；Deviated/Extra＝无；Missing＝无（统计故障不属于本轮完成目标）。
