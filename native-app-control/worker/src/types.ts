@@ -27,7 +27,8 @@ export type SantaEnrollmentContext = {
 
 export type SantaRule = {
   identifier: string;
-  policy: 'BLOCKLIST' | 'ALLOWLIST';
+  policy: 'BLOCKLIST' | 'ALLOWLIST' | 'CEL';
   rule_type: 'SIGNINGID' | 'CDHASH' | 'BINARY' | 'TEAMID';
+  cel_expr?: string;
   custom_msg?: string;
 };

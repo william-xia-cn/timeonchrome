@@ -12,6 +12,7 @@ import {
 import type { Env } from './types';
 import { reconcilePredefinedItems } from './presets';
 import { reconcileChildSchedules } from './blockSchedules';
+import { compileNativeTimedRules, loadNativeTimedPolicy, supportsNativeTimeRules } from './nativeCelPolicy';
 
 const SANTA_ROUTE = /^\/santa\/v1\/([^/]+)\/([^/]+)\/(preflight|eventupload|ruledownload|postflight)\/([^/]+)$/;
 
@@ -83,8 +84,17 @@ export async function handleSantaRequest(request: Request, env: Env): Promise<Re
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : 'baseline_rule_invalid' }, 503);
     }
-    const policy = await loadBlockedPolicy(env, context.childId);
-    const rules = compileSantaRules(policy.applications, policy.publishers, baseline);
+    const nativeConfig = await env.DB.prepare(`SELECT santa_version, native_time_rules_enabled
+      FROM native_macs_v1 WHERE id = ?`).bind(context.nativeMacId)
+      .first<{ santa_version: string | null; native_time_rules_enabled: number }>();
+    let rules;
+    if (nativeConfig?.native_time_rules_enabled && supportsNativeTimeRules(nativeConfig.santa_version)) {
+      const policy = await loadNativeTimedPolicy(env, context.childId);
+      rules = compileNativeTimedRules(policy.identities, policy.publishers, policy.timeZone, baseline);
+    } else {
+      const policy = await loadBlockedPolicy(env, context.childId);
+      rules = compileSantaRules(policy.applications, policy.publishers, baseline);
+    }
     await markRuleDownload(env, context.nativeMacId, context.desiredPolicyVersion);
     return json({
       rules,

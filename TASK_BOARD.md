@@ -2154,6 +2154,7 @@ Checklist：
 
 ## 维护约定
 - [ ] [V1 Native App Control] Santa 每日阻止时间段：Native D1 migration、Worker 定时切换/同步前补偿、应用/预配置/发布者 UI 与本地测试已实现；仍需生产 migration、部署及真实 Mac 在时间边界的人工验收。此项与 Chrome 网页记账无关。
+- [ ] [V1 Native App Control / 原生时间规则] 在 Santa 2026.8 现有安装上，将“已阻止应用”多选批量设置同一每日时段，按指定 Native Mac 显式启用 CEL 本地时间判定；未启用设备保持旧同步切换。已完成本地源码与聚焦测试，仍需合入主线、生产 migration/部署及真实 Mac 新启动窗口内外验收。不存在独立命名“应用组”。
 - 每个任务必须标注阶段（V0/V1）
 - 每次只推进单主题小包
 - 完成后同步更新本板与 DECISIONS

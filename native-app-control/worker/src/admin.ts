@@ -14,7 +14,9 @@ import {
   unmergeApplication,
 } from './repository';
 import type { Env } from './types';
-import { changeChildTimeZone, listBlockSchedules, reconcileChildSchedules, saveBlockSchedule } from './blockSchedules';
+import { changeChildTimeZone, listBlockSchedules, reconcileChildSchedules,
+  saveBlockSchedule, saveBlockSchedulesBulk } from './blockSchedules';
+import { setNativeTimeRulesEnabled } from './nativeCelPolicy';
 import {
   decidePredefinedIdentity, disablePredefinedItem, importPreconfigurationSource, listPreconfigurations,
   importPredefinedItems, listPredefinedItems, reconcilePredefinedItems,
@@ -25,6 +27,7 @@ const APPLICATION_MERGE_RE = /^\/native\/v1\/applications\/([^/]+)\/merge$/;
 const APPLICATION_UNMERGE_RE = /^\/native\/v1\/applications\/([^/]+)\/unmerge$/;
 const MAC_REVOKE_RE = /^\/native\/v1\/macs\/([^/]+)\/revoke$/;
 const MAC_ROTATE_RE = /^\/native\/v1\/macs\/([^/]+)\/rotate-enrollment$/;
+const MAC_NATIVE_TIME_RE = /^\/native\/v1\/macs\/([^/]+)\/native-time-rules$/;
 const MAC_INVENTORY_RE = /^\/native\/v1\/macs\/([^/]+)\/inventory$/;
 const PREDEFINED_IDENTITY_RE = /^\/native\/v1\/predefined\/([0-9]+)\/identities\/decision$/;
 const PREDEFINED_DISABLE_RE = /^\/native\/v1\/predefined\/([0-9]+)\/disable$/;
@@ -75,6 +78,18 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
     await reconcileChildSchedules(env, auth.child_id);
     return json({ data: await listBlockSchedules(env, auth.child_id) });
   }
+  if (path === '/native/v1/block-schedules/bulk' && request.method === 'POST') {
+    try {
+      return json({ data: await saveBlockSchedulesBulk(env, auth, {
+        sources: body.sources as Array<{ sourceType: 'APPLICATION' | 'PREDEFINED' | 'PUBLISHER'; sourceKey: string }>,
+        allDay: body.allDay as boolean,
+        start: typeof body.start === 'string' ? body.start : undefined,
+        end: typeof body.end === 'string' ? body.end : undefined,
+      }) });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'invalid_schedule' }, 400);
+    }
+  }
   if (path === '/native/v1/block-schedules' && request.method === 'POST') {
     try {
       return json({ data: await saveBlockSchedule(env, auth, {
@@ -116,6 +131,16 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
   if (rotateMatch && request.method === 'POST') {
     const enrollment = await rotateEnrollment(env, auth, rotateMatch[1]);
     return enrollment ? json({ data: enrollment }) : json({ error: 'native_mac_not_found' }, 404);
+  }
+
+  const nativeTimeMatch = path.match(MAC_NATIVE_TIME_RE);
+  if (nativeTimeMatch && request.method === 'POST') {
+    if (typeof body.enabled !== 'boolean') return json({ error: 'invalid_native_time_rules_state' }, 400);
+    try {
+      return json({ enabled: await setNativeTimeRulesEnabled(env, auth, nativeTimeMatch[1], body.enabled) });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'invalid_native_time_rules_state' }, 400);
+    }
   }
 
   const inventoryMatch = path.match(MAC_INVENTORY_RE);

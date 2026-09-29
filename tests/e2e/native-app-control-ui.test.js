@@ -336,6 +336,75 @@ test('已阻止应用可保存跨午夜时间段', async ({ page }) => {
   });
 });
 
+for (const viewport of [{ name: 'desktop', width: 1366, height: 800 },
+  { name: 'narrow', width: 720, height: 900 }]) {
+  test(`已阻止应用批量时间段 ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await mockApis(page);
+    await page.route('**/native/v1/applications?state=BLOCK', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: [
+        { id: 'firefox', display_name: 'Firefox', publisher: 'Mozilla', state: 'BLOCK',
+          directBlockApplicationId: 'firefox', presentationClass: 'USER_APPLICATION',
+          contentCategory: '其它', policyAvailable: true },
+        { id: 'steam', display_name: 'Steam', publisher: 'Valve', state: 'BLOCK',
+          directBlockApplicationId: 'steam', presentationClass: 'USER_APPLICATION',
+          contentCategory: '游戏', policyAvailable: true },
+      ] }),
+    }));
+    let saved;
+    await page.route('**/native/v1/block-schedules/bulk', (route) => {
+      saved = route.request().postDataJSON();
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
+        timeZone: 'Asia/Shanghai', schedules: [], macs: [],
+      } }) });
+    });
+    await page.goto(`${baseUrl}/native-apps/index.html`);
+    await page.getByRole('button', { name: '已阻止' }).click();
+    await page.locator('details.category-group').filter({ has: page.getByText('其它', { exact: true }) })
+      .locator('summary').click();
+    await page.getByLabel('选择 Firefox').check();
+    await page.getByLabel('选择 Steam').check();
+    await expect(page.locator('#bulk-block-count')).toHaveText('2');
+    await page.getByRole('button', { name: /设置所选时间段/ }).click();
+    await expect(page.getByRole('heading', { name: '设置 2 款应用的时间段' })).toBeVisible();
+    await page.getByLabel('全天阻止').uncheck();
+    await page.getByLabel('开始时间').fill('21:00');
+    await page.getByLabel('结束时间').fill('07:00');
+    await page.screenshot({ path: path.join(ROOT, '.artifacts',
+      `native-app-bulk-schedule-${viewport.name}.png`), fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+    await page.getByRole('button', { name: '保存' }).click();
+    await expect.poll(() => saved).toEqual({ sources: [
+      { sourceType: 'APPLICATION', sourceKey: 'firefox' },
+      { sourceType: 'APPLICATION', sourceKey: 'steam' },
+    ], allDay: false, start: '21:00', end: '07:00' });
+  });
+}
+
+test('指定 Native Mac 可选择性启用原生时间规则', async ({ page }) => {
+  await mockApis(page);
+  let enabled = false;
+  await page.route('**/native/v1/macs', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{
+      id: 'mac-1', display_name: 'Thomas MacBook', hostname: 'thomas-mac', status: 'active',
+      santa_version: '2026.8', os_version: '15.6', native_time_rules_enabled: Number(enabled),
+      applied_policy_version: 3, desired_policy_version: enabled ? 4 : 3,
+      last_preflight_at: Date.now(),
+    }] }),
+  }));
+  await page.route('**/native/v1/macs/mac-1/native-time-rules', (route) => {
+    enabled = route.request().postDataJSON().enabled;
+    route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ enabled }) });
+  });
+  page.on('dialog', (dialog) => dialog.accept());
+  await page.goto(`${baseUrl}/native-apps/index.html`);
+  await page.getByRole('button', { name: 'Native Macs' }).click();
+  await page.getByRole('button', { name: '启用原生时间规则' }).click();
+  await expect(page.getByRole('button', { name: '关闭原生时间规则' })).toBeVisible();
+  expect(enabled).toBe(true);
+});
+
 for (const viewport of [{ name: 'desktop', width: 1366, height: 800 }, { name: 'narrow', width: 720, height: 900 }]) {
   test(`预定义管控 21 项与组件层级 ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });

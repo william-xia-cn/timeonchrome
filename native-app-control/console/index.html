@@ -89,7 +89,7 @@
         <label>开始时间<input id="block-schedule-start" type="time" value="09:00" required></label>
         <label>结束时间<input id="block-schedule-end" type="time" value="18:00" required></label>
       </div>
-      <p class="muted">每天按当前孩子的时区重复；允许跨午夜。终端下一次成功同步后生效，离线时保留上次策略。</p>
+      <p class="muted">每天按当前孩子的时区重复，可跨午夜。启用原生时间规则的 Mac 在同步后由 Santa 本地判定；其他 Mac 沿用同步时切换。</p>
       <div class="dialog-actions"><button class="secondary" type="button" id="cancel-block-schedule">取消</button><button class="primary" type="submit">保存</button></div>
     </form>
   </dialog>

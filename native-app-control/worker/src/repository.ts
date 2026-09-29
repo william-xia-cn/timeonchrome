@@ -67,7 +67,7 @@ export async function createNativeMac(env: Env, auth: NativeAuth, displayName: s
 export async function listNativeMacs(env: Env, auth: NativeAuth) {
   const result = await env.DB.prepare(`
     SELECT id, display_name, status, hostname, serial_number, primary_user,
-           os_version, santa_version, desired_policy_version,
+           os_version, santa_version, native_time_rules_enabled, desired_policy_version,
            downloaded_policy_version, applied_policy_version,
            last_preflight_at, last_postflight_at, inventory_snapshot_id,
            (SELECT application_count FROM native_app_inventory_snapshots_v1

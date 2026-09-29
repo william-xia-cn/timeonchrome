@@ -26,7 +26,7 @@ function database() {
   const sqlite = new DatabaseSync(':memory:');
   for (const name of ['001_native_app_control_v1.sql', '002_native_app_inventory_v1.sql',
     '003_native_app_predefined_controls_v1.sql', '004_native_app_preconfiguration_source_v1.sql',
-    '005_native_app_block_schedules_v1.sql']) {
+    '005_native_app_block_schedules_v1.sql', '006_native_time_rules_opt_in_v1.sql']) {
     sqlite.exec(fs.readFileSync(path.join(ROOT, 'native-app-control/worker/migrations', name), 'utf8'));
   }
   const statement = (sql, args = []) => ({
@@ -49,6 +49,9 @@ const schedules = load('native-app-control/worker/src/blockSchedules.ts');
 const policy = load('native-app-control/worker/src/policy.ts');
 const repository = load('native-app-control/worker/src/repository.ts', {
   './policy': policy, './crypto': { hmacHex: async () => '', randomSecret: () => '' },
+});
+const nativeCel = load('native-app-control/worker/src/nativeCelPolicy.ts', {
+  './policy': policy, './blockSchedules': schedules,
 });
 
 (async () => {
@@ -113,6 +116,49 @@ const repository = load('native-app-control/worker/src/repository.ts', {
   await schedules.saveBlockSchedule(env, auth, {
     sourceType: 'PREDEFINED', sourceKey: '["source-a",1]', allDay: false, start: '09:00', end: '11:00',
   });
+  assert.equal(nativeCel.supportsNativeTimeRules('2026.8'), true);
+  assert.equal(nativeCel.supportsNativeTimeRules('2026.8 (build 1)'), true);
+  assert.equal(nativeCel.supportsNativeTimeRules('2026.7'), false);
+  const baseline = { identifier: '0'.repeat(64), policy: 'ALLOWLIST', rule_type: 'BINARY' };
+  const hashRules = nativeCel.compileNativeTimedRules([
+    { identity_type: 'CDHASH', identifier: 'a'.repeat(40), team_id: null,
+      start_minute: 540, end_minute: 660 },
+  ], [{ team_id: 'TEAM', start_minute: null, end_minute: null }], 'Asia/Shanghai', baseline);
+  assert.match(hashRules.find((rule) => rule.rule_type === 'CDHASH').cel_expr,
+    /target\.team_id == "TEAM" \? BLOCKLIST/,
+    'a more specific hash rule must not mask an all-day publisher block when TeamID is unknown');
+  let nativePolicy = await nativeCel.loadNativeTimedPolicy(env, 'child');
+  let nativeRules = nativeCel.compileNativeTimedRules(nativePolicy.identities,
+    nativePolicy.publishers, nativePolicy.timeZone, baseline);
+  const appRule = nativeRules.find((rule) => rule.identifier === 'TEAM:app');
+  assert.equal(appRule.policy, 'CEL');
+  assert.equal(nativeRules.filter((rule) => rule.identifier === 'TEAM:app').length, 1,
+    'overlapping direct, predefined and publisher sources compile to one identity rule');
+  assert.match(appRule.cel_expr, /policy_for_range/);
+  assert.equal(nativeRules.find((rule) => rule.rule_type === 'TEAMID').policy, 'CEL');
+  await assert.rejects(() => nativeCel.setNativeTimeRulesEnabled(env, auth, 'mac', true),
+    /santa_2026_8_required/);
+  sqlite.exec("UPDATE native_macs_v1 SET santa_version = '2026.8' WHERE id = 'mac'");
+  await nativeCel.setNativeTimeRulesEnabled(env, auth, 'mac', true);
+  assert.equal(sqlite.prepare("SELECT native_time_rules_enabled FROM native_macs_v1 WHERE id = 'mac'").get().native_time_rules_enabled, 1);
+  const beforeBulk = sqlite.prepare("SELECT policy_version FROM native_children_v1 WHERE child_id = 'child'").get().policy_version;
+  await assert.rejects(() => schedules.saveBlockSchedulesBulk(env, auth, {
+    sources: [{ sourceType: 'APPLICATION', sourceKey: 'app' },
+      { sourceType: 'APPLICATION', sourceKey: 'missing' }],
+    allDay: false, start: '13:00', end: '14:00',
+  }), /block_source_not_found/);
+  assert.equal(sqlite.prepare("SELECT start_minute FROM native_app_block_schedules_v1 WHERE source_key = 'app'").get().start_minute, 540);
+  await schedules.saveBlockSchedulesBulk(env, auth, {
+    sources: [{ sourceType: 'APPLICATION', sourceKey: 'app' },
+      { sourceType: 'PREDEFINED', sourceKey: '["source-a",1]' }],
+    allDay: false, start: '13:00', end: '14:00',
+  });
+  assert.equal(sqlite.prepare("SELECT policy_version FROM native_children_v1 WHERE child_id = 'child'").get().policy_version, beforeBulk + 1);
+  nativePolicy = await nativeCel.loadNativeTimedPolicy(env, 'child');
+  nativeRules = nativeCel.compileNativeTimedRules(nativePolicy.identities,
+    nativePolicy.publishers, nativePolicy.timeZone, baseline);
+  assert.match(nativeRules.find((rule) => rule.identifier === 'TEAM:app').cel_expr, /now\(\)/,
+    'different overlapping windows form one native CEL rule');
   await schedules.reconcileChildSchedules(env, 'child', Date.UTC(2026, 8, 29, 1, 0));
   const version = sqlite.prepare("SELECT policy_version FROM native_children_v1 WHERE child_id = 'child'").get().policy_version;
   await schedules.reconcileChildSchedules(env, 'child', Date.UTC(2026, 8, 29, 1, 0));
@@ -128,6 +174,11 @@ const repository = load('native-app-control/worker/src/repository.ts', {
   await schedules.saveBlockSchedule(env, auth, {
     sourceType: 'PUBLISHER', sourceKey: 'TEAM', allDay: true,
   });
+  nativePolicy = await nativeCel.loadNativeTimedPolicy(env, 'child');
+  nativeRules = nativeCel.compileNativeTimedRules(nativePolicy.identities,
+    nativePolicy.publishers, nativePolicy.timeZone, baseline);
+  assert.equal(nativeRules.find((rule) => rule.identifier === 'TEAM:app').policy, 'BLOCKLIST',
+    'all-day publisher block wins over timed application sources');
   blocked = await repository.loadBlockedPolicy(env, 'child');
   assert.equal(blocked.applications.length, 0);
   assert.equal(blocked.publishers.length, 1, 'publisher still blocks when application source is inactive');

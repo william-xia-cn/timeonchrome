@@ -40,7 +40,8 @@ export async function listBlockSchedules(env: Env, childId: string) {
     childTimeZone(env, childId),
     env.DB.prepare('SELECT source_type, source_key, start_minute, end_minute, effective_active FROM native_app_block_schedules_v1 WHERE child_id = ?')
       .bind(childId).all<BlockSchedule>(),
-    env.DB.prepare(`SELECT id, display_name, desired_policy_version, applied_policy_version, last_postflight_at
+    env.DB.prepare(`SELECT id, display_name, santa_version, native_time_rules_enabled,
+      desired_policy_version, applied_policy_version, last_postflight_at
       FROM native_macs_v1 WHERE child_id = ? AND status = 'active' ORDER BY display_name`)
       .bind(childId).all(),
   ]);
@@ -96,12 +97,70 @@ export async function saveBlockSchedule(env: Env, auth: NativeAuth, input: {
         start_minute = excluded.start_minute, end_minute = excluded.end_minute,
         effective_active = excluded.effective_active, updated_at = excluded.updated_at`)
       .bind(auth.child_id, sourceType, sourceKey, start, end, Number(active), stamp)];
-  if (wasActive !== active) statements.push(...versionStatements(env, auth.child_id, stamp));
+  if (wasActive !== active || (!old && !allDay)
+    || (old && (old.start_minute !== start || old.end_minute !== end))) {
+    statements.push(...versionStatements(env, auth.child_id, stamp));
+  }
   statements.push(env.DB.prepare(`INSERT INTO native_app_audit_events_v1
     (id, child_id, account_id, event_type, result, metadata_json, created_at)
     VALUES (?, ?, ?, 'block_schedule.changed', 'success', ?, ?)`)
     .bind(crypto.randomUUID(), auth.child_id, auth.account_id,
       JSON.stringify({ sourceType, sourceKey, allDay, start: input.start, end: input.end }), stamp));
+  await env.DB.batch(statements);
+  return listBlockSchedules(env, auth.child_id);
+}
+
+export async function saveBlockSchedulesBulk(env: Env, auth: NativeAuth, input: {
+  sources: Array<{ sourceType: BlockSource; sourceKey: string }>;
+  allDay: boolean; start?: string; end?: string;
+}) {
+  if (!Array.isArray(input.sources) || !input.sources.length || input.sources.length > 100
+    || typeof input.allDay !== 'boolean') throw new Error('invalid_schedule_sources');
+  const unique = new Map<string, { sourceType: BlockSource; sourceKey: string }>();
+  for (const source of input.sources) {
+    if (!source || !['APPLICATION', 'PREDEFINED'].includes(source.sourceType)
+      || typeof source.sourceKey !== 'string' || !source.sourceKey || source.sourceKey.length > 300) {
+      throw new Error('invalid_schedule_source');
+    }
+    unique.set(`${source.sourceType}:${source.sourceKey}`, source);
+  }
+  const start = input.allDay ? null : minuteOfDay(input.start || '');
+  const end = input.allDay ? null : minuteOfDay(input.end || '');
+  if (!input.allDay && (start === null || end === null || start === end)) throw new Error('invalid_schedule_time');
+  for (const source of unique.values()) {
+    if (!await sourceExists(env, auth.child_id, source.sourceType, source.sourceKey)) {
+      throw new Error('block_source_not_found');
+    }
+  }
+  const zone = await childTimeZone(env, auth.child_id);
+  const active = input.allDay || scheduleActive(start!, end!, zone, Date.now());
+  const stamp = Date.now();
+  const statements: D1PreparedStatement[] = [];
+  for (const source of unique.values()) {
+    const old = await env.DB.prepare(`SELECT start_minute, end_minute, effective_active
+      FROM native_app_block_schedules_v1 WHERE child_id = ? AND source_type = ? AND source_key = ?`)
+      .bind(auth.child_id, source.sourceType, source.sourceKey).first<BlockSchedule>();
+    if (input.allDay && !old) continue;
+    if (!input.allDay && old?.start_minute === start && old?.end_minute === end) continue;
+    statements.push(input.allDay
+      ? env.DB.prepare(`DELETE FROM native_app_block_schedules_v1
+        WHERE child_id = ? AND source_type = ? AND source_key = ?`)
+        .bind(auth.child_id, source.sourceType, source.sourceKey)
+      : env.DB.prepare(`INSERT INTO native_app_block_schedules_v1
+        (child_id, source_type, source_key, start_minute, end_minute, effective_active, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(child_id, source_type, source_key) DO UPDATE SET
+          start_minute = excluded.start_minute, end_minute = excluded.end_minute,
+          effective_active = excluded.effective_active, updated_at = excluded.updated_at`)
+        .bind(auth.child_id, source.sourceType, source.sourceKey, start, end, Number(active), stamp));
+  }
+  if (!statements.length) return listBlockSchedules(env, auth.child_id);
+  statements.push(...versionStatements(env, auth.child_id, stamp));
+  statements.push(env.DB.prepare(`INSERT INTO native_app_audit_events_v1
+    (id, child_id, account_id, event_type, result, metadata_json, created_at)
+    VALUES (?, ?, ?, 'block_schedule.bulk_changed', 'success', ?, ?)`)
+    .bind(crypto.randomUUID(), auth.child_id, auth.account_id,
+      JSON.stringify({ sources: [...unique.values()], allDay: input.allDay, start: input.start, end: input.end }), stamp));
   await env.DB.batch(statements);
   return listBlockSchedules(env, auth.child_id);
 }
@@ -149,8 +208,15 @@ export async function reconcileAllSchedules(env: Env): Promise<void> {
 
 export async function changeChildTimeZone(env: Env, auth: NativeAuth, zone: string) {
   if (!zone || zone.length > 100 || !validTimeZone(zone)) throw new Error('invalid_time_zone');
+  const current = await childTimeZone(env, auth.child_id);
+  if (current === zone) return listBlockSchedules(env, auth.child_id);
   await env.DB.prepare('UPDATE native_children_v1 SET time_zone = ?, updated_at = ? WHERE child_id = ? AND account_id = ?')
     .bind(zone, Date.now(), auth.child_id, auth.account_id).run();
+  const version = await env.DB.prepare('SELECT policy_version FROM native_children_v1 WHERE child_id = ?')
+    .bind(auth.child_id).first<{ policy_version: number }>();
   await reconcileChildSchedules(env, auth.child_id);
+  const after = await env.DB.prepare('SELECT policy_version FROM native_children_v1 WHERE child_id = ?')
+    .bind(auth.child_id).first<{ policy_version: number }>();
+  if (after?.policy_version === version?.policy_version) await env.DB.batch(versionStatements(env, auth.child_id, Date.now()));
   return listBlockSchedules(env, auth.child_id);
 }
