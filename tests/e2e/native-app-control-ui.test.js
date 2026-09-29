@@ -88,6 +88,23 @@ async function mockApis(page) {
   }));
   await page.route('https://timeonchrome-native-app-api.william-xia-cn.workers.dev/**', (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === '/native/v1/block-schedules') {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
+        timeZone: 'Asia/Shanghai', schedules: [], macs: [{ id: 'mac-1',
+          desired_policy_version: 3, applied_policy_version: 3 }],
+      } }) });
+      return;
+    }
+    if (url.pathname === '/native/v1/preconfigurations') {
+      const items = Array.from({ length: 21 }, (_, index) => ({
+        source: 'qustodio-2026-09', source_index: index + 1,
+        display_name: index === 0 ? 'Steam' : `预配置应用 ${index + 1}`,
+        bundle_id: `org.example.app${index + 1}`, desired_state: 'BLOCK',
+        parent_source_index: index === 1 ? 1 : null,
+      }));
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: { items } }) });
+      return;
+    }
     if (url.pathname === '/native/v1/predefined') {
       const items = Array.from({ length: 21 }, (_, index) => ({
         source_index: index + 1, display_name: `预定义应用 ${index + 1}`,
@@ -126,6 +143,7 @@ async function mockApis(page) {
       id: 'app-preconfigured', display_name: 'Firefox', publisher: 'Mozilla',
       team_id: '43AQ936H96', top_level_bundle_id: 'org.mozilla.firefox', state: 'BLOCK', observed: 0,
       presentationClass: 'USER_APPLICATION', contentCategory: '其它', policyAvailable: true,
+      directBlockApplicationId: 'app-preconfigured',
     }] : [
       {
         id: 'app-1', display_name: 'Example Study App', publisher: 'Example Publisher',
@@ -191,6 +209,12 @@ for (const viewport of [{ name: 'desktop', width: 1280, height: 800 }, { name: '
     await page.getByRole('button', { name: '已阻止' }).click();
     await expect(page.getByText('Firefox', { exact: true })).toBeVisible();
     await expect(page.getByText('预置规则 · 尚未在终端发现')).toBeVisible();
+    await expect(page.getByText('全天 · 云端目标阻止 · 终端已同步')).toBeVisible();
+    await page.getByRole('button', { name: '时间段', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Firefox' })).toBeVisible();
+    await page.getByLabel('全天阻止').uncheck();
+    await expect(page.getByLabel('开始时间')).toBeVisible();
+    await page.getByRole('button', { name: '取消' }).click();
     await page.screenshot({ path: path.join(ROOT, '.artifacts', `native-app-control-block-${viewport.name}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Native Macs' }).click();
     await expect(page.getByText('Pierce MacBook')).toBeVisible();
@@ -289,17 +313,109 @@ for (const viewport of [{ name: 'desktop', width: 1366, height: 800 }, { name: '
   });
 }
 
+test('已阻止应用可保存跨午夜时间段', async ({ page }) => {
+  await mockApis(page);
+  let saved;
+  await page.route('**/native/v1/block-schedules', (route) => {
+    if (route.request().method() === 'POST') saved = route.request().postDataJSON();
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
+      timeZone: 'Asia/Shanghai', schedules: [], macs: [{ id: 'mac-1', desired_policy_version: 3,
+        applied_policy_version: 3 }],
+    } }) });
+  });
+  await page.goto(`${baseUrl}/native-apps/index.html`);
+  await page.getByRole('button', { name: '已阻止' }).click();
+  await page.getByRole('button', { name: '时间段', exact: true }).click();
+  await page.getByLabel('全天阻止').uncheck();
+  await page.getByLabel('开始时间').fill('22:00');
+  await page.getByLabel('结束时间').fill('02:00');
+  await page.getByRole('button', { name: '保存' }).click();
+  await expect.poll(() => saved).toEqual({
+    sourceType: 'APPLICATION', sourceKey: 'app-preconfigured', allDay: false,
+    start: '22:00', end: '02:00',
+  });
+});
+
+for (const viewport of [{ name: 'desktop', width: 1366, height: 800 },
+  { name: 'narrow', width: 720, height: 900 }]) {
+  test(`已阻止应用批量时间段 ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await mockApis(page);
+    await page.route('**/native/v1/applications?state=BLOCK', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ data: [
+        { id: 'firefox', display_name: 'Firefox', publisher: 'Mozilla', state: 'BLOCK',
+          directBlockApplicationId: 'firefox', presentationClass: 'USER_APPLICATION',
+          contentCategory: '其它', policyAvailable: true },
+        { id: 'steam', display_name: 'Steam', publisher: 'Valve', state: 'BLOCK',
+          directBlockApplicationId: 'steam', presentationClass: 'USER_APPLICATION',
+          contentCategory: '游戏', policyAvailable: true },
+      ] }),
+    }));
+    let saved;
+    await page.route('**/native/v1/block-schedules/bulk', (route) => {
+      saved = route.request().postDataJSON();
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
+        timeZone: 'Asia/Shanghai', schedules: [], macs: [],
+      } }) });
+    });
+    await page.goto(`${baseUrl}/native-apps/index.html`);
+    await page.getByRole('button', { name: '已阻止' }).click();
+    await page.locator('details.category-group').filter({ has: page.getByText('其它', { exact: true }) })
+      .locator('summary').click();
+    await page.getByLabel('选择 Firefox').check();
+    await page.getByLabel('选择 Steam').check();
+    await expect(page.locator('#bulk-block-count')).toHaveText('2');
+    await page.getByRole('button', { name: /设置所选时间段/ }).click();
+    await expect(page.getByRole('heading', { name: '设置 2 款应用的时间段' })).toBeVisible();
+    await page.getByLabel('全天阻止').uncheck();
+    await page.getByLabel('开始时间').fill('21:00');
+    await page.getByLabel('结束时间').fill('07:00');
+    await page.screenshot({ path: path.join(ROOT, '.artifacts',
+      `native-app-bulk-schedule-${viewport.name}.png`), fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+    await page.getByRole('button', { name: '保存' }).click();
+    await expect.poll(() => saved).toEqual({ sources: [
+      { sourceType: 'APPLICATION', sourceKey: 'firefox' },
+      { sourceType: 'APPLICATION', sourceKey: 'steam' },
+    ], allDay: false, start: '21:00', end: '07:00' });
+  });
+}
+
+test('指定 Native Mac 可选择性启用原生时间规则', async ({ page }) => {
+  await mockApis(page);
+  let enabled = false;
+  await page.route('**/native/v1/macs', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{
+      id: 'mac-1', display_name: 'Thomas MacBook', hostname: 'thomas-mac', status: 'active',
+      santa_version: '2026.8', os_version: '15.6', native_time_rules_enabled: Number(enabled),
+      applied_policy_version: 3, desired_policy_version: enabled ? 4 : 3,
+      last_preflight_at: Date.now(),
+    }] }),
+  }));
+  await page.route('**/native/v1/macs/mac-1/native-time-rules', (route) => {
+    enabled = route.request().postDataJSON().enabled;
+    route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ enabled }) });
+  });
+  page.on('dialog', (dialog) => dialog.accept());
+  await page.goto(`${baseUrl}/native-apps/index.html`);
+  await page.getByRole('button', { name: 'Native Macs' }).click();
+  await page.getByRole('button', { name: '启用原生时间规则' }).click();
+  await expect(page.getByRole('button', { name: '关闭原生时间规则' })).toBeVisible();
+  expect(enabled).toBe(true);
+});
+
 for (const viewport of [{ name: 'desktop', width: 1366, height: 800 }, { name: 'narrow', width: 720, height: 900 }]) {
   test(`预定义管控 21 项与组件层级 ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await mockApis(page);
     await page.goto(`${baseUrl}/native-apps/index.html`);
     await page.locator('[data-view="PREDEFINED"]').click();
-    await expect(page.getByRole('heading', { name: '预定义管控' })).toBeVisible();
-    await expect(page.getByText('21 条来源项 · 20 个顶层 App')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '预配置应用' })).toBeVisible();
+    await expect(page.getByText('21 个未匹配来源项')).toBeVisible();
     await expect(page.locator('.predefined-row')).toHaveCount(21);
     await expect(page.locator('.predefined-row.component')).toHaveCount(1);
-    await expect(page.getByText('需确认').first()).toBeVisible();
+    await expect(page.getByRole('button', { name: '全天' }).first()).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
     await page.screenshot({ path: path.join(ROOT, '.artifacts', `native-app-predefined-${viewport.name}.png`) });
   });

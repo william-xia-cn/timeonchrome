@@ -371,6 +371,11 @@ export async function disablePredefinedItem(env: Env, auth: NativeAuth, sourceIn
     env.DB.prepare(`UPDATE native_app_predefined_items_v1 SET disabled_at = ?, updated_at = ?
       WHERE child_id = ? AND source = ? AND (source_index = ? OR parent_source_index = ?)`)
       .bind(now, now, auth.child_id, SOURCE, sourceIndex, sourceIndex),
+    env.DB.prepare(`DELETE FROM native_app_block_schedules_v1
+      WHERE child_id = ? AND source_type = 'PREDEFINED' AND source_key IN (
+        SELECT json_array(source, source_index) FROM native_app_predefined_items_v1
+        WHERE child_id = ? AND source = ? AND (source_index = ? OR parent_source_index = ?)
+      )`).bind(auth.child_id, auth.child_id, SOURCE, sourceIndex, sourceIndex),
     env.DB.prepare(`INSERT INTO native_app_audit_events_v1
       (id, child_id, account_id, event_type, result, metadata_json, created_at)
       VALUES (?, ?, ?, 'predefined.disabled', 'success', ?, ?)`)

@@ -3,7 +3,7 @@
   const NATIVE_API = 'https://timeonchrome-native-app-api.william-xia-cn.workers.dev';
   const TITLES = {
     REVIEW: ['待审核应用', 'Santa 发现的新应用默认允许运行，家长可在此忽略或阻止。'],
-    BLOCK: ['已阻止应用', '应用规则按稳定代码身份下发；发布者规则覆盖同一 TeamID。'],
+    BLOCK: ['已阻止应用', '选择多款应用可统一设置每日阻止时间段；原生规则在终端本地按时区判定。'],
     IGNORE: ['已忽略应用', '已审核且不生成 Santa allow rule。'],
     PREDEFINED: ['预配置应用', '当前孩子尚未安装或被 Santa 发现的来源应用；安装清单和来源项不代表曾启动。'],
     MACS: ['Native Macs', '独立管理 Santa enrollment、同步状态和策略版本。'],
@@ -12,6 +12,8 @@
     view: 'REVIEW', token: null, childId: null, childName: null,
     data: [], merges: [], enrollmentProfile: null, applicationQuery: '', reviewCount: 0,
     inventoryMacId: null, predefined: null, preconfigurations: null,
+    blockSchedules: null, editingBlockSource: null, editingBlockSources: null,
+    selectedBlockAppIds: new Set(),
   };
   const CATEGORY_ORDER = ['社交', '娱乐', '游戏', '人工智能', '教育', '其它'];
   const $ = (selector) => document.querySelector(selector);
@@ -23,6 +25,39 @@
   };
   const writeLocal = (key, value) => localStorage.setItem(`toc_${key}`, JSON.stringify(value));
   const formatTime = (value) => value ? new Date(Number(value)).toLocaleString('zh-CN') : '尚未同步';
+  const clockTime = (minute) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+  const scheduleFor = (type, key) => state.blockSchedules?.schedules?.find((item) =>
+    item.source_type === type && item.source_key === key);
+  const scheduleLabel = (type, key) => {
+    const schedule = scheduleFor(type, key);
+    return schedule ? `${clockTime(schedule.start_minute)}–${clockTime(schedule.end_minute)}` : '全天';
+  };
+  const syncPending = () => (state.blockSchedules?.macs || []).some((mac) =>
+    Number(mac.applied_policy_version) < Number(mac.desired_policy_version));
+  const syncStateLabel = () => !(state.blockSchedules?.macs || []).length ? '暂无已绑定终端'
+    : syncPending() ? '终端待同步' : '终端已同步';
+  const blockSourcesForApp = (app) => {
+    const sources = [];
+    if (app.directBlockApplicationId) sources.push(['APPLICATION', app.directBlockApplicationId]);
+    if (app.publisher_blocked && app.team_id) sources.push(['PUBLISHER', app.team_id]);
+    const appIds = new Set([app.id, ...(app.relatedApplicationIds || [])]);
+    for (const item of state.preconfigurations?.items || []) {
+      if (item.desired_state === 'BLOCK' && !item.disabled_at && appIds.has(item.matchedApplicationId)) {
+        sources.push(['PREDEFINED', JSON.stringify([item.source, item.source_index])]);
+      }
+    }
+    return sources;
+  };
+  const bulkSourcesForApp = (app) => app.publisher_blocked || app.policyAvailable === false
+    ? [] : blockSourcesForApp(app).filter(([type]) => type !== 'PUBLISHER');
+  const appScheduleSummary = (app) => {
+    const sources = blockSourcesForApp(app);
+    if (!sources.length) return '暂无可执行阻止来源';
+    const active = sources.some(([type, key]) => !scheduleFor(type, key)
+      || Number(scheduleFor(type, key).effective_active) === 1);
+    const range = sources.length === 1 ? scheduleLabel(...sources[0]) : `${sources.length} 条阻止来源`;
+    return `${range} · ${active ? '云端目标阻止' : '云端目标放行'} · ${syncStateLabel()}`;
+  };
   const escapeXml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&apos;', '"': '&quot;',
   })[char]);
@@ -270,7 +305,7 @@
       <button class="secondary" data-action="IGNORE" data-id="${escapeHtml(app.id)}">忽略</button>
       <button class="danger" data-action="BLOCK" data-id="${escapeHtml(app.id)}">阻止</button>
       <button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
-    if (state.view === 'BLOCK') return `<button class="secondary" data-action="IGNORE" data-id="${escapeHtml(app.id)}">改为忽略</button><button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
+    if (state.view === 'BLOCK') return `${app.directBlockApplicationId ? `<button class="secondary" data-action="SCHEDULE" data-id="${escapeHtml(app.directBlockApplicationId)}" data-schedule-name="${escapeHtml(app.display_name)}">时间段</button>` : ''}<button class="secondary" data-action="IGNORE" data-id="${escapeHtml(app.id)}">改为忽略</button><button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
     if (state.view === 'IGNORE') return `<button class="danger" data-action="BLOCK" data-id="${escapeHtml(app.id)}">改为阻止</button><button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
     return '';
   }
@@ -309,12 +344,14 @@
     return `
       <article class="application-entry ${compact ? 'compact-entry' : ''}">
         <div class="application-row">
-          <div class="application-mark" aria-hidden="true">${escapeHtml(applicationInitial(app))}</div>
+          <div class="application-mark" aria-hidden="true">${state.view === 'BLOCK' && bulkSourcesForApp(app).length
+            ? `<input class="block-select" type="checkbox" data-bulk-app="${escapeHtml(app.id)}" aria-label="选择 ${escapeHtml(app.display_name)}" ${state.selectedBlockAppIds.has(app.id) ? 'checked' : ''}>`
+            : escapeHtml(applicationInitial(app))}</div>
           <div class="identity">
             <strong>${escapeHtml(app.display_name)}</strong>
             <small><span class="kind-label">${escapeHtml(typeLabel)}</span>${escapeHtml(publisher)}</small>
           </div>
-          <div class="observation"><span>${escapeHtml(observation)}</span>${app.policyAvailable === false ? '<span class="identity-warning">缺少可用规则身份，仅供查看</span>' : ''}${app.installed && app.ruleCoversInstalledVersion === true && app.signatureStatus !== 'signed_valid' ? '<span class="identity-warning">仅有版本哈希，更新后需重新核验</span>' : ''}${app.installed && app.ruleCoversInstalledVersion === false ? '<span class="identity-warning">安装身份尚未关联可用规则</span>' : ''}${state.view !== 'REVIEW' ? `<span class="badge ${app.state === 'BLOCK' ? 'block' : app.state === 'IGNORE' ? 'ignore' : ''}">${app.state === 'BLOCK' ? '已阻止' : '已忽略'}</span>` : ''}</div>
+          <div class="observation"><span>${escapeHtml(observation)}</span>${app.policyAvailable === false ? '<span class="identity-warning">缺少可用规则身份，仅供查看</span>' : ''}${app.installed && app.ruleCoversInstalledVersion === true && app.signatureStatus !== 'signed_valid' ? '<span class="identity-warning">仅有版本哈希，更新后需重新核验</span>' : ''}${app.installed && app.ruleCoversInstalledVersion === false ? '<span class="identity-warning">安装身份尚未关联可用规则</span>' : ''}${state.view !== 'REVIEW' ? `<span class="badge ${app.state === 'BLOCK' ? 'block' : app.state === 'IGNORE' ? 'ignore' : ''}">${app.state === 'BLOCK' ? '阻止策略' : '已忽略'}</span>` : ''}${state.view === 'BLOCK' ? `<span class="schedule-line${syncPending() ? ' pending' : ''}">${escapeHtml(appScheduleSummary(app))}</span>` : ''}</div>
           <div class="actions">${applicationActions(app)}</div>
         </div>
       </article>`;
@@ -340,6 +377,19 @@
     });
   }
 
+  function updateBulkControls() {
+    const count = $('#bulk-block-count');
+    const button = $('#bulk-block-schedule');
+    const all = $('#select-visible-blocks');
+    if (count) count.textContent = String(state.selectedBlockAppIds.size);
+    if (button) button.disabled = state.selectedBlockAppIds.size === 0;
+    const visible = [...document.querySelectorAll('[data-bulk-app]')];
+    if (all) {
+      all.checked = visible.length > 0 && visible.every((input) => input.checked);
+      all.indeterminate = visible.some((input) => input.checked) && !all.checked;
+    }
+  }
+
   function renderApplications() {
     const query = state.applicationQuery.trim().toLowerCase();
     const rows = query
@@ -357,7 +407,8 @@
     }
     $('#content').innerHTML = `
       <div class="toolbar">
-        <span class="summary">${primaryRows.length} 个应用${state.view === 'REVIEW' ? ` · ${primaryRows.filter((app) => Number(app.observed)).length} 个 Santa 已发现` : ''}</span>
+        <span class="summary">${primaryRows.length} 个应用${state.view === 'REVIEW' ? ` · ${primaryRows.filter((app) => Number(app.observed)).length} 个 Santa 已发现` : ''}${state.view === 'BLOCK' ? ` · 时区 ${escapeHtml(state.blockSchedules?.timeZone || 'Asia/Shanghai')} <button class="quiet" id="edit-time-zone" type="button">设置时区</button>` : ''}</span>
+        ${state.view === 'BLOCK' ? `<div class="bulk-controls"><label class="bulk-select-all"><input id="select-visible-blocks" type="checkbox"> 全选当前列表</label><button class="secondary" id="bulk-block-schedule" type="button" ${state.selectedBlockAppIds.size ? '' : 'disabled'}>设置所选时间段 <span id="bulk-block-count">${state.selectedBlockAppIds.size}</span></button></div>` : ''}
         <input id="application-search" class="application-search" type="search" value="${escapeHtml(state.applicationQuery)}" placeholder="搜索应用、Bundle ID 或进程路径" aria-label="搜索应用">
       </div>
       ${CATEGORY_ORDER.map((category) => {
@@ -375,6 +426,20 @@
       `).join('')}</details>` : ''}
     `;
     bindApplicationSearch();
+    $('#select-visible-blocks')?.addEventListener('change', (event) => {
+      document.querySelectorAll('[data-bulk-app]').forEach((input) => {
+        input.checked = event.target.checked;
+        if (input.checked) state.selectedBlockAppIds.add(input.dataset.bulkApp);
+        else state.selectedBlockAppIds.delete(input.dataset.bulkApp);
+      });
+      updateBulkControls();
+    });
+    $('#bulk-block-schedule')?.addEventListener('click', openBulkBlockSchedule);
+    updateBulkControls();
+    $('#edit-time-zone')?.addEventListener('click', () => {
+      $('#time-zone-input').value = state.blockSchedules?.timeZone || 'Asia/Shanghai';
+      $('#time-zone-dialog').showModal();
+    });
   }
 
   function renderMacs() {
@@ -388,7 +453,7 @@
           <div class="identity"><strong>${escapeHtml(mac.display_name)}</strong><small>${escapeHtml(mac.hostname || '尚未 enrollment')}${escapeHtml(serialSummary(mac.serial_number))}</small></div>
           <div class="meta">Santa ${escapeHtml(mac.santa_version || '未报告')}<br>macOS ${escapeHtml(mac.os_version || '未报告')}<br>安装清单 ${mac.inventory_count == null ? '未导入' : `${Number(mac.inventory_count)} 个应用 · ${formatTime(mac.inventory_imported_at)}`}</div>
           <div><span class="badge ${status.className}">${status.label}</span><div class="meta">最近同步 ${formatTime(mac.last_preflight_at)}<br>策略 ${mac.applied_policy_version}/${mac.desired_policy_version}</div></div>
-          <div class="actions">${mac.status === 'active' ? `<button class="secondary" data-mac-action="IMPORT" data-id="${escapeHtml(mac.id)}">导入应用清单</button><button class="secondary" data-mac-action="ROTATE" data-id="${escapeHtml(mac.id)}">轮换 enrollment</button><button class="danger" data-mac-action="REVOKE" data-id="${escapeHtml(mac.id)}">吊销</button>` : ''}</div>
+          <div class="actions">${mac.status === 'active' ? `<button class="secondary" data-mac-action="NATIVE_TIME" data-id="${escapeHtml(mac.id)}">${mac.native_time_rules_enabled ? '关闭' : '启用'}原生时间规则</button><button class="secondary" data-mac-action="IMPORT" data-id="${escapeHtml(mac.id)}">导入应用清单</button><button class="secondary" data-mac-action="ROTATE" data-id="${escapeHtml(mac.id)}">轮换 enrollment</button><button class="danger" data-mac-action="REVOKE" data-id="${escapeHtml(mac.id)}">吊销</button>` : ''}</div>
         </article>`;
       }).join('') : '<div class="empty">还没有 Native Mac。添加后会下载设备专属 Santa 配置文件。</div>'}
     `;
@@ -410,7 +475,7 @@
         <div class="predefined-match">${item.desired_state === 'BLOCK' ? pending.length ? '身份需确认' : '身份待识别' : '仅供识别，不下发规则'}
           ${pending.map((identity) => `<div class="predefined-identity"><code title="${escapeHtml(identity.identifier)}">${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code><button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">确认</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">排除</button></div>`).join('')}</div>
         <div class="predefined-status"><strong>未匹配</strong><small>未见于当前安装清单或 Santa 记录</small></div>
-        <div class="predefined-actions">${old && item.desired_state === 'BLOCK' ? `<button class="quiet" data-preset-action="DISABLE" data-index="${item.source_index}" title="停用此来源项及已核验组件">停用</button>` : ''}</div>
+        <div class="predefined-actions">${item.desired_state === 'BLOCK' ? `<button class="quiet" data-schedule-type="PREDEFINED" data-schedule-key="${escapeHtml(JSON.stringify([item.source, item.source_index]))}" data-schedule-name="${escapeHtml(item.display_name)}">${escapeHtml(scheduleLabel('PREDEFINED', JSON.stringify([item.source, item.source_index])))}</button>` : ''}${old && item.desired_state === 'BLOCK' ? `<button class="quiet" data-preset-action="DISABLE" data-index="${item.source_index}" title="停用此来源项及已核验组件">停用</button>` : ''}</div>
       </div>`;
     };
     $('#content').innerHTML = `<div class="toolbar"><span class="summary">${sourceItems.length} 个未匹配来源项</span></div>
@@ -420,6 +485,7 @@
 
   async function loadView() {
     clearError();
+    state.selectedBlockAppIds.clear();
     $('#content').innerHTML = '<div class="empty">正在读取 Native App Control…</div>';
     const [title, subtitle] = TITLES[state.view];
     $('#view-title').textContent = title;
@@ -430,18 +496,23 @@
         state.data = result.data || [];
         state.merges = [];
       } else if (state.view === 'PREDEFINED') {
-        const [preconfigurations, predefined] = await Promise.all([
-          native('/native/v1/preconfigurations'), native('/native/v1/predefined'),
+        const [preconfigurations, predefined, schedules] = await Promise.all([
+          native('/native/v1/preconfigurations'), native('/native/v1/predefined'), native('/native/v1/block-schedules'),
         ]);
         state.preconfigurations = preconfigurations.data;
         state.predefined = predefined.data;
+        state.blockSchedules = schedules.data;
       } else {
-        const [result, merges] = await Promise.all([
+        const [result, merges, schedules, preconfigurations] = await Promise.all([
           native(`/native/v1/applications?state=${state.view}`),
           native('/native/v1/application-merges'),
+          native('/native/v1/block-schedules'),
+          state.view === 'BLOCK' ? native('/native/v1/preconfigurations') : Promise.resolve({ data: null }),
         ]);
         state.data = result.data || [];
         state.merges = merges.data || [];
+        state.blockSchedules = schedules.data;
+        state.preconfigurations = preconfigurations.data;
       }
       if (state.view === 'MACS') renderMacs();
       else if (state.view === 'PREDEFINED') renderPredefined();
@@ -470,6 +541,62 @@
     await native(`/native/v1/applications/${encodeURIComponent(applicationId)}/decision`, {
       method: 'POST', body: JSON.stringify({ action }),
     });
+    await loadView();
+  }
+  function openBlockSchedule(type, key, name) {
+    state.editingBlockSource = { type, key };
+    state.editingBlockSources = null;
+    const scope = type === 'PUBLISHER' ? '该发布者 TeamID 下的全部应用'
+      : type === 'PREDEFINED' ? '这条预配置项核验过的所有组件身份' : '这个应用的独立阻止规则';
+    $('#block-schedule-title').textContent = name;
+    $('#block-schedule-scope').textContent = `作用范围：${scope}。其他阻止来源仍独立生效。`;
+    const existing = scheduleFor(type, key);
+    $('#block-schedule-all-day').checked = !existing;
+    $('#block-schedule-start').value = existing ? clockTime(existing.start_minute) : '09:00';
+    $('#block-schedule-end').value = existing ? clockTime(existing.end_minute) : '18:00';
+    $('#block-schedule-time-range').hidden = !existing;
+    $('#block-schedule-start').required = !!existing;
+    $('#block-schedule-end').required = !!existing;
+    $('#block-schedule-dialog').showModal();
+  }
+  function openBulkBlockSchedule() {
+    const selected = state.data.filter((app) => state.selectedBlockAppIds.has(app.id));
+    const sources = [...new Map(selected.flatMap(bulkSourcesForApp)
+      .map(([type, key]) => [`${type}:${key}`, { sourceType: type, sourceKey: key }])).values()];
+    if (!sources.length) throw new Error('请先选择有独立阻止来源的应用');
+    state.editingBlockSource = null;
+    state.editingBlockSources = sources;
+    $('#block-schedule-title').textContent = `设置 ${selected.length} 款应用的时间段`;
+    $('#block-schedule-scope').textContent = '将统一覆盖所选应用的独立阻止来源；发布者规则不会被批量修改。';
+    const existing = sources.map((source) => scheduleFor(source.sourceType, source.sourceKey));
+    const same = existing.every((item) => item?.start_minute === existing[0]?.start_minute
+      && item?.end_minute === existing[0]?.end_minute);
+    const initial = same ? existing[0] : null;
+    $('#block-schedule-all-day').checked = !!initial ? false : same;
+    $('#block-schedule-start').value = initial ? clockTime(initial.start_minute) : '09:00';
+    $('#block-schedule-end').value = initial ? clockTime(initial.end_minute) : '18:00';
+    $('#block-schedule-time-range').hidden = $('#block-schedule-all-day').checked;
+    $('#block-schedule-start').required = !$('#block-schedule-all-day').checked;
+    $('#block-schedule-end').required = !$('#block-schedule-all-day').checked;
+    $('#block-schedule-dialog').showModal();
+  }
+  async function saveBlockSchedule(event) {
+    event.preventDefault();
+    const source = state.editingBlockSource;
+    const sources = state.editingBlockSources;
+    if (!source && !sources) return;
+    const allDay = $('#block-schedule-all-day').checked;
+    const start = $('#block-schedule-start').value;
+    const end = $('#block-schedule-end').value;
+    if (!allDay && start === end) throw new Error('开始和结束时间不能相同；全天请勾选“全天阻止”');
+    await native(sources ? '/native/v1/block-schedules/bulk' : '/native/v1/block-schedules', {
+      method: 'POST', body: JSON.stringify(sources
+        ? { sources, allDay, start, end }
+        : { sourceType: source.type, sourceKey: source.key, allDay, start, end }),
+    });
+    $('#block-schedule-dialog').close();
+    state.selectedBlockAppIds.clear();
+    if ($('#application-detail-dialog').open) $('#application-detail-dialog').close();
     await loadView();
   }
   async function openApplicationDetails(applicationId) {
@@ -502,10 +629,13 @@
     sourceSection.innerHTML = sources.length ? `<h3>预配置来源 <span>${sources.length}</span></h3><div class="detail-component-list">${sources.map((item) => {
       const old = item.source === 'qustodio-2026-09' ? oldItems.get(item.source_index) : null;
       const pending = (old?.identities || []).filter((identity) => identity.status === 'NEEDS_CONFIRM');
-      return `<div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.source)} · ${item.desired_state === 'BLOCK' ? '期望阻止' : '候选，不下发规则'}${old ? ` · ${escapeHtml(old.status)}` : ''}</small>${pending.map((identity) => `<div class="predefined-identity"><code>${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code><button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">确认身份</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">排除</button></div>`).join('')}</div>`;
+      return `<div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.source)} · ${item.desired_state === 'BLOCK' ? '期望阻止' : '候选，不下发规则'}${old ? ` · ${escapeHtml(old.status)}` : ''}</small>${item.desired_state === 'BLOCK' ? `<button class="quiet" data-schedule-type="PREDEFINED" data-schedule-key="${escapeHtml(JSON.stringify([item.source, item.source_index]))}" data-schedule-name="${escapeHtml(item.display_name)}">时间段 ${escapeHtml(scheduleLabel('PREDEFINED', JSON.stringify([item.source, item.source_index])))}</button>` : ''}${pending.map((identity) => `<div class="predefined-identity"><code>${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code><button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">确认身份</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">排除</button></div>`).join('')}</div>`;
     }).join('')}</div>` : '';
     const advanced = $('#detail-application-advanced');
     const advancedActions = [];
+    if (state.view === 'BLOCK' && app.team_id && app.publisher_blocked) {
+      advancedActions.push(`<button class="secondary" type="button" data-schedule-type="PUBLISHER" data-schedule-key="${escapeHtml(app.team_id)}" data-schedule-name="${escapeHtml(app.publisher || app.team_id)}">发布者时间段 ${escapeHtml(scheduleLabel('PUBLISHER', app.team_id))}</button>`);
+    }
     if (state.view === 'REVIEW' && app.presentationClass !== 'SYSTEM_COMPONENT' && app.policyAvailable !== false) {
       if (app.team_id) advancedActions.push(`<button class="danger" type="button" data-detail-action="BLOCK_PUBLISHER" data-id="${escapeHtml(app.id)}">阻止发布者</button>`);
       advancedActions.push(`<button class="secondary" type="button" data-detail-action="MERGE" data-id="${escapeHtml(app.id)}">合并应用身份</button>`);
@@ -551,6 +681,19 @@
       $('#inventory-file-input').click();
       return;
     }
+    if (action === 'NATIVE_TIME') {
+      const mac = state.data.find((item) => item.id === nativeMacId);
+      if (!mac) throw new Error('找不到 Native Mac');
+      const enabled = !mac.native_time_rules_enabled;
+      if (!window.confirm(enabled
+        ? '仅此 Mac 将改用 Santa 原生时间规则；需要 Santa 2026.8 或更新版本。确认下发？'
+        : '关闭后，此 Mac 将恢复按云端时间边界切换规则。确认下发？')) return;
+      await native(`/native/v1/macs/${encodeURIComponent(nativeMacId)}/native-time-rules`, {
+        method: 'POST', body: JSON.stringify({ enabled }),
+      });
+      await loadView();
+      return;
+    }
     const path = action === 'REVOKE' ? 'revoke' : 'rotate-enrollment';
     if (action === 'REVOKE' && !window.confirm('吊销后 Santa 停止云端同步；已下发 block rule 会保留到正式卸载或重新 enrollment。')) return;
     const result = await native(`/native/v1/macs/${encodeURIComponent(nativeMacId)}/${path}`, { method: 'POST' });
@@ -587,14 +730,33 @@
       loadView();
     }));
     $('#refresh-button').addEventListener('click', loadView);
+    $('#block-schedule-all-day').addEventListener('change', (event) => {
+      const timed = !event.target.checked;
+      $('#block-schedule-time-range').hidden = !timed;
+      $('#block-schedule-start').required = timed;
+      $('#block-schedule-end').required = timed;
+    });
+    $('#cancel-block-schedule').addEventListener('click', () => $('#block-schedule-dialog').close());
+    $('#block-schedule-form').addEventListener('submit', (event) => saveBlockSchedule(event).catch(showError));
+    $('#cancel-time-zone').addEventListener('click', () => $('#time-zone-dialog').close());
+    $('#time-zone-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      native('/native/v1/child/time-zone', {
+        method: 'POST', body: JSON.stringify({ timeZone: $('#time-zone-input').value.trim() }),
+      }).then(() => { $('#time-zone-dialog').close(); return loadView(); }).catch(showError);
+    });
     $('#download-profile-button').addEventListener('click', () => {
       try { downloadEnrollmentProfile(); } catch (error) { showError(error); }
     });
     $('#content').addEventListener('click', (event) => {
-      const target = event.target.closest('[data-action], [data-mac-action], [data-preset-action]');
+      const target = event.target.closest('[data-action], [data-mac-action], [data-preset-action], [data-schedule-type]');
       if (!target) return;
-      const promise = target.dataset.presetAction ? presetAction(target) : target.dataset.action === 'DETAIL'
+      const promise = target.dataset.scheduleType
+        ? openBlockSchedule(target.dataset.scheduleType, target.dataset.scheduleKey, target.dataset.scheduleName)
+        : target.dataset.presetAction ? presetAction(target) : target.dataset.action === 'DETAIL'
         ? openApplicationDetails(target.dataset.id)
+        : target.dataset.action === 'SCHEDULE'
+          ? openBlockSchedule('APPLICATION', target.dataset.id, target.dataset.scheduleName || '应用')
         : target.dataset.action === 'MERGE'
           ? openMerge(target.dataset.id)
         : target.dataset.action === 'UNMERGE'
@@ -604,12 +766,23 @@
           : macAction(target.dataset.id, target.dataset.macAction);
       Promise.resolve(promise).catch(showError);
     });
+    $('#content').addEventListener('change', (event) => {
+      const input = event.target.closest('[data-bulk-app]');
+      if (!input) return;
+      if (input.checked) state.selectedBlockAppIds.add(input.dataset.bulkApp);
+      else state.selectedBlockAppIds.delete(input.dataset.bulkApp);
+      updateBulkControls();
+    });
     $('#detail-application-preconfiguration').addEventListener('click', (event) => {
+      const scheduled = event.target.closest('[data-schedule-type]');
+      if (scheduled) { event.stopPropagation(); openBlockSchedule(scheduled.dataset.scheduleType, scheduled.dataset.scheduleKey, scheduled.dataset.scheduleName); return; }
       const button = event.target.closest('[data-preset-action]');
       if (button) presetAction(button).catch(showError);
     });
     $('#close-application-detail').addEventListener('click', () => $('#application-detail-dialog').close());
     $('#application-detail-dialog').addEventListener('click', (event) => {
+      const scheduled = event.target.closest('[data-schedule-type]');
+      if (scheduled) { openBlockSchedule(scheduled.dataset.scheduleType, scheduled.dataset.scheduleKey, scheduled.dataset.scheduleName); return; }
       const target = event.target.closest('[data-detail-action]');
       if (!target) return;
       $('#application-detail-dialog').close();

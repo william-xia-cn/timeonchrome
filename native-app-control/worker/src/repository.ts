@@ -67,7 +67,7 @@ export async function createNativeMac(env: Env, auth: NativeAuth, displayName: s
 export async function listNativeMacs(env: Env, auth: NativeAuth) {
   const result = await env.DB.prepare(`
     SELECT id, display_name, status, hostname, serial_number, primary_user,
-           os_version, santa_version, desired_policy_version,
+           os_version, santa_version, native_time_rules_enabled, desired_policy_version,
            downloaded_policy_version, applied_policy_version,
            last_preflight_at, last_postflight_at, inventory_snapshot_id,
            (SELECT application_count FROM native_app_inventory_snapshots_v1
@@ -483,7 +483,7 @@ export async function listApplications(env: Env, auth: NativeAuth, state?: strin
   const stateFilter = state && ['REVIEW', 'IGNORE', 'BLOCK'].includes(state) ? state : null;
   const result = await env.DB.prepare(`
     SELECT a.id, a.display_name, a.publisher, a.team_id, a.top_level_bundle_id,
-           s.state, s.updated_at,
+           s.state, s.block_origin, s.updated_at,
            CASE WHEN COUNT(o.id) > 0 THEN 1 ELSE 0 END AS observed,
            EXISTS(
              SELECT 1 FROM child_publisher_blocks_v1 pb
@@ -504,7 +504,7 @@ export async function listApplications(env: Env, auth: NativeAuth, state?: strin
         ON o.identity_id = am.identity_id AND o.child_id = s.child_id
      WHERE s.child_id = ? AND a.account_id = ? AND a.merged_into_application_id IS NULL
      GROUP BY a.id, a.display_name, a.publisher, a.team_id, a.top_level_bundle_id,
-              s.state, s.updated_at
+              s.state, s.block_origin, s.updated_at
      ORDER BY CASE s.state WHEN 'REVIEW' THEN 0 WHEN 'BLOCK' THEN 1 ELSE 2 END,
               observed DESC, last_observed_at DESC, s.updated_at DESC
   `).bind(auth.child_id, auth.account_id).all<ApplicationPresentationRow>();
@@ -520,6 +520,8 @@ export async function listApplications(env: Env, auth: NativeAuth, state?: strin
        AND pi.status IN ('AUTO', 'CONFIRMED')
   `).bind(auth.child_id).all<{ application_id: string }>();
   const preconfiguredBlockedIds = new Set((preconfigured.results || []).map((row) => row.application_id));
+  const directBlockedIds = new Set((result.results || [])
+    .filter((row) => row.state === 'BLOCK' && row.block_origin === 'DIRECT').map((row) => row.id));
   const presented = buildApplicationPresentation((result.results || []).map((row) => ({
     ...row,
     publisher: normalizeStoredPublisher(row.publisher),
@@ -599,9 +601,11 @@ export async function listApplications(env: Env, auth: NativeAuth, state?: strin
     const installedOnMacIds = [...new Set(installed.flatMap((item) => [...item.macIds]))];
     const preconfiguredBlock = app.state !== 'IGNORE'
       && app.relatedApplicationIds.some((appId) => preconfiguredBlockedIds.has(appId));
+    const directBlockApplicationId = app.relatedApplicationIds.find((appId) => directBlockedIds.has(appId)) || null;
     return {
       ...app,
-      state: preconfiguredBlock ? 'BLOCK' : app.state,
+      directBlockApplicationId,
+      state: preconfiguredBlock || app.publisher_blocked ? 'BLOCK' : app.state,
       preconfiguredBlock,
       display_name: latestInventory?.displayName || app.display_name,
       installed: installedOnMacIds.length > 0,
@@ -654,7 +658,10 @@ export async function decideApplication(
     `).bind(auth.child_id, application.team_id, auth.account_id, timestamp));
     statements.push(env.DB.prepare(`
       UPDATE child_application_states_v1
-         SET state = 'BLOCK', updated_by_account_id = ?, updated_at = ?
+         SET state = 'BLOCK',
+             block_origin = CASE WHEN state = 'BLOCK' AND block_origin = 'DIRECT'
+               THEN 'DIRECT' ELSE 'PUBLISHER' END,
+             updated_by_account_id = ?, updated_at = ?
        WHERE child_id = ? AND application_id IN (
          SELECT id FROM account_applications_v1 WHERE account_id = ? AND team_id = ?
        )
@@ -662,7 +669,7 @@ export async function decideApplication(
   } else {
     statements.push(env.DB.prepare(`
       UPDATE child_application_states_v1
-         SET state = ?, updated_by_account_id = ?, updated_at = ?
+         SET state = ?, block_origin = 'DIRECT', updated_by_account_id = ?, updated_at = ?
        WHERE child_id = ? AND application_id IN (
          SELECT id FROM account_applications_v1
           WHERE account_id = ? AND merged_into_application_id IS NULL
@@ -680,6 +687,16 @@ export async function decideApplication(
       application.team_id
     ));
     if (action === 'IGNORE') {
+      statements.push(env.DB.prepare(`DELETE FROM native_app_block_schedules_v1
+        WHERE child_id = ? AND source_type = 'APPLICATION' AND source_key IN (
+          SELECT id FROM account_applications_v1
+          WHERE account_id = ? AND merged_into_application_id IS NULL
+            AND (id = ? OR (
+              ? IS NOT NULL AND LOWER(COALESCE(top_level_bundle_id, '')) = LOWER(?)
+              AND UPPER(COALESCE(team_id, '')) = UPPER(COALESCE(?, ''))
+            ))
+        )`).bind(auth.child_id, auth.account_id, applicationId,
+        application.top_level_bundle_id, application.top_level_bundle_id, application.team_id));
       statements.push(env.DB.prepare(`
         UPDATE native_app_predefined_items_v1 AS p SET disabled_at = ?, updated_at = ?
          WHERE p.child_id = ? AND p.disabled_at IS NULL AND (
@@ -736,9 +753,9 @@ export async function mergeApplication(
     `).bind(targetId, sourceId, now(), sourceId),
     env.DB.prepare(`
       INSERT INTO child_application_states_v1 (
-        child_id, application_id, state, updated_by_account_id, created_at, updated_at
+        child_id, application_id, state, block_origin, updated_by_account_id, created_at, updated_at
       )
-      SELECT child_id, ?, state, ?, ?, ?
+      SELECT child_id, ?, state, block_origin, ?, ?, ?
         FROM child_application_states_v1 WHERE application_id = ?
       ON CONFLICT(child_id, application_id) DO UPDATE SET
         state = CASE
@@ -746,6 +763,8 @@ export async function mergeApplication(
           WHEN child_application_states_v1.state = 'REVIEW' OR excluded.state = 'REVIEW' THEN 'REVIEW'
           ELSE 'IGNORE'
         END,
+        block_origin = CASE WHEN child_application_states_v1.block_origin = 'DIRECT'
+          OR excluded.block_origin = 'DIRECT' THEN 'DIRECT' ELSE 'PUBLISHER' END,
         updated_by_account_id = excluded.updated_by_account_id,
         updated_at = excluded.updated_at
     `).bind(targetId, auth.account_id, now(), now(), sourceId),
@@ -841,7 +860,11 @@ export async function loadBlockedPolicy(env: Env, childId: string) {
       JOIN account_applications_v1 a ON a.id = s.application_id
       JOIN application_memberships_v1 m ON m.application_id = s.application_id
       JOIN application_identities_v1 i ON i.id = m.identity_id
-     WHERE s.child_id = ? AND s.state = 'BLOCK' AND a.merged_into_application_id IS NULL
+      LEFT JOIN native_app_block_schedules_v1 bs ON bs.child_id = s.child_id
+        AND bs.source_type = 'APPLICATION' AND bs.source_key = s.application_id
+     WHERE s.child_id = ? AND s.state = 'BLOCK' AND s.block_origin = 'DIRECT'
+       AND (bs.effective_active IS NULL OR bs.effective_active = 1)
+       AND a.merged_into_application_id IS NULL
      ORDER BY s.application_id, CASE i.identity_type WHEN 'SIGNINGID' THEN 0 WHEN 'CDHASH' THEN 1 ELSE 2 END
   `).bind(childId).all<{ application_id: string; identity_type: 'SIGNINGID' | 'CDHASH' | 'BINARY'; identifier: string }>();
   const grouped = new Map<string, Array<{ identityType: 'SIGNINGID' | 'CDHASH' | 'BINARY'; identifier: string }>>();
@@ -855,8 +878,12 @@ export async function loadBlockedPolicy(env: Env, childId: string) {
       FROM native_app_predefined_items_v1 p
       JOIN native_app_predefined_identities_v1 i
         ON i.child_id = p.child_id AND i.source = p.source AND i.source_index = p.source_index
+      LEFT JOIN native_app_block_schedules_v1 bs ON bs.child_id = p.child_id
+        AND bs.source_type = 'PREDEFINED'
+        AND bs.source_key = json_array(p.source, p.source_index)
      WHERE p.child_id = ? AND p.desired_state = 'BLOCK'
        AND p.disabled_at IS NULL AND i.status IN ('AUTO', 'CONFIRMED')
+       AND (bs.effective_active IS NULL OR bs.effective_active = 1)
      ORDER BY p.source_index
   `).bind(childId).all<{ source: string; source_index: number;
     identity_type: 'SIGNINGID' | 'CDHASH' | 'BINARY'; identifier: string }>();
@@ -866,7 +893,11 @@ export async function loadBlockedPolicy(env: Env, childId: string) {
     }]);
   }
   const publishers = await env.DB.prepare(`
-    SELECT team_id FROM child_publisher_blocks_v1 WHERE child_id = ? ORDER BY team_id
+    SELECT p.team_id FROM child_publisher_blocks_v1 p
+      LEFT JOIN native_app_block_schedules_v1 bs ON bs.child_id = p.child_id
+        AND bs.source_type = 'PUBLISHER' AND bs.source_key = p.team_id
+     WHERE p.child_id = ? AND (bs.effective_active IS NULL OR bs.effective_active = 1)
+     ORDER BY p.team_id
   `).bind(childId).all<{ team_id: string }>();
   return {
     applications: Array.from(grouped.values()).map((identities) => ({ identities })),
