@@ -14,6 +14,8 @@
 
 目标为五个常用目录，一条工作线复用一个目录；当前仍在过渡，不能把目标冒称现状。旧验收/运行依赖目录暂留登记，不再接新开发。不按修复、测试、提交、发布新建分支或worktree；不创建develop/stg作为额外集成层。旁路合并后，工作区干净才以非强制方式同步主线；有未提交内容先保留，不stash/reset覆盖。长期分支合并时不自动删除。TimeWhereNative独立管理，不计入五条。
 
+目录约定见D-110：`D:\Codex\TimeOnchrome`为主检出，长期旁路目标为同级`D:\Codex\TimeOnchrome-worktrees\<工作线>`，不在主仓内部嵌套工作树。当前实际位置以`git worktree list`为准，路径目标不授权移动运行中的扩展候选、Task脏树或Santa混合草稿。迁移顺序为：先确认所属会话与Git差异、运行/ignored依赖和恢复证据；再建立固定分支及新工作树；由所属会话移植其独有工作；最后切换运行引用并复验。旧目录只有确认不再被引用且另行批准清理时才退出。
+
 Product/Build/Release是同一任务依次完成的阶段，不默认要求新增会话、目录或形式化报告。模块所有权以D-109修订D-105：架构会话在master职责内可直接提交，控件、标准云端、Task、Santa均从固定旁路经PR合入，不得替对端改代码。架构主线提交须声明architecture-integration及允许路径，提交前执行范围与最小相关测试；共享根文档只改本任务部分，不顺带提交其他工作线草稿。
 
 路径检查使用`architecture-integration`标识共享契约与治理、`extension-local`标识控件、`standard-cloud`标识通用云端、`task-local`标识Task独占模块、`santa-specialist`标识Santa专属路径。共享扩展核心和通用云端入口仍由原所有者负责，不能因Task/Santa分支名自动取得跨模块写入权。跨线共享入口由架构定契约并拆分所属实现，不能仅靠职责例外转移所有权。纯Markdown文档改动应只路由轻量CI；workflow、脚本、依赖与产品代码仍按实际影响路由。
