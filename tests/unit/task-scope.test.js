@@ -7,6 +7,11 @@ for (const file of ['extension/infra/native-host-client.js', 'dist/native-host-m
 }
 assert.equal(check('extension-local', ['app-runtime-management/contracts/src/index.ts']).length, 1);
 assert.deepEqual(check('extension-local', ['extension/background.js', 'tests/unit/local-guardian.test.js']), []);
+assert.deepEqual(check('task-local', ['extension/modules/task/domain.js', 'pages/task/index.html', 'workers/src/modules/task/router.ts', 'workers/migrations/021_task_management_v1.sql']), []);
+assert.equal(check('task-local', ['extension/background.js']).length, 1);
+assert.equal(check('extension-local', ['extension/modules/task/domain.js']).length, 1);
+assert.deepEqual(check('santa-specialist', ['native-app-control/a.ts', 'pages/native-apps/index.html', 'workers/src/services/nativeAppIdentityBridge.ts']), []);
+assert.equal(check('santa-specialist', ['workers/src/index.ts']).length, 1);
 assert.deepEqual(check('native-local', ['agents/a.cs', 'third_party/contracts-1.15.tgz', 'contracts.lock.json']), []);
 assert.equal(check('native-local', ['app-runtime-management/backend/a.ts']).length, 1);
 assert.deepEqual(check('runtime-cloud-contract', ['workers/src/index.ts', 'workers/migrations/035.sql', 'pages/index.html']), []);
@@ -24,7 +29,7 @@ assert.throws(() => declaration('Task-Role: release\nTask-Role: extension-local'
 assert.throws(() => check('native-local', ['../TimeOnchrome/extension/a.js']));
 assert.equal(relevant(['workers/src/index.ts']), true);
 assert.equal(relevant(['workers/src/index.ts', 'TASK_BOARD.md', 'AGENTS.md']), true);
-assert.equal(relevant(['native-app-control/a.ts', 'TASK_BOARD.md']), false);
+assert.equal(relevant(['native-app-control/a.ts', 'TASK_BOARD.md']), true);
 assert.equal(relevant(['tools/check-task-scope.js']), true);
 assert.equal(relevant(['app-runtime-management/docs/TASK_BOARD.md']), true);
 assert.deepEqual(check('release', ['docs/release/checklist.md']), []);

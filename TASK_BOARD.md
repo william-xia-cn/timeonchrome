@@ -1,5 +1,40 @@
 # TASK_BOARD
 
+## NOW：四工作线与轻量治理收敛（2026-09-29，PO批准）
+
+职责runtime-cloud-contract。固定master控件主线、TaskMg、SantaMg、云端管理四工作线；不再按修复/发布建工作树。先文档→流程检查→精确处置清单→聚焦测试/PR。只修改治理文档、CI路由和发布判断，不改业务、候选、数据库或运行目录。本轮不执行清理，不创建Santa新目录，不迁移混合脏树。
+
+最小验证：task-scope、CI routing、工作流语法及diff；排除产品/平台/安装器/E2E全量。本次不部署。当前用量修复PR115已合并e3d8e9f且CI通过，尚未发布；发布不依赖遗留目录全部清理。生产workflow仍保留旧迁移门禁；本轮不改该门禁，也不宣称新延期流程已经可用。
+
+实查发现Santa与控件共用脏主目录，81a1含固定加载候选，Task f805有未提交内容；四目录是目标，不是当前事实。所有这些目录继续保留，详见本节后续处置表。
+
+### 2026-09-29 工作树处置表（只读核验；均未删除）
+
+基线：TimeOnChrome 18 个登记工作树、25 条本地分支、34 条实时远端分支、0 个开放 PR。以下按当前 `origin/master` 祖先关系和工作区状态分类；“已合并”不表示无运行依赖或可立即清理。路径中 `WT` 为 `D:\Codex\TimeOnchrome-worktrees`，但每项清理前仍须使用完整绝对路径重验 HEAD、ignored 内容和会话依赖。
+
+| 工作树／HEAD 短 SHA | 归属与独有改动 | 工作区／依赖 | 建议处置 |
+|---|---|---|---|
+| `D:\Codex\TimeOnchrome` · `2b9d461a` | master；提交已在主线，工作区混有控件/Santa/云端草稿 | 脏；多个 ignored 依赖 | 保留，逐所有者拆分；不原地同步 |
+| `C:\tmp\TimeOnchrome-task-ack-strict` · `7aa6b1bf` | Task；未合并，独有提交 | 干净 | Task 所有者审查整合，暂留 |
+| `C:\tmp\TimeOnchrome-task-terminal-default-off` · `8ef79a6f` | Task；已合并 | ignored 构建/依赖 | 核对引用后列清理候选 |
+| `C:\Users\William\.codex\worktrees\81a1\TimeOnchrome` · `4408b16d` | 当前控件/契约历史线；未合并 | 原扩展加载候选及未跟踪内容 | 固定保留，不移动加载目录 |
+| `C:\Users\William\.codex\worktrees\f805\TimeOnchrome` · `8603fbbb` | Task；未合并 | 脏，含输出 | 保留交 Task 所有者 |
+| `C:\Users\William\.codex\worktrees\task-host-wiring\TimeOnchrome` · `0d4ad241` | Task；已合并 | ignored 构建/输出 | 核对引用后列清理候选 |
+| `D:\Codex\TimeOnchrome\.artifacts\gate-composite-unpacked-f2a329a` · `f2a329a1` | 复合验收源；已合并 | ignored 扩展元数据/隔离环境依赖 | 保留至验收依赖解除 |
+| `WT\app-runtime-attribution-release-20260927` · `c3d9b7ff` | Runtime 发布证据；已合并 | 脏文档/未跟踪产物 | 证据所有者核对，暂留 |
+| `WT\app-runtime-product-catalog-v2` · `9891eb2d` | Runtime；已合并 | ignored Agent/安装及证据产物 | 证据哈希与用途核验前保留 |
+| `WT\app-runtime-release-2.2.1` · `b7d82784` | Runtime 文档独有提交，未合并 | tracked 干净，ignored 依赖 | 云端线审查是否仍有效 |
+| `WT\composite-terminal-integration` · `19eecdc5` | 控件；已合并 | 脏扩展/测试/未跟踪内容 | 控件所有者处理，暂留 |
+| `WT\composite-terminal-privacy-integration` · `ff8c55b8` | 控件；已合并 | ignored 依赖/结果 | 核对验收引用后列候选 |
+| `WT\guardian-release-81949cc` · `e3d8e9f8` | 云端固定线 `codex/cloud-management`；已合并基线 | 未跟踪 `.wrangler`；本轮文档修改 | 固定保留，复用此目录 |
+| `WT\guardian-v3-release-gate` · `8da97d5d` | 云端文档独有提交，未合并 | tracked 干净 | 云端线审查是否仍有效 |
+| `WT\rest-terminal-integration` · `ba11ac56` | 控件；已合并 | ignored 依赖/结果 | 核对验收引用后列候选 |
+| `WT\rest-weekly-cloud-validation` · `358d5eb9` | 验收/共享依赖；已合并 | ignored 依赖/输出 | 解除共享依赖前保留 |
+| `WT\runtime-session-boundaries` · `b2c5b22d` | 云端历史线；已合并 | 未跟踪 `.wrangler` | 数据用途核验前保留 |
+| `WT\timewhere-native-split` · `0dd58ce8` | 拆仓历史线；已合并 | 异常未跟踪 `backend/NUL` 等 | 异常文件核验前保留 |
+
+未合并且无上述工作树的本地文档分支 `codex/app-runtime-release-evidence-v1` 也保留给云端线核对；其余本地/远端引用即使已被主线包含，也必须另核 PR、SHA、bundle 和依赖后形成精确删除清单。本轮不删分支、不归档工作树、不触碰 Native 仓。Santa 固定分支尚未建立，不能把脏主目录草稿冒称已迁入 Santa 线。
+
 ## 托管扩展发布前阻塞：Native Host 注册身份与兼容入口收口（2026-09-29，PO确认）
 
 状态：**OPEN / BLOCKS_NEXT_MANAGED_EXTENSION_RELEASE**。必须在下一次正式托管扩展打包发布前处理完成并验收；不是已完成项，不影响当前本地候选继续使用。本次仅登记，不改协议、代码、候选目录、注册表或安装包。

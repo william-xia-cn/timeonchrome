@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 
-const roles = new Set(['runtime-cloud-contract', 'extension-local', 'native-local', 'release']);
+const roles = new Set(['runtime-cloud-contract', 'extension-local', 'task-local', 'santa-specialist', 'native-local', 'release']);
 const governance = new Set([
   'AGENTS.md', 'PROJECT_WORKFLOW.md', 'PROJECT_MASTER.md', 'TASK_BOARD.md', 'DECISIONS.md',
   'tools/check-task-scope.js', 'tests/unit/task-scope.test.js',
@@ -25,6 +25,9 @@ function declaration(body) {
   return { role: matches[0][1], exceptions };
 }
 function owner(file) {
+  if (file.startsWith('extension/modules/task/') || file.startsWith('pages/task/')
+    || file.startsWith('workers/src/modules/task/')
+    || /^workers\/migrations\/\d+_task(?:_|\.)/.test(file)) return 'task-local';
   if (file.startsWith('native-app-control/') || file.startsWith('pages/native-apps/')
     || file === 'workers/src/services/nativeAppIdentityBridge.ts') return 'santa-specialist';
   if (/^(extension|dist)\//.test(file)) return 'extension-local';
@@ -45,6 +48,8 @@ function checkScope(paths, { role, exceptions = {} }) {
     const allowed = actual === role
       || (role === 'runtime-cloud-contract' && (governance.has(file) || file.startsWith('app-runtime-management/docs/') || file === 'app-runtime-management/README.md'))
       || (role === 'extension-local' && (file.startsWith('tests/') || (docs && (file.startsWith('docs/') || ['TASK_BOARD.md', 'PROJECT_MASTER.md'].includes(file)))))
+      || (role === 'task-local' && ((/^tests\/(unit|e2e)\/task[-/]/.test(file)) || (docs && (file.startsWith('docs/') || ['TASK_BOARD.md', 'PROJECT_MASTER.md'].includes(file)))))
+      || (role === 'santa-specialist' && ((/^tests\/(unit|e2e)\/native-app[-/]/.test(file)) || (docs && (file.startsWith('docs/') || ['TASK_BOARD.md', 'PROJECT_MASTER.md'].includes(file)))))
       || (role === 'native-local' && (docs || file.startsWith('third_party/') || file === 'contracts.lock.json'))
       || (role === 'release' && (file.startsWith('docs/release/') || file.startsWith('app-runtime-management/docs/') || ['TASK_BOARD.md','PROJECT_MASTER.md'].includes(file)));
     if (!allowed && !exceptions[file]) failures.push(file + ': exact task exception with reason required');
@@ -52,8 +57,7 @@ function checkScope(paths, { role, exceptions = {} }) {
   return failures;
 }
 function relevant(paths) {
-  // Santa retains its own specialist; shared documents do not transfer ownership.
-  return paths.some(p => (owner(p) && owner(p) !== 'santa-specialist') || (governance.has(p) && !p.endsWith('.md')) || p.startsWith('app-runtime-management/'));
+  return paths.some(p => owner(p) || (governance.has(p) && !p.endsWith('.md')) || p.startsWith('app-runtime-management/'));
 }
 function changed(base, head) {
   return execFileSync('git', ['diff', '--no-renames', '--name-only', '-z', base, head], { encoding: 'utf8' }).split('\0').filter(Boolean);
