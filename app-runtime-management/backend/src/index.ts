@@ -214,9 +214,17 @@ async function route(request: Request, env: Env): Promise<Response> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const origin = request.headers.get('origin');
+    const allowedOrigin = env.RUNTIME_PAGES_ORIGIN || 'https://timeonchrome-app-runtime-console.pages.dev';
+    const withCors = (response: Response): Response => {
+      if (origin !== allowedOrigin) return response;
+      const result = new Response(response.body, response);
+      result.headers.set('access-control-allow-origin', allowedOrigin);
+      result.headers.append('vary', 'Origin');
+      result.headers.set('access-control-expose-headers', 'etag');
+      return result;
+    };
     try {
-      const origin = request.headers.get('origin');
-      const allowedOrigin = env.RUNTIME_PAGES_ORIGIN || 'https://timeonchrome-app-runtime-console.pages.dev';
       if (request.method === 'OPTIONS') {
         if (origin !== allowedOrigin) return errorResponse(403, 'ORIGIN_DENIED', 'Origin is not allowed.');
         return new Response(null, { status: 204, headers: {
@@ -227,25 +235,17 @@ export default {
           'access-control-max-age': '86400',
         } });
       }
-      const response = await route(request, env);
-      if (origin === allowedOrigin) {
-        const withCors = new Response(response.body, response);
-        withCors.headers.set('access-control-allow-origin', allowedOrigin);
-        withCors.headers.set('vary', 'Origin');
-        withCors.headers.set('access-control-expose-headers', 'etag');
-        return withCors;
-      }
-      return response;
+      return withCors(await route(request, env));
     } catch (error) {
       if (error instanceof HttpError) {
-        return errorResponse(error.status, error.code, error.message);
+        return withCors(errorResponse(error.status, error.code, error.message));
       }
       console.error(JSON.stringify({
         message: 'runtime_request_failed',
         path: new URL(request.url).pathname,
         error: error instanceof Error ? error.message : 'unknown_error',
       }));
-      return errorResponse(500, 'INTERNAL_ERROR', 'Request failed.');
+      return withCors(errorResponse(500, 'INTERNAL_ERROR', '服务暂时无法完成请求，请稍后重试。'));
     }
   },
 } satisfies ExportedHandler<Env>;
