@@ -4,6 +4,8 @@
 
 ### 治理收口续项：固定工作树位置与遗留目录（D-110）
 
+2026-09-29 本轮逐项清理：已验证本地 Git bundle，并完整退出 `gate-composite-unpacked-f2a329a` 与 `app-runtime-attribution-release-20260927`；后者的未提交任务板和两份 manifest 已在本地恢复区逐项校验。`app-runtime-product-catalog-v2` 的 2.2.2 安装包及 manifest 已校验备份，`timewhere-native-split` 的唯一零字节异常文件已精确移除；两树已取消 Git 登记，随后把未删除的原目录残留分别同盘移入既有 `residual-worktrees` 恢复区，1,199 与 1,201 份文件逐项 SHA-256 核对一致，原路径已不存在。该移动不释放磁盘，恢复区至少保留至 2026-10-29。对应三条已合并、无开放 PR 的本地及远端功能分支按精确 SHA 清理。Task `f805` 的五个修改文件、九张截图已复制到 D 盘临时 detached 工作树并核对 diff/hash，原会话、隔离 Profile 仍在旧目录。原扩展加载路径已指向 D 盘逐字节相同的 1.7.39 候选，但 Computer Use 无法确认 Chrome URL，真实重新加载/连接尚未验收；其余带 Profile 的工作树继续保留。当前登记工作树 14、本地分支 15；本轮无产品代码、安装、部署或账本变更。
+
 2026-09-29 历史契约工作树续清理：`D:\Codex\TimeOnchrome-worktrees\runtime-session-boundaries@b2c5b22` 已是主线祖先，精确提交在验证过的 `timeonchrome.bundle` 内；目录无 tracked 改动或运行进程引用，唯一额外内容为两份 `.wrangler/cache` JSON（账户/Pages 缓存，不是 D1 或浏览器 Profile）。先同盘移至 `D:\Codex\worktree-cleanup-backups\2026-09-29\runtime-session-boundaries-cache`，逐份 SHA-256 核对一致，再以非强制 `git worktree remove` 完整移除旧目录。对应本地分支以 `-d`、远端分支以实时 SHA lease 删除。回读：TimeOnChrome 登记工作树 17、本地分支 18、远端分支 29；固定五工作线、原扩展候选、Task `f805`、Santa 旁路和主目录均未改变。备份至少保留至 2026-10-29，不上传云端；本轮未部署或安装。
 
 2026-09-29 云端草稿核对：主目录 `D:\Codex\TimeOnchrome` 中未提交的复合页面复核路由、独立脚本、migration、页面入口及本周 Rest 配置，与现行 `origin/master@6d2028c` 的对应功能逐项对照，主线已有后续修正（复合只读关闭状态见 `72c6f0f`）。旧主目录停在 `2b9d461`，文件哈希不同主要不能被当作遗漏功能证据；本轮不复制旧实现、不改主目录。Santa 专属改动已由所属线核对等价；主目录仍混有控件、云端、Santa 未提交内容及运行依赖，继续整体保护。
