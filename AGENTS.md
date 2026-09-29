@@ -1,18 +1,18 @@
 # AGENTS.md — TimeOnChrome 开发规范
 
-## 当前优先规则：四工作线与轻量治理（D-108）
+## 当前优先规则：架构集成主线与四开发旁路（D-109）
 
-- 只保留master、TaskMg、SantaMg、云端管理四条长期工作线，固定分支/目录映射见PROJECT_WORKFLOW.md；旧依赖目录仅暂留，不按修复/测试/发布另建worktree。
-- 控件普通开发在master完成最小相关测试和路径检查后可直接提交；三个旁路以PR合入并继续复用。合并不自动部署，Task默认关闭、不发布。
+- `master`为架构决策、共享契约与集成主线；控件、标准云端、TaskMg、SantaMg为四条固定开发旁路，分支/目录映射见PROJECT_WORKFLOW.md。旧依赖目录暂留，不按修复/测试/发布另建worktree。
+- 架构会话在职责内完成最小相关测试和路径检查后可直接提交master；四条旁路以PR合入并继续复用。合并不自动部署，Task默认关闭、不发布。
 - Product/Build/Release为工作阶段，不默认新建会话、报告或要求重复授权。PO已授权修复并部署时在范围内连续执行；只有新增范围、破坏性操作或新语义裁决再次询问。D-076等专项批准仍有效。
 - 发布检查代码、依赖与已有证据的对应关系；纯文档不使未变代码的证据失效。migration延期须逐项核实兼容依据；生产workflow的旧门禁仍在，本轮不得以文档规则绕过。
 - 本节覆盖下文冲突的旧分支/逐阶段审批表述；不授权越模块修改、重置脏树、删除原加载目录或未经批准执行migration。
 
 ## 三会话模块边界
 
-D-105 为最新项目契约：当前架构任务负责本仓架构/接口/契约及云端开发（Guardian、主家长控制台和 Runtime），控件任务只负责终端扩展开发。ARM-D-034 的 Runtime-only 旧范围由 D-105 取代；Santa 专项和独立 Native 归属不变。终端页面与云端页面按运行位置及职责区分，不按 HTML 文件类型混归。所有权不是部署或生产数据写入授权。
+D-109 为最新项目契约：当前架构任务负责master上的架构、共享接口/契约和集成；标准云端旁路负责Guardian、主家长控制台和Runtime云端；控件旁路只负责终端扩展。Task、Santa各自负责专属终端和云端模块，独立Native归属不变。终端页面与云端页面按运行位置及职责区分，不按HTML文件类型混归。所有权不是部署或生产数据写入授权。
 
-必须遵守 PROJECT_WORKFLOW.md「项目开发契约」和 D-105。任务开始声明 runtime-cloud-contract / extension-local / task-local / santa-specialist / native-local / release、允许路径及最小测试。架构任务实施架构/契约和本仓云端；扩展客户端、候选目录交由 TimeOnchrome 访问管理策略；本机代码交由 Native Host 开发。只读诊断不授予修复权限，几行补丁也不得越界。阶段角色、网页落账及发布专项批准不变。提交前检查职责 diff，越界保留现场并转交。
+必须遵守PROJECT_WORKFLOW.md「项目开发契约」和D-109。任务开始声明architecture-integration / standard-cloud / extension-local / task-local / santa-specialist / native-local / release、允许路径及最小测试。架构任务实施共享契约与集成；标准云端任务负责通用云端代码；扩展客户端、候选目录交由TimeOnchrome访问管理策略；本机代码交由Native Host开发。只读诊断不授予修复权限，几行补丁也不得越界。阶段角色、网页落账及发布专项批准不变。提交前检查职责diff，越界保留现场并转交。
 
 > 本文档供 AI 代理（Codex/OpenCode/Claude Code 等）和开发者阅读，定义项目的工作规则和约束。
 
@@ -190,10 +190,11 @@ npx playwright test tests/e2e/<test>.js
 
 | 分支 | 用途 |
 |------|------|
-| `master` | 生产环境，Cloudflare Pages 部署源 |
+| `master` | 架构与集成主线；受验证的生产发布源码基线，不自动部署 |
+| `codex/extension-local` | 控件固定开发旁路，待原加载目录与未提交内容核对后启用 |
 | `codex/task-management-v1` | TaskMg固定旁路，默认关闭且不发布 |
 | `codex/santa-management` | SantaMg固定旁路，待混合草稿分离后启用 |
-| `codex/cloud-management` | 架构与云端固定旁路 |
+| `codex/cloud-management` | 标准云端固定旁路 |
 
 ### 5.2 Commit 格式
 

@@ -1,5 +1,9 @@
 # PROJECT_MASTER
 
+## 当前工作线契约（2026-09-29）
+
+D-109以`master`承载架构、共享契约与集成；控件、标准云端、TaskMg、SantaMg分别使用固定开发旁路并经PR合入。架构职责内代码可直接提交master，提交/合并/生产部署彼此独立，生产仅从已验证master SHA发起。五目录是目标，81a1/f805及Santa混合草稿仍按TASK_BOARD保护；TimeWhereNative独立仓。Task默认关闭、不发布。
+
 ## 下次正式托管扩展发布阻塞（2026-09-29，PO确认）
 
 **OPEN：Native Host注册身份与兼容入口收口。** `com.timeonchrome.guardian.json`当前是Native安装器生成的旧Host兼容别名，不是独立Guardian服务。正式托管扩展下一次打包发布前，必须完成旧消费者核对、兼容迁移/退役、共享连接配置归属和安装升级清理验证；正式包不得夹带开发模式配置。当前架构任务统筹，扩展/Native所属任务分别实施，releaseMg凭验收证据关闭阻塞。详细范围和完成条件见TASK_BOARD同名条目；本次仅登记，不修改运行中组件或发布资源。
@@ -24,7 +28,7 @@ Task独立API/页面/default-off终端分别已合入，创建/编辑黑名单�
 
 ## 三会话模块治理
 
-D-105 / PROJECT_WORKFLOW.md 为最新契约：当前任务负责架构与本仓云端（Guardian/主控制台/Runtime）；控件任务只负责终端扩展，Native 归独立仓，Santa 保留专项归属。阶段角色和发布权不变，取代 ARM-D-034 的 Runtime-only 云端范围。
+D-105为历史契约，现由顶部D-109修订：架构任务负责master上的架构/契约/集成，标准云端旁路负责Guardian/主控制台/Runtime云端；控件负责终端扩展，Task/Santa负责各自专项，Native归独立仓。阶段角色和发布权不变。
 
 ## 当前双仓及本机验收（2026-09-27）
 
