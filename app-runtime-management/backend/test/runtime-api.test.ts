@@ -1,5 +1,5 @@
 import { env, exports } from 'cloudflare:workers';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import accountingVectors from '../../contracts/runtime-accounting-v2.vectors.json';
 import hashVectors from '../../contracts/runtime-segment-hash-v1.vectors.json';
 import { accountingMediaId, accountingUsageId, segmentContentHash } from '../src/canonical';
@@ -8,6 +8,7 @@ import { validateSegment } from '../src/validation';
 import catalogRules from '../src/data/product-catalog-rules.v3.json';
 import { syncApplicationInventory } from '../src/applicationKnowledge';
 import { machinePolicyEtag } from '../src/v2Repository';
+import worker from '../src/index';
 
 const origin = 'http://runtime.test';
 const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE', y: '5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA', crv: 'P-256', d: '2Ja3Py77LNt6aspenNTttELbGzm2-u9WcF4x8BQql8w' };
@@ -157,6 +158,18 @@ describe('Runtime product API', () => {
     const denied = await call('/v1/health', { method: 'OPTIONS', headers: { origin: 'https://timeonchrome-console.pages.dev' } });
     expect(denied.status).toBe(403);
     expect(denied.headers.get('access-control-allow-origin')).toBeNull();
+    const unauthorized = await call('/v2/module/machines', { headers: { origin: allowed } });
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get('access-control-allow-origin')).toBe(allowed);
+    const get = vi.spyOn(env.RELEASES, 'get').mockRejectedValue(new Error('D1_ERROR: out of memory: SQLITE_NOMEM'));
+    try {
+    for (const requestOrigin of [allowed, 'https://untrusted.example']) {
+      const failed = await worker.fetch(new Request(`${origin}/v1/releases/windows/x64/latest`, { headers: { origin: requestOrigin } }), env);
+      expect(failed.status).toBe(500);
+      expect(failed.headers.get('access-control-allow-origin')).toBe(requestOrigin === allowed ? allowed : null);
+      expect(await failed.text()).not.toContain('SQLITE_NOMEM');
+    }
+    } finally { get.mockRestore(); }
   });
 
   it('exchanges a single-use SSO ticket for an eight-hour revocable browser session', async () => {

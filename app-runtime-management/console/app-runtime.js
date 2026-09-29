@@ -150,7 +150,22 @@
   function renderChildPicker() { const select = $('#child-select'); select.innerHTML = state.children.map((item, index) => `<option value="${index}"${item.id === state.childId ? ' selected' : ''}>${escape(item.name)}</option>`).join('') || '<option>未登录</option>'; select.disabled = state.children.length === 0; }
   function renderFilters() { const machine = $('#machine-filter'); const selected = machine.value; machine.innerHTML = '<option value="">全部电脑</option>' + state.machines.filter((item) => item.status !== 'revoked').map((item) => `<option value="${escape(item.id)}">${escape(item.displayName || '电脑')}</option>`).join(''); machine.value = selected; const users = $('#user-filter'); const source = selected ? state.users.get(selected) || [] : [...state.users.values()].flat(); const unique = new Map(source.map((item) => [item.localUserId, item])); const userSelected = users.value; users.innerHTML = '<option value="">全部本机用户</option>' + [...unique.values()].map((item) => `<option value="${escape(item.localUserId)}">${escape(item.displayName)}</option>`).join(''); users.value = userSelected; }
   function renderUsage() {
+    if (!mock && (state.usageLoading || state.usageError || !state.usage)) {
+      const message = state.usageLoading ? '正在读取使用统计…' : state.usageError || '使用统计尚未加载';
+      $('#total-time').textContent = '—';
+      $('#quota-state').textContent = '暂不可用';
+      $('#quota-state').classList.remove('danger-text');
+      $('#last-sync').textContent = time(Math.max(0, ...state.machines.map(item => Number(item.lastUploadAtMs || item.lastSeenAtMs || 0))));
+      $('#policy-version').textContent = `应用策略 v${state.policy.version || 0}`;
+      $('#usage-chart').textContent = message;
+      $('#category-legend').textContent = '';
+      $('#app-ranking').innerHTML = `${escape(message)}${state.usageLoading ? '' : ' <button id="retry-usage">重试使用统计</button>'}`;
+      $('#category-ranking').textContent = message;
+      $('#outside-window-summary').textContent = '本周期时段外使用暂不可用';
+      return;
+    }
     const usage = state.usage || {};
+    $('#outside-window-summary').textContent = `本周期时段外使用 ${duration(usage.outsideTimeWindows?.durationMs || 0)}`;
     $('#total-time').textContent = duration(usage.totalDurationMs);
     $('#last-sync').textContent = time(Math.max(0, ...state.machines.map((item) => Number(item.lastUploadAtMs || item.lastSeenAtMs || 0))));
     $('#policy-version').textContent = `应用策略 v${usage.appPolicyVersion || state.policy.version || 0}`;
@@ -294,7 +309,8 @@
       const windows = state.policy.timeWindows[day][category];
       return `<div class="schedule-cell"><div class="schedule-cell-title"><strong>${categoryLabels[category]}应用</strong><button type="button" data-schedule-all="${day}|${category}">全天开放</button></div><div class="schedule-windows">${windows.map((window, index) => `<div class="schedule-window"><input data-schedule-start="${day}|${category}|${index}" value="${window.start}" aria-label="${dayLabels[day]} ${categoryLabels[category]}开始"><span>至</span><input data-schedule-end="${day}|${category}|${index}" value="${window.end}" aria-label="${dayLabels[day]} ${categoryLabels[category]}结束"><button type="button" data-schedule-remove="${day}|${category}|${index}" aria-label="删除时间段">×</button></div>`).join('') || '<small>全天不开放</small>'}</div><button type="button" data-schedule-add="${day}|${category}">＋ 添加时段</button></div>`;
     }).join('')}</div></section>`).join('');
-    $('#outside-window-summary').textContent = `本周期时段外使用 ${duration(state.usage.outsideTimeWindows?.durationMs || 0)}`;
+    $('#outside-window-summary').textContent = state.usageLoading || state.usageError || !state.usage
+      ? '本周期时段外使用暂不可用' : `本周期时段外使用 ${duration(state.usage.outsideTimeWindows?.durationMs || 0)}`;
   }
   function assignmentOptions(selectedId, protectedValue = true) { return `<option value="u"${!protectedValue ? ' selected' : ''}>成人／不保护</option>` + state.children.map((item, index) => `<option value="${index}"${protectedValue && item.id === selectedId ? ' selected' : ''}>${escape(item.name)}</option>`).join(''); }
   function renderMachines() { $('#machines').innerHTML = state.machines.map((machine) => `<button type="button" class="machine-card" data-open-machine="${escape(machine.id)}"><span class="platform-icon">${machine.platform === 'macos' ? '●' : '⊞'}</span><div><strong>${escape(machine.displayName || '电脑')}</strong><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')} · 最近在线 ${time(machine.lastSeenAtMs)}</p></div><span class="policy ${escape(machine.policyState)}">${policyLabel(machine.policyState)}</span><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span><span>›</span></button>`).join('') || '<p class="empty">尚未添加 Runtime 电脑</p>'; }
@@ -312,8 +328,28 @@
   function closeDrawer() { $('#device-drawer').classList.remove('open'); $('#device-drawer').setAttribute('aria-hidden', 'true'); $('#mobile-backdrop').hidden = true; }
   function openUsageDetail(kind, value) { const item = kind === 'app' ? state.usage.applications?.[Number(value)] : state.usage.categories?.find((entry) => entry.classification === value); if (!item) return; const title = kind === 'app' ? item.displayName || '未知应用' : categoryLabels[item.classification]; $('#drawer-content').innerHTML = `<h2>${escape(title)}</h2><p>${kind === 'app' ? `${escape(item.platform)} · ${categoryLabels[item.classification] || '未归类'}` : '分类使用详情'}</p><div class="drawer-section"><h3>本周期主使用</h3><p class="detail-duration">${duration(item.durationMs)}</p><p>${item.quota?.limitMs == null ? '配额：无限制' : `配额：${duration(item.quota.limitMs)}<br>剩余：${duration(item.quota.remainingMs)}<br>状态：${item.quota.exceeded ? '已超额' : '未超额'}`}</p></div><div class="notice warning"><span>统计只读取主账本区间并集；辅助媒体不进入此详情或配额。</span></div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
 
-  async function load({ freshToken = false } = {}) { setLoading(true); try { if (freshToken) state.session = null; if (mock) { mockData(); renderAll(); markLoaded(); return; } await moduleToken(false); const childId = encodeURIComponent(state.childId); const machinesPromise = runtime('/v2/module/machines'); const policyPromise = runtime(`/v2/module/app-policy?childId=${childId}`); const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`); const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`))); const usagePromise = loadUsage(); const [machines, policy, catalog, records] = await Promise.all([machinesPromise, policyPromise, catalogPromise, recordsPromise, usagePromise]); state.machines = machines.machines || []; state.users.clear(); await Promise.all(state.machines.map(async (machine) => { const result = await runtime(`/v2/module/machines/${encodeURIComponent(machine.id)}/users`); state.users.set(machine.id, result.users || []); })); state.policy = AppRuntimePolicy.normalize(policy); state.policyEtag = `"app-policy-v${state.policy.version}"`; state.records = records; state.catalog = catalog; renderAll(); markLoaded(); } catch (error) { showError(error); } finally { setLoading(false); } }
-  async function loadUsage() { if (mock) return; const period = range(); const query = new URLSearchParams({ childId: state.childId, fromMs: String(period.from), toMs: String(period.to) }); if ($('#machine-filter').value) query.set('machineId', $('#machine-filter').value); if ($('#user-filter').value) query.set('userId', $('#user-filter').value); if ($('#platform-filter').value) query.set('platform', $('#platform-filter').value); state.usage = await runtime(`/v2/module/app-usage?${query}`); }
+  async function load({ freshToken = false } = {}) { setLoading(true); try { if (freshToken) state.session = null; if (mock) { mockData(); renderAll(); markLoaded(); return; } await moduleToken(false); const childId = encodeURIComponent(state.childId); const machinesPromise = runtime('/v2/module/machines'); const policyPromise = runtime(`/v2/module/app-policy?childId=${childId}`); const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`); const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`))); void loadUsage(); const [machines, policy, catalog, records] = await Promise.all([machinesPromise, policyPromise, catalogPromise, recordsPromise]); state.machines = machines.machines || []; state.users.clear(); await Promise.all(state.machines.map(async (machine) => { const result = await runtime(`/v2/module/machines/${encodeURIComponent(machine.id)}/users`); state.users.set(machine.id, result.users || []); })); state.policy = AppRuntimePolicy.normalize(policy); state.policyEtag = `"app-policy-v${state.policy.version}"`; state.records = records; state.catalog = catalog; renderAll(); markLoaded(); } catch (error) { showError(error); } finally { setLoading(false); } }
+  let usageRequestVersion = 0;
+  async function loadUsage() {
+    if (mock) return;
+    const requestVersion = ++usageRequestVersion;
+    const period = range();
+    const query = new URLSearchParams({ childId: state.childId, fromMs: String(period.from), toMs: String(period.to) });
+    if ($('#machine-filter').value) query.set('machineId', $('#machine-filter').value);
+    if ($('#user-filter').value) query.set('userId', $('#user-filter').value);
+    if ($('#platform-filter').value) query.set('platform', $('#platform-filter').value);
+    state.usage = null; state.usageError = null; state.usageLoading = true; renderUsage();
+    try {
+      const usage = await runtime(`/v2/module/app-usage?${query}`);
+      if (requestVersion === usageRequestVersion) state.usage = usage;
+    } catch (error) {
+      if (requestVersion !== usageRequestVersion) return;
+      state.usageError = `使用统计暂不可用：${AppRuntimeNetwork.friendlyError(error).message}`;
+      if (error?.code === 'AUTH_RECOVERY_FAILED') showError(error);
+    } finally {
+      if (requestVersion === usageRequestVersion) { state.usageLoading = false; renderUsage(); }
+    }
+  }
   function renderAll() {
     renderChildPicker();
     if (state.view === 'usage') { const period = range(); $('#range-label').textContent = period.label; $('#chart-caption').textContent = `北京时间，${state.period === 'day' ? '按小时' : '按每日'}`; renderFilters(); renderUsage(); }
@@ -451,6 +487,7 @@
     if (button.dataset.systemTab) { switchTab('system', button.dataset.systemTab); if (button.dataset.systemTab === 'logs') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
     if (button.id === 'mobile-menu') { $('#sidebar').classList.add('open'); $('#mobile-backdrop').hidden = false; }
     if (button.id === 'refresh' || button.id === 'retry' || button.id === 'initial-load-retry') await load({ freshToken: true });
+    if (button.id === 'retry-usage') await loadUsage();
     if (button.dataset.period) { state.period = button.dataset.period; state.offset = 0; $$('[data-period]').forEach((item) => item.classList.toggle('active', item === button)); if (!mock) await loadUsage(); renderUsage(); }
     if (button.id === 'previous') { state.offset -= 1; if (!mock) await loadUsage(); renderUsage(); }
     if (button.id === 'today') { state.offset = 0; if (!mock) await loadUsage(); renderUsage(); }

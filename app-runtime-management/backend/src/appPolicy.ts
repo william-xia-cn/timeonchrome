@@ -643,13 +643,22 @@ async function getAppPolicyHistory(
   database: D1Database,
   accountId: string,
   childId: string,
-): Promise<Map<number, Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'>>> {
-  const rows = await database.prepare(`
-    SELECT version,payload_json FROM runtime_child_app_policy_versions_v1
-    WHERE account_id=?1 AND child_id=?2
-  `).bind(accountId, childId).all<{ version: number; payload_json: string }>();
-  return new Map((rows.results || []).map((row) => [Number(row.version),
-    normalizeStoredPolicy(JSON.parse(row.payload_json) as AppPolicyUpdate)]));
+  versions: number[],
+): Promise<Map<number, Pick<AppPolicyDocument, 'timeWindows'>>> {
+  const history = new Map<number, Pick<AppPolicyDocument, 'timeWindows'>>();
+  const unique = [...new Set(versions)];
+  for (let offset = 0; offset < unique.length; offset += 50) {
+    const page = unique.slice(offset, offset + 50);
+    const rows = await database.prepare(`
+      SELECT version,json_extract(payload_json,'$.timeWindows') AS time_windows_json
+      FROM runtime_child_app_policy_versions_v1
+      WHERE account_id=?1 AND child_id=?2 AND version IN (${page.map((_, i) => `?${i + 3}`).join(',')})
+    `).bind(accountId, childId, ...page).all<{ version: number; time_windows_json: string | null }>();
+    for (const row of rows.results ?? []) history.set(Number(row.version), {
+      timeWindows: row.time_windows_json == null ? allOpenTimeWindows() : JSON.parse(row.time_windows_json) as AppPolicyTimeWindows,
+    });
+  }
+  return history;
 }
 
 function dailyQuotaState(
@@ -722,7 +731,8 @@ export async function queryAppUsage(
     platform: RuntimePlatform; runtimeIdentity: string; displayName: string | null;
     groups: Map<string, Array<[number, number]>>;
   }>();
-  const policyHistory = await getAppPolicyHistory(database, accountId, childId);
+  const policyHistory = await getAppPolicyHistory(database, accountId, childId,
+    (result.results ?? []).filter(row => row.app_policy_version != null).map(row => Number(row.app_policy_version)));
   const bucketByDay = toMs - fromMs > 2 * 86_400_000;
   let estimatedSegmentCount = 0;
   let outsideWindowSegmentCount = 0;

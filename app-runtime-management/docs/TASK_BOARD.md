@@ -1,5 +1,11 @@
 # App Runtime 任务板
 
+## NOW：用量查询内存与故障隔离（2026-09-29）
+
+本地证据：Worker聚焦11项、Console网络9项及session/usage聚焦、隔离浏览器7场景通过；1440px/390px统计失败界面已目视，设备页在统计pending/500时可访问，单独重试恢复，未知统计不显示零。Worker typecheck、dry-run、边界与diff检查通过。生产只读汇总证实策略历史276版、payload约89.8MB；改为仅取涉及版本时间窗、更正按8版分页并保留最新周/身份结果，不读取整份历史。提交前Matched=三项本地修复；Deviated/Extra=无；Missing=PR/生产部署/真实读取验收。生产仍待0011卸载migration，现有延期只允许旧Mac热修精确树；本次不执行该migration，新的精确树延期例外待PO批准。
+
+PO批准修复并部署Runtime Worker/独立Pages。职责runtime-cloud-contract；只改策略历史读取、更正读取的内存开销，统一异常CORS与Console统计失败隔离，不改原账、分类优先级、区间并集或配额口径，不执行migration。实施顺序：有界历史读取及等价回归、异常CORS、统计独立加载/重试、最小验证与PR、干净master发布和真实读取验收。测试仅Worker更正/用量/CORS、Console网络/恢复/故障隔离、typecheck、Wrangler dry-run、隔离桌面/移动目视及diff；排除Native/安装器/无关全平台。发布smoke核对health、401/CORS、用量和设备可用；生产未验收前保持未完成。
+
 ## NOW：电脑应用登录循环修复（2026-09-29）
 
 本地验证：network 9项、session既有断言及3项恢复回归通过；隔离浏览器5场景通过（网络持续/恢复、401持续/恢复、票据失败），没有访问真实API；桌面/390px移动错误页截图已目视核对，等待侧栏动画结束后入口完整可达。Console tsc检查通过（JS沿用checkJs=false，另有node语法检查），diff检查通过。提交前Matched=本地清单，Deviated/Extra=无；Missing=PR/部署/真实登录验收，后续分别核实。不将模拟登录算实机通过。

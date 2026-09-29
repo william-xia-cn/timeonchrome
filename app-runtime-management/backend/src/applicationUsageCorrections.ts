@@ -23,28 +23,39 @@ export function buildWeekReclassification(policy: Pick<AppPolicyDocument, 'class
 export type UsageClassificationCorrection = RuntimeWeekReclassification & { version: number };
 export async function loadUsageCorrections(db: D1Database, accountId: string, childId: string,
   fromMs: number, toMs: number): Promise<UsageClassificationCorrection[]> {
-  // Return only the latest exact-key attribution for each week, not every full policy
-  // payload ever saved during that week. Result size follows identities, not edit count.
-  const rows = await db.prepare(`WITH ranked AS (
-    SELECT p.version,json_extract(p.payload_json,'$.weekReclassification.fromMs') AS from_ms,
-      json_extract(p.payload_json,'$.weekReclassification.toMs') AS to_ms,
-      json_extract(a.value,'$.platform') AS platform,json_extract(a.value,'$.runtimeIdentity') AS identity,
-      json_extract(a.value,'$.classification') AS classification,
-      ROW_NUMBER() OVER(PARTITION BY json_extract(p.payload_json,'$.weekReclassification.fromMs'),
-        json_extract(a.value,'$.platform'),json_extract(a.value,'$.runtimeIdentity') ORDER BY p.version DESC) AS rank
-    FROM runtime_child_app_policy_versions_v1 p,json_each(p.payload_json,'$.weekReclassification.applications') a
-    WHERE p.account_id=?1 AND p.child_id=?2
-      AND json_extract(p.payload_json,'$.weekReclassification.fromMs')<?4
-      AND json_extract(p.payload_json,'$.weekReclassification.toMs')>?3)
-    SELECT * FROM ranked WHERE rank=1`)
-    .bind(accountId, childId, fromMs, toMs).all<{ version: number; from_ms: number; to_ms: number;
-      platform: 'windows' | 'macos'; identity: string; classification: ApplicationClassification }>();
+  // Walk the indexed immutable version history instead of expanding every version
+  // into a window-function sorter in SQLite. Keep only the latest week/identity.
+  // Bound at the initial maximum so concurrent policy saves cannot mix this read.
+  const maximum = await db.prepare(`SELECT MAX(version) AS version
+    FROM runtime_child_app_policy_versions_v1 WHERE account_id=?1 AND child_id=?2`)
+    .bind(accountId, childId).first<{ version: number | null }>();
+  let beforeVersion = Number(maximum?.version ?? 0) + 1;
+  const seen = new Set<string>();
   const grouped = new Map<string, UsageClassificationCorrection>();
-  for (const row of rows.results ?? []) {
-    const key = `${row.from_ms}\n${row.version}`;
-    const correction = grouped.get(key) ?? { fromMs: Number(row.from_ms), toMs: Number(row.to_ms), version: Number(row.version), applications: [] };
-    correction.applications.push({ platform: row.platform, runtimeIdentity: row.identity, classification: row.classification });
-    grouped.set(key, correction);
+  for (;;) {
+    const page = await db.prepare(`SELECT version,
+      json_extract(payload_json,'$.weekReclassification') AS correction_json
+      FROM runtime_child_app_policy_versions_v1
+      WHERE account_id=?1 AND child_id=?2 AND version<?3
+        AND json_extract(payload_json,'$.weekReclassification.fromMs')<?5
+        AND json_extract(payload_json,'$.weekReclassification.toMs')>?4
+      ORDER BY version DESC LIMIT 8`)
+      .bind(accountId, childId, beforeVersion, fromMs, toMs)
+      .all<{ version: number; correction_json: string }>();
+    const rows = page.results ?? [];
+    for (const row of rows) {
+      const value = JSON.parse(row.correction_json) as RuntimeWeekReclassification;
+      const correction: UsageClassificationCorrection = { ...value, version: Number(row.version), applications: [] };
+      for (const app of value.applications) {
+        const identity = `${value.fromMs}\n${app.platform}\n${app.runtimeIdentity}`;
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        correction.applications.push(app);
+      }
+      if (correction.applications.length) grouped.set(`${value.fromMs}\n${row.version}`, correction);
+    }
+    if (rows.length < 8) break;
+    beforeVersion = Number(rows[rows.length - 1]!.version);
   }
   return [...grouped.values()];
 }
