@@ -4,9 +4,9 @@
 
 ### 治理收口续项：固定工作树位置与两条未就绪旁路（D-110）
 
-2026-09-29核对：PR #117 已合入`master@d9ab84a`，职责文档与范围检查生效。标准云端`codex/cloud-management`及Task`codex/task-management-v1`已有固定分支；`codex/extension-local`与`codex/santa-management`本地及远端均尚不存在。主目录`D:\Codex\TimeOnchrome`仍有控件、Santa及云端混合未提交内容，`81a1`仍是扩展加载源，Task`f805`仍有未提交内容。本次不创建空占位分支、不切换原候选、不搬移或覆盖草稿；不能将规则生效等同于五条工作线迁移完成。
+2026-09-29核对：PR #117 已合入`master@d9ab84a`，目录决策PR #118 已合入`master@a37429b`。标准云端`codex/cloud-management`及Task`codex/task-management-v1`已有固定分支。控件旁路已在`D:\Codex\TimeOnchrome-worktrees\extension-local`落地并推送`codex/extension-local@10621e3`：主线已包含Rest与复合观察的产品代码，本次只修订过时的隔离测试断言；未切换原`81a1`加载目录，也未完成延后的真实30分钟复合分析验收。Santa旁路已在`D:\Codex\TimeOnchrome-worktrees\santa-management`建立本地`codex/santa-management`，从`master@a37429b`逐项提取Santa草稿；目前仍有未提交内容，验证及推送未完成，不视为已整合。主目录`D:\Codex\TimeOnchrome`的控件、Santa及云端混合未提交内容仍保留，Task`f805`仍有未提交内容。
 
-固定目录目标：主线`D:\Codex\TimeOnchrome`，旁路在同级`D:\Codex\TimeOnchrome-worktrees\`按工作线命名。当前标准云端继续复用`guardian-release-81949cc`，不因旧名字不匹配而重建。控件与Santa各自先核对独有提交、未提交hunk、ignored构建/运行依赖和会话引用；所属任务确认迁移顺序后再建立对应固定分支与工作树。扩展候选完成新目录加载复验前，原`81a1`不得移动；Santa草稿未分离前，主目录不得更新或清理。Task`f805`保留至所有者处理完脏内容。新分支/目录创建、功能整合、旧目录清理分别记状态，不混称完成。
+固定目录目标：主线`D:\Codex\TimeOnchrome`，旁路在同级`D:\Codex\TimeOnchrome-worktrees\`按工作线命名。当前标准云端继续复用`guardian-release-81949cc`，不因旧名字不匹配而重建。Codex托管工具额外创建了`C:\Users\William\.codex\worktrees\extension-local\TimeOnchrome`（detached，未使用）；归档工具因受保护而拒绝移除，保持原样并单列后续处理，不能用文件删除绕过。扩展候选完成新目录加载复验前，原`81a1`不得移动；Santa草稿验证并逐项分离前，主目录不得更新或清理。Task`f805`保留至所有者处理完脏内容。新分支/目录创建、功能整合、运行引用切换和旧目录清理分别记状态，不混称完成。
 
 本续项为纯治理文档：只运行`git diff --check`和文档结构检查；不运行产品测试，不安装、不部署、不改变生产或候选运行状态。
 
