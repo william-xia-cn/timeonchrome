@@ -22,7 +22,7 @@
     apps: ['应用管理', '管理安装发现、产品确认与孩子分类规则'], devices: ['设备管理', '管理电脑、账户分配与运行状态'],
     system: ['系统管理', '查看系统日志、技术进程、主账本、辅助媒体和运行健康'],
   };
-  const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: 'usage', appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false };
+  const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: 'usage', appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
   const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -328,7 +328,46 @@
   function closeDrawer() { $('#device-drawer').classList.remove('open'); $('#device-drawer').setAttribute('aria-hidden', 'true'); $('#mobile-backdrop').hidden = true; }
   function openUsageDetail(kind, value) { const item = kind === 'app' ? state.usage.applications?.[Number(value)] : state.usage.categories?.find((entry) => entry.classification === value); if (!item) return; const title = kind === 'app' ? item.displayName || '未知应用' : categoryLabels[item.classification]; $('#drawer-content').innerHTML = `<h2>${escape(title)}</h2><p>${kind === 'app' ? `${escape(item.platform)} · ${categoryLabels[item.classification] || '未归类'}` : '分类使用详情'}</p><div class="drawer-section"><h3>本周期主使用</h3><p class="detail-duration">${duration(item.durationMs)}</p><p>${item.quota?.limitMs == null ? '配额：无限制' : `配额：${duration(item.quota.limitMs)}<br>剩余：${duration(item.quota.remainingMs)}<br>状态：${item.quota.exceeded ? '已超额' : '未超额'}`}</p></div><div class="notice warning"><span>统计只读取主账本区间并集；辅助媒体不进入此详情或配额。</span></div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
 
-  async function load({ freshToken = false } = {}) { setLoading(true); try { if (freshToken) state.session = null; if (mock) { mockData(); renderAll(); markLoaded(); return; } await moduleToken(false); const childId = encodeURIComponent(state.childId); const machinesPromise = runtime('/v2/module/machines'); const policyPromise = runtime(`/v2/module/app-policy?childId=${childId}`); const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`); const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`))); void loadUsage(); const [machines, policy, catalog, records] = await Promise.all([machinesPromise, policyPromise, catalogPromise, recordsPromise]); state.machines = machines.machines || []; state.users.clear(); await Promise.all(state.machines.map(async (machine) => { const result = await runtime(`/v2/module/machines/${encodeURIComponent(machine.id)}/users`); state.users.set(machine.id, result.users || []); })); state.policy = AppRuntimePolicy.normalize(policy); state.policyEtag = `"app-policy-v${state.policy.version}"`; state.records = records; state.catalog = catalog; renderAll(); markLoaded(); } catch (error) { showError(error); } finally { setLoading(false); } }
+  async function loadMachineState() {
+    const response = await runtime('/v2/module/machines');
+    const machines = response.machines || [];
+    const users = await Promise.all(machines.map(async (machine) => {
+      const result = await runtime(`/v2/module/machines/${encodeURIComponent(machine.id)}/users`);
+      return [machine.id, result.users || []];
+    }));
+    state.machines = machines;
+    state.users = new Map(users);
+  }
+  async function loadManagementState() {
+    const childId = encodeURIComponent(state.childId);
+    const policyPromise = runtime(`/v2/module/app-policy?childId=${childId}`);
+    const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`);
+    const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`)));
+    const [policy, catalog, records] = await Promise.all([policyPromise, catalogPromise, recordsPromise]);
+    state.policy = AppRuntimePolicy.normalize(policy);
+    state.policyEtag = `"app-policy-v${state.policy.version}"`;
+    state.catalog = catalog;
+    state.records = records;
+    state.managementLoaded = true;
+  }
+  async function load({ freshToken = false } = {}) {
+    const requestedView = state.view;
+    setLoading(true);
+    try {
+      if (freshToken) state.session = null;
+      if (mock) { mockData(); renderAll(); markLoaded(); return; }
+      await moduleToken(false);
+      if (requestedView === 'devices' || requestedView === 'usage') {
+        await loadMachineState();
+        renderAll(); markLoaded(); if (state.view === requestedView) clearError();
+        if (requestedView === 'usage') void loadUsage();
+      } else {
+        await loadManagementState();
+        renderAll(); markLoaded(); if (state.view === requestedView) clearError();
+      }
+    } catch (error) { if (state.view === requestedView) showError(error); }
+    finally { setLoading(false); }
+  }
   let usageRequestVersion = 0;
   async function loadUsage() {
     if (mock) return;
@@ -475,7 +514,7 @@
     state.runtimeLogs.nextCursor = result.nextCursor || null; state.runtimeLogs.summary = result.summary || null;
     renderRuntimeLogs();
   }
-  function switchView(view) { state.view = view; $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view)); $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view)); [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[view]; renderAll(); if ($('#status-strip').className === 'success') clearError(); $('#sidebar').classList.remove('open'); $('#mobile-backdrop').hidden = true; }
+  function switchView(view) { state.view = view; $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view)); $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view)); [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[view]; renderAll(); clearError(); if (!mock && ['access', 'apps', 'system'].includes(view) && !state.managementLoaded) void load(); $('#sidebar').classList.remove('open'); $('#mobile-backdrop').hidden = true; }
   function switchTab(type, name) { $$(`[data-${type}-tab]`).forEach((button) => button.classList.toggle('active', button.dataset[`${type}Tab`] === name)); $$(`[data-${type}-panel]`).forEach((panel) => { panel.hidden = panel.dataset[`${type}Panel`] !== name; }); }
   async function loadLedger(kind) { const period = range(); const result = mock ? { items: kind === 'usage' ? [{ startAtMs: Date.now() - 60000, displayName: 'Visual Studio Code', durationMs: 60000, applicationClassification: 'study', estimated: false }] : [{ startAtMs: Date.now() - 120000, displayName: 'Microsoft Edge', durationMs: 120000, mediaKind: 'video', presentation: 'background', estimated: false }] } : await runtime(`/v2/module/${kind === 'usage' ? 'usage-segments' : 'media-segments'}?childId=${encodeURIComponent(state.childId)}&fromMs=${period.from}&toMs=${period.to}&limit=50`); const target = kind === 'usage' ? $('#ledger-list') : $('#media-list'); target.className = 'table-list'; target.innerHTML = result.items.length ? result.items.map((item) => `<div class="table-row"><time>${time(item.startAtMs)}</time><strong>${escape(item.displayName || '未知应用')}</strong><span>${duration(item.durationMs)}</span><span>${kind === 'usage' ? categoryLabels[item.applicationClassification] || '未归类' : `${item.mediaKind}/${item.presentation}`}</span></div>`).join('') : '<p>暂无明细</p>'; }
   function exportConfig() { const blob = new Blob([JSON.stringify(AppRuntimePolicy.exportPayload(state.policy), null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'timeonchrome-app-runtime-config.json'; link.click(); URL.revokeObjectURL(link.href); }
@@ -486,7 +525,7 @@
     if (button.dataset.accessTab) switchTab('access', button.dataset.accessTab);
     if (button.dataset.systemTab) { switchTab('system', button.dataset.systemTab); if (button.dataset.systemTab === 'logs') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
     if (button.id === 'mobile-menu') { $('#sidebar').classList.add('open'); $('#mobile-backdrop').hidden = false; }
-    if (button.id === 'refresh' || button.id === 'retry' || button.id === 'initial-load-retry') await load({ freshToken: true });
+    if (button.id === 'refresh' || button.id === 'retry' || button.id === 'initial-load-retry') await load();
     if (button.id === 'retry-usage') await loadUsage();
     if (button.dataset.period) { state.period = button.dataset.period; state.offset = 0; $$('[data-period]').forEach((item) => item.classList.toggle('active', item === button)); if (!mock) await loadUsage(); renderUsage(); }
     if (button.id === 'previous') { state.offset -= 1; if (!mock) await loadUsage(); renderUsage(); }
@@ -520,7 +559,7 @@
   document.addEventListener('change', async (event) => { const control = event.target; try {
     if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
     if (['directory-scope','management-platform'].includes(control.id)) { renderAppDirectory(); return; }
-    if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { state.childId = selected.id; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
+    if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { state.childId = selected.id; state.managementLoaded = false; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
     else if (control.id === 'machine-filter') { renderFilters(); if (!mock) await loadUsage(); renderUsage(); }
     else if (['user-filter','platform-filter'].includes(control.id)) { if (!mock) await loadUsage(); renderUsage(); }
     else if (control.id === 'media-toggle') renderUsage();
