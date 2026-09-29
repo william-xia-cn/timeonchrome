@@ -4,6 +4,10 @@
 
 ### 治理收口续项：固定工作树位置与遗留目录（D-110）
 
+2026-09-29 云端草稿核对：主目录 `D:\Codex\TimeOnchrome` 中未提交的复合页面复核路由、独立脚本、migration、页面入口及本周 Rest 配置，与现行 `origin/master@6d2028c` 的对应功能逐项对照，主线已有后续修正（复合只读关闭状态见 `72c6f0f`）。旧主目录停在 `2b9d461`，文件哈希不同主要不能被当作遗漏功能证据；本轮不复制旧实现、不改主目录。Santa 专属改动已由所属线核对等价；主目录仍混有控件、云端、Santa 未提交内容及运行依赖，继续整体保护。
+
+2026-09-29 孤立分支续清理：`codex/task-terminal-default-off-v1@8ef79a6` 已为 `origin/master` 祖先，无工作树占用；精确 SHA 已包含在验证过的 `timeonchrome.bundle`。删除对应本地分支，并在实时远端 SHA 相同的条件下以 lease 删除远端分支；残留 `C:\tmp\TimeOnchrome-task-terminal-default-off` 目录和其中可能含认证字段的本地文件未触碰，未进入通用备份。当前登记工作树仍 18，本地分支 19、实时远端分支 30；五个固定目录之外的保留项不因此变成可删除。
+
 2026-09-29后续清理：对旧Task工作树`C:\tmp\TimeOnchrome-task-terminal-default-off`执行前，已核验提交`8ef79a6f`在主线、既有本地bundle可恢复、无未提交内容或其他进程引用。非强制`git worktree remove`取消了Git登记，但因目录非空返回失败；现登记工作树21→20，原路径仍有残留，**不算目录清理完成**。残留含带认证字段的本地测试JSON，不进入通用恢复归档，不强删、不移动；对应本地/远端分支及原文件保持待核对状态。其余含ignored产物或运行/验收依赖的旧树继续保留，不能按“已并入主线”直接移除。本次没有安装、部署或修改产品数据。
 
 2026-09-29分支清理续项：从最新`origin/master`核验祖先关系、无工作树占用、实时远端SHA和精确bundle后，以非强制方式删除7条已合并本地分支：`codex/inventory-disposition-closeout`、`codex/inventory-final-source-map`、`codex/native-host-fixed-candidate-v3`、`codex/schedule-deployment-evidence`、`codex/composite-real-auth-closeout`、`codex/runtime-login-loop-fix`、`codex/runtime-macos-enrollment-fix`。删除其中仍存在的5条对应远端分支，并额外删除已合并的远端`codex/runtime-usage-memory-fix`；所有远端删除均按实时SHA加lease。原`timeonchrome.bundle`及新增`timeonchrome-branch-delta.bundle`、`timeonchrome-remote-delta.bundle`位于`D:\Codex\worktree-cleanup-backups\2026-09-29\`，新增bundle已验证完整历史和精确分支SHA。另清除1条经实时核实已不存在的本地远端跟踪引用。当前核验口径：TimeOnChrome登记工作树20、在地分支20、GitHub实时分支31；TimeWhereNative登记工作树3、在地分支3。未合并、脏树、含ignored证据及固定工作线继续保留；旧Task目录的文件残留未处理，不能宣称达到五目录目标。本轮无安装、部署或产品数据操作。
