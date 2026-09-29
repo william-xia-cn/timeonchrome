@@ -10,7 +10,11 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.16.1');
+assert.equal(pkg.version, '1.17.0');
+const enrollment = JSON.parse(fs.readFileSync(path.join(root, 'machine-enrollment-recovery-v1.schema.json'), 'utf8'));
+assert.deepEqual(enrollment.$defs.request.required, ['code', 'platform']);
+assert.equal(enrollment.$defs.request.properties.clientMachineToken.pattern, '^rt_machine_token_[A-Za-z0-9_-]{43}$');
+assert.deepEqual(enrollment.$defs.response.required, ['machineId', 'machineToken', 'platform']);
 const appPolicy = JSON.parse(fs.readFileSync(path.join(root, 'runtime-app-policy-v1.schema.json'), 'utf8'));
 assert(!appPolicy.required.includes('productIdentityProjection'), 'N-1 policy does not require product projection');
 assert.deepEqual(appPolicy.properties.productIdentityProjection.required, ['version','knowledgeVersion','items']);

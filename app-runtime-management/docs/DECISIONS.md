@@ -1,5 +1,11 @@
 # App Runtime 决策记录
 
+## ARM-D-037：首次配对使用预存机器密钥恢复，不重复消费配对码
+
+2026-09-30 跨端配对故障收口。新客户端必须在首次 `POST /v2/machines/enroll` 前，以系统受保护存储持久化由 CSPRNG 生成的 256-bit `clientMachineToken`；保存失败不得发送配对请求。服务端仅保存其 SHA-256，不保存可还原明文。首次成功仍返回既有 `machineId/machineToken/platform`；响应丢失时，同一码及同一 token 的请求幂等返回原机器，或使用已存 token 对现有 `GET /v2/machines/self` 鉴权恢复 ID。配对码的十分钟期限仅限制首次消费；成功后的同 token 恢复不依赖码是否过期。已消费码配不同 token、平台不符、机器被撤销或机器记录缺失均拒绝，不创建新机器，也不恢复撤销身份。
+
+机器 token 本身是 256-bit 的请求关联与身份凭证，不另增加可丢失的 operationId 或可解密的云端密钥副本。新请求字段可选，旧 Windows 客户端仍由服务端生成 token，维持一次性码不可重试语义。Native 负责安全生成、预存、重启后恢复与失败状态；本仓只负责契约、Worker 验证和幂等接收。此项不修改网页/应用账本、历史机器数据或配对归属，不执行生产部署。
+
 ## ARM-D-035：平台中立心跳与兼容协商
 
 2026-09-28 架构裁决；待独立契约及接收端实施，不表示生产已支持。规范字段为 osVersion，平台只从认证机器记录读取，architecture 保持现有语义。Windows 可用旧 windowsVersion 或新 osVersion；双字段必须逐字相同。macOS 只接受 osVersion，携带 windowsVersion 拒绝。任一已提供字段必须为 1–128 字符、非全空白且无控制字符的字符串；不裁剪后掩盖双字段冲突。无效字段返回 400 INVALID_REQUEST，双字段不同返回 400 HEARTBEAT_VERSION_CONFLICT，不更新最后成功心跳。其他在线和策略语义不变。

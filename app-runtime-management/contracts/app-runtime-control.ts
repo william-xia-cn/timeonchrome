@@ -71,6 +71,20 @@ export interface AppRuntimeBrowserSessionResponse {
   selectedChildId?: string;
 }
 
+/** Client token is generated and durably stored before the first network request. */
+export interface RuntimeMachineEnrollmentRequest {
+  code: string;
+  platform: 'windows' | 'macos';
+  displayName?: string | null;
+  clientMachineToken?: string;
+}
+
+export interface RuntimeMachineEnrollmentResponse {
+  machineId: string;
+  machineToken: string;
+  platform: 'windows' | 'macos';
+}
+
 export type RuntimeMachinePolicyState = 'pending' | 'cached' | 'applied' | 'failed' | 'offline';
 
 /** Receiver capabilities are independent of the child's applied policy version. */
