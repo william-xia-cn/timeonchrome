@@ -14,6 +14,9 @@ function active(result) {
 
 const cases = [
   ['Changelog-only', ['app-runtime-management/docs/CHANGELOG.md'], ['docs']],
+  ['Contracts documentation', ['app-runtime-management/contracts/README.md'], ['docs']],
+  ['Backend documentation', ['app-runtime-management/backend/README.md'], ['docs']],
+  ['Console documentation', ['app-runtime-management/console/README.md'], ['docs']],
   ['Worker rules', ['app-runtime-management/backend/src/data/product-catalog-rules.v2.json'], ['worker']],
   ['Console CSS', ['app-runtime-management/console/app-runtime.css'], ['console']],
   ['Removed Windows source', ['app-runtime-management/agents/windows/src/TimeOnChrome.AppRuntime.Service/Program.cs'], ['release_config']],

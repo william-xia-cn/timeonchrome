@@ -61,6 +61,10 @@ function classifyPaths(paths, options = {}) {
       result.release_config = true;
       continue;
     }
+    if (file.endsWith('.md')) {
+      result.docs = true;
+      continue;
+    }
     if (file === 'package.json' || file === 'package-lock.json') {
       result.contracts = true;
       result.worker = true;
