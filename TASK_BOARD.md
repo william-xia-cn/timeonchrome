@@ -2,7 +2,7 @@
 
 ## NOW：一条架构集成主线与四条开发旁路（2026-09-29，PO修订）
 
-### 治理收口续项：固定工作树位置与两条未就绪旁路（D-110）
+### 治理收口续项：固定工作树位置与遗留目录（D-110）
 
 2026-09-29核对：PR #117 已合入`master@d9ab84a`，目录决策PR #118 已合入`master@a37429b`。标准云端`codex/cloud-management`及Task`codex/task-management-v1`已有固定分支。控件旁路已在`D:\Codex\TimeOnchrome-worktrees\extension-local`落地并推送`codex/extension-local@10621e3`：主线已包含Rest与复合观察的产品代码，本次只修订过时的隔离测试断言；未切换原`81a1`加载目录，也未完成延后的真实30分钟复合分析验收。Santa旁路已在`D:\Codex\TimeOnchrome-worktrees\santa-management`建立本地`codex/santa-management`，从`master@a37429b`逐项提取Santa草稿；目前仍有未提交内容，验证及推送未完成，不视为已整合。主目录`D:\Codex\TimeOnchrome`的控件、Santa及云端混合未提交内容仍保留，Task`f805`仍有未提交内容。
 
@@ -12,11 +12,11 @@
 
 本轮职责`architecture-integration`，允许本任务治理文档、职责检查和固定用例。实施清单：①D-109及PROJECT_WORKFLOW/AGENTS修订；②范围检查区分架构契约、控件、标准云端、Task和Santa；③聚焦测试、CI路由和`git diff --check`；④审计后通过过渡PR合入。本次不移动目录、不清理分支、不部署。目标五个常用目录，不把过渡状态冒称已完成。
 
-目标映射：`master`=架构/集成；`codex/extension-local`=控件（原81a1加载目录先保留，分支尚未切换）；`codex/cloud-management`=标准云端（复用`WT\guardian-release-81949cc`）；`codex/task-management-v1`=Task（f805脏树保留）；`codex/santa-management`=Santa（主目录混合草稿先分离，固定分支/目录尚未就绪）。产品/发布阶段不额外占一条工作线。Task默认关闭且不发布。
+目标映射：`master`=架构/集成；`codex/extension-local`=控件（固定D盘工作树已建立，原81a1加载目录仍保留）；`codex/cloud-management`=标准云端（复用`WT\guardian-release-81949cc`）；`codex/task-management-v1`=Task（f805脏树保留）；`codex/santa-management`=Santa（固定D盘工作树已建立，迁移内容仍未提交）。产品/发布阶段不额外占一条工作线。Task默认关闭且不发布。
 
 下面2026-09-29初查与四工作线表为D-108时点历史，结构以D-109为准；处置清单的HEAD/数量不得直接当作此刻实时状态。
 
-职责runtime-cloud-contract。固定master控件主线、TaskMg、SantaMg、云端管理四工作线；不再按修复/发布建工作树。先文档→流程检查→精确处置清单→聚焦测试/PR。只修改治理文档、CI路由和发布判断，不改业务、候选、数据库或运行目录。本轮不执行清理，不创建Santa新目录，不迁移混合脏树。
+以下为D-108四工作线阶段的历史任务记录，已由D-109五工作线决策取代；不得据此重建master控件主线或覆盖本节最新状态。该阶段仅修改治理文档、CI路由和发布判断，未改业务、候选、数据库或运行目录。
 
 最小验证：task-scope、CI routing、工作流语法及diff；排除产品/平台/安装器/E2E全量。本次不部署。当前用量修复PR115已合并e3d8e9f且CI通过，尚未发布；发布不依赖遗留目录全部清理。生产workflow仍保留旧迁移门禁；本轮不改该门禁，也不宣称新延期流程已经可用。
 
@@ -47,7 +47,7 @@
 | `WT\runtime-session-boundaries` · `b2c5b22d` | 云端历史线；已合并 | 未跟踪 `.wrangler` | 数据用途核验前保留 |
 | `WT\timewhere-native-split` · `0dd58ce8` | 拆仓历史线；已合并 | 异常未跟踪 `backend/NUL` 等 | 异常文件核验前保留 |
 
-未合并且无上述工作树的本地文档分支 `codex/app-runtime-release-evidence-v1` 也保留给云端线核对；其余本地/远端引用即使已被主线包含，也必须另核 PR、SHA、bundle 和依赖后形成精确删除清单。本轮不删分支、不归档工作树、不触碰 Native 仓。Santa 固定分支尚未建立，不能把脏主目录草稿冒称已迁入 Santa 线。
+未合并且无上述工作树的本地文档分支 `codex/app-runtime-release-evidence-v1` 也保留给云端线核对；其余本地/远端引用即使已被主线包含，也必须另核 PR、SHA、bundle 和依赖后形成精确删除清单。本表是创建Santa固定工作树之前的只读基线；Santa目录现已建立，但其未提交内容不能冒称已整合或已发布。本轮不删分支、不归档工作树、不触碰 Native 仓。
 
 ## 托管扩展发布前阻塞：Native Host 注册身份与兼容入口收口（2026-09-29，PO确认）
 
