@@ -156,7 +156,7 @@
       $('#quota-state').textContent = '暂不可用';
       $('#quota-state').classList.remove('danger-text');
       $('#last-sync').textContent = time(Math.max(0, ...state.machines.map(item => Number(item.lastUploadAtMs || item.lastSeenAtMs || 0))));
-      $('#policy-version').textContent = `应用策略 v${state.policy.version || 0}`;
+      $('#policy-version').textContent = state.managementLoaded ? `应用策略 v${state.policy.version}` : '应用策略未读取';
       $('#usage-chart').textContent = message;
       $('#category-legend').textContent = '';
       $('#app-ranking').innerHTML = `${escape(message)}${state.usageLoading ? '' : ' <button id="retry-usage">重试使用统计</button>'}`;
@@ -168,7 +168,7 @@
     $('#outside-window-summary').textContent = `本周期时段外使用 ${duration(usage.outsideTimeWindows?.durationMs || 0)}`;
     $('#total-time').textContent = duration(usage.totalDurationMs);
     $('#last-sync').textContent = time(Math.max(0, ...state.machines.map((item) => Number(item.lastUploadAtMs || item.lastSeenAtMs || 0))));
-    $('#policy-version').textContent = `应用策略 v${usage.appPolicyVersion || state.policy.version || 0}`;
+    $('#policy-version').textContent = usage.appPolicyVersion ? `应用策略 v${usage.appPolicyVersion}` : state.managementLoaded ? `应用策略 v${state.policy.version}` : '应用策略未读取';
     const exceeded = [...(usage.categories || []), ...(usage.applications || [])].some((item) => item.quota?.exceeded);
     $('#quota-state').textContent = exceeded ? '存在超额' : '额度充足';
     $('#quota-state').classList.toggle('danger-text', exceeded);

@@ -77,6 +77,7 @@ const { chromium } = require('playwright');
       assert.equal(new URL(page.url()).hash, '');
       if (scenario.startsWith('usage-')) {
         assert.equal(await page.locator('#total-time').textContent(), '—');
+        assert.equal(await page.locator('#policy-version').textContent(), '应用策略未读取');
         await page.locator('[data-view="devices"]').click();
         assert.equal(await page.locator('#add-machine').isVisible(), true);
         await page.locator('[data-view="usage"]').click();
