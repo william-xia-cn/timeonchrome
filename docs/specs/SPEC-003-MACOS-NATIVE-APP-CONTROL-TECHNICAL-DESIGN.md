@@ -45,6 +45,18 @@ No table contains Chrome device IDs, Device Tokens, website classifications, tim
 
 SyncBaseURL contains a public endpoint ID and a random scoped secret. D1 stores only the secret hash. The Worker implements standard `preflight`, `eventupload`, `ruledownload` and `postflight` endpoints.
 
+### 每日阻止时间段（本地实现，待部署验收）
+
+Native App Control 独立保存 Child 时区（默认 `Asia/Shanghai`）及应用、预定义项、发布者三类阻止来源的每日时间段。未配置时间段表示全天；非全天时间段为开始包含、结束不包含，允许跨午夜。多个来源命中同一 Santa 身份时取阻止并集。发布者时间段覆盖该 TeamID 的全部应用。
+
+旧客户端及未启用原生时间规则的 Native Mac 继续沿用云端边界切换：Native Worker 每分钟并在 Santa preflight 前核对时间边界，状态改变时提升策略版本，clean sync 下发当前完整规则集。它不承诺离线准点切换；终端离线时保留最后一次同步的策略。历史 `BLOCK_PUBLISHER` 同时写入的应用 BLOCK 仍按来源处理，避免发布者时段结束后留下隐性全天阻止。
+
+### 多选已阻止应用与原生时间规则（开发中）
+
+“应用组”仅指家长在“已阻止应用”列表中临时多选、批量设置同一个每日阻止时段；不创建命名组、不建立永久成员关系、不改变六个展示类别。每个阻止来源仍独立保存自己的时间段。批量请求先校验当前 Child 的全部选中来源和时间段，任何一项无效则整批不写入。应用同时命中多个来源时取阻止并集；发布者来源的时间段仍作用于该 TeamID 下全部应用，不能伪装成仅选中应用生效。
+
+Santa 2026.8 原生 CEL 时间规则采用逐 Native Mac 显式启用，数据库默认关闭。家长只能对已报告 2026.8+ 的指定 Mac 选择性下发；其余设备继续沿用现有云端边界切换规则。启用后 Worker 在 clean sync 时将每日时段写入对应身份规则，终端按 Child 的 IANA 时区在每次新启动时判断；离线也可执行已下载的时段。相同身份上的多条阻止来源须先合并成一条规则，任一来源生效即阻止，时段外结果不得遮蔽另一来源。控制台明确显示版本、原生规则开关和策略同步状态；关闭开关须再执行 clean sync 回到旧规则。时间段开始时已运行的进程不强制结束，不使用 `kill_on_expiry()`。Santa 官方文档以 Workshop 2026.8 描述此能力，自建同步服务的实际兼容性必须在 Thomas Mac 验证；不能仅凭 postflight 宣称实际阻断成功。
+
 - First preflight binds an HMAC of Santa MachineID; later mismatches are rejected.
 - Preflight returns Monitor mode, bundle discovery enabled and a 60-second full-sync interval.
 - Preflight 必须返回 `enable_all_event_upload: true`，使 Santa 将明确允许及 macOS 平台应用的主动、未缓存执行决策上传到独立 Native Worker；该云端运行配置不要求重新安装设备 `.mobileconfig`。Santa 的允许决策缓存仍意味着该数据用于应用发现，而不是精确的逐次启动计数。

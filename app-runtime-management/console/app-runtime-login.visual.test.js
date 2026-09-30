@@ -10,7 +10,7 @@ const { chromium } = require('playwright');
   const output = path.resolve('.wrangler/login-loop-visual');
   await fs.mkdir(output, { recursive: true });
   try {
-    for (const scenario of ['network', 'network-recovers', '401-loop', '401-recovers', 'ticket-fails', 'usage-fails', 'usage-pending']) {
+    for (const scenario of ['network', 'network-recovers', '401-loop', '401-recovers', 'ticket-fails', 'usage-fails', 'usage-pending', 'catalog-fails']) {
       const context = await browser.newContext();
       const page = await context.newPage();
       let redirects = 0;
@@ -48,6 +48,12 @@ const { chromium } = require('playwright');
           if (scenario === 'usage-pending' && count === 1) await pendingUsage;
           if (scenario === 'usage-fails' && usageFails) return route.fulfill({ status: 500, json: { error: { message: '服务暂时无法完成请求，请稍后重试。' } } });
         }
+        if (scenario === 'catalog-fails' && url.pathname === '/v2/module/app-catalog')
+          return route.fulfill({ status: 500, json: { error: { message: '目录暂不可用' } } });
+        if (scenario === 'catalog-fails' && url.pathname === '/v2/module/machines')
+          return route.fulfill({ json: { machines: [{ id: 'machine-1', displayName: '测试电脑', platform: 'windows', status: 'online', serviceVersion: '2.6.10' }] } });
+        if (scenario === 'catalog-fails' && url.pathname === '/v2/module/machines/machine-1/users')
+          return route.fulfill({ json: { users: [{ localUserId: 'local-1', displayName: '本机账户', protected: true, childId: 'mock-child' }] } });
         if (scenario === 'network' || (scenario === 'network-recovers' && count === 1)) return route.abort('failed');
         if (scenario === '401-loop' || (scenario === '401-recovers' && exchanges === 1))
           return route.fulfill({ status: 401, json: { error: { message: 'unauthorized' } } });
@@ -56,7 +62,7 @@ const { chromium } = require('playwright');
           applications: [], categories: [], buckets: [], totalDurationMs: 0 } });
       });
       await page.goto(`${origin}/#ticket=mock-ticket`);
-      const success = scenario.endsWith('recovers') || scenario.startsWith('usage-');
+      const success = scenario.endsWith('recovers') || scenario.startsWith('usage-') || scenario === 'catalog-fails';
       if (success) await page.waitForFunction(() => !document.querySelector('main').classList.contains('initial-load-pending') && document.querySelector('#load-empty-state').hidden);
       else {
         await page.locator('#load-empty-state').waitFor({ state: 'visible' });
@@ -71,6 +77,7 @@ const { chromium } = require('playwright');
       assert.equal(new URL(page.url()).hash, '');
       if (scenario.startsWith('usage-')) {
         assert.equal(await page.locator('#total-time').textContent(), '—');
+        assert.equal(await page.locator('#policy-version').textContent(), '应用策略未读取');
         await page.locator('[data-view="devices"]').click();
         assert.equal(await page.locator('#add-machine').isVisible(), true);
         await page.locator('[data-view="usage"]').click();
@@ -87,7 +94,26 @@ const { chromium } = require('playwright');
         assert.equal(counts.get('/v2/module/machines'), 1, 'usage retry must not reload devices');
         assert.deepEqual(pageErrors, []);
       }
-      if (scenario.startsWith('network')) assert.ok([...counts.values()].every(count => count === 2));
+      if (scenario === 'catalog-fails') {
+        await page.locator('[data-view="devices"]').click();
+        await page.locator('[data-open-machine]').click();
+        assert.equal(await page.locator('#drawer-content').getByText('本机账户').isVisible(), true);
+        await page.locator('.drawer-close').click();
+        await page.locator('#refresh').click();
+        await page.waitForFunction(() => !document.querySelector('#refresh').disabled);
+        assert.equal(counts.get('/v2/module/machines'), 2);
+        assert.equal(counts.get('/v2/module/machines/machine-1/users'), 2);
+        assert.equal(counts.get('/v2/module/app-catalog') || 0, 0, 'device refresh must not query catalog');
+        assert.equal(await page.locator('#status-strip').isVisible(), false);
+        await page.locator('[data-view="apps"]').click();
+        await page.locator('#status-strip.error').waitFor({ state: 'visible' });
+        await page.locator('[data-view="devices"]').click();
+        assert.equal(await page.locator('#status-strip').isVisible(), false);
+        assert.equal(await page.locator('[data-open-machine]').count(), 1);
+        await page.screenshot({ path: path.join(output, 'catalog-fails-devices-1440.png'), fullPage: true });
+        assert.deepEqual(pageErrors, []);
+      }
+      if (scenario.startsWith('network')) assert.equal(counts.get('/v2/module/machines'), 2, 'failed machine GET retries once');
       if (scenario === '401-loop' || scenario === 'network') {
         for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
           await page.setViewportSize(viewport);

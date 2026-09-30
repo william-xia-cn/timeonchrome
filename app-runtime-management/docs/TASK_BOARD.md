@@ -1,5 +1,21 @@
 # App Runtime 任务板
 
+## NOW：Mac 首次配对的响应丢失恢复（ARM-D-037，2026-09-30）
+
+职责 `runtime-cloud-contract`。已确认云端现状：一次性码在创建机器时消费，云端只存机器 token 哈希；若响应丢失或 Native 落盘失败，旧请求无法恢复同一机器。此项采用请求前持久化的客户端 256-bit token 作恢复证明，不另加 D1 migration；同码同 token 幂等，同码异 token 拒绝，`GET /v2/machines/self` 为重启恢复入口。先发布兼容契约/Worker，再由 Native 所属工作线接入；旧 Windows 请求保持兼容。本轮只实施本地契约和 Worker，不部署、不安装、不改 Native、Guardian、Pages、R2、账本或生产数据。必须验证新旧配对、响应丢失、重放、并发、过期、撤销及异平台拒绝；运行 Contracts/Worker 聚焦测试、typecheck、`git diff --check`，排除无关 UI 与平台构建。云端代码完成不能记作 Mac 实机闭环。
+
+进度：契约 `1.17.0` 经 PR #135 合入 `master@aae76f6`，Worker 恢复实现经 PR #136 合入 `master@838a13a`，对应 CI 与聚焦配对回归通过。PR #138 合入一次性精确树发布门禁；生产运行 [#35](https://github.com/william-xia-cn/timeonchrome/actions/runs/36608879622) 从 `master@351bf98463ac0b10a8eaee0d119df662b723d4cc` 仅部署 Runtime Worker `547bb1b0-0aaa-4cc4-a25d-6e99dedbbf16`，CI #249 和生产运行成功。远端待执行清单只含 `0011_runtime_uninstall_operations.sql`，本次 migration 为 none；Worker health 与未认证目录 API `401` smoke 通过。对照上次发布 #34，Guardian Worker `801665c0-1e3f-4389-886d-11f59cf82d41`、Runtime Pages `9c2701c2-3c12-4902-aed4-98ffaa1fbb7f`、主 Pages `1ecd6133-4697-44cf-be18-1ddf2e304fbb` 和 R2 latest `2.3.1` 未变。Native 适配与 Mac 实机仍待验，不能标记整体完成；未生成真实配对码或重配设备。
+
+发布裁决（2026-09-30）：PO 明确批准先部署兼容 Runtime Worker，再等待 Native 完善。生产仍有待执行的 `0011_runtime_uninstall_operations.sql`；本次配对恢复只依赖既有配对码、机器和策略版本表，不执行卸载操作，不依赖 `0011`。仅允许已验证的 backend tree `4d2f53b0fd0bea05da2a6afc6fbbf07dd2ad2bbb` 走显式 Worker-only 延期例外；待执行清单必须精确为 `0011`，不执行 migration，不部署 Pages/Guardian/R2。发布配置聚焦测试、精确 master CI 和生产环境审核不得省略；部署后只核对健康、未认证拒绝及新协议的非破坏性校验，不生成真实配对码。Native 实现和 Mac 实机仍独立待验。
+
+发布门禁补充：PR #138 的 `release-config` 检查发现 Native 产物交接锁仍为已验收 `1.16.1`，而云端契约已升级 `1.17.0`。这代表 Native 尚未批准新版契约包，不得仅为通过 CI 把交接锁伪改为 `1.17.0`。产物门禁应允许锁定当前或上一兼容 Minor，仍按锁内版本与哈希验真 Native 包；新版契约须待 Native 实际消费并核验哈希后另行更新锁。本次只修正这项测试的错误等同要求，不发布 Native 包。
+
+## COMPLETED：设备管理按视图隔离（2026-09-30）
+
+已完成：PR #132 / `master@089a4a7` 发布独立 Runtime Pages deployment `1ba325f2`；真实登录确认 Windows/macOS 机器列表、详情、账户分配和状态可读取。旧设备刷新同时请求 App Policy、应用目录与归类记录，故其他接口失败会显示全局错误；修正后设备视图只请求机器与账户，使用统计单独请求，管理数据进入其视图时加载。聚焦浏览器 8 场景（含目录 500 与设备刷新隔离）、设备测试、语法/typecheck、`git diff --check` 和桌面故障场景目视均通过。最终 Pages-only 发布以 PR #133 / `master@62c4700`、deployment `9c2701c2` 后续修正记录为准；真实登录再次点击设备“刷新”，机器列表更新且无错误横幅，Windows/macOS 抽屉及账户分配均可查看。Worker、Guardian、主 Pages 和 `0011` migration 未部署。统计 `SQLITE_NOMEM` 仍独立待修，不能标记统计恢复。最终审计：Matched＝设备管理恢复、隔离与线上实测；Deviated/Extra＝无；Missing＝无（统计故障不属于本轮完成目标）。
+
+上线后补充发现并由 PR #133 修正：统计接口失败时，惰性加载尚未读取 App Policy，却将默认对象显示为“应用策略 v0”。现在无服务端版本证据时显示“应用策略未读取”，成功读取统计后仍使用响应中的真实版本；不改变统计或策略数据。
+
 ## NOW：用量查询内存与故障隔离（2026-09-29）
 
 本地证据：Worker聚焦11项、Console网络9项及session/usage聚焦、隔离浏览器7场景通过；1440px/390px统计失败界面已目视，设备页在统计pending/500时可访问，单独重试恢复，未知统计不显示零。Worker typecheck、dry-run、边界与diff检查通过。生产只读汇总证实策略历史276版、payload约89.8MB；改为仅取涉及版本时间窗、更正按8版分页并保留最新周/身份结果，不读取整份历史。提交前Matched=三项本地修复；Deviated/Extra=无；Missing=PR/生产部署/真实读取验收。生产仍待0011卸载migration，现有延期只允许旧Mac热修精确树；本次不执行该migration，新的精确树延期例外待PO批准。

@@ -10,21 +10,43 @@
 
 ## NOW：一条架构集成主线与四条开发旁路（2026-09-29，PO修订）
 
-### 治理收口续项：固定工作树位置与两条未就绪旁路（D-110）
+### 治理收口续项：固定工作树位置与遗留目录（D-110）
 
-2026-09-29核对：PR #117 已合入`master@d9ab84a`，职责文档与范围检查生效。标准云端`codex/cloud-management`及Task`codex/task-management-v1`已有固定分支；`codex/extension-local`与`codex/santa-management`本地及远端均尚不存在。主目录`D:\Codex\TimeOnchrome`仍有控件、Santa及云端混合未提交内容，`81a1`仍是扩展加载源，Task`f805`仍有未提交内容。本次不创建空占位分支、不切换原候选、不搬移或覆盖草稿；不能将规则生效等同于五条工作线迁移完成。
+2026-09-30 复合隐私与 Rest 旧树续清理：`composite-terminal-privacy-integration@ff8c55b`、`rest-terminal-integration@ba11ac5` 均无未提交改动或运行进程引用，提交完整包含于 `origin/master` 和已验证 Git bundle。两树的 `.tmp` 隔离浏览器 Profile 与 `test-results` 先分别移入本机仅 William、管理员、SYSTEM 可访问的 `private-profiles` 恢复区，1,493+1 及 2,373+1 份文件逐项 SHA-256 一致；Rest 树指向主目录的 `node_modules` junction 仅解除链接，目标未动。随后非强制退出两处 Git 工作树，原路径重建为仅含 `.tmp`、`test-results` junction 的兼容入口，既有证据路径仍可读取；这两个兼容目录不是 Git 工作树。对应本地及远端分支在实时 SHA lease 下删除，提交可从 bundle 恢复。现登记工作树 11、本地分支 13。`rest-weekly-cloud-validation` 继续暂留：固定云端树的两处依赖 junction 及依赖内部的 contracts workspace 链接指向该旧树，且当前/旧锁文件不一致，不能直接换源或删除。`composite-terminal-integration` 仍含未提交内容，Codex 托管旧树与活跃 `81a1`、Task `f805` 继续保留。本轮无安装、部署、迁移或产品数据变更。
 
-固定目录目标：主线`D:\Codex\TimeOnchrome`，旁路在同级`D:\Codex\TimeOnchrome-worktrees\`按工作线命名。当前标准云端继续复用`guardian-release-81949cc`，不因旧名字不匹配而重建。控件与Santa各自先核对独有提交、未提交hunk、ignored构建/运行依赖和会话引用；所属任务确认迁移顺序后再建立对应固定分支与工作树。扩展候选完成新目录加载复验前，原`81a1`不得移动；Santa草稿未分离前，主目录不得更新或清理。Task`f805`保留至所有者处理完脏内容。新分支/目录创建、功能整合、旧目录清理分别记状态，不混称完成。
+2026-09-30 续清理：`app-runtime-release-2.2.1@b7d8278` 的 7 份本地 D1/SQLite/WAL/SHM 文件先复制到 `D:\Codex\worktree-cleanup-backups\2026-09-29\private-d1\app-runtime-release-2.2.1`，恢复目录关闭普通用户继承权限，仅管理员、SYSTEM 和 William 可访问；源／副本逐项 SHA-256 一致。非强制 `git worktree remove` 已取消 Git 登记，但未能删除非空目录；随后将 1,174 份、43,996,745 字节残余整体移到既有 `residual-worktrees\app-runtime-release-2.2.1` 恢复区，逐文件哈希一致，原路径不存在。独有的 `codex/app-runtime-2.2.1-release-evidence` 分支及提交继续保留，不视为已合并。现登记工作树 13、本地分支 15；其余未绑定的旧分支均非 `origin/master` 祖先，本轮不删除。带隔离浏览器 Profile 的 Rest／复合旧树、活跃 `81a1`、Task `f805`、主目录脏改动和 `rest-weekly-cloud-validation` 的共享依赖继续保留。备份至少留至 2026-10-29；无安装、部署、迁移或生产数据变更。
+
+2026-09-29 本轮逐项清理：已验证本地 Git bundle，并完整退出 `gate-composite-unpacked-f2a329a` 与 `app-runtime-attribution-release-20260927`；后者的未提交任务板和两份 manifest 已在本地恢复区逐项校验。`app-runtime-product-catalog-v2` 的 2.2.2 安装包及 manifest 已校验备份，`timewhere-native-split` 的唯一零字节异常文件已精确移除；两树已取消 Git 登记，随后把未删除的原目录残留分别同盘移入既有 `residual-worktrees` 恢复区，1,199 与 1,201 份文件逐项 SHA-256 核对一致，原路径已不存在。该移动不释放磁盘，恢复区至少保留至 2026-10-29。对应三条已合并、无开放 PR 的本地及远端功能分支按精确 SHA 清理。Task `f805` 的五个修改文件、九张截图已复制到 D 盘临时 detached 工作树并核对 diff/hash，原会话、隔离 Profile 仍在旧目录。原扩展加载路径已指向 D 盘逐字节相同的 1.7.39 候选，但 Computer Use 无法确认 Chrome URL，真实重新加载/连接尚未验收；其余带 Profile 的工作树继续保留。当前登记工作树 14、本地分支 15；本轮无产品代码、安装、部署或账本变更。
+
+2026-09-29 历史契约工作树续清理：`D:\Codex\TimeOnchrome-worktrees\runtime-session-boundaries@b2c5b22` 已是主线祖先，精确提交在验证过的 `timeonchrome.bundle` 内；目录无 tracked 改动或运行进程引用，唯一额外内容为两份 `.wrangler/cache` JSON（账户/Pages 缓存，不是 D1 或浏览器 Profile）。先同盘移至 `D:\Codex\worktree-cleanup-backups\2026-09-29\runtime-session-boundaries-cache`，逐份 SHA-256 核对一致，再以非强制 `git worktree remove` 完整移除旧目录。对应本地分支以 `-d`、远端分支以实时 SHA lease 删除。回读：TimeOnChrome 登记工作树 17、本地分支 18、远端分支 29；固定五工作线、原扩展候选、Task `f805`、Santa 旁路和主目录均未改变。备份至少保留至 2026-10-29，不上传云端；本轮未部署或安装。
+
+2026-09-29 云端草稿核对：主目录 `D:\Codex\TimeOnchrome` 中未提交的复合页面复核路由、独立脚本、migration、页面入口及本周 Rest 配置，与现行 `origin/master@6d2028c` 的对应功能逐项对照，主线已有后续修正（复合只读关闭状态见 `72c6f0f`）。旧主目录停在 `2b9d461`，文件哈希不同主要不能被当作遗漏功能证据；本轮不复制旧实现、不改主目录。Santa 专属改动已由所属线核对等价；主目录仍混有控件、云端、Santa 未提交内容及运行依赖，继续整体保护。
+
+2026-09-29 孤立分支续清理：`codex/task-terminal-default-off-v1@8ef79a6` 已为 `origin/master` 祖先，无工作树占用；精确 SHA 已包含在验证过的 `timeonchrome.bundle`。删除对应本地分支，并在实时远端 SHA 相同的条件下以 lease 删除远端分支；残留 `C:\tmp\TimeOnchrome-task-terminal-default-off` 目录和其中可能含认证字段的本地文件未触碰，未进入通用备份。当前登记工作树仍 18，本地分支 19、实时远端分支 30；五个固定目录之外的保留项不因此变成可删除。
+
+2026-09-29后续清理：对旧Task工作树`C:\tmp\TimeOnchrome-task-terminal-default-off`执行前，已核验提交`8ef79a6f`在主线、既有本地bundle可恢复、无未提交内容或其他进程引用。非强制`git worktree remove`取消了Git登记，但因目录非空返回失败；现登记工作树21→20，原路径仍有残留，**不算目录清理完成**。残留含带认证字段的本地测试JSON，不进入通用恢复归档，不强删、不移动；对应本地/远端分支及原文件保持待核对状态。其余含ignored产物或运行/验收依赖的旧树继续保留，不能按“已并入主线”直接移除。本次没有安装、部署或修改产品数据。
+
+2026-09-29分支清理续项：从最新`origin/master`核验祖先关系、无工作树占用、实时远端SHA和精确bundle后，以非强制方式删除7条已合并本地分支：`codex/inventory-disposition-closeout`、`codex/inventory-final-source-map`、`codex/native-host-fixed-candidate-v3`、`codex/schedule-deployment-evidence`、`codex/composite-real-auth-closeout`、`codex/runtime-login-loop-fix`、`codex/runtime-macos-enrollment-fix`。删除其中仍存在的5条对应远端分支，并额外删除已合并的远端`codex/runtime-usage-memory-fix`；所有远端删除均按实时SHA加lease。原`timeonchrome.bundle`及新增`timeonchrome-branch-delta.bundle`、`timeonchrome-remote-delta.bundle`位于`D:\Codex\worktree-cleanup-backups\2026-09-29\`，新增bundle已验证完整历史和精确分支SHA。另清除1条经实时核实已不存在的本地远端跟踪引用。当前核验口径：TimeOnChrome登记工作树20、在地分支20、GitHub实时分支31；TimeWhereNative登记工作树3、在地分支3。未合并、脏树、含ignored证据及固定工作线继续保留；旧Task目录的文件残留未处理，不能宣称达到五目录目标。本轮无安装、部署或产品数据操作。
+
+2026-09-29工作树清理续项：旧`guardian-v3-release-gate`仅含未合并的历史文档提交`8da97d5`，相关事实已见主线后续任务记录；其工作区和ignored清单均为空，无进程引用，精确提交已在校验过的`timeonchrome.bundle`及远端分支中。经路径边界核验后，以非强制`git worktree remove`移除该目录，保留本地和远端分支，不丢弃未合并提交。TimeOnChrome登记工作树由20减至19；在地分支仍20，实时远端分支仍31。含未决改动、ignored产物、验收环境或运行依赖的其他旧树继续保留，不为凑目标数量强删。
+
+2026-09-29工作线核对续项：Task 所有者确认旧`C:\tmp\TimeOnchrome-task-ack-strict@7aa6b1b`的 ACK 行为和测试已由主线 `55825fb` 的重构实现覆盖，目录干净、无 ignored 文件、会话或进程引用。精确提交在已验证的`timeonchrome.bundle`内；经绝对路径边界复核，以非强制`git worktree remove`移除该检出目录，保留本地/远端分支。TimeOnChrome登记工作树由19减至18。活动`f805`保留，其 P16 五个未提交文件与九张 UI 截图尚未并入主线；是否实施 P16 属于独立产品裁决，Task 仍默认关闭且不发布。`task-host-wiring`虽已合并仍是其会话附加工作树，暂留。控件所有者确认旧 Rest 与复合隐私工作树的代码已在主线，但 `.tmp` 有未备份的隔离浏览器截图、诊断和 Profile，暂不退出；原`81a1`仍是运行中的扩展候选与当前会话目录，不移动。云端旧`app-runtime-attribution-release-20260927`的两份非凭据生产 manifest 已精确复制到`D:\Codex\worktree-cleanup-backups\2026-09-29\attribution-release-manifests\`并逐份核对 SHA-256；其脏工作树仍保留，不重置。旧`app-runtime-release-2.2.1`含本地 D1 状态，不能按普通缓存清理。
+
+Santa 所有者只读对账：原主目录与固定`codex/santa-management@2fa1a1a`的18个 Santa 代码/测试文件及三处专属文档段落内容一致；三个新增文件仅 CRLF/LF 不同，未发现尚未迁入固定旁路的有效 Santa 功能改动。主目录仍是 Santa 会话所在目录，固定旁路的`node_modules` junction 指向主目录，且主目录存在 Native D1、构建临时数据与控件/云端未提交改动；在解除这些依赖前不能移动、删除或同步主目录。此结论仅收口源码归属，不等于 Santa 已合并或发布。
+
+2026-09-29核对：治理PR #117、#118、#119、#120均已合入`master`。控件旁路已在`D:\Codex\TimeOnchrome-worktrees\extension-local`落地并推送`codex/extension-local@10621e3`：本次只修订过时的隔离测试断言；未切换原`81a1`加载目录，也未完成延后的真实30分钟复合分析验收。Santa旁路已在`D:\Codex\TimeOnchrome-worktrees\santa-management`落地并推送`codex/santa-management@2fa1a1a`，迁入Santa专属草稿；五组Native App单测、类型检查与本地mock桌面/窄屏目视核对通过，真实Mac时间边界和同步尚未验收，未PR合并、未部署。标准云端`codex/cloud-management`及Task`codex/task-management-v1`保留各自固定分支。主目录`D:\Codex\TimeOnchrome`的控件、Santa及云端混合未提交内容仍保留，Task`f805`仍有未提交内容。
+
+固定目录目标：主线`D:\Codex\TimeOnchrome`，旁路在同级`D:\Codex\TimeOnchrome-worktrees\`按工作线命名。当前标准云端继续复用`guardian-release-81949cc`，不因旧名字不匹配而重建。最新登记工作树数量见上方工作树清理续项；五条固定工作线已经有对应分支/目录，但大量旧验收、发布和任务目录仍在，不能冒称收敛至五目录。Codex托管工具额外创建了`C:\Users\William\.codex\worktrees\extension-local\TimeOnchrome`（detached，未使用）；归档工具因受保护而拒绝移除，保持原样并单列后续处理，不能用文件删除绕过。扩展候选完成新目录加载复验前，原`81a1`不得移动；Santa 原始草稿的有效内容已由所属任务确认迁入固定旁路，但主目录仍有会话、junction、Native D1 与跨线脏内容依赖，不能清理或原地同步。Task`f805`保留至所有者处理完脏内容。新分支/目录创建、功能整合、运行引用切换和旧目录清理分别记状态，不混称完成。
 
 本续项为纯治理文档：只运行`git diff --check`和文档结构检查；不运行产品测试，不安装、不部署、不改变生产或候选运行状态。
 
 本轮职责`architecture-integration`，允许本任务治理文档、职责检查和固定用例。实施清单：①D-109及PROJECT_WORKFLOW/AGENTS修订；②范围检查区分架构契约、控件、标准云端、Task和Santa；③聚焦测试、CI路由和`git diff --check`；④审计后通过过渡PR合入。本次不移动目录、不清理分支、不部署。目标五个常用目录，不把过渡状态冒称已完成。
 
-目标映射：`master`=架构/集成；`codex/extension-local`=控件（原81a1加载目录先保留，分支尚未切换）；`codex/cloud-management`=标准云端（复用`WT\guardian-release-81949cc`）；`codex/task-management-v1`=Task（f805脏树保留）；`codex/santa-management`=Santa（主目录混合草稿先分离，固定分支/目录尚未就绪）。产品/发布阶段不额外占一条工作线。Task默认关闭且不发布。
+目标映射：`master`=架构/集成；`codex/extension-local`=控件（固定D盘工作树已推送，原81a1加载目录仍保留）；`codex/cloud-management`=标准云端（复用`WT\guardian-release-81949cc`）；`codex/task-management-v1`=Task（f805脏树保留）；`codex/santa-management`=Santa（固定D盘工作树已推送，未PR合入）。产品/发布阶段不额外占一条工作线。Task默认关闭且不发布。
 
 下面2026-09-29初查与四工作线表为D-108时点历史，结构以D-109为准；处置清单的HEAD/数量不得直接当作此刻实时状态。
 
-职责runtime-cloud-contract。固定master控件主线、TaskMg、SantaMg、云端管理四工作线；不再按修复/发布建工作树。先文档→流程检查→精确处置清单→聚焦测试/PR。只修改治理文档、CI路由和发布判断，不改业务、候选、数据库或运行目录。本轮不执行清理，不创建Santa新目录，不迁移混合脏树。
+以下为D-108四工作线阶段的历史任务记录，已由D-109五工作线决策取代；不得据此重建master控件主线或覆盖本节最新状态。该阶段仅修改治理文档、CI路由和发布判断，未改业务、候选、数据库或运行目录。
 
 最小验证：task-scope、CI routing、工作流语法及diff；排除产品/平台/安装器/E2E全量。本次不部署。当前用量修复PR115已合并e3d8e9f且CI通过，尚未发布；发布不依赖遗留目录全部清理。生产workflow仍保留旧迁移门禁；本轮不改该门禁，也不宣称新延期流程已经可用。
 
@@ -55,7 +77,7 @@
 | `WT\runtime-session-boundaries` · `b2c5b22d` | 云端历史线；已合并 | 未跟踪 `.wrangler` | 数据用途核验前保留 |
 | `WT\timewhere-native-split` · `0dd58ce8` | 拆仓历史线；已合并 | 异常未跟踪 `backend/NUL` 等 | 异常文件核验前保留 |
 
-未合并且无上述工作树的本地文档分支 `codex/app-runtime-release-evidence-v1` 也保留给云端线核对；其余本地/远端引用即使已被主线包含，也必须另核 PR、SHA、bundle 和依赖后形成精确删除清单。本轮不删分支、不归档工作树、不触碰 Native 仓。Santa 固定分支尚未建立，不能把脏主目录草稿冒称已迁入 Santa 线。
+未合并且无上述工作树的本地文档分支 `codex/app-runtime-release-evidence-v1` 也保留给云端线核对；其余本地/远端引用即使已被主线包含，也必须另核 PR、SHA、bundle 和依赖后形成精确删除清单。本表是创建Santa固定工作树之前的只读基线；Santa目录现已建立，但其未提交内容不能冒称已整合或已发布。本轮不删分支、不归档工作树、不触碰 Native 仓。
 
 ## 托管扩展发布前阻塞：Native Host 注册身份与兼容入口收口（2026-09-29，PO确认）
 
@@ -2139,6 +2161,8 @@ Checklist：
 - `npx playwright test tests/e2e/mode-switch-pip-close.test.js --reporter=line`
 
 ## 维护约定
+- [ ] [V1 Native App Control] Santa 每日阻止时间段：Native D1 migration、Worker 定时切换/同步前补偿、应用/预配置/发布者 UI 与本地测试已实现；仍需生产 migration、部署及真实 Mac 在时间边界的人工验收。此项与 Chrome 网页记账无关。
+- [ ] [V1 Native App Control / 原生时间规则] 在 Santa 2026.8 现有安装上，将“已阻止应用”多选批量设置同一每日时段，按指定 Native Mac 显式启用 CEL 本地时间判定；未启用设备保持旧同步切换。已完成本地源码与聚焦测试，仍需合入主线、生产 migration/部署及真实 Mac 新启动窗口内外验收。不存在独立命名“应用组”。
 - 每个任务必须标注阶段（V0/V1）
 - 每次只推进单主题小包
 - 完成后同步更新本板与 DECISIONS

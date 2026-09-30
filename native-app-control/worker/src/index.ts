@@ -1,6 +1,7 @@
 import { handleAdminRequest } from './admin';
 import { handleSantaRequest } from './santa';
 import type { Env } from './types';
+import { reconcileAllSchedules } from './blockSchedules';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': 'https://timeonchrome-console.pages.dev',
@@ -15,6 +16,9 @@ function withCors(response: Response): Response {
 }
 
 export default {
+  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+    await reconcileAllSchedules(env);
+  },
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS_HEADERS });
     try {

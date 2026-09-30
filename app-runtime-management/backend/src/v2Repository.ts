@@ -81,19 +81,36 @@ export async function createMachinePairingCode(
 
 export async function enrollMachine(
   database: D1Database,
-  input: { code: string; platform: RuntimePlatform; displayName?: string | null },
+  input: { code: string; platform: RuntimePlatform; displayName?: string | null; clientMachineToken?: string },
   nowMs: number,
-): Promise<{ machineId: string; machineToken: string; platform: RuntimePlatform } | null> {
+): Promise<{ machineId: string; machineToken: string; platform: RuntimePlatform; replayed: boolean } | null> {
   const codeHash = await sha256Hex(input.code);
+  const clientTokenHash = input.clientMachineToken ? await sha256Hex(input.clientMachineToken) : null;
+  const recover = async () => {
+    if (!clientTokenHash) return null;
+    const existing = await database.prepare(`
+      SELECT m.id FROM runtime_machine_pairing_codes_v2 c
+      JOIN runtime_machines_v2 m ON m.id=c.consumed_by_machine_id
+      WHERE c.code_hash=?1 AND m.token_hash=?2 AND m.platform=?3
+        AND c.consumed_at_ms IS NOT NULL AND m.revoked_at_ms IS NULL
+    `).bind(codeHash, clientTokenHash, input.platform).first<{ id: string }>();
+    return existing ? { machineId: existing.id, machineToken: input.clientMachineToken!, platform: input.platform, replayed: true } : null;
+  };
+  if (clientTokenHash) {
+    const assigned = await database.prepare('SELECT id FROM runtime_machines_v2 WHERE token_hash=?1')
+      .bind(clientTokenHash).first<{ id: string }>();
+    if (assigned) return recover();
+  }
   const pending = await database.prepare(`
     SELECT account_id, default_child_id, display_name
     FROM runtime_machine_pairing_codes_v2
     WHERE code_hash=?1 AND consumed_at_ms IS NULL AND expires_at_ms>=?2
   `).bind(codeHash, nowMs).first<{ account_id: string; default_child_id: string; display_name: string | null }>();
-  if (!pending || (input.platform !== 'windows' && input.platform !== 'macos')) return null;
+  if (!pending) return recover();
+  if (input.platform !== 'windows' && input.platform !== 'macos') return null;
   const machineId = `rt_machine_${crypto.randomUUID()}`;
-  const machineToken = randomToken('rt_machine_token_', 32);
-  const tokenHash = await sha256Hex(machineToken);
+  const machineToken = input.clientMachineToken ?? randomToken('rt_machine_token_', 32);
+  const tokenHash = clientTokenHash ?? await sha256Hex(machineToken);
   const hash = await policyHash(machineId, 1, pending.default_child_id);
   const results = await database.batch([
     database.prepare(`
@@ -113,11 +130,11 @@ export async function enrollMachine(
     `).bind(machineId, input.platform, tokenHash, input.displayName ?? null, nowMs, codeHash),
     database.prepare(`
       INSERT INTO runtime_machine_policy_versions_v2(machine_id, version, payload_hash, created_at_ms)
-      VALUES (?1, 1, ?2, ?3)
+      SELECT id, 1, ?2, ?3 FROM runtime_machines_v2 WHERE id=?1
     `).bind(machineId, hash, nowMs),
   ]);
-  if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) return null;
-  return { machineId, machineToken, platform: input.platform };
+  if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) return recover();
+  return { machineId, machineToken, platform: input.platform, replayed: false };
 }
 
 export async function authenticateMachine(

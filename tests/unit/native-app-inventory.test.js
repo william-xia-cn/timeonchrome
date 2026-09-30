@@ -30,7 +30,8 @@ const repository = loadModule('native-app-control/worker/src/repository.ts', {
 function database() {
   const sqlite = new DatabaseSync(':memory:');
   for (const migration of ['001_native_app_control_v1.sql', '002_native_app_inventory_v1.sql',
-    '003_native_app_predefined_controls_v1.sql', '004_native_app_preconfiguration_source_v1.sql']) {
+    '003_native_app_predefined_controls_v1.sql', '004_native_app_preconfiguration_source_v1.sql',
+    '005_native_app_block_schedules_v1.sql', '006_native_time_rules_opt_in_v1.sql']) {
     sqlite.exec(fs.readFileSync(path.join(ROOT, 'native-app-control', 'worker', 'migrations', migration), 'utf8'));
   }
   const statement = (sql, args = []) => ({

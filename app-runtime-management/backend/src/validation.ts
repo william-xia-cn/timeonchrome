@@ -86,10 +86,16 @@ export function parseEnrollDevice(value: unknown): EnrollDeviceRequest {
   if (typeof value.platform !== 'string' || !platforms.has(value.platform as RuntimePlatform)) {
     throw new HttpError(400, 'INVALID_REQUEST', 'platform is invalid.');
   }
+  const clientMachineToken = value.clientMachineToken;
+  if (clientMachineToken !== undefined && (typeof clientMachineToken !== 'string'
+    || !/^rt_machine_token_[A-Za-z0-9_-]{43}$/u.test(clientMachineToken))) {
+    throw new HttpError(400, 'INVALID_REQUEST', 'clientMachineToken is invalid.');
+  }
   return {
     code,
     platform: value.platform as RuntimePlatform,
     displayName: optionalString(value.displayName, 'displayName', 128),
+    ...(clientMachineToken === undefined ? {} : { clientMachineToken: clientMachineToken as string }),
   };
 }
 
