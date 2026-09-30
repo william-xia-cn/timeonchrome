@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { env } from 'cloudflare:workers';
+import { env, exports } from 'cloudflare:workers';
 import { readComputerApplicationEvidence } from '../src/computerUsageEvidence';
 import { queryAppUsage } from '../src/appPolicy';
 import { isConfirmedChrome } from '../src/specialApplications';
@@ -16,6 +16,22 @@ await env.RUNTIME_DB.prepare(`INSERT INTO runtime_usage_segments_v2(id,machine_i
 VALUES (?1,?2,'opaque-user',1,?3,'session','windows','leaf','已确认应用',?4,?5,?5-?4,'fixture',?1,?5,2,'active','epoch',?4,?5,?6,?7)`).bind(id,machine,child,start,end,estimated,classification).run();
 }
 describe('computer application evidence real D1 read adapter',()=>{
+it('actual Worker RPC returns revision, evidence and unchanged stripped authority without hanging',async()=>{
+await seed('rpc-boundary-account','rpc-boundary-machine','rpc-boundary-child');
+await usage('rpc-boundary-machine','rpc-boundary-child','rpc-boundary-row',day,day+1501);
+await env.RUNTIME_DB.prepare("INSERT INTO runtime_children_v1(child_id,account_id,child_name,created_at_ms,updated_at_ms) VALUES ('rpc-boundary-child','rpc-boundary-account','测试孩子',0,0)").run();
+const rpc=exports.RuntimeComputerUsageService;
+const args=['rpc-boundary-account','rpc-boundary-child','2026-10-01','2026-10-01'] as const;
+expect(await rpc.applicationEvidenceRevision(...args)).toMatch(/^[a-f0-9]{64}$/);
+const sources=await rpc.readApplicationEvidence(...args);expect(sources[0]?.totalMs).toBe(1501);
+const internal=await rpc.fetch(new Request('https://capability/readApplicationEvidence',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:args[0],childId:args[1],fromDate:args[2],toDate:args[3]})}));
+expect(internal.status).toBe(200);expect((await internal.json() as Array<{totalMs:number}>)[0]?.totalMs).toBe(1501);
+expect((await rpc.fetch(new Request('https://capability/deleteEverything',{method:'POST'}))).status).toBe(405);
+const authority=await queryAppUsage(env.RUNTIME_DB,args[0],args[1],day,day+86400000,{}) as {totalDurationMs:number};
+const independent=await rpc.getApplicationUsage(...args);expect(independent.totalDurationMs).toBe(authority.totalDurationMs);
+expect(JSON.stringify(independent)).not.toMatch(/runtimeIdentity|localUserId|machineId|token|opaque-user/);
+const denied=await rpc.fetch(new Request('https://capability/getApplicationUsage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'foreign-account',childId:args[1],fromDate:args[2],toDate:args[3]})}));expect(denied.status).toBe(404);
+});
 it('reads owned legacy zero as best-effort without borrowing another family legacy data',async()=>{
 await env.RUNTIME_DB.prepare(`INSERT INTO runtime_devices(id,subject_id,platform,token_hash,display_name,created_at_ms,last_seen_at_ms,account_id,child_id)
 VALUES ('legacy-fixture','legacy-subject','windows','legacy-token-hash','旧版电脑',0,0,'legacy-account','legacy-child')`).run();

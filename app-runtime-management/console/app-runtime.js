@@ -32,7 +32,7 @@
   const childIndex = (id) => String(state.children.findIndex((item) => item.id === id));
   const childFromIndex = (value) => state.children[Number(value)] || null;
   const range = () => AppRuntimeTime.beijingRange(state.period, state.offset);
-  state.usageKind='application';
+  state.usageKind='computer';
   const computerReader=ComputerUsageView.create($('#runtime-computer-usage'),async(query)=>{
     const selected=state.childId,period=range();
     const date=ms=>new Date(ms+8*3600000).toISOString().slice(0,10);
@@ -42,6 +42,14 @@
     const result=await runtime(`/v2/module/computer-usage?${params}`);
     if(selected!==state.childId)throw new Error('SELECTION_CHANGED');return result;
   },null,()=>{const period=range();return state.childId+'|'+period.from+'|'+period.to;});
+  const independentReader=ComputerUsageView.createIndependent($('#runtime-web-usage'),async()=>{
+    const selected=state.childId,source=state.usageKind,period=range();
+    const date=ms=>new Date(ms+8*3600000).toISOString().slice(0,10);
+    const params=new URLSearchParams({childId:selected,from:date(period.from),to:date(period.to-1),source});
+    if(mock)return {source,fromDate:date(period.from),toDate:date(period.to-1),totalDurationMs:5134000,categories:[{classification:'study',durationMs:5134000}],buckets:[{label:date(period.from),durationMs:5134000}],applications:[{displayName:'示例网站',classification:'study',durationMs:5134000}]};
+    const result=await runtime(`/v2/module/computer-usage?${params}`);
+    if(selected!==state.childId)throw new Error('SELECTION_CHANGED');return result;
+  });
   const policyLabel = (value) => ({ pending: '待下发', cached: '已缓存', applied: '当前会话已生效', failed: '失败', offline: '离线' })[value] || '待下发';
   const statusLabel = (value) => ({ online: '在线', recentlyOnline: '最近在线', offline: '离线', revoked: '已吊销' })[value] || value;
 
@@ -160,11 +168,13 @@
   function renderChildPicker() { const select = $('#child-select'); select.innerHTML = state.children.map((item, index) => `<option value="${index}"${item.id === state.childId ? ' selected' : ''}>${escape(item.name)}</option>`).join('') || '<option>未登录</option>'; select.disabled = state.children.length === 0; }
   function renderFilters() { const machine = $('#machine-filter'); const selected = machine.value; machine.innerHTML = '<option value="">全部电脑</option>' + state.machines.filter((item) => item.status !== 'revoked').map((item) => `<option value="${escape(item.id)}">${escape(item.displayName || '电脑')}</option>`).join(''); machine.value = selected; const users = $('#user-filter'); const source = selected ? state.users.get(selected) || [] : [...state.users.values()].flat(); const unique = new Map(source.map((item) => [item.localUserId, item])); const userSelected = users.value; users.innerHTML = '<option value="">全部本机用户</option>' + [...unique.values()].map((item) => `<option value="${escape(item.localUserId)}">${escape(item.displayName)}</option>`).join(''); users.value = userSelected; }
   function renderUsage() {
+    const period=range();$('#range-label').textContent=period.label;$('#chart-caption').textContent=`北京时间，${state.period==='day'?'按小时':'按每日'}`;
     const computer=state.usageKind==='computer';
     $('#runtime-computer-usage').hidden=!computer;
-    $('[data-independent-app-usage]').hidden=computer;
-    ['machine-filter','user-filter','platform-filter'].forEach(id=>$('#'+id).disabled=computer);
-    if(computer)return;
+    $('[data-independent-app-usage]').hidden=state.usageKind!=='application';
+    $('#runtime-web-usage').hidden=!['web','media'].includes(state.usageKind);
+    ['machine-filter','user-filter','platform-filter'].forEach(id=>$('#'+id).disabled=state.usageKind!=='application');
+    if(state.usageKind!=='application')return;
     if (!mock && (state.usageLoading || state.usageError || !state.usage)) {
       const message = state.usageLoading ? '正在读取使用统计…' : state.usageError || '使用统计尚未加载';
       $('#total-time').textContent = '—';
@@ -383,7 +393,7 @@
     setLoading(true);
     try {
       if (freshToken) state.session = null;
-      if (mock) { mockData(); renderAll(); markLoaded(); return; }
+      if (mock) { mockData(); renderAll(); markLoaded(); if(state.view==='usage')await loadUsage(); return; }
       await moduleToken(false);
       if (requestedView === 'devices' || requestedView === 'usage') {
         await loadMachineState();
@@ -398,9 +408,11 @@
   }
   let usageRequestVersion = 0;
   async function loadUsage() {
-    if(state.usageKind==='computer'){renderUsage();await computerReader.load();return;}
-    if (mock) return;
     const requestVersion = ++usageRequestVersion;
+    computerReader.invalidate();independentReader.invalidate();
+    if(state.usageKind==='computer'){renderUsage();await computerReader.load();return;}
+    if(['web','media'].includes(state.usageKind)){renderUsage();await independentReader.load();return;}
+    if (mock) return;
     const period = range();
     const query = new URLSearchParams({ childId: state.childId, fromMs: String(period.from), toMs: String(period.to) });
     if ($('#machine-filter').value) query.set('machineId', $('#machine-filter').value);
@@ -556,10 +568,10 @@
     if (button.id === 'mobile-menu') { $('#sidebar').classList.add('open'); $('#mobile-backdrop').hidden = false; }
     if (button.id === 'refresh' || button.id === 'retry' || button.id === 'initial-load-retry') await load();
     if (button.id === 'retry-usage') await loadUsage();
-    if(button.dataset.usageKind){state.usageKind=button.dataset.usageKind;$$('[data-usage-kind]').forEach(item=>item.classList.toggle('active',item===button));computerReader.invalidate();renderUsage();await loadUsage();}
-    if (button.dataset.period) { state.period = button.dataset.period; state.offset = 0; $$('[data-period]').forEach((item) => item.classList.toggle('active', item === button)); if (!mock||state.usageKind==='computer') await loadUsage(); renderUsage(); }
-    if (button.id === 'previous') { state.offset -= 1; if (!mock||state.usageKind==='computer') await loadUsage(); renderUsage(); }
-    if (button.id === 'today') { state.offset = 0; if (!mock||state.usageKind==='computer') await loadUsage(); renderUsage(); }
+    if(button.dataset.usageKind){state.usageKind=button.dataset.usageKind;$$('[data-usage-kind]').forEach(item=>item.classList.toggle('active',item===button));renderUsage();await loadUsage();}
+    if (button.dataset.period) { state.period = button.dataset.period; state.offset = 0; $$('[data-period]').forEach((item) => item.classList.toggle('active', item === button)); await loadUsage(); renderUsage(); }
+    if (button.id === 'previous') { state.offset -= 1; await loadUsage(); renderUsage(); }
+    if (button.id === 'today') { state.offset = 0; await loadUsage(); renderUsage(); }
     if (button.id === 'save-quotas') await saveQuotas();
     if (button.id === 'add-machine') openPair();
     if (button.id === 'create-pairing') await createPairing();
@@ -589,7 +601,7 @@
   document.addEventListener('change', async (event) => { const control = event.target; try {
     if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
     if (['directory-scope','management-platform'].includes(control.id)) { renderAppDirectory(); return; }
-    if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { state.childId = selected.id; state.managementLoaded = false; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
+    if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { usageRequestVersion++;computerReader.invalidate();independentReader.invalidate();state.usage={};renderUsage();state.childId = selected.id; state.managementLoaded = false; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
     else if (control.id === 'machine-filter') { renderFilters(); if (!mock) await loadUsage(); renderUsage(); }
     else if (['user-filter','platform-filter'].includes(control.id)) { if (!mock) await loadUsage(); renderUsage(); }
     else if (control.id === 'media-toggle') renderUsage();

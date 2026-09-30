@@ -1,5 +1,14 @@
 # TASK_BOARD
 
+## 2026-10-01：使用统计结构与错误读数修复（PO批准，实施中）
+
+- 职责 `standard-cloud`；复用标准云端分支与目录，不创建分支/工作树。四视图固定为电脑使用、应用使用、网页使用、网页媒体使用，默认电脑汇总；独立统计保持原口径。
+- 已证实新网页读取器错误读取不存在的 `daily_total`（真实 schema 只有日/小时 domain/target），导致零总量与非零分类矛盾；旧测试夹具同样错误。`computer-view` 的 display 覆盖 hidden，造成跨页签残留。应用来源失败须定位真实原因并保留稳定错误码。
+- 最小验证：真实 schema 固定回归、来源与历史兼容、四视图/异步隔离、相关云端与 Console 测试/typecheck/dry-run/diff检查、桌面移动目视及真实登录对照。排除 Windows/macOS/WiX/原账算法测试；不改扩展、Native、原账、更正、配额，不执行 migration、安装或 R2 操作。验证后合入主线并仅发布修改的云端资源。
+- 本地实现证据：网页总量仅取真实每日 active/domain 投影，不累计日/小时/target副本；无v2快照的历史复用既有日统计与已批准更正，明确尽力还原且不证明重叠。新增独立来源读取保留原统计口径。真实生产可观测记录为 `RuntimeComputerUsageService.jsrpc` hung/canceled，并非已证实SQL错误；同一具名能力改用固定只读 fetch，旧RPC保留，生产效果等待发布后核对。
+- 聚焦回归通过：cloud computer读取、共享renderer、Runtime网络/会话/使用页、主页面入口/发布隔离及复合列表既有回归；Runtime真实workerd/D1 12/12（含具名能力fetch、Child隔离、原应用统计逐字段不变）、两端typecheck、两Worker dry-run、diff检查通过。mock目视已检查两套桌面/移动四页签、默认汇总、网页/应用独立视图与折叠诊断；mock不记为真实线上验收。代码一致性审计 Matched，Deviated/Missing/Extra无；提交后继续合并、部署及真实来源对照。
+
+
 ## 2026-10-01：孩子用量云端发布（PO批准提交与部署）
 
 - 已上线：契约 PR #146、云端 PR #147 合并；生产基线 `76727e09fb53d8db2fd0d7de2a9f7e37d9572c0a`、Contracts `1.19.0`。受保护发布运行 [36768727441](https://github.com/william-xia-cn/timeonchrome/actions/runs/36768727441) 成功。Runtime Worker `7819e2bc-84e5-4e1b-9723-cc41991f1ebf`、Guardian `25ad9994-2cf8-46fb-abe2-961a1c09d078`、Runtime Pages `93a8485d-1976-4b5e-b7f6-b2e131986b49`、主 Pages `272c887e-4092-497d-a83f-2b5bec823b0d`，两页面 source 均为 `76727e0`。发布 manifest 已由该运行保存为 artifact；本段纯文档不重复部署。

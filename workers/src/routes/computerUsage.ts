@@ -1,5 +1,5 @@
 import { json,verifyAccountToken } from '../db/middleware';
-import { readComputerUsage,type ComputerUsageEnv } from '../services/computerUsage';
+import { readComputerUsage,readIndependentUsage,type ComputerUsageEnv } from '../services/computerUsage';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 
 export async function handleComputerUsage(request:Request,env:ComputerUsageEnv,childId:string):Promise<Response> {
@@ -8,6 +8,8 @@ export async function handleComputerUsage(request:Request,env:ComputerUsageEnv,c
   if(!accountId)return json({code:'UNAUTHORIZED'},401);
   const url=new URL(request.url);
   try {
+    const source=url.searchParams.get('source');
+    if(source)return json(await readIndependentUsage(env,accountId,childId,url.searchParams.get('from')||'',url.searchParams.get('to')||'',source));
     const expected=url.searchParams.get('revision');
     const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||100);
     if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>100)return json({code:'INVALID_CURSOR'},400);
@@ -20,7 +22,8 @@ export async function handleComputerUsage(request:Request,env:ComputerUsageEnv,c
     return json(computerUsageReadPage(snapshot,detail as 'summary'|'timeline'|'products',expected||undefined,offset,limit,product||undefined));
   }catch(error){
     const code=error instanceof Error?error.message:'COMPUTER_USAGE_UNAVAILABLE';
-    const invalid=['INVALID_RANGE','INVALID_PRODUCT','INVALID_PRODUCT_DETAIL','INVALID_PAGINATION'].includes(code);
-    return json({code:invalid||['CHILD_NOT_FOUND','COMPUTER_NOT_FOUND','COMPUTER_USAGE_SOURCE_LIMIT'].includes(code)?code:'COMPUTER_USAGE_UNAVAILABLE'},invalid?400:['CHILD_NOT_FOUND','COMPUTER_NOT_FOUND'].includes(code)?404:503);
+    const invalid=['INVALID_RANGE','INVALID_SOURCE','INVALID_PRODUCT','INVALID_PRODUCT_DETAIL','INVALID_PAGINATION'].includes(code);
+    const publicCode=invalid||['CHILD_NOT_FOUND','COMPUTER_NOT_FOUND','COMPUTER_USAGE_SOURCE_LIMIT','APPLICATION_RPC_UNAVAILABLE','APPLICATION_SERVICE_UNAVAILABLE','APPLICATION_DATABASE_MEMORY_LIMIT','APPLICATION_SCHEMA_UNAVAILABLE','APPLICATION_SOURCE_UNAVAILABLE','WEB_STATISTICS_UNAVAILABLE'].includes(code)?code:'COMPUTER_USAGE_UNAVAILABLE';
+    return json({code:publicCode},invalid?400:['CHILD_NOT_FOUND','COMPUTER_NOT_FOUND'].includes(code)?404:503);
   }
 }

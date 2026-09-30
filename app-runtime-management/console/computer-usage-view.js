@@ -1,12 +1,13 @@
 /* Cloud-only display. This module never merges or re-settles source statistics. */
 (function(root){
 'use strict';
-const labels={study:'学习',composite:'复合',restrictedEntertainment:'受限娱乐',unclassified:'未归类',blocked:'黑名单',unknown:'历史分类未知',historicalUnknown:'历史分类未知'};
+const labels={study:'学习',composite:'复合',restrictedEntertainment:'受限娱乐',unclassified:'未归类',blocked:'黑名单',unknown:'历史分类未知',historicalUnknown:'历史分类未知',rest:'娱乐',other:'其他',video:'视频',audio:'音频'};
 const reasons={DEVICE_MAPPING_INCOMPLETE:'网页设备与电脑之间缺少可信关联',WEB_ACCOUNT_UNAVAILABLE:'网页权威统计尚不可用',WEB_SOURCE_UNAVAILABLE:'网页来源读取失败',APPLICATION_SOURCE_UNAVAILABLE:'应用来源读取失败',APPLICATION_SERVICE_UNAVAILABLE:'应用服务未连接',APPLICATION_EVIDENCE_UNAVAILABLE:'应用区间证据不可用',SOURCE_VERSION_CHANGED:'来源正在更新，请重试',WEB_EVIDENCE_LIMIT:'网页证据超出本次查询上限',APPLICATION_EVIDENCE_LIMIT:'应用证据超出本次查询上限',WEB_CREDIT_EVIDENCE_MISMATCH:'网页区间证据与原统计不一致',APPLICATION_TOTAL_EVIDENCE_MISMATCH:'应用区间证据与原统计不一致',APPLICATION_SOURCE_OVERLAP:'应用来源存在不可唯一合并的重叠',PARTIAL_WEB_CREDIT_OVERLAP_AMBIGUOUS:'网页部分计秒的重叠无法唯一确定'};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 Object.assign(reasons,{OVERLAP_AMBIGUOUS:'重叠的有效计秒无法唯一确定',WEB_TOTAL_EVIDENCE_MISMATCH:'网页区间证据与原总量不一致',WEB_CATEGORY_EVIDENCE_MISMATCH:'网页分类证据与原分类统计不一致',APPLICATION_CATEGORY_EVIDENCE_MISMATCH:'应用分类证据与原分类统计不一致',APPLICATION_CLOCK_EVIDENCE_INCOMPLETE:'应用时钟证据不完整',LEGACY_APPLICATION_BEST_EFFORT:'旧版应用历史按原口径尽力读取，不证明精确重叠',LEGACY_APPLICATION_SOURCE_UNAVAILABLE:'旧版应用历史读取失败，其余可读来源仍保留'});
 function duration(ms){if(ms===null||ms===undefined)return '不可用';const n=Math.max(0,ms);return (Math.floor(n/3600000)?Math.floor(n/3600000)+'小时 ':'')+Math.floor(n%3600000/60000)+'分 '+Math.floor(n%60000/1000)+'秒'+(n%1000?' '+n%1000+'毫秒':'');}
 Object.assign(reasons,{HISTORICAL_SOURCE_BEST_EFFORT:'旧版历史尚无精确合并证据',APPLICATION_SOURCE_INCOMPLETE:'应用来源不足以确认精确合并',APPLICATION_SOURCE_MISSING:'该来源缺少对应应用证据',WEB_SOURCE_MISSING:'该来源缺少对应网页证据',WEB_ACCOUNT_INCOMPLETE:'网页权威统计不完整'});
+Object.assign(reasons,{APPLICATION_DATABASE_MEMORY_LIMIT:'应用查询超出数据库内存限制',APPLICATION_CHILD_UNAVAILABLE:'应用来源中尚无该孩子',APPLICATION_SCHEMA_UNAVAILABLE:'应用数据库结构暂不可用',APPLICATION_RPC_UNAVAILABLE:'应用读取接口暂不可用'});
 const time=ms=>ms===null?'未报告':new Date(ms).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'});
 function summary(snapshot){
 const metric=(name,value)=>'<article class="computer-metric"><small>'+name+'</small><strong>'+duration(value)+'</strong></article>';
@@ -17,13 +18,11 @@ return '<style>.computer-view{display:grid;gap:16px}.computer-view button,.compu
 '<style>.computer-view button,.computer-view select{min-height:44px;padding:9px 14px;border:1px solid #c9ddd6;border-radius:10px;background:#fff;color:inherit;font:inherit;line-height:1.4}.computer-view button{cursor:pointer}.computer-view button:hover{background:#edf7f3}.computer-view button:disabled{opacity:.55;cursor:default}.computer-view button:focus-visible,.computer-view select:focus-visible{outline:2px solid #168d72;outline-offset:2px}.computer-view summary{cursor:pointer;min-height:44px;display:list-item;padding:10px 0}</style>'+
 '<div class="computer-toolbar"><b>电脑使用 · '+esc(snapshot.fromDate)+' — '+esc(snapshot.toDate)+'</b><button data-computer-retry>刷新</button></div><p>云端统一展示，不改变现行配额。全部电脑按设备累计；网页、应用原用量独立保留。</p>'+
 '<div class="computer-metrics">'+metric('电脑总用量（设备累计）',snapshot.totals.computerMs)+metric('网页原用量',snapshot.totals.webMs)+metric('应用原用量',snapshot.totals.applicationMs)+metric('确认的重叠扣除',snapshot.totals.overlapMs)+'</div>'+
-'<section><h3>统计与重叠状态</h3><p>网页：'+esc(statusLabels[sourceStatus.web])+' · 应用：'+esc(statusLabels[sourceStatus.application])+'</p><p>'+esc(snapshot.historyStatus==='bestEffort'?'包含旧版历史：按原口径尽力读取，不能证明精确重叠':'当前来源无旧版历史标记')+' · '+esc(snapshot.overlapStatus==='confirmed'?'重叠已确认':'重叠未确认，不扣除未知重叠')+'</p></section>'+
-(!snapshot.complete?'<section class="computer-status"><b>精确合并暂不可用，独立统计和明细仍可查看</b><ul>'+[...new Set(snapshot.reasons)].map(code=>'<li>'+esc(reasons[code]||code)+'</li>').join('')+'</ul></section>':'')+
+'<p>'+esc(snapshot.overlapStatus==='confirmed'?'重叠已确认':'尚未精确去重；网页与应用数值独立显示，不能相加当作电脑总量')+'</p>'+
 '<section><h3>'+esc(snapshot.categoryBasis==='sourceCumulative'?'分类归集（来源累计、尚未去重）':'分类汇总（重叠已去重）')+'</h3><p>排除已确认 Chrome 容器，分类允许重叠，不能相加为电脑总量。</p><div class="computer-category-list">'+Object.entries(snapshot.categoriesMs).map(([key,ms])=>'<p><b>'+esc(labels[key]||key)+'</b><br>'+duration(ms)+'</p>').join('')+'</div><h4>独立权威分类（原口径）</h4>'+sourceCategories('web')+sourceCategories('application')+'</section>'+
-'<section><h3>各电脑合并状态</h3><ul>'+snapshot.devices.map(device=>'<li><strong>'+esc(device.name)+'</strong> · '+duration(device.totalMs)+(device.complete?'':' · 证据未齐')+'<br><small>网页 '+duration(device.webMs)+' · 应用 '+duration(device.applicationMs)+' · Chrome 内容未识别 '+duration(device.chromeUnexplainedMs)+'</small></li>').join('')+'</ul></section>'+
 '<section><h3>产品与 Chrome 内容</h3><p>Chrome 容器计入电脑用量；有可信电脑关联时展示该电脑网页，否则明确展示“该孩子的网页内容”，不证明容器归属、不扣重叠。</p><button data-computer-detail="products">查看产品</button><div data-computer-products></div></section>'+
 '<section><h3>来源时间线</h3><p>网页与应用分行；区间宽度不代表网页有效计秒。以下不是两份相加的用量。</p><button data-computer-detail="timeline">查看时间线</button><div data-computer-timeline class="computer-timeline"></div></section>'+
-'<section><h3>来源与截止时间</h3><ul>'+snapshot.sourceVersions.map(source=>'<li>'+esc(source.kind==='web'?'网页':'应用')+' · 已结算至 '+esc(time(source.settledAtMs))+'</li>').join('')+'</ul></section>';
+'<details><summary>来源状态与诊断详情</summary><p>网页：'+esc(statusLabels[sourceStatus.web])+' · 应用：'+esc(statusLabels[sourceStatus.application])+'</p><p>'+esc(snapshot.historyStatus==='bestEffort'?'历史数据，尽力还原':'当前来源')+'</p><ul>'+[...new Set(snapshot.reasons)].map(code=>'<li>'+esc(reasons[code]||code)+' <small>'+esc(code)+'</small></li>').join('')+'</ul><ul>'+snapshot.sourceVersions.map(source=>'<li>'+esc(source.kind==='web'?'网页':'应用')+' · 已结算至 '+esc(time(source.settledAtMs))+'</li>').join('')+'</ul></details>';
 }
 function detailRows(kind,rows){
 const originalClassification=row=>row.special?'原应用历史归类，仅用于原口径；不贡献统一分类：':'';
@@ -63,7 +62,26 @@ finally{if(token===generation&&button)button.disabled=false;}
 }
 host.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;if(button.hasAttribute('data-computer-retry'))void load();if(button.dataset.computerDetail)void details(button.dataset.computerDetail);if(button.dataset.computerChrome)void details('timeline',0,button.dataset.computerChrome);if(button.dataset.computerMore)void details(button.dataset.computerMore,Number(button.dataset.offset),button.dataset.product);if(button.dataset.computerPeriod&&onRange)onRange(button.dataset.computerPeriod);});
 host.addEventListener('change',event=>{if(event.target.hasAttribute('data-computer-select')){computer=event.target.value;void load();}});
-return {load,invalidate(){generation++;snapshot=null;},setComputer(key){computer=key;return load();}};
+return {load,invalidate(){generation++;snapshot=null;host.innerHTML='';},setComputer(key){computer=key;return load();}};
 }
-const api={create,summary,detailRows,duration};if(typeof module==='object')module.exports=api;else root.ComputerUsageView=api;
+function independentSummary(snapshot){
+const title={application:'应用使用',web:'网页使用',media:'网页媒体使用'}[snapshot.source];
+return '<style>.computer-view{display:grid;gap:16px}.computer-view[hidden]{display:none!important}.computer-toolbar,.computer-category-list{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.computer-view section,.computer-metric{padding:18px;background:#fff;border:1px solid #dce7e3;border-radius:12px}.computer-metric strong{display:block;font-size:24px;margin-top:8px}.computer-view button{min-height:44px;padding:9px 14px;border:1px solid #c9ddd6;border-radius:10px;background:#fff;font:inherit;cursor:pointer}.computer-view ul{padding:0;list-style:none}.computer-view li{padding:10px 0;border-bottom:1px solid #e7eeeb;overflow-wrap:anywhere}.computer-view p,.computer-view small{color:#697d78;line-height:1.6}</style><div class="computer-toolbar"><b>'+esc(title)+' · '+esc(snapshot.fromDate)+' — '+esc(snapshot.toDate)+'</b><button data-independent-retry>刷新</button></div>'+
+'<div class="computer-metrics"><article class="computer-metric"><small>'+esc(title)+'时间</small><strong>'+duration(snapshot.totalDurationMs)+'</strong></article></div>'+
+'<section><h3>分类明细</h3><p>独立来源原口径；明细可能重叠，不相加生成总量。</p><div class="computer-category-list">'+snapshot.categories.map(item=>'<p><b>'+esc(labels[item.classification]||item.classification)+'</b><br>'+duration(item.durationMs)+'</p>').join('')+'</div></section>'+
+'<section><h3>时间分布</h3><ul>'+snapshot.buckets.map(item=>'<li>'+esc(item.label||time(item.startAtMs))+' · '+duration(item.durationMs)+'</li>').join('')+'</ul></section>'+
+'<section><h3>'+esc(snapshot.source==='application'?'应用明细':'网站明细')+'</h3><ul>'+snapshot.applications.map(item=>'<li><strong>'+esc(item.displayName)+'</strong> · '+esc(labels[item.classification]||item.classification)+' · '+duration(item.durationMs)+'</li>').join('')+'</ul></section>';
+}
+function createIndependent(host,read,onRange){
+let generation=0;
+host.classList.add('computer-view');
+async function load(){
+const token=++generation;host.innerHTML='<p>正在读取独立使用统计…</p>';
+try{const result=await read();if(token===generation){host.innerHTML=independentSummary(result);if(onRange)host.querySelector('.computer-toolbar').insertAdjacentHTML('beforeend','<button data-independent-period="previous">上一周期</button><button data-independent-period="today">今天</button><button data-independent-period="next">下一周期</button>');}}
+catch(error){if(token===generation)host.innerHTML='<section><h3>使用统计暂不可用</h3><p>其他统计和设备管理不受影响。</p><small>'+esc(error?.code||'SOURCE_UNAVAILABLE')+'</small><button data-independent-retry>重试</button></section>';}
+}
+host.addEventListener('click',event=>{if(event.target.closest('[data-independent-retry]'))void load();const direction=event.target.closest('[data-independent-period]')?.dataset.independentPeriod;if(direction&&onRange)onRange(direction);});
+return{load,invalidate(){generation++;host.innerHTML='';}};
+}
+const api={create,createIndependent,summary,independentSummary,detailRows,duration};if(typeof module==='object')module.exports=api;else root.ComputerUsageView=api;
 })(typeof globalThis==='object'?globalThis:this);
