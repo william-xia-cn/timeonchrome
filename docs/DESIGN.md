@@ -1,5 +1,11 @@
 # TimeOnChrome — 技术设计文档
 
+### 固定终端源码与开发候选边界（2026-09-30）
+
+`D:\Codex\TimeOnchrome-worktrees\extension-local` 是终端扩展唯一源码工作树。`1.7.40 Native Host Development Candidate` 仅由此工作树的 staging 工具生成到隔离的 unpacked 目录；源码 `extension/manifest.json` 的正式版本不随候选版本改变。候选复用已批准候选 manifest 的公开 key 并核对稳定扩展 ID，不生成 CRX 或 `update.xml`，不进入托管更新源。候选包含周 Rest 提醒、默认关闭的复合观察及 Task 可选模块；旧 Popup 纯网页软配额面板不纳入。Chrome 既有 `81a1` 路径作为 junction 兼容入口，只有独立 Profile 验证、完整备份和加载前后只读核对通过后才替换其 D 盘目标包；不卸载扩展或清空本地数据。真实 30 分钟复合上传闭环仍待验收。
+
+路径收拢先于候选升级：在 1.7.40 Rest 完整验收失败期间，Chrome 已将 1.7.39 同一 D 盘包的加载来源由 `81a1` junction 改为直接路径，未替换包内容。扩展 ID 与绑定已恢复；切换期的历史差额由 PO 接受并保留原证据，不回填。新账逐 ID 云端确认及日/小时对账仍是后续门槛，不能仅凭页面汇总宣称数据验收完成。旧工作树在仍被会话或进程引用时不得退出 Git 登记。
+
 ### 复合页面证据共享契约来源
 
 `contracts/composite-page-evidence/v1.js` 是网页与 Guardian 共用的纯 JavaScript 规范源，维护身份、裁剪脱敏、摘要与保留期，不含网页计时或配额逻辑。原草稿行为原样提取不代表完整隐私验收通过。Worker 从根契约导入；扩展因 unpacked 根边界，使用由控件任务生成的 `extension/core/generated/composite-page-evidence-v1.js` 字节相同副本，禁止手工维护分叉。构建/CI 用检查器强制核对；尚未接入终端时不得宣称已实现消费者一致。云端候选筛选、阈值、页面归属和人工建议留在云端服务；Native 不消费此协议，不提升 App Runtime 契约版本。正文中既有更广泛隐私与发布门禁继续有效。

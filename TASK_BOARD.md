@@ -1,5 +1,37 @@
 # TASK_BOARD
 
+## NOW：终端路径切换历史差额与收拢门槛（2026-10-01）
+
+PO 已接受切换期历史差额：切换前备份中 1 条待上传网页分段为 44 秒；切换后未绑定隔离存储中另有 16 条、合计 548 秒。这 17 条记录仍在受限备份中保留，本轮不回填、不改账、不改配额、不清理证据；仅豁免它们的逐 ID 云端确认，不得扩展为对新账的豁免。
+
+当前 Chrome 已从固定 D 盘工作树直接加载同一扩展 ID 的 1.7.39 开发候选，绑定标识与切换前备份一致。终端只读摘要显示网页原始分段 8 条、待上传网页及媒体 ID 均为 0；云端页面可见 2026-10-01 新网页用量。该汇总不能替代新分段逐 ID 确认，后续仍需对一次新分段完成本地结算、云端确认及日/小时统计对齐。`2026-09-25` 的 `history usage stats not converged after upload` 属历史统计待核查，保留问题，不将其记为本次路径收拢通过。
+
+固定 `codex/extension-local` 为唯一终端源码分支；旧树仅在无活跃会话、无独有未迁入内容且可恢复归档时退役。受保护或仍被占用的工作树保留，不用 shell 强删，也不以源码收拢宣称本地数据审计全部通过。
+
+## NOW：唯一终端工作线收拢（2026-09-30，路径先行）
+
+以下为 2026-09-30 切换过程记录；当前结论以 2026-10-01「终端路径切换历史差额与收拢门槛」为准，旧阻塞和旧加载路径不再代表实时状态。
+
+开发候选授权阻塞：固定 D 盘 1.7.39 在 Profile 4 已以原 ID 加载，但绑定页报受管邮箱不匹配、Popup 要求绑定/授权。代码证据：`core/activation-gate.js` 对稳定 ID 的 `native-host-development` unpacked 包忽略 managed policy，要求隐私同意；`bind.js` 却独立读取 managed 邮箱，形成互相矛盾的门禁。本项仅统一开发候选绑定页与运行时的授权判断；正式 `managed` 包仍严格校验受管邮箱，隐私同意仍为开发候选必需条件。不改设备 token、配置、网页账或托管发布。最小测试为开发候选授权单测和绑定页门禁单测；隔离构建后核对同 ID/版本/模式，真实 Profile 可用性未核验前不退役旧目录。
+
+恢复进度：路径切换后 Chrome Profile 4 中该扩展的本地存储曾从备份时 2,981,076 字节变为 57 字节，Popup 显示本地模式；这才是当前故障，不可把绑定页文案视为根因。家长退出 Chrome 后，已将切换前同一扩展 ID 的 `Local Extension Settings` 七个文件逐项 SHA-256 核对并恢复，切换后的状态移入受限恢复区。此前针对开发候选的 `bind.js` 授权补丁已从加载包逐字节撤回，源码与测试也撤回；不得据此声称已解决。真实 Chrome 重新启动后的绑定、待上传账和同步尚待确认，在此之前旧目录不退役、不提交/推送。
+
+目标：终端源码只由 `codex/extension-local` 和 `D:\Codex\TimeOnchrome-worktrees\extension-local` 维护；`master`、云端、Task、Santa 工作线不在本次清理范围。先让 Chrome 直接加载固定工作树内**现有 1.7.39 原包**，不混入仍未通过 Rest 完整 E2E 的 1.7.40 候选。旧 Popup 纯网页面板、复合独立算法和 Native 草稿不迁移。
+
+执行清单：①核对旧提交/脏改/ignored 内容、活跃会话和远端 PR；②备份 Chrome Profile 与旧树到仓库外受限恢复区，校验可恢复性；③在一次性 Profile 演练直连 D 盘包，再由家长配合在真实 Profile 切换加载路径；④前后只读核对扩展 ID、版本、绑定、待上传网页/媒体账、配置，并验证新落账及同步；⑤无运行依赖后归档旧树，核验 Git 登记与远端分支；⑥完成范围审计后提交/推送路径收拢记录。任何一步数据不一致均停止且不退役旧树。
+
+当前预检：81a1 junction 仍指向固定 D 盘的 1.7.39 包；旧 `4408b16` 的 15 秒应用读取超时已由固定线 `9bbeba6` 覆盖。复合旧树含未提交草稿，必须完整保留。架构会话本轮已结束，但其 `cwd` 仍是 81a1；确认不再需要该目录前不得移动或归档。家长手动确认 Chrome Profile 4 当前加载来源为 81a1 下的 unpacked 1.7.39，扩展 ID 不变。浏览器自动化被安全策略禁止读取 `chrome://extensions`，不得换工具绕过。隔离 Profile 的同 ID 换路径测试保留了测试哨兵，但不等于真实 Profile 数据已验收。
+
+已完成的安全准备：`D:\Codex\worktree-cleanup-backups\2026-09-30\extension-consolidation` 仅 William、管理员、SYSTEM 可访问；复合旧树 1,446 份文件、81a1 未跟踪 Native 文件 3,180 份、Chrome Profile 4 的 10,099 份文件均已复制并逐项 SHA-256 一致，`Local State` 哈希一致，三个终端分支的完整 Git bundle 验证通过，原目录未动。实时 GitHub 显示旧应用读取分支仍在、复合旧分支已不在，无开放 PR。路径相关专项与扩展根目录检查通过。家长已在 Profile 4 将同 ID、同版本 1.7.39 的加载来源切至固定 D 盘目录，但该 Profile 的 Popup 显示需要绑定/授权；源码显示开发候选要求独立隐私授权，绑定页仍执行受管邮箱校验。未核实原绑定、待上传账和功能可用性，不视为完成真实 Profile 验收，不退役旧目录，也不提交/推送。附着的 detached `C:\Users\William\.codex\worktrees\extension-local\TimeOnchrome` 虽干净且无 ignored 文件，Codex 归档工具因置顶任务/工作区保护而拒绝；不得用 shell 删除绕过。
+
+## NOW：终端控件固定工作树收拢（2026-09-30）
+
+职责 `extension-local`。唯一终端源码工作树为 `D:\Codex\TimeOnchrome-worktrees\extension-local`；已合入最新 `origin/master`，旧 `81a1` 的 15 秒应用读取超时及主目录 Rest／复合观察草稿不重复迁移。主目录脏改、旧 Popup 纯网页面板、旧复合独立算法及 Native 目录内容保持原样。
+
+本次仅从固定源码隔离构建 `1.7.40 Native Host Development Candidate`。源码 manifest 和正式托管 feed 不提升；候选包含日／周 Rest 提醒，以及默认关闭的复合观察和 Task 可选模块。先在独立 Profile 验证，验证通过才备份并替换 D 盘候选目录；Chrome 仍经旧 `81a1` junction 加载，不卸载、不解绑、不清空 storage。复合真实 30 分钟上传闭环保持 `DEFERRED`，不得以单测或 mock 冒充验收。提交／推送并按 D-109 提 PR，不自动合并、部署或托管。
+
+当前验证与阻塞：固定分支已无冲突合入 `origin/master@c1b5d6f`，专项 Rest／复合／Native Host／应用读取、扩展根目录和 typecheck 通过。隔离 `dist/native-host-managed-candidate-next/package-extension` 已生成：1.7.40、稳定 ID、`native-host-development`，无 CRX/update.xml；全新 Profile 启动与空白绑定 smoke 通过。Wikipedia 实站默认关闭／显式开启观察通过，Rest 硬时间窗单项通过。完整 Rest unpacked E2E 两次失败：第一次超时后未出现 `timeout_continue`，第二次超时继续后网页 session 未恢复到用例要求的 `ACTIVE`；真实 Native Host 读取、现有 Profile 重载前后对账及 30 分钟复合上传未验收。Task 后端入口测试缺少主线后端依赖，未运行成功。故候选只保留在隔离目录，旧 1.7.39 包与 `81a1` junction 均未替换；不提交／推送／提 PR，待 Rest 失败定位和完整复验。范围审计：源码合并、文档边界、隔离构建和已列专项为 `Matched`；旧目录提升、既有 Profile 复验及 PR 为 `Missing / blocked by verification`；未迁移旧 Popup 或 Native 内容，无 `Extra`。
+
 ## NOW：固定控件旁路迁移核对（2026-09-29）
 
 职责 `extension-local`。固定工作树 `D:\Codex\TimeOnchrome-worktrees\extension-local` 从最新 `origin/master` 建立；原 `81a1` 加载目录、主目录混合草稿和隔离候选保持原样，不切换加载路径。日周 Rest 终端实现及复合页面观察、授权证据上传已通过既有独立整合提交进入主线，无需从旧脏目录重复提取。主目录旧 Popup 仅显示网页用量，与现行“应用＋网页只计算”口径不符，本批不迁入。
