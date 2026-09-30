@@ -395,7 +395,7 @@ test('应用阻止策略使用独立多时段 API，预配置由手动应用接�
   const js = read('pages/native-apps/native-apps.js');
   assert(admin.includes('/block-policy') && admin.includes('/block-policies/bulk'));
   assert(resolver.includes('COALESCE(parent.bundle_id, item.bundle_id) AS root_bundle_id'));
-  assert(resolver.includes("if (row.application_id) append(row, 'APPLICATION', row.application_id)"));
+  assert(resolver.includes("if (row.application_id) append(row, 'APPLICATION', row.application_id, key)"));
   assert(html.includes('application-window-list'));
   assert(js.includes('最后一条时段不能直接删除'));
   assert(js.includes('publisherWarning') && js.includes('仍独立生效'));
