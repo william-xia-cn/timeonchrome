@@ -1,5 +1,17 @@
 # App Runtime 技术设计
 
+## ARM-D-038：Firefox 产品级黑名单协议边界
+
+Application Knowledge 的 `productId` 是封锁对象，`runtimeIdentity` 只是历史和旧客户端兼容身份。服务端从已确认的身份投影与孩子产品配置生成不可变产品封锁快照，使用已批准的精确包身份、文件系列或二进制哈希；不能从显示名称、安装路径或未核实的客户端 `productId` 生成执行选择器。旧精确身份列表保持兼容。明确的产品封锁优先于该产品变体的普通分类；撤销产品封锁后原配置重新生效。
+
+产品确认操作可显式请求 `migrateExplicitClassifications`，仅在预览无分类冲突后，将同产品的旧精确 `blocked` 选择提升为孩子产品封锁，并从**新策略快照**移去对应冗余精确黑名单。已经明确封锁的产品，其变体普通分类是解除封锁后的保留配置，不应误判为产品迁移冲突；尚未形成产品封锁的相互冲突旧配置仍须人工裁决。其他变体普通明确分类保留以供解除产品封锁后恢复；旧策略版本、分类操作历史、原始 Segment 与时长均不改写。未明确请求迁移时不删除任何精确身份配置。
+
+可选强化规则按产品显式启用；新增审核线索必须先在该家庭已确认产品的真实安装/运行观察中出现，要求有效签名的审核公钥摘要与独立的精确 PE 产品线索同时匹配。已经审核并写入上一知识版本的线索不因盘点暂时缺席而失效，家长仍可关闭强化封锁或解除封锁；修改线索则重新审核。无签名且无其他两项独立审核线索时不终止。运行端须验证当前受保护用户会话、非关键进程、文件未在检查期间变化和无冲突的产品归属。疑似命中只影响本次执行，不写入产品关联或账本。Service 原子缓存策略，离线沿用最近成功版本；策略 ACK 与 Session Agent 的产品封锁能力/执行结果必须分开展示。新增字段可选，旧 Native 只按原精确身份执行，并在管理页面标注产品级封锁未覆盖。
+
+机器 `POST /v2/machines/heartbeat` 可选声明 `capabilities: ['product-block-v1']`；旧机器缺省为空。为使设备页准确显示最后一次机器实际声明的能力，additive `0012_runtime_machine_capabilities.sql` 在机器表增加 `capabilities_json`；仅服务端认可的能力标识进入读模型，不凭 Service 版本或策略 ACK 猜测。该迁移是新增能力状态的真实依赖，生产须单独完成迁移后才能部署依赖此列的 Worker；既有 `0011` 不随本功能顺带执行。
+
+单份 `productBlockPolicy` 按 `JSON.stringify` 的 UTF-8 字节数上限为 64,000；Worker 超限返回 `413 PRODUCT_BLOCK_POLICY_LIMIT`，不写入知识与新策略，Native 超限拒绝并保留 LKG。精确身份、已核实系列和可选双线索均受同一个容量界限约束，不能在传输时截断规则。
+
 ## ARM-D-037：可恢复的首次机器配对
 
 `POST /v2/machines/enroll` 保留旧 `{code,platform,displayName?}` 请求：服务端生成机器 token，首次 `201`，配对码不可重试。新增可选 `clientMachineToken`，其格式为 `rt_machine_token_` 加 32 个 CSPRNG 字节的无填充 base64url（43 字符）；Native 必须在第一次网络请求前将其写入受保护持久存储，写入失败禁止请求。首次成功仍返回 `{machineId,machineToken,platform}` 和 `201`；同一配对码、同一 token 哈希与同一平台的重复请求返回同一机器和 `200`，不创建新机器或新策略版本。此重试在码过期后仍可进行；不同 token、不同平台、撤销机器或跨配对码复用 token 返回通用 `401 ENROLLMENT_INVALID`。客户端也可直接凭预存 token 调现有 `GET /v2/machines/self` 恢复 machineId；未得到成功证明时不得创建新配对码并将旧身份静默遗弃。

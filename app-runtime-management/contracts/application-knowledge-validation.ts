@@ -33,14 +33,20 @@ function expression(value: unknown, allowEmpty = false): MatchExpression {
 /** 拒绝未知字段、脚本、弱自动条件及悬空引用；返回脱离调用方引用的副本。 */
 export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge {
   if (!object(value) || !keys(value, ['schemaVersion', 'version', 'products', 'rules', 'bindings'])
-      || ![1,2].includes(Number(value.schemaVersion)) || !Number.isSafeInteger(value.version) || Number(value.version) < 0
+      || ![1,2,3].includes(Number(value.schemaVersion)) || !Number.isSafeInteger(value.version) || Number(value.version) < 0
       || !list(value.products) || !list(value.rules) || !list(value.bindings, 100)) reject('INVALID_APPLICATION_KNOWLEDGE');
   const productIds: string[] = [], ruleIds: string[] = [], childIds: string[] = [];
   for (const product of value.products) {
-    if (!object(product) || !keys(product, ['id', 'name', 'type', 'selectors']) || !id(product.id)
+    if (!object(product) || !keys(product, ['id', 'name', 'type', 'selectors', 'suspectedMatchers']) || !id(product.id)
         || !text(product.name) || !oneOf(product.type, types) || !list(product.selectors, 64)
-        || product.selectors.length === 0) reject('INVALID_PRODUCT');
+        || product.selectors.length === 0
+        || (product.suspectedMatchers !== undefined && (value.schemaVersion !== 3 || !list(product.suspectedMatchers, 16)))) reject('INVALID_PRODUCT');
     productIds.push(product.id);
+    for (const hint of product.suspectedMatchers ?? []) {
+      if (!object(hint) || !keys(hint, ['platform', 'signerKey', 'productName']) || hint.platform !== 'windows'
+          || typeof hint.signerKey !== 'string' || !/^[a-f0-9]{64}$/u.test(hint.signerKey)
+          || !text(hint.productName)) reject('INVALID_SUSPECTED_MATCHER');
+    }
     for (const selector of product.selectors) {
       if (!object(selector) || !keys(selector, ['platform', 'match']) || !oneOf(selector.platform, platforms)) reject('INVALID_PRODUCT_SELECTOR');
       const match = expression(selector.match);
@@ -59,7 +65,7 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
         || !oneOf(rule.mode, ['automatic', 'suggestion']) || !oneOf(rule.classification, classes)
         || !oneOf(rule.type, types) || typeof rule.enabled !== 'boolean' || !text(rule.source) || !text(rule.reason)
         || !list(rule.exclude, 32)) reject('INVALID_CLASSIFICATION_RULE');
-    const v2TypeRule = value.schemaVersion === 2 && rule.kind === 'type';
+    const v2TypeRule = Number(value.schemaVersion) >= 2 && rule.kind === 'type';
     const match = expression(rule.match, rule.productId !== undefined || v2TypeRule);
     for (const item of rule.exclude) expression(item);
     if (rule.mode === 'automatic' && rule.productId === undefined && !v2TypeRule && !safeAutomatic(match)) reject('WEAK_AUTOMATIC_RULE');
@@ -75,8 +81,10 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
         || !list(binding.products) || !list(binding.ruleIds) || !binding.ruleIds.every(item => id(item) && ruleIds.includes(item))) reject('INVALID_CHILD_BINDING');
     const boundProducts: string[] = [];
     for (const item of binding.products) {
-      if (!object(item) || !keys(item, ['productId', 'classification']) || !id(item.productId)
-          || !productIds.includes(item.productId) || !oneOf(item.classification, classes)) reject('INVALID_PRODUCT_BINDING');
+      if (!object(item) || !keys(item, ['productId', 'classification', 'enhancedBlocking']) || !id(item.productId)
+          || !productIds.includes(item.productId) || !oneOf(item.classification, classes)
+          || (item.enhancedBlocking !== undefined && (value.schemaVersion !== 3 || item.enhancedBlocking !== true
+            || item.classification !== 'blocked'))) reject('INVALID_PRODUCT_BINDING');
       boundProducts.push(item.productId);
     }
     if (!unique(boundProducts) || !unique(binding.ruleIds as string[])) reject('DUPLICATE_BINDING');
