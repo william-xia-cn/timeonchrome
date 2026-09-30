@@ -1,6 +1,6 @@
 # TASK_BOARD
 
-## 2026-10-01：使用统计结构与错误读数修复（PO批准，实施中）
+## 2026-10-01：使用统计结构与错误读数修复（已合并、部署及真实读取验收）
 
 - 职责 `standard-cloud`；复用标准云端分支与目录，不创建分支/工作树。四视图固定为电脑使用、应用使用、网页使用、网页媒体使用，默认电脑汇总；独立统计保持原口径。
 - 已证实新网页读取器错误读取不存在的 `daily_total`（真实 schema 只有日/小时 domain/target），导致零总量与非零分类矛盾；旧测试夹具同样错误。`computer-view` 的 display 覆盖 hidden，造成跨页签残留。应用来源失败须定位真实原因并保留稳定错误码。
@@ -9,6 +9,10 @@
 - 聚焦回归通过：cloud computer读取、共享renderer、Runtime网络/会话/使用页、主页面入口/发布隔离及复合列表既有回归；Runtime真实workerd/D1 12/12（含具名能力fetch、Child隔离、原应用统计逐字段不变）、两端typecheck、两Worker dry-run、diff检查通过。mock目视已检查两套桌面/移动四页签、默认汇总、网页/应用独立视图与折叠诊断；mock不记为真实线上验收。代码一致性审计 Matched，Deviated/Missing/Extra无；提交后继续合并、部署及真实来源对照。
 - PR #153 已合并并发布；真实登录发现应用来源仍报 `APPLICATION_CHILD_UNAVAILABLE`：读取能力误以仅旧版配对写入的 `runtime_children_v1` 判定新版孩子归属。继续修复同一已批准读取范围：通过既有受限 Guardian binding 按当前 `profiles(account_id,id)` 核验归属，不能补写旧表或撤销家庭隔离。移除测试中掩盖问题的旧表注册，补验新版、无设备孩子、外家庭拒绝和归属服务失效关闭；仅补跑两 Worker 读取聚焦测试/typecheck/dry-run，不重测未变页面或终端。
 - 追加修复本地验证通过：Guardian归属/失败隔离固定回归、Runtime真实workerd/D1 13/13、两端typecheck、两Worker dry-run及diff检查。新版fixture明确断言旧配对表没有孩子行；旧残留行不能绕过当前归属校验。审计为 Matched（云端只读／家庭隔离／错误码／原账不变），无未批准偏差或额外功能；真实应用来源验收继续，不将本地通过当作线上恢复。
+- 发布完成：PR #153 合入 `4c4e5a1bbdd6ea1c0746a20e78b686a702c76930`，受保护运行 [36776693373](https://github.com/william-xia-cn/timeonchrome/actions/runs/36776693373) 发布两 Worker 和两套 Pages；Runtime Pages `cd774713`、主 Pages `0a4fafbe`（deployment 地址前缀），页面源码与共享 renderer SHA-256 `a81126eaa3350fdd4cf762d8a8d21f8ed204e9247ecadd36c9bc66b12857a810` 已核对。归属追加修复 PR #154 合入 `295908ec4a38edb73707db29c406985512e3cb30`，运行 [36778827634](https://github.com/william-xia-cn/timeonchrome/actions/runs/36778827634) 仅发布 Guardian `6953fe71-8048-4445-a3e5-307ebe55bd57` 和 Runtime Worker `0b271f63-93ad-428d-9279-1b282c68cc1e`，未重复发布未变页面。
+- 真实登录只读验收：固定同一孩子、北京时间2026-09-30及同一截止范围，旧网页权威接口、两页面网页独立视图和电脑汇总的网页总量一致；原应用接口、主控制台应用独立视图和 Runtime 电脑汇总的总毫秒与各分类逐项一致。两套页面四页签顺序、默认电脑汇总及独立视图隐藏状态已实际确认；产品、100条分页来源时间线、网页媒体独立视图实际加载，诊断默认折叠。验收未保存账户、Child ID、原始家庭明细或真实页面截图到仓库。
+- 状态解释：现存来源有覆盖及重叠证据缺口，页面正常保留有效网页/应用统计、分类、产品和时间线，只将精确电脑总量/扣除量注明“尚未精确去重”；不能把本轮读数修复称为历史全覆盖或精确去重已完成。未确认的 Mac Chrome 仍保持原产品展示，未按名称强行关联；可信 Chrome 容器规则的固定回归继续有效。
+- 收口审计：本轮四视图／权威schema读取／应用归属失败修复／稳定错误码／来源隔离／隐藏与迟到响应／最小测试及mock目视／真实来源对照／指定资源发布均 Matched；本轮范围内 Deviated/Missing/Extra 无。health及未认证401 smoke通过，待执行migration为空且未apply；没有终端、原账、分类更正、配额、安装或R2写入。纯文档证据提交仅执行diff及轻量CI，不再部署。
 
 
 ## 2026-10-01：孩子用量云端发布（PO批准提交与部署）

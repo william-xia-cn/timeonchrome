@@ -1,5 +1,9 @@
 # App Runtime 任务板
 
+## COMPLETED：四视图与真实来源读取修复（2026-10-01）
+
+两套云端统计固定“电脑使用 → 应用使用 → 网页使用 → 网页媒体使用”，默认电脑汇总；网页按真实 daily_domain 权威总量读取，不重复累计日/小时/目标副本。应用来源按当前 Guardian profiles 核验家庭/孩子归属，不再依赖仅旧配对维护的孩子表，失效仍关闭访问并保留稳定错误码。PR #153/#154 已合入；两页面发布基线 `4c4e5a1`，两 Worker 最终基线 `295908e`，精确部署与CI证据见根 TASK_BOARD。固定昨日真实登录核对网页/应用原接口与汇总总量一致、应用分类逐项一致，产品及分页时间线可读、独立媒体视图和隐藏隔离通过。unknown overlap 不清空有效来源，仍明确“尚未精确去重”；未确认 Mac Chrome 不按名称合并。不改终端、原账、更正或配额，不执行migration/安装/R2操作。本段证据收口不触发重复生产部署。
+
 ## 2026-10-01：Chrome 特殊应用与孩子用量归集已上线
 
 - 契约 PR #146、云端 PR #147 合入，生产 SHA `76727e09fb53d8db2fd0d7de2a9f7e37d9572c0a` / Contracts `1.19.0`，受保护发布 [36768727441](https://github.com/william-xia-cn/timeonchrome/actions/runs/36768727441) 成功。两 Worker 及两套云端页面已部署；精确资源 ID 与脚本哈希见根 TASK_BOARD 同日发布记录和该运行 manifest artifact。
