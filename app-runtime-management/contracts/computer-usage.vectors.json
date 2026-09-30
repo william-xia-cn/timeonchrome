@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"name":"Chrome-and-web-full-overlap","webMs":600000,"webWidth":600000,"appOffset":0,"appMs":600000,"special":true,"webClass":"study","appClass":"composite","expected":{"complete":true,"computerMs":600000,"overlapMs":600000,"chromeUnexplainedMs":0,"categoriesMs":{"study":600000}}},
+    {"name":"Chrome-partial-overlap-exact-credit","webMs":600000,"webWidth":600000,"appOffset":300000,"appMs":600000,"special":true,"webClass":"study","appClass":"composite","expected":{"complete":true,"computerMs":900000,"overlapMs":300000,"chromeUnexplainedMs":300000,"categoriesMs":{"study":600000}}},
+    {"name":"non-Chrome-classifications-can-overlap","webMs":600000,"webWidth":600000,"appOffset":0,"appMs":600000,"special":false,"webClass":"restrictedEntertainment","appClass":"study","expected":{"complete":true,"computerMs":600000,"overlapMs":600000,"chromeUnexplainedMs":0,"categoriesMs":{"restrictedEntertainment":600000,"study":600000}}},
+    {"name":"same-category-does-not-double-count","webMs":600000,"webWidth":600000,"appOffset":0,"appMs":600000,"special":false,"webClass":"study","appClass":"study","expected":{"complete":true,"computerMs":600000,"overlapMs":600000,"chromeUnexplainedMs":0,"categoriesMs":{"study":600000}}},
+    {"name":"integer-web-and-millisecond-app","webMs":1000,"webWidth":1000,"appOffset":0,"appMs":1500,"special":false,"webClass":"study","appClass":"study","expected":{"complete":true,"computerMs":1500,"overlapMs":1000,"chromeUnexplainedMs":0,"categoriesMs":{"study":1500}}},
+    {"name":"full-support-credit-not-geometric-width","webMs":1000,"webWidth":1500,"appOffset":0,"appMs":1500,"special":true,"webClass":"study","appClass":"composite","expected":{"complete":true,"computerMs":1500,"overlapMs":1000,"chromeUnexplainedMs":500,"categoriesMs":{"study":1000}}},
+    {"name":"partial-credit-ambiguous-no-rounding","webMs":1000,"webWidth":1500,"appOffset":500,"appMs":1000,"special":true,"webClass":"study","appClass":"composite","expected":{"complete":false,"computerMs":null,"overlapMs":null,"chromeUnexplainedMs":null,"categoriesMs":{"study":1000}}},
+    {"name":"web-outside-Chrome-not-discarded","webMs":600000,"webWidth":600000,"appOffset":600000,"appMs":1500,"special":true,"webClass":"study","appClass":"composite","expected":{"complete":true,"computerMs":601500,"overlapMs":0,"chromeUnexplainedMs":1500,"categoriesMs":{"study":600000}}}
+  ]
+}
