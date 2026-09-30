@@ -9,6 +9,14 @@ assert.equal(safeAutomatic({operator:'any',conditions:[]}),false);
 assert.equal(safeAutomatic({operator:'invalid',conditions:[{field:'binaryHash',value:'hash'}]}),false);
 const valid = {schemaVersion:1,version:0,products:[],rules:[],bindings:[]};
 assert.deepEqual(parseApplicationKnowledge(valid), valid);
+const confirmedBlock={schemaVersion:3,version:1,products:[{id:'firefox',name:'Firefox',type:'other',selectors:[
+  {platform:'windows',match:{operator:'all',conditions:[{field:'fileSeriesKey',value:'a'.repeat(64)}]}}],
+  suspectedMatchers:[{platform:'windows',signerKey:'b'.repeat(64),productName:'Firefox'}]}],rules:[],
+  bindings:[{childId:'child',products:[{productId:'firefox',classification:'blocked',enhancedBlocking:true}],ruleIds:[]}]};
+assert.deepEqual(parseApplicationKnowledge(confirmedBlock),confirmedBlock);
+assert.throws(()=>parseApplicationKnowledge({...confirmedBlock,products:[{...confirmedBlock.products[0],suspectedMatchers:[{platform:'windows',signerKey:'not-a-hash',productName:'Firefox'}]}]}),/INVALID_SUSPECTED_MATCHER/);
+assert.throws(()=>parseApplicationKnowledge({...confirmedBlock,bindings:[{childId:'child',products:[{productId:'firefox',classification:'study',enhancedBlocking:true}],ruleIds:[]}]}),/INVALID_PRODUCT_BINDING/);
+assert.throws(()=>parseApplicationKnowledge({...confirmedBlock,schemaVersion:2}),/INVALID_PRODUCT/);
 assert.notEqual(parseApplicationKnowledge(valid), valid);
 assert.throws(() => parseApplicationKnowledge({...valid,path:'C:/private'}), /INVALID_APPLICATION_KNOWLEDGE/);
 assert.throws(() => parseApplicationKnowledge({...valid,products:[{id:'p',name:'Game',type:'game',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'productName',value:'Game'}]}}]}]}), /WEAK_PRODUCT_SELECTOR/);
