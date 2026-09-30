@@ -2,6 +2,8 @@
 
 ## 2026-10-01 使用统计读取纠错
 
+孩子归属以 Guardian 当前 `profiles(account_id,id)` 为权威，不能以仅旧版配对写入的 Runtime `runtime_children_v1` 推断。Runtime 三个读取方法通过现有 Guardian `ComputerUsageService` binding 的受限 `POST /verifyChildAccess` 核验；请求有界且仅返回布尔，不读取用量、不递归调用 Runtime、不新增公开路由。归属读取失败返回稳定 `APPLICATION_SCOPE_UNAVAILABLE` 并 fail-closed；无设备但合法孩子允许读取空来源，外家庭一律拒绝。两个公开入口的既有鉴权保持不变，原记录及配对数据不补写。
+
 线上可观测日志已证实 RuntimeComputerUsageService.jsrpc 被运行时以 hung/canceled 取消，普通应用 HTTP 读取正常；本地真实 RPC 无法复现生产取消，不能称为已证明数据库故障。本轮将 Guardian→Runtime 读取改为同一命名 Service Binding 的受限 fetch 传输，显式等待并完整读取 JSON，保留旧 RPC 兼容；不新增公开 HTTP 路由或权限。仅三个固定只读方法可达，每次仍核验 account/Child，错误返回稳定码；用真实登录结果验收传输修复，不能仅凭本地 RPC 测试宣称生产恢复。
 
 两套云端页面固定四视图：电脑使用（默认汇总）、应用使用、网页使用、网页媒体使用。现有 `computer-usage` GET 增加可选 `source=application|web|media`，在既有账号/Child ownership校验后读取独立来源；不走合并器、不发原始身份。Guardian受限RPC复用现有网页/媒体只读路由和更正口径，Runtime受限RPC复用现有应用权威查询；内部短期读取身份仅在Guardian调用既有路由时使用，不保存或返回。独立结果仅含裁剪的总量、分类、时间分布及排行。网页总量只取真实每日active投影，禁止同时累计domain/target或日/小时。来源故障不补零，详情保留脱敏稳定错误码，精确重叠未知不屏蔽有效来源。所有原统计、落账、配额和写入路由保持不变。

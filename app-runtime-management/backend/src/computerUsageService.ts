@@ -8,6 +8,19 @@ import { CHROME_DISPLAY_RULES } from './specialApplications';
 
 /** Capability-bound entrypoint; this is never exposed by the public fetch router. */
 export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
+  private async requireChildScope(accountId:string,childId:string):Promise<void> {
+    // Guardian owns the child lifecycle; v2 never populates the legacy registry.
+    let owned:boolean;
+    try {
+      const response=await this.env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/verifyChildAccess',{
+        method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId})
+      }));
+      const value=await response.json() as {owned?:unknown};
+      if(!response.ok||typeof value.owned!=='boolean')throw new Error('scope unavailable');
+      owned=value.owned;
+    }catch{throw new HttpError(503,'APPLICATION_SCOPE_UNAVAILABLE','Child ownership verification is unavailable.');}
+    if(!owned)throw new HttpError(404,'CHILD_NOT_FOUND','Child was not found.');
+  }
   // Only this named service capability exposes the transport, never the public
   // default fetch router. A bounded JSON response owns its request lifetime.
   async fetch(request:Request):Promise<Response> {
@@ -32,8 +45,7 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
     }
   }
   async getApplicationUsage(accountId:string,childId:string,fromDate:string,toDate:string) {
-    const owner=await this.env.RUNTIME_DB.prepare('SELECT child_id FROM runtime_children_v1 WHERE account_id=? AND child_id=?').bind(accountId,childId).first();
-    if(!owner)throw new HttpError(404,'CHILD_NOT_FOUND','Child was not found.');
+    await this.requireChildScope(accountId,childId);
     const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)||!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to-86400000+8*3600000).toISOString().slice(0,10)!==toDate)throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
@@ -47,8 +59,7 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       applications:value.applications.map(({displayName,classification,durationMs})=>({displayName,classification,durationMs}))};
   }
   async applicationEvidenceRevision(accountId:string,childId:string,fromDate:string,toDate:string) {
-    const owner=await this.env.RUNTIME_DB.prepare('SELECT child_id FROM runtime_children_v1 WHERE account_id=? AND child_id=?').bind(accountId,childId).first();
-    if(!owner)throw new HttpError(404,'CHILD_NOT_FOUND','Child was not found.');
+    await this.requireChildScope(accountId,childId);
     const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)||!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to-86400000+8*3600000).toISOString().slice(0,10)!==toDate)throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
@@ -72,9 +83,7 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
     return sha256Hex(JSON.stringify({model:'readable-history-v2',head,machines:machines.results,legacy,inventory,displayRules:CHROME_DISPLAY_RULES,policyVersion:policy.version,projection:policy.productIdentityProjection?.version,corrections}));
   }
   async readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string) {
-    const owned=await this.env.RUNTIME_DB.prepare(`SELECT child_id FROM runtime_children_v1
-      WHERE account_id=? AND child_id=?`).bind(accountId,childId).first();
-    if(!owned)throw new HttpError(404,'CHILD_NOT_FOUND','Child was not found.');
+    await this.requireChildScope(accountId,childId);
     const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)
       ||!Number.isFinite(from)||!Number.isFinite(to)||to<from||to-from>6*86400000
