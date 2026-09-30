@@ -2,6 +2,8 @@
 
 ## NOW：Firefox 产品级黑名单（ARM-D-038，2026-09-30）
 
+2026-10-01 生产核对补充：`master@53f842d` 的 Runtime `0011/0012`、Worker 与独立 Pages 已部署；当前孩子的 Firefox 与 Firefox 隐私浏览已由两个不同的可信文件系列关联为同一产品并设为黑名单，强化封锁已明确开启。安装产品 `Mozilla Firefox (x64 zh-CN)` 与两条已确认入口具有相同的已验证安装 `productKey`，但它本身只有安装容器证据，不能成为进程终止匹配条件。目录投影应仅在该安装产品的全部可启动子入口已一致关联同一产品时，把容器作为展示/安装状态并入产品；若子入口未确认或分别属于不同产品（如 Office 的 Excel/Word），保持分离。此修正不扩大本机执行选择器，不改历史账本。设备详情目前仍报告旧 Service 2.6.11 与“产品级封锁未覆盖”，须待新能力心跳和真实应结束/不应结束/解除验收，不以云端保存或策略 ACK 代替完成。
+
 发布故障（2026-09-30）：`master@b79d2ed` 的受保护发布运行 #36737766764 在生产 `0011_runtime_uninstall_operations.sql` 报 `incomplete input: SQLITE_ERROR`，Worker/Pages 均未部署。远端复核 `0011/0012` 仍待执行，`runtime_uninstall_operations_v1` 表及触发器均不存在，未留下部分结构。根因指向 D1 远端触发器语句分割对 `SELECT CASE ... END` 的误判；仅将两个触发器断言改为等价的 `SELECT RAISE(...) WHERE changes()!=1` 并固定 SQL 为 LF，先做局部迁移及触发器原子性测试，再从精确新主线 SHA 重发。不得绕开 migration 记录直接写生产 D1。
 
 职责 `runtime-cloud-contract` 与独立 `native-local` 交接。变更等级为权限／本机执行高风险：本仓限契约、Worker 产品投影、设备能力提示及对应聚焦测试；Native 独立实现 Service/Session Agent 的当前用户会话内核验、离线 LKG、解除及防误杀。先只读确认准确机器、Firefox 安装/运行强证据及三条旧黑名单来源，不按名称猜测产品。契约采用可选字段、能力标识与旧客户端兼容；版本化孩子产品封锁优先普通变体分类，显式强化仅在两项独立审核线索命中时临时执行。最小测试为 Contracts 兼容、Worker 授权/策略/冲突、Console 能力提示、Native 进程执行安全用例；风险扩大才另加测试。排除扩展、网页账本、全平台无关构建和历史数据迁移；新增机器能力状态的 additive 结构迁移单独过闸。发布后 smoke 必须验证真实机器的应结束/不应结束、解除和执行理由，ACK 不能代替能力/执行验收。若目标 D1 机器或依据仍未准确定位，禁止生产启用。
