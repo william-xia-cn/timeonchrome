@@ -1,5 +1,13 @@
 # App Runtime 任务板
 
+## NOW：Firefox 产品级黑名单（ARM-D-038，2026-09-30）
+
+职责 `runtime-cloud-contract` 与独立 `native-local` 交接。变更等级为权限／本机执行高风险：本仓限契约、Worker 产品投影、设备能力提示及对应聚焦测试；Native 独立实现 Service/Session Agent 的当前用户会话内核验、离线 LKG、解除及防误杀。先只读确认准确机器、Firefox 安装/运行强证据及三条旧黑名单来源，不按名称猜测产品。契约采用可选字段、能力标识与旧客户端兼容；版本化孩子产品封锁优先普通变体分类，显式强化仅在两项独立审核线索命中时临时执行。最小测试为 Contracts 兼容、Worker 授权/策略/冲突、Console 能力提示、Native 进程执行安全用例；风险扩大才另加测试。排除扩展、网页账本、全平台无关构建和历史数据迁移；新增机器能力状态的 additive 结构迁移单独过闸。发布后 smoke 必须验证真实机器的应结束/不应结束、解除和执行理由，ACK 不能代替能力/执行验收。若目标 D1 机器或依据仍未准确定位，禁止生产启用。
+
+只读基线：`INTELMINIPC-XW` 在目标 Runtime D1 中唯一匹配，策略 desired/applied 均为 126；已登录控制台的当前孩子黑名单确有 Firefox、Firefox 隐私浏览、Mozilla Firefox 三个条目，但最新家庭知识尚无 Firefox 产品对象。目标机器库存有文件系列及签名摘要证据，不可仅凭三个显示名称自动合并。新增能力状态经设计复核需要 additive `0012`；生产仍待执行 `0011`，不能以本功能名义顺带执行。云端代码完成后，真实产品关联、迁移顺序与 Native 实机应结束／不应结束验证仍是上线门槛。
+
+本地实现进度：Contracts `1.18.0`、Worker 产品封锁策略快照/旧配置显式迁移/能力读模型、Console 产品强化开关与设备提示均已在云端工作线实现；Native 所属工作线另行实现接收与执行，未安装或发布。聚焦 Firefox/同名第三方/旧配置迁移/普通变体恢复/能力兼容测试、Contracts 测试、Console 单测、Worker typecheck/dry-run 与桌面/移动 mock 视觉测试通过。旧浏览器视觉脚本原先在目录惰性加载前等待元素，已改为打开应用页后等待，并使用本地 HTTP mock 运行。生产 Firefox 产品关联、`0012` 迁移及实机误杀边界尚未验收；当前不启用产品级执行。
+
 ## NOW：Mac 首次配对的响应丢失恢复（ARM-D-037，2026-09-30）
 
 职责 `runtime-cloud-contract`。已确认云端现状：一次性码在创建机器时消费，云端只存机器 token 哈希；若响应丢失或 Native 落盘失败，旧请求无法恢复同一机器。此项采用请求前持久化的客户端 256-bit token 作恢复证明，不另加 D1 migration；同码同 token 幂等，同码异 token 拒绝，`GET /v2/machines/self` 为重启恢复入口。先发布兼容契约/Worker，再由 Native 所属工作线接入；旧 Windows 请求保持兼容。本轮只实施本地契约和 Worker，不部署、不安装、不改 Native、Guardian、Pages、R2、账本或生产数据。必须验证新旧配对、响应丢失、重放、并发、过期、撤销及异平台拒绝；运行 Contracts/Worker 聚焦测试、typecheck、`git diff --check`，排除无关 UI 与平台构建。云端代码完成不能记作 Mac 实机闭环。

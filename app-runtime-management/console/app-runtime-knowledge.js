@@ -14,29 +14,48 @@
   const clone = value => JSON.parse(JSON.stringify(value));
   const empty = () => ({schemaVersion:2,version:0,products:[],rules:[],bindings:[]});
   const legacyGameSuggestionRuleId='builtin.type.game.restricted-suggestion';
-  function withDefaultRecommendations(value){const next=clone(value);next.schemaVersion=2;next.rules=next.rules.filter(rule=>rule.id!==legacyGameSuggestionRuleId);for(const binding of next.bindings)binding.ruleIds=binding.ruleIds.filter(id=>id!==legacyGameSuggestionRuleId);return next;}
+  function withDefaultRecommendations(value){const next=clone(value);next.schemaVersion=Math.max(2,next.schemaVersion);next.rules=next.rules.filter(rule=>rule.id!==legacyGameSuggestionRuleId);for(const binding of next.bindings)binding.ruleIds=binding.ruleIds.filter(id=>id!==legacyGameSuggestionRuleId);return next;}
   const same = (a,b) => JSON.stringify(a)===JSON.stringify(b);
+  function matched(product,evidence){return product.selectors.some(selector=>selector.platform===evidence.platform&&selector.match.conditions.length&&(selector.match.operator==='all'?selector.match.conditions.every:selector.match.conditions.some).call(selector.match.conditions,condition=>(condition.field==='runtimeIdentity'?evidence.runtimeIdentity:evidence.values[condition.field])===condition.value&&(!['runtimeIdentity','binaryHash','packageId','distributionKey','signerKey','fileSeriesKey'].includes(condition.field)||evidence.verifiedFields.includes(condition.field))));}
   function selectorFor(evidence,scope) {
     const verified = new Set(evidence.verifiedFields), values=evidence.values;
     let conditions;
     if (verified.has('distributionKey')) conditions=[{field:'distributionKey',value:values.distributionKey}];
     else if (scope==='file' && verified.has('binaryHash')) conditions=[{field:'binaryHash',value:values.binaryHash}];
     else if (verified.has('packageId')) conditions=[{field:'packageId',value:values.packageId}];
+    else if (scope==='series' && verified.has('fileSeriesKey')) conditions=[{field:'fileSeriesKey',value:values.fileSeriesKey}];
     else if (scope==='series' && verified.has('signerKey') && values.productName) conditions=[{field:'signerKey',value:values.signerKey},{field:'productName',value:values.productName}];
     else throw new Error('此范围缺少可靠身份依据；不能仅凭名称、路径或安装来源确认产品');
     return {platform:evidence.platform,match:{operator:'all',conditions}};
+  }
+  function setProductClassification(next,childId,productId,classification){
+    let binding=next.bindings.find(item=>item.childId===childId);
+    if(!binding){binding={childId,products:[],ruleIds:[]};next.bindings.push(binding);}
+    const previous=binding.products.find(item=>item.productId===productId);
+    binding.products=binding.products.filter(item=>item.productId!==productId);
+    binding.products.push({productId,classification,...(classification==='blocked'&&previous?.enhancedBlocking?{enhancedBlocking:true}:{})});
   }
   function confirmProduct(current,{evidence,scope,productId,name,type,classification,childIds,id}) {
     const next=clone(current), selector=selectorFor(evidence,scope);
     let product=next.products.find(item=>item.id===productId);
     if (!product) {if (!name.trim()) throw new Error('请输入产品名称'); product={id,name:name.trim(),type,selectors:[]};next.products.push(product);}
     if (!product.selectors.some(item=>same(item,selector))) product.selectors.push(selector);
-    for (const childId of childIds) {
-      let binding=next.bindings.find(item=>item.childId===childId);
-      if (!binding) {binding={childId,products:[],ruleIds:[]};next.bindings.push(binding);}
-      binding.products=binding.products.filter(item=>item.productId!==product.id);
-      binding.products.push({productId:product.id,classification});
-    }
+    for (const childId of childIds) setProductClassification(next,childId,product.id,classification);
+    return next;
+  }
+  function enableEnhancedBlocking(current,productId,childId,observations){
+    const next=clone(current),product=next.products.find(item=>item.id===productId);
+    const choice=next.bindings.find(item=>item.childId===childId)?.products.find(item=>item.productId===productId);
+    if(!product||choice?.classification!=='blocked')throw new Error('请先确认产品并将当前孩子的产品归为黑名单');
+    const candidates=observations.map(item=>item.evidence).filter(evidence=>evidence.platform==='windows'
+      && matched(product,evidence)&&evidence.verifiedFields.includes('signerKey')
+      && /^[a-f0-9]{64}$/i.test(evidence.values.signerKey||'')&&evidence.values.productName);
+    const pairs=[...new Map(candidates.map(evidence=>[`${evidence.values.signerKey}\n${evidence.values.productName}`,
+      {platform:'windows',signerKey:evidence.values.signerKey,productName:evidence.values.productName}])).values()];
+    if(pairs.length!==1)throw new Error('需要恰好一组已确认签名与 PE 产品线索；多个或缺失时先审核变种，不能自动强化');
+    if(next.products.some(item=>item.id!==productId&&(item.suspectedMatchers||[]).some(hint=>hint.signerKey===pairs[0].signerKey&&hint.productName===pairs[0].productName)))
+      throw new Error('该审核线索也属于其他产品，不能强化封锁');
+    next.schemaVersion=3;product.suspectedMatchers=[pairs[0]];choice.enhancedBlocking=true;
     return next;
   }
   function mergeProducts(current,sourceId,targetId,childId) {
@@ -129,22 +148,32 @@
       const [data,inventory]=await Promise.all([request('/v2/module/application-knowledge'),request('/v2/module/application-inventory')]);
       knowledge=withDefaultRecommendations(data);observations=inventory.observations;etag=`"application-knowledge-v${knowledge.version}"`;
     }
-    async function publish(next,action='confirm') {
+    async function publish(next,action='confirm',options={}) {
       if(busy)return;busy=true;const previous=knowledge.version;
-      try{knowledge=mock?{...next,version:previous+1}:await request('/v2/module/application-knowledge/operations',{method:'POST',headers:{'If-Match':etag},body:JSON.stringify({action,knowledge:next})});
+      try{knowledge=mock?{...next,version:previous+1}:await request('/v2/module/application-knowledge/operations',{method:'POST',headers:{'If-Match':etag},body:JSON.stringify({action,knowledge:next,...options})});
         priorVersion=previous;etag=`"application-knowledge-v${knowledge.version}"`;await onSaved(knowledge);renderProducts();renderRules();notice('分类已保存；设备实际应用新策略后向前生效');
       }finally{busy=false;}
     }
-    async function confirmChanges(next,message,action='confirm'){
-      const result=mock?{hits:observations.filter(item=>!same(knowledge.products.filter(product=>matched(product,item.evidence)).map(product=>product.id),next.products.filter(product=>matched(product,item.evidence)).map(product=>product.id)))}:await request('/v2/module/application-knowledge/operations',{method:'POST',headers:{'If-Match':etag},body:JSON.stringify({action,knowledge:next,preview:true})});
+    async function confirmChanges(next,message,action='confirm',options={}){
+      const result=mock?{hits:observations.filter(item=>!same(knowledge.products.filter(product=>matched(product,item.evidence)).map(product=>product.id),next.products.filter(product=>matched(product,item.evidence)).map(product=>product.id)))}:await request('/v2/module/application-knowledge/operations',{method:'POST',headers:{'If-Match':etag},body:JSON.stringify({action,knowledge:next,preview:true,...options})});
+      if(result.migrationConflicts?.length)throw new Error(`旧技术身份分类存在 ${result.migrationConflicts.length} 项冲突；请先逐项确认，不能自动提升为产品配置`);
       const sample=result.hits.slice(0,8).map(item=>`${item.displayName||item.evidence.displayName} · ${(item.platform||item.evidence.platform)==='macos'?'macOS':'Windows'}${item.after?` · ${getContext().children[item.childIndex]?.name||'目标孩子'} · ${labels[item.before.classification]} → ${labels[item.after.classification]} · ${resolutionLabels[item.after.status]}`:''}`).join('\n');
       return confirm(`${message}\n当前改变的命中观察：${result.hits.length}${sample?'\n'+sample:''}\n历史账本不改写；保存后需等待设备实际应用。`);
     }
     function notice(message){for(const selector of ['#product-notice','#rule-notice']){const box=$(selector);if(box){box.textContent=message;box.hidden=false;}}}
     function bindingClass(productId){return knowledge.bindings.find(item=>item.childId===getContext().childId)?.products.find(item=>item.productId===productId)?.classification??'unclassified';}
-    function matched(product,evidence){return product.selectors.some(selector=>selector.platform===evidence.platform&&selector.match.conditions.length&&(selector.match.operator==='all'?selector.match.conditions.every:selector.match.conditions.some).call(selector.match.conditions,condition=>(condition.field==='runtimeIdentity'?evidence.runtimeIdentity:evidence.values[condition.field])===condition.value&&(!['runtimeIdentity','binaryHash','packageId','distributionKey','signerKey'].includes(condition.field)||evidence.verifiedFields.includes(condition.field))));}
     function renderProducts(){
 $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p><div class="knowledge-filter"><input id="product-search" type="search" placeholder="搜索产品或已发现应用" aria-label="搜索产品或已发现应用"><button id="knowledge-reload">重新加载</button>${priorVersion!==null?'<button id="knowledge-undo">撤销上次关联</button>':''}</div><h3>已确认产品</h3><div id="confirmed-products">${knowledge.products.map((product,index)=>`<article class="knowledge-item"><div><strong>${esc(product.name)}</strong><small>${types[product.type]} · ${product.selectors.length} 个可信范围 · ${[...new Set(product.selectors.map(item=>item.platform==='macos'?'macOS':'Windows'))].join(' / ')}</small></div><label>当前孩子分类<select data-product-class="${index}">${classOptions(bindingClass(product.id))}</select></label><details><summary>变种及覆盖范围</summary>${product.selectors.map((selector,scopeIndex)=>`<div class="variant-row"><span>${selector.platform==='macos'?'macOS':'Windows'} · ${selector.match.conditions.map(item=>({binaryHash:'当前文件／版本',packageId:'平台包身份',signerKey:'已核实签名者',productName:'稳定产品名称',runtimeIdentity:'已确认技术身份'}[item.field]||'辅助线索')).join(' + ')}</span><button data-split-product="${index}" data-split-selector="${scopeIndex}">拆为独立产品</button><button data-unlink-product="${index}" data-unlink-selector="${scopeIndex}">解除错误关联</button></div>`).join('')}</details></article>`).join('')||'<p class="empty">尚无确定性产品；从下面的发现清单确认，或导入带可靠身份条件的规则包。</p>'}</div><section class="knowledge-editor"><h3>确认产品／加入已确认变种</h3><p>同文件可移动、改名；跨版本和套壳必须有可靠依据，启动器不自动代表其游戏。</p><label>已发现应用<select id="confirm-observation">${observations.map((item,index)=>`<option value="${index}">${esc(item.evidence.displayName)} · ${item.evidence.platform==='macos'?'macOS':'Windows'}</option>`).join('')}</select></label><label>产品<select id="confirm-existing"><option value="">新产品</option>${productOptions()}</select></label><label>新产品名称<input id="confirm-name" maxlength="256"></label><label>主要类型<select id="confirm-type">${typeOptions()}</select></label><label>覆盖范围<select id="confirm-scope"><option value="file">当前文件／版本</option><option value="series">有可靠身份依据的产品系列</option></select></label><label>孩子分类<select id="confirm-class">${classOptions()}</select></label><fieldset><legend>明确应用到（其他孩子不修改）</legend>${children()}</fieldset><button id="confirm-product" class="primary"${observations.length?'':' disabled'}>预览并确认产品</button></section><section class="knowledge-editor"><h3>合并产品</h3><p>只在明确关联依据下操作；分类冲突或其他孩子的明确配置必须先处理。</p><label>来源产品<select id="merge-source">${productOptions()}</select></label><label>目标产品<select id="merge-target">${productOptions()}</select></label><button id="merge-products"${knowledge.products.length>1?'':' disabled'}>预览并合并</button></section><h3>完整已发现清单</h3><p>安装盘点不生成时长。扫描失败不等于卸载；便携程序由使用观察补充。</p><div id="discovered-applications">${observations.map(item=>{const related=knowledge.products.filter(product=>matched(product,item.evidence));return `<article class="knowledge-item"><div><strong>${esc(item.evidence.displayName)}</strong><small>${item.evidence.platform==='macos'?'macOS':'Windows'} · ${item.status==='installed'?'已安装':item.status==='runtimeObserved'?'运行时发现':'当前未发现'} · ${related.length===1?`已确认 ${esc(related[0].name)}`:related.length>1?'关联冲突，需要确认':'未关联产品／变种候选'}</small></div></article>`;}).join('')||'<p class="empty">暂无安装观察；旧设备可能缺少应用发现能力。</p>'}</div>`;
+      all('#confirmed-products .knowledge-item').forEach((element,index)=>{
+        const product=knowledge.products[index],choice=knowledge.bindings.find(item=>item.childId===getContext().childId)?.products.find(item=>item.productId===product.id);
+        if(choice?.classification!=='blocked')return;
+        const row=document.createElement('div');row.className='variant-row';
+        row.innerHTML=`<small>产品级封锁：已确认身份由支持该能力的设备执行。疑似变体：${choice.enhancedBlocking?'已明确开启':'关闭'}；两项审核线索仍有误判风险。</small><button data-enhanced-product="${index}">${choice.enhancedBlocking?'关闭强化封锁':'审核并开启强化封锁'}</button>`;
+        element.append(row);
+      });
+      const migrateLabel=document.createElement('label');
+      migrateLabel.innerHTML='<input id="confirm-migrate-explicit" type="checkbox"> 将已确认属于该产品的旧技术身份分类迁为产品配置（冲突会阻止保存）；仅新策略移去冗余精确黑名单，历史不改';
+      $('#confirm-product').before(migrateLabel);
     }
     function renderRules(){
       const anchors=observations.flatMap((item,observationIndex)=>item.evidence.verifiedFields.filter(field=>['binaryHash','packageId','distributionKey','signerKey'].includes(field)).map(field=>({observationIndex,field,value:item.evidence.values[field]})));
@@ -167,7 +196,8 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
         const item=observations[Number($('#confirm-observation').value)],childIds=targetChildren();if(!childIds.length)throw new Error('请明确选择孩子');
         const existing=knowledge.products[Number($('#confirm-existing').value)];
         const next=confirmProduct(knowledge,{evidence:item.evidence,scope:$('#confirm-scope').value,productId:$('#confirm-existing').value===''?null:existing.id,name:$('#confirm-name').value,type:$('#confirm-type').value,classification:$('#confirm-class').value,childIds,id:`product-${crypto.randomUUID()}`});
-        if(await confirmChanges(next,`确认 ${item.evidence.displayName}，覆盖${$('#confirm-scope').value==='file'?'当前文件／版本':'可信产品系列'}，分类为${labels[$('#confirm-class').value]}？仅修改：${getContext().children.filter(child=>childIds.includes(child.id)).map(child=>child.name).join('、')}。`))await publish(next);
+        const options=$('#confirm-migrate-explicit').checked?{migrateExplicitClassifications:true,migrateChildIds:childIds}:{};
+        if(await confirmChanges(next,`确认 ${item.evidence.displayName}，覆盖${$('#confirm-scope').value==='file'?'当前文件／版本':'可信产品系列'}，分类为${labels[$('#confirm-class').value]}？仅修改：${getContext().children.filter(child=>childIds.includes(child.id)).map(child=>child.name).join('、')}。`,'confirm',options))await publish(next,'confirm',options);
       }
       if(button.id==='merge-products'){const source=knowledge.products[Number($('#merge-source').value)],target=knowledge.products[Number($('#merge-target').value)];const next=mergeProducts(knowledge,source.id,target.id,getContext().childId);if(await confirmChanges(next,`将 ${source.name} 的可信范围并入 ${target.name}？旧历史不重写，可撤销。`,'merge'))await publish(next,'merge');}
       if(button.dataset.splitProduct!==undefined){const product=knowledge.products[Number(button.dataset.splitProduct)],name=prompt('新产品名称（只拆所选可信范围；分类仅配置当前孩子）');if(name){const next=splitVariant(knowledge,product.id,Number(button.dataset.splitSelector),{id:`product-${crypto.randomUUID()}`,name,childId:getContext().childId,classification:bindingClass(product.id)});if(await confirmChanges(next,`拆分所选可信范围为 ${name}？`,'split'))await publish(next,'split');}}
@@ -175,6 +205,12 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
       if(button.dataset.toggleRule!==undefined){const rule=knowledge.rules[Number(button.dataset.toggleRule)];if(confirm('只改变当前孩子对此规则的批准，不修改其他孩子。继续？'))await publish(toggleApproval(knowledge,rule.id,getContext().childId,`rule-${crypto.randomUUID()}`));}
       if(button.dataset.editRule!==undefined){editingRule=Number(button.dataset.editRule);renderRules();$('#rule-name').focus();}
       if(button.dataset.unlinkProduct!==undefined){const product=knowledge.products[Number(button.dataset.unlinkProduct)],selected=targetChildren(),next=unlinkVariant(knowledge,product.id,Number(button.dataset.unlinkSelector),selected);if(await confirmChanges(next,`解除 ${product.name} 的所选家庭身份关联？最后范围涉及的明确分类仅删除已勾选孩子：${getContext().children.filter(child=>selected.includes(child.id)).map(child=>child.name).join('、')}。`))await publish(next);}
+      if(button.dataset.enhancedProduct!==undefined){
+        const product=knowledge.products[Number(button.dataset.enhancedProduct)],childId=getContext().childId;
+        const current=knowledge.bindings.find(item=>item.childId===childId)?.products.find(item=>item.productId===product.id);
+        if(current?.enhancedBlocking){const next=clone(knowledge);delete next.bindings.find(item=>item.childId===childId).products.find(item=>item.productId===product.id).enhancedBlocking;if(confirm(`关闭 ${product.name} 的疑似变体强化封锁？已确认身份仍保持产品级封锁。`))await publish(next);}
+        else{const next=enableEnhancedBlocking(knowledge,product.id,childId,observations);if(await confirmChanges(next,`为 ${product.name} 开启疑似变体强化封锁？须同时匹配已验证签名与精确 PE 产品信息，仍可能误判；只对当前孩子生效。`))await publish(next);}
+      }
       if(button.id==='cancel-rule-edit'){editingRule=null;renderRules();}
       if(button.id==='save-rule'){
         const old=editingRule===null?null:knowledge.rules[editingRule],anchors=$('#rule-panel').anchors;
@@ -202,12 +238,12 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     }
     document.addEventListener('click',event=>{const button=event.target.closest('button');if(button)perform(button).catch(error=>{notice(error.message);onError(error);});});
     document.addEventListener('change',event=>{const input=event.target;
-      if(input.dataset.productClass!==undefined){const next=clone(knowledge),product=knowledge.products[Number(input.dataset.productClass)];let binding=next.bindings.find(item=>item.childId===getContext().childId);if(!binding){binding={childId:getContext().childId,products:[],ruleIds:[]};next.bindings.push(binding);}binding.products=binding.products.filter(item=>item.productId!==product.id);binding.products.push({productId:product.id,classification:input.value});publish(next).catch(onError);}
+      if(input.dataset.productClass!==undefined){const next=clone(knowledge),product=knowledge.products[Number(input.dataset.productClass)];setProductClassification(next,getContext().childId,product.id,input.value);publish(next).catch(onError);}
 if(input.id==='import-rules'&&input.files[0]){(async()=>{const selected=ruleChildren();importPayload=scopeImport(JSON.parse(await input.files[0].text()),selected);preview=mock?diffImport(knowledge,importPayload):await request('/v2/module/application-knowledge/import-preview',{method:'POST',body:JSON.stringify({knowledge:importPayload})});$('#rule-import-review').innerHTML=`<section class="knowledge-editor"><h3>导入差异（逐项批准）</h3><p>目标：${esc(getContext().children.filter(child=>selected.includes(child.id)).map(child=>child.name).join('、'))}；孩子明确配置不覆盖。${preview.warnings.length?`仅名称候选 ${preview.warnings.length} 项，不自动归类。`:''}</p>${preview.changes.map((item,index)=>`<label><input type="checkbox" value="${index}"> ${esc(item.name)} · ${item.change==='modify'?'修改':'新增'} · ${item.kind==='products'?'产品':'规则'}</label>`).join('')||'<p>没有新增或修改</p>'}<p>当前命中观察：${preview.hits?.length??0}（需实际应用策略后生效）</p>${previewHitsHTML(preview.hits||[],getContext().children)}<button id="approve-rule-import" class="primary"${preview.changes.length?'':' disabled'}>批准所选变更</button></section>`;$('#rule-import-review').scrollIntoView({block:'start'});})().catch(error=>{notice(error.message);onError(error);});}
     });
     document.addEventListener('input',event=>{if(event.target.id==='product-search'){const query=event.target.value.toLowerCase();all('#confirmed-products .knowledge-item,#discovered-applications .knowledge-item').forEach(item=>{item.hidden=!item.textContent.toLowerCase().includes(query);});}if(event.target.id==='rule-search'){const query=event.target.value.toLowerCase();all('#classification-rules .knowledge-item').forEach(item=>{item.hidden=!item.textContent.toLowerCase().includes(query);});}});
-    async function classify(productId,classification){await load();const next=clone(knowledge);let binding=next.bindings.find(item=>item.childId===getContext().childId);if(!binding){binding={childId:getContext().childId,products:[],ruleIds:[]};next.bindings.push(binding);}binding.products=binding.products.filter(item=>item.productId!==productId);binding.products.push({productId,classification});await publish(next);}
+    async function classify(productId,classification){await load();const next=clone(knowledge);setProductClassification(next,getContext().childId,productId,classification);await publish(next);}
     return {open,publish,classify};
   }
-  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,mount};
+  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,mount};
 });
