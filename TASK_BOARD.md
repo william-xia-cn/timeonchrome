@@ -5,6 +5,7 @@
 - 复用固定云端分支和工作树，依次收口已有 Firefox PR、契约 PR、云端实现 PR；不创建新分支或工作树。发布范围为 Runtime Worker、Guardian 只读归集入口和两套云端页面；不安装、不改原账/配额、不执行 migration、不写 R2。
 - 首次具名 RPC 按已有设计解除循环部署依赖：默认关闭的显式 `bootstrap_computer_usage_rpc` 开关仅用于首次发布，且必须同时发布两 Worker；先从相同 master SHA 发布不含新增反向绑定的 Runtime 引导配置，再发布 Guardian，最后发布完整 Runtime 配置。后续正常发布不开引导开关，不移除已有绑定。临时配置不改源码或其他绑定；全部步骤仍使用 production 审核、精确 SHA CI 与原迁移门禁，失败不继续发布页面。
 - 变更等级为 release-config；只补跑发布配置固定测试、workflow 语法与 diff 检查，复用既有功能证据，排除终端/安装器/全平台测试。线上读取核实当前无待执行 Runtime migration；真实家庭页面由 PO 发布后检查，不能将 mock 记为真实验收。
+- PR CI发现两个适配缺口：Guardian现有测试的 esbuild 必须将 `cloudflare:workers` 作为真实 workerd 内置模块保留，不用 mock 替代；云端发布配置改动不应运行无关 Native 产物交接测试。按 ARM-D-019 增加精确 `native_artifact` 路由，仅 Native 发布工作流、锁、验证器或相关测试改动才检查原锁；显式全量验证仍包括该测试。Native 产物发布流程和版本/哈希门禁原样保留，不假称现有 Native 锁已更新。
 
 ## 2026-10-01：Chrome 特殊应用与孩子用量归集收尾（本地实现，未合并／部署）
 

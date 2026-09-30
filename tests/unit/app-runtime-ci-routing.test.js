@@ -23,8 +23,10 @@ const cases = [
   ['Removed WiX source', ['app-runtime-management/installer/windows/Package.wxs'], ['release_config']],
   ['Shared contract', ['app-runtime-management/contracts/runtime-accounting-v2.vectors.json'], ['contracts', 'worker']],
   ['Production workflow', ['.github/workflows/app-runtime-production.yml'], ['release_config']],
-  ['Native artifact gate', ['.github/workflows/timewhere-native-artifact-gate.yml'], ['release_config']],
-  ['Native contract lock', ['tools/timewhere-native-contract-lock.json'], ['release_config']],
+  ['Native artifact gate', ['.github/workflows/timewhere-native-artifact-gate.yml'], ['native_artifact', 'release_config']],
+  ['Native contract lock', ['tools/timewhere-native-contract-lock.json'], ['native_artifact', 'release_config']],
+  ['Native artifact verifier', ['tools/verify-timewhere-native-artifact.js'], ['native_artifact', 'release_config']],
+  ['Native artifact tests', ['tests/unit/timewhere-native-artifact.test.js'], ['native_artifact', 'release_config']],
 ];
 
 for (const [name, paths, expected] of cases) {
@@ -42,7 +44,7 @@ assert.deepEqual(active(combined), ['console', 'docs', 'worker']);
 
 const full = classifyPaths([], { forceFull: true });
 assert.deepEqual(active(full), [
-  'console', 'contracts', 'docs', 'release_config', 'worker',
+  'console', 'contracts', 'docs', 'native_artifact', 'release_config', 'worker',
 ]);
 
 const unknown = classifyPaths(['app-runtime-management/new-subsystem/file.txt']);
@@ -74,6 +76,9 @@ assert(workflow.includes("if: needs.changes.outputs.console == 'true'"));
 assert(!workflow.includes('dotnet test app-runtime-management/agents/windows/'));
 assert(!workflow.includes('swift test --package-path app-runtime-management/agents/macos'));
 assert(workflow.includes("if: needs.changes.outputs.release_config == 'true'"));
+assert(workflow.includes("if: needs.changes.outputs.native_artifact == 'true'\n        run: node tests/unit/timewhere-native-artifact.test.js"));
+assert.equal(classifyPaths(['.github/workflows/app-runtime-production.yml']).native_artifact, false);
+assert.equal(classifyPaths(['.github/workflows/app-runtime.yml']).native_artifact, false);
 assert(workflow.includes('run: node tools/classify-app-runtime-ci-changes.js --verify-gate'));
 
 console.log('app-runtime-ci-routing tests: PASS');
