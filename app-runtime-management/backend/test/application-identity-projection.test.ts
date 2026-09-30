@@ -89,6 +89,29 @@ describe('trusted application identity projection', () => {
     expect(approved.items.filter(item => item.productId === 'codex')).toHaveLength(2);
     expect(approved.items.find(item => item.runtimeIdentity === 'unverified')?.productId).toBeNull();
   });
+  it('joins a verified Firefox installation container for display only after both launchable children are approved', async () => {
+    const parent = 'firefox-installation';
+    const container = evidence('firefox-install', {productKey:parent},
+      {role:'application',nameSource:'installation',sourceKinds:['registry'],objectKind:'product'});
+    const variant = (id:string, series:string) => evidence(id,{productKey:parent,fileSeriesKey:series},
+      {role:'application',nameSource:'appList',sourceKinds:['shortcut'],objectKind:'variant',
+        variantRole:'suiteMember',parentProductKey:parent});
+    const normal=variant('firefox-normal','normal-series'), privateMode=variant('firefox-private','private-series');
+    const knowledge = {schemaVersion:2 as const,version:1,products:[{id:'firefox',name:'Firefox',type:'other' as const,
+      selectors:['normal-series','private-series'].map(value=>({platform:'windows' as const,
+        match:{operator:'all' as const,conditions:[{field:'fileSeriesKey' as const,value}]}}))}],rules:[],bindings:[]};
+    const confirmed=await buildProductIdentityProjection([container,normal,privateMode],knowledge);
+    expect(confirmed.items.map(item=>item.productId)).toEqual(['firefox','firefox','firefox']);
+    expect(confirmed.items.find(item=>item.runtimeIdentity==='firefox-install')?.associationKey)
+      .toBe(confirmed.items.find(item=>item.runtimeIdentity==='firefox-normal')?.associationKey);
+    const partial=await buildProductIdentityProjection([container,normal,variant('unapproved','other-series')],knowledge);
+    expect(partial.items.find(item=>item.runtimeIdentity==='firefox-install')?.productId).toBeNull();
+    const other={...knowledge,products:[...knowledge.products,{id:'other',name:'Other',type:'other' as const,
+      selectors:[{platform:'windows' as const,match:{operator:'all' as const,
+        conditions:[{field:'fileSeriesKey' as const,value:'private-series'}]}}]}]};
+    const split=await buildProductIdentityProjection([container,normal,privateMode],other);
+    expect(split.items.find(item=>item.runtimeIdentity==='firefox-install')?.productId).toBeNull();
+  });
   it('inherits explicit ChatGPT across a stable package, never across a same-name third party', () => {
     const items = [evidence('old', { packageId: 'Chat.Package!App' }), evidence('new', { packageId: 'chat.package!app' }),
       evidence('third-party', { packageId: 'Other.Package!App' })];
