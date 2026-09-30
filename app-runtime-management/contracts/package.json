@@ -1,9 +1,13 @@
 {
   "name": "@timeonchrome/app-runtime-contracts",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "private": false,
   "type": "module",
   "exports": {
+    "./computer-usage": {
+      "types": "./dist/computer-usage.d.ts",
+      "default": "./dist/computer-usage.js"
+    },
     "./classification-validation": {
       "types": "./dist/application-knowledge-validation.d.ts",
       "default": "./dist/application-knowledge-validation.js"
@@ -23,6 +27,7 @@
   },
   "files": [
     "app-runtime-control.ts",
+    "computer-usage.ts",
     "application-classification.ts",
     "application-knowledge-validation.ts",
     "*.schema.json",
@@ -32,7 +37,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node contract-compatibility.test.cjs && node classification.test.mjs && node machine-control.test.mjs"
+    "test": "node contract-compatibility.test.cjs && node classification.test.mjs && node machine-control.test.mjs && node computer-usage.test.mjs"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

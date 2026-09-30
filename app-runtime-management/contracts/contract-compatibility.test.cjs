@@ -10,7 +10,17 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.18.0');
+assert.equal(pkg.version, '1.19.0');
+const computerUsage = JSON.parse(fs.readFileSync(path.join(root, 'computer-usage-v1.schema.json'), 'utf8'));
+assert.equal(computerUsage.$defs.response.properties.schemaVersion.const, 1);
+assert.equal(computerUsage.$defs.request.properties.limit.maximum, 100);
+assert(computerUsage.$defs.request.allOf.every(rule => rule.then.required.includes('revision')));
+assert.equal(computerUsage.$defs.response.additionalProperties, false, 'public results cannot expose raw evidence fields');
+assert.equal(computerUsage.$defs.timelineItem.additionalProperties, false);
+assert.equal(computerUsage.$defs.response.properties.products.maxItems, 100);
+assert.equal(computerUsage.$defs.response.properties.timeline.maxItems, 100);
+assert(!computerUsage.$defs.request.properties.childId, 'ownership is selected by the authenticated child route, not an internal source override');
+assert(!computerUsage.$defs.request.properties.quotaBucket, 'unified display does not define quota configuration');
 const enrollment = JSON.parse(fs.readFileSync(path.join(root, 'machine-enrollment-recovery-v1.schema.json'), 'utf8'));
 assert.deepEqual(enrollment.$defs.request.required, ['code', 'platform']);
 assert.equal(enrollment.$defs.request.properties.clientMachineToken.pattern, '^rt_machine_token_[A-Za-z0-9_-]{43}$');
