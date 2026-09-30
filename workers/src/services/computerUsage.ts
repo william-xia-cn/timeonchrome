@@ -144,7 +144,7 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
     :[{...unavailable('application:unavailable','APPLICATION_SERVICE_UNAVAILABLE'),associationVersion:'unavailable'}]; }
   catch(error) {
     const message=error&&typeof error==='object'&&'message' in error?String(error.message):'';
-    const code=/^APPLICATION_(DATABASE_MEMORY_LIMIT|CHILD_UNAVAILABLE|SCHEMA_UNAVAILABLE|RPC_CANCELED|RPC_UNAVAILABLE|SOURCE_UNAVAILABLE)$/.test(message)?message
+    const code=/^APPLICATION_(DATABASE_MEMORY_LIMIT|CHILD_UNAVAILABLE|SCOPE_UNAVAILABLE|SCHEMA_UNAVAILABLE|RPC_CANCELED|RPC_UNAVAILABLE|SOURCE_UNAVAILABLE)$/.test(message)?message
       :/SQLITE_NOMEM|out of memory/i.test(message)?'APPLICATION_DATABASE_MEMORY_LIMIT'
       :/CHILD_NOT_FOUND|Child was not found/i.test(message)?'APPLICATION_CHILD_UNAVAILABLE'
       :/no such (table|column)/i.test(message)?'APPLICATION_SCHEMA_UNAVAILABLE'
@@ -163,6 +163,23 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
 
 /** Only callers granted this entrypoint binding can reach the cross-cloud read capability. */
 export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
+  async fetch(request:Request):Promise<Response> {
+    if(request.method!=='POST'||new URL(request.url).pathname!=='/verifyChildAccess')return Response.json({code:'METHOD_NOT_ALLOWED'},{status:405});
+    const reader=request.body?.getReader();
+    if(!reader)return Response.json({code:'INVALID_SCOPE'},{status:400});
+    const chunks:Uint8Array[]=[];let length=0;
+    while(true){const chunk=await reader.read();if(chunk.done)break;length+=chunk.value.byteLength;
+      if(length>2048){await reader.cancel();return Response.json({code:'INVALID_SCOPE'},{status:400});}chunks.push(chunk.value);}
+    const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+    const body=new TextDecoder().decode(bytes);
+    let input:Record<string,unknown>;
+    try {input=JSON.parse(body);}catch{return Response.json({code:'INVALID_SCOPE'},{status:400});}
+    if(!input||['accountId','childId'].some(key=>typeof input[key]!=='string'||!String(input[key]).length||String(input[key]).length>200))return Response.json({code:'INVALID_SCOPE'},{status:400});
+    try {
+      const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(input.childId,input.accountId).first();
+      return Response.json({owned:!!owned});
+    }catch{return Response.json({code:'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});}
+  }
   async getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string){return readComputerUsage(this.env,accountId,childId,from,to,computer);}
   async getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string) {
     return readIndependentUsage(this.env,accountId,childId,from,to,source);

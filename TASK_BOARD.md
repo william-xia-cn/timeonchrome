@@ -7,6 +7,8 @@
 - 最小验证：真实 schema 固定回归、来源与历史兼容、四视图/异步隔离、相关云端与 Console 测试/typecheck/dry-run/diff检查、桌面移动目视及真实登录对照。排除 Windows/macOS/WiX/原账算法测试；不改扩展、Native、原账、更正、配额，不执行 migration、安装或 R2 操作。验证后合入主线并仅发布修改的云端资源。
 - 本地实现证据：网页总量仅取真实每日 active/domain 投影，不累计日/小时/target副本；无v2快照的历史复用既有日统计与已批准更正，明确尽力还原且不证明重叠。新增独立来源读取保留原统计口径。真实生产可观测记录为 `RuntimeComputerUsageService.jsrpc` hung/canceled，并非已证实SQL错误；同一具名能力改用固定只读 fetch，旧RPC保留，生产效果等待发布后核对。
 - 聚焦回归通过：cloud computer读取、共享renderer、Runtime网络/会话/使用页、主页面入口/发布隔离及复合列表既有回归；Runtime真实workerd/D1 12/12（含具名能力fetch、Child隔离、原应用统计逐字段不变）、两端typecheck、两Worker dry-run、diff检查通过。mock目视已检查两套桌面/移动四页签、默认汇总、网页/应用独立视图与折叠诊断；mock不记为真实线上验收。代码一致性审计 Matched，Deviated/Missing/Extra无；提交后继续合并、部署及真实来源对照。
+- PR #153 已合并并发布；真实登录发现应用来源仍报 `APPLICATION_CHILD_UNAVAILABLE`：读取能力误以仅旧版配对写入的 `runtime_children_v1` 判定新版孩子归属。继续修复同一已批准读取范围：通过既有受限 Guardian binding 按当前 `profiles(account_id,id)` 核验归属，不能补写旧表或撤销家庭隔离。移除测试中掩盖问题的旧表注册，补验新版、无设备孩子、外家庭拒绝和归属服务失效关闭；仅补跑两 Worker 读取聚焦测试/typecheck/dry-run，不重测未变页面或终端。
+- 追加修复本地验证通过：Guardian归属/失败隔离固定回归、Runtime真实workerd/D1 13/13、两端typecheck、两Worker dry-run及diff检查。新版fixture明确断言旧配对表没有孩子行；旧残留行不能绕过当前归属校验。审计为 Matched（云端只读／家庭隔离／错误码／原账不变），无未批准偏差或额外功能；真实应用来源验收继续，不将本地通过当作线上恢复。
 
 
 ## 2026-10-01：孩子用量云端发布（PO批准提交与部署）

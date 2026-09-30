@@ -5,7 +5,7 @@ const cache=new Map();
 return function load(file){if(cache.has(file))return cache.get(file).exports;
 const module={exports:{}};cache.set(file,module);
 const source=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEncoder,URL,URLSearchParams,Date,Map,Set,Request,Response,console,require:name=>{
+vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,URLSearchParams,Date,Map,Set,Request,Response,console,require:name=>{
 if(name==='cloudflare:workers')return {WorkerEntrypoint:class{constructor(_,env){this.env=env;}}};
 if(name in overrides)return overrides[name];
 if(name==='@timeonchrome/app-runtime-contracts/computer-usage')return load('app-runtime-management/contracts/computer-usage.ts');
@@ -36,6 +36,14 @@ return {load,env:{DB:db,CONFIG_CACHE:{get:async key=>store.has(key)?JSON.parse(s
 }
 (async()=>{
 let f=fixture(),service=f.load('workers/src/services/computerUsage.ts');
+const scoped=new service.ComputerUsageService({}, {DB:{prepare(sql){assert.equal(sql,'SELECT id FROM profiles WHERE id=? AND account_id=?');return {bind(child,account){return {first:async()=>child==='current-child'&&account==='current-account'?{id:child}:null};}};}}});
+const scopeRequest=(accountId,childId)=>new Request('https://private-capability/verifyChildAccess',{method:'POST',body:JSON.stringify({accountId,childId})});
+assert.deepEqual(await (await scoped.fetch(scopeRequest('current-account','current-child'))).json(),{owned:true});
+assert.deepEqual(await (await scoped.fetch(scopeRequest('foreign-account','current-child'))).json(),{owned:false});
+assert.equal((await scoped.fetch(new Request('https://private-capability/getUsage',{method:'POST'}))).status,405);
+assert.equal((await scoped.fetch(scopeRequest('x'.repeat(3000),'current-child'))).status,400);
+const failedScope=new service.ComputerUsageService({}, {DB:{prepare(){throw Error('private DB failure');}}});
+assert.deepEqual(await (await failedScope.fetch(scopeRequest('current-account','current-child'))).json(),{code:'APPLICATION_SCOPE_UNAVAILABLE'});
 let result=await service.readComputerUsage(f.env,'account','child',date,date);
 assert.equal(result.totals.webMs,3000);assert.equal(result.totals.applicationMs,2000);assert.equal(result.totals.computerMs,null);
 assert.ok(result.reasons.includes('DEVICE_MAPPING_INCOMPLETE'));assert.equal(result.timeline.some(row=>row.key.includes('private-segment')),false);
