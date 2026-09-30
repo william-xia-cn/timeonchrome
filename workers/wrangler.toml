@@ -22,6 +22,11 @@ bucket_name = "guardian-sessions"
 binding = "APP_RUNTIME_SERVICE"
 service = "timeonchrome-app-runtime-api"
 
+[[services]]
+binding = "RUNTIME_COMPUTER_USAGE"
+service = "timeonchrome-app-runtime-api"
+entrypoint = "RuntimeComputerUsageService"
+
 # 可选，配置缓存加速（如果创建了 KV 命名空间才启用）
 [[kv_namespaces]]
 binding = "CONFIG_CACHE"

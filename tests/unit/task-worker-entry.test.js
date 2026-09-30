@@ -26,7 +26,7 @@ function token(account) {
   assert.doesNotMatch(withoutTask, /taskModuleRouter/);
   async function bundle(contents) {
     const result = await build({ stdin: { contents, resolveDir: path.resolve('workers/src'), sourcefile: 'index.ts', loader: 'ts' },
-      bundle: true, format: 'esm', platform: 'browser', target: 'es2022', conditions: ['workerd', 'browser'], write: false });
+      bundle: true, format: 'esm', platform: 'browser', target: 'es2022', conditions: ['workerd', 'browser'], external: ['cloudflare:workers'], write: false });
     return result.outputFiles[0].text;
   }
   const mf = new Miniflare(convertV4MiniflareOptions({ workers: [

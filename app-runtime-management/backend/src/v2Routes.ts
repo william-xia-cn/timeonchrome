@@ -1,4 +1,5 @@
 import { requireAccountModule, requireMachine } from './auth';
+import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
 import { machineUsageCorrections } from './applicationUsageCorrections';
@@ -122,6 +123,32 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
       }
       return { fromMs, toMs };
     };
+    if (url.pathname === '/v2/module/computer-usage') {
+      if(request.method!=='GET')return methodNotAllowed('GET');
+      const childId=requireChild();
+      if(!env.GUARDIAN_COMPUTER_USAGE)throw new HttpError(503,'COMPUTER_USAGE_UNAVAILABLE','统一统计服务尚未连接。');
+      const from=url.searchParams.get('from')||'',to=url.searchParams.get('to')||'';
+      const start=Date.parse(`${from}T00:00:00+08:00`),end=Date.parse(`${to}T00:00:00+08:00`);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||!Number.isFinite(start)||!Number.isFinite(end)
+        ||end<start||end-start>6*86400000||new Date(start+8*3600000).toISOString().slice(0,10)!==from||new Date(end+8*3600000).toISOString().slice(0,10)!==to)
+        throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
+      const binding=env.GUARDIAN_COMPUTER_USAGE as unknown as {getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string):Promise<import('@timeonchrome/app-runtime-contracts/computer-usage').ComputerUsageResult>};
+      const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||100);
+      if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>100)
+        throw new HttpError(400,'INVALID_CURSOR','时间线分页无效。');
+      const detail=url.searchParams.get('detail')||'summary';
+      if(!['summary','timeline','products'].includes(detail)||detail!=='summary'&&!url.searchParams.get('revision')||offset>0&&!url.searchParams.get('revision'))
+        throw new HttpError(400,'INVALID_CURSOR','明细须使用同一汇总版本。');
+      const expected=url.searchParams.get('revision'),product=url.searchParams.get('product');
+      if(expected&&!/^computer-v1:[a-f0-9]{64}$/.test(expected)||product&&detail!=='timeline')
+        throw new HttpError(400,'INVALID_CURSOR','明细请求无效。');
+      const snapshot=await binding.getComputerUsage(claims.account_id,childId,from,to,url.searchParams.get('computer')||undefined);
+      if(url.searchParams.has('revision')&&url.searchParams.get('revision')!==snapshot.revision)
+        throw new HttpError(409,'COMPUTER_USAGE_VERSION_CHANGED','统一统计已更新，请重新读取。');
+      try{return jsonResponse(computerUsageReadPage(snapshot,detail as 'summary'|'timeline'|'products',expected||undefined,offset,limit,product||undefined));}
+      catch(error){if(error instanceof Error&&['INVALID_PRODUCT','INVALID_PRODUCT_DETAIL','INVALID_PAGINATION'].includes(error.message))
+        throw new HttpError(400,error.message,'明细请求无效。');throw error;}
+    }
     if (url.pathname === '/v2/module/app-policy') {
       const childId = requireChild();
       if (request.method === 'GET') {

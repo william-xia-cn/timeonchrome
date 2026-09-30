@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "version": "chrome-display-2026-10-01-v1",
+  "productId": "builtin.browser.chrome",
+  "canonicalName": "Chrome",
+  "windows": {
+    "fileSeriesKey": "27c1f334a7e1489f7883bc2cc1a4070be75eab535ca9da5c272269e7d3d3e213",
+    "signerKey": "ae5b065500f1ac6b0f7ca5415d364c76307940125cdd338d9920fda07cb60f13"
+  },
+  "macos": { "status": "pendingVerifiedPackageEvidence" }
+}

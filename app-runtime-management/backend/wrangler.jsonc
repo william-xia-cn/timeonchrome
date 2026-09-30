@@ -22,6 +22,11 @@
       "bucket_name": "timeonchrome-app-runtime-releases"
     }
   ],
+  "services": [{
+    "binding": "GUARDIAN_COMPUTER_USAGE",
+    "service": "guardian-api",
+    "entrypoint": "ComputerUsageService"
+  }],
   "observability": {
     "enabled": true,
     "logs": {

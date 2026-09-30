@@ -28,6 +28,32 @@ assert(workflow.includes('Runtime Worker smoke'));
 assert(workflow.includes('Runtime Pages smoke'));
 assert(workflow.includes('Guardian fail-closed smoke'));
 assert(workflow.includes('Main Pages smoke'));
+const bootstrap = workflow.indexOf('- name: Runtime RPC bootstrap');
+const guardian = workflow.indexOf('- name: Guardian Worker');
+const runtime = workflow.indexOf('- name: Runtime Worker');
+assert(bootstrap > 0 && bootstrap < guardian && guardian < runtime);
+assert(runtime < workflow.indexOf('- name: Runtime Pages'));
+assert(workflow.includes('if: inputs.bootstrap_computer_usage_rpc && inputs.deploy_runtime_worker && inputs.deploy_guardian_worker'));
+assert(/bootstrap_computer_usage_rpc:\s+description:[^\n]+\s+type: boolean\s+default: false/.test(workflow));
+assert(workflow.includes('"$BOOTSTRAP_COMPUTER_USAGE_RPC" == true && "$DEPLOY_BOTH_WORKERS" != true'));
+const bootstrapCode = workflow.match(/node - <<'NODE'\n([\s\S]*?)\n\s*NODE/)[1];
+let bootstrapConfig;
+require('vm').runInNewContext(bootstrapCode, {
+  require: name => name === 'fs' ? {
+    readFileSync: () => JSON.stringify({ main: 'src/index.ts', $schema: 'schema.json',
+      services: [{ binding: 'GUARDIAN_COMPUTER_USAGE' }, { binding: 'OTHER_EXISTING_BINDING' }],
+      d1_databases: [{ binding: 'RUNTIME_DB', migrations_dir: 'migrations' }],
+      r2_buckets: [{ binding: 'RELEASES' }], vars: { EXISTING: 'preserved' } }),
+    writeFileSync: (_, value) => { bootstrapConfig = JSON.parse(value); },
+  } : require(name),
+  process: { env: { RUNNER_TEMP: os.tmpdir() } },
+});
+assert.deepEqual(bootstrapConfig.services, [{ binding: 'OTHER_EXISTING_BINDING' }]);
+assert.equal(bootstrapConfig.vars.EXISTING, 'preserved');
+assert.equal(bootstrapConfig.r2_buckets[0].binding, 'RELEASES');
+assert.equal(bootstrapConfig.d1_databases[0].binding, 'RUNTIME_DB');
+assert(path.isAbsolute(bootstrapConfig.main));
+assert(path.isAbsolute(bootstrapConfig.d1_databases[0].migrations_dir));
 assert(workflow.includes("default: ''"));
 assert(workflow.includes('if [ "$actual" != "$EXPECTED_RUNTIME_MIGRATIONS" ]'));
 assert(workflow.includes('[ "$APPLY_RUNTIME_MIGRATIONS" != true ]'));

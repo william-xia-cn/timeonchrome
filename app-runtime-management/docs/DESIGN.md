@@ -1,5 +1,25 @@
 # App Runtime 技术设计
 
+## ARM-D-039：Chrome 特殊属性与云端统一展示
+
+收尾修订覆盖下文阻塞说明：设备对应及Mac Chrome自动规则不作为读取前提。sourceStatus、historyStatus、overlapStatus分别表示统计来源、历史尽力还原和精确去重；原complete只控制去重总量。Runtime读取旧runtime_devices/runtime_usage_segments的现有统计口径及可恢复明细，返回historyQuality=bestEffort，不将旧设备占位当成所有应用失败。来源完整性与区间守恒分开；独立原总量/分类在区间证据不足时仍保留，展示分类在未确认重叠时标明来源累计。Chrome未确认归属时展示child级网页内容，不计算容器解释量或未知余量；仅可信同电脑证据允许容器内外解释。原app usage、更正、账本和配额函数不改。
+
+共享 Contracts `computer-usage` 定义只读来源、统一结果、完整性和版本分页。Guardian 持有唯一合并入口；Runtime 通过受限具名 Service Binding 提供已授权的应用权威用量与必要区间证据，Runtime 浏览器入口只代理同一 Guardian 结果。既有生命周期 Service Binding 不替换；新绑定是该展示的上线配置依赖，不是重新配对或迁移需求。内部证据不作为公开 HTTP 原始账本接口。
+
+Chrome 特殊属性由可信产品／具体应用关联产生，不依赖显示名称，也不改应用策略。云端读模型验证来源原统计与证据一致后，用明确重叠调整生成展示总量；分类排除 Chrome 容器贡献，保留网页内容及其他应用贡献。原 app usage 的会话／clock epoch 统计语义不改写；如果来源合计与电脑级区间证据无法一致，报告不可用而非重算补齐。没有可信网页设备与 Runtime 电脑对应时返回 `DEVICE_MAPPING_INCOMPLETE`，Child ID、名称与时间巧合不能替代设备证明。
+
+Windows Chrome 的受控展示身份采用经本地只读核验的公开软件签名系列：2026-10-01 核验 Google Chrome 154.0.8037.59 的 Authenticode 有效、Google LLC 证书、`chrome.exe` 原文件名及 `Google Chrome` 产品元数据。复用既有 Native 文件系列算法（已验证签名公钥摘要＋原文件名＋产品元数据，不含路径/版本），云端只接受盘点中已验证的精确 signer/file-series 组合；规则包记录版本与来源，不上传证书正文或任何家庭原始设备信息。同名、签名无效、系列不同均不命中；证书轮换需重新审核。已有家长批准的 Chrome 产品及真实强 selector 匹配可作为另一条可信依据。未上传可核验依据的旧观察继续标标准对象，不能把“规则可识别”记为实机覆盖完成。
+
+Mac 现有证据的 `packageId` 是 `macos:package:` 加签名团队与 Bundle ID 的哈希，不是裸 `com.google.Chrome`。未核验对应签名身份哈希前不添加自动命中规则；已有批准产品必须匹配真实已验证的哈希 selector。Mac Chrome 的受控自动规则及实机覆盖仍待核验，本轮不改 Mac 采集器。
+
+展示版本包含网页、应用、分类更正、产品关联和展示规则版本。以日期窗口和来源版本缓存，分页要求同一版本；失败源用 `null` 明示不可用，完整零用量与失败区分。媒体辅助账、原记录、原物化统计、现有配额和历史更正均不改变。本次实现不代表现有生产来源已足以精确合并，真实来源证据与上线配置另行验收。
+
+本地实现复用 Guardian 现有 `CONFIG_CACHE` 保存按家庭／孩子／日期／来源版本隔离的短期来源缓存（60秒，单份不超过2MB），不增加 D1 表或索引。新增字段与客户端行为不得依赖缓存命中；缓存失效仍读取原权威来源。版本摘要同时覆盖盘点识别依据和产品关联；证据查询限制七天和有界记录数，超限不调用无界的原应用聚合来填补结果。
+
+网页与应用证据分别最多10,000条，合计不超过20,000条；超限明确标记，不能把截断明细称为完整统计。应用适配同时读取 v2 机器账及遗留 v1 设备/用量；v1 按原设备／会话区间并集和既有更正读取，标记 `LEGACY_APPLICATION_BEST_EFFORT`，不作为精确重叠证明。旧来源读取失败返回单独不可用项，不清空有效 v2 数据；网页单个设备／日期失败也只影响该来源。无可信设备对应不阻塞来源用量、分类、产品及时间线，精确总量保持 null。稳定的不透明来源筛选键跨日期复用，不将一天误当成一台电脑。
+
+首次上线具名 RPC 的依赖须单独记录：若生产还没有两端 entrypoint，先让 Runtime 导出 `RuntimeComputerUsageService`（暂不绑定新的 Guardian facade），再让 Guardian 导出 `ComputerUsageService` 并绑定 Runtime，最后补 Runtime 反向 facade 绑定与页面。已有双向 entrypoint 后不重复引导。既有 lifecycle binding、身份密钥和数据不变；dry-run 不能证明远端 entrypoint 已存在。本任务只记录依赖，不执行这套部署。
+
 ## ARM-D-038：Firefox 产品级黑名单协议边界
 
 Application Knowledge 的 `productId` 是封锁对象，`runtimeIdentity` 只是历史和旧客户端兼容身份。服务端从已确认的身份投影与孩子产品配置生成不可变产品封锁快照，使用已批准的精确包身份、文件系列或二进制哈希；不能从显示名称、安装路径或未核实的客户端 `productId` 生成执行选择器。旧精确身份列表保持兼容。明确的产品封锁优先于该产品变体的普通分类；撤销产品封锁后原配置重新生效。
