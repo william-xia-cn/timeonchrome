@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome/contracts/computer-usage-v1",
+  "title": "云端电脑使用只读展示（不是计费或配额账本）",
+  "$defs": {
+    "milliseconds": { "type": ["integer", "null"], "minimum": 0 },
+    "categories": { "type": "object", "additionalProperties": { "$ref": "#/$defs/milliseconds" } },
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "string", "format": "date" },
+        "to": { "type": "string", "format": "date", "description": "北京时间，包含首尾，最多七天" },
+        "computer": { "type": "string", "description": "响应内的不透明电脑键，不是 Child ID 或原始设备标识" },
+        "product": { "type": "string", "description": "已确认 Chrome 产品的不透明响应键，仅用于 timeline 明细" },
+        "detail": { "enum": ["summary", "timeline", "products"], "default": "summary" },
+        "revision": { "type": "string", "pattern": "^computer-v1:[a-f0-9]{64}$" },
+        "offset": { "type": "integer", "minimum": 0, "default": 0 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
+      },
+      "allOf": [
+        { "if": { "required": ["detail"], "properties": { "detail": { "enum": ["timeline", "products"] } } }, "then": { "required": ["revision"] } },
+        { "if": { "required": ["offset"], "properties": { "offset": { "minimum": 1 } } }, "then": { "required": ["revision"] } },
+        { "if": { "required": ["product"] }, "then": { "required": ["revision", "detail"], "properties": { "detail": { "const": "timeline" } } } }
+      ]
+    },
+    "sourceVersion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "kind", "revision", "correctionRevision", "settledAtMs"],
+      "properties": {
+        "key": { "type": "string" }, "kind": { "enum": ["web", "application"] },
+        "revision": { "type": "string" }, "correctionRevision": { "type": "string" },
+        "associationVersion": { "type": "string" }, "settledAtMs": { "$ref": "#/$defs/milliseconds" }
+      }
+    },
+    "device": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "name", "complete", "reasons", "totalMs", "webMs", "applicationMs", "overlapMs", "chromeUnexplainedMs", "categoriesMs"],
+      "properties": {
+        "key": { "type": "string" }, "name": { "type": "string" }, "complete": { "type": "boolean" },
+        "reasons": { "type": "array", "items": { "type": "string" } },
+        "totalMs": { "$ref": "#/$defs/milliseconds" }, "webMs": { "$ref": "#/$defs/milliseconds" },
+        "applicationMs": { "$ref": "#/$defs/milliseconds" }, "overlapMs": { "$ref": "#/$defs/milliseconds" },
+        "chromeUnexplainedMs": { "$ref": "#/$defs/milliseconds" }, "categoriesMs": { "$ref": "#/$defs/categories" }
+      }
+    },
+    "product": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "computerKey", "name", "source", "special", "classification", "durationMs"],
+      "properties": {
+        "key": { "type": "string" }, "computerKey": { "type": "string" }, "name": { "type": "string" },
+        "source": { "enum": ["web", "application"] }, "special": { "type": "boolean" },
+        "classification": { "type": "array", "items": { "type": "string" } },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "historyQuality": { "const": "bestEffort" },
+        "chromeContent": {
+          "type": "object", "additionalProperties": false,
+          "required": ["scope", "webMs", "complete", "reasons", "explainedMs", "unexplainedMs", "categoriesMs"],
+          "properties": {
+            "scope": { "enum": ["computer", "child"] }, "webMs": { "$ref": "#/$defs/milliseconds" },
+            "complete": { "type": "boolean" }, "reasons": { "type": "array", "items": { "type": "string" } },
+            "explainedMs": { "$ref": "#/$defs/milliseconds" }, "unexplainedMs": { "$ref": "#/$defs/milliseconds" },
+            "categoriesMs": { "$ref": "#/$defs/categories" }
+          }
+        }
+      }
+    },
+    "timelineItem": {
+      "type": "object", "additionalProperties": false,
+      "required": ["key", "computerKey", "source", "subjectKey", "label", "startMs", "endMs", "classification", "special", "creditedMs", "overlapMs"],
+      "properties": {
+        "key": { "type": "string" }, "computerKey": { "type": "string" }, "source": { "enum": ["web", "application"] },
+        "subjectKey": { "type": "string" }, "label": { "type": "string" },
+        "startMs": { "type": "integer", "minimum": 0 }, "endMs": { "type": "integer", "minimum": 1 },
+        "classification": { "type": "string" }, "special": { "type": "boolean" },
+        "creditedMs": { "type": "integer", "minimum": 0, "description": "网页保持权威整数秒×1000；不能用区间宽度替代" },
+        "overlapMs": { "$ref": "#/$defs/milliseconds" },
+        "historyQuality": { "const": "bestEffort" },
+        "containerRelation": { "enum": ["container", "content", "outsideContainer", "childContent"] }
+      }
+    },
+    "response": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "revision", "fromDate", "toDate", "complete", "sourceStatus", "historyStatus", "overlapStatus", "categoryBasis", "sourceCategoriesMs", "reasons", "sourceVersions", "devices", "totals", "categoriesMs", "products", "timeline", "nextCursor"],
+      "properties": {
+        "schemaVersion": { "const": 1 }, "revision": { "type": "string", "pattern": "^computer-v1:[a-f0-9]{64}$" },
+        "fromDate": { "type": "string", "format": "date" }, "toDate": { "type": "string", "format": "date" },
+        "complete": { "type": "boolean" }, "reasons": { "type": "array", "items": { "type": "string" } },
+        "sourceStatus": {
+          "type": "object", "additionalProperties": false, "required": ["web", "application"],
+          "properties": { "web": { "enum": ["complete", "partial", "unavailable"] }, "application": { "enum": ["complete", "partial", "unavailable"] } }
+        },
+        "historyStatus": { "enum": ["none", "bestEffort"] },
+        "overlapStatus": { "enum": ["confirmed", "unconfirmed"] },
+        "categoryBasis": { "enum": ["deduplicated", "sourceCumulative"] },
+        "sourceCategoriesMs": {
+          "type": "object", "additionalProperties": false, "required": ["web", "application"],
+          "properties": { "web": { "$ref": "#/$defs/categories" }, "application": { "$ref": "#/$defs/categories" } }
+        },
+        "sourceVersions": { "type": "array", "items": { "$ref": "#/$defs/sourceVersion" } },
+        "devices": { "type": "array", "items": { "$ref": "#/$defs/device" } },
+        "totals": {
+          "type": "object", "additionalProperties": false,
+          "required": ["computerMs", "webMs", "applicationMs", "overlapMs"],
+          "properties": {
+            "computerMs": { "$ref": "#/$defs/milliseconds" }, "webMs": { "$ref": "#/$defs/milliseconds" },
+            "applicationMs": { "$ref": "#/$defs/milliseconds" }, "overlapMs": { "$ref": "#/$defs/milliseconds" }
+          }
+        },
+        "categoriesMs": { "$ref": "#/$defs/categories" },
+        "products": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/product" } },
+        "timeline": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/timelineItem" } },
+        "nextCursor": { "type": ["string", "null"], "pattern": "^[0-9]+$" }
+      }
+    }
+  },
+  "$ref": "#/$defs/response"
+}

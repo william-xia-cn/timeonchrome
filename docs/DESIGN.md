@@ -1,5 +1,17 @@
 # TimeOnChrome — 技术设计文档
 
+## D-111：云端统一电脑使用的只读读模型
+
+收尾实现口径：以Child读取全部来源，新增独立的sourceStatus（网页/应用 complete、partial、unavailable）、historyStatus（none、bestEffort）和overlapStatus（confirmed、unconfirmed）。原complete继续只表示精确统一总量是否成立，不控制来源分类/明细的可见性。categoriesMs在精确去重可用时保持去重口径，否则标明sourceCumulative并累积有效来源分类（排除已确认Chrome的容器贡献）；原来源分类另列，不能把分类和当成电脑总量。历史来源标记bestEffort，可读多少展示多少；缺失不补零、不回写。Chrome内容明细在未确认电脑关系时返回child级网页内容，标明scope=child、containerRelation=childContent，不产生重叠扣除；scope=computer才允许解释容器内/外。现有接口和同版本分页沿用，不创建新数据账本或迁移。
+
+Guardian 持有统一入口，使用既有网页权威快照和只读区间证据，经受限 Runtime 服务接口读取应用权威统计及证据。统一接口按 Child 查询，单台电脑内去重、跨电脑累加；独立 Runtime 页面通过受限 Guardian 内部接口读取相同结果，不能自行生成另一版本。共享规范源为 `@timeonchrome/app-runtime-contracts/computer-usage`，来源版本、关联版本、更正版本、展示规则及内容摘要组成 revision，时间线分页锁定 revision。
+
+新读模型不得依赖或改变原落账事务/上传 ACK/统计生成/配额判断。应用区间只读已结算主账，网页 creditedMs 必须来自原整数秒权威结果；辅助媒体和零时长诊断不参与。重叠扣除采用支持区间与有效时长的上下界，只有上下界相等才能发布精确值；不能把区间宽度代替网页有效时长。缺少完整来源、可信设备关联、守恒或版本一致证据时为 null 并返回原因，不显示假零。学习与娱乐可同时有效；新分类汇总与电脑总量非互斥，不画加和总量堆叠图。
+
+Chrome `presentationKind=contentBased` 是展示属性，不改变旧 classification/quotaBucket/App Policy。原独立应用统计和配额仍可查询。两套页面按需加载新视图、明细分页、缓存按来源版本有界复用；失败只影响统一视图，不阻塞设备管理。当前任务不新增终端计算/上传，不发布；可信设备关联若现有云端事实不足，明确登记缺口，不按显示名、同 Child 或时间接近自动建关系。
+
+公共入口为 `GET /profiles/:childId/computer-usage/v1`，Runtime 的 `GET /v2/module/computer-usage` 只代理相同结果。查询使用北京时间 `from/to`（最多七天）、不透明 `computer`、`detail=summary|timeline|products`、`revision/offset/limit`（最多100条）；Chrome 内容明细使用响应内不透明 `product` 键。汇总不发送完整产品或时间线，明细从首请求起锁定汇总版本。Chrome 明细区分容器、内容和容器外独立网页；没有可信电脑对应时不建立上下级关系。请求／响应 schema 为 `computer-usage-v1.schema.json`。
+
 ### 复合页面证据共享契约来源
 
 `contracts/composite-page-evidence/v1.js` 是网页与 Guardian 共用的纯 JavaScript 规范源，维护身份、裁剪脱敏、摘要与保留期，不含网页计时或配额逻辑。原草稿行为原样提取不代表完整隐私验收通过。Worker 从根契约导入；扩展因 unpacked 根边界，使用由控件任务生成的 `extension/core/generated/composite-page-evidence-v1.js` 字节相同副本，禁止手工维护分叉。构建/CI 用检查器强制核对；尚未接入终端时不得宣称已实现消费者一致。云端候选筛选、阈值、页面归属和人工建议留在云端服务；Native 不消费此协议，不提升 App Runtime 契约版本。正文中既有更广泛隐私与发布门禁继续有效。

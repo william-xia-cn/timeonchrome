@@ -6,6 +6,7 @@ const OUTPUT_KEYS = [
   'worker',
   'console',
   'release_config',
+  'native_artifact',
 ];
 
 const GOVERNANCE_DOCS = new Set([
@@ -30,6 +31,12 @@ const RELEASE_CONFIG_FILES = new Set([
   'tools/check-app-runtime-boundaries.js',
   'tests/unit/app-runtime-ci-routing.test.js',
   'tests/unit/app-runtime-release-config.test.js',
+]);
+const NATIVE_ARTIFACT_FILES = new Set([
+  '.github/workflows/timewhere-native-artifact-gate.yml',
+  'tools/timewhere-native-contract-lock.json',
+  'tools/verify-timewhere-native-artifact.js',
+  'tests/unit/timewhere-native-artifact.test.js',
 ]);
 
 function emptyResult() {
@@ -59,6 +66,7 @@ function classifyPaths(paths, options = {}) {
     }
     if (RELEASE_CONFIG_FILES.has(file)) {
       result.release_config = true;
+      if (NATIVE_ARTIFACT_FILES.has(file)) result.native_artifact = true;
       continue;
     }
     if (file.endsWith('.md')) {

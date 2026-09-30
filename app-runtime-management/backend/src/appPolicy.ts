@@ -20,6 +20,7 @@ import { defaultGameGroupRuleId, defaultSystemApplicationRuleId, effectiveApplic
 import { buildProductIdentityProjection, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
 import { buildProductBlockPolicy } from './productBlockPolicy';
 import { buildWeekReclassification, correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
+import { isConfirmedChrome, CHROME_SPECIAL_PRODUCT } from './specialApplications';
 import type {
   AppEvidence,
   ApplicationOrigin,
@@ -1105,6 +1106,8 @@ export async function queryAppCatalog(
       displayName,
       discovery: found?.evidence.discovery ?? null,
       productId: product?.id ?? null,
+      presentationKind: isConfirmedChrome(found?.evidence, projectedProduct, knowledge) ? 'contentBased' as const : 'standard' as const,
+      specialProductId: isConfirmedChrome(found?.evidence, projectedProduct, knowledge) ? CHROME_SPECIAL_PRODUCT : null,
       classification,
       classificationStatus: configured || productChoice ? 'explicit' : resolution?.status ?? 'unclassified',
       classificationReason: configured ? (direct ? '家长明确配置' : '继承已确认应用／产品分类') : resolution?.status==='explicit' ? '孩子产品明确分类'
@@ -1138,6 +1141,8 @@ export async function queryAppCatalog(
     for (const itemPlatform of new Set(product?.selectors.map(item=>item.platform) ?? [])) {
       if (items.some(item=>item.productId===entry.productId && item.platform===itemPlatform)) continue;
       items.push({platform:itemPlatform,runtimeIdentity:null,displayName:product!.name,productId:entry.productId,
+        presentationKind:'standard' as 'standard'|'contentBased',
+        specialProductId:null,
         classification:entry.classification,classificationStatus:'explicit',classificationReason:'孩子产品明确分类',installationState:'preconfigured',
         appType:product!.type,typeStatus:'confirmed' as const,typeReasonCode:'verifiedProductRule' as const,
         productType:product!.type,suggestedClassification:null,productTypeReason:'家庭产品知识',
@@ -1150,7 +1155,8 @@ export async function queryAppCatalog(
   const baseKey=(item:typeof items[number])=>{const identityKey=`${item.platform}\n${item.runtimeIdentity}`;
     const ambiguityKey=item.runtimeIdentity===null?undefined:ambiguityByIdentity.get(identityKey);
     const possibleVariantKey=item.runtimeIdentity===null?undefined:possibleVariantByIdentity.get(identityKey);
-    return item.productId?`${item.platform}\nproduct:${item.productId}`
+    return 'specialProductId' in item && item.specialProductId?`${item.platform}\nspecial:${item.specialProductId}`
+      :item.productId?`${item.platform}\nproduct:${item.productId}`
       :isPackageContainer(inventory.get(identityKey)?.evidence)?`${item.platform}\npackage-container:${item.runtimeIdentity}`
         :isLaunchablePackageApplication(inventory.get(identityKey)?.evidence)?`${item.platform}\npackage-app:${item.runtimeIdentity}`
       :ambiguityKey&&item.manageability!=='actionable'?ambiguityKey
@@ -1162,7 +1168,7 @@ export async function queryAppCatalog(
   const productGroups = new Map<string,typeof items>();
   for(const item of items){const base=baseKey(item),classes=classificationsByBase.get(base);
     const classificationKey=!classes||classes.size<=1?[...(classes??[])][0]??'unclassified':item.discovery?.objectKind==='product'?'mixed':item.classification;
-    const key=`${base}\n${classificationKey}`;const group=productGroups.get(key)??[];group.push(item);productGroups.set(key,group);}
+    const key='presentationKind' in item&&item.presentationKind==='contentBased'?base:`${base}\n${classificationKey}`;const group=productGroups.get(key)??[];group.push(item);productGroups.set(key,group);}
   const directory = [...productGroups.values()].map(group=>{
     const variants=group.filter(item=>item.runtimeIdentity!==null&&item.discovery?.objectKind!=='product');
     const groupHasActionable=group.some(item=>item.manageability==='actionable');
@@ -1219,6 +1225,7 @@ export async function queryAppCatalog(
       typeStatus:String(confirmedTypeItem.typeStatus),
     });
     return {...primary,runtimeIdentity:implementations.length===1?implementations[0]!.runtimeIdentity:implementations.length===0?primary.runtimeIdentity:null,
+      presentationKind: group.some(item => 'presentationKind' in item && item.presentationKind === 'contentBased') ? 'contentBased' as const : 'standard' as const,
       classification:classes.size===1?[...classes][0]!:primary.classification,mixedClassifications:classes.size>1,
       observedInWindow:group.some(item=>item.observedInWindow),
       discovery:group.some(item=>item.discovery?.role==='application')?{...primary.discovery!,role:'application' as const}:primary.discovery,

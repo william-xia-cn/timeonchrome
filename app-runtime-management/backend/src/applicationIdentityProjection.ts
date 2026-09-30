@@ -63,6 +63,29 @@ export function productIdentityItems(evidence: AppEvidence[], knowledge: Applica
     for (const product of approvedLeafProducts(item, knowledge)) products.add(product.id);
     productsByRoot.set(root, products);
   }
+  // An installation record is a directory container, not an executable selector.
+  // Attach it to a confirmed product only when every observed launchable child
+  // with the same verified parent key resolves to that one product. A suite with
+  // an unknown member or separate Excel/Word products must stay independent.
+  const childrenByParent = new Map<string, { products: Set<string>; unresolved: boolean }>();
+  for (const item of items) {
+    const parent = item.discovery?.parentProductKey;
+    if (item.discovery?.objectKind !== 'variant' || item.discovery.role !== 'application'
+        || !parent || item.values.productKey !== parent || !item.verifiedFields.includes('productKey')) continue;
+    const parentKey = `${item.platform}\n${parent}`;
+    const group = childrenByParent.get(parentKey) ?? { products: new Set<string>(), unresolved: false };
+    const matched = productsByRoot.get(aliases.get(keyOf(item)) ?? keyOf(item)) ?? new Set<string>();
+    if (matched.size !== 1) group.unresolved = true;
+    else group.products.add([...matched][0]!);
+    childrenByParent.set(parentKey, group);
+  }
+  for (const item of items) {
+    if (item.discovery?.objectKind !== 'product' || !item.values.productKey
+        || !item.verifiedFields.includes('productKey')) continue;
+    const group = childrenByParent.get(`${item.platform}\n${item.values.productKey}`);
+    if (!group || group.unresolved || group.products.size !== 1) continue;
+    productsByRoot.get(aliases.get(keyOf(item)) ?? keyOf(item))!.add([...group.products][0]!);
+  }
   const projected: ProductIdentityProjection['items'] = items.map(item => {
     const key = keyOf(item), root = aliases.get(key) ?? key;
     const matches = productsByRoot.get(root)!;
