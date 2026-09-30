@@ -2,12 +2,14 @@
 
 ## 2026-10-01：孩子用量云端发布（PO批准提交与部署）
 
+- 已上线：契约 PR #146、云端 PR #147 合并；生产基线 `76727e09fb53d8db2fd0d7de2a9f7e37d9572c0a`、Contracts `1.19.0`。受保护发布运行 [36768727441](https://github.com/william-xia-cn/timeonchrome/actions/runs/36768727441) 成功。Runtime Worker `7819e2bc-84e5-4e1b-9723-cc41991f1ebf`、Guardian `25ad9994-2cf8-46fb-abe2-961a1c09d078`、Runtime Pages `93a8485d-1976-4b5e-b7f6-b2e131986b49`、主 Pages `272c887e-4092-497d-a83f-2b5bec823b0d`，两页面 source 均为 `76727e0`。发布 manifest 已由该运行保存为 artifact；本段纯文档不重复部署。
+- 线上技术核验通过：两套 `computer-usage-view.js` 内容相同且匹配发布源码（SHA-256 `db6f3bfce48890362f7b317cfc482c19f361f266eda032279b0c019e86d4cf34`），Runtime 主脚本亦匹配；两个新只读入口未认证均为401，健康及两页面 smoke 通过。迁移列表为空且无 apply；R2 latest 保持2.3.1及原 Burn SHA-256 `3109d6bbd147f5bfba88549a240dae42e84e724aa86bd1baef724d2df7b17563`。未改终端、原账、配额或生产数据。真实登录下的来源覆盖及页面语义由 PO 自行检查，尚不记为真实数据验收通过。
 - 复用固定云端分支和工作树，依次收口已有 Firefox PR、契约 PR、云端实现 PR；不创建新分支或工作树。发布范围为 Runtime Worker、Guardian 只读归集入口和两套云端页面；不安装、不改原账/配额、不执行 migration、不写 R2。
 - 首次具名 RPC 按已有设计解除循环部署依赖：默认关闭的显式 `bootstrap_computer_usage_rpc` 开关仅用于首次发布，且必须同时发布两 Worker；先从相同 master SHA 发布不含新增反向绑定的 Runtime 引导配置，再发布 Guardian，最后发布完整 Runtime 配置。后续正常发布不开引导开关，不移除已有绑定。临时配置不改源码或其他绑定；全部步骤仍使用 production 审核、精确 SHA CI 与原迁移门禁，失败不继续发布页面。
 - 变更等级为 release-config；只补跑发布配置固定测试、workflow 语法与 diff 检查，复用既有功能证据，排除终端/安装器/全平台测试。线上读取核实当前无待执行 Runtime migration；真实家庭页面由 PO 发布后检查，不能将 mock 记为真实验收。
 - PR CI发现两个适配缺口：Guardian现有测试的 esbuild 必须将 `cloudflare:workers` 作为真实 workerd 内置模块保留，不用 mock 替代；云端发布配置改动不应运行无关 Native 产物交接测试。按 ARM-D-019 增加精确 `native_artifact` 路由，仅 Native 发布工作流、锁、验证器或相关测试改动才检查原锁；显式全量验证仍包括该测试。Native 产物发布流程和版本/哈希门禁原样保留，不假称现有 Native 锁已更新。
 
-## 2026-10-01：Chrome 特殊应用与孩子用量归集收尾（本地实现，未合并／部署）
+## 2026-10-01：Chrome 特殊应用与孩子用量归集收尾（实现证据，已合并／部署）
 
 - PO 批准口径：按 Child ID 归集展示，不猜重叠。设备对应及 Mac Chrome 自动规则不是加载前提；没有确切证据时只将精确电脑总量和扣除量留空，仍展示有效来源用量、分类、产品和时间线。全部电脑按来源累计，不对孩子所有电脑做全局区间并集，也不把网页＋应用直接称为精确电脑总量。
 - 职责与最小验证：architecture-integration 修改契约／决策；standard-cloud 实施只读来源及两套云端页面。只运行受影响契约、Worker、D1固定对照、renderer、typecheck、dry-run、桌面／移动mock及路径/diff检查；复用未受影响证据，排除 Windows/macOS/WiX/扩展全平台测试。复用 `codex/cloud-management`，不新建工作树或分支。
@@ -18,7 +20,7 @@
 - 验证：契约 build/typecheck、兼容测试、8组黄金向量48项固定断言及新增不变量通过；复用既有未变分类／机器控制证据。`npx vitest run test/computer-usage-evidence.test.ts` 11/11通过（含旧源失败、具名RPC版本路径、可信旧Chrome及同名不命中）。`node tests/unit/computer-usage-cloud.test.js`、`node app-runtime-management/console/computer-usage-view.test.cjs`、根／Runtime typecheck、两次 Worker dry-run及 `git diff --check`通过。dry-run包大小 Runtime 351.11KiB、Guardian 880.42KiB；不是部署或线上验收。
 - 目视：主控制台、Runtime统计、特殊目录的桌面／移动mock共6张已核对，可见独立来源用量、分类、产品、Chrome child内容及历史标志。仅使用固定mock，不访问家庭数据；原导航的外部图标缺失及移动固定层在全页截图中的位置作为既有样式限制保留，未借本轮修改导航。隔离浏览器与mock服务已关闭。
 - 收尾审计：本轮本地契约、Child隔离、多设备累计、未知重叠不误扣、Chrome内容不重复计入、历史兼容、版本分页、双页面和最小验证均 `Matched`；`Deviated / Missing / Extra`（本轮本地范围）无。精确物理设备对应、未审核Mac自动规则和真实生产验收不是本轮交付前提，明确保留其状态，不记为通过。未创建分支/工作树、未部署、未安装、未执行migration或R2操作，原候选目录和主工作树未改变。
-- PR准备：契约提交 `c9f6219` 使用 `Task-Role: architecture-integration`，例外只列 `docs/DESIGN.md` 和根依赖锁的契约版本同步；云端实现单独提交，使用 `Task-Role: standard-cloud`，精确例外为根目录只读适配测试。现有同分支 Firefox PR #144 仍开放，不向其混入本功能或擅自合并。待该PR按其原任务处理后，复用固定分支依次提交“孩子用量归集契约”“可读历史与Chrome云端展示”两个PR，不新建分支。当前不推送、不部署；首次具名RPC发布依赖保留在模块DESIGN，真实来源覆盖及线上验收在发布阶段记录。
+- PR收口：已有 Firefox PR #144 先按原范围通过检查并合并；契约提交 `c9f6219` 经 PR #146 合并，云端实现 `0167df8` 与必要部署/CI适配经 PR #147 合并。全部复用固定分支，无新分支或工作树。首次具名RPC引导已由受保护生产流程完成，发布证据见本文件上段；真实家庭数据验收仍待 PO 检查。
 
 ## NOW：一条架构集成主线与四条开发旁路（2026-09-29，PO修订）
 
