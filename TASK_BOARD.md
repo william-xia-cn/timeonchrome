@@ -1,5 +1,12 @@
 # TASK_BOARD
 
+## 2026-10-01：应用读取缓存与孩子汇总范围（已上线）
+
+- PR #157，代码主线 `26f2e4257f330759ccd107de8bb1af28a60e74af`；Runtime/Main Console精确SHA CI通过。[受保护发布36783811409](https://github.com/william-xia-cn/timeonchrome/actions/runs/36783811409)成功，manifest artifact `11128438610` / SHA-256 `b4251fb9ad24ea41ede569a9bbe53b78bdb52613380c9bf2d7b225f75bfd2edb`。
+- 仅更新 Runtime Worker `3512793a-08f1-4d1b-8f4b-c4b2e1a99444`、Runtime Pages `26573975-904a-4aa6-b8d0-5dbbdb945f23`、主 Pages `aef42882-479b-4a14-8880-607155e2c32a`。Guardian仍为 `6953fe71-8048-4445-a3e5-307ebe55bd57`，migration为none，R2 latest仍2.3.1；无终端/账本/配额改动。两页面共享脚本回读SHA-256均为 `4d6534699c7a6985ffc4918bce1db8f4a4e5fc398cda3493e8dbf71785d47a5e`，与源码一致。
+- 真实读取：主页面应用冷读6398ms、强制重复359ms，后续新页面387ms；Runtime缓存hit432ms/刷新425ms。两页面切回应用复用内存缓存，无新增应用请求；总量及分类时长与原权威响应一致。电脑汇总无设备选择，网页独立视图仍有原筛选，Runtime独立应用保留电脑/账户/平台筛选。
+- Matched＝本轮实现、测试、部署、真实缓存与范围验收；Deviated/Missing/Extra无。首次冷计算约6秒仍是明确性能限制，不称全部查询已快；精确重叠证据不足时仍保留来源独立值。详细最小验证见模块任务板；本段只收口证据，不重复部署。
+
 ## 2026-10-01：项目治理职责转交（PO明确指定）
 
 - 当前会话负责 TimeOnChrome 仓库及项目治理：维护项目规则、任务与状态真值、工作线归属、分支/工作树盘点和已批准清理、流程/CI治理及发布证据登记；原架构线程不再承担这些治理职责。
