@@ -33,7 +33,9 @@ const guardian = workflow.indexOf('- name: Guardian Worker');
 const runtime = workflow.indexOf('- name: Runtime Worker');
 assert(bootstrap > 0 && bootstrap < guardian && guardian < runtime);
 assert(runtime < workflow.indexOf('- name: Runtime Pages'));
-assert(workflow.includes('if: inputs.deploy_runtime_worker && inputs.deploy_guardian_worker'));
+assert(workflow.includes('if: inputs.bootstrap_computer_usage_rpc && inputs.deploy_runtime_worker && inputs.deploy_guardian_worker'));
+assert(/bootstrap_computer_usage_rpc:\s+description:[^\n]+\s+type: boolean\s+default: false/.test(workflow));
+assert(workflow.includes('"$BOOTSTRAP_COMPUTER_USAGE_RPC" == true && "$DEPLOY_BOTH_WORKERS" != true'));
 const bootstrapCode = workflow.match(/node - <<'NODE'\n([\s\S]*?)\n\s*NODE/)[1];
 let bootstrapConfig;
 require('vm').runInNewContext(bootstrapCode, {

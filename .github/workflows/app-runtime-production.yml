@@ -19,6 +19,10 @@ on:
         description: Deploy main console Pages (separate approval scope)
         type: boolean
         default: false
+      bootstrap_computer_usage_rpc:
+        description: First deployment only; requires both Runtime and Guardian Workers
+        type: boolean
+        default: false
       apply_runtime_migrations:
         description: Apply exactly the expected pending Runtime migrations
         type: boolean
@@ -55,7 +59,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - name: Release preflight
+        env:
+          BOOTSTRAP_COMPUTER_USAGE_RPC: ${{ inputs.bootstrap_computer_usage_rpc }}
+          DEPLOY_BOTH_WORKERS: ${{ inputs.deploy_runtime_worker && inputs.deploy_guardian_worker }}
         run: |
+          if [[ "$BOOTSTRAP_COMPUTER_USAGE_RPC" == true && "$DEPLOY_BOTH_WORKERS" != true ]]; then
+            echo 'RPC bootstrap requires both Worker deployments' >&2
+            exit 1
+          fi
           test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing production CLOUDFLARE_API_TOKEN secret' >&2; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing production CLOUDFLARE_ACCOUNT_ID variable' >&2; exit 1; }
           test -z "$(git status --porcelain)"
@@ -124,7 +135,7 @@ jobs:
             echo "applied=$actual" >> "$GITHUB_OUTPUT"
           fi
       - name: Runtime RPC bootstrap
-        if: inputs.deploy_runtime_worker && inputs.deploy_guardian_worker
+        if: inputs.bootstrap_computer_usage_rpc && inputs.deploy_runtime_worker && inputs.deploy_guardian_worker
         working-directory: app-runtime-management/backend
         run: |
           # Publish the target entrypoint first without its new reverse binding.
