@@ -26,7 +26,8 @@ function database() {
   const sqlite = new DatabaseSync(':memory:');
   for (const name of ['001_native_app_control_v1.sql', '002_native_app_inventory_v1.sql',
     '003_native_app_predefined_controls_v1.sql', '004_native_app_preconfiguration_source_v1.sql',
-    '005_native_app_block_schedules_v1.sql', '006_native_time_rules_opt_in_v1.sql']) {
+    '005_native_app_block_schedules_v1.sql', '006_native_time_rules_opt_in_v1.sql',
+    '007_native_app_application_windows_v1.sql']) {
     sqlite.exec(fs.readFileSync(path.join(ROOT, 'native-app-control/worker/migrations', name), 'utf8'));
   }
   const statement = (sql, args = []) => ({
@@ -45,13 +46,21 @@ function database() {
   } } };
 }
 
-const schedules = load('native-app-control/worker/src/blockSchedules.ts');
+const schedulesBridge = {};
+const appPolicies = load('native-app-control/worker/src/applicationBlockPolicies.ts', {
+  './blockSchedules': schedulesBridge,
+});
+const schedules = load('native-app-control/worker/src/blockSchedules.ts', {
+  './applicationBlockPolicies': appPolicies,
+});
+Object.assign(schedulesBridge, schedules);
 const policy = load('native-app-control/worker/src/policy.ts');
 const repository = load('native-app-control/worker/src/repository.ts', {
   './policy': policy, './crypto': { hmacHex: async () => '', randomSecret: () => '' },
+  './blockSchedules': schedules, './applicationBlockPolicies': appPolicies,
 });
 const nativeCel = load('native-app-control/worker/src/nativeCelPolicy.ts', {
-  './policy': policy, './blockSchedules': schedules,
+  './policy': policy, './blockSchedules': schedules, './applicationBlockPolicies': appPolicies,
 });
 
 (async () => {
@@ -82,6 +91,16 @@ const nativeCel = load('native-app-control/worker/src/nativeCelPolicy.ts', {
     '005_native_app_block_schedules_v1.sql'), 'utf8'));
   assert.equal(legacy.prepare("SELECT block_origin FROM child_application_states_v1 WHERE child_id = 'old'").get().block_origin,
     'PUBLISHER', 'legacy publisher-derived app blocks must not remain independent all-day rules');
+  legacy.exec(`INSERT INTO native_app_block_schedules_v1
+    (child_id, source_type, source_key, start_minute, end_minute, effective_active, updated_at)
+    VALUES ('old', 'APPLICATION', 'legacy-app', 180, 1080, 1, 10);`);
+  for (const name of ['006_native_time_rules_opt_in_v1.sql', '007_native_app_application_windows_v1.sql']) {
+    legacy.exec(fs.readFileSync(path.join(ROOT, 'native-app-control/worker/migrations', name), 'utf8'));
+  }
+  assert.deepEqual([...Object.values(legacy.prepare(`SELECT start_minute, end_minute
+    FROM native_app_application_windows_v1 WHERE application_id = 'legacy-app'`).get())], [180, 1080]);
+  assert.equal(legacy.prepare(`SELECT COUNT(*) AS count FROM native_app_block_schedules_v1
+    WHERE source_type = 'APPLICATION'`).get().count, 0);
 
   const { sqlite, env } = database();
   sqlite.exec(`INSERT INTO native_children_v1 (child_id, account_id, created_at, updated_at)
@@ -146,14 +165,17 @@ const nativeCel = load('native-app-control/worker/src/nativeCelPolicy.ts', {
     sources: [{ sourceType: 'APPLICATION', sourceKey: 'app' },
       { sourceType: 'APPLICATION', sourceKey: 'missing' }],
     allDay: false, start: '13:00', end: '14:00',
-  }), /block_source_not_found/);
-  assert.equal(sqlite.prepare("SELECT start_minute FROM native_app_block_schedules_v1 WHERE source_key = 'app'").get().start_minute, 540);
+  }), /application_not_found/);
+  assert.equal(sqlite.prepare("SELECT start_minute FROM native_app_application_windows_v1 WHERE application_id = 'app'").get().start_minute, 540);
   await schedules.saveBlockSchedulesBulk(env, auth, {
-    sources: [{ sourceType: 'APPLICATION', sourceKey: 'app' },
-      { sourceType: 'PREDEFINED', sourceKey: '["source-a",1]' }],
+    sources: [{ sourceType: 'APPLICATION', sourceKey: 'app' }],
     allDay: false, start: '13:00', end: '14:00',
   });
   assert.equal(sqlite.prepare("SELECT policy_version FROM native_children_v1 WHERE child_id = 'child'").get().policy_version, beforeBulk + 1);
+  await schedules.saveBlockSchedule(env, auth, {
+    sourceType: 'PREDEFINED', sourceKey: '["source-a",1]',
+    allDay: false, start: '13:00', end: '14:00',
+  });
   nativePolicy = await nativeCel.loadNativeTimedPolicy(env, 'child');
   nativeRules = nativeCel.compileNativeTimedRules(nativePolicy.identities,
     nativePolicy.publishers, nativePolicy.timeZone, baseline);
@@ -192,5 +214,80 @@ const nativeCel = load('native-app-control/worker/src/nativeCelPolicy.ts', {
   assert.equal(blocked.applications.length, 0, 'publisher-derived BLOCK is not an independent all-day application rule');
   await repository.decideApplication(env, auth, 'app', 'BLOCK');
   assert.equal(sqlite.prepare("SELECT block_origin FROM child_application_states_v1 WHERE child_id = 'child' AND application_id = 'app'").get().block_origin, 'DIRECT');
+
+  const firefox = database();
+  firefox.sqlite.exec(`INSERT INTO native_children_v1 (child_id, account_id, created_at, updated_at)
+    VALUES ('kid', 'parent', 1, 1);
+    INSERT INTO account_applications_v1
+      (id, account_id, auto_group_key, display_name, team_id, top_level_bundle_id, created_at, updated_at)
+    VALUES ('firefox', 'parent', 'MOZ:firefox', 'Firefox', 'MOZ', 'org.mozilla.firefox', 1, 1),
+      ('firefox-copy', 'parent', 'MOZ:firefox-copy', 'Firefox copy', 'MOZ', 'org.mozilla.firefox', 1, 1),
+      ('lookalike', 'parent', 'EVIL:firefox', 'Lookalike', 'EVIL', 'org.mozilla.firefox', 1, 1);
+    INSERT INTO child_application_states_v1
+      (child_id, application_id, state, block_origin, created_at, updated_at)
+    VALUES ('kid', 'firefox', 'BLOCK', 'DIRECT', 1, 1),
+      ('kid', 'firefox-copy', 'BLOCK', 'DIRECT', 1, 1),
+      ('kid', 'lookalike', 'BLOCK', 'DIRECT', 1, 999);
+    INSERT INTO application_identities_v1
+      (id, identity_key, identity_type, identifier, bundle_id, created_at, updated_at)
+    VALUES ('ff-main', 'SIGNINGID:MOZ:firefox', 'SIGNINGID', 'MOZ:firefox', 'org.mozilla.firefox', 1, 1),
+      ('ff-copy', 'SIGNINGID:MOZ:copy', 'SIGNINGID', 'MOZ:copy', 'org.mozilla.firefox', 1, 1);
+    INSERT INTO application_memberships_v1 (application_id, identity_id, membership_source, created_at)
+    VALUES ('firefox', 'ff-main', 'automatic', 1),
+      ('firefox-copy', 'ff-copy', 'automatic', 1);
+    INSERT INTO native_app_predefined_items_v1
+      (child_id, source, source_index, display_name, bundle_id, created_at, updated_at)
+    VALUES ('kid', 'qustodio', 1, 'Firefox', 'org.mozilla.firefox', 1, 1),
+      ('kid', 'qustodio', 2, 'Firefox helper', 'org.mozilla.firefox.helper', 1, 1);
+    UPDATE native_app_predefined_items_v1 SET parent_source_index = 1 WHERE source_index = 2;
+    INSERT INTO native_app_predefined_identities_v1
+      (child_id, source, source_index, identity_key, identity_type, identifier,
+       match_origin, status, created_at, updated_at)
+    VALUES ('kid', 'qustodio', 1, 'SIGNINGID:MOZ:firefox', 'SIGNINGID', 'MOZ:firefox',
+      'inventory', 'AUTO', 1, 1),
+      ('kid', 'qustodio', 2, 'SIGNINGID:MOZ:helper', 'SIGNINGID', 'MOZ:helper',
+      'inventory', 'AUTO', 1, 1);`);
+  const ffAuth = { child_id: 'kid', account_id: 'parent' };
+  await appPolicies.saveApplicationPolicies(firefox.env, ffAuth, {
+    applicationIds: ['firefox'], allDay: false,
+    windows: [{ start: '03:00', end: '08:00' }, { start: '09:00', end: '18:00' }],
+  });
+  const ffPolicy = await nativeCel.loadNativeTimedPolicy(firefox.env, 'kid');
+  assert.equal(ffPolicy.identities.filter((row) => row.identifier === 'MOZ:helper').length, 2,
+    'verified component inherits both application windows, not the newer lookalike bundle');
+  assert.equal(ffPolicy.identities.filter((row) => row.identifier === 'MOZ:copy').length, 2,
+    'duplicate historical Application row inherits the top-level policy');
+  assert.equal(ffPolicy.identities.some((row) => row.start_minute === null), false,
+    'old all-day preconfiguration must not survive manual takeover');
+  await assert.rejects(() => schedules.saveBlockSchedule(firefox.env, ffAuth, {
+    sourceType: 'PREDEFINED', sourceKey: '["qustodio",1]', allDay: false,
+    start: '00:00', end: '07:00',
+  }), /block_source_not_found/, 'a taken-over preset must not accept another hidden editable schedule');
+  const ffRules = nativeCel.compileNativeTimedRules(ffPolicy.identities, [], ffPolicy.timeZone, baseline);
+  assert.equal(ffRules.find((rule) => rule.identifier === 'MOZ:firefox').policy, 'CEL');
+  assert.equal(ffRules.find((rule) => rule.identifier === 'MOZ:helper').policy, 'CEL');
+  assert.equal(ffRules.filter((rule) => rule.identifier === 'MOZ:firefox').length, 1);
+  const ffBlocked = await repository.loadBlockedPolicy(firefox.env, 'kid');
+  const expected = schedules.scheduleActive(180, 480, 'Asia/Shanghai', Date.now())
+    || schedules.scheduleActive(540, 1080, 'Asia/Shanghai', Date.now());
+  assert.equal(ffBlocked.applications.some((row) => row.identities.some((identity) => identity.identifier === 'MOZ:firefox')), expected);
+  assert.equal(ffBlocked.applications.some((row) => row.identities.some((identity) => identity.identifier === 'MOZ:helper')), expected);
+  await appPolicies.reconcileApplicationPolicies(firefox.env, 'kid', Date.UTC(2026, 9, 1, 12, 0));
+  const outsideVersion = firefox.sqlite.prepare(`SELECT policy_version FROM native_children_v1
+    WHERE child_id = 'kid'`).get().policy_version;
+  await appPolicies.reconcileApplicationPolicies(firefox.env, 'kid', Date.UTC(2026, 9, 1, 12, 0));
+  assert.equal(firefox.sqlite.prepare(`SELECT policy_version FROM native_children_v1
+    WHERE child_id = 'kid'`).get().policy_version, outsideVersion, 'same time boundary is idempotent');
+  await appPolicies.reconcileApplicationPolicies(firefox.env, 'kid', Date.UTC(2026, 9, 1, 19, 0));
+  assert.equal(firefox.sqlite.prepare(`SELECT policy_version FROM native_children_v1
+    WHERE child_id = 'kid'`).get().policy_version, outsideVersion + 1,
+  '03:00 Asia/Shanghai activates the first window');
+  await appPolicies.reconcileApplicationPolicies(firefox.env, 'kid', Date.UTC(2026, 9, 2, 0, 0));
+  assert.equal(firefox.sqlite.prepare(`SELECT policy_version FROM native_children_v1
+    WHERE child_id = 'kid'`).get().policy_version, outsideVersion + 2,
+  '08:00 Asia/Shanghai ends the first window');
+  await assert.rejects(() => appPolicies.saveApplicationPolicies(firefox.env, ffAuth, {
+    applicationIds: ['firefox'], allDay: false, windows: [],
+  }), /invalid_application_windows/);
   console.log('Native App block schedules tests: passed');
 })().catch((error) => { console.error(error); process.exitCode = 1; });

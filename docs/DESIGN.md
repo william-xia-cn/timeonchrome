@@ -63,6 +63,8 @@ macOS Native App Control 的权威技术设计位于 `docs/specs/SPEC-003-MACOS-
 
 Native App 预配置后端增加来源无关的 `GET /native/v1/preconfigurations` 和 `POST /native/v1/preconfigurations/import`（目标 Child ID 二次确认）。迁移 004 为旧预定义表补充 `desired_state`，旧 21 条默认为 `BLOCK`；新来源可保存 `BLOCK` 或仅供识别的 `CANDIDATE`，只有前者参与 Santa 规则编译。生产迁移、Native Worker 和预配置 UI 已部署；视觉验收由 Product Owner 在上线后执行，尚未记为通过。跨 Child 复制属于后续包。
 
+Santa 应用阻止策略归一：每个 Child 的顶层应用只有一份可编辑阻止策略；已匹配预配置是来源证据，手动 `DIRECT` 应用策略接管主程序与已核验组件身份，不再叠加预配置全天阻止。发布者 TeamID 阻止仍独立，其时段与应用时段取阻止并集且须在 UI 显示。应用策略支持全天或多条每日时段（含跨午夜），零条时段无效；旧单时段经独立 Native D1 migration 转换。普通同步和 Santa CEL 使用同一接管关系与有效时段；不修改 Chrome 网页账本或 Santa 安装方式。
+
 ### 1.0.1 App Runtime Guardian 集成边界
 
 App Runtime 的产品、Agent、Worker/D1/R2、独立 Pages、安装器和发布事实只在 `app-runtime-management/docs/` 维护。TimeOnChrome 侧仅保留 Guardian 身份桥、Child lifecycle、主控制台 SSO launch 入口和 `@timeonchrome/app-runtime-contracts` 固定版本兼容。旧 `/app-runtime/` 路径回到主控制台 launch 流程，不再承载或复制 Runtime 静态文件。

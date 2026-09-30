@@ -1,4 +1,6 @@
 import type { Env, NativeAuth } from './types';
+import { listApplicationPolicies, loadEffectiveIdentityWindows,
+  reconcileApplicationPolicies, saveApplicationPolicies } from './applicationBlockPolicies';
 
 export type BlockSource = 'APPLICATION' | 'PREDEFINED' | 'PUBLISHER';
 export type BlockSchedule = {
@@ -36,7 +38,7 @@ export async function childTimeZone(env: Env, childId: string): Promise<string> 
 }
 
 export async function listBlockSchedules(env: Env, childId: string) {
-  const [timeZone, schedules, macs] = await Promise.all([
+  const [timeZone, schedules, macs, applicationPolicies] = await Promise.all([
     childTimeZone(env, childId),
     env.DB.prepare('SELECT source_type, source_key, start_minute, end_minute, effective_active FROM native_app_block_schedules_v1 WHERE child_id = ?')
       .bind(childId).all<BlockSchedule>(),
@@ -44,8 +46,9 @@ export async function listBlockSchedules(env: Env, childId: string) {
       desired_policy_version, applied_policy_version, last_postflight_at
       FROM native_macs_v1 WHERE child_id = ? AND status = 'active' ORDER BY display_name`)
       .bind(childId).all(),
+    listApplicationPolicies(env, childId),
   ]);
-  return { timeZone, schedules: schedules.results || [], macs: macs.results || [] };
+  return { timeZone, schedules: schedules.results || [], applicationPolicies, macs: macs.results || [] };
 }
 
 async function sourceExists(env: Env, childId: string, sourceType: BlockSource, key: string): Promise<boolean> {
@@ -64,15 +67,23 @@ async function sourceExists(env: Env, childId: string, sourceType: BlockSource, 
   try { decoded = JSON.parse(key); } catch { return false; }
   if (!Array.isArray(decoded) || decoded.length !== 2 || typeof decoded[0] !== 'string'
     || !Number.isInteger(decoded[1])) return false;
-  return !!await env.DB.prepare(`SELECT 1 FROM native_app_predefined_items_v1
+  const exists = !!await env.DB.prepare(`SELECT 1 FROM native_app_predefined_items_v1
     WHERE child_id = ? AND source = ? AND source_index = ? AND desired_state = 'BLOCK' AND disabled_at IS NULL`)
     .bind(childId, decoded[0], decoded[1]).first();
+  if (!exists) return false;
+  const identities = await loadEffectiveIdentityWindows(env, childId);
+  return !identities.some((row) => row.origin_source_key === key && row.source_type === 'APPLICATION');
 }
 
 export async function saveBlockSchedule(env: Env, auth: NativeAuth, input: {
   sourceType: BlockSource; sourceKey: string; allDay: boolean; start?: string; end?: string;
 }) {
   const { sourceType, sourceKey, allDay } = input;
+  if (sourceType === 'APPLICATION') {
+    await saveApplicationPolicies(env, auth, { applicationIds: [sourceKey], allDay,
+      windows: allDay ? [] : [{ start: input.start || '', end: input.end || '' }] });
+    return listBlockSchedules(env, auth.child_id);
+  }
   if (!['APPLICATION', 'PREDEFINED', 'PUBLISHER'].includes(sourceType)
     || !sourceKey || sourceKey.length > 300 || typeof allDay !== 'boolean') throw new Error('invalid_schedule_source');
   if (!await sourceExists(env, auth.child_id, sourceType, sourceKey)) throw new Error('block_source_not_found');
@@ -123,6 +134,14 @@ export async function saveBlockSchedulesBulk(env: Env, auth: NativeAuth, input: 
       throw new Error('invalid_schedule_source');
     }
     unique.set(`${source.sourceType}:${source.sourceKey}`, source);
+  }
+  const applications = [...unique.values()].filter((source) => source.sourceType === 'APPLICATION');
+  if (applications.length) {
+    await saveApplicationPolicies(env, auth, { applicationIds: applications.map((source) => source.sourceKey),
+      allDay: input.allDay, windows: input.allDay ? [] : [{ start: input.start || '', end: input.end || '' }] });
+    const remaining = [...unique.values()].filter((source) => source.sourceType !== 'APPLICATION');
+    return remaining.length ? saveBlockSchedulesBulk(env, auth, { ...input, sources: remaining })
+      : listBlockSchedules(env, auth.child_id);
   }
   const start = input.allDay ? null : minuteOfDay(input.start || '');
   const end = input.allDay ? null : minuteOfDay(input.end || '');
@@ -175,6 +194,7 @@ function versionStatements(env: Env, childId: string, stamp: number): D1Prepared
 }
 
 export async function reconcileChildSchedules(env: Env, childId: string, at = Date.now()): Promise<void> {
+  await reconcileApplicationPolicies(env, childId, at);
   const zone = await childTimeZone(env, childId);
   const rows = await env.DB.prepare(`SELECT source_type, source_key, start_minute, end_minute, effective_active
     FROM native_app_block_schedules_v1 WHERE child_id = ?`).bind(childId).all<BlockSchedule>();
@@ -201,7 +221,8 @@ export async function reconcileChildSchedules(env: Env, childId: string, at = Da
 }
 
 export async function reconcileAllSchedules(env: Env): Promise<void> {
-  const children = await env.DB.prepare('SELECT DISTINCT child_id FROM native_app_block_schedules_v1')
+  const children = await env.DB.prepare(`SELECT child_id FROM native_app_block_schedules_v1
+    UNION SELECT child_id FROM native_app_application_policies_v1`)
     .all<{ child_id: string }>();
   for (const child of children.results || []) await reconcileChildSchedules(env, child.child_id);
 }

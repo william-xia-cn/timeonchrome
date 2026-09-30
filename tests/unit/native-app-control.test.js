@@ -383,8 +383,22 @@ test('预配置应用只展示未匹配来源，已匹配来源在应用详情�
   assert(js.includes("native('/native/v1/preconfigurations')"));
   assert(js.includes('!item.matchedApplicationId && !item.disabled_at'));
   assert(js.includes('appIds.has(item.matchedApplicationId)'));
-  assert(js.includes("item.desired_state === 'BLOCK' ? '期望阻止' : '候选，不下发规则'"));
+  assert(js.includes('已由手动应用策略接管'));
+  assert(js.includes('item.desired_state === \'BLOCK\' && !takenOver'));
   assert(js.includes('data-preset-action="CONFIRM"'), '旧来源核验动作不能丢失');
+});
+
+test('应用阻止策略使用独立多时段 API，预配置由手动应用接管', () => {
+  const admin = read('native-app-control/worker/src/admin.ts');
+  const resolver = read('native-app-control/worker/src/applicationBlockPolicies.ts');
+  const html = read('pages/native-apps/index.html');
+  const js = read('pages/native-apps/native-apps.js');
+  assert(admin.includes('/block-policy') && admin.includes('/block-policies/bulk'));
+  assert(resolver.includes('COALESCE(parent.bundle_id, item.bundle_id) AS root_bundle_id'));
+  assert(resolver.includes("if (row.application_id) append(row, 'APPLICATION', row.application_id)"));
+  assert(html.includes('application-window-list'));
+  assert(js.includes('最后一条时段不能直接删除'));
+  assert(js.includes('publisherWarning') && js.includes('仍独立生效'));
 });
 
 test('独立控制台可刷新 Guardian session 并重签 Native module token', () => {

@@ -17,12 +17,14 @@ import type { Env } from './types';
 import { changeChildTimeZone, listBlockSchedules, reconcileChildSchedules,
   saveBlockSchedule, saveBlockSchedulesBulk } from './blockSchedules';
 import { setNativeTimeRulesEnabled } from './nativeCelPolicy';
+import { saveApplicationPolicies } from './applicationBlockPolicies';
 import {
   decidePredefinedIdentity, disablePredefinedItem, importPreconfigurationSource, listPreconfigurations,
   importPredefinedItems, listPredefinedItems, reconcilePredefinedItems,
 } from './presets';
 
 const APPLICATION_DECISION_RE = /^\/native\/v1\/applications\/([^/]+)\/decision$/;
+const APPLICATION_POLICY_RE = /^\/native\/v1\/applications\/([^/]+)\/block-policy$/;
 const APPLICATION_MERGE_RE = /^\/native\/v1\/applications\/([^/]+)\/merge$/;
 const APPLICATION_UNMERGE_RE = /^\/native\/v1\/applications\/([^/]+)\/unmerge$/;
 const MAC_REVOKE_RE = /^\/native\/v1\/macs\/([^/]+)\/revoke$/;
@@ -77,6 +79,29 @@ export async function handleAdminRequest(request: Request, env: Env): Promise<Re
   if (path === '/native/v1/block-schedules' && request.method === 'GET') {
     await reconcileChildSchedules(env, auth.child_id);
     return json({ data: await listBlockSchedules(env, auth.child_id) });
+  }
+  const policyMatch = path.match(APPLICATION_POLICY_RE);
+  if (policyMatch && request.method === 'PUT') {
+    try {
+      await saveApplicationPolicies(env, auth, {
+        applicationIds: [decodeURIComponent(policyMatch[1])], allDay: body.allDay as boolean,
+        windows: body.windows as Array<{ id?: string; start: string; end: string }>,
+      });
+      return json({ data: await listBlockSchedules(env, auth.child_id) });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'invalid_application_policy' }, 400);
+    }
+  }
+  if (path === '/native/v1/applications/block-policies/bulk' && request.method === 'PUT') {
+    try {
+      await saveApplicationPolicies(env, auth, {
+        applicationIds: body.applicationIds as string[], allDay: body.allDay as boolean,
+        windows: body.windows as Array<{ id?: string; start: string; end: string }>,
+      });
+      return json({ data: await listBlockSchedules(env, auth.child_id) });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : 'invalid_application_policy' }, 400);
+    }
   }
   if (path === '/native/v1/block-schedules/bulk' && request.method === 'POST') {
     try {
