@@ -85,6 +85,10 @@
       <div><p class="eyebrow">应用阻止时间段</p><h2 id="block-schedule-title">设置时间段</h2></div>
       <p class="muted" id="block-schedule-scope"></p>
       <label class="checkbox-label"><input id="block-schedule-all-day" type="checkbox" checked> 全天阻止</label>
+      <div id="application-window-editor" hidden>
+        <div id="application-window-list" class="application-window-list"></div>
+        <button class="secondary" type="button" id="add-application-window">添加时段</button>
+      </div>
       <div class="time-range" id="block-schedule-time-range" hidden>
         <label>开始时间<input id="block-schedule-start" type="time" value="09:00" required></label>
         <label>结束时间<input id="block-schedule-end" type="time" value="18:00" required></label>
@@ -114,6 +118,7 @@
         </div>
       </div>
       <dl class="detail-grid" id="detail-application-fields"></dl>
+      <section class="detail-components" id="detail-application-policy" hidden></section>
       <section class="detail-components" id="detail-application-components" hidden></section>
       <section class="detail-components" id="detail-application-preconfiguration" hidden></section>
       <div class="detail-advanced" id="detail-application-advanced" hidden>

@@ -90,7 +90,7 @@ async function mockApis(page) {
     const url = new URL(route.request().url());
     if (url.pathname === '/native/v1/block-schedules') {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
-        timeZone: 'Asia/Shanghai', schedules: [], macs: [{ id: 'mac-1',
+        timeZone: 'Asia/Shanghai', schedules: [], applicationPolicies: [], macs: [{ id: 'mac-1',
           desired_policy_version: 3, applied_policy_version: 3 }],
       } }) });
       return;
@@ -213,7 +213,7 @@ for (const viewport of [{ name: 'desktop', width: 1280, height: 800 }, { name: '
     await page.getByRole('button', { name: '时间段', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Firefox' })).toBeVisible();
     await page.getByLabel('全天阻止').uncheck();
-    await expect(page.getByLabel('开始时间')).toBeVisible();
+    await expect(page.locator('#application-window-list input').first()).toBeVisible();
     await page.getByRole('button', { name: '取消' }).click();
     await page.screenshot({ path: path.join(ROOT, '.artifacts', `native-app-control-block-${viewport.name}.png`), fullPage: true });
     await page.getByRole('button', { name: 'Native Macs' }).click();
@@ -316,40 +316,106 @@ for (const viewport of [{ name: 'desktop', width: 1366, height: 800 }, { name: '
 test('已阻止应用可保存跨午夜时间段', async ({ page }) => {
   await mockApis(page);
   let saved;
-  let schedules = [];
+  let applicationPolicies = [];
   await page.route('**/native/v1/block-schedules', (route) => {
-    if (route.request().method() === 'POST') {
-      saved = route.request().postDataJSON();
-      schedules = [{ source_type: saved.sourceType, source_key: saved.sourceKey,
-        start_minute: 0, end_minute: 420, effective_active: 1 }];
-    }
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
-      timeZone: 'Asia/Shanghai', schedules, macs: [{ id: 'mac-1', desired_policy_version: 3,
+      timeZone: 'Asia/Shanghai', schedules: [], applicationPolicies, macs: [{ id: 'mac-1', desired_policy_version: 3,
         applied_policy_version: 3 }],
+    } }) });
+  });
+  await page.route('**/native/v1/applications/app-preconfigured/block-policy', (route) => {
+    saved = route.request().postDataJSON();
+    applicationPolicies = [{ application_id: 'app-preconfigured', all_day: Number(saved.allDay),
+      windows: saved.windows.map((item, index) => ({ id: `window-${index}`,
+        start_minute: Number(item.start.slice(0, 2)) * 60 + Number(item.start.slice(3)),
+        end_minute: Number(item.end.slice(0, 2)) * 60 + Number(item.end.slice(3)), effective_active: 1 })) }];
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
+      timeZone: 'Asia/Shanghai', schedules: [], applicationPolicies, macs: [],
     } }) });
   });
   await page.goto(`${baseUrl}/native-apps/index.html`);
   await page.getByRole('button', { name: '已阻止' }).click();
   await page.getByRole('button', { name: '时间段', exact: true }).click();
   await expect(page.locator('#block-schedule-time-range')).toBeHidden();
-  await expect(page.getByLabel('开始时间')).toBeDisabled();
+  await expect(page.locator('#application-window-editor')).toBeHidden();
   await page.getByLabel('全天阻止').uncheck();
-  await expect(page.getByLabel('开始时间')).toBeEnabled();
-  await page.getByLabel('开始时间').fill('00:00');
-  await page.getByLabel('结束时间').fill('07:00');
+  await expect(page.locator('#application-window-editor')).toBeVisible();
+  await page.locator('#application-window-list input').nth(0).fill('00:00');
+  await page.locator('#application-window-list input').nth(1).fill('07:00');
   await page.getByRole('button', { name: '保存' }).click();
-  await expect.poll(() => saved).toEqual({
-    sourceType: 'APPLICATION', sourceKey: 'app-preconfigured', allDay: false,
-    start: '00:00', end: '07:00',
-  });
+  await expect.poll(() => saved).toEqual({ allDay: false,
+    windows: [{ start: '00:00', end: '07:00' }] });
   await expect(page.locator('#block-schedule-dialog')).not.toBeVisible();
   await expect(page.getByText('00:00–07:00').first()).toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: '已阻止' }).click();
   await page.getByRole('button', { name: '时间段', exact: true }).click();
   await expect(page.getByLabel('全天阻止')).not.toBeChecked();
-  await expect(page.getByLabel('开始时间')).toHaveValue('00:00');
-  await expect(page.getByLabel('结束时间')).toHaveValue('07:00');
+  await expect(page.locator('#application-window-list input').nth(0)).toHaveValue('00:00');
+  await expect(page.locator('#application-window-list input').nth(1)).toHaveValue('07:00');
+});
+
+test('Firefox 多时段逐条编辑，发布者规则明确保留', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 720, height: 900 });
+  await mockApis(page);
+  let policies = [{ application_id: 'firefox', all_day: 0, windows: [
+    { id: 'morning', start_minute: 180, end_minute: 480, effective_active: 1 },
+    { id: 'afternoon', start_minute: 540, end_minute: 1080, effective_active: 1 },
+  ] }];
+  await page.route('**/native/v1/applications?state=BLOCK', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ data: [{
+      id: 'firefox', display_name: 'Firefox', publisher: 'Mozilla', state: 'BLOCK',
+      directBlockApplicationId: 'firefox', team_id: 'MOZILLA', publisher_blocked: 1,
+      preconfiguredBlock: true, presentationClass: 'USER_APPLICATION',
+      contentCategory: '其它', policyAvailable: true,
+    }] }),
+  }));
+  await page.route('**/native/v1/block-schedules', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
+      timeZone: 'Asia/Shanghai', applicationPolicies: policies, schedules: [{
+        source_type: 'PUBLISHER', source_key: 'MOZILLA', start_minute: 0,
+        end_minute: 420, effective_active: 1,
+      }], macs: [],
+    } }),
+  }));
+  await page.route('**/native/v1/applications/firefox/block-policy', (route) => {
+    const saved = route.request().postDataJSON();
+    policies = [{ application_id: 'firefox', all_day: Number(saved.allDay), windows:
+      saved.windows.map((window, index) => ({ id: window.id || `new-${index}`,
+        start_minute: Number(window.start.slice(0, 2)) * 60 + Number(window.start.slice(3)),
+        end_minute: Number(window.end.slice(0, 2)) * 60 + Number(window.end.slice(3)),
+        effective_active: 1 })).sort((a, b) => a.start_minute - b.start_minute) }];
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
+      timeZone: 'Asia/Shanghai', applicationPolicies: policies, schedules: [], macs: [],
+    } }) });
+  });
+  await page.goto(`${baseUrl}/native-apps/index.html`);
+  await page.getByRole('button', { name: '已阻止' }).click();
+  await expect(page.getByText(/03:00–08:00、09:00–18:00 · 发布者 00:00–07:00/)).toBeVisible();
+  await page.getByRole('button', { name: '详情' }).click();
+  await expect(page.getByRole('heading', { name: '有效阻止策略' })).toBeVisible();
+  await expect(page.getByText('适用于 MOZILLA 下所有应用')).toBeVisible();
+  await page.getByRole('button', { name: '关闭' }).click();
+  await page.getByRole('button', { name: '时间段', exact: true }).click();
+  await expect(page.locator('#block-schedule-scope')).toContainText('发布者 MOZILLA');
+  await expect(page.locator('.application-window-row')).toHaveCount(2);
+  await page.getByRole('button', { name: '删除时段' }).last().click();
+  await expect(page.locator('.application-window-row')).toHaveCount(1);
+  await page.getByRole('button', { name: '删除时段' }).click();
+  await expect(page.locator('#block-schedule-error')).toContainText('最后一条时段不能直接删除');
+  await page.getByRole('button', { name: '保存' }).click();
+  await expect(page.locator('#block-schedule-dialog')).not.toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: '已阻止' }).click();
+  await page.getByRole('button', { name: '时间段', exact: true }).click();
+  await expect(page.locator('.application-window-row')).toHaveCount(1);
+  await page.getByRole('button', { name: '添加时段' }).click();
+  await expect(page.locator('.application-window-row')).toHaveCount(2);
+  await page.screenshot({ path: testInfo.outputPath('firefox-multi-window-narrow.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+  await page.getByRole('button', { name: '保存' }).click();
+  await expect(page.locator('#block-schedule-dialog')).not.toBeVisible();
+  await expect(page.getByText(/03:00–08:00、09:00–18:00/)).toBeVisible();
 });
 
 test('时间段接口未回显所选来源时保留弹窗并提示错误', async ({ page }) => {
@@ -358,12 +424,12 @@ test('时间段接口未回显所选来源时保留弹窗并提示错误', async
   await page.getByRole('button', { name: '已阻止' }).click();
   await page.getByRole('button', { name: '时间段', exact: true }).click();
   await page.getByLabel('全天阻止').uncheck();
-  await page.getByLabel('开始时间').fill('00:00');
-  await page.getByLabel('结束时间').fill('07:00');
+  await page.locator('#application-window-list input').nth(0).fill('00:00');
+  await page.locator('#application-window-list input').nth(1).fill('07:00');
   await page.getByRole('button', { name: '保存' }).click();
   await expect(page.locator('#block-schedule-dialog')).toBeVisible();
   await expect(page.locator('#block-schedule-error')).toBeVisible();
-  await expect(page.locator('#block-schedule-error')).toContainText('时间段未保存，请重试');
+  await expect(page.locator('#block-schedule-error')).toContainText('应用时段未保存，请重试');
 });
 
 for (const viewport of [{ name: 'desktop', width: 1366, height: 800 },
@@ -382,18 +448,19 @@ for (const viewport of [{ name: 'desktop', width: 1366, height: 800 },
       ] }),
     }));
     let saved;
-    let schedules = [];
+    let applicationPolicies = [];
     await page.route('**/native/v1/block-schedules', (route) => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
-        timeZone: 'Asia/Shanghai', schedules, macs: [],
+        timeZone: 'Asia/Shanghai', schedules: [], applicationPolicies, macs: [],
       } }),
     }));
-    await page.route('**/native/v1/block-schedules/bulk', (route) => {
+    await page.route('**/native/v1/applications/block-policies/bulk', (route) => {
       saved = route.request().postDataJSON();
-      schedules = saved.sources.map((source) => ({ source_type: source.sourceType,
-        source_key: source.sourceKey, start_minute: 0, end_minute: 420, effective_active: 1 }));
+      applicationPolicies = saved.applicationIds.map((application_id) => ({ application_id,
+        all_day: Number(saved.allDay), windows: [{ id: 'first', start_minute: 0,
+          end_minute: 420, effective_active: 1 }] }));
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: {
-        timeZone: 'Asia/Shanghai', schedules, macs: [],
+        timeZone: 'Asia/Shanghai', schedules: [], applicationPolicies, macs: [],
       } }) });
     });
     await page.goto(`${baseUrl}/native-apps/index.html`);
@@ -406,17 +473,15 @@ for (const viewport of [{ name: 'desktop', width: 1366, height: 800 },
     await page.getByRole('button', { name: /设置所选时间段/ }).click();
     await expect(page.getByRole('heading', { name: '设置 2 款应用的时间段' })).toBeVisible();
     await expect(page.locator('#block-schedule-time-range')).toBeHidden();
-    await expect(page.getByLabel('开始时间')).toBeDisabled();
+    await expect(page.locator('#application-window-editor')).toBeHidden();
     await page.getByLabel('全天阻止').uncheck();
-    await page.getByLabel('开始时间').fill('00:00');
-    await page.getByLabel('结束时间').fill('07:00');
+    await page.locator('#application-window-list input').nth(0).fill('00:00');
+    await page.locator('#application-window-list input').nth(1).fill('07:00');
     await page.screenshot({ path: testInfo.outputPath(`native-app-bulk-schedule-${viewport.name}.png`), fullPage: true });
     expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
     await page.getByRole('button', { name: '保存' }).click();
-    await expect.poll(() => saved).toEqual({ sources: [
-      { sourceType: 'APPLICATION', sourceKey: 'firefox' },
-      { sourceType: 'APPLICATION', sourceKey: 'steam' },
-    ], allDay: false, start: '00:00', end: '07:00' });
+    await expect.poll(() => saved).toEqual({ applicationIds: ['firefox', 'steam'],
+      allDay: false, windows: [{ start: '00:00', end: '07:00' }] });
     await expect(page.locator('#block-schedule-dialog')).not.toBeVisible();
     await page.reload();
     await page.getByRole('button', { name: '已阻止' }).click();
@@ -427,8 +492,8 @@ for (const viewport of [{ name: 'desktop', width: 1366, height: 800 },
     await page.getByLabel('选择 Steam').check();
     await page.getByRole('button', { name: /设置所选时间段/ }).click();
     await expect(page.getByLabel('全天阻止')).not.toBeChecked();
-    await expect(page.getByLabel('开始时间')).toHaveValue('00:00');
-    await expect(page.getByLabel('结束时间')).toHaveValue('07:00');
+    await expect(page.locator('#application-window-list input').nth(0)).toHaveValue('00:00');
+    await expect(page.locator('#application-window-list input').nth(1)).toHaveValue('07:00');
   });
 }
 
