@@ -164,7 +164,7 @@ export async function listAccountMachines(
   const rows = await database.prepare(`
     SELECT id, display_name, platform, default_child_id, desired_policy_version,
       applied_policy_version, policy_state, policy_error, service_version, os_version,
-      architecture, last_seen_at_ms, last_upload_at_ms, last_tamper_at_ms,
+      architecture, capabilities_json, last_seen_at_ms, last_upload_at_ms, last_tamper_at_ms,
       tamper_count, revoked_at_ms, created_at_ms
     FROM runtime_machines_v2 WHERE account_id=?1 ORDER BY created_at_ms DESC
   `).bind(accountId).all<Record<string, unknown>>();
@@ -178,6 +178,10 @@ export async function listAccountMachines(
     policyState: row.policy_state,
     policyError: row.policy_error,
     serviceVersion: row.service_version,
+    productBlockingCapability: (() => { try {
+      const capabilities = JSON.parse(String(row.capabilities_json ?? '[]'));
+      return Array.isArray(capabilities) && capabilities.includes('product-block-v1') ? 'reported' : 'notReported';
+    } catch { return 'notReported'; } })(),
     windowsVersion: row.os_version,
     architecture: row.architecture,
     lastSeenAtMs: Number(row.last_seen_at_ms),
@@ -463,16 +467,17 @@ export async function acknowledgePolicy(
 export async function recordMachineHeartbeat(
   database: D1Database,
   machine: MachineSelfResponse,
-  input: { serviceVersion: string; osVersion: string; architecture: string; tamperCount: number; policyState: PolicyState },
+  input: { serviceVersion: string; osVersion: string; architecture: string; tamperCount: number; policyState: PolicyState; capabilities?: string[] },
   nowMs: number,
 ): Promise<void> {
   await database.prepare(`
     UPDATE runtime_machines_v2 SET service_version=?1, os_version=?2, architecture=?3,
       tamper_count=MAX(tamper_count, ?4),
       last_tamper_at_ms=CASE WHEN ?4>tamper_count THEN ?5 ELSE last_tamper_at_ms END,
-      policy_state=?6, last_seen_at_ms=?5, updated_at_ms=?5 WHERE id=?7
+      policy_state=?6, capabilities_json=?8, last_seen_at_ms=?5, updated_at_ms=?5 WHERE id=?7
   `).bind(input.serviceVersion, input.osVersion, input.architecture, input.tamperCount,
-    nowMs, input.policyState, machine.machineId).run();
+    nowMs, input.policyState, machine.machineId,
+    JSON.stringify(input.capabilities?.includes('product-block-v1') ? ['product-block-v1'] : [])).run();
 }
 
 export async function persistMachineSegments(

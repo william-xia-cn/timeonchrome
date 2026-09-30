@@ -403,10 +403,16 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
       || typeof body.policyState !== 'string' || !policyStates.has(body.policyState)) {
       throw new HttpError(400, 'INVALID_REQUEST', 'Heartbeat state is invalid.');
     }
+    if (body.capabilities !== undefined && (!Array.isArray(body.capabilities)
+      || body.capabilities.length > 16 || body.capabilities.some(item => typeof item !== 'string'
+        || item.length < 1 || item.length > 64))) {
+      throw new HttpError(400, 'INVALID_REQUEST', 'Heartbeat capabilities are invalid.');
+    }
     await recordMachineHeartbeat(env.RUNTIME_DB, machine, {
       serviceVersion: String(body.serviceVersion), osVersion: version.osVersion,
       architecture: String(body.architecture), tamperCount: Number(body.tamperCount),
       policyState: body.policyState as 'pending' | 'cached' | 'applied' | 'failed' | 'offline',
+      capabilities: Array.isArray(body.capabilities) ? body.capabilities as string[] : [],
     }, nowMs);
     return jsonResponse({ success: true, nextHeartbeatSeconds: 300, policyPollSeconds: 60 });
   }

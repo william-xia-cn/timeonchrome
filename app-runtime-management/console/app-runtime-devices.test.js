@@ -23,6 +23,9 @@ async function main() {
   assert.equal(devices.syncAt({ lastSyncAtMs: 12, lastUploadAtMs: 9 }), 12);
   assert.equal(devices.syncAt({ lastUploadAtMs: 9 }), 9);
   assert.equal(devices.accountStatus({ sessionActive: false }), '会话未活动');
+  assert.match(devices.productBlockStatus({ platform: 'windows', policyState: 'applied' }), /未覆盖/);
+  assert.match(devices.productBlockStatus({ platform: 'windows', productBlockingCapability: 'reported', policyState: 'pending' }), /尚未生效/);
+  assert.match(devices.productBlockStatus({ platform: 'windows', productBlockingCapability: 'reported', policyState: 'applied' }), /实机验收/);
   assert.equal(devices.accountStatus({}), '会话状态未报告');
   assert.equal(devices.releasePath('macos'), null);
   assert.throws(() => devices.pairingName('linux'));

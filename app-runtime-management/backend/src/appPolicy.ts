@@ -18,6 +18,7 @@ import { identifyProducts, associateApplicationEvidence } from '@timeonchrome/ap
 import { defaultGameGroupRuleId, defaultSystemApplicationRuleId, effectiveApplicationKnowledge,
   listApplicationInventory, queryInventoryScanStatus, resolveEffectiveApplication, resolvePolicyApplications } from './applicationKnowledge';
 import { buildProductIdentityProjection, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
+import { buildProductBlockPolicy } from './productBlockPolicy';
 import { buildWeekReclassification, correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
 import type {
   AppEvidence,
@@ -300,6 +301,8 @@ function normalizeStoredPolicy(
     ...(payload.resolvedApplications ? { resolvedApplications: payload.resolvedApplications } : {}),
     ...('productIdentityProjection' in payload && payload.productIdentityProjection
       ? { productIdentityProjection: payload.productIdentityProjection } : {}),
+    ...('productBlockPolicy' in payload && payload.productBlockPolicy
+      ? { productBlockPolicy: payload.productBlockPolicy } : {}),
     ...('repairWeekStart' in payload && payload.repairWeekStart === '2026-09-21' ? { repairWeekStart: '2026-09-21' as const } : {}),
     ...('weekReclassification' in payload && payload.weekReclassification
       ? { weekReclassification: payload.weekReclassification } : {}) };
@@ -403,6 +406,7 @@ export async function putAppPolicy(
   const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
     applicationKnowledge: current.applicationKnowledge, resolvedApplications });
   completeUpdate.productIdentityProjection = await buildProductIdentityProjection(observed, knowledge, update.classifications);
+  completeUpdate.productBlockPolicy = buildProductBlockPolicy(knowledge, childId, completeUpdate.productIdentityProjection.version);
   completeUpdate.weekReclassification = buildWeekReclassification(completeUpdate, nowMs, current);
   const version = current.version + 1;
   const payloadJson = JSON.stringify(completeUpdate);
@@ -1077,7 +1081,8 @@ export async function queryAppCatalog(
     const displayName = product?.name || (projectedProduct?.status === 'associated' ? projectedProduct.canonicalName : null)
       || (found?.evidence.discovery?.nameSource !== 'fallback' ? found?.evidence.displayName : null)
       || observed?.displayName || configured?.displayName || found?.evidence.displayName || null;
-    const classification = configured?.classification ?? productChoice?.classification ?? resolvedByKey.get(key)?.classification
+    const classification = productChoice?.classification === 'blocked' ? 'blocked'
+      : configured?.classification ?? productChoice?.classification ?? resolvedByKey.get(key)?.classification
       ?? resolution?.classification ?? 'unclassified';
     const nameSuggestedType = knownProductType(displayName);
     const appType = product?.type ?? (resolution?.appType && resolution.appType !== 'unknown' ? resolution.appType : nameSuggestedType ?? 'unknown');
