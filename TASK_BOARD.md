@@ -2179,7 +2179,7 @@ Checklist：
 - [ ] [V1 Native App Control] Santa 每日阻止时间段：Native D1 migration、Worker 定时切换/同步前补偿、应用/预配置/发布者 UI 与本地测试已实现；仍需生产 migration、部署及真实 Mac 在时间边界的人工验收。此项与 Chrome 网页记账无关。
 - [ ] [V1 Native App Control / 原生时间规则] 在 Santa 2026.8 现有安装上，将“已阻止应用”多选批量设置同一每日时段，按指定 Native Mac 显式启用 CEL 本地时间判定；未启用设备保持旧同步切换。已完成本地源码与聚焦测试，仍需合入主线、生产 migration/部署及真实 Mac 新启动窗口内外验收。不存在独立命名“应用组”。
 - [ ] [V1 Native App Control / 应用规则归一] 手动应用时段接管已匹配预配置，主程序与已核验组件共用多每日时段；发布者规则仍独立可见。PR #148 已通过门禁并合入 `master`（`921c6e5`）；生产 Native D1 migration 007 已完成，2 条旧应用时段迁入新表，旧 `APPLICATION` 时段剩余 0 条；Native Worker 已部署（version `1e36faf8-651c-4a5d-9e45-d1afe021d9a5`），Pages 控制台已部署并回读 200。生产回读 Firefox 为 09:00–18:00、Edge 为 03:00–18:00，未擅自修改。真实终端阻断与同步效果仍需验收。
-- [ ] [V1 Native App Control / 应用时段保存 CORS] 控制台应用时段使用 `PUT`，但生产 Native Worker 的 `OPTIONS` 预检只允许 `GET, POST, OPTIONS`；浏览器在发送保存请求前报 `Failed to fetch`。仅补齐 `PUT` 预检声明并增加回归断言，不改规则编译或现有时段；部署后需复查预检及页面保存。
+- [ ] [V1 Native App Control / 应用时段保存 CORS] 已确认 `PUT` 保存被旧 CORS 预检阻断；PR #151 已合入 `master`（`8216d31`），仅补齐 Native Worker 的 `PUT` 预检声明和回归断言，Worker version `6cc7bb8b-9d1e-4e16-a562-65b4ed27c4c9` 已部署。线上 `OPTIONS` 回读 204，允许 `GET, POST, PUT, OPTIONS`；未改规则编译或生产时段，真实页面保存仍待家长复验。
 - 每个任务必须标注阶段（V0/V1）
 - 每次只推进单主题小包
 - 完成后同步更新本板与 DECISIONS
