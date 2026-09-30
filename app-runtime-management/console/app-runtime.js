@@ -33,6 +33,7 @@
   const childFromIndex = (value) => state.children[Number(value)] || null;
   const range = () => AppRuntimeTime.beijingRange(state.period, state.offset);
   state.usageKind='computer';
+  const applicationReadCache=ComputerUsageView.createReadCache();
   const computerReader=ComputerUsageView.create($('#runtime-computer-usage'),async(query)=>{
     const selected=state.childId,period=range();
     const date=ms=>new Date(ms+8*3600000).toISOString().slice(0,10);
@@ -104,7 +105,7 @@
     if (!state.session) await issue();
     return state.session.token;
   }
-  async function runtime(path, options = {}) { return AppRuntimeNetwork.requestJson({ url: `${RUNTIME_API}${path}`, options, getToken: moduleToken, authorizationScheme: 'RuntimeSession' }); }
+  async function runtime(path, options = {}) { if(options.method&&options.method!=='GET')applicationReadCache.clear();return AppRuntimeNetwork.requestJson({ url: `${RUNTIME_API}${path}`, options, getToken: moduleToken, authorizationScheme: 'RuntimeSession' }); }
 
   function mockData() {
     const dayStart = AppRuntimeTime.beijingRange('day').from;
@@ -173,7 +174,8 @@
     $('#runtime-computer-usage').hidden=!computer;
     $('[data-independent-app-usage]').hidden=state.usageKind!=='application';
     $('#runtime-web-usage').hidden=!['web','media'].includes(state.usageKind);
-    ['machine-filter','user-filter','platform-filter'].forEach(id=>$('#'+id).disabled=state.usageKind!=='application');
+    ['machine-filter','user-filter','platform-filter'].forEach(id=>{const control=$('#'+id);control.disabled=state.usageKind!=='application';control.hidden=computer;});
+    $('#application-read-note').textContent=state.usageReadInfo?`${state.usageReadInfo.cached?'缓存 · ':''}读取于 ${time(state.usageReadInfo.readAtMs)}（手动刷新可重新读取）`:'';
     if(state.usageKind!=='application')return;
     if (!mock && (state.usageLoading || state.usageError || !state.usage)) {
       const message = state.usageLoading ? '正在读取使用统计…' : state.usageError || '使用统计尚未加载';
@@ -407,7 +409,7 @@
     finally { setLoading(false); }
   }
   let usageRequestVersion = 0;
-  async function loadUsage() {
+  async function loadUsage({refresh=false}={}) {
     const requestVersion = ++usageRequestVersion;
     computerReader.invalidate();independentReader.invalidate();
     if(state.usageKind==='computer'){renderUsage();await computerReader.load();return;}
@@ -418,10 +420,10 @@
     if ($('#machine-filter').value) query.set('machineId', $('#machine-filter').value);
     if ($('#user-filter').value) query.set('userId', $('#user-filter').value);
     if ($('#platform-filter').value) query.set('platform', $('#platform-filter').value);
-    state.usage = null; state.usageError = null; state.usageLoading = true; renderUsage();
+    state.usage = null; state.usageReadInfo=null; state.usageError = null; state.usageLoading = true; renderUsage();
     try {
-      const usage = await runtime(`/v2/module/app-usage?${query}`);
-      if (requestVersion === usageRequestVersion) state.usage = usage;
+      const read=await applicationReadCache.read(`/v2/module/app-usage?${query}`,()=>runtime(`/v2/module/app-usage?${query}`),{refresh});
+      if (requestVersion === usageRequestVersion) {state.usage=read.value;state.usageReadInfo=read;}
     } catch (error) {
       if (requestVersion !== usageRequestVersion) return;
       state.usageError = `使用统计暂不可用：${AppRuntimeNetwork.friendlyError(error).message}`;
@@ -566,8 +568,8 @@
     if (button.dataset.accessTab) switchTab('access', button.dataset.accessTab);
     if (button.dataset.systemTab) { switchTab('system', button.dataset.systemTab); if (button.dataset.systemTab === 'logs') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
     if (button.id === 'mobile-menu') { $('#sidebar').classList.add('open'); $('#mobile-backdrop').hidden = false; }
-    if (button.id === 'refresh' || button.id === 'retry' || button.id === 'initial-load-retry') await load();
-    if (button.id === 'retry-usage') await loadUsage();
+    if (button.id === 'refresh' || button.id === 'retry' || button.id === 'initial-load-retry') {applicationReadCache.clear();await load();}
+    if (button.id === 'retry-usage'||button.id==='refresh-application') await loadUsage({refresh:true});
     if(button.dataset.usageKind){state.usageKind=button.dataset.usageKind;$$('[data-usage-kind]').forEach(item=>item.classList.toggle('active',item===button));renderUsage();await loadUsage();}
     if (button.dataset.period) { state.period = button.dataset.period; state.offset = 0; $$('[data-period]').forEach((item) => item.classList.toggle('active', item === button)); await loadUsage(); renderUsage(); }
     if (button.id === 'previous') { state.offset -= 1; await loadUsage(); renderUsage(); }
@@ -613,6 +615,7 @@
   document.addEventListener('input', (event) => { if (event.target.id === 'app-search') { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(renderAppDirectory, 120); } });
   $('#mobile-backdrop').addEventListener('click', () => { $('#sidebar').classList.remove('open'); closeDrawer(); });
   $('#runtime-logout').addEventListener('click', async () => {
+    applicationReadCache.clear();
     const active = AppRuntimeSession.load(sessionStorage);
     if (active) await fetch(`${RUNTIME_API}/v2/auth/browser-sessions/current`, { method: 'DELETE', headers: { Authorization: `RuntimeSession ${active.token}` } }).catch(() => {});
     AppRuntimeSession.clear(sessionStorage);

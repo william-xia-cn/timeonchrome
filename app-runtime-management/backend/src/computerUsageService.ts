@@ -2,7 +2,8 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import { readComputerApplicationEvidence } from './computerUsageEvidence';
 import { HttpError, jsonResponse, readJsonBody } from './http';
 import { sha256Hex } from './crypto';
-import { getAppPolicy, queryAppUsage } from './appPolicy';
+import { getAppPolicy } from './appPolicy';
+import { readCachedApplicationUsage } from './applicationUsageCache';
 import { loadUsageCorrections } from './applicationUsageCorrections';
 import { CHROME_DISPLAY_RULES } from './specialApplications';
 
@@ -49,7 +50,8 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
     const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)||!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to-86400000+8*3600000).toISOString().slice(0,10)!==toDate)throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
-    const value=await queryAppUsage(this.env.RUNTIME_DB,accountId,childId,from,to,{}) as {
+    const {value:result}=await readCachedApplicationUsage(this.env.RUNTIME_DB,accountId,childId,from,to,{});
+    const value=result as {
       totalDurationMs:number;categories:Array<{classification:string;durationMs:number}>;
       buckets:Array<{startAtMs:number;durationMs:number}>;
       applications:Array<{displayName:string|null;classification:string;durationMs:number}>};
