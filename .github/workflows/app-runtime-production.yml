@@ -123,14 +123,33 @@ jobs:
             npx wrangler d1 migrations apply timeonchrome-app-runtime --remote
             echo "applied=$actual" >> "$GITHUB_OUTPUT"
           fi
-      - name: Runtime Worker
-        if: inputs.deploy_runtime_worker
+      - name: Runtime RPC bootstrap
+        if: inputs.deploy_runtime_worker && inputs.deploy_guardian_worker
         working-directory: app-runtime-management/backend
-        run: npx wrangler deploy
+        run: |
+          # Publish the target entrypoint first without its new reverse binding.
+          # Source SHA, other bindings, secrets, migrations and CI gates are unchanged.
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          config.main = path.resolve(config.main);
+          delete config.$schema;
+          config.services = (config.services || []).filter(binding => binding.binding !== 'GUARDIAN_COMPUTER_USAGE');
+          for (const db of config.d1_databases || []) {
+            if (db.migrations_dir) db.migrations_dir = path.resolve(db.migrations_dir);
+          }
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'runtime-rpc-bootstrap.json'), JSON.stringify(config));
+          NODE
+          npx wrangler deploy --config "$RUNNER_TEMP/runtime-rpc-bootstrap.json"
       - name: Guardian Worker
         if: inputs.deploy_guardian_worker
         working-directory: app-runtime-management/backend
         run: npx wrangler deploy --config ../../workers/wrangler.toml
+      - name: Runtime Worker
+        if: inputs.deploy_runtime_worker
+        working-directory: app-runtime-management/backend
+        run: npx wrangler deploy
       - name: Runtime Pages
         if: inputs.deploy_runtime_pages
         working-directory: app-runtime-management/backend
