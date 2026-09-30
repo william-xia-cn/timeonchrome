@@ -401,6 +401,18 @@ test('应用阻止策略使用独立多时段 API，预配置由手动应用接�
   assert(js.includes('publisherWarning') && js.includes('仍独立生效'));
 });
 
+test('应用时段 PUT 保存通过 Native Worker CORS 预检', () => {
+  const worker = read('native-app-control/worker/src/index.ts');
+  const pages = read('pages/native-apps/native-apps.js');
+  const consolePage = read('native-app-control/console/native-apps.js');
+  assert(worker.includes("'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS'"));
+  assert(worker.includes("request.method === 'OPTIONS'"));
+  for (const js of [pages, consolePage]) {
+    assert(js.includes("method: 'PUT'"));
+    assert(js.includes('/native/v1/applications/block-policies/bulk'));
+  }
+});
+
 test('独立控制台可刷新 Guardian session 并重签 Native module token', () => {
   const js = read('native-app-control/console/native-apps.js');
   assert(js.includes('async function refreshGuardianSession()'));

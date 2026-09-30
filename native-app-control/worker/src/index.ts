@@ -5,7 +5,7 @@ import { reconcileAllSchedules } from './blockSchedules';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': 'https://timeonchrome-console.pages.dev',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
 };
 
