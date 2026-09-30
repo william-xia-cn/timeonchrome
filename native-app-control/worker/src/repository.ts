@@ -1,4 +1,6 @@
 import { hmacHex, randomSecret } from './crypto';
+import { childTimeZone, scheduleActive } from './blockSchedules';
+import { loadEffectiveIdentityWindows } from './applicationBlockPolicies';
 import {
   buildApplicationPresentation,
   normalizeSantaEvent,
@@ -687,6 +689,24 @@ export async function decideApplication(
       application.team_id
     ));
     if (action === 'IGNORE') {
+      statements.push(env.DB.prepare(`DELETE FROM native_app_application_effective_v1
+        WHERE child_id = ? AND application_id IN (
+          SELECT id FROM account_applications_v1
+          WHERE account_id = ? AND merged_into_application_id IS NULL
+            AND (id = ? OR (? IS NOT NULL
+              AND LOWER(COALESCE(top_level_bundle_id, '')) = LOWER(?)
+              AND UPPER(COALESCE(team_id, '')) = UPPER(COALESCE(?, ''))))
+        )`).bind(auth.child_id, auth.account_id, applicationId,
+        application.top_level_bundle_id, application.top_level_bundle_id, application.team_id));
+      statements.push(env.DB.prepare(`DELETE FROM native_app_application_policies_v1
+        WHERE child_id = ? AND application_id IN (
+          SELECT id FROM account_applications_v1
+          WHERE account_id = ? AND merged_into_application_id IS NULL
+            AND (id = ? OR (? IS NOT NULL
+              AND LOWER(COALESCE(top_level_bundle_id, '')) = LOWER(?)
+              AND UPPER(COALESCE(team_id, '')) = UPPER(COALESCE(?, ''))))
+        )`).bind(auth.child_id, auth.account_id, applicationId,
+        application.top_level_bundle_id, application.top_level_bundle_id, application.team_id));
       statements.push(env.DB.prepare(`DELETE FROM native_app_block_schedules_v1
         WHERE child_id = ? AND source_type = 'APPLICATION' AND source_key IN (
           SELECT id FROM account_applications_v1
@@ -854,41 +874,13 @@ function auditStatement(
 }
 
 export async function loadBlockedPolicy(env: Env, childId: string) {
-  const applications = await env.DB.prepare(`
-    SELECT s.application_id, i.identity_type, i.identifier
-      FROM child_application_states_v1 s
-      JOIN account_applications_v1 a ON a.id = s.application_id
-      JOIN application_memberships_v1 m ON m.application_id = s.application_id
-      JOIN application_identities_v1 i ON i.id = m.identity_id
-      LEFT JOIN native_app_block_schedules_v1 bs ON bs.child_id = s.child_id
-        AND bs.source_type = 'APPLICATION' AND bs.source_key = s.application_id
-     WHERE s.child_id = ? AND s.state = 'BLOCK' AND s.block_origin = 'DIRECT'
-       AND (bs.effective_active IS NULL OR bs.effective_active = 1)
-       AND a.merged_into_application_id IS NULL
-     ORDER BY s.application_id, CASE i.identity_type WHEN 'SIGNINGID' THEN 0 WHEN 'CDHASH' THEN 1 ELSE 2 END
-  `).bind(childId).all<{ application_id: string; identity_type: 'SIGNINGID' | 'CDHASH' | 'BINARY'; identifier: string }>();
+  const [applications, zone] = await Promise.all([
+    loadEffectiveIdentityWindows(env, childId), childTimeZone(env, childId),
+  ]);
   const grouped = new Map<string, Array<{ identityType: 'SIGNINGID' | 'CDHASH' | 'BINARY'; identifier: string }>>();
-  for (const row of applications.results || []) {
-    const identities = grouped.get(row.application_id) || [];
-    identities.push({ identityType: row.identity_type, identifier: row.identifier });
-    grouped.set(row.application_id, identities);
-  }
-  const predefined = await env.DB.prepare(`
-    SELECT p.source, p.source_index, i.identity_type, i.identifier
-      FROM native_app_predefined_items_v1 p
-      JOIN native_app_predefined_identities_v1 i
-        ON i.child_id = p.child_id AND i.source = p.source AND i.source_index = p.source_index
-      LEFT JOIN native_app_block_schedules_v1 bs ON bs.child_id = p.child_id
-        AND bs.source_type = 'PREDEFINED'
-        AND bs.source_key = json_array(p.source, p.source_index)
-     WHERE p.child_id = ? AND p.desired_state = 'BLOCK'
-       AND p.disabled_at IS NULL AND i.status IN ('AUTO', 'CONFIRMED')
-       AND (bs.effective_active IS NULL OR bs.effective_active = 1)
-     ORDER BY p.source_index
-  `).bind(childId).all<{ source: string; source_index: number;
-    identity_type: 'SIGNINGID' | 'CDHASH' | 'BINARY'; identifier: string }>();
-  for (const row of predefined.results || []) {
-    grouped.set(`predefined:${row.source}:${row.source_index}:${row.identifier}`, [{
+  for (const row of applications) {
+    if (row.start_minute !== null && !scheduleActive(row.start_minute, row.end_minute!, zone, Date.now())) continue;
+    grouped.set(`${row.identity_type}:${row.identifier}`, [{
       identityType: row.identity_type, identifier: row.identifier,
     }]);
   }

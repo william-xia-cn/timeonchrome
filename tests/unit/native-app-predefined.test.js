@@ -17,15 +17,24 @@ function loadModule(relative, dependencies = {}) {
   const module = { exports: {} };
   vm.runInNewContext(code, {
     module, exports: module.exports, require: (name) => dependencies[name],
-    crypto: { randomUUID }, Date, Map, Set, JSON, console, Request, Response, URL,
+    crypto: { randomUUID }, Date, Intl, Map, Set, JSON, console, Request, Response, URL,
   });
   return module.exports;
 }
 
 const policy = loadModule('native-app-control/worker/src/policy.ts');
 const presets = loadModule('native-app-control/worker/src/presets.ts');
+const schedulesBridge = {};
+const appPolicies = loadModule('native-app-control/worker/src/applicationBlockPolicies.ts', {
+  './blockSchedules': schedulesBridge,
+});
+const schedules = loadModule('native-app-control/worker/src/blockSchedules.ts', {
+  './applicationBlockPolicies': appPolicies,
+});
+Object.assign(schedulesBridge, schedules);
 const repository = loadModule('native-app-control/worker/src/repository.ts', {
   './policy': policy, './crypto': { hmacHex: async () => '', randomSecret: () => '' },
+  './blockSchedules': schedules, './applicationBlockPolicies': appPolicies,
 });
 
 function database() {
@@ -33,7 +42,8 @@ function database() {
   let batchTail = Promise.resolve();
   for (const migration of ['001_native_app_control_v1.sql', '002_native_app_inventory_v1.sql',
     '003_native_app_predefined_controls_v1.sql', '004_native_app_preconfiguration_source_v1.sql',
-    '005_native_app_block_schedules_v1.sql', '006_native_time_rules_opt_in_v1.sql']) {
+    '005_native_app_block_schedules_v1.sql', '006_native_time_rules_opt_in_v1.sql',
+    '007_native_app_application_windows_v1.sql']) {
     sqlite.exec(fs.readFileSync(path.join(ROOT, 'native-app-control', 'worker', 'migrations', migration), 'utf8'));
   }
   const statement = (sql, args = []) => ({
