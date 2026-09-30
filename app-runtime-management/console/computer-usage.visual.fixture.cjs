@@ -24,6 +24,16 @@ let body=fs.readFileSync(file);
 if(file.endsWith('console'+path.sep+'app-runtime.js'))body=String(body).replace("const $ =",'window.__mockRuntimeState=state; const $ =');
 res.setHeader('Content-Type',file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css':'application/octet-stream');
 if(file.endsWith('console'+path.sep+'index.html'))body=String(body).replace('<script src="computer-usage-view.js">','<script>window.__readComputerUsageMock=async params=>(await fetch("/mock-computer-usage?"+params)).json();</script><script src="computer-usage-view.js">');
+if(file===path.join(root,'pages','index.html')){
+body=String(body).replace('<head>','<head><script>localStorage.setItem("toc_session",JSON.stringify({token:"isolated-mock",email:"demo@example.invalid"}));</script>');
+body=body.replace("async function api(path, method='GET', body=null) {",`async function api(path, method='GET', body=null) {
+if(path.includes('computer-usage')){const params=new URLSearchParams(path.split('?')[1]);if(params.has('source'))return {source:params.get('source'),fromDate:params.get('from'),toDate:params.get('to'),totalDurationMs:5134000,categories:[{classification:'study',durationMs:5134000}],buckets:[{startAtMs:${day},durationMs:5134000}],applications:[{displayName:'演示办公应用',classification:'study',durationMs:5134000}]};return (await fetch('/mock-computer-usage?'+params)).json();}
+if(path==='/profiles')return {profiles:[{id:'mock-child',name:'演示孩子',avatar_color:'#168d72'}]};
+if(path.endsWith('/config'))return {config:{},version:1};
+if(path.includes('devices'))return {devices:[]};
+if(path.includes('stats'))return {stats:[{date:'2026-10-01',hour:0,channel:'active',mode:'study',target_key:'domain:learning.example',target_classification_at_time:'study',duration_seconds:5134,managed_target_label_at_time:'演示学习网站',domain:'learning.example'}]};
+return {};`);
+}
 res.end(body);
 });
 server.listen(47629,'127.0.0.1',()=>console.log('Local fixture http://127.0.0.1:47629; Ctrl-C to stop'));

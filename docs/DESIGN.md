@@ -1,5 +1,11 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-01 使用统计读取纠错
+
+线上可观测日志已证实 RuntimeComputerUsageService.jsrpc 被运行时以 hung/canceled 取消，普通应用 HTTP 读取正常；本地真实 RPC 无法复现生产取消，不能称为已证明数据库故障。本轮将 Guardian→Runtime 读取改为同一命名 Service Binding 的受限 fetch 传输，显式等待并完整读取 JSON，保留旧 RPC 兼容；不新增公开 HTTP 路由或权限。仅三个固定只读方法可达，每次仍核验 account/Child，错误返回稳定码；用真实登录结果验收传输修复，不能仅凭本地 RPC 测试宣称生产恢复。
+
+两套云端页面固定四视图：电脑使用（默认汇总）、应用使用、网页使用、网页媒体使用。现有 `computer-usage` GET 增加可选 `source=application|web|media`，在既有账号/Child ownership校验后读取独立来源；不走合并器、不发原始身份。Guardian受限RPC复用现有网页/媒体只读路由和更正口径，Runtime受限RPC复用现有应用权威查询；内部短期读取身份仅在Guardian调用既有路由时使用，不保存或返回。独立结果仅含裁剪的总量、分类、时间分布及排行。网页总量只取真实每日active投影，禁止同时累计domain/target或日/小时。来源故障不补零，详情保留脱敏稳定错误码，精确重叠未知不屏蔽有效来源。所有原统计、落账、配额和写入路由保持不变。
+
 ## D-111：云端统一电脑使用的只读读模型
 
 收尾实现口径：以Child读取全部来源，新增独立的sourceStatus（网页/应用 complete、partial、unavailable）、historyStatus（none、bestEffort）和overlapStatus（confirmed、unconfirmed）。原complete继续只表示精确统一总量是否成立，不控制来源分类/明细的可见性。categoriesMs在精确去重可用时保持去重口径，否则标明sourceCumulative并累积有效来源分类（排除已确认Chrome的容器贡献）；原来源分类另列，不能把分类和当成电脑总量。历史来源标记bestEffort，可读多少展示多少；缺失不补零、不回写。Chrome内容明细在未确认电脑关系时返回child级网页内容，标明scope=child、containerRelation=childContent，不产生重叠扣除；scope=computer才允许解释容器内/外。现有接口和同版本分页沿用，不创建新数据账本或迁移。

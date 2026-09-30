@@ -1478,11 +1478,14 @@
           </div>
 
           <div class="usage-segmented" aria-label="使用分析账本" style="width:max-content;margin-bottom:12px;">
-            <button type="button" class="active" data-cloud-usage-ledger="web">网页使用</button>
-            <button type="button" data-cloud-usage-ledger="media">媒体使用</button>
-            <button type="button" data-cloud-usage-ledger="computer">电脑使用</button>
+            <button type="button" class="active" data-cloud-usage-ledger="computer">电脑使用</button>
+            <button type="button" data-cloud-usage-ledger="application">应用使用</button>
+            <button type="button" data-cloud-usage-ledger="web">网页使用</button>
+            <button type="button" data-cloud-usage-ledger="media">网页媒体使用</button>
           </div>
           <div id="cloud-computer-usage" hidden></div>
+          <div id="cloud-application-usage" hidden></div>
+          <style>.computer-view[hidden],[data-cloud-independent][hidden]{display:none!important}.usage-segmented[aria-label="使用分析账本"]{flex-wrap:wrap;max-width:100%}</style>
           <div class="usage-analysis-card" data-cloud-independent>
             <div class="usage-card-head">
               <div>
@@ -2062,7 +2065,7 @@ let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore:
 let cloudSystemManagementActiveTab = 'reconciliation';
 let cloudRulesManagementActiveTab = 'site-management';
 let cloudDevicesCache = { profileId: null, devices: [] };
-let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
+let cloudUsageState = { ledger: 'computer', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
 let cloudUsageLastView = null;
 let cloudRestoreState = { package: null, preflight: null };
 let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'acct-config-import-diff', messageId: 'acct-config-io-msg' };
@@ -2312,6 +2315,12 @@ function renderProfileOptions() {
 }
 
 async function selectProfile(id) {
+  cloudStatsRequestVersion++;
+  cloudComputerReader.invalidate();
+  cloudApplicationReader.invalidate();
+  document.getElementById('cloud-usage-total').textContent='—';
+  document.getElementById('cloud-usage-table').innerHTML='';
+  for(const chart of ['cloud-usage-week-chart','cloud-usage-main-chart','cloud-usage-legend'])document.getElementById(chart)?.replaceChildren();
   currentProfileId = id;
   window.resetCompositeReviews?.();
   remoteConfigVersion = null;
@@ -6541,7 +6550,7 @@ async function saveScheduleConfig() {
 function setupStats() {
   document.querySelectorAll('[data-cloud-usage-ledger]').forEach(btn => {
     btn.addEventListener('click', () => {
-      cloudUsageState.ledger = ['media','computer'].includes(btn.dataset.cloudUsageLedger) ? btn.dataset.cloudUsageLedger : 'web';
+      cloudUsageState.ledger = ['media','computer','application'].includes(btn.dataset.cloudUsageLedger) ? btn.dataset.cloudUsageLedger : 'web';
       cloudUsageState.detail = null;
       cloudUsageState.query = '';
       renderStatsPage();
@@ -7420,12 +7429,15 @@ async function renderStatsPage() {
   const requestVersion=++cloudStatsRequestVersion;
   if (!currentProfileId) return;
   const computer=cloudUsageState.ledger==='computer';
-  document.querySelectorAll('[data-cloud-independent]').forEach(element=>element.hidden=computer);
+  const application=cloudUsageState.ledger==='application';
+  cloudComputerReader.invalidate();cloudApplicationReader.invalidate();
+  document.querySelectorAll('[data-cloud-independent]').forEach(element=>element.hidden=computer||application);
   document.querySelectorAll('[data-cloud-usage-ledger]').forEach(button=>button.classList.toggle('active',button.dataset.cloudUsageLedger===cloudUsageState.ledger));
   document.getElementById('cloud-computer-usage').hidden=!computer;
-  document.getElementById('cloud-usage-device').disabled=computer;
+  document.getElementById('cloud-application-usage').hidden=!application;
+  document.getElementById('cloud-usage-device').disabled=computer||application;
   if(computer){await cloudComputerReader.load();return;}
-  cloudComputerReader.invalidate();
+  if(application){await cloudApplicationReader.load();return;}
   const table = document.getElementById('cloud-usage-table');
   if (table) table.innerHTML = '<div class="usage-empty">加载中...</div>';
   try {
@@ -7447,6 +7459,13 @@ const cloudComputerReader=ComputerUsageView.create(document.getElementById('clou
 },direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click(),()=>{const range=cloudUsageRange();return currentProfileId+'|'+range.from+'|'+range.to;});
 
 // ── Stats reconciliation ─────────────────────────────────────
+const cloudApplicationReader=ComputerUsageView.createIndependent(document.getElementById('cloud-application-usage'),async()=>{
+  const selected=currentProfileId,range=cloudUsageRange();
+  const params=new URLSearchParams({from:range.from,to:range.to,source:'application'});
+  const result=await api(`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`);
+  if(selected!==currentProfileId)throw new Error('SELECTION_CHANGED');
+  return result;
+},direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click());
 function setupReconciliation() {
   document.querySelectorAll('[data-reconciliation-range]').forEach(btn => {
     btn.addEventListener('click', () => {

@@ -9,6 +9,7 @@
   <script src="app-runtime-bootstrap.js"></script>
   <link rel="stylesheet" href="app-runtime.css">
   <link rel="stylesheet" href="app-runtime-v2.css">
+  <style>.computer-view[hidden],[data-independent-app-usage][hidden]{display:none!important}.tabbar{flex-wrap:wrap}</style>
 </head>
 <body>
   <aside class="sidebar" id="sidebar">
@@ -35,7 +36,7 @@
         <div class="load-empty-actions"><a class="button primary" href="https://timeonchrome-console.pages.dev/?launch=app-runtime">从家长控制台进入</a><button id="initial-load-retry">重新加载</button></div>
       </section>
       <section class="view active" data-view-panel="usage">
-        <div class="tabbar"><button class="active" data-usage-kind="application">应用使用</button><button data-usage-kind="computer">电脑使用</button></div>
+        <div class="tabbar"><button class="active" data-usage-kind="computer">电脑使用</button><button data-usage-kind="application">应用使用</button><button data-usage-kind="web">网页使用</button><button data-usage-kind="media">网页媒体使用</button></div>
         <div class="toolbar card">
           <div class="segmented"><button data-period="day" class="active">日</button><button data-period="week">周</button></div>
           <button id="previous">上一周期</button><button id="today">今天</button>
@@ -45,7 +46,8 @@
           <span id="range-label"></span>
         </div>
         <div id="runtime-computer-usage" hidden></div>
-        <div data-independent-app-usage>
+        <div id="runtime-web-usage" hidden></div>
+        <div data-independent-app-usage hidden>
         <div class="summary-grid">
           <article class="card metric"><span>主使用时长</span><strong id="total-time">0 分钟</strong><small>按主 Segment 区间并集</small></article>
           <article class="card metric"><span>配额状态</span><strong id="quota-state">额度充足</strong><small>本阶段只提示，不关闭应用</small></article>

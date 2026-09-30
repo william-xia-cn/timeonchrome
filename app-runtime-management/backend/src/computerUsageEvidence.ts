@@ -45,7 +45,8 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
       CASE WHEN s.accounting_schema_version=2 THEN s.end_wall_time_ms ELSE s.end_at_ms END AS end_wall_time_ms,
       s.uploaded_at_ms FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
       WHERE m.account_id=?1 AND s.child_id=?2 AND s.machine_id=?3 AND s.diagnostic=0
-      AND COALESCE(s.start_wall_time_ms,s.start_at_ms)<?5 AND COALESCE(s.end_wall_time_ms,s.end_at_ms)>?4
+      AND ((s.accounting_schema_version=2 AND s.start_wall_time_ms<?5 AND s.end_wall_time_ms>?4)
+        OR (s.accounting_schema_version=1 AND s.start_at_ms<?5 AND s.end_at_ms>?4))
       ORDER BY start_wall_time_ms,end_wall_time_ms,s.id LIMIT ?6`)
       .bind(accountId,childId,machine.id,fromMs,toMs,remaining+1).all<Record<string,unknown>>();
     const rows=source.results ?? [];
