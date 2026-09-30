@@ -41,18 +41,18 @@ return '<ul>'+rows.map(row=>kind==='products'
 :'<li><b>'+esc(row.source==='web'?'网页':'应用')+'</b> · '+esc(row.label)+historyLabel(row)+(row.special?' · Chrome 容器':'')+(row.containerRelation==='outsideContainer'?' · 容器外网页（独立来源）':row.containerRelation==='childContent'?' · 该孩子的网页内容（同电脑归属未确认）':'')+'<br>'+esc(time(row.startMs))+' — '+esc(time(row.endMs))+'<br><small>权威有效用量 '+duration(row.creditedMs)+' · '+originalClassification(row)+esc(labels[row.classification]||row.classification)+' · 重叠 '+duration(row.overlapMs)+'</small></li>').join('')+'</ul>';
 }
 function create(host,read,onRange,getScope){
-let generation=0,snapshot=null,computer='',devices=[],scope;
+let generation=0,snapshot=null,scope;
 async function load(){
-const currentScope=getScope?.();if(currentScope!==scope){scope=currentScope;computer='';devices=[];snapshot=null;}
+const currentScope=getScope?.();if(currentScope!==scope){scope=currentScope;snapshot=null;}
 const token=++generation;host.innerHTML='<p>正在读取云端电脑使用…</p>';
-try{const result=await read({computer,detail:'summary'});if(token!==generation)return;snapshot=result;if(!computer)devices=result.devices;host.classList.add('computer-view');host.innerHTML=summary(result);const toolbar=host.querySelector('.computer-toolbar');toolbar.insertAdjacentHTML('beforeend','<label>电脑 <select data-computer-select><option value="">全部电脑（设备累计）</option>'+devices.map(device=>'<option value="'+esc(device.key)+'"'+(device.key===computer?' selected':'')+'>'+esc(device.name)+'</option>').join('')+'</select></label>');if(onRange)toolbar.insertAdjacentHTML('beforeend','<button data-computer-period="previous">上一周期</button><button data-computer-period="today">今天</button><button data-computer-period="next">下一周期</button>');}
+try{const result=await read({detail:'summary'});if(token!==generation)return;snapshot=result;host.classList.add('computer-view');host.innerHTML=summary(result);if(onRange)host.querySelector('.computer-toolbar').insertAdjacentHTML('beforeend','<button data-computer-period="previous">上一周期</button><button data-computer-period="today">今天</button><button data-computer-period="next">下一周期</button>');}
 catch(error){if(token===generation)host.innerHTML='<section><h3>电脑使用暂不可用</h3><p>独立网页、媒体与应用统计不受影响。请重试。</p><button data-computer-retry>重试</button></section>';}
 }
 async function details(kind,offset=0,product){
 if(!snapshot)return;const token=generation,version=snapshot.revision;
 const target=product?[...host.querySelectorAll('[data-computer-chrome-target]')].find(element=>element.dataset.computerChromeTarget===product):host.querySelector('[data-computer-'+kind+']');if(!target)return;
 const button=host.querySelector('[data-computer-detail="'+kind+'"]');if(button)button.disabled=true;
-try{const result=await read({computer,detail:kind,revision:version,offset,...(product?{product}:{})});if(token!==generation||snapshot.revision!==version)return;
+try{const result=await read({detail:kind,revision:version,offset,...(product?{product}:{})});if(token!==generation||snapshot.revision!==version)return;
 if(result.revision!==version)throw new Error('COMPUTER_USAGE_VERSION_CHANGED');
 if(!offset)target.innerHTML='';target.insertAdjacentHTML('beforeend',detailRows(kind,result[kind]));
 target.querySelector('[data-computer-more]')?.remove();
@@ -61,13 +61,32 @@ if(result.nextCursor!==null)target.insertAdjacentHTML('beforeend','<button data-
 finally{if(token===generation&&button)button.disabled=false;}
 }
 host.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;if(button.hasAttribute('data-computer-retry'))void load();if(button.dataset.computerDetail)void details(button.dataset.computerDetail);if(button.dataset.computerChrome)void details('timeline',0,button.dataset.computerChrome);if(button.dataset.computerMore)void details(button.dataset.computerMore,Number(button.dataset.offset),button.dataset.product);if(button.dataset.computerPeriod&&onRange)onRange(button.dataset.computerPeriod);});
-host.addEventListener('change',event=>{if(event.target.hasAttribute('data-computer-select')){computer=event.target.value;void load();}});
-return {load,invalidate(){generation++;snapshot=null;host.innerHTML='';},setComputer(key){computer=key;return load();}};
+return {load,invalidate(){generation++;snapshot=null;host.innerHTML='';}};
+}
+
+// Memory only, scoped by the complete authorized URL. No credentials or ledger
+// copies; failures are never cached. Epochs prevent cleared/older reads returning.
+function createReadCache({ttlMs=30000,maxEntries=16,now=Date.now}={}){
+const entries=new Map(),pending=new Map();let epoch=0;
+return{clear(){epoch++;entries.clear();pending.clear();},async read(key,loader,{refresh=false}={}){
+if(refresh){entries.delete(key);pending.delete(key);}
+const entry=entries.get(key);
+if(entry&&now()-entry.readAtMs<ttlMs){entries.delete(key);entries.set(key,entry);return {...entry,cached:true};}
+if(pending.has(key))return pending.get(key);
+const started=epoch;
+const request=Promise.resolve().then(loader).then(value=>{
+const result={value,readAtMs:now(),cached:false};
+if(started===epoch&&pending.get(key)===request){entries.set(key,result);while(entries.size>maxEntries)entries.delete(entries.keys().next().value);}
+return result;
+}).catch(error=>{if(error?.status===401||error?.status===403){epoch++;entries.clear();pending.clear();}throw error;})
+.finally(()=>{if(pending.get(key)===request)pending.delete(key);});
+pending.set(key,request);return request;
+}};
 }
 function independentSummary(snapshot){
 const title={application:'应用使用',web:'网页使用',media:'网页媒体使用'}[snapshot.source];
 return '<style>.computer-view{display:grid;gap:16px}.computer-view[hidden]{display:none!important}.computer-toolbar,.computer-category-list{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.computer-view section,.computer-metric{padding:18px;background:#fff;border:1px solid #dce7e3;border-radius:12px}.computer-metric strong{display:block;font-size:24px;margin-top:8px}.computer-view button{min-height:44px;padding:9px 14px;border:1px solid #c9ddd6;border-radius:10px;background:#fff;font:inherit;cursor:pointer}.computer-view ul{padding:0;list-style:none}.computer-view li{padding:10px 0;border-bottom:1px solid #e7eeeb;overflow-wrap:anywhere}.computer-view p,.computer-view small{color:#697d78;line-height:1.6}</style><div class="computer-toolbar"><b>'+esc(title)+' · '+esc(snapshot.fromDate)+' — '+esc(snapshot.toDate)+'</b><button data-independent-retry>刷新</button></div>'+
-'<div class="computer-metrics"><article class="computer-metric"><small>'+esc(title)+'时间</small><strong>'+duration(snapshot.totalDurationMs)+'</strong></article></div>'+
+(snapshot.readDisplay?'<p>'+esc(snapshot.readDisplay)+'</p>':'')+'<div class="computer-metrics"><article class="computer-metric"><small>'+esc(title)+'时间</small><strong>'+duration(snapshot.totalDurationMs)+'</strong></article></div>'+
 '<section><h3>分类明细</h3><p>独立来源原口径；明细可能重叠，不相加生成总量。</p><div class="computer-category-list">'+snapshot.categories.map(item=>'<p><b>'+esc(labels[item.classification]||item.classification)+'</b><br>'+duration(item.durationMs)+'</p>').join('')+'</div></section>'+
 '<section><h3>时间分布</h3><ul>'+snapshot.buckets.map(item=>'<li>'+esc(item.label||time(item.startAtMs))+' · '+duration(item.durationMs)+'</li>').join('')+'</ul></section>'+
 '<section><h3>'+esc(snapshot.source==='application'?'应用明细':'网站明细')+'</h3><ul>'+snapshot.applications.map(item=>'<li><strong>'+esc(item.displayName)+'</strong> · '+esc(labels[item.classification]||item.classification)+' · '+duration(item.durationMs)+'</li>').join('')+'</ul></section>';
@@ -75,13 +94,13 @@ return '<style>.computer-view{display:grid;gap:16px}.computer-view[hidden]{displ
 function createIndependent(host,read,onRange){
 let generation=0;
 host.classList.add('computer-view');
-async function load(){
+async function load(refresh=false){
 const token=++generation;host.innerHTML='<p>正在读取独立使用统计…</p>';
-try{const result=await read();if(token===generation){host.innerHTML=independentSummary(result);if(onRange)host.querySelector('.computer-toolbar').insertAdjacentHTML('beforeend','<button data-independent-period="previous">上一周期</button><button data-independent-period="today">今天</button><button data-independent-period="next">下一周期</button>');}}
+try{const result=await read({refresh});if(token===generation){host.innerHTML=independentSummary(result);if(onRange)host.querySelector('.computer-toolbar').insertAdjacentHTML('beforeend','<button data-independent-period="previous">上一周期</button><button data-independent-period="today">今天</button><button data-independent-period="next">下一周期</button>');}}
 catch(error){if(token===generation)host.innerHTML='<section><h3>使用统计暂不可用</h3><p>其他统计和设备管理不受影响。</p><small>'+esc(error?.code||'SOURCE_UNAVAILABLE')+'</small><button data-independent-retry>重试</button></section>';}
 }
-host.addEventListener('click',event=>{if(event.target.closest('[data-independent-retry]'))void load();const direction=event.target.closest('[data-independent-period]')?.dataset.independentPeriod;if(direction&&onRange)onRange(direction);});
+host.addEventListener('click',event=>{if(event.target.closest('[data-independent-retry]'))void load(true);const direction=event.target.closest('[data-independent-period]')?.dataset.independentPeriod;if(direction&&onRange)onRange(direction);});
 return{load,invalidate(){generation++;host.innerHTML='';}};
 }
-const api={create,createIndependent,summary,independentSummary,detailRows,duration};if(typeof module==='object')module.exports=api;else root.ComputerUsageView=api;
+const api={create,createIndependent,createReadCache,summary,independentSummary,detailRows,duration};if(typeof module==='object')module.exports=api;else root.ComputerUsageView=api;
 })(typeof globalThis==='object'?globalThis:this);

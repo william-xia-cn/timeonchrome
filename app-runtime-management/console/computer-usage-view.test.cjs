@@ -1,6 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const view=require('./computer-usage-view.js');
 const raw=fs.readFileSync(path.join(__dirname,'computer-usage-view.js'),'utf8');
+assert.ok(!raw.includes('data-computer-select'),'child summary must not contain a source/computer selector');
 const controller=fs.readFileSync(path.join(__dirname,'app-runtime.js'),'utf8');
 assert.ok(controller.includes('特殊应用 · 原应用配置：'));
 assert.ok(controller.includes("current==='special'?'特殊应用':'普通应用'"));
@@ -32,4 +33,21 @@ assert.ok(independent.includes('1小时 25分 34秒'));assert.ok(!independent.in
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 const pending=deferred(),events={},host={innerHTML:'',classList:{add(){}},addEventListener(name,fn){events[name]=fn;},querySelector(){return null;}};
 const reader=view.create(host,()=>pending.promise);const work=reader.load();reader.invalidate();pending.resolve(snapshot);
-work.then(()=>{assert.equal(host.innerHTML,'','invalidated selection clears old data and late response cannot paint');console.log('PASS computer usage renderer: precision, unknown≠zero, safe labels, Chrome expand, shared views, stale responses');}).catch(error=>{console.error(error);process.exitCode=1;});
+work.then(async()=>{
+assert.equal(host.innerHTML,'','invalidated selection clears old data and late response cannot paint');
+let clock=0,calls=0;const cache=view.createReadCache({now:()=>clock,maxEntries:2,ttlMs:30}),loader=async()=>({total:++calls});
+const first=await cache.read('child-a|day',loader);assert.equal(first.cached,false);
+assert.equal((await cache.read('child-a|day',loader)).cached,true);assert.equal(calls,1);
+await cache.read('child-b|day',loader);assert.equal(calls,2);
+await cache.read('child-a|day',loader,{refresh:true});assert.equal(calls,3);
+clock=31;await cache.read('child-a|day',loader);assert.equal(calls,4);
+const delayed=deferred();const one=cache.read('pending',()=>delayed.promise),two=cache.read('pending',loader);
+delayed.resolve({total:5});assert.deepEqual(await one,await two);assert.equal(calls,4);
+const forgotten=deferred();const previous=cache.read('forgotten',()=>forgotten.promise);cache.clear();forgotten.resolve({total:1});await previous;
+assert.equal((await cache.read('forgotten',loader)).cached,false);
+await assert.rejects(cache.read('error',async()=>{throw Error('offline');}));assert.equal((await cache.read('error',loader)).cached,false);
+await cache.read('one',loader);await cache.read('two',loader);assert.equal((await cache.read('forgotten',loader)).cached,false);
+const queries=[],cleanHost={...host,innerHTML:''};await view.create(cleanHost,async(query)=>{queries.push(query);return snapshot;}).load();
+assert.deepEqual(queries,[{detail:'summary'}]);assert.ok(!cleanHost.innerHTML.includes('<select'));
+console.log('PASS renderer/cache: child summary, precision, source isolation, TTL, refresh, single-flight, eviction, failure, stale response');
+}).catch(error=>{console.error(error);process.exitCode=1;});

@@ -260,6 +260,7 @@
     }
     .usage-segmented button.active { background: #2563eb; color: white; }
     .usage-device-select { display: flex; align-items: center; gap: 8px; font-size: 13px; white-space: nowrap; }
+    .usage-device-select[hidden] { display: none !important; }
     .usage-device-select select,
     .usage-list-toolbar select,
     .usage-list-toolbar input {
@@ -2203,6 +2204,7 @@ async function doRegister() {
 }
 
 function logout() {
+  cloudApplicationReadCache.clear();
   const saved = loadLocal('session');
   if (saved?.refreshToken) {
     fetch(`${API_BASE}/auth/logout`, {
@@ -7436,6 +7438,8 @@ async function renderStatsPage() {
   document.getElementById('cloud-computer-usage').hidden=!computer;
   document.getElementById('cloud-application-usage').hidden=!application;
   document.getElementById('cloud-usage-device').disabled=computer||application;
+  document.getElementById('cloud-usage-device').hidden=computer||application;
+  document.getElementById('cloud-usage-device').closest('label').hidden=computer||application;
   if(computer){await cloudComputerReader.load();return;}
   if(application){await cloudApplicationReader.load();return;}
   const table = document.getElementById('cloud-usage-table');
@@ -7459,12 +7463,14 @@ const cloudComputerReader=ComputerUsageView.create(document.getElementById('clou
 },direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click(),()=>{const range=cloudUsageRange();return currentProfileId+'|'+range.from+'|'+range.to;});
 
 // ── Stats reconciliation ─────────────────────────────────────
-const cloudApplicationReader=ComputerUsageView.createIndependent(document.getElementById('cloud-application-usage'),async()=>{
+const cloudApplicationReadCache=ComputerUsageView.createReadCache();
+const cloudApplicationReader=ComputerUsageView.createIndependent(document.getElementById('cloud-application-usage'),async({refresh}={})=>{
   const selected=currentProfileId,range=cloudUsageRange();
   const params=new URLSearchParams({from:range.from,to:range.to,source:'application'});
-  const result=await api(`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`);
+  const url=`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`;
+  const result=await cloudApplicationReadCache.read(url,()=>api(url),{refresh});
   if(selected!==currentProfileId)throw new Error('SELECTION_CHANGED');
-  return result;
+  return {...result.value,readDisplay:`${result.cached?'缓存 · ':''}读取于 ${new Date(result.readAtMs).toLocaleTimeString('zh-CN')}（手动刷新可重新读取）`};
 },direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click());
 function setupReconciliation() {
   document.querySelectorAll('[data-reconciliation-range]').forEach(btn => {

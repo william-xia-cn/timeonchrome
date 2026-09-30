@@ -3,6 +3,7 @@ import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/compu
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
 import { machineUsageCorrections } from './applicationUsageCorrections';
+import { readCachedApplicationUsage } from './applicationUsageCache';
 import { getApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
   putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
   applyKnowledgeOperation } from './applicationKnowledge';
@@ -42,7 +43,6 @@ import {
   parseAppPolicyUpdate,
   parseCursor,
   putAppPolicy,
-  queryAppUsage,
   queryAppCatalog,
   queryClassificationRecords,
   queryRuntimeLogs,
@@ -212,12 +212,13 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
       if (platform != null && platform !== 'windows' && platform !== 'macos') {
         throw new HttpError(400, 'INVALID_PLATFORM', 'Platform is invalid.');
       }
-      return jsonResponse(await queryAppUsage(env.RUNTIME_DB, claims.account_id, childId,
+      const result=await readCachedApplicationUsage(env.RUNTIME_DB, claims.account_id, childId,
         range.fromMs, range.toMs, {
           machineId: url.searchParams.get('machineId') || undefined,
           localUserId: url.searchParams.get('userId') || undefined,
           platform: platform || undefined,
-        }));
+        });
+      return jsonResponse(result.value,{headers:{'x-application-usage-cache':result.cacheStatus}});
     }
     if (url.pathname === '/v2/module/usage-segments' || url.pathname === '/v2/module/media-segments') {
       if (request.method !== 'GET') return methodNotAllowed('GET');
