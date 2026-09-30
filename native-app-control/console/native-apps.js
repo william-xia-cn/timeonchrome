@@ -543,7 +543,21 @@
     });
     await loadView();
   }
+  function setBlockScheduleAllDay(allDay) {
+    $('#block-schedule-all-day').checked = allDay;
+    $('#block-schedule-time-range').hidden = allDay;
+    for (const input of [$('#block-schedule-start'), $('#block-schedule-end')]) {
+      input.disabled = allDay;
+      input.required = !allDay;
+    }
+  }
+  function showBlockScheduleError(error) {
+    const message = $('#block-schedule-error');
+    message.textContent = error instanceof Error ? error.message : String(error);
+    message.hidden = false;
+  }
   function openBlockSchedule(type, key, name) {
+    $('#block-schedule-error').hidden = true;
     state.editingBlockSource = { type, key };
     state.editingBlockSources = null;
     const scope = type === 'PUBLISHER' ? '该发布者 TeamID 下的全部应用'
@@ -551,15 +565,13 @@
     $('#block-schedule-title').textContent = name;
     $('#block-schedule-scope').textContent = `作用范围：${scope}。其他阻止来源仍独立生效。`;
     const existing = scheduleFor(type, key);
-    $('#block-schedule-all-day').checked = !existing;
     $('#block-schedule-start').value = existing ? clockTime(existing.start_minute) : '09:00';
     $('#block-schedule-end').value = existing ? clockTime(existing.end_minute) : '18:00';
-    $('#block-schedule-time-range').hidden = !existing;
-    $('#block-schedule-start').required = !!existing;
-    $('#block-schedule-end').required = !!existing;
+    setBlockScheduleAllDay(!existing);
     $('#block-schedule-dialog').showModal();
   }
   function openBulkBlockSchedule() {
+    $('#block-schedule-error').hidden = true;
     const selected = state.data.filter((app) => state.selectedBlockAppIds.has(app.id));
     const sources = [...new Map(selected.flatMap(bulkSourcesForApp)
       .map(([type, key]) => [`${type}:${key}`, { sourceType: type, sourceKey: key }])).values()];
@@ -572,12 +584,9 @@
     const same = existing.every((item) => item?.start_minute === existing[0]?.start_minute
       && item?.end_minute === existing[0]?.end_minute);
     const initial = same ? existing[0] : null;
-    $('#block-schedule-all-day').checked = !!initial ? false : same;
     $('#block-schedule-start').value = initial ? clockTime(initial.start_minute) : '09:00';
     $('#block-schedule-end').value = initial ? clockTime(initial.end_minute) : '18:00';
-    $('#block-schedule-time-range').hidden = $('#block-schedule-all-day').checked;
-    $('#block-schedule-start').required = !$('#block-schedule-all-day').checked;
-    $('#block-schedule-end').required = !$('#block-schedule-all-day').checked;
+    setBlockScheduleAllDay(!initial && same);
     $('#block-schedule-dialog').showModal();
   }
   async function saveBlockSchedule(event) {
@@ -589,11 +598,20 @@
     const start = $('#block-schedule-start').value;
     const end = $('#block-schedule-end').value;
     if (!allDay && start === end) throw new Error('开始和结束时间不能相同；全天请勾选“全天阻止”');
-    await native(sources ? '/native/v1/block-schedules/bulk' : '/native/v1/block-schedules', {
+    const result = await native(sources ? '/native/v1/block-schedules/bulk' : '/native/v1/block-schedules', {
       method: 'POST', body: JSON.stringify(sources
         ? { sources, allDay, start, end }
         : { sourceType: source.type, sourceKey: source.key, allDay, start, end }),
     });
+    const expected = sources || [{ sourceType: source.type, sourceKey: source.key }];
+    const responseSchedules = result.data?.schedules;
+    const startMinute = Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5));
+    const endMinute = Number(end.slice(0, 2)) * 60 + Number(end.slice(3, 5));
+    if (!Array.isArray(responseSchedules) || !expected.every(({ sourceType, sourceKey }) => {
+      const saved = responseSchedules.find((item) => item.source_type === sourceType && item.source_key === sourceKey);
+      return allDay ? !saved : saved?.start_minute === startMinute && saved?.end_minute === endMinute;
+    })) throw new Error('时间段未保存，请重试');
+    state.blockSchedules = result.data;
     $('#block-schedule-dialog').close();
     state.selectedBlockAppIds.clear();
     if ($('#application-detail-dialog').open) $('#application-detail-dialog').close();
@@ -730,14 +748,9 @@
       loadView();
     }));
     $('#refresh-button').addEventListener('click', loadView);
-    $('#block-schedule-all-day').addEventListener('change', (event) => {
-      const timed = !event.target.checked;
-      $('#block-schedule-time-range').hidden = !timed;
-      $('#block-schedule-start').required = timed;
-      $('#block-schedule-end').required = timed;
-    });
+    $('#block-schedule-all-day').addEventListener('change', (event) => setBlockScheduleAllDay(event.target.checked));
     $('#cancel-block-schedule').addEventListener('click', () => $('#block-schedule-dialog').close());
-    $('#block-schedule-form').addEventListener('submit', (event) => saveBlockSchedule(event).catch(showError));
+    $('#block-schedule-form').addEventListener('submit', (event) => saveBlockSchedule(event).catch(showBlockScheduleError));
     $('#cancel-time-zone').addEventListener('click', () => $('#time-zone-dialog').close());
     $('#time-zone-form').addEventListener('submit', (event) => {
       event.preventDefault();
