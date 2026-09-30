@@ -2,6 +2,8 @@
 // 阶段1: 账户与绑定系统
 
 import { authRouter } from './routes/auth';
+import { handleComputerUsage } from './routes/computerUsage';
+export { ComputerUsageService } from './services/computerUsage';
 import { profilesRouter } from './routes/profiles';
 import { deviceRouter } from './routes/device';
 import { statsRouter } from './routes/stats';
@@ -135,6 +137,7 @@ export interface Env {
   APP_RUNTIME_BRIDGE_ISSUER?: string;
   APP_RUNTIME_CONSOLE_ORIGIN?: string;
   APP_RUNTIME_SERVICE?: Fetcher;
+  RUNTIME_COMPUTER_USAGE?: import('./services/computerUsage').ComputerUsageEnv['RUNTIME_COMPUTER_USAGE'];
 }
 
 const PROFILE_STATS_ROUTE_RE = /^\/profiles\/[^/]+\/(stats|hourly-stats|target-stats|hourly-target-stats|usage-segments|usage-accounting-corrections|stats-reconciliation|stats-integrity|media-segments|media-stats|hourly-media-stats)(?:\/|$)/;
@@ -155,6 +158,8 @@ async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext):
   const path = url.pathname;
 
   // 路由分发
+  const computerUsage = path.match(/^\/profiles\/([^/]+)\/computer-usage\/v1$/);
+  if (computerUsage) return handleComputerUsage(request,env,computerUsage[1]);
   if (path.startsWith('/auth/')) {
     return await authRouter.handle(request, env);
   } else if (taskModuleRouter.matches(path)) {

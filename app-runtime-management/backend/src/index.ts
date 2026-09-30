@@ -12,6 +12,7 @@ import {
 import { routeV2 } from './v2Routes';
 import { deleteRuntimeChildV2 } from './v2Repository';
 import { exchangeBrowserSession, revokeBrowserSession } from './browserSessions';
+export { RuntimeComputerUsageService } from './computerUsageService';
 
 interface WindowsV2ReleaseManifest {
   version: string;

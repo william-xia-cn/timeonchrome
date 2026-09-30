@@ -1480,9 +1480,10 @@
           <div class="usage-segmented" aria-label="使用分析账本" style="width:max-content;margin-bottom:12px;">
             <button type="button" class="active" data-cloud-usage-ledger="web">网页使用</button>
             <button type="button" data-cloud-usage-ledger="media">媒体使用</button>
+            <button type="button" data-cloud-usage-ledger="computer">电脑使用</button>
           </div>
-
-          <div class="usage-analysis-card">
+          <div id="cloud-computer-usage" hidden></div>
+          <div class="usage-analysis-card" data-cloud-independent>
             <div class="usage-card-head">
               <div>
                 <div class="usage-total-label">使用时间</div>
@@ -1502,7 +1503,7 @@
             <div class="usage-legend" id="cloud-usage-legend"></div>
           </div>
 
-          <div class="usage-analysis-card">
+          <div class="usage-analysis-card" data-cloud-independent>
             <div class="usage-list-toolbar">
               <select id="cloud-usage-list-mode">
                 <option value="targets">显示管理对象</option>
@@ -2040,6 +2041,7 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
+<script src="computer-usage-view.js"></script>
 <script>
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日','周一','周二','周三','周四','周五','周六'];
@@ -6539,7 +6541,7 @@ async function saveScheduleConfig() {
 function setupStats() {
   document.querySelectorAll('[data-cloud-usage-ledger]').forEach(btn => {
     btn.addEventListener('click', () => {
-      cloudUsageState.ledger = btn.dataset.cloudUsageLedger === 'media' ? 'media' : 'web';
+      cloudUsageState.ledger = ['media','computer'].includes(btn.dataset.cloudUsageLedger) ? btn.dataset.cloudUsageLedger : 'web';
       cloudUsageState.detail = null;
       cloudUsageState.query = '';
       renderStatsPage();
@@ -7413,18 +7415,36 @@ function renderCloudUsageView(view) {
   renderCloudUsageList(view);
 }
 
+let cloudStatsRequestVersion=0;
 async function renderStatsPage() {
+  const requestVersion=++cloudStatsRequestVersion;
   if (!currentProfileId) return;
+  const computer=cloudUsageState.ledger==='computer';
+  document.querySelectorAll('[data-cloud-independent]').forEach(element=>element.hidden=computer);
+  document.querySelectorAll('[data-cloud-usage-ledger]').forEach(button=>button.classList.toggle('active',button.dataset.cloudUsageLedger===cloudUsageState.ledger));
+  document.getElementById('cloud-computer-usage').hidden=!computer;
+  document.getElementById('cloud-usage-device').disabled=computer;
+  if(computer){await cloudComputerReader.load();return;}
+  cloudComputerReader.invalidate();
   const table = document.getElementById('cloud-usage-table');
   if (table) table.innerHTML = '<div class="usage-empty">加载中...</div>';
   try {
     const view = await buildCloudUsageView();
+    if(requestVersion!==cloudStatsRequestVersion)return;
     renderCloudUsageView(view);
   } catch (e) {
     console.warn('[Pages] cloud usage analysis unavailable:', e);
+    if(requestVersion!==cloudStatsRequestVersion)return;
     if (table) table.innerHTML = '<div class="usage-empty">部分数据暂时不可用</div>';
   }
 }
+const cloudComputerReader=ComputerUsageView.create(document.getElementById('cloud-computer-usage'),async(query)=>{
+  const selected=currentProfileId,range=cloudUsageRange();
+  const params=new URLSearchParams({from:range.from,to:range.to,...Object.fromEntries(Object.entries(query).filter(([,value])=>value!==''&&value!==undefined).map(([key,value])=>[key,String(value)]))});
+  const result=await api(`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`);
+  if(selected!==currentProfileId)throw new Error('SELECTION_CHANGED');
+  return result;
+},direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click(),()=>{const range=cloudUsageRange();return currentProfileId+'|'+range.from+'|'+range.to;});
 
 // ── Stats reconciliation ─────────────────────────────────────
 function setupReconciliation() {

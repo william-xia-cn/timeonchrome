@@ -35,6 +35,7 @@
         <div class="load-empty-actions"><a class="button primary" href="https://timeonchrome-console.pages.dev/?launch=app-runtime">从家长控制台进入</a><button id="initial-load-retry">重新加载</button></div>
       </section>
       <section class="view active" data-view-panel="usage">
+        <div class="tabbar"><button class="active" data-usage-kind="application">应用使用</button><button data-usage-kind="computer">电脑使用</button></div>
         <div class="toolbar card">
           <div class="segmented"><button data-period="day" class="active">日</button><button data-period="week">周</button></div>
           <button id="previous">上一周期</button><button id="today">今天</button>
@@ -43,6 +44,8 @@
           <select id="platform-filter" aria-label="平台筛选"><option value="">全部平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select>
           <span id="range-label"></span>
         </div>
+        <div id="runtime-computer-usage" hidden></div>
+        <div data-independent-app-usage>
         <div class="summary-grid">
           <article class="card metric"><span>主使用时长</span><strong id="total-time">0 分钟</strong><small>按主 Segment 区间并集</small></article>
           <article class="card metric"><span>配额状态</span><strong id="quota-state">额度充足</strong><small>本阶段只提示，不关闭应用</small></article>
@@ -52,6 +55,7 @@
         <div class="two-column">
           <section class="card"><div class="section-title"><div><h2>应用使用</h2><p>同一应用 ACTIVE/PiP 重叠按并集</p></div></div><div id="app-ranking" class="list empty">暂无使用记录</div></section>
           <section class="card"><div class="section-title"><div><h2>分类使用</h2><p>分类时长不可直接相加为设备总时长</p></div></div><div id="category-ranking" class="list empty">暂无分类记录</div></section>
+        </div>
         </div>
       </section>
       <section class="view" data-view-panel="access">
@@ -114,6 +118,6 @@
   <dialog id="product-dialog" class="knowledge-dialog" aria-labelledby="product-dialog-title"><header><div><h2 id="product-dialog-title">确定性应用列表</h2><p>家庭复用产品与可信变种；分类只保存到明确选择的孩子</p></div><button data-knowledge-close="product-dialog" aria-label="关闭确定性应用列表">×</button></header><div class="knowledge-body" id="product-panel"></div><footer><small>分类向前生效，历史账本不重写；产品级封锁仅由已报告并实际验证该能力的设备执行。</small><button data-knowledge-close="product-dialog">关闭</button></footer></dialog>
   <dialog id="rule-dialog" class="knowledge-dialog" aria-labelledby="rule-dialog-title"><header><div><h2 id="rule-dialog-title">分类规则管理</h2><p>已核实身份可自动匹配；名称、类型和来源只能辅助或建议</p></div><button data-knowledge-close="rule-dialog" aria-label="关闭分类规则管理">×</button></header><div class="knowledge-body" id="rule-panel"></div><footer><small>孩子明确分类优先；同层冲突不会静默覆盖。</small><button data-knowledge-close="rule-dialog">关闭</button></footer></dialog>
   <link rel="stylesheet" href="app-runtime-knowledge.css">
-  <script src="app-runtime-time.js"></script><script src="app-runtime-network.js"></script><script src="app-runtime-clipboard.js"></script><script src="app-runtime-policy.js"></script><script src="app-runtime-knowledge.js"></script><script src="app-runtime-devices.js"></script><script src="app-runtime.js"></script>
+  <script src="computer-usage-view.js"></script><script src="app-runtime-time.js"></script><script src="app-runtime-network.js"></script><script src="app-runtime-clipboard.js"></script><script src="app-runtime-policy.js"></script><script src="app-runtime-knowledge.js"></script><script src="app-runtime-devices.js"></script><script src="app-runtime.js"></script>
 </body>
 </html>
