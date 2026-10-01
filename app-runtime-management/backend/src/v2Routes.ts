@@ -402,7 +402,9 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     catch {throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');}
     if (!response.ok) throw new HttpError(response.status===404?404:503,
       response.status===404?'CHILD_NOT_FOUND':'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');
-    const result=await response.json() as {policy?:{schemaVersion?:unknown;revision?:unknown;stage?:unknown}};
+    let result:{policy?:{schemaVersion?:unknown;revision?:unknown;stage?:unknown}};
+    try {result=await response.json() as typeof result;}
+    catch {throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');}
     if (result.policy?.schemaVersion!==1||typeof result.policy.revision!=='string'
       ||!['legacy','shadow','shared'].includes(String(result.policy.stage)))
       throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');

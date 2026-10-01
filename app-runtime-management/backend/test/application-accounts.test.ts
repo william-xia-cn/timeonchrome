@@ -74,6 +74,10 @@ it('reads only the current protected assignment shared policy from the bound Gua
   expect(current?.status).toBe(200);expect(await current?.json()).toEqual({policy});
   await expect(read(2)).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});
   expect(guardianCalls).toBe(1);
+  const malformed={fetch:async()=>new Response('invalid JSON',{status:200})} as unknown as typeof env.GUARDIAN_COMPUTER_USAGE;
+  await expect(routeV2(new Request(`http://runtime.test/v2/machines/shared-access-policy?localUserId=${localUserId}&assignmentVersion=1`,
+    {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:malformed},now))
+    .rejects.toMatchObject({status:503,code:'SHARED_ACCESS_POLICY_UNAVAILABLE'});
 });
 it('immutable staged manifest, chunks and receipt are idempotent but never published', async () => {
   const f = await fixture(), a = await account(), pending = await upload(f, a);
