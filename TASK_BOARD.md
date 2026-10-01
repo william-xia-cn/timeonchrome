@@ -2,6 +2,16 @@
 
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
+21:05历史页面末次复验：9/27机器/Windows读取HTTP200、1348ms、producer=native、stale=false、policy159、总量36,728,619ms；图表和明细实际显示，已解除21:03所记首次stale状态。9/25–27三日页面均采用对应Native权威总量，不能继续说只完成receipt、还未验证页面。今天缺策略事实和Mac仍独立待办。
+
+21:03 云端本批收口：PR #168/#169/#170合入；最后master=3cfdab2ddcb1b02bf32de40d0378e475b2ef1b8b，精确主线CI36865363441 SUCCESS，受保护发布36865525544 SUCCESS，仅Runtime Worker，version=7e96de49-92bc-409d-aaba-3e4c5a88d200，manifest artifact11163670827／ZIP SHA256=749357a240be61b493cf5ee47a715611e3bd91f0df59d7c0728e54245e88008c。health/未认证401通过；migration步骤只读检查，无待执行，apply=false；本批未安装或主动部署Pages/Guardian/R2。
+
+真实性能与结果：同一9/30机器/Windows筛选，修改前强制读取5003/5479ms，锚点优化后2017ms、显式刷新1837ms；后者HTTP200、producer=native、stale=false、总量26,914,118ms。总量、分类、应用、小时及媒体字段与固定基线逐项完全相同。数据库锚点单查询810.58→62.00ms、24条锚点与原source hash不变；不将页面读取称为人为清缓存后的冷读，也不宣称所有范围秒开。
+
+Native 2.6.15 本机安装由Native会话完成，本会话只读云端验收：9/25–27非零receipt与publication均rev7/7/7、错误null、最新关联；事实数399/499/694，已发布总量22,480,192／28,401,544／36,728,619ms。对应默认日及机器/Windows日物化均native；真实页面三日HTTP200、总量完全一致，9/25/26读取无stale，9/27首次响应仍stale随后物化，不能把该首次读取说成无过期。9/28–30非零新统计此前已验收，9/30最新策略159已实际读取。某次9/30后台换代短暂返回legacy-server，36ms差异已准确记录；新版本自动物化后恢复Native值，不用旧值填平。
+
+审计：Matched=云端精确核对/历史独立投影、六个历史日期非零业务发布、真实页面、读取优化及限定发布；Deviated/Extra=无（本批范围）。Missing=10/1既有事实POLICY_HISTORY_MISSING的Native处理与该日完整闭环；Mac D-113继续延后，整体D-113不标完成。向Native回传最新页面摘要的一次消息被安全审查拒绝，未换通道绕过；不阻挡本会话继续云端验证，未在Mac交接Issue写家庭用量。
+
 锚点续修本地验收：18项统计＋20项发布回归38/38、typecheck、dry-run、边界及diff通过。固定回归验证旧Child历史仍可选为同用户稳定锚点、monotonic相同时按id选择、异常候选排除、无候选lane保留NULL及完整主键join。生产只读执行新SQL：同24条锚点、原publication source hash完全一致，锚点耗时由810.58ms降为62.00ms；计划显示历史候选只物化一次，临时自动索引覆盖machine/user/session/epoch，不建立持久索引。提交前Matched=同锚点/同hash与数据库性能证据；Deviated/Extra无；Missing=本补丁主线CI、Worker-only发布与完整真实请求耗时。PR #169/master3318084已发布Worker e8c4b652-88f0-42f3-89ee-037d9c851b2b，但只减排队往返仍5010ms，不冒报性能改善。
 
 20:54 主要瓶颈只读证据：生产执行同一六查询，普通事实水位4.55ms、锚点810.58ms；EXPLAIN证明每个lane的相关子查询仅按machine/user主键反复扫描用户历史，再临时排序。当前publication source hash与核对器实时hash一致，未放宽来源检查。将符合原锚点条件的同用户候选先物化一次，再按原session/epoch及monotonic/id顺序选取；保留跨日历史、空锚点、NULL、排序及原hash。聚焦回归与生产只读前后查询对照通过后继续同旁路PR及Worker-only发布；不建索引/migration，不触及Native/原账/配额。前两次减往返发布仍约5秒，不记为性能解决。
