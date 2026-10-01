@@ -4,7 +4,8 @@ import { createUsageAccount, hashUsageAccountValue, usageAccountDayStart, type U
 import { sha256Hex, randomToken } from '../src/crypto';
 import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationAccount, readApplicationAccountStatus,routeApplicationAccounts } from '../src/applicationAccounts';
 import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota,
-  reconcileApplicationSharedQuotaEvidence, readVerifiedChromeMarginals } from '../src/applicationSharedQuota';
+  reconcileApplicationSharedQuotaEvidence, readVerifiedChromeMarginals,
+  readCoveredChromeDeduction } from '../src/applicationSharedQuota';
 import type { MachineSelfResponse } from '../src/contracts';
 
 const start = usageAccountDayStart('2026-09-27');
@@ -93,9 +94,13 @@ it('checks shared contribution against the published immutable account before an
     .toEqual({source_verified:1,chrome_included_ms:0,statistics_manifest_hash:snapshot.manifest.manifestHash});
   expect(await readVerifiedChromeMarginals(env.RUNTIME_DB,f.machine.accountId,f.childId,
     snapshot.manifest.date,snapshot.manifest.date)).toHaveLength(1);
+  expect(await readCoveredChromeDeduction(env.RUNTIME_DB,f.machine.accountId,f.childId,f.machine.machineId,
+    snapshot.manifest.date,snapshot.manifest.date,1501)).toBe(0);
   await send(2,{statisticsRevision:'wrong-statistics'});
   expect(await readVerifiedChromeMarginals(env.RUNTIME_DB,f.machine.accountId,f.childId,
     snapshot.manifest.date,snapshot.manifest.date)).toEqual([]);
+  expect(await readCoveredChromeDeduction(env.RUNTIME_DB,f.machine.accountId,f.childId,f.machine.machineId,
+    snapshot.manifest.date,snapshot.manifest.date,1501)).toBeNull();
   expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
     snapshot.manifest.date)).reasonCode).toBe('SHARED_QUOTA_SOURCE_VERSION_MISMATCH');
   expect(await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB,now+302_000,f.machine.machineId))

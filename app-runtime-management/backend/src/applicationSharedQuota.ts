@@ -217,3 +217,34 @@ export async function readVerifiedChromeMarginals(db:D1Database,accountId:string
   if(result.results.length>1000)throw new HttpError(422,'SHARED_QUOTA_SOURCE_LIMIT','Too many application scopes.');
   return result.results;
 }
+
+/** Exact native-account coverage check for one machine and at most seven Beijing dates. */
+export async function readCoveredChromeDeduction(db:D1Database,accountId:string,childId:string,
+  machineId:string,fromDate:string,toDate:string,totalMs:number):Promise<number|null> {
+  parseDate(fromDate);parseDate(toDate);
+  if(toDate<fromDate||Date.parse(`${toDate}T00:00:00+08:00`)-Date.parse(`${fromDate}T00:00:00+08:00`)>6*86_400_000
+    ||!validInteger(totalMs))fail('SHARED_QUOTA_INVALID_RANGE');
+  const matched=`v.source_verified=1 AND v.chrome_included_ms IS NOT NULL
+    AND v.statistics_manifest_hash=m.manifest_hash
+    AND v.revision_ordinal=r.revision_ordinal AND v.payload_hash=r.payload_hash`;
+  const coverage=await db.prepare(`SELECT COUNT(*) AS expected,
+      SUM(CASE WHEN ${matched} THEN 1 ELSE 0 END) AS verified,
+      SUM(CASE WHEN ${matched} THEN v.chrome_included_ms ELSE 0 END) AS included_ms
+    FROM runtime_application_account_publications_v1 p
+    JOIN runtime_application_account_manifests_v1 m ON m.id=p.manifest_id
+    LEFT JOIN runtime_application_shared_quota_receipts_v1 r
+      ON r.machine_id=p.machine_id AND r.local_user_id=p.local_user_id
+      AND r.assignment_version=p.assignment_version AND r.date=p.date
+      AND r.account_id=p.account_id AND r.child_id=p.child_id
+    LEFT JOIN runtime_application_shared_quota_verified_v1 v
+      ON v.machine_id=r.machine_id AND v.local_user_id=r.local_user_id
+      AND v.assignment_version=r.assignment_version AND v.date=r.date
+    WHERE p.account_id=?1 AND p.child_id=?2 AND p.machine_id=?3
+      AND p.date>=?4 AND p.date<=?5`)
+    .bind(accountId,childId,machineId,fromDate,toDate)
+    .first<{expected:number;verified:number|null;included_ms:number|null}>();
+  const expected=Number(coverage?.expected??0),verified=Number(coverage?.verified??0),
+    included=Number(coverage?.included_ms??0);
+  if(expected===0)return totalMs===0?0:null;
+  return expected===verified&&validInteger(included)&&included<=totalMs?included:null;
+}
