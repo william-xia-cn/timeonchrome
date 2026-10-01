@@ -35,17 +35,18 @@ async function fact(f:Awaited<ReturnType<typeof fixture>>,id='one',session='sess
     .bind(id,f.machine.machineId,user,f.child,session,start+1501,start,category).run();
 }
 async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{empty?:boolean;classification?:string;duration?:number;
-  associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string}={}){
+  associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string;
+  associationKey?:string;reasonCodes?:string[]}={}){
   const duration=options.empty?0:options.duration??1501;
   const row=(kind:UsageAccountRow['kind'],hour:number|null,category:string|null=null,subjectKey:string|null=null,displayName:string|null=null,d=duration):UsageAccountRow=>
     ({kind,hour,category,subjectKey,displayName,duration:d});
   const rows=[row('total',null),...Array.from({length:24},(_,h)=>row('total',h,null,null,null,h===0?duration:0))];
   if(!options.empty){rows.push(row('category',null,options.classification??'study'),row('category',0,options.classification??'study'),
-    row('subject',null,null,await sha256Hex('product:windows:test'),'测试产品'),row('subject',0,null,await sha256Hex('product:windows:test'),'测试产品'));}
+    row('subject',null,null,await sha256Hex(options.associationKey??'product:windows:test'),'测试产品'),row('subject',0,null,await sha256Hex(options.associationKey??'product:windows:test'),'测试产品'));}
   const account=await createUsageAccount({schemaVersion:1,sourceKind:'application',durationUnit:'milliseconds',timezone:'Asia/Shanghai',
     date:'2026-09-27',revision,generatedAtMs:now,settledThroughMs:now,algorithmVersion:options.algorithm??'windows-application-v1',policyVersions:options.empty?[]:[1],
     associationVersion:options.associationVersion===undefined?projection:options.associationVersion,correctionVersion:options.correctionVersion??0,
-    rawFactCount:options.count??(options.empty?0:1),rawFactHash:'c'.repeat(64),complete:options.complete??true,reasonCodes:options.complete===false?['POLICY_HISTORY_MISSING']:[]},rows);
+    rawFactCount:options.count??(options.empty?0:1),rawFactHash:'c'.repeat(64),complete:options.complete??true,reasonCodes:options.reasonCodes??(options.complete===false?['POLICY_HISTORY_MISSING']:[])},rows);
   const r=await beginApplicationAccount(env.RUNTIME_DB,f.machine,{localUserId:user,assignmentVersion:1,manifest:account.manifest},now);
   for(const c of account.chunks)await putApplicationAccountChunk(env.RUNTIME_DB,f.machine,r.manifestId,c.chunkIndex,{rows:c.rows,chunkHash:c.chunkHash});
   await commitApplicationAccount(env.RUNTIME_DB,f.machine,r.manifestId,now);
@@ -58,10 +59,52 @@ it('receipt does not publish; exact approved source/management verification publ
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:true,publishStatus:'published',publicationErrorCode:null});
   expect(await publishApplicationAccounts(env.RUNTIME_DB,now+1)).toMatchObject({processed:0});
 });
+async function setIdentity(f:Awaited<ReturnType<typeof fixture>>,status:'unresolved'|'conflict',associationKey='windows\nleaf',productId:string|null=null){
+  const policy=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child);
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_child_app_policy_versions_v1 SET payload_json=?3
+    WHERE account_id=?1 AND child_id=?2 AND version=1`)
+    .bind(f.machine.accountId,f.child,JSON.stringify({...policy,productIdentityProjection:{version:projection,knowledgeVersion:1,
+      items:[{platform:'windows',runtimeIdentity:'leaf',associationKey,productId,canonicalName:'测试产品',status,
+        reasonCode:status==='conflict'?'IDENTITY_CONFLICT':'IDENTITY_UNRESOLVED'}]}})).run();
+}
+it('complete standalone usage publishes without pretending product identity is confirmed or changing source facts',async()=>{
+  const f=await fixture();await fact(f);await setIdentity(f,'unresolved');
+  const before=await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all();
+  const r=await upload(f,1,{associationKey:'windows\nleaf'});await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:true});
+  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
+  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
+  expect(result.statistics.productApplications).toEqual([{key:await sha256Hex('windows\nleaf'),displayName:'测试产品',durationMs:1501}]);
+  expect((await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child)).productIdentityProjection?.items[0])
+    .toMatchObject({status:'unresolved',productId:null,associationKey:'windows\nleaf'});
+  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results)
+    .toEqual(before.results);
+});
+it.each([
+  ['unresolved','windows\nother',null],['unresolved','windows\nleaf','unapproved-product'],['conflict','windows\nleaf',null],
+] as const)('does not authorize ambiguous or cross-identity association: %s %s %s',async(status,associationKey,productId)=>{
+  const f=await fixture();await fact(f);await setIdentity(f,status,associationKey,productId);
+  const r=await upload(f,1,{associationKey});await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId))
+    .toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING'});
+});
+it('an old incomplete identity receipt stays unpublished and requires a new complete revision',async()=>{
+  const f=await fixture();await fact(f);await setIdentity(f,'unresolved');
+  const old=await upload(f,1,{associationKey:'windows\nleaf',complete:false,reasonCodes:['PRODUCT_IDENTITY_UNRESOLVED']});
+  await publishApplicationAccounts(env.RUNTIME_DB,now,old.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,old.manifestId))
+    .toMatchObject({received:true,published:false,publicationErrorCode:'APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING'});
+  const fresh=await upload(f,2,{associationKey:'windows\nleaf'});await publishApplicationAccounts(env.RUNTIME_DB,now+1,fresh.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,fresh.manifestId)).toMatchObject({published:true});
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,old.manifestId)).toMatchObject({published:false});
+});
 it('raw facts arriving later permit retry without resending or changing a received snapshot',async()=>{
   const f=await fixture(),r=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:false,publicationErrorCode:'APPLICATION_ACCOUNT_FACTS_PENDING'});
-  await fact(f);await publishApplicationAccounts(env.RUNTIME_DB,now+300001);
+  // Other negative cases leave retryable receipts in the shared fixture DB.
+  // Target this receipt so the two-item cron limit does not make its retry nondeterministic.
+  await fact(f);await publishApplicationAccounts(env.RUNTIME_DB,now+300001,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
 });
 it('valid hash does not authorize forged classification or duration',async()=>{

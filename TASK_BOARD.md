@@ -2,6 +2,16 @@
 
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
+安装后修复实施（PO“继续修复”）：职责 standard-cloud；范围为 backend/applicationAccountPublication 与聚焦测试、既有设计及本条证据。真实缺口含技术进程与旧 Chrome 身份；修复不能靠名称合并、删除时长或伪造产品确认。沿用现有投影：未确认产品但已在云端投影中保持精确独立身份（unresolved、productId=null、associationKey=platform+换行+runtimeIdentity）的对象可按该独立键核验统计；产品冲突、投影缺失／换版及其他不完整事实仍拒绝。Native 所属会话修复派生清单把“用量完整”与“产品归属待确认”混为一谈的问题，保持归属诊断，不改变原账或统计算法；旧 complete=false 清单不强行发布，需生成新版本。最小验证：发布／统计／关联投影固定回归、Worker typecheck、dry-run、范围及 diff；排除 UI、macOS、WiX、无关全量测试。不新建分支／树，不执行生产数据修补、migration、安装或 R2 操作；上线与真机验收独立记录。
+
+云端补丁本地验证：发布／统计／关联投影 38/38、typecheck、Wrangler 4.127.1 dry-run、standard-cloud 四文件范围检查和 diff 检查通过；新增回归证明独立未知身份可发布、产品状态仍 unresolved、原始事实不变，跨身份／冲突拒绝，旧不完整清单不被强制发布。原重试测试显式指定本用例清单，避免共享夹具中其他拒绝清单占用两项 cron 批次；未改变生产批次逻辑。审计 Matched＝云端兼容核验与诊断、原账不变；Deviated/Extra＝无；Missing＝Native 对称修复、新版本补发、真实业务发布与页面／性能验收。现有 Native 会话三次交接均空白结束，没有代码／测试结果；只读确认 ApplicationUsageReader 的 accountReasons 仍混入 Attribution 原因，不能把交接成功记成实现完成。未安装、部署或修改生产数据。
+
+2026-10-01 安装后只读验收：PO 已安装 2.6.13；Native 确认四个常驻组件版本及 SHA-256 匹配 main@44900b6，Service Running/Automatic、Session Agent 单实例。真实 Native Host 读取 2026-09-30 总量 26,914,118ms、13 个应用、用量 complete=true；云端接收清单及上传总量一致，原始事实 498 条已齐。业务发布未通过：非零快照 reasonCodes=PRODUCT_IDENTITY_UNRESOLVED，云端错误 APPLICATION_ACCOUNT_INCOMPLETE；当前关联投影仍有 106 条事实未匹配 resolved 产品，native 派生日为 0，仍使用 legacy-server。另一个用户／assignment 的零事实快照已发布，不是覆盖实际用量。health 200、未认证 catalog 401；真实 Chrome 两次绑定均因 CDP focus 命令超时失败，页面及冷／热性能不得记为通过；本机受保护 SQLite 摘要仍待已有 UAC 读取。验收结论：安装和实际传输通过，统计发布／真实页面未通过，不宣称 D-113 全部完成。本次未改代码、原账、配额或生产配置，未安装、部署、执行 migration 或写 R2。
+
+Native 最终代码验证：`main@44900b6` 的 [CI 36836656636](https://github.com/william-xia-cn/TimeWhereNative/actions/runs/36836656636) 已全部 SUCCESS（changes、Windows current/previous、Windows installer、Swift current/previous、native-gate），取代下段过程中的“CI待核实”。Swift CI 不等于 Mac 实机验收；Mac 新统计继续延后。源码整合及候选构建完成，安装／实际补发／固定截止与真实页面验收仍未完成。
+
+Native 主线整合（2026-10-01，PO 明确要求不新增分支／工作树）：在现有 `D:\Codex\TimeWhereNative` 的干净 main 中直接整合并推送 `44900b6cf7a3d7f84ecc9421c77435d6f225666f`，来源为已保留的 Windows 分支 `588a424`，不合入 Mac 历史／路径。当前契约 Windows 251/251、上一兼容版 250/250、安装器版本 5/5、本机主线 WiX 构建及范围检查通过；GitHub CI 尚待核实，不冒称通过。主线内部未签名 2.6.13 候选在该根目录 `artifacts/release/windows/x64/2.6.13/`，Burn SHA-256 `81fd3b40d61d5515cc548d9c6f59d1e1a80b114dbbad9bbf3e35dc58e08b05e3`、MSI `5a7813227463736be660b0cfac07e4fcd1005df39967fd22c2369a4e098a4e64`，manifest 来源与契约哈希回读一致。未安装／重启服务／上传 R2；已安装仍为 2.6.12。原 Windows 非-main 候选和分支保留作恢复。此前“需要创建临时分支／主线整合待办”由本段取代；仍待实际安装、快照补发、固定截止与真实页面性能验收。
+
 生产进度（2026-10-01 16:06 北京时间）：契约 PR #159、云端 PR #160 已合入 `master@646fbfe82ea13486b64e3119e35d0c767e3a9e20`。精确 master CI `36833784902` 成功；受保护 [发布 #42 / 36834193889](https://github.com/william-xia-cn/timeonchrome/actions/runs/36834193889) 成功，仅执行 `0013_runtime_application_accounts.sql` 和 Runtime Worker。Worker version `a57bfc68-ea3c-40da-afc6-c02d9c080832`、deployment `f0b9ccdb-4742-4816-8ba8-89ed4b78e3cb`、Contracts `1.20.0`；health 200、未认证目录 401、迁移记录及七张派生表回读通过。不可变 manifest artifact `11148143353`（ZIP digest `7c78f2ff5e5636c0c6756137b3074cab665161acf2988261ea3e28cbbb3fb716`）。Guardian `6953fe71-8048-4445-a3e5-307ebe55bd57`、Runtime Pages `26573975-904a-4aa6-b8d0-5dbbdb945f23`、主 Pages `aef42882-479b-4a14-8880-607155e2c32a`、R2 latest `2.3.1` 未部署／未写入。
 
 Native 未收口：Windows 分支基于未合入 Mac／共享 Core，PR #13 不可整体改投 main。代码 `072d18f` 的 current/previous Windows 测试分别 251/250 项通过、安装器通过；Mac 旧夹具失败，随后文档提交 `588a424` 不使产品证据失效。内部未签名 2.6.13 非-main 候选已构建，尚未安装，已安装仍为 2.6.12。生产 received/published/派生日/队列均为 0，不是实际补发成功；真实浏览器验收因 CDP focus 超时未通过。已请求一次临时 Windows 整合分支例外（不新增工作树），未获答复前不创建。Matched＝契约／云端整合、限定发布、schema/smoke；Missing＝Native 安全整合、安装与实际快照固定截止对照、真实页面和冷／热性能；Mac D-113 延后。下述“未合入／未部署”属于之前阶段证据，以本段及表格最新状态为准。
@@ -26,7 +36,7 @@ PO 已要求“统一规划，调整”并批准实施。本任务以现有网�
 |---|---|---|---|
 | 1 | 统一结构及边界／当前会话 | 原账、派生统计、配额消费、云端归集、缓存和对账分层；不改网页运行行为 | 已写入 D-113 和共同设计 |
 | 2 | 快照契约及共同向量／架构线 | 原始／统计独立 ACK、完整发布、版本和身份校验、实际消费者兼容；确定包版本及哈希 | 1.20.0 经 PR #159 合入并随云端发布；Native 固定包 SHA-256 `0e4f5fc7c8546efe1eca69255cb2838f866e993782dba367aa3cdd46f19c76f1`，60176 字节 |
-| 3 | 本机物化及恢复／Native 线 | SQLite dirty 与原账同事务；受影响范围更新；统一应用读取；统计 outbox 持久补发 | Windows 实现及 2.6.13 非-main 候选完成，current/previous Windows 测试通过；安全主线整合、安装和真实补发未完成；Mac 延后 |
+| 3 | 本机物化及恢复／Native 线 | SQLite dirty 与原账同事务；受影响范围更新；统一应用读取；统计 outbox 持久补发 | main 44900b6 已推送，主线 2.6.13 候选及 CI 36836656636 全部通过；安装和真实补发待验；Mac 实机延后 |
 | 4 | 设备统计及孩子归集／标准云端线 | 完整统计发布；既有应用接口改读物化结果；旧日期后台兼容；原始时间线仍分页按需读取 | PR #160／master 646fbfe、0013 及 Worker 已发布；schema/smoke 通过，真实登录与 Native 补发后业务验收待完成 |
 | 5 | 固定截止对照及切换／各所属线 | 新旧总量／小时／产品／分类／更正／独立配额逐项一致；崩溃／重复／离线及分页通过 | 本地旧／新统计对照及云端现行配额通过；本机没有独立配额执行器；真实机器固定截止与安装后切换仍待验收 |
 

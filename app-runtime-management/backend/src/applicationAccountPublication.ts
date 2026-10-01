@@ -44,7 +44,13 @@ function project(spans:Span[],start:number):UsageAccountRow[] {
 }
 /** Bounded, fixed-date verification oracle; NEVER used on the ordinary statistics GET. */
 export async function verifyApplicationAccountPublication(db:D1Database,candidate:Candidate,manifest:UsageAccountManifest) {
-  if(!manifest.complete)fail('APPLICATION_ACCOUNT_INCOMPLETE');
+  if(!manifest.complete){
+    // Old producers conflated a product-recognition gap with usage completeness.
+    // Diagnose the cause, but never promote an immutable incomplete receipt.
+    if(manifest.reasonCodes.length===1&&manifest.reasonCodes[0]==='PRODUCT_IDENTITY_UNRESOLVED')
+      fail('APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING');
+    fail('APPLICATION_ACCOUNT_INCOMPLETE');
+  }
   if(manifest.algorithmVersion!=='windows-application-v1')fail('APPLICATION_ACCOUNT_ALGORITHM_UNSUPPORTED');
   const start=usageAccountDayStart(manifest.date),end=start+DAY;
   const assignment=await db.prepare(`SELECT a.child_id,m.account_id,m.platform,m.revoked_at_ms FROM runtime_user_assignments_v2 a
@@ -87,7 +93,11 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
   const spans:Span[]=[];
   for(const row of correctUsageRows(source.results,corrections,start,end)){
     const identity=`${row.platform}\n${row.runtime_identity}`,product=projected.get(identity);
-    if(!product||product.status==='unresolved'||product.status==='conflict')fail('APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING');
+    if(!product||product.status==='conflict')fail('APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING');
+    // Exact standalone identity is not an approved product association. Keep its
+    // own key and classification; never guess aliases or merge by display name.
+    if(product.status==='unresolved'&&(product.productId!==null||product.associationKey!==identity))
+      fail('APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING');
     spans.push({start:Number(row.start_wall_time_ms),end:Number(row.end_wall_time_ms),
       lane:`${row.runtime_session_id}\n${row.clock_epoch_id}`,category:String(row.classification??'historicalUnknown'),
       subject:await sha256Hex(product.associationKey),name:safeName(product.canonicalName||String(row.display_name??'未命名应用'))});
