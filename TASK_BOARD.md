@@ -2,6 +2,8 @@
 
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
+21:05历史页面末次复验：9/27机器/Windows读取HTTP200、1348ms、producer=native、stale=false、policy159、总量36,728,619ms；图表和明细实际显示，已解除21:03所记首次stale状态。9/25–27三日页面均采用对应Native权威总量，不能继续说只完成receipt、还未验证页面。今天缺策略事实和Mac仍独立待办。
+
 21:03 云端本批收口：PR #168/#169/#170合入；最后master=3cfdab2ddcb1b02bf32de40d0378e475b2ef1b8b，精确主线CI36865363441 SUCCESS，受保护发布36865525544 SUCCESS，仅Runtime Worker，version=7e96de49-92bc-409d-aaba-3e4c5a88d200，manifest artifact11163670827／ZIP SHA256=749357a240be61b493cf5ee47a715611e3bd91f0df59d7c0728e54245e88008c。health/未认证401通过；migration步骤只读检查，无待执行，apply=false；本批未安装或主动部署Pages/Guardian/R2。
 
 真实性能与结果：同一9/30机器/Windows筛选，修改前强制读取5003/5479ms，锚点优化后2017ms、显式刷新1837ms；后者HTTP200、producer=native、stale=false、总量26,914,118ms。总量、分类、应用、小时及媒体字段与固定基线逐项完全相同。数据库锚点单查询810.58→62.00ms、24条锚点与原source hash不变；不将页面读取称为人为清缓存后的冷读，也不宣称所有范围秒开。
