@@ -65,28 +65,30 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
     const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)||!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to-86400000+8*3600000).toISOString().slice(0,10)!==toDate)throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
-    const head=await this.env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS count,MAX(s.uploaded_at_ms) AS latestUpload,MAX(s.end_at_ms) AS lastEnd
+    const headRead=this.env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS count,MAX(s.uploaded_at_ms) AS latestUpload,MAX(s.end_at_ms) AS lastEnd
       FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id WHERE m.account_id=?1 AND s.child_id=?2
       AND s.diagnostic=0 AND COALESCE(s.start_wall_time_ms,s.start_at_ms)<?4 AND COALESCE(s.end_wall_time_ms,s.end_at_ms)>?3`)
       .bind(accountId,childId,from,to).first();
-    const machines=await this.env.RUNTIME_DB.prepare('SELECT id,display_name,default_child_id FROM runtime_machines_v2 WHERE account_id=? ORDER BY id LIMIT 101').bind(accountId).all();
-    const inventory=await this.env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS count,MAX(i.last_seen_at_ms) AS latest
+    const machinesRead=this.env.RUNTIME_DB.prepare('SELECT id,display_name,default_child_id FROM runtime_machines_v2 WHERE account_id=? ORDER BY id LIMIT 101').bind(accountId).all();
+    const inventoryRead=this.env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS count,MAX(i.last_seen_at_ms) AS latest
       FROM runtime_application_inventory_v1 i JOIN runtime_machines_v2 m ON m.id=i.machine_id
       WHERE m.account_id=?1 AND EXISTS (SELECT 1 FROM runtime_user_assignments_v2 a WHERE a.machine_id=i.machine_id
         AND a.local_user_id=i.local_user_id AND a.child_id=?2 AND a.protected=1)`)
       .bind(accountId,childId).first();
-    const policy=await getAppPolicy(this.env.RUNTIME_DB,accountId,childId);
-    let legacy:unknown={status:'unavailable'};
-    try { legacy=(await this.env.RUNTIME_DB.prepare(`SELECT d.id,d.display_name,d.revoked_at_ms,COUNT(s.id) AS count,MAX(s.uploaded_at_ms) AS latest
+    const policyRead=getAppPolicy(this.env.RUNTIME_DB,accountId,childId);
+    const legacyRead=(async()=>{try { return (await this.env.RUNTIME_DB.prepare(`SELECT d.id,d.display_name,d.revoked_at_ms,COUNT(s.id) AS count,MAX(s.uploaded_at_ms) AS latest
       FROM runtime_devices d LEFT JOIN runtime_usage_segments s ON s.device_id=d.id AND s.start_at_ms<?4 AND s.end_at_ms>?3
       WHERE d.account_id=?1 AND d.child_id=?2 GROUP BY d.id HAVING d.revoked_at_ms IS NULL OR COUNT(s.id)>0 ORDER BY d.id LIMIT 101`)
-      .bind(accountId,childId,from,to).all()).results; }catch{ /* Legacy read failure must not discard valid v2 evidence. */ }
-    const corrections=await loadUsageCorrections(this.env.RUNTIME_DB,accountId,childId,from,to);
-    const statistics=await this.env.RUNTIME_DB.prepare(`SELECT scope_key,date,source_revision,computed_at_ms FROM runtime_application_statistics_days_v1
+      .bind(accountId,childId,from,to).all()).results; }catch{return {status:'unavailable'}; /* Legacy failure remains isolated. */ }})();
+    const correctionsRead=loadUsageCorrections(this.env.RUNTIME_DB,accountId,childId,from,to);
+    const statisticsRead=this.env.RUNTIME_DB.prepare(`SELECT scope_key,date,source_revision,computed_at_ms FROM runtime_application_statistics_days_v1
       WHERE account_id=?1 AND child_id=?2 AND date>=?3 AND date<=?4
         AND json_extract(filters_json,'$.localUserId') IS NULL AND json_extract(filters_json,'$.platform') IS NULL
         AND (from_ms+28800000)%86400000=0 AND to_ms-from_ms=86400000
       ORDER BY scope_key,date LIMIT 708`).bind(accountId,childId,fromDate,toDate).all();
+    const [head,machines,inventory,policy,legacy,corrections,statistics]=await Promise.all([
+      headRead,machinesRead,inventoryRead,policyRead,legacyRead,correctionsRead,statisticsRead,
+    ]);
     if(statistics.results.length>707)throw new HttpError(422,'COMPUTER_USAGE_SOURCE_LIMIT','统计来源范围过多。');
     return sha256Hex(JSON.stringify({model:'readable-history-v3-persistent',head,machines:machines.results,legacy,inventory,statistics:statistics.results,
       displayRules:CHROME_DISPLAY_RULES,policyVersion:policy.version,projection:policy.productIdentityProjection?.version,corrections}));

@@ -1,5 +1,11 @@
 # TASK_BOARD
 
+## NOW：电脑使用汇总读取性能（2026-10-02，PO批准优化并部署）
+
+职责standard-cloud；复用固定分支/目录，不新建分支或worktree。按顺序实施：①Guardian网页/应用来源及版本核对并行；②按完整来源指纹缓存已合并结果与轻量summary，缓存命中不重读区间/重算产品；③两套云端页面复用30秒有界内存缓存，同请求single-flight，手动刷新绕过；④聚焦回归、typecheck、dry-run、范围和diff；⑤PR合入已验证master，发布实际修改的Guardian/Runtime Worker及两套Pages，真实登录固定范围对照数值与耗时。首次生成仍用原证据与合并器，不删去Chrome排除/重叠校验；版本变化、读取异常不能返回旧代完整结果。时间线按需返回，分页锁定同一revision。原账、统计口径、更正、配额、Native/扩展、D1 schema和R2均不变。不跑Windows/Mac/WiX或网页计时全量测试。
+
+实施及本地验证完成：Guardian汇总回归、双页面renderer/cache回归PASS；Runtime computer-usage-evidence 14/14；两端typecheck、两端Wrangler dry-run、源码边界、standard-cloud路径检查及diff检查PASS。审计Matched：并行、独立summary/details生成缓存、30秒有界页面缓存、版本失效、失败隔离、手动刷新、统计数值不变；代码Deviated/Missing/Extra无。待PR/主线CI与生产发布；当前浏览器连接未提供已登录家长页面，真实页面数值及冷/热耗时验收待实测，不用单测替代。
+
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
 21:05历史页面末次复验：9/27机器/Windows读取HTTP200、1348ms、producer=native、stale=false、policy159、总量36,728,619ms；图表和明细实际显示，已解除21:03所记首次stale状态。9/25–27三日页面均采用对应Native权威总量，不能继续说只完成receipt、还未验证页面。今天缺策略事实和Mac仍独立待办。

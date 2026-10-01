@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { mergeComputerUsage, withComputerUsageRevision, computerUsageSourceGroupKey,
+  computerUsageReadPage, type ComputerUsageResult,
   type ComputerApplicationSource, type ComputerWebSource } from '@timeonchrome/app-runtime-contracts/computer-usage';
-import type { ComputerUsageSourceBundle } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import type { Env } from '../db/middleware';
 import { readManifestAccountV2 } from './profileAccountsV2';
 import { projectCompositeDailyRows, readCompositeCorrections } from './compositePageCorrections';
@@ -111,35 +111,35 @@ export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:str
   return sources;
 }
 
-export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,computer?:string) {
+export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly=false) {
   validateComputerUsageRange(from,to);
   const owned=await env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(childId,accountId).first();
   if(!owned)throw new Error('CHILD_NOT_FOUND');
   // Small immutable source headers invalidate the bounded cache; pagination does
   // not reread the full interval window when source versions have not changed.
   const fingerprint=async()=>{
-    const heads=await env.DB.prepare('SELECT device_id,date,manifest_id FROM device_account_heads_v2 WHERE profile_id=? AND date>=? AND date<=? ORDER BY device_id,date LIMIT 701').bind(childId,from,to).all();
+    const [heads,evidence,corrections,application]=await Promise.all([
+      env.DB.prepare('SELECT device_id,date,manifest_id FROM device_account_heads_v2 WHERE profile_id=? AND date>=? AND date<=? ORDER BY device_id,date LIMIT 701').bind(childId,from,to).all(),
+      env.DB.prepare('SELECT COUNT(*) AS count,MAX(updated_at) AS lastChange FROM usage_segments_v1 WHERE profile_id=? AND date>=? AND date<=?').bind(childId,from,to).first(),
+      env.DB.prepare('SELECT COUNT(*) AS count,MAX(created_at) AS lastChange FROM usage_segment_corrections_v1 WHERE profile_id=? AND date>=? AND date<=?').bind(childId,from,to).first(),
+      env.RUNTIME_COMPUTER_USAGE?readRuntime<string>(env,'applicationEvidenceRevision',accountId,childId,from,to):Promise.resolve(undefined),
+    ]);
     if((heads.results?.length??0)>700)throw new Error('COMPUTER_USAGE_SOURCE_LIMIT');
-    const evidence=await env.DB.prepare('SELECT COUNT(*) AS count,MAX(updated_at) AS lastChange FROM usage_segments_v1 WHERE profile_id=? AND date>=? AND date<=?').bind(childId,from,to).first();
-    const corrections=await env.DB.prepare('SELECT COUNT(*) AS count,MAX(created_at) AS lastChange FROM usage_segment_corrections_v1 WHERE profile_id=? AND date>=? AND date<=?').bind(childId,from,to).first();
-    const application=env.RUNTIME_COMPUTER_USAGE?await readRuntime<string>(env,'applicationEvidenceRevision',accountId,childId,from,to):undefined;
-    return sha(JSON.stringify({model:'readable-history-v3-daily-domain',heads:heads.results,evidence,corrections,application}));
+    return sha(JSON.stringify({model:'computer-projection-v4',heads:heads.results,evidence,corrections,application}));
   };
   let version:string|null=null;
-  let bundle:ComputerUsageSourceBundle|null=null;
-  try {version=await fingerprint();bundle=await env.CONFIG_CACHE.get(`computer-usage:${await sha(`${accountId}\n${childId}\n${from}\n${to}`)}:${version}`,'json');}catch{ /* Source failures remain isolated below. */ }
-  if(bundle&&bundle.fromDate===from&&bundle.toDate===to) {
-    const select=(source:ComputerWebSource|ComputerApplicationSource,kind:'web'|'application')=>!computer||computerUsageSourceGroupKey(source,kind)===computer;
-    if(computer&&!bundle.web.some(s=>select(s,'web'))&&!bundle.applications.some(s=>select(s,'application')))throw new Error('COMPUTER_NOT_FOUND');
-    return withComputerUsageRevision(mergeComputerUsage({...bundle,web:bundle.web.filter(s=>select(s,'web')),applications:bundle.applications.filter(s=>select(s,'application'))}));
-  }
+  const scopeKey=await sha(JSON.stringify([accountId,childId,from,to,computer??null]));
+  const cacheKey=(kind:'summary'|'details')=>`computer-projection-v4:${scopeKey}:${version}:${kind}`;
+  try {
+    version=await fingerprint();
+    const cached=await env.CONFIG_CACHE.get<ComputerUsageResult>(cacheKey(summaryOnly?'summary':'details'),'json');
+    if(cached?.schemaVersion===1&&cached.fromDate===from&&cached.toDate===to)return cached;
+  }catch{ /* Source failures remain isolated below; a cache is not authority. */ }
   const unavailable=(key:string,reason:string)=>({key,computerKey:null,computerName:'来源暂不可用',revision:'unavailable',
     correctionRevision:'unavailable',settledAtMs:null,complete:false,statisticsComplete:false,reasons:[reason],totalMs:null,categoriesMs:{},intervals:[]});
-  let web:ComputerWebSource[];
-  let applications:ComputerApplicationSource[];
-  try { web=await readComputerWebEvidence(env,accountId,childId,from,to); }
-  catch {web=[unavailable('web:unavailable','WEB_SOURCE_UNAVAILABLE')];}
-  try { applications=env.RUNTIME_COMPUTER_USAGE
+  const webRead=readComputerWebEvidence(env,accountId,childId,from,to)
+    .catch(()=>[unavailable('web:unavailable','WEB_SOURCE_UNAVAILABLE')] as ComputerWebSource[]);
+  const appRead=(async():Promise<ComputerApplicationSource[]>=>{try { return env.RUNTIME_COMPUTER_USAGE
     ?await readRuntime<ComputerApplicationSource[]>(env,'readApplicationEvidence',accountId,childId,from,to)
     :[{...unavailable('application:unavailable','APPLICATION_SERVICE_UNAVAILABLE'),associationVersion:'unavailable'}]; }
   catch(error) {
@@ -151,14 +151,26 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
       :/hung|never generate a response|canceled/i.test(message)?'APPLICATION_RPC_CANCELED'
       :/not a function|does not implement/i.test(message)?'APPLICATION_RPC_UNAVAILABLE':'APPLICATION_SOURCE_UNAVAILABLE';
     console.error(JSON.stringify({event:'computer_application_read_failed',code}));
-    applications=[{...unavailable('application:unavailable',code),associationVersion:'unavailable'}];
-  }
-  bundle={fromDate:from,toDate:to,web,applications};
-  if(version){try{if(await fingerprint()===version){const payload=JSON.stringify(bundle);if(payload.length<=2000000)await env.CONFIG_CACHE.put(`computer-usage:${await sha(`${accountId}\n${childId}\n${from}\n${to}`)}:${version}`,payload,{expirationTtl:60});}else{for(const source of [...web,...applications]){source.complete=false;source.statisticsComplete=false;source.reasons.push('SOURCE_VERSION_CHANGED');}}}catch{ /* Cache is not authority. */ }}
+    return [{...unavailable('application:unavailable',code),associationVersion:'unavailable'}];
+  }})();
+  const [web,applications]=await Promise.all([webRead,appRead]);
+  let stable=false;
+  if(version){try{stable=await fingerprint()===version;if(!stable)for(const source of [...web,...applications]){
+    source.complete=false;source.statisticsComplete=false;source.reasons.push('SOURCE_VERSION_CHANGED');
+  }}catch{ /* No cache publication when freshness cannot be verified. */ }}
   const select=(source:ComputerWebSource|ComputerApplicationSource,kind:'web'|'application')=>!computer||computerUsageSourceGroupKey(source,kind)===computer;
   if(computer&&!web.some(s=>select(s,'web'))&&!applications.some(s=>select(s,'application')))throw new Error('COMPUTER_NOT_FOUND');
-  const result=mergeComputerUsage({...bundle,web:web.filter(s=>select(s,'web')),applications:applications.filter(s=>select(s,'application'))});
-  return withComputerUsageRevision(result);
+  const result=await withComputerUsageRevision(mergeComputerUsage({fromDate:from,toDate:to,web:web.filter(s=>select(s,'web')),applications:applications.filter(s=>select(s,'application'))}));
+  const summary=computerUsageReadPage(result,'summary');
+  // Cache generated views, not sources that must be merged again on every read.
+  // A summary hit never transfers/parses the potentially large detail generation.
+  if(stable&&!result.reasons.some(code=>/UNAVAILABLE|PENDING|STALE|SOURCE_VERSION_CHANGED|MEMORY_LIMIT/.test(code))){try{
+    await Promise.all((['summary','details'] as const).map(async kind=>{
+      const payload=JSON.stringify(kind==='summary'?summary:result);
+      if(payload.length<=2000000)await env.CONFIG_CACHE.put(cacheKey(kind),payload,{expirationTtl:300});
+    }));
+  }catch{ /* KV failures cannot fail or change authoritative source reads. */ }}
+  return summaryOnly?summary:result;
 }
 
 /** Only callers granted this entrypoint binding can reach the cross-cloud read capability. */
@@ -180,7 +192,7 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
       return Response.json({owned:!!owned});
     }catch{return Response.json({code:'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});}
   }
-  async getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string){return readComputerUsage(this.env,accountId,childId,from,to,computer);}
+  async getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly=false){return readComputerUsage(this.env,accountId,childId,from,to,computer,summaryOnly);}
   async getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string) {
     return readIndependentUsage(this.env,accountId,childId,from,to,source);
   }

@@ -49,5 +49,14 @@ await assert.rejects(cache.read('error',async()=>{throw Error('offline');}));ass
 await cache.read('one',loader);await cache.read('two',loader);assert.equal((await cache.read('forgotten',loader)).cached,false);
 const queries=[],cleanHost={...host,innerHTML:''};await view.create(cleanHost,async(query)=>{queries.push(query);return snapshot;}).load();
 assert.deepEqual(queries,[{detail:'summary'}]);assert.ok(!cleanHost.innerHTML.includes('<select'));
+let currentScope='child-a|day',viewCalls=0;
+const cachedReader=view.create(cleanHost,async()=>{viewCalls++;return snapshot;},null,()=>currentScope);
+await cachedReader.load();cachedReader.invalidate();await cachedReader.load();assert.equal(viewCalls,1,'switching back uses the same generated summary');
+await cachedReader.load({refresh:true});assert.equal(viewCalls,2,'manual refresh bypasses memory cache');
+currentScope='child-b|day';await cachedReader.load();assert.equal(viewCalls,3,'child changes never reuse another child snapshot');
+currentScope='child-a|week';await cachedReader.load();assert.equal(viewCalls,4,'dates belong to the memory cache key');
+assert.ok(controller.includes('computerReader.load({refresh})'),'outer refresh passes through to summary reader');
+let failedCalls=0;const failedReader=view.create(cleanHost,async()=>{failedCalls++;return {...snapshot,reasons:['APPLICATION_SOURCE_UNAVAILABLE']};});
+await failedReader.load();await failedReader.load();assert.equal(failedCalls,2,'partial source failures do not become successful memory cache entries');
 console.log('PASS renderer/cache: child summary, precision, source isolation, TTL, refresh, single-flight, eviction, failure, stale response');
 }).catch(error=>{console.error(error);process.exitCode=1;});
