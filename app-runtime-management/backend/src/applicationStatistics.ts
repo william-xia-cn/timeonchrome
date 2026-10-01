@@ -56,12 +56,16 @@ function sourceStatements(db:D1Database,account:string,child:string,from:number,
         AND s.start_wall_time_ms<?4+2000 AND s.end_wall_time_ms>?3-2000
         AND (?5 IS NULL OR s.machine_id=?5) AND (?6 IS NULL OR s.local_user_id=?6) AND (?7 IS NULL OR s.platform=?7)
       ORDER BY s.machine_id,s.local_user_id,s.runtime_session_id,s.clock_epoch_id LIMIT 257)
-      , anchors AS MATERIALIZED (SELECT l.*,(SELECT anchor.id
-        FROM runtime_usage_segments_v2 anchor WHERE anchor.machine_id=l.machine_id AND anchor.local_user_id=l.local_user_id
-          AND anchor.runtime_session_id=l.runtime_session_id AND anchor.clock_epoch_id=l.clock_epoch_id AND anchor.diagnostic=0
-          AND anchor.monotonic_duration_ms>0 AND anchor.end_wall_time_ms>=anchor.start_wall_time_ms
+      , owners AS (SELECT DISTINCT machine_id,local_user_id FROM lanes)
+      , eligible AS MATERIALIZED (SELECT anchor.machine_id,anchor.local_user_id,anchor.runtime_session_id,
+          anchor.clock_epoch_id,anchor.id,anchor.start_monotonic_time_ms
+        FROM owners o JOIN runtime_usage_segments_v2 anchor ON anchor.machine_id=o.machine_id AND anchor.local_user_id=o.local_user_id
+        WHERE anchor.diagnostic=0 AND anchor.monotonic_duration_ms>0 AND anchor.end_wall_time_ms>=anchor.start_wall_time_ms
           AND anchor.end_monotonic_time_ms-anchor.start_monotonic_time_ms=anchor.monotonic_duration_ms
-          AND abs(anchor.end_wall_time_ms-anchor.start_wall_time_ms-anchor.monotonic_duration_ms)<=2000
+          AND abs(anchor.end_wall_time_ms-anchor.start_wall_time_ms-anchor.monotonic_duration_ms)<=2000)
+      , anchors AS MATERIALIZED (SELECT l.*,(SELECT anchor.id
+        FROM eligible anchor WHERE anchor.machine_id=l.machine_id AND anchor.local_user_id=l.local_user_id
+          AND anchor.runtime_session_id=l.runtime_session_id AND anchor.clock_epoch_id=l.clock_epoch_id
         ORDER BY anchor.start_monotonic_time_ms,anchor.id LIMIT 1) AS anchor_id FROM lanes l)
       SELECT a.id,a.start_wall_time_ms,a.start_monotonic_time_ms,a.uploaded_at_ms FROM anchors l
       LEFT JOIN runtime_usage_segments_v2 a ON a.machine_id=l.machine_id AND a.local_user_id=l.local_user_id AND a.id=l.anchor_id
