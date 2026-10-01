@@ -192,6 +192,8 @@ it('stable anchor watermark materializes one lookup per lane and joins the full 
     .bind(f.id,f.child,day,day+DAY,null,null,null).all<{detail:string}>();
   const details=plan.results.map(r=>r.detail).join('\n');
   expect(details).toContain('MATERIALIZE anchors');
+  expect(details).toContain('MATERIALIZE eligible');
+  expect(details).toMatch(/SEARCH anchor USING AUTOMATIC COVERING INDEX[^\n]*runtime_session_id=\? AND clock_epoch_id=\?/);
   expect(details).toMatch(/SEARCH a USING INDEX[^\n]*machine_id=\? AND local_user_id=\? AND id=\?/);
   await segment(f,'future-unrelated',day+2*DAY,day+2*DAY+1501,'study','future-session');
   expect((await applicationStatisticsSource(db,f.id,f.child,day,day+DAY,{})).revision).toBe(before.revision);
@@ -199,6 +201,29 @@ it('stable anchor watermark materializes one lookup per lane and joins the full 
   await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2 SET start_monotonic_time_ms=0,
     end_monotonic_time_ms=1501,monotonic_duration_ms=1501 WHERE machine_id=?1 AND id='older-anchor'`).bind(f.id).run();
   expect((await applicationStatisticsSource(db,f.id,f.child,day,day+DAY,{})).revision).not.toBe(before.revision);
+});
+it('materialized anchors retain earlier Child history, monotonic/id ties and empty lanes exactly',async()=>{
+  const f=await fixture();
+  await segment(f,'today',day,day+1501,'study','session');
+  await segment(f,'tie-z',day-DAY,day-DAY+1501,'study','session');
+  await segment(f,'tie-a',day-DAY+3000,day-DAY+4501,'study','session');
+  await segment(f,'invalid-earlier',day-DAY+6000,day-DAY+7501,'study','session');
+  await segment(f,'orphan',day+3000,day+4501,'study','orphan');
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2 SET monotonic_duration_ms=1501,
+    start_monotonic_time_ms=CASE WHEN id='today' THEN 1000 WHEN id='invalid-earlier' THEN 0 ELSE 10 END,
+    end_monotonic_time_ms=CASE WHEN id='today' THEN 2501 WHEN id='invalid-earlier' THEN 1502
+      WHEN id='orphan' THEN 1512 ELSE 1511 END,
+    child_id=CASE WHEN id IN ('tie-a','tie-z','invalid-earlier') THEN 'previous-child' ELSE child_id END
+    WHERE machine_id=?1`).bind(f.id).run();
+  let anchorRows:unknown[]=[];
+  const db={prepare:env.RUNTIME_DB.prepare.bind(env.RUNTIME_DB),batch:async(ss:D1PreparedStatement[])=>{
+    const result=await env.RUNTIME_DB.batch(ss);anchorRows=result[4]!.results;return result;
+  }} as D1Database;
+  await applicationStatisticsSource(db,f.id,f.child,day,day+DAY,{});
+  expect(anchorRows).toEqual([
+    {id:null,start_wall_time_ms:null,start_monotonic_time_ms:null,uploaded_at_ms:null},
+    {id:'tie-a',start_wall_time_ms:day-DAY+3000,start_monotonic_time_ms:10,uploaded_at_ms:day-DAY+4501},
+  ]);
 });
 it('5000 settled facts are materialized once; repeated reads do not rerun aggregation and preserve quota',async()=>{
   const f=await fixture();

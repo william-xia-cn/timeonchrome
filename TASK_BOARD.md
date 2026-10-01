@@ -2,6 +2,10 @@
 
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
+锚点续修本地验收：18项统计＋20项发布回归38/38、typecheck、dry-run、边界及diff通过。固定回归验证旧Child历史仍可选为同用户稳定锚点、monotonic相同时按id选择、异常候选排除、无候选lane保留NULL及完整主键join。生产只读执行新SQL：同24条锚点、原publication source hash完全一致，锚点耗时由810.58ms降为62.00ms；计划显示历史候选只物化一次，临时自动索引覆盖machine/user/session/epoch，不建立持久索引。提交前Matched=同锚点/同hash与数据库性能证据；Deviated/Extra无；Missing=本补丁主线CI、Worker-only发布与完整真实请求耗时。PR #169/master3318084已发布Worker e8c4b652-88f0-42f3-89ee-037d9c851b2b，但只减排队往返仍5010ms，不冒报性能改善。
+
+20:54 主要瓶颈只读证据：生产执行同一六查询，普通事实水位4.55ms、锚点810.58ms；EXPLAIN证明每个lane的相关子查询仅按machine/user主键反复扫描用户历史，再临时排序。当前publication source hash与核对器实时hash一致，未放宽来源检查。将符合原锚点条件的同用户候选先物化一次，再按原session/epoch及monotonic/id顺序选取；保留跨日历史、空锚点、NULL、排序及原hash。聚焦回归与生产只读前后查询对照通过后继续同旁路PR及Worker-only发布；不建索引/migration，不触及Native/原账/配额。前两次减往返发布仍约5秒，不记为性能解决。
+
 排队往返续修本地结果：17项统计＋20项发布回归37/37、typecheck、dry-run、边界／四文件职责和diff通过。固定测试证明七天缺失任务按7项提交、31天按7/7/7/7/3提交，重复source保留attempts/retry/error，变化source重置，失败批次回滚且不返回成功。测试中的邻日失效仍按原2秒水位余量，未缩小失效范围。提交前审计Matched=有界派生任务写入与原统计/失效结果；Deviated/Extra=无，Missing=此续修PR/主线CI/发布/真实性能对照，整体Native待办不变。
 
 20:38 性能续验：PR #168/master 8bde717、主线 CI 36862292536、Worker-only 发布36862655287成功，version=0212249e-651d-4856-9593-11585834da68；manifest artifact11162825958。固定9/30真实读取由发布前5003ms到发布后5474/4922ms，无明显提速；总量26,914,118ms、分类、应用、小时及媒体字段逐项不变，producer=native。revision因整周其他日期更新而变化，仍stale，不伪报完整收口。继续最小性能修复：当前stale请求逐日期执行队列upsert；将相同SQL按最多七项batch写入，保持条件更新、幂等、重试与失败行为。只修改应用读取的派生任务排队，不触及原账、配额或Native；补齐一次调用及原队列状态回归后按原授权仅发布Worker。
