@@ -3,7 +3,7 @@ import { readComputerApplicationEvidence } from './computerUsageEvidence';
 import { HttpError, jsonResponse, readJsonBody } from './http';
 import { sha256Hex } from './crypto';
 import { getAppPolicy } from './appPolicy';
-import { readCachedApplicationUsage } from './applicationUsageCache';
+import { readPersistentApplicationUsage } from './applicationStatistics';
 import { loadUsageCorrections } from './applicationUsageCorrections';
 import { CHROME_DISPLAY_RULES } from './specialApplications';
 
@@ -50,12 +50,12 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
     const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)||!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to-86400000+8*3600000).toISOString().slice(0,10)!==toDate)throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
-    const {value:result}=await readCachedApplicationUsage(this.env.RUNTIME_DB,accountId,childId,from,to,{});
+    const {value:result,statistics}=await readPersistentApplicationUsage(this.env.RUNTIME_DB,accountId,childId,from,to,{},work=>this.ctx.waitUntil(work));
     const value=result as {
       totalDurationMs:number;categories:Array<{classification:string;durationMs:number}>;
       buckets:Array<{startAtMs:number;durationMs:number}>;
       applications:Array<{displayName:string|null;classification:string;durationMs:number}>};
-    return {source:'application',fromDate,toDate,totalDurationMs:value.totalDurationMs,
+    return {source:'application',fromDate,toDate,totalDurationMs:value.totalDurationMs,statistics,
       categories:value.categories.map(({classification,durationMs})=>({classification,durationMs})),
       buckets:value.buckets.map(({startAtMs,durationMs})=>({startAtMs,durationMs})),
       applications:value.applications.map(({displayName,classification,durationMs})=>({displayName,classification,durationMs}))};
@@ -82,7 +82,14 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       WHERE d.account_id=?1 AND d.child_id=?2 GROUP BY d.id HAVING d.revoked_at_ms IS NULL OR COUNT(s.id)>0 ORDER BY d.id LIMIT 101`)
       .bind(accountId,childId,from,to).all()).results; }catch{ /* Legacy read failure must not discard valid v2 evidence. */ }
     const corrections=await loadUsageCorrections(this.env.RUNTIME_DB,accountId,childId,from,to);
-    return sha256Hex(JSON.stringify({model:'readable-history-v2',head,machines:machines.results,legacy,inventory,displayRules:CHROME_DISPLAY_RULES,policyVersion:policy.version,projection:policy.productIdentityProjection?.version,corrections}));
+    const statistics=await this.env.RUNTIME_DB.prepare(`SELECT scope_key,date,source_revision,computed_at_ms FROM runtime_application_statistics_days_v1
+      WHERE account_id=?1 AND child_id=?2 AND date>=?3 AND date<=?4
+        AND json_extract(filters_json,'$.localUserId') IS NULL AND json_extract(filters_json,'$.platform') IS NULL
+        AND (from_ms+28800000)%86400000=0 AND to_ms-from_ms=86400000
+      ORDER BY scope_key,date LIMIT 708`).bind(accountId,childId,fromDate,toDate).all();
+    if(statistics.results.length>707)throw new HttpError(422,'COMPUTER_USAGE_SOURCE_LIMIT','统计来源范围过多。');
+    return sha256Hex(JSON.stringify({model:'readable-history-v3-persistent',head,machines:machines.results,legacy,inventory,statistics:statistics.results,
+      displayRules:CHROME_DISPLAY_RULES,policyVersion:policy.version,projection:policy.productIdentityProjection?.version,corrections}));
   }
   async readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string) {
     await this.requireChildScope(accountId,childId);
@@ -91,6 +98,6 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       ||!Number.isFinite(from)||!Number.isFinite(to)||to<from||to-from>6*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to+8*3600000).toISOString().slice(0,10)!==toDate)
       throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
-    return readComputerApplicationEvidence(this.env.RUNTIME_DB,accountId,childId,fromDate,toDate);
+    return readComputerApplicationEvidence(this.env.RUNTIME_DB,accountId,childId,fromDate,toDate,work=>this.ctx.waitUntil(work));
   }
 }

@@ -2,7 +2,7 @@ import { env, exports } from 'cloudflare:workers';
 import { expect, it } from 'vitest';
 import { createUsageAccount, hashUsageAccountValue, usageAccountDayStart, type UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
 import { sha256Hex, randomToken } from '../src/crypto';
-import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationAccount, readApplicationAccountStatus } from '../src/applicationAccounts';
+import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationAccount, readApplicationAccountStatus,routeApplicationAccounts } from '../src/applicationAccounts';
 import type { MachineSelfResponse } from '../src/contracts';
 
 const start = usageAccountDayStart('2026-09-27');
@@ -197,4 +197,18 @@ it('bounded HTTP bodies fail before staging changes', async () => {
   const r = await beginApplicationAccount(env.RUNTIME_DB, f.machine, input(a), now);
   expect((await api(f, `/${r.manifestId}/chunks/0`, 'PUT', { rows: [], chunkHash: 'x'.repeat(131072) })).status).toBe(413);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB, f.machine, r.manifestId)).toMatchObject({ received: false, receivedChunkIndexes: [] });
+});
+it('capabilities require machine authentication and only ready schema permits upload',async()=>{
+  const url='http://runtime.test/v2/machines/application-accounts/capabilities';
+  expect((await exports.default.fetch(new Request(url))).status).toBe(401);
+  const f=await fixture();
+  const response=await exports.default.fetch(new Request(url,{headers:{authorization:`Bearer ${f.token}`}}));
+  expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(await response.json()).toEqual({protocol:'usage-account-v1',schemaVersion:1,enabled:true,
+    chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1']});
+  const unavailable={prepare(){return {bind(){return {async all(){return {results:[]};}};}};}} as unknown as D1Database;
+  const disabled=await routeApplicationAccounts(new Request(url),unavailable,f.machine,now);
+  expect(await disabled.json()).toMatchObject({enabled:false});
+  expect(await env.RUNTIME_DB.prepare('SELECT last_seen_at_ms FROM runtime_machines_v2 WHERE id=?1').bind(f.machine.machineId).first())
+    .toEqual({last_seen_at_ms:start});
 });

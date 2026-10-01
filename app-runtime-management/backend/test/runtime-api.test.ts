@@ -9,12 +9,15 @@ import catalogRules from '../src/data/product-catalog-rules.v3.json';
 import { syncApplicationInventory } from '../src/applicationKnowledge';
 import { machinePolicyEtag } from '../src/v2Repository';
 import worker from '../src/index';
+import { rebuildApplicationStatistics } from '../src/applicationStatistics';
 
 const origin = 'http://runtime.test';
 const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE', y: '5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA', crv: 'P-256', d: '2Ja3Py77LNt6aspenNTttELbGzm2-u9WcF4x8BQql8w' };
 
 beforeEach(async () => {
   await env.RUNTIME_DB.batch([
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_statistics_queue_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_statistics_days_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_knowledge_audit_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_scan_batches_v2'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_scans_v2'),
@@ -2100,7 +2103,18 @@ describe('Application knowledge and installed inventory', () => {
 async function call(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body !== undefined) headers.set('content-type', 'application/json');
-  return exports.default.fetch(new Request(`${origin}${path}`, { ...init, headers }));
+  const fetch=()=>exports.default.fetch(new Request(`${origin}${path}`, { ...init, headers }));
+  let response=await fetch();
+  // Existing business assertions exercise settled authority. Cold/pending behavior
+  // is independently covered by application-statistics.test.ts, not hidden by product fallback.
+  if(path.startsWith('/v2/module/app-usage?')) {
+    const data=await response.clone().json<{error?:{code?:string};statistics?:{stale:boolean}}>();
+    if(data.error?.code==='APPLICATION_STATISTICS_PENDING'||data.error?.code==='APPLICATION_STATISTICS_MANAGEMENT_PENDING'||data.statistics?.stale) {
+      for(let i=0;i<20;i++)if(!(await rebuildApplicationStatistics(env.RUNTIME_DB)).processed)break;
+      response=await fetch();
+    }
+  }
+  return response;
 }
 function bearer(value: string): HeadersInit { return { authorization: `Bearer ${value}` }; }
 function closedTimeWindows(): Record<string, Record<string, Array<{ start: string; end: string }>>> {

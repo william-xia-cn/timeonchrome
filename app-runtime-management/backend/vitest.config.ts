@@ -17,7 +17,8 @@ export default defineConfig({
           if(new URL(request.url).pathname!=='/verifyChildAccess')return new Response('Fixture service unavailable',{status:503});
           const scope=await request.json() as {accountId:string;childId:string};
           if(scope.accountId==='scope-unavailable')return Response.json({code:'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});
-          const children=[['rpc-boundary-account','rpc-boundary-child'],['rpc-account','rpc-child'],['empty-account','empty-child']];
+          const children=[['rpc-boundary-account','rpc-boundary-child'],['rpc-account','rpc-child'],['empty-account','empty-child'],
+            ['persistent-account','persistent-child']];
           return Response.json({owned:children.some(([account,child])=>scope.accountId===account&&scope.childId===child)});
         } },
         bindings: {

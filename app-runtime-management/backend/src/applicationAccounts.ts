@@ -1,6 +1,6 @@
 import { canonicalUsageAccountJson, hashUsageAccountValue, parseUsageAccountRows,
   verifyUsageAccountManifest, validateUsageAccountDimensions, UsageAccountError,
-  USAGE_ACCOUNT_CHUNK_ROWS, type UsageAccountManifest, type UsageAccountReceipt } from '@timeonchrome/app-runtime-contracts/usage-account';
+  USAGE_ACCOUNT_CHUNK_ROWS, USAGE_ACCOUNT_MAX_ROWS, type UsageAccountManifest, type UsageAccountReceipt } from '@timeonchrome/app-runtime-contracts/usage-account';
 import type { MachineSelfResponse } from './contracts';
 import { HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http';
 import { isRecord } from './validation';
@@ -11,6 +11,8 @@ interface StoredManifest {
   id: string; machine_id: string; local_user_id: string; assignment_version: number;
   account_id: string; child_id: string; date: string; revision: number;
   manifest_hash: string; manifest_json: string; state: 'pending' | 'received';
+  published?: number;
+  publication_error_code?: string|null;
 }
 function fail(status: number, code: string): never { throw new HttpError(status, code, code); }
 function body(value: unknown, fields: string[]): Record<string, unknown> {
@@ -21,13 +23,17 @@ function body(value: unknown, fields: string[]): Record<string, unknown> {
 }
 function receipt(stored: StoredManifest): UsageAccountReceipt {
   return { manifestId: stored.id, revision: stored.revision, manifestHash: stored.manifest_hash,
-    received: stored.state === 'received', published: false,
-    publishStatus: stored.state === 'received' ? 'received_not_published' : 'pending' };
+    received: stored.state === 'received', published: stored.published === 1,
+    publishStatus: stored.published === 1 ? 'published' : stored.state === 'received' ? 'received_not_published' : 'pending' };
 }
 async function load(db: D1Database, machine: MachineSelfResponse, id: string): Promise<StoredManifest> {
   if (!/^aa1_[a-f0-9]{64}$/.test(id)) fail(404, 'APPLICATION_ACCOUNT_NOT_FOUND');
-  const stored = await db.prepare(`SELECT * FROM runtime_application_account_manifests_v1
-    WHERE id=?1 AND machine_id=?2 AND account_id=?3`)
+  const stored = await db.prepare(`SELECT m.*,CASE WHEN p.manifest_id=m.id THEN 1 ELSE 0 END AS published,
+      c.error_code AS publication_error_code FROM runtime_application_account_manifests_v1 m
+      LEFT JOIN runtime_application_account_publications_v1 p ON p.machine_id=m.machine_id AND p.local_user_id=m.local_user_id
+        AND p.assignment_version=m.assignment_version AND p.date=m.date
+      LEFT JOIN runtime_application_account_publication_checks_v1 c ON c.manifest_id=m.id
+    WHERE m.id=?1 AND m.machine_id=?2 AND m.account_id=?3`)
     .bind(id, machine.machineId, machine.accountId).first<StoredManifest>();
   if (!stored) fail(404, 'APPLICATION_ACCOUNT_NOT_FOUND');
   return stored;
@@ -70,7 +76,7 @@ export async function beginApplicationAccount(db: D1Database, machine: MachineSe
   const stored = await db.prepare('SELECT * FROM runtime_application_account_manifests_v1 WHERE id=?1').bind(id).first<StoredManifest>();
   if (!stored) fail(409, 'APPLICATION_ACCOUNT_STALE_REVISION');
   if (stored.manifest_hash !== manifest.manifestHash) fail(409, 'APPLICATION_ACCOUNT_REVISION_CONFLICT');
-  return receipt(stored);
+  return receipt(await load(db,machine,id));
 }
 export async function putApplicationAccountChunk(db: D1Database, machine: MachineSelfResponse, id: string, index: number, value: unknown) {
   const stored = await load(db, machine, id), manifest = await verifyUsageAccountManifest(JSON.parse(stored.manifest_json));
@@ -127,11 +133,22 @@ export async function readApplicationAccountStatus(db: D1Database, machine: Mach
   const stored = await load(db, machine, id);
   const chunks = await db.prepare(`SELECT chunk_index FROM runtime_application_account_chunks_v1
     WHERE manifest_id=?1 ORDER BY chunk_index LIMIT 100`).bind(id).all<{ chunk_index: number }>();
-  return { ...receipt(stored), receivedChunkIndexes: chunks.results.map(c => c.chunk_index) };
+  return { ...receipt(stored), receivedChunkIndexes: chunks.results.map(c => c.chunk_index),
+    publicationErrorCode: stored.publication_error_code??null };
 }
 export async function routeApplicationAccounts(request: Request, db: D1Database, machine: MachineSelfResponse, now: number) {
   const path = new URL(request.url).pathname;
   try {
+    if(path==='/v2/machines/application-accounts/capabilities') {
+      if(request.method!=='GET')return methodNotAllowed('GET');
+      const tables=['runtime_application_account_manifests_v1','runtime_application_account_chunks_v1',
+        'runtime_application_account_receipts_v1','runtime_application_account_publications_v1',
+        'runtime_application_account_publication_checks_v1','runtime_application_statistics_days_v1','runtime_application_statistics_queue_v1'];
+      const result=await db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${tables.map((_,i)=>`?${i+1}`).join(',')})`)
+        .bind(...tables).all();
+      return jsonResponse({protocol:'usage-account-v1',schemaVersion:1,enabled:result.results.length===tables.length,
+        chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,acceptedAlgorithms:['windows-application-v1']});
+    }
     if (path === prefix) return request.method === 'POST'
       ? jsonResponse(await beginApplicationAccount(db, machine, await readJsonBody(request, 16384), now)) : methodNotAllowed('POST');
     const match = path.match(/^\/v2\/machines\/application-accounts\/manifests\/(aa1_[a-f0-9]{64})\/(status|commit|chunks\/(\d{1,3}))$/);

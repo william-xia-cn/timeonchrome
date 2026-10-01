@@ -689,6 +689,7 @@ export async function queryAppUsage(
   fromMs: number,
   toMs: number,
   filters: { machineId?: string; localUserId?: string; platform?: RuntimePlatform },
+  materialization?: { dayOnly: true },
 ): Promise<unknown> {
   const values: unknown[] = [accountId, childId, fromMs, toMs];
   let sqlFilter = '';
@@ -696,7 +697,7 @@ export async function queryAppUsage(
   if (filters.localUserId) { values.push(filters.localUserId); sqlFilter += ` AND s.local_user_id=?${values.length}`; }
   if (filters.platform) { values.push(filters.platform); sqlFilter += ` AND s.platform=?${values.length}`; }
   const result = await database.prepare(`
-    SELECT s.machine_id,s.local_user_id,s.runtime_session_id,COALESCE(s.clock_epoch_id,'legacy-v2') AS clock_epoch_id,s.platform,
+    SELECT s.id,s.machine_id,s.local_user_id,s.runtime_session_id,COALESCE(s.clock_epoch_id,'legacy-v2') AS clock_epoch_id,s.platform,
       s.runtime_identity,s.display_name,s.channel,
       CASE WHEN s.accounting_schema_version=2 THEN s.start_wall_time_ms ELSE s.start_at_ms END AS start_wall_time_ms,
       CASE WHEN s.accounting_schema_version=2 THEN s.end_wall_time_ms ELSE s.end_at_ms END AS end_wall_time_ms,
@@ -713,7 +714,7 @@ export async function queryAppUsage(
   if (filters.platform) { legacyValues.push(filters.platform); legacyFilter = ` AND s.platform=?${legacyValues.length}`; }
   const legacy = filters.machineId || filters.localUserId ? { results: [] as Record<string, unknown>[] }
     : await database.prepare(`
-      SELECT s.device_id AS machine_id,'legacy-v1' AS local_user_id,s.runtime_session_id,
+      SELECT s.id,s.device_id AS machine_id,'legacy-v1' AS local_user_id,s.runtime_session_id,
         'legacy-v1' AS clock_epoch_id,s.platform,s.runtime_identity,s.display_name,NULL AS channel,
         s.start_at_ms AS start_wall_time_ms,s.end_at_ms AS end_wall_time_ms,
         'unclassified' AS classification,NULL AS app_policy_version,0 AS estimated
@@ -743,7 +744,9 @@ export async function queryAppUsage(
   let outsideWindowSegmentCount = 0;
   const estimatedSources = new Set<unknown>(), outsideSources = new Set<unknown>();
   const correctionRules = await loadUsageCorrections(database, accountId, childId, fromMs, toMs);
-  for (const row of correctUsageRows([...(result.results || []), ...(legacy.results || [])], correctionRules, fromMs, toMs)) {
+  const sourceRows:Record<string,unknown>[] = [...(result.results || []).map(row => ({...row, factKind: 'v2'})),
+    ...(legacy.results || []).map(row => ({...row, factKind: 'v1'}))];
+  for (const row of correctUsageRows(sourceRows, correctionRules, fromMs, toMs)) {
     const start = Math.max(fromMs, Number(row.start_wall_time_ms));
     const end = Math.min(toMs, Number(row.end_wall_time_ms));
     if (end <= start) continue;
@@ -831,8 +834,10 @@ export async function queryAppUsage(
       classification: app.classification, classifications: [...app.classificationSet].sort(), durationMs, quota: dailyQuotaState(app.days, limit) };
   }).sort((a, b) => b.durationMs - a.durationMs);
   const shifted = new Date(fromMs + 8 * 3_600_000);
-  const weekStart = beijingDayStart(fromMs) - ((shifted.getUTCDay() + 6) % 7) * 86_400_000;
-  const weekValues: unknown[] = [accountId, childId, weekStart, weekStart + 7 * 86_400_000];
+  // 后台单日物化不重复扫描其余六日；默认权威读取行为不变。
+  const weekStart = materialization ? fromMs : beijingDayStart(fromMs) - ((shifted.getUTCDay() + 6) % 7) * 86_400_000;
+  const weekEnd = materialization ? toMs : weekStart + 7 * 86_400_000;
+  const weekValues: unknown[] = [accountId, childId, weekStart, weekEnd];
   let weekFilter = '';
   if (filters.machineId) { weekValues.push(filters.machineId); weekFilter += ` AND s.machine_id=?${weekValues.length}`; }
   if (filters.localUserId) { weekValues.push(filters.localUserId); weekFilter += ` AND s.local_user_id=?${weekValues.length}`; }
@@ -855,14 +860,14 @@ export async function queryAppUsage(
       FROM runtime_usage_segments s JOIN runtime_devices d ON d.id=s.device_id
       WHERE d.account_id=?1 AND d.child_id=?2 AND s.start_at_ms<?4 AND s.end_at_ms>?3
         AND (?5 IS NULL OR s.platform=?5)`)
-      .bind(accountId, childId, weekStart, weekStart + 7 * 86_400_000, filters.platform ?? null).all<Record<string, unknown>>();
-  const weeklyCorrections = await loadUsageCorrections(database, accountId, childId, weekStart, weekStart + 7 * 86_400_000);
+      .bind(accountId, childId, weekStart, weekEnd, filters.platform ?? null).all<Record<string, unknown>>();
+  const weeklyCorrections = await loadUsageCorrections(database, accountId, childId, weekStart, weekEnd);
   for (const row of correctUsageRows([...(restrictedRows.results || []), ...(weeklyLegacy.results || [])],
-    weeklyCorrections, weekStart, weekStart + 7 * 86_400_000).filter(row => row.classification === 'restrictedEntertainment')) {
+    weeklyCorrections, weekStart, weekEnd).filter(row => row.classification === 'restrictedEntertainment')) {
     const group = `${row.machine_id}\n${row.local_user_id}\n${row.runtime_session_id}\n${row.clock_epoch_id}`;
     const intervals = restrictedGroups.get(group) || [];
     intervals.push([Math.max(weekStart, Number(row.start_wall_time_ms)),
-      Math.min(weekStart + 7 * 86_400_000, Number(row.end_wall_time_ms))]);
+      Math.min(weekEnd, Number(row.end_wall_time_ms))]);
     restrictedGroups.set(group, intervals);
   }
   const restrictedDuration = groupedUnion(restrictedGroups);
@@ -908,6 +913,17 @@ export async function queryAppUsage(
       })).sort((left, right) => right.durationMs - left.durationMs),
     },
     mediaPlaybackTotalMs,
+    ...(materialization ? {materialization: {
+      estimatedFactKeys: [...estimatedSources].map(index => {
+        const row = sourceRows[Number(index)]!;
+        return `${row.factKind}:${row.machine_id}:${row.local_user_id}:${row.id}`;
+      }),
+      outsideFactKeys: [...outsideSources].map(index => {
+        const row = sourceRows[Number(index)]!;
+        return `${row.factKind}:${row.machine_id}:${row.local_user_id}:${row.id}`;
+      }),
+      applicationLastEnds: Object.fromEntries([...applications].map(([key, app]) => [key, app.lastEnd])),
+    }} : {}),
   };
 }
 

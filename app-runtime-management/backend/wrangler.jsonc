@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-31",
   "compatibility_flags": ["nodejs_compat"],
+  "triggers": { "crons": ["* * * * *"] },
   "vars": {
     "GUARDIAN_RUNTIME_ISSUER": "guardian-api",
     "RUNTIME_PAGES_ORIGIN": "https://timeonchrome-app-runtime-console.pages.dev"
