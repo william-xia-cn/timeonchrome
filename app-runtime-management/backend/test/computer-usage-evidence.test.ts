@@ -1,12 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { env, exports } from 'cloudflare:workers';
-import { readComputerApplicationEvidence } from '../src/computerUsageEvidence';
+import { readComputerApplicationEvidence as readEvidence } from '../src/computerUsageEvidence';
+import { readPersistentApplicationUsage,rebuildApplicationStatistics } from '../src/applicationStatistics';
 import { queryAppUsage } from '../src/appPolicy';
 import { isConfirmedChrome } from '../src/specialApplications';
 import { CHROME_DISPLAY_RULES } from '../src/specialApplications';
 import { RuntimeComputerUsageService } from '../src/computerUsageService';
 import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 const day=Date.parse('2026-10-01T00:00:00+08:00');
+async function prime(account:string,child:string,fromDate:string,toDate:string,filters:{machineId?:string}={}) {
+  const start=Date.parse(`${fromDate}T00:00:00+08:00`),end=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
+  await readPersistentApplicationUsage(env.RUNTIME_DB,account,child,start,end,filters).catch(()=>{});
+  for(let i=0;i<8;i++)await rebuildApplicationStatistics(env.RUNTIME_DB);
+}
+// Exercise actual D1 background materialization before the independent evidence read.
+async function readComputerApplicationEvidence(db:D1Database,account:string,child:string,fromDate:string,toDate:string){
+  const machines=await db.prepare(`SELECT id FROM runtime_machines_v2 WHERE account_id=?1`).bind(account).all<{id:string}>();
+  for(const machine of machines.results)await prime(account,child,fromDate,toDate,{machineId:machine.id});
+  return readEvidence(db,account,child,fromDate,toDate);
+}
 async function seed(account:string,machine:string,child:string){
 await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machines_v2(id,account_id,platform,token_hash,display_name,default_child_id,last_seen_at_ms,created_at_ms,updated_at_ms)
 VALUES (?1,?2,'windows',?1,'测试电脑',?3,0,0,0)`).bind(machine,account,child).run();
@@ -16,12 +28,29 @@ await env.RUNTIME_DB.prepare(`INSERT INTO runtime_usage_segments_v2(id,machine_i
 VALUES (?1,?2,'opaque-user',1,?3,'session','windows','leaf','已确认应用',?4,?5,?5-?4,'fixture',?1,?5,2,'active','epoch',?4,?5,?6,?7)`).bind(id,machine,child,start,end,estimated,classification).run();
 }
 describe('computer application evidence real D1 read adapter',()=>{
+it('pending evidence changes revision after materialization without changing raw facts',async()=>{
+  await seed('persistent-account','persistent-machine','persistent-child');await usage('persistent-machine','persistent-child','persistent-pending',day,day+1501);
+  const args=['persistent-account','persistent-child','2026-10-01','2026-10-01'] as const,rpc=exports.RuntimeComputerUsageService;
+  const before=await rpc.applicationEvidenceRevision(...args);
+  const pending=await readEvidence(env.RUNTIME_DB,...args);
+  expect(pending[0]).toMatchObject({statisticsComplete:false,totalMs:null});
+  expect(pending[0]?.reasons).toContain('APPLICATION_STATISTICS_PENDING');
+  await prime(...args,{machineId:'persistent-machine'});
+  expect(await rpc.applicationEvidenceRevision(...args)).not.toBe(before);
+  const ready=await readEvidence(env.RUNTIME_DB,...args);expect(ready[0]).toMatchObject({statisticsComplete:true,totalMs:1501});
+  await usage('persistent-machine','persistent-child','persistent-late',day+3000,day+4501);
+  const stale=await readEvidence(env.RUNTIME_DB,...args);
+  expect(stale[0]).toMatchObject({statisticsComplete:false,totalMs:1501});
+  expect(stale[0]?.reasons).toContain('APPLICATION_STATISTICS_STALE');
+});
 it('actual Worker RPC returns revision, evidence and unchanged stripped authority without hanging',async()=>{
 await seed('rpc-boundary-account','rpc-boundary-machine','rpc-boundary-child');
 await usage('rpc-boundary-machine','rpc-boundary-child','rpc-boundary-row',day,day+1501);
 expect(await env.RUNTIME_DB.prepare("SELECT child_id FROM runtime_children_v1 WHERE child_id='rpc-boundary-child'").first()).toBeNull();
 const rpc=exports.RuntimeComputerUsageService;
 const args=['rpc-boundary-account','rpc-boundary-child','2026-10-01','2026-10-01'] as const;
+await prime(args[0],args[1],args[2],args[3],{machineId:'rpc-boundary-machine'});
+await prime(args[0],args[1],args[2],args[3]);
 expect(await rpc.applicationEvidenceRevision(...args)).toMatch(/^[a-f0-9]{64}$/);
 const sources=await rpc.readApplicationEvidence(...args);expect(sources[0]?.totalMs).toBe(1501);
 const internal=await rpc.fetch(new Request('https://capability/readApplicationEvidence',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:args[0],childId:args[1],fromDate:args[2],toDate:args[3]})}));
@@ -70,7 +99,7 @@ expect(JSON.stringify((await env.RUNTIME_DB.prepare("SELECT * FROM runtime_usage
 });
 it('legacy discovery failure preserves valid v2 statistics',async()=>{
 await seed('isolated-account','isolated-machine','isolated-child');await usage('isolated-machine','isolated-child','isolated-row',day,day+1501);
-const database={prepare(sql:string){
+const database={batch:env.RUNTIME_DB.batch.bind(env.RUNTIME_DB),prepare(sql:string){
   if(sql.includes('FROM runtime_devices d LEFT JOIN'))return {bind(){return {all(){throw new Error('fixture legacy unavailable');}};}};
   return env.RUNTIME_DB.prepare(sql);
 }} as unknown as D1Database;
@@ -80,13 +109,14 @@ expect(sources.find(item=>item.key.startsWith('legacy-app:'))?.reasons).toContai
 });
 it('RPC revision failure isolation preserves valid current sources when legacy discovery fails',async()=>{
 await seed('rpc-account','rpc-machine','rpc-child');await usage('rpc-machine','rpc-child','rpc-row',day,day+1501);
-const database={prepare(sql:string){
+const database={batch:env.RUNTIME_DB.batch.bind(env.RUNTIME_DB),prepare(sql:string){
   if(sql.includes('FROM runtime_devices d LEFT JOIN'))return {bind(){return {all(){throw new Error('fixture legacy unavailable');}};}};
   return env.RUNTIME_DB.prepare(sql);
 }} as unknown as D1Database;
 const rpc=new RuntimeComputerUsageService({} as ExecutionContext,{...env,RUNTIME_DB:database});
 const first=await rpc.applicationEvidenceRevision('rpc-account','rpc-child','2026-10-01','2026-10-01');
 expect(first).toMatch(/^[a-f0-9]{64}$/);expect(await rpc.applicationEvidenceRevision('rpc-account','rpc-child','2026-10-01','2026-10-01')).toBe(first);
+await prime('rpc-account','rpc-child','2026-10-01','2026-10-01',{machineId:'rpc-machine'});
 const sources=await rpc.readApplicationEvidence('rpc-account','rpc-child','2026-10-01','2026-10-01');expect(sources.find(item=>item.key.startsWith('app:'))?.totalMs).toBe(1501);
 expect(sources.find(item=>item.key.startsWith('legacy-app:'))?.totalMs).toBeNull();
 });

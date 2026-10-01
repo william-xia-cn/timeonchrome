@@ -1,9 +1,10 @@
 import { requireAccountModule, requireMachine } from './auth';
+import { routeApplicationAccounts } from './applicationAccounts';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
 import { machineUsageCorrections } from './applicationUsageCorrections';
-import { readCachedApplicationUsage } from './applicationUsageCache';
+import { readPersistentApplicationUsage } from './applicationStatistics';
 import { getApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
   putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
   applyKnowledgeOperation } from './applicationKnowledge';
@@ -60,7 +61,7 @@ import {
 
 const policyStates = new Set(['pending', 'cached', 'applied', 'failed', 'offline']);
 
-export async function routeV2(request: Request, env: Env, nowMs: number): Promise<Response | null> {
+export async function routeV2(request: Request, env: Env, nowMs: number, defer?:(work:Promise<unknown>)=>void): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/v2/') && url.pathname !== '/v1/devices/self/retire') return null;
 
@@ -212,13 +213,13 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
       if (platform != null && platform !== 'windows' && platform !== 'macos') {
         throw new HttpError(400, 'INVALID_PLATFORM', 'Platform is invalid.');
       }
-      const result=await readCachedApplicationUsage(env.RUNTIME_DB, claims.account_id, childId,
+      const result=await readPersistentApplicationUsage(env.RUNTIME_DB, claims.account_id, childId,
         range.fromMs, range.toMs, {
           machineId: url.searchParams.get('machineId') || undefined,
           localUserId: url.searchParams.get('userId') || undefined,
           platform: platform || undefined,
-        });
-      return jsonResponse(result.value,{headers:{'x-application-usage-cache':result.cacheStatus}});
+        },defer,nowMs);
+      return jsonResponse({...result.value,statistics:result.statistics},{headers:{'x-application-usage-cache':result.cacheStatus}});
     }
     if (url.pathname === '/v2/module/usage-segments' || url.pathname === '/v2/module/media-segments') {
       if (request.method !== 'GET') return methodNotAllowed('GET');
@@ -373,6 +374,9 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
   }
 
   // Heartbeat records activity only after the complete payload passes validation.
+  if (url.pathname.startsWith('/v2/machines/application-accounts/')) {
+    return routeApplicationAccounts(request, env.RUNTIME_DB, await requireMachine(request, env.RUNTIME_DB, nowMs, false), nowMs);
+  }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
     url.pathname !== '/v2/machines/heartbeat');
   if (url.pathname === '/v2/machines/app-usage-corrections') {

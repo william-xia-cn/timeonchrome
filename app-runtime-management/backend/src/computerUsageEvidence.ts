@@ -1,5 +1,6 @@
 import type { ComputerApplicationSource } from '@timeonchrome/app-runtime-contracts/computer-usage';
-import { getAppPolicy, queryAppUsage } from './appPolicy';
+import { getAppPolicy } from './appPolicy';
+import { readPersistentApplicationUsage } from './applicationStatistics';
 import { correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
@@ -23,7 +24,7 @@ function legacyLaneTotal(groups:Map<string,Array<[number,number]>>):number {
 
 /** Additive, read-only adapter. Authority remains queryAppUsage and immutable policy corrections. */
 export async function readComputerApplicationEvidence(db: D1Database, accountId: string, childId: string,
-  fromDate: string, toDate: string): Promise<ComputerApplicationSource[]> {
+  fromDate: string, toDate: string, defer?:(work:Promise<unknown>)=>void): Promise<ComputerApplicationSource[]> {
   const fromMs = Date.parse(`${fromDate}T00:00:00+08:00`);
   const toMs = Date.parse(`${toDate}T00:00:00+08:00`) + 86400000;
   const machines = await db.prepare(`SELECT DISTINCT m.id,m.display_name FROM runtime_machines_v2 m
@@ -53,7 +54,14 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
     const limited=rows.length>remaining;
     const reasons = limited ? ['APPLICATION_EVIDENCE_LIMIT'] : rows.length===0 ? ['APPLICATION_EVIDENCE_UNAVAILABLE'] : [];
     if(rows.some(row=>Number(row.estimated)!==0||!row.clock_epoch_id||Number(row.accounting_schema_version)!==2))reasons.push('APPLICATION_CLOCK_EVIDENCE_INCOMPLETE');
-    const authoritative = limited?null:await queryAppUsage(db,accountId,childId,fromMs,toMs,{machineId:machine.id}) as Usage;
+    let authoritative:Usage|null=null;
+    if(!limited)try{
+      const snapshot=await readPersistentApplicationUsage(db,accountId,childId,fromMs,toMs,{machineId:machine.id},defer);
+      authoritative=snapshot.value;
+      if(snapshot.statistics.stale)reasons.push('APPLICATION_STATISTICS_STALE');
+    }catch(error){
+      if(error instanceof HttpError)reasons.push(error.code);else throw error;
+    }
     const retainedIdentities=[...new Map(rows.slice(0,remaining).map(row=>[row.platform+'\n'+row.runtime_identity,{platform:row.platform,identity:row.runtime_identity}])).values()];
     const retainedEvidence=await db.prepare(`SELECT i.evidence_json FROM runtime_application_inventory_v1 i
       WHERE i.machine_id=?1 AND EXISTS (SELECT 1 FROM json_each(?2) k
@@ -85,7 +93,7 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
       associationVersion:`${policy.productIdentityProjection?.version ?? 'unavailable'}:${CHROME_DISPLAY_VERSION}`,
       correctionRevision:await sha256Hex(JSON.stringify(corrections)),
       settledAtMs:rows.length?Math.max(...rows.map(row=>Number(row.end_wall_time_ms))):null,
-      complete:reasons.length===0,statisticsComplete:authoritative!==null,reasons,totalMs:authoritative?.totalDurationMs??null,
+      complete:reasons.length===0,statisticsComplete:authoritative!==null&&!reasons.includes('APPLICATION_STATISTICS_STALE'),reasons,totalMs:authoritative?.totalDurationMs??null,
       categoriesMs:Object.fromEntries((authoritative?.categories??[]).map(item=>[item.classification,item.durationMs])),intervals});
   }
   try {

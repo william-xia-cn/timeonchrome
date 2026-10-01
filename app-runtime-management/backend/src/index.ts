@@ -12,6 +12,8 @@ import {
 import { routeV2 } from './v2Routes';
 import { deleteRuntimeChildV2 } from './v2Repository';
 import { exchangeBrowserSession, revokeBrowserSession } from './browserSessions';
+import { rebuildApplicationStatistics } from './applicationStatistics';
+import { publishApplicationAccounts } from './applicationAccountPublication';
 export { RuntimeComputerUsageService } from './computerUsageService';
 
 interface WindowsV2ReleaseManifest {
@@ -66,7 +68,7 @@ async function getWindowsInstallerRelease(env: Env, version: string): Promise<Wi
   };
 }
 
-async function route(request: Request, env: Env): Promise<Response> {
+async function route(request: Request, env: Env, defer?:(work:Promise<unknown>)=>void): Promise<Response> {
   const url = new URL(request.url);
   const nowMs = Date.now();
 
@@ -80,7 +82,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     return new Response(null, { status: 204 });
   }
 
-  const v2 = await routeV2(request, env, nowMs);
+  const v2 = await routeV2(request, env, nowMs, defer);
   if (v2) return v2;
 
   if (url.pathname === '/v1/health') {
@@ -214,7 +216,10 @@ async function route(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async scheduled(_controller:ScheduledController,env:Env,ctx:ExecutionContext):Promise<void> {
+    ctx.waitUntil((async()=>{await publishApplicationAccounts(env.RUNTIME_DB);await rebuildApplicationStatistics(env.RUNTIME_DB);})());
+  },
+  async fetch(request: Request, env: Env, ctx?:ExecutionContext): Promise<Response> {
     const origin = request.headers.get('origin');
     const allowedOrigin = env.RUNTIME_PAGES_ORIGIN || 'https://timeonchrome-app-runtime-console.pages.dev';
     const withCors = (response: Response): Response => {
@@ -236,7 +241,7 @@ export default {
           'access-control-max-age': '86400',
         } });
       }
-      return withCors(await route(request, env));
+      return withCors(await route(request, env, ctx ? work=>ctx.waitUntil(work) : undefined));
     } catch (error) {
       if (error instanceof HttpError) {
         return withCors(errorResponse(error.status, error.code, error.message));
