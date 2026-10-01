@@ -109,6 +109,11 @@ it('checks shared contribution against the published immutable account before an
   expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
     snapshot.manifest.date)).reasonCode).toBe('SHARED_QUOTA_CONTRIBUTION_OUT_OF_RANGE');
 });
+it('keeps Chrome display deduction unknown when its optional evidence table is unavailable', async () => {
+  const unavailable={prepare(){throw new Error('no such table: runtime_application_shared_quota_verified_v1');}} as unknown as D1Database;
+  expect(await readCoveredChromeDeduction(unavailable,'account','child','machine','2026-09-27','2026-09-27',1501))
+    .toBeNull();
+});
 it('partial delivery can resume; cannot commit missing chunks', async () => {
   const f = await fixture(), a = await account(1, 1501, true);
   const r = await beginApplicationAccount(env.RUNTIME_DB, f.machine, input(a), now);

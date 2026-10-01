@@ -227,7 +227,8 @@ export async function readCoveredChromeDeduction(db:D1Database,accountId:string,
   const matched=`v.source_verified=1 AND v.chrome_included_ms IS NOT NULL
     AND v.statistics_manifest_hash=m.manifest_hash
     AND v.revision_ordinal=r.revision_ordinal AND v.payload_hash=r.payload_hash`;
-  const coverage=await db.prepare(`SELECT COUNT(*) AS expected,
+  let coverage:{expected:number;verified:number|null;included_ms:number|null}|null;
+  try { coverage=await db.prepare(`SELECT COUNT(*) AS expected,
       SUM(CASE WHEN ${matched} THEN 1 ELSE 0 END) AS verified,
       SUM(CASE WHEN ${matched} THEN v.chrome_included_ms ELSE 0 END) AS included_ms
     FROM runtime_application_account_publications_v1 p
@@ -243,6 +244,7 @@ export async function readCoveredChromeDeduction(db:D1Database,accountId:string,
       AND p.date>=?4 AND p.date<=?5`)
     .bind(accountId,childId,machineId,fromDate,toDate)
     .first<{expected:number;verified:number|null;included_ms:number|null}>();
+  } catch { return null; }
   const expected=Number(coverage?.expected??0),verified=Number(coverage?.verified??0),
     included=Number(coverage?.included_ms??0);
   if(expected===0)return totalMs===0?0:null;
