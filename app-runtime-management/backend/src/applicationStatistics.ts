@@ -99,14 +99,14 @@ async function scope(account:string,child:string,from:number,to:number,filters:F
     account_id:account,child_id:child,date:date(from),filters_json:JSON.stringify(filters),from_ms:from,to_ms:to,
     source_revision:await hashUsageAccountValue([source.revision,source.publicationRevision])};
 }
-async function enqueue(db:D1Database,s:Scope,now:number) {
-  await db.prepare(`INSERT INTO runtime_application_statistics_queue_v1
+function enqueueStatement(db:D1Database,s:Scope,now:number) {
+  return db.prepare(`INSERT INTO runtime_application_statistics_queue_v1
     (scope_key,account_id,child_id,date,filters_json,from_ms,to_ms,source_revision,requested_at_ms)
     VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(scope_key,date) DO UPDATE
     SET source_revision=excluded.source_revision,requested_at_ms=excluded.requested_at_ms,
       attempts=0,retry_at_ms=0,error_code=NULL
     WHERE excluded.source_revision<>runtime_application_statistics_queue_v1.source_revision`)
-    .bind(s.scope_key,s.account_id,s.child_id,s.date,s.filters_json,s.from_ms,s.to_ms,s.source_revision,now).run();
+    .bind(s.scope_key,s.account_id,s.child_id,s.date,s.filters_json,s.from_ms,s.to_ms,s.source_revision,now);
 }
 /** Included in the publication transaction: default Child day plus existing affected scopes. */
 export async function applicationPublicationDirtyStatements(db:D1Database,candidate:{id:string;account_id:string;child_id:string;date:string;
@@ -208,13 +208,13 @@ export async function readPersistentApplicationUsage(db:D1Database,account:strin
   const loaded=new Map<string,PublishedDay>();let pending=false,missing=false;
   const published=await db.batch<PublishedDay>([...unique.values()].map(s=>db.prepare(`SELECT * FROM runtime_application_statistics_days_v1
       WHERE scope_key=?1 AND date=?2 AND account_id=?3 AND child_id=?4`).bind(s.scope_key,s.date,account,child)));
-  const queued:Promise<unknown>[]=[];let index=0;
+  const queued:D1PreparedStatement[]=[];let index=0;
   for(const [id,s] of unique){
     const value=published[index++]!.results[0];
     if(value)loaded.set(id,value);else missing=true;
-    if(!value||value.source_revision!==s.source_revision){queued.push(enqueue(db,s,now));pending=true;}
+    if(!value||value.source_revision!==s.source_revision){queued.push(enqueueStatement(db,s,now));pending=true;}
   }
-  await Promise.all(queued);
+  for(let offset=0;offset<queued.length;offset+=7)await db.batch(queued.slice(offset,offset+7));
   if(pending&&defer)defer((async()=>{
     for(const scopeKey of new Set([...unique.values()].map(s=>s.scope_key)))await rebuildApplicationStatistics(db,now,scopeKey);
   })());
