@@ -2,6 +2,8 @@
 
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
+本轮 PR #164 的 CI 发现周范围配额兼容回归：仅一天有某分类时，不得把其余无该分类的日期补为零再改变 remainingMs 的既有返回语义。保持旧分类日集合，补验既有 current-week API 回归；不改配额规则或更正。
+
 2026-10-01 PO 批准云端收口：Native 2.6.14 已安装；新应用持久化统计以 Service 既有单调时钟映射、用户内区间并集及毫秒精度为权威，旧云端分会话／墙钟算法差异仅诊断，不再作为新快照发布阻断。实施 checklist：①修正文档；②稳定历史锚点、跨日、更正及行/hash 精确核对；③最近七天已上传历史身份仅补独立自引用投影，不确认产品、不改变分类或目录；④正常审计流程刷新关联版本；⑤聚焦测试后现有分支 PR 合入、只发布 Runtime Worker；⑥固定范围核对真实非零发布、持久化值及页面冷／热读。测试等级为 Worker 核对／投影；必要测试为 publication、statistics、identity/knowledge 聚焦集、typecheck、dry-run、scope 和 diff；排除 Windows/Mac/WiX/网页账本/无关页面产品测试。原账、旧接口、更正和配额不变；新统计展示与旧配额用量分开保存，避免展示口径切换隐式改配额。无新分支／工作树、安装、migration、其他资源部署或 R2 操作。当前实施中，线上验收未完成。
 
 2026-10-01 17:34 云端修复发布：PR #162 已合入 master@a0e656c4cc5c4a31c0514d10adf79af973e8b79c；精确主线 App Runtime CI 36843119177 SUCCESS，功能提交 CI 36842853024 的 Worker 156/156，通过的 Console／Native 无关任务未重跑。PO 再次要求继续修复后，受保护发布 36843409616 SUCCESS，仅部署 Runtime Worker，version=4be84f27-130c-4140-a15c-5bcf5a9f39cf，manifest artifact=11151669863；migration 步骤只读检查“无待执行项”，apply=false。health=200、未认证 catalog=401；Pages／Guardian／D1 schema／R2 未改。线上回读有 APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING，当前派生日仍为 legacy-server，不是新统计生效。Native 交接再次空白结束且会话 idle，仍无代码／测试结果；本机对应修复、新 revision 补发及实际页面／性能验收保持未完成，不能把云端上线称为整体修复完成。
