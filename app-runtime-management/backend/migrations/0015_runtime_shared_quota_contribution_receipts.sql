@@ -17,3 +17,20 @@ CREATE TABLE runtime_application_shared_quota_receipts_v1 (
 );
 CREATE INDEX runtime_application_shared_quota_receipts_child_idx
   ON runtime_application_shared_quota_receipts_v1(account_id,child_id,date);
+
+CREATE TABLE runtime_application_shared_quota_verified_v1 (
+  machine_id TEXT NOT NULL,
+  local_user_id TEXT NOT NULL,
+  assignment_version INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  revision_ordinal INTEGER NOT NULL,
+  payload_hash TEXT NOT NULL,
+  statistics_manifest_hash TEXT NOT NULL,
+  chrome_included_ms INTEGER,
+  source_verified INTEGER NOT NULL CHECK(source_verified IN (0,1)),
+  reason_code TEXT NOT NULL,
+  verified_at_ms INTEGER NOT NULL,
+  PRIMARY KEY(machine_id,local_user_id,assignment_version,date),
+  FOREIGN KEY(machine_id,local_user_id,assignment_version)
+    REFERENCES runtime_user_assignments_v2(machine_id,local_user_id,assignment_version) ON DELETE CASCADE
+);

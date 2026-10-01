@@ -144,3 +144,76 @@ export async function checkApplicationSharedQuotaSource(db:D1Database,machineId:
   } catch { return unavailable('SHARED_QUOTA_SOURCE_INVALID'); }
   return {sourceVerified:true,policyVerified:false,reasonCode:'SHARED_POLICY_NOT_VERIFIED',contribution};
 }
+
+
+/** Bounded background verification; failed scopes retry after five minutes or on a new revision. */
+export async function reconcileApplicationSharedQuotaEvidence(db:D1Database,nowMs=Date.now(),machineId?:string) {
+  const pending=await db.prepare(`SELECT r.machine_id,r.local_user_id,r.assignment_version,r.date,
+      r.revision_ordinal,r.payload_hash,m.manifest_hash AS published_manifest_hash
+    FROM runtime_application_shared_quota_receipts_v1 r
+    LEFT JOIN runtime_application_shared_quota_verified_v1 v
+      ON v.machine_id=r.machine_id AND v.local_user_id=r.local_user_id
+      AND v.assignment_version=r.assignment_version AND v.date=r.date
+    LEFT JOIN runtime_application_account_publications_v1 p
+      ON p.machine_id=r.machine_id AND p.local_user_id=r.local_user_id
+      AND p.assignment_version=r.assignment_version AND p.date=r.date
+    LEFT JOIN runtime_application_account_manifests_v1 m ON m.id=p.manifest_id
+    WHERE (?1 IS NULL OR r.machine_id=?1) AND
+      (v.machine_id IS NULL OR v.revision_ordinal<>r.revision_ordinal OR v.payload_hash<>r.payload_hash
+       OR COALESCE(m.manifest_hash,'')<>v.statistics_manifest_hash
+       OR (v.source_verified=0 AND v.verified_at_ms<=?2))
+    ORDER BY r.received_at_ms,r.machine_id,r.local_user_id,r.date LIMIT 2`)
+    .bind(machineId??null,nowMs-300_000).all<{machine_id:string;local_user_id:string;assignment_version:number;
+      date:string;revision_ordinal:number;payload_hash:string;published_manifest_hash:string|null}>();
+  let verified=0;
+  for(const candidate of pending.results){
+    const result=await checkApplicationSharedQuotaSource(db,candidate.machine_id,candidate.local_user_id,
+      candidate.assignment_version,candidate.date);
+    const marginal=result.sourceVerified?result.contribution?.chromeIncludedInApplicationMs??null:null;
+    await db.prepare(`INSERT INTO runtime_application_shared_quota_verified_v1
+      (machine_id,local_user_id,assignment_version,date,revision_ordinal,payload_hash,
+       statistics_manifest_hash,chrome_included_ms,source_verified,reason_code,verified_at_ms)
+      SELECT machine_id,local_user_id,assignment_version,date,revision_ordinal,payload_hash,
+        ?6,?7,?8,?9,?10 FROM runtime_application_shared_quota_receipts_v1
+      WHERE machine_id=?1 AND local_user_id=?2 AND assignment_version=?3 AND date=?4
+        AND revision_ordinal=?5 AND payload_hash=?11
+      ON CONFLICT(machine_id,local_user_id,assignment_version,date) DO UPDATE SET
+        revision_ordinal=excluded.revision_ordinal,payload_hash=excluded.payload_hash,
+        statistics_manifest_hash=excluded.statistics_manifest_hash,chrome_included_ms=excluded.chrome_included_ms,
+        source_verified=excluded.source_verified,reason_code=excluded.reason_code,verified_at_ms=excluded.verified_at_ms`)
+      .bind(candidate.machine_id,candidate.local_user_id,candidate.assignment_version,candidate.date,
+        candidate.revision_ordinal,candidate.published_manifest_hash??'',marginal,
+        result.sourceVerified?1:0,result.reasonCode,nowMs,candidate.payload_hash).run();
+    if(result.sourceVerified)verified++;
+  }
+  return {processed:pending.results.length,verified};
+}
+
+/** Only current, source-verified marginal evidence; caller must establish full scope coverage before summing. */
+export async function readVerifiedChromeMarginals(db:D1Database,accountId:string,childId:string,
+  fromDate:string,toDate:string) {
+  parseDate(fromDate);parseDate(toDate);
+  if(toDate<fromDate||Date.parse(`${toDate}T00:00:00+08:00`)-Date.parse(`${fromDate}T00:00:00+08:00`)>6*86_400_000)
+    fail('SHARED_QUOTA_INVALID_RANGE');
+  const result=await db.prepare(`SELECT v.machine_id,v.local_user_id,v.assignment_version,v.date,
+      v.chrome_included_ms,v.statistics_manifest_hash
+    FROM runtime_application_shared_quota_verified_v1 v
+    JOIN runtime_application_shared_quota_receipts_v1 r
+      ON r.machine_id=v.machine_id AND r.local_user_id=v.local_user_id
+      AND r.assignment_version=v.assignment_version AND r.date=v.date
+      AND r.revision_ordinal=v.revision_ordinal AND r.payload_hash=v.payload_hash
+    JOIN runtime_application_account_publications_v1 p
+      ON p.machine_id=r.machine_id AND p.local_user_id=r.local_user_id
+      AND p.assignment_version=r.assignment_version AND p.date=r.date
+      AND p.account_id=r.account_id AND p.child_id=r.child_id
+    JOIN runtime_application_account_manifests_v1 m
+      ON m.id=p.manifest_id AND m.manifest_hash=v.statistics_manifest_hash
+    WHERE r.account_id=?1 AND r.child_id=?2 AND v.date>=?3 AND v.date<=?4
+      AND v.source_verified=1
+    ORDER BY v.machine_id,v.local_user_id,v.assignment_version,v.date LIMIT 1001`)
+    .bind(accountId,childId,fromDate,toDate)
+    .all<{machine_id:string;local_user_id:string;assignment_version:number;date:string;
+      chrome_included_ms:number|null;statistics_manifest_hash:string}>();
+  if(result.results.length>1000)throw new HttpError(422,'SHARED_QUOTA_SOURCE_LIMIT','Too many application scopes.');
+  return result.results;
+}

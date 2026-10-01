@@ -3,7 +3,8 @@ import { expect, it } from 'vitest';
 import { createUsageAccount, hashUsageAccountValue, usageAccountDayStart, type UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
 import { sha256Hex, randomToken } from '../src/crypto';
 import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationAccount, readApplicationAccountStatus,routeApplicationAccounts } from '../src/applicationAccounts';
-import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota } from '../src/applicationSharedQuota';
+import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota,
+  reconcileApplicationSharedQuotaEvidence, readVerifiedChromeMarginals } from '../src/applicationSharedQuota';
 import type { MachineSelfResponse } from '../src/contracts';
 
 const start = usageAccountDayStart('2026-09-27');
@@ -76,6 +77,8 @@ it('checks shared contribution against the published immutable account before an
   expect(await send(1)).toMatchObject({received:true,published:false});
   expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
     snapshot.manifest.date)).reasonCode).toBe('APPLICATION_ACCOUNT_NOT_PUBLISHED');
+  expect(await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB,now,f.machine.machineId))
+    .toEqual({processed:1,verified:0});
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_publications_v1
     (machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_id,source_revision,published_at_ms)
     SELECT machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,id,'source-v1',?2
@@ -83,9 +86,20 @@ it('checks shared contribution against the published immutable account before an
   expect(await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
     snapshot.manifest.date)).toMatchObject({sourceVerified:true,policyVerified:false,
       reasonCode:'SHARED_POLICY_NOT_VERIFIED'});
+  expect(await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB,now+301_000,f.machine.machineId))
+    .toEqual({processed:1,verified:1});
+  expect(await env.RUNTIME_DB.prepare(`SELECT source_verified,chrome_included_ms,statistics_manifest_hash
+    FROM runtime_application_shared_quota_verified_v1 WHERE machine_id=?1`).bind(f.machine.machineId).first())
+    .toEqual({source_verified:1,chrome_included_ms:0,statistics_manifest_hash:snapshot.manifest.manifestHash});
+  expect(await readVerifiedChromeMarginals(env.RUNTIME_DB,f.machine.accountId,f.childId,
+    snapshot.manifest.date,snapshot.manifest.date)).toHaveLength(1);
   await send(2,{statisticsRevision:'wrong-statistics'});
+  expect(await readVerifiedChromeMarginals(env.RUNTIME_DB,f.machine.accountId,f.childId,
+    snapshot.manifest.date,snapshot.manifest.date)).toEqual([]);
   expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
     snapshot.manifest.date)).reasonCode).toBe('SHARED_QUOTA_SOURCE_VERSION_MISMATCH');
+  expect(await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB,now+302_000,f.machine.machineId))
+    .toEqual({processed:1,verified:0});
   await send(3,{applicationClassesMs:{...contribution.applicationClassesMs,study:1502}});
   expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
     snapshot.manifest.date)).reasonCode).toBe('SHARED_QUOTA_CONTRIBUTION_OUT_OF_RANGE');
