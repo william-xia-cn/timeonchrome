@@ -5,7 +5,7 @@ import { sha256Hex, randomToken } from '../src/crypto';
 import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationAccount, readApplicationAccountStatus,routeApplicationAccounts } from '../src/applicationAccounts';
 import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota,
   reconcileApplicationSharedQuotaEvidence, readVerifiedChromeMarginals,
-  readCoveredChromeDeduction } from '../src/applicationSharedQuota';
+  readCoveredChromeDeduction, applicationSharedQuotaUploadReady } from '../src/applicationSharedQuota';
 import type { MachineSelfResponse } from '../src/contracts';
 
 const start = usageAccountDayStart('2026-09-27');
@@ -48,6 +48,17 @@ async function api(f: Awaited<ReturnType<typeof fixture>>, suffix = '', method =
     method, headers: { authorization: `Bearer ${f.token}`, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body),
   }));
 }
+it('advertises shared contribution upload only to an authenticated machine with both storage tables', async () => {
+  const f=await fixture();
+  const url='http://runtime.test/v2/machines/shared-quota/capabilities';
+  const unauthenticated=await exports.default.fetch(new Request(url));
+  expect(unauthenticated.status).toBe(401);
+  const response=await exports.default.fetch(new Request(url,{headers:{authorization:`Bearer ${f.token}`}}));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({protocol:'application-shared-quota-v1',schemaVersion:1,enabled:true});
+  const oldSchema={prepare(){return {bind(){return {all:async()=>({results:[]})};}};}} as unknown as D1Database;
+  expect(await applicationSharedQuotaUploadReady(oldSchema)).toBe(false);
+});
 it('immutable staged manifest, chunks and receipt are idempotent but never published', async () => {
   const f = await fixture(), a = await account(), pending = await upload(f, a);
   expect(pending).toMatchObject({ received: false, published: false, publishStatus: 'pending' });

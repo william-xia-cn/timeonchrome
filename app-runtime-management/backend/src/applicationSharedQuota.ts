@@ -93,6 +93,14 @@ export async function receiveApplicationSharedQuota(db: D1Database, machine: Mac
     sourceKey:receipt.source_key,receivedAtMs:receipt.received_at_ms,received:true,published:false};
 }
 
+/** A machine may send only after the additive receipt and verification tables exist. */
+export async function applicationSharedQuotaUploadReady(db:D1Database):Promise<boolean> {
+  const tables=['runtime_application_shared_quota_receipts_v1','runtime_application_shared_quota_verified_v1'];
+  const result=await db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (?1,?2)`)
+    .bind(...tables).all<{name:string}>();
+  return result.results.length===tables.length;
+}
+
 export type ApplicationSharedQuotaSourceCheck = {
   sourceVerified: boolean;
   policyVerified: false;

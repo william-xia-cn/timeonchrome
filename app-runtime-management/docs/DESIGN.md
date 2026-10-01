@@ -22,6 +22,8 @@ Native 对照指出 `chromeExcludedMs` 是 Chrome 自身被排除的区间并集
 
 云端读取已核对边际值时仅使用绑定家庭/孩子、当前 receipt 及已发布 manifest 三方一致的行；读取函数不公开机器／本机账户原始标识到页面。若日期／账户覆盖缺项，调用方不得将已有行的和宣称为整个电脑范围的 Chrome 扣除量。
 
+机器鉴权 `GET /v2/machines/shared-quota/capabilities` 返回 `protocol=application-shared-quota-v1` 和 `enabled`；仅 0015 的 receipt、verified 两张表都存在时才为 true。Native 必须先确认该能力，再向精确路由 `POST /v2/machines/shared-quota/application-contributions` 发送；旧 Worker 的 404 或 `enabled=false` 都保持本地待发送，不探测式上传。POST 也使用相同就绪条件，未就绪返回稳定的 503，不把 D1 缺表异常暴露给客户端。该门仅允许接收，仍不代表贡献已经发布为共享配额。
+
 电脑展示仅在同范围应用持久统计的 producer 为 `native`、状态非 stale、该机器范围全部已发布账户日头均有当前且非 null 的已核对 Chrome 边际值、且边际和不超过应用权威总量时，采用这些边际值。没有已发布账户日头但权威应用总量确为零时扣除量为零；其他缺口返回未知并保留网页／应用独立数值。Chrome 证据表尚未迁移或临时读取失败时同样返回未知，不使独立网页／应用来源整体失败。此判断不扫描原 Segment，且不把来源核对误用为共享配额发布。
 
 产品关联投影新增云端权威的可选 `isChromeContainer`：仅审核的 Chrome productId、可信身份依据且已确认/关联状态为 true，并纳入投影版本哈希。旧投影无此字段视为未知，不按显示名称识别 Chrome；终端据此输出 Chrome 扣除，无法证明时将边际值标为 `null`。

@@ -1,6 +1,6 @@
 import { requireAccountModule, requireMachine } from './auth';
 import { routeApplicationAccounts } from './applicationAccounts';
-import { receiveApplicationSharedQuota } from './applicationSharedQuota';
+import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota } from './applicationSharedQuota';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
@@ -380,8 +380,15 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
   }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
     url.pathname !== '/v2/machines/heartbeat');
+  if (url.pathname === '/v2/machines/shared-quota/capabilities') {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    return jsonResponse({protocol:'application-shared-quota-v1',schemaVersion:1,
+      enabled:await applicationSharedQuotaUploadReady(env.RUNTIME_DB)});
+  }
   if (url.pathname === '/v2/machines/shared-quota/application-contributions') {
     if (request.method !== 'POST') return methodNotAllowed('POST');
+    if (!await applicationSharedQuotaUploadReady(env.RUNTIME_DB))
+      throw new HttpError(503,'SHARED_QUOTA_UPLOAD_UNAVAILABLE','Shared quota receipt storage is not ready.');
     return jsonResponse(await receiveApplicationSharedQuota(env.RUNTIME_DB, machine,
       await readJsonBody(request,16_384), nowMs));
   }
