@@ -6,6 +6,8 @@
 
 实施及本地验证完成：Guardian汇总回归、双页面renderer/cache回归PASS；Runtime computer-usage-evidence 14/14；两端typecheck、两端Wrangler dry-run、源码边界、standard-cloud路径检查及diff检查PASS。审计Matched：并行、独立summary/details生成缓存、30秒有界页面缓存、版本失效、失败隔离、手动刷新、统计数值不变；代码Deviated/Missing/Extra无。待PR/主线CI与生产发布；当前浏览器连接未提供已登录家长页面，真实页面数值及冷/热耗时验收待实测，不用单测替代。
 
+2026-10-02已上线：PR #172合入master=61022840ba4ce8f815efb7a7b5a62554b4d00de4；精确SHA的Runtime/Guardian/MainConsole CI分别36900027439/36900031253/36900036342 SUCCESS；生产36900209020 SUCCESS。Guardian version605366c6-5556-4f33-8ad7-fbc090f061b5，Runtime versionce0356bf-6e60-4d6b-9a02-0058c47d0f64；Runtime Pages c495b61b-83a4-4d7c-8b02-b827b48dffe0、Main Pages 58b7b852-a1a6-42a3-8c6f-15f7b87eb42f。线上两套computer-usage-view.js与发布源码规范化SHA256一致（e6b7a8445d9d8b946b0bc1001c97f8a6c1c468ecd67725c064adc18945c6c197），Runtime controller也一致；health200/未认证401 PASS。manifest artifact11181078876；migration仅检查，无待执行，apply=false；R2 latest仍2.3.1，无安装/账本操作。真实浏览器连接无可用已登录家长页，自动连接Chrome也未发现调试实例；真实家庭固定范围读数及冷/热耗时保留待验收，不能宣称秒开。此后仅文档收口，不重复部署产品。
+
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
 21:05历史页面末次复验：9/27机器/Windows读取HTTP200、1348ms、producer=native、stale=false、policy159、总量36,728,619ms；图表和明细实际显示，已解除21:03所记首次stale状态。9/25–27三日页面均采用对应Native权威总量，不能继续说只完成receipt、还未验证页面。今天缺策略事实和Mac仍独立待办。
