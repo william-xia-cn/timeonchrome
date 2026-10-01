@@ -1,5 +1,9 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-01 网页／应用统计结构统一（D-113，设计已调整）
+
+网页已有“原始 Segment → 本机持久化日／小时／目标统计 → 统计同步 → 云端孩子归集 → 配额／页面读取”。应用必须补齐同层持久化、恢复和同步结构，不能以查询缓存替代。共同规范维护在 `STATS_STORAGE_FOUNDATION.md` 的“2026-10-01 跨来源统一统计结构”，Runtime 映射维护在 `app-runtime-management/docs/DESIGN.md`；实施顺序见根 TASK_BOARD。网页现有算法、落账及 V1/V2 产品启用边界不变；本轮只有设计调整，尚无新统计表、接口、Native 安装或云端发布。
+
 ## 2026-10-01 使用统计读取纠错
 
 孩子归属以 Guardian 当前 `profiles(account_id,id)` 为权威，不能以仅旧版配对写入的 Runtime `runtime_children_v1` 推断。Runtime 三个读取方法通过现有 Guardian `ComputerUsageService` binding 的受限 `POST /verifyChildAccess` 核验；请求有界且仅返回布尔，不读取用量、不递归调用 Runtime、不新增公开路由。归属读取失败返回稳定 `APPLICATION_SCOPE_UNAVAILABLE` 并 fail-closed；无设备但合法孩子允许读取空来源，外家庭一律拒绝。两个公开入口的既有鉴权保持不变，原记录及配对数据不补写。

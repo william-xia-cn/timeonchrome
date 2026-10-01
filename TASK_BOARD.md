@@ -1,5 +1,35 @@
 # TASK_BOARD
 
+## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
+
+实施批次一已开始（契约＋接收基础，不是产品切换）：增加 `usage-account` 固定语义、黄金向量与 1.20.0 本地契约候选；Runtime 以机器认证和既有 assignment 绑定统计归属，增加 manifest／chunk／commit／status 接收及独立 staging 表。下一可用本地 migration 为 `0013_runtime_application_accounts.sql`，只新增派生统计表，不应用生产 migration。首批 commit 只确认完整接收，明确返回 `received_not_published`；在 Native 统计与源版本对照、服务器管理版本核验完成前，不发布到原应用接口、不声明读取能力、不把客户端分类当权威。此边界保留 D-113 的接收与发布分离，不改变既有网页或应用读取。
+
+批次一文件：contracts 的 usage-account 实现／schema／vectors／聚焦测试、package 与 tsconfig；Runtime applicationAccounts 模块、v2Routes 窄接入、0013 additive schema 及接收测试。必要依赖锁只同步 workspace 版本。验证限定契约构建／兼容／新向量、Runtime 接收测试及 typecheck、dry-run、diff。Native 实现由所属工作线消费固定候选包，随后完成云端发布与归集，不将首批测试通过写成全部 D-113 已完成。
+
+PO 已要求“统一规划，调整”并批准实施。本任务以现有网页实现为基准，补应用缺失的本机持久化统计、版本化同步与云端归集；不再将缓存优化称为结构完成。规范单一来源：`docs/STATS_STORAGE_FOUNDATION.md` 的“2026-10-01 跨来源统一统计结构”；Runtime 实施映射见模块 DESIGN。阶段状态：**首批契约及接收基础已本地实现，Native 已交接；完整发布、归集、读取切换及真机验收待完成，未部署**。
+
+| 次序 | 工作包／责任 | 完成标准 | 当前状态 |
+|---|---|---|---|
+| 1 | 统一结构及边界／当前会话 | 原账、派生统计、配额消费、云端归集、缓存和对账分层；不改网页运行行为 | 已写入 D-113 和共同设计 |
+| 2 | 快照契约及共同向量／架构线 | 原始／统计独立 ACK、完整发布、版本和身份校验、实际消费者兼容；确定包版本及哈希 | 1.20.0 本地候选及 schema／向量／兼容测试完成；包 SHA-256 `0e4f5fc7c8546efe1eca69255cb2838f866e993782dba367aa3cdd46f19c76f1`，60176 字节；消费者实测及正式发布待完成 |
+| 3 | 本机物化及恢复／Native 线 | SQLite dirty 与原账同事务；受影响范围更新；统一应用读取；统计 outbox 持久补发 | 已向现有 Native 工作线下发 Windows 工作包，禁止新建分支／树及安装发布；当前会话未改 Native；Mac 延后 |
+| 4 | 设备统计及孩子归集／标准云端线 | 完整统计发布；既有应用接口改读物化结果；旧日期后台兼容；原始时间线仍分页按需读取 | 接收／分块／commit／status 与本地 0013 schema 完成；完整业务发布及 Child 归集／旧数据适配未完成，不执行生产 schema 变更 |
+| 5 | 固定截止对照及切换／各所属线 | 新旧总量／小时／产品／分类／更正／独立配额逐项一致；崩溃／重复／离线及分页通过 | 待验收；mock 不代表真机完成 |
+
+不新增分支或工作树，不改原扩展目录，不把迁移、安装或生产部署视为规划授权。统一结构不要求网页与应用共享数据库、用量相加或统一配额执行，也不改变 Chrome 特殊应用及未知重叠的已定展示。新派生 SQLite／D1 存储的具体 schema 与 additive migration 由相应实现明确列出；原始事实不得重写，未确认网页落账改动仍受 D-076 约束。
+
+最小测试契约：设计批为纯文档；实施批一只运行 Contracts build／兼容及新增向量、Runtime typecheck／application-accounts 聚焦测试、Wrangler dry-run 和职责／diff 检查。后续 Native 只跑物化／事务恢复／并集／精度／更正／同步／读取聚焦，Worker 只跑身份授权／接收发布／归集／兼容／对账与 typecheck，页面仅在确需改动时补对应测试／目视。Mac 测试由 Mac 环境记为通过，能力未改的平台不得机械全量构建；不为流程阶段重复测试同一 SHA。
+
+最终验收固定原始集合和截止，证明总量及现行配额不变、统计版本一致，日／周／小时／排行不再在普通读取扫描整周 Segment；记录冷／热耗时及统计新鲜度。未实施、未确认 schema、未安装或未发布均逐项保留，不能以这次设计文档收口宣称功能完成。下一可执行工作包为 2；业务发布另按既有明确授权进行。
+
+本次设计调整审计：Matched＝共同分层、原账／精度／配额不变、本机及云端持久化、版本同步与恢复、旧数据兼容、职责及分阶段验收；Deviated／Missing／Extra＝无（仅本次设计文档范围）。六个既有文档的职责 diff、D-113 引用、标题空行及目标路径检查通过，`git diff --check` 通过；未运行产品测试，未提交／推送／部署。完整功能仍以上表待实施项为准。原工作树 `.wrangler/` 和当前会话 `app-runtime-management/agents/` 未跟踪内容原样保留。
+
+首批实现证据：Contracts build 和包内现有兼容／分类／machine-control／computer-usage／usage-account 测试通过；Runtime typecheck 及本地 D1 接收测试 15/15 通过，涵盖事务中断回滚、旧版本／重复 ACK、部分恢复、归属隔离、维度矛盾、未完整零值、有界请求和原始 Segment／旧 hourly／assignment／App Policy 不变。Wrangler 4.127.1 dry-run 通过；使用现有生成的 Cloudflare 类型，未因受限网络另升级依赖。新请求体有界（manifest 16KiB、chunk 128KiB），commit 最多读取100块、10000行，响应 no-store，不改机器 heartbeat。没有页面变更，未跑截图／平台／安装器或无关全量测试。
+
+首批审计：Matched＝共同候选契约／schema／黄金向量、不可变接收区及单调接收水位、原子接收／ACK区别、权限与有界请求、原账保留、最小本地证据；Deviated／Extra＝无。整体 D-113 的 Missing 仍包括 Native 物化与实测、事实／关联／更正内容校验、云端发布及 Child 归集、兼容构建、正式读取切换和真机冷读对照；不得以首批完成称为慢问题整体解决。未提交／推送／合并／部署／安装／应用生产 migration；不把本地候选哈希当作已发布契约。
+
+Native 核对已反馈旧事实缺 policyVersion／assignment 和 unknown 分类标签；按既定“历史不猜、缺口明确、不改原账”集中裁决，见模块 DESIGN。没有以当前策略回填历史、没有改变旧统计；未知归属保留本机独立分区，不强塞到孩子账。1.20.0 固定候选 bytes 不变；补充的是已有 incomplete／digest 字段的兼容解释，尚未通过消费者实测，不宣称发布完整。
+
 ## 2026-10-01：应用读取缓存与孩子汇总范围（已上线）
 
 - PR #157，代码主线 `26f2e4257f330759ccd107de8bb1af28a60e74af`；Runtime/Main Console精确SHA CI通过。[受保护发布36783811409](https://github.com/william-xia-cn/timeonchrome/actions/runs/36783811409)成功，manifest artifact `11128438610` / SHA-256 `b4251fb9ad24ea41ede569a9bbe53b78bdb52613380c9bf2d7b225f75bfd2edb`。

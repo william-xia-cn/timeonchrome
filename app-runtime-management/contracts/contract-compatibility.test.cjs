@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.19.0');
+assert.equal(pkg.version, '1.20.0');
 const computerUsage = JSON.parse(fs.readFileSync(path.join(root, 'computer-usage-v1.schema.json'), 'utf8'));
 assert.equal(computerUsage.$defs.response.properties.schemaVersion.const, 1);
 assert.equal(computerUsage.$defs.request.properties.limit.maximum, 100);
