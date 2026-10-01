@@ -104,6 +104,30 @@ async function runLedgerChecks() {
     const upload = await ledger.uploadPendingTaskProgress();
     check('Task progress uploads in batches of 500', upload.uploaded === 500 && upload.remaining === 3596);
     check('accepted Task progress is removed locally', Object.keys(store.task_progress_segments_v1).length === 3596);
+
+    const makeSegments = (prefix, count) => Object.fromEntries(Array.from({ length: count }, (_, index) => {
+      const id = `${prefix}-${index}`;
+      return [id, { id, taskId: 'task-a', taskRevision: 1, startedAt: now + index * 1000, endedAt: now + (index + 1) * 1000, seconds: 1, createdAt: now + index }];
+    }));
+    store.task_progress_segments_v1 = makeSegments('missing-ack', 2);
+    globalThis.fetch = async () => ({ ok: true, async json() { return { success: true }; } });
+    const missingAck = await ledger.uploadPendingTaskProgress();
+    check('missing acceptedIds keeps every pending Task segment', missingAck.uploaded === 0 && missingAck.remaining === 2);
+
+    store.task_progress_segments_v1 = makeSegments('empty-ack', 2);
+    globalThis.fetch = async () => ({ ok: true, async json() { return { acceptedIds: [] }; } });
+    const emptyAck = await ledger.uploadPendingTaskProgress();
+    check('empty acceptedIds keeps every pending Task segment', emptyAck.uploaded === 0 && emptyAck.remaining === 2);
+
+    store.task_progress_segments_v1 = makeSegments('invalid-ack', 2);
+    globalThis.fetch = async () => ({ ok: true, async json() { return { acceptedIds: 'invalid-ack-0' }; } });
+    const invalidAck = await ledger.uploadPendingTaskProgress();
+    check('non-array acceptedIds keeps every pending Task segment', invalidAck.uploaded === 0 && invalidAck.remaining === 2);
+
+    store.task_progress_segments_v1 = makeSegments('bounded-ack', 501);
+    globalThis.fetch = async () => ({ ok: true, async json() { return { acceptedIds: ['bounded-ack-0', 'bounded-ack-500', null, 1] }; } });
+    const boundedAck = await ledger.uploadPendingTaskProgress();
+    check('only explicit ACK IDs from the current upload batch are removed', boundedAck.uploaded === 1 && boundedAck.remaining === 500 && !store.task_progress_segments_v1['bounded-ack-0'] && Boolean(store.task_progress_segments_v1['bounded-ack-500']));
   } finally {
     globalThis.chrome = originalChrome;
     globalThis.fetch = originalFetch;

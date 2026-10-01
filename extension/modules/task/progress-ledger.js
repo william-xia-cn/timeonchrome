@@ -154,7 +154,11 @@ export function uploadPendingTaskProgress() {
       .slice(0, TASK_PROGRESS_UPLOAD_BATCH_SIZE);
     if (!pending.length) return { ok: true, uploaded: 0 };
     const result = await taskDeviceRequest('POST', '/device/task-runtime/v1/progress', { segments: pending });
-    const accepted = new Set(result.acceptedIds || pending.map((segment) => segment.id));
+    const batchIds = new Set(pending
+      .map((segment) => segment.id)
+      .filter((id) => typeof id === 'string' && id.length > 0));
+    const accepted = new Set((Array.isArray(result?.acceptedIds) ? result.acceptedIds : [])
+      .filter((id) => typeof id === 'string' && batchIds.has(id)));
     for (const id of accepted) delete segments[id];
     await globalThis.chrome.storage.local.set({ [TASK_PROGRESS_SEGMENTS_KEY]: segments });
     return { ok: true, uploaded: accepted.size, remaining: Object.keys(segments).length };

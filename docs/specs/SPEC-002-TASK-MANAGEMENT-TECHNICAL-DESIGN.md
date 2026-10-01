@@ -157,6 +157,8 @@ Removing the single static install import makes the entire Task module optional
 Task V1 使用独立 `task_progress_segments_v1` 记录有效任务使用区间，由任务模块自己拥有幂等键、时间区间、revision 和同步规则。不得把任务字段塞回核心 usage segment。
 本地账本采用有界 pending 队列：只保留尚未被 Worker 接受的 segment，成功上传后立即删除；模块启动时清理旧实现遗留的 `uploadedAt` 项。pending 最多 4096 条，每次最多上传 500 条。超限时记录 Task 自有 dropped 诊断并丢弃最旧 pending；这只会保守地延后任务完成，不得导致提前完成，也不得写入核心统计。
 
+进度上传 ACK 必须是显式的持久确认：终端只删除响应 `acceptedIds` 中同时属于本次上传批次的合法字符串 ID。`acceptedIds` 缺失、为空、格式非法或包含批次外 ID 时，不得据此删除其他 pending segment。服务端对首次写入和内容一致的幂等重传都应返回明确确认；未确认、非法或冲突记录继续保留，等待后续重试或诊断处理。
+
 ## 5. State Model
 
 持久状态：
