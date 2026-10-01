@@ -2,6 +2,10 @@
 
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
+云端继续项（读取性能，standard-cloud）：一天查询同时核对完整配额周，目前每个日期各做一次五语句batch及一次发布头查询，形成重复D1往返。只合并同一已鉴权家庭／孩子／筛选请求内的版本核对：每批最多七个日期／42条只读语句，保持原SQL、排序、来源hash、稳定锚点、迟到数据失效与policy校验不变；不用TTL跳过新鲜度检查，不改统计／配额／原账，也不等待Native补发。实施顺序为文档→批量核对→固定回归→最小验证→已有旁路提交和PR。验证限定application-statistics及受影响发布测试、typecheck、dry-run、职责与diff；CI只Contracts/Worker，发布只Runtime Worker及真实请求数值/版本/耗时smoke，其他资源和平台排除。不创建分支／树，不执行migration或安装。
+
+本地性能补丁：16项统计＋20项发布回归共36/36、typecheck、Wrangler dry-run、边界与diff通过。固定证明旧五head／发布头hash不变，日读取source batch=42条＋persisted读取7条，部分日不与整日scope混合，31天范围按42条上限分批；迟到配额周事实仍使读取stale。首次新增长范围夹具留下39项测试队列，导致后续5000事实用例被无关队列挤占；只清理该测试fixture自己的队列后复验通过，生产调度未改。生产单日事实水位SELECT仅10.90ms但扫描11,876行；批量改动不宣称消除原账水位扫描，真实请求耗时仍需部署后核实。Matched=有界往返合并与原结果/失效不变，Deviated/Extra=无；本轮Missing=主线CI、限定发布及真实耗时对照，整体剩余Native与其他日期未验收项照旧。
+
 2026-10-01 20:13 实机续验：20:06轮真实Native上传已由只读tail证明capabilities、begin、status、chunks、commit均HTTP200；9/28 rev8、9/29 rev9、9/30 rev9采用ee3b关联并已业务发布，逐维度／rowsHash核验通过。三日Native总量分别26,755,481／38,255,219／26,914,118ms；9/30 manifestHash=53d0e3d916162a5595a3dcb60f0744a564079e75f5e5a00c58ef8a8540f2ec88，与本机head完全一致。真实登录页面9/29两次响应HTTP200、producer=native、stale=false、productStatisticsComplete=true、总量38,255,219ms及revision一致；9/30真实页面响应同样native/完整/非stale，总量26,914,118ms，图表和明细正常加载。请求到响应头约4.210／4.454秒，9/30约3.987秒，功能读取已通但性能仍需后续优化，不标为快速读取验收通过。未人为清空缓存，故不将这些读数称为独立冷缓存性能测试。9/25–27仍是旧关联receipt、未发布；10/1本机POLICY_HISTORY_MISSING未解决，整体D-113保持未完成。
 
 已查明队列延迟机制：其他匿名来源未来日期10/2–4的清单排在真实来源之前，上传单项失败返回false使每5分钟一轮提前break；已有时间线和成功传输证明循环不是停止。契约要求generatedAtMs不早于该日期起点，未来清单在10/1生成必不满足；不放宽契约接受虚构未来统计。后续Native负责核查并修复未来日进入outbox和单项失败阻挡其他来源的调度问题，另核对今天缺少的策略历史。本轮仅只读定位和记录，未改Native、凭据、ACL、服务、原账、配额或再次部署；不把未取得的HTTP错误正文或剩余队列状态写为已证实。
