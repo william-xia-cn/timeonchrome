@@ -8,6 +8,8 @@
 
 影子核验只检查共享状态 `sources` 是否包含同一网页来源键、日期和 revision，并核对周期、策略 revision 与完整性；不能据合并总量倒推出单一网页贡献。已有 Rest 日／周合并弹层可按每个覆盖 scope 生成独立、同一弹层关联的 `SharedReminderResultV1` 候选；只允许在真实可见后记录 `visibleAtMs`，失败投递保持 null。本阶段纯构造和校验，不向 Host 上报，不把共享状态用于现有提醒。
 
+显式影子诊断入口可组合上述网页快照转换和 Native 只读查询；来源键由调用者从可信设备身份提供，不能由页面、域名或应用名称猜测。输入网页贡献不完整时不查询 Host；Host 尚未发布共享状态时返回 `unavailable`，已发布但来源 revision 缺失或不一致时返回对应原因。结果不存储、不显示为正式配额、不参与 Rest 提醒或拦截。
+
 ### “其他”网站的未来分段归属（2026-10-02，D-076 单项批准，待云端兼容）
 
 现状：站点解析尚无显式 `other`；未识别站点会进入待归类，已定义站点的原始分段以当前 runtime mode 推导 `quotaBucketAtTime`。仅在界面增加“其他”标签仍会扣学习／复合／休息额度。PO 单项批准对**今后明确归为其他的网站**记录 `targetClassificationAtTime=other` 与独立非扣费桶；不改网页 ACTIVE 的开始／停止、idle、焦点、媒体容错、checkpoint、时长、domain、上传确认或历史分段。
