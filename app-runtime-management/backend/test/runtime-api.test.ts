@@ -33,6 +33,7 @@ beforeEach(async () => {
     env.RUNTIME_DB.prepare('DELETE FROM runtime_terminal_logs_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_machine_logging_policy_versions_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_app_classification_history_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_app_classification_history_other_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_child_app_policy_versions_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_media_segments_v2'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_usage_diagnostic_segments_v2'),
@@ -392,6 +393,31 @@ describe('Runtime product API', () => {
     expect(removed).not.toBe(etag);
     expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':removed}})).status).toBe(200);
     expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':`"policy-${enrolled.machineId}-${policy.version}"`}})).status).toBe(200);
+  });
+
+  it('stores other classification in additive history without rewriting the original table', async () => {
+    const {account,enrolled}=await createMachineWithUser();
+    const before=await call('/v2/module/app-policy?childId=child-a',{headers:bearer(account)});
+    expect(before.status).toBe(200);
+    const update={classifications:[{platform:'windows',runtimeIdentity:'app:chrome',displayName:'Chrome',classification:'other'}],
+      quotas:{dailyCategoryMinutes:{study:null,composite:null,restrictedEntertainment:null,unclassified:null},
+        weeklyRestrictedEntertainmentMinutes:null,perApplicationDailyMinutes:[]}};
+    const saved=await call('/v2/module/app-policy?childId=child-a',{method:'PUT',
+      headers:{...bearer(account),'If-Match':before.headers.get('etag')!},body:JSON.stringify(update)});
+    expect(saved.status).toBe(200);
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_app_classification_history_other_v1').first<{count:number}>())?.count).toBe(1);
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_app_classification_history_v1').first<{count:number}>())?.count).toBe(0);
+    const machineHeaders=bearer(enrolled.machineToken);
+    const legacy=await call('/v2/machines/policy',{headers:machineHeaders});
+    expect((await legacy.clone().json<{appPolicies:Array<{policy:{classifications:Array<{classification:string}>}}>}>())
+      .appPolicies[0]?.policy.classifications[0]?.classification).toBe('unclassified');
+    expect((await call('/v2/machines/heartbeat',{method:'POST',headers:machineHeaders,
+      body:JSON.stringify({serviceVersion:'fixture',windowsVersion:'11',architecture:'x64',tamperCount:0,
+        policyState:'applied',capabilities:['application-other-v1']})})).status).toBe(200);
+    const capable=await call('/v2/machines/policy',{headers:machineHeaders});
+    expect(capable.headers.get('etag')).not.toBe(legacy.headers.get('etag'));
+    expect((await capable.json<{appPolicies:Array<{policy:{classifications:Array<{classification:string}>}}>}>())
+      .appPolicies[0]?.policy.classifications[0]?.classification).toBe('other');
   });
 
   it.each(['windows', 'macos'] as const)('enrolls %s machine and applies default and per-user policy without exposing SID', async (platform) => {

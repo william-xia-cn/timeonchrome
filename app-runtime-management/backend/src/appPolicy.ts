@@ -418,7 +418,8 @@ export async function putAppPolicy(
     ) VALUES(?1,?2,?3,?4,?5,?6,?6)
   `).bind(accountId, childId, version, payloadJson, await sha256Hex(payloadJson), nowMs)];
   for (const entry of completeUpdate.classifications) statements.push(database.prepare(`
-    INSERT INTO runtime_app_classification_history_v1(
+    INSERT INTO ${entry.classification === 'other'
+      ? 'runtime_app_classification_history_other_v1' : 'runtime_app_classification_history_v1'}(
       account_id,child_id,platform,runtime_identity,policy_version,classification,
       display_name,effective_at_ms,created_at_ms
     ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)
@@ -511,9 +512,13 @@ export async function resolveClassification(
   `).bind(accountId, childId, policyVersion).first<{ version: number; payload_json: string }>();
   if (!version) throw new HttpError(409, 'APP_POLICY_VERSION_INVALID', 'App policy version is not valid for this Child.');
   const row = await database.prepare(`
-    SELECT classification FROM runtime_app_classification_history_v1
-    WHERE account_id=?1 AND child_id=?2 AND platform=?3 AND runtime_identity=?4
-      AND policy_version=?5
+    SELECT classification FROM (
+      SELECT classification FROM runtime_app_classification_history_v1
+      WHERE account_id=?1 AND child_id=?2 AND platform=?3 AND runtime_identity=?4 AND policy_version=?5
+      UNION ALL
+      SELECT classification FROM runtime_app_classification_history_other_v1
+      WHERE account_id=?1 AND child_id=?2 AND platform=?3 AND runtime_identity=?4 AND policy_version=?5
+    ) LIMIT 1
   `).bind(accountId, childId, platform, runtimeIdentity, policyVersion)
     .first<{ classification: ApplicationClassification }>();
   const payload = JSON.parse(version.payload_json) as AppPolicyUpdate;
