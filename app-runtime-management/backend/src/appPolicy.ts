@@ -17,7 +17,7 @@ import { isRecord } from './validation';
 import { identifyProducts, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 import { defaultGameGroupRuleId, defaultSystemApplicationRuleId, effectiveApplicationKnowledge,
   listApplicationInventory, queryInventoryScanStatus, resolveEffectiveApplication, resolvePolicyApplications } from './applicationKnowledge';
-import { buildProductIdentityProjection, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
+import { buildProductIdentityProjection, includeHistoricalStandaloneIdentities, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
 import { buildProductBlockPolicy } from './productBlockPolicy';
 import { buildWeekReclassification, correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
 import { isConfirmedChrome, CHROME_SPECIAL_PRODUCT } from './specialApplications';
@@ -406,7 +406,8 @@ export async function putAppPolicy(
     observed, update.classifications, current.resolvedApplications);
   const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
     applicationKnowledge: current.applicationKnowledge, resolvedApplications });
-  completeUpdate.productIdentityProjection = await buildProductIdentityProjection(observed, knowledge, update.classifications);
+  completeUpdate.productIdentityProjection = await includeHistoricalStandaloneIdentities(database,accountId,childId,
+    await buildProductIdentityProjection(observed, knowledge, update.classifications),nowMs);
   completeUpdate.productBlockPolicy = buildProductBlockPolicy(knowledge, childId, completeUpdate.productIdentityProjection.version);
   completeUpdate.weekReclassification = buildWeekReclassification(completeUpdate, nowMs, current);
   const version = current.version + 1;
@@ -456,6 +457,41 @@ export async function putAppPolicy(
     throw error;
   }
   return { version, effectiveAtMs: nowMs, ...completeUpdate };
+}
+
+/** Same immutable policy/history delivery as an ordinary refresh, without reclassifying anything. */
+export async function refreshHistoricalProductIdentityProjection(database:D1Database,accountId:string,childId:string,nowMs:number) {
+  const current=await getAppPolicy(database,accountId,childId);
+  if(!current.productIdentityProjection)return false;
+  const projection=await includeHistoricalStandaloneIdentities(database,accountId,childId,current.productIdentityProjection,nowMs);
+  if(projection.version===current.productIdentityProjection.version)return false;
+  const payload=normalizeStoredPolicy(current);
+  payload.productIdentityProjection=projection;
+  if(payload.productBlockPolicy)payload.productBlockPolicy={...payload.productBlockPolicy,associationVersion:projection.version};
+  const body=JSON.stringify(payload),hash=await sha256Hex(body),version=current.version+1;
+  const statements=[database.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
+    (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms)
+    VALUES(?1,?2,?3,?4,?5,?6,?6)`).bind(accountId,childId,version,body,hash,nowMs)];
+  const machines=await database.prepare(`SELECT id,desired_policy_version FROM runtime_machines_v2 m
+    WHERE m.account_id=?1 AND m.revoked_at_ms IS NULL AND (m.default_child_id=?2 OR EXISTS
+      (SELECT 1 FROM runtime_user_assignments_v2 a WHERE a.machine_id=m.id AND a.child_id=?2 AND a.protected=1
+        AND a.assignment_version=(SELECT MAX(b.assignment_version) FROM runtime_user_assignments_v2 b
+          WHERE b.machine_id=a.machine_id AND b.local_user_id=a.local_user_id)))`)
+    .bind(accountId,childId).all<{id:string;desired_policy_version:number}>();
+  for(const machine of machines.results){
+    const next=Number(machine.desired_policy_version)+1;
+    statements.push(database.prepare(`UPDATE runtime_machines_v2 SET desired_policy_version=?1,policy_state='pending',
+      policy_error=NULL,updated_at_ms=?2 WHERE id=?3 AND desired_policy_version=?4`).bind(next,nowMs,machine.id,machine.desired_policy_version));
+    statements.push(database.prepare(`INSERT INTO runtime_machine_policy_versions_v2(machine_id,version,payload_hash,created_at_ms)
+      VALUES(?1,?2,?3,?4)`).bind(machine.id,next,await sha256Hex(JSON.stringify({machineId:machine.id,version:next,
+        appPolicyChildId:childId,appPolicyVersion:version,productIdentityProjectionVersion:projection.version})),nowMs));
+  }
+  try{await database.batch(statements);}catch(error){
+    if(error instanceof Error&&/UNIQUE|constraint/iu.test(error.message))
+      throw new HttpError(412,'APP_POLICY_CONFLICT','App policy changed during historical identity refresh.');
+    throw error;
+  }
+  return true;
 }
 
 export async function resolveClassification(

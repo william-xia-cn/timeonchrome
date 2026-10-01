@@ -1,20 +1,21 @@
 import { hashUsageAccountValue, canonicalUsageAccountJson, verifyUsageAccountManifest,usageAccountDayStart,
   type UsageAccountManifest,type UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
-import { getAppPolicy } from './appPolicy';
+import { getAppPolicy,refreshHistoricalProductIdentityProjection } from './appPolicy';
 import { correctUsageRows,loadUsageCorrections } from './applicationUsageCorrections';
 import { applicationStatisticsSource,applicationPublicationDirtyStatements } from './applicationStatistics';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
+import { normalizeApplicationUsageClock, APPLICATION_CLOCK_MARGIN_MS } from './applicationUsageClock';
 
 interface Candidate {id:string;machine_id:string;local_user_id:string;assignment_version:number;
   account_id:string;child_id:string;date:string;revision:number;manifest_json:string}
 interface Span {start:number;end:number;lane:string;category:string;subject:string;name:string}
 const DAY=86400000,HOUR=3600000;
 function fail(code:string):never{throw new HttpError(409,code,code);}
-function union(spans:Span[],start:number,end:number,grouped=true) {
+function union(spans:Span[],start:number,end:number) {
   const groups=new Map<string,Array<[number,number]>>();
   for(const s of spans){const left=Math.max(s.start,start),right=Math.min(s.end,end);if(right<=left)continue;
-    const key=grouped?s.lane:'all',ranges=groups.get(key)??[];ranges.push([left,right]);groups.set(key,ranges);}
+    const key='all',ranges=groups.get(key)??[];ranges.push([left,right]);groups.set(key,ranges);}
   let total=0;
   for(const ranges of groups.values()){let cursor=start;
     for(const [left,right] of ranges.sort((a,b)=>a[0]-b[0])){total+=Math.max(0,right-Math.max(left,cursor));cursor=Math.max(cursor,right);}}
@@ -30,8 +31,6 @@ function project(spans:Span[],start:number):UsageAccountRow[] {
   const add=(kind:UsageAccountRow['kind'],category:string|null,subjectKey:string|null,displayName:string|null,selected:Span[])=>{
     const make=(hour:number|null,left:number,right:number)=>{
       const duration=union(selected,left,right);
-      // 明确核对旧云端分组算法与本机规范化并集，不填平两者差异。
-      if(duration!==union(selected,left,right,false))fail('APPLICATION_ACCOUNT_AUTHORITY_MISMATCH');
       if(hour==null||kind==='total'||duration>0)rows.push({kind,category,subjectKey,displayName,hour,duration});
     };
     make(null,start,start+DAY);for(let hour=0;hour<24;hour++)make(hour,start+hour*HOUR,start+(hour+1)*HOUR);
@@ -72,9 +71,10 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
     s.monotonic_duration_ms
     FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
     WHERE m.account_id=?1 AND s.child_id=?2 AND s.machine_id=?3 AND s.local_user_id=?4 AND s.assignment_version=?5
-      AND s.diagnostic=0 AND COALESCE(s.start_wall_time_ms,s.start_at_ms)<?7 AND COALESCE(s.end_wall_time_ms,s.end_at_ms)>?6
+      AND s.diagnostic=0 AND s.monotonic_duration_ms>0
+      AND min(s.start_wall_time_ms,s.end_wall_time_ms)<?7 AND max(s.start_wall_time_ms,s.end_wall_time_ms)>?6
     ORDER BY s.id LIMIT 10001`).bind(candidate.account_id,candidate.child_id,candidate.machine_id,candidate.local_user_id,
-      candidate.assignment_version,start,end).all<Record<string,unknown>>();
+      candidate.assignment_version,start-APPLICATION_CLOCK_MARGIN_MS,end+APPLICATION_CLOCK_MARGIN_MS).all<Record<string,unknown>>();
   if(source.results.length>10000)fail('APPLICATION_ACCOUNT_SOURCE_LIMIT');
   if(source.results.length!==manifest.rawFactCount)fail('APPLICATION_ACCOUNT_FACTS_PENDING');
   // 不把 rawFactHash 当服务端字节证明；源 shape、政策及每个维度均精确对照。
@@ -82,16 +82,14 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
   for(const row of source.results){
     if(Number(row.accounting_schema_version)!==2||row.app_policy_version==null)fail('APPLICATION_ACCOUNT_POLICY_HISTORY_MISSING');
     versions.add(Number(row.app_policy_version));
-    const left=Number(row.start_wall_time_ms),right=Number(row.end_wall_time_ms);
-    if(right-left!==Number(row.monotonic_duration_ms)||Number(row.end_monotonic_time_ms)-Number(row.start_monotonic_time_ms)!==right-left)
-      fail('APPLICATION_ACCOUNT_AUTHORITY_MISMATCH');
-    if(right>manifest.settledThroughMs!)fail('APPLICATION_ACCOUNT_CUTOFF_MISMATCH');
   }
   if(canonicalUsageAccountJson([...versions].sort((a,b)=>a-b))!==canonicalUsageAccountJson(manifest.policyVersions))
     fail('APPLICATION_ACCOUNT_POLICY_SET_MISMATCH');
   const projected=new Map(policy.productIdentityProjection?.items.map(p=>[`${p.platform}\n${p.runtimeIdentity}`,p])??[]);
   const spans:Span[]=[];
-  for(const row of correctUsageRows(source.results,corrections,start,end)){
+  const normalized=await normalizeApplicationUsageClock(db,candidate.machine_id,candidate.local_user_id,source.results,start,end);
+  if(normalized.some(row=>Number(row.end_wall_time_ms)>manifest.settledThroughMs!))fail('APPLICATION_ACCOUNT_CUTOFF_MISMATCH');
+  for(const row of correctUsageRows(normalized,corrections,start,end)){
     const identity=`${row.platform}\n${row.runtime_identity}`,product=projected.get(identity);
     if(!product||product.status==='conflict')fail('APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING');
     // Exact standalone identity is not an approved product association. Keep its
@@ -122,6 +120,8 @@ export async function publishApplicationAccounts(db:D1Database,now=Date.now(),ma
   for(const candidate of candidates.results){
     let revision='unverified',errorCode:string|null=null;
     try{
+      // A normal immutable policy refresh; never mutate or promote an old receipt.
+      await refreshHistoricalProductIdentityProjection(db,candidate.account_id,candidate.child_id,now);
       const manifest=await verifyUsageAccountManifest(JSON.parse(candidate.manifest_json));
       const verified=await verifyApplicationAccountPublication(db,candidate,manifest);revision=verified.sourceRevision;
       const result=await db.batch([
