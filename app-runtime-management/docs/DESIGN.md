@@ -14,6 +14,10 @@ Native 对照指出 `chromeExcludedMs` 是 Chrome 自身被排除的区间并集
 
 首个云端接收步骤使用 `POST /v2/machines/shared-quota/application-contributions`：严格校验字段、北京时间日期、整数毫秒、完整性理由及来源版本，确认当前受保护 assignment 后，将机器／本机账户／assignment／日期范围的最新 ordinal 和内容哈希原子保存于 additive `0015`。同 ordinal 同内容返回幂等 receipt；低 ordinal 或冲突内容返回 409。receipt 始终标记 `published=false`，只供终端确认持久接收；后续须与已发布的应用统计、关联及分类版本核对，才可生成 Child 共享余额或电脑展示。此接收能力不随策略 ACK 宣称执行完成。
 
+来源核对固定 `statisticsRevision = D-113 UsageAccountManifest.manifestHash`；同时比对同一机器／账户／assignment／日期已发布 manifest 的 `associationVersion`、`correctionVersion` 与 `settledThroughMs`。不同来源范围、未发布 manifest、版本不一致或不完整统计均不得用于共享状态。该核对只给出稳定原因码，不重算 Native 统计，也不能单独证明 Guardian 公共配置版本一致；后者通过后续独立的配置版本校验完成。
+
+接收后的只读来源审查还以已发布清单的日总行作为上界，逐项约束应用分类、桶及 Chrome 扣除值，防止明显伪造或维度错误；分类可能重叠，不把分类求和与总量强行设为相等。通过此审查只表示“来源引用和基本量纲核对”，不表示 Chrome 边际值可从分类明细独立复算，更不表示共享状态可发布。该检查不得放进机器 POST 热路径。
+
 产品关联投影新增云端权威的可选 `isChromeContainer`：仅审核的 Chrome productId、可信身份依据且已确认/关联状态为 true，并纳入投影版本哈希。旧投影无此字段视为未知，不按显示名称识别 Chrome；终端据此输出 Chrome 扣除，无法证明时将边际值标为 `null`。
 
 电脑展示继续独立于配额：同范围 `webMs + applicationMs - chromeIncludedMs`，其中 Chrome 扣除是应用总量减去非 Chrome 区间并集后的边际值。来源异常保留有效独立分量；历史区间不足不得填平。新增 `other` 只影响后续经能力门控的分类和展示，不追溯原应用账。旧 1.20.0 实机契约与当前已安装终端不因此自动改变；新能力需端到端兼容与启用验收。

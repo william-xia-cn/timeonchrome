@@ -3,6 +3,7 @@ import { expect, it } from 'vitest';
 import { createUsageAccount, hashUsageAccountValue, usageAccountDayStart, type UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
 import { sha256Hex, randomToken } from '../src/crypto';
 import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationAccount, readApplicationAccountStatus,routeApplicationAccounts } from '../src/applicationAccounts';
+import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota } from '../src/applicationSharedQuota';
 import type { MachineSelfResponse } from '../src/contracts';
 
 const start = usageAccountDayStart('2026-09-27');
@@ -55,6 +56,39 @@ it('immutable staged manifest, chunks and receipt are idempotent but never publi
   expect(await putApplicationAccountChunk(env.RUNTIME_DB, f.machine, pending.manifestId, 0, { rows: a.chunks[0].rows, chunkHash: a.chunks[0].chunkHash }))
     .toMatchObject({ received: true, published: false });
   expect(await readApplicationAccountStatus(env.RUNTIME_DB, f.machine, pending.manifestId)).toMatchObject({ receivedChunkIndexes: [0] });
+});
+it('checks shared contribution against the published immutable account before any policy publication', async () => {
+  const f=await fixture(),old=await account();
+  const {manifestHash:ignored,rowCount:oldRows,chunkCount:oldChunks,rowsHash:oldRowsHash,...header}=old.manifest;
+  const snapshot=await createUsageAccount({...header,associationVersion:'association-v1'},
+    old.chunks.flatMap(chunk=>chunk.rows));
+  const pending=await upload(f,snapshot);
+  await commitApplicationAccount(env.RUNTIME_DB,f.machine,pending.manifestId,now);
+  const contribution={schemaVersion:1,source:'application',date:snapshot.manifest.date,
+    revision:'contribution-v1',statisticsRevision:snapshot.manifest.manifestHash,
+    correctionRevision:'0',productAssociationVersion:'association-v1',policyRevision:'profile-config:1',
+    settledAtMs:now,complete:true,reasonCodes:[],bucketsMs:{study:1000,composite:0,rest:0},
+    applicationClassesMs:{study:1000,composite:0,restrictedEntertainment:0,unclassified:0,other:0},
+    chromeExcludedMs:0,chromeIncludedInApplicationMs:0};
+  const send=(revisionOrdinal:number,change:Record<string,unknown>={})=>receiveApplicationSharedQuota(env.RUNTIME_DB,
+    f.machine,{schemaVersion:1,localUserId,assignmentVersion:1,revisionOrdinal,
+      contribution:{...contribution,...change}},now);
+  expect(await send(1)).toMatchObject({received:true,published:false});
+  expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
+    snapshot.manifest.date)).reasonCode).toBe('APPLICATION_ACCOUNT_NOT_PUBLISHED');
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_publications_v1
+    (machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_id,source_revision,published_at_ms)
+    SELECT machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,id,'source-v1',?2
+    FROM runtime_application_account_manifests_v1 WHERE id=?1`).bind(pending.manifestId,now).run();
+  expect(await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
+    snapshot.manifest.date)).toMatchObject({sourceVerified:true,policyVerified:false,
+      reasonCode:'SHARED_POLICY_NOT_VERIFIED'});
+  await send(2,{statisticsRevision:'wrong-statistics'});
+  expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
+    snapshot.manifest.date)).reasonCode).toBe('SHARED_QUOTA_SOURCE_VERSION_MISMATCH');
+  await send(3,{applicationClassesMs:{...contribution.applicationClassesMs,study:1502}});
+  expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
+    snapshot.manifest.date)).reasonCode).toBe('SHARED_QUOTA_CONTRIBUTION_OUT_OF_RANGE');
 });
 it('partial delivery can resume; cannot commit missing chunks', async () => {
   const f = await fixture(), a = await account(1, 1501, true);

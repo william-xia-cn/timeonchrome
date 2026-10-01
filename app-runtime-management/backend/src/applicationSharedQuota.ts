@@ -1,5 +1,5 @@
 import type { ApplicationSharedQuotaUploadV1, SharedQuotaContributionV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
-import { canonicalUsageAccountJson } from '@timeonchrome/app-runtime-contracts/usage-account';
+import { canonicalUsageAccountJson, parseUsageAccountRows, verifyUsageAccountManifest } from '@timeonchrome/app-runtime-contracts/usage-account';
 import type { MachineSelfResponse } from './contracts';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
@@ -91,4 +91,56 @@ export async function receiveApplicationSharedQuota(db: D1Database, machine: Mac
     throw new HttpError(409,'SHARED_QUOTA_REVISION_CONFLICT','This revision has different content.');
   return {schemaVersion:1,revisionOrdinal:receipt.revision_ordinal,contributionRevision:upload.contribution.revision,
     sourceKey:receipt.source_key,receivedAtMs:receipt.received_at_ms,received:true,published:false};
+}
+
+export type ApplicationSharedQuotaSourceCheck = {
+  sourceVerified: boolean;
+  policyVerified: false;
+  reasonCode: string;
+  contribution: SharedQuotaContributionV1 | null;
+};
+
+/** Background/read-side check. Never run raw-account publication work on the machine upload hot path. */
+export async function checkApplicationSharedQuotaSource(db:D1Database,machineId:string,localUserId:string,
+  assignmentVersion:number,date:string):Promise<ApplicationSharedQuotaSourceCheck> {
+  const unavailable=(reasonCode:string):ApplicationSharedQuotaSourceCheck=>
+    ({sourceVerified:false,policyVerified:false,reasonCode,contribution:null});
+  const row=await db.prepare(`SELECT r.payload_json,r.payload_hash,r.account_id,r.child_id,
+      m.manifest_hash,m.manifest_json,m.id AS manifest_id
+    FROM runtime_application_shared_quota_receipts_v1 r
+    LEFT JOIN runtime_application_account_publications_v1 p
+      ON p.machine_id=r.machine_id AND p.local_user_id=r.local_user_id
+      AND p.assignment_version=r.assignment_version AND p.date=r.date
+      AND p.account_id=r.account_id AND p.child_id=r.child_id
+    LEFT JOIN runtime_application_account_manifests_v1 m ON m.id=p.manifest_id
+    WHERE r.machine_id=?1 AND r.local_user_id=?2 AND r.assignment_version=?3 AND r.date=?4`)
+    .bind(machineId,localUserId,assignmentVersion,date)
+    .first<{payload_json:string;payload_hash:string;account_id:string;child_id:string;
+      manifest_hash:string|null;manifest_json:string|null;manifest_id:string|null}>();
+  if(!row)return unavailable('SHARED_QUOTA_RECEIPT_MISSING');
+  if(!row.manifest_id||!row.manifest_json||!row.manifest_hash)return unavailable('APPLICATION_ACCOUNT_NOT_PUBLISHED');
+  let contribution:SharedQuotaContributionV1;
+  try {
+    contribution=JSON.parse(row.payload_json) as SharedQuotaContributionV1;
+    if(await sha256Hex(canonicalUsageAccountJson(contribution))!==row.payload_hash)
+      return unavailable('SHARED_QUOTA_RECEIPT_INTEGRITY_FAILED');
+    const manifest=await verifyUsageAccountManifest(JSON.parse(row.manifest_json));
+    if(manifest.manifestHash!==row.manifest_hash||manifest.sourceKind!=='application'
+      ||manifest.date!==date||!manifest.complete)return unavailable('APPLICATION_ACCOUNT_SOURCE_MISMATCH');
+    if(contribution.statisticsRevision!==manifest.manifestHash
+      ||contribution.productAssociationVersion!==manifest.associationVersion
+      ||contribution.correctionRevision!==String(manifest.correctionVersion)
+      ||contribution.settledAtMs!==manifest.settledThroughMs
+      ||!contribution.complete)return unavailable('SHARED_QUOTA_SOURCE_VERSION_MISMATCH');
+    const chunks=await db.prepare(`SELECT rows_json FROM runtime_application_account_chunks_v1
+      WHERE manifest_id=?1 ORDER BY chunk_index LIMIT 100`).bind(row.manifest_id).all<{rows_json:string}>();
+    const rows=parseUsageAccountRows(chunks.results.flatMap(chunk=>JSON.parse(chunk.rows_json)));
+    const total=rows.find(item=>item.kind==='total'&&item.hour===null)?.duration;
+    if(!validInteger(total))return unavailable('APPLICATION_ACCOUNT_TOTAL_MISSING');
+    const bounded=[...Object.values(contribution.bucketsMs),
+      ...Object.values(contribution.applicationClassesMs??{}),contribution.chromeExcludedMs,
+      contribution.chromeIncludedInApplicationMs].filter((item):item is number=>item!==null&&item!==undefined);
+    if(!bounded.every(item=>validInteger(item)&&item<=total))return unavailable('SHARED_QUOTA_CONTRIBUTION_OUT_OF_RANGE');
+  } catch { return unavailable('SHARED_QUOTA_SOURCE_INVALID'); }
+  return {sourceVerified:true,policyVerified:false,reasonCode:'SHARED_POLICY_NOT_VERIFIED',contribution};
 }
