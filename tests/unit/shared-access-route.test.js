@@ -28,8 +28,8 @@ let configReads = 0;
 const env = {JWT_SECRET:'unused',DB:{prepare(sql){
   if (sql.includes('SELECT id FROM profiles WHERE id = ? AND account_id = ?')) return {bind(child,account){return {first:async()=>
     child === 'child-a' && account === 'account-a' ? {id:child} : null};}};
-  if (sql.includes('SELECT config, version, updated_at FROM profiles WHERE id = ?')) return {bind(child){return {first:async()=>{
-    configReads++; assert.equal(child,'child-a'); return {version:7,updated_at:123,config:JSON.stringify({
+  if (sql.includes('SELECT config, version, updated_at FROM profiles WHERE id = ? AND account_id = ?')) return {bind(child,account){return {first:async()=>{
+    configReads++; assert.equal(child,'child-a'); assert.equal(account,'account-a'); return {version:7,updated_at:123,config:JSON.stringify({
       timeQuota:{daily:{friday:{studyMinutes:20,restMinutes:40,compositeMinutes:30}}},
       timeWindows:{daily:{friday:{studyWindows:null,compositeWindows:null,restWindows:null}}},
     })};

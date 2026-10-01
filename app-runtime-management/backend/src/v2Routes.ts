@@ -380,6 +380,34 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
   }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
     url.pathname !== '/v2/machines/heartbeat');
+  if (url.pathname === '/v2/machines/shared-access-policy') {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const localUserId=url.searchParams.get('localUserId');
+    const assignmentVersion=Number(url.searchParams.get('assignmentVersion'));
+    if (!localUserId||localUserId.length<32||localUserId.length>128||!/^[A-Za-z0-9_-]+$/u.test(localUserId)
+      ||!Number.isSafeInteger(assignmentVersion)||assignmentVersion<1)
+      throw new HttpError(400,'INVALID_REQUEST','Shared access scope is invalid.');
+    const assignment=await env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
+      WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3
+        AND a.protected=1 AND a.child_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer
+          WHERE newer.machine_id=a.machine_id AND newer.local_user_id=a.local_user_id
+            AND newer.assignment_version>a.assignment_version)`)
+      .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
+    if (!assignment) throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
+    let response:Response;
+    try {response=await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedAccessPolicy',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({accountId:machine.accountId,childId:assignment.child_id})}));}
+    catch {throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');}
+    if (!response.ok) throw new HttpError(response.status===404?404:503,
+      response.status===404?'CHILD_NOT_FOUND':'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');
+    const result=await response.json() as {policy?:{schemaVersion?:unknown;revision?:unknown;stage?:unknown}};
+    if (result.policy?.schemaVersion!==1||typeof result.policy.revision!=='string'
+      ||!['legacy','shadow','shared'].includes(String(result.policy.stage)))
+      throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');
+    return jsonResponse({policy:result.policy});
+  }
   if (url.pathname === '/v2/machines/shared-quota/capabilities') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
     return jsonResponse({protocol:'application-shared-quota-v1',schemaVersion:1,

@@ -3,6 +3,7 @@ import { expect, it } from 'vitest';
 import { createUsageAccount, hashUsageAccountValue, usageAccountDayStart, type UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
 import { sha256Hex, randomToken } from '../src/crypto';
 import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationAccount, readApplicationAccountStatus,routeApplicationAccounts } from '../src/applicationAccounts';
+import { routeV2 } from '../src/v2Routes';
 import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota,
   reconcileApplicationSharedQuotaEvidence, readVerifiedChromeMarginals,
   readCoveredChromeDeduction, applicationSharedQuotaUploadReady } from '../src/applicationSharedQuota';
@@ -58,6 +59,21 @@ it('advertises shared contribution upload only to an authenticated machine with 
   expect(await response.json()).toEqual({protocol:'application-shared-quota-v1',schemaVersion:1,enabled:true});
   const oldSchema={prepare(){return {bind(){return {all:async()=>({results:[]})};}};}} as unknown as D1Database;
   expect(await applicationSharedQuotaUploadReady(oldSchema)).toBe(false);
+});
+it('reads only the current protected assignment shared policy from the bound Guardian source', async () => {
+  const f=await fixture();
+  const policy={schemaVersion:1,revision:'profile-config:7',stage:'legacy'};
+  let guardianCalls=0;
+  const guardian={fetch:async(request:Request)=>{guardianCalls++;
+    expect(new URL(request.url).pathname).toBe('/readSharedAccessPolicy');
+    expect(await request.json()).toEqual({accountId:f.machine.accountId,childId:f.childId});
+    return Response.json({policy});}} as unknown as typeof env.GUARDIAN_COMPUTER_USAGE;
+  const read=async(version:number)=>routeV2(new Request(`http://runtime.test/v2/machines/shared-access-policy?localUserId=${localUserId}&assignmentVersion=${version}`,
+    {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now);
+  const current=await read(1);
+  expect(current?.status).toBe(200);expect(await current?.json()).toEqual({policy});
+  await expect(read(2)).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});
+  expect(guardianCalls).toBe(1);
 });
 it('immutable staged manifest, chunks and receipt are idempotent but never published', async () => {
   const f = await fixture(), a = await account(), pending = await upload(f, a);

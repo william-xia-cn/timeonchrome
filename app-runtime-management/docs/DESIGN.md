@@ -24,6 +24,8 @@ Native 对照指出 `chromeExcludedMs` 是 Chrome 自身被排除的区间并集
 
 机器鉴权 `GET /v2/machines/shared-quota/capabilities` 返回 `protocol=application-shared-quota-v1` 和 `enabled`；仅 0015 的 receipt、verified 两张表都存在时才为 true。Native 必须先确认该能力，再向精确路由 `POST /v2/machines/shared-quota/application-contributions` 发送；旧 Worker 的 404 或 `enabled=false` 都保持本地待发送，不探测式上传。POST 也使用相同就绪条件，未就绪返回稳定的 503，不把 D1 缺表异常暴露给客户端。该门仅允许接收，仍不代表贡献已经发布为共享配额。
 
+共享策略 `policyRevision` 只能来自 Guardian 孩子级 `UnifiedChildAccessPolicyV1.revision`，不能使用 Runtime 机器策略版本。受机器鉴权的 `GET /v2/machines/shared-access-policy?localUserId=&assignmentVersion=` 先按当前受保护用户分配推导 Child，再通过现有受限 Guardian Service Binding 读取同一配置投影；过期分配、归属不符及 Guardian 不可用时 fail-closed。返回的 `stage=legacy` 仅供影子贡献标注和版本核对，不授权共享配额执行。旧云端无此路由时终端保留 LKG 并停止生成新版本贡献。
+
 电脑展示仅在同范围应用持久统计的 producer 为 `native`、状态非 stale、该机器范围全部已发布账户日头均有当前且非 null 的已核对 Chrome 边际值、且边际和不超过应用权威总量时，采用这些边际值。没有已发布账户日头但权威应用总量确为零时扣除量为零；其他缺口返回未知并保留网页／应用独立数值。Chrome 证据表尚未迁移或临时读取失败时同样返回未知，不使独立网页／应用来源整体失败。此判断不扫描原 Segment，且不把来源核对误用为共享配额发布。
 
 产品关联投影新增云端权威的可选 `isChromeContainer`：仅审核的 Chrome productId、可信身份依据且已确认/关联状态为 true，并纳入投影版本哈希。旧投影无此字段视为未知，不按显示名称识别 Chrome；终端据此输出 Chrome 扣除，无法证明时将边际值标为 `null`。
