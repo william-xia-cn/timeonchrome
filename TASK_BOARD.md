@@ -2,6 +2,10 @@
 
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
+19:45 最新实际结果：9/25–10/1 的七条非零 receipt 均匹配当前受保护 machine/user/assignment/child，目标孩子匹配7/7，不是旧分配或其他用户。云端最新孩子 policy157 的关联版本与真实 Native Host 七天结果一致；但已接收非零清单仍未全部采用最新版本，七条发布头均未建立、错误 APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING。9/25–29 虽有新revision接收，不能推断剩余补发必然完成或仅需等待。真实页面固定9/30 Windows读取仍返回 HTTP503/APPLICATION_STATISTICS_PENDING，冷/热及新统计页面验收失败/未完成，不以legacy-server或零快照代替通过。Native 当前只读UAC尚未获答复且前一次被取消，受保护 application-account dirty/outbox/ACK 无法核实；不重复弹UAC、不改ACL、不改本机、不放宽发布核验。需要完成该项系统只读访问才能继续定位本机自动补发缺口，D-113保持未完成。
+
+2026-10-01 19:40 发布与验收中间证据：PR #164/#165 已合入 master@adcd2393cab32ae16eeb7931c58c72b3e263922c；主线 CI 36855429922 SUCCESS，Worker 161/161（新增锚点计划回归）、typecheck/dry-run/范围检查通过；仅 Runtime Worker 发布 36855591047 SUCCESS，version=20257a3d-30b8-45cf-995e-6bed7ba5b2c6，manifest artifact=11157917568，ZIP digest=960b41683003c40e9f0033799aee14587bf8646a6f3e921dee480533794339ea。health=200、未认证 catalog=401，migration 只读检查无待执行项、apply=false；Pages/Guardian/D1 schema/R2/Native/扩展未修改。生产 SQL 查询计划已确认完整主键关联，24/24 锚点齐全；历史 wixstdba 独立未确认投影为1，未按名称合并或加入目录。9/25–9/30 的固定历史 raw count、monotonic sum、最早/最晚上报水位均与发布前完全一致。Service 已自动应用新策略，本机当前用户七天统计完整非零；云端非零9/25–29已收到新revision，但最新关联清单尚未全部补齐，仍拒绝发布，Native producer未实机验收。真实登录页面已可控制；固定9/30 Windows筛选的首次读取返回后台生成中，不记为性能或新统计通过。Native只读队列核对因受保护SQLite ACL及上次UAC取消尚未完成，不改ACL或假报队列为空。审计：Matched=云端实现、聚焦验证、限定发布、历史独立投影与原账摘要不变；Deviated/Extra=无；Missing=全部最新非零清单的业务发布、持久化逐维度对照、实际新统计页面及冷/热读取。继续验收，不能标记D-113完成。
+
 PR #164 已合入并仅发布 Runtime Worker；实机继续核对发现锚点水位查询的关联缺少完整主键，导致 SQLite 在每条候选记录上重复求锚点并触发 CPU 上限。仅将每个 lane 的锚点 ID 先物化、再按 machine/user/id 完整主键读取，保持来源版本内容和统计语义不变；补查询计划固定回归和 publication/statistics 聚焦验证后继续同分支 PR、Worker-only 发布。真实非零发布与页面验收尚未完成。
 
 本轮 PR #164 的 CI 发现周范围配额兼容回归：仅一天有某分类时，不得把其余无该分类的日期补为零再改变 remainingMs 的既有返回语义。保持旧分类日集合，补验既有 current-week API 回归；不改配额规则或更正。
