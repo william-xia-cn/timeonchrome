@@ -411,6 +411,30 @@ this.__modeService = {
     });
   }
 
+  section('Other target does not inherit category windows or bypass global blocks');
+  {
+    const svc = loadModeService();
+    for (const currentMode of ['study', 'composite', 'rest']) {
+      expect(`other in ${currentMode} is not reclassified by a closed category window`, svc.evaluateModeRoute({
+        currentMode,
+        isStudyDomain: false,
+        isCompositeDomain: false,
+        isRestricted: false,
+        studyWindowAllowed: false,
+        compositeWindowAllowed: false,
+        restWindowAllowed: false,
+        legacyScheduleAllowed: true,
+        quotaState: { studyLocked: true, restLocked: true },
+      }), { kind: 'allow' });
+    }
+    expect('blacklist still blocks other target', svc.evaluateModeRoute({
+      currentMode: 'study', isUnsafe: true,
+    }), { kind: 'reminder', reminderReason: 'unsafe' });
+    expect('locked runtime mode still blocks other target', svc.evaluateModeRoute({
+      currentMode: 'locked', isStudyDomain: false, isCompositeDomain: false, isRestricted: false,
+    }), { kind: 'reminder', reminderReason: 'quota_locked' });
+  }
+
   section('MSVC-3a mode time windows block target mode routes');
   {
     const svc = loadModeService();

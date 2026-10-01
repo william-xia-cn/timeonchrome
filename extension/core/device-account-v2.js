@@ -7,7 +7,7 @@ export const DEVICE_ACCOUNT_V2_MAX_CHUNK_ROWS = 200;
 const DEVICE_ACCOUNT_V2_MAX_LOCAL_DATES = 16;
 const VALID_KINDS = new Set(['daily_domain', 'hourly_domain', 'daily_target', 'hourly_target']);
 const VALID_CHANNELS = new Set(['active', 'backgroundMedia', 'pip']);
-const VALID_MODES = new Set(['study', 'rest', 'locked', 'paused', 'unknown', 'composite']);
+const VALID_MODES = new Set(['study', 'rest', 'locked', 'paused', 'unknown', 'composite', 'other']);
 const COMMON_ROW_KEYS = new Set([
   'kind', 'periodKey', 'channel', 'mode', 'durationSeconds', 'segmentsCount', 'firstSeenAt', 'lastSeenAt',
 ]);

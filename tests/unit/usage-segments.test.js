@@ -1090,6 +1090,26 @@ chk('current hourly target ACK clears one hour', currentHourlyTargetAck, 1);
 revisionPending = await api.getPendingDailyStats();
 chk('current daily ACK clears dirty date', revisionPending.pendingCount, 0);
 
+sec('Other classification preserves web seconds without charging Study');
+mockLocal.reset();
+const otherSettled = await api.settleUsageDuration({
+  startMs: MOCK_TIME - 60000, endMs: MOCK_TIME, domain: 'other.example.test',
+  channel: 'active', mode: 'study', sourceState: 'ACTIVE', settlementReason: 'tc',
+  profileId: 'p1', deviceId: 'd1', targetClassificationAtTime: 'other', quotaBucketAtTime: 'other',
+});
+chk('other settlement still creates one web segment', otherSettled, 1);
+const otherRaw = Object.values(await api.getAllUsageSegments())[0];
+chk('other raw duration remains 60 seconds', otherRaw.durationSeconds, 60);
+chk('other raw classification retained', otherRaw.targetClassificationAtTime, 'other');
+chk('other raw quota bucket retained', otherRaw.quotaBucketAtTime, 'other');
+const otherDaily = await api.getDailyUsageStats(todayStr);
+chk('other daily active remains 60 seconds', otherDaily.domains['other.example.test'].activeSeconds, 60);
+chk('other daily bucket has 60 seconds', otherDaily.targets['fallback:domain:other.example.test'].activeByQuotaBucket.other, 60);
+chk('other daily does not charge Study', otherDaily.targets['fallback:domain:other.example.test'].activeByQuotaBucket.study || 0, 0);
+const otherHourly = await api.getHourlyUsageStats(`${todayStr}T11`);
+chk('other hourly active remains 60 seconds', otherHourly.domains['other.example.test'].activeSeconds, 60);
+chk('other hourly bucket has 60 seconds', otherHourly.targets['fallback:domain:other.example.test'].activeByQuotaBucket.other, 60);
+
 console.log(`\n=== ${passed} passed, ${failed} failed ===`);
 process.exit(failed > 0 ? 1 : 0);
 

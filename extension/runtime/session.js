@@ -313,7 +313,9 @@ function managedTargetFieldsFrom(value = {}, mode = null) {
         const normalized = typeof inputMode === 'string' && inputMode.trim() ? inputMode.trim() : 'unknown';
         return ['study', 'composite', 'rest', 'locked'].includes(normalized) ? normalized : 'unknown';
       });
-  out.quotaBucketAtTime = quotaBucketForModeFn(mode || out.quotaBucketAtTime || cachedEffectiveMode);
+  out.quotaBucketAtTime = out.targetClassificationAtTime === 'other'
+    ? 'other'
+    : quotaBucketForModeFn(mode || out.quotaBucketAtTime || cachedEffectiveMode);
   return out;
 }
 

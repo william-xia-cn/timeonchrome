@@ -224,6 +224,34 @@ async function run() {
   expectEqual('snapshot carries managed target id', snapshot.managedTargetId, playlist.managedTargetId);
   expectEqual('snapshot keeps quota bucket separate from classification', snapshot.quotaBucketAtTime, 'study');
 
+  const other = mod.resolveManagedTargetAttribution({
+    studyList: ['other.example.test'],
+    siteClassificationRulesV1: [{ targetType: 'host', targetValue: 'other.example.test', decision: 'other' }],
+  }, [], 'https://other.example.test/');
+  expectEqual('explicit other target overrides study default', other.targetClassificationAtTime, 'other');
+  expectEqual('explicit other has non-charging snapshot bucket', mod.managedTargetSnapshotFields(other, 'study').quotaBucketAtTime, 'other');
+  expectEqual('approved other status remains other in managed target reload', mod.resolveManagedTargetAttribution({
+    siteClassificationRulesV1: [{ targetType: 'host', targetValue: 'other.example.test', decision: 'approved_other' }],
+  }, [], 'https://other.example.test/').targetClassificationAtTime, 'other');
+
+  const sessionSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'runtime', 'session.js'), 'utf8');
+  const sessionFieldsSource = sessionSource.slice(
+    sessionSource.indexOf('function managedTargetFieldsFrom('),
+    sessionSource.indexOf('async function readManagedTargetInputs()')
+  );
+  const sessionContext = {
+    MANAGED_TARGET_SESSION_FIELDS: ['targetClassificationAtTime', 'quotaBucketAtTime'],
+    managedTargets: { quotaBucketForMode: (mode) => mode },
+    cachedEffectiveMode: 'study',
+  };
+  vm.runInNewContext(`${sessionFieldsSource}\nthis.fields = managedTargetFieldsFrom;`, sessionContext);
+  expectEqual('reopened other session keeps its non-charging bucket',
+    sessionContext.fields({ targetClassificationAtTime: 'other', quotaBucketAtTime: 'other' }, 'rest').quotaBucketAtTime,
+    'other');
+  expectEqual('reopened ordinary session keeps mode-derived bucket',
+    sessionContext.fields({ targetClassificationAtTime: 'composite', quotaBucketAtTime: 'composite' }, 'rest').quotaBucketAtTime,
+    'rest');
+
   const total = passed + failed;
   console.log(`\n[Managed Targets] ${passed}/${total} passed${failed ? ' FAILED' : ''}`);
   if (failed > 0) process.exit(1);

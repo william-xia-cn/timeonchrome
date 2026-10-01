@@ -760,7 +760,8 @@ async function handleAccessObserved(event = {}) {
   const isRejected = siteClassification.classification === 'rejected';
   const isRestricted = siteClassification.classification === 'restricted' || isRejected;
   const isStudyDomain = siteClassification.classification === 'study';
-  const isTemporaryCompositeDomain = !isRestricted && !isUnsafe && !isStudyDomain && (
+  const isOtherDomain = siteClassification.classification === 'other';
+  const isTemporaryCompositeDomain = !isRestricted && !isUnsafe && !isStudyDomain && !isOtherDomain && (
     await hasTemporaryCompositePermission(Number.isInteger(tabId) ? tabId : null, domain) ||
     siteClassification.classification === 'pending_composite'
   );

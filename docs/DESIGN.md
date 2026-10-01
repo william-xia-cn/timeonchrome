@@ -1,5 +1,25 @@
 # TimeOnChrome — 技术设计文档
 
+### D-114 共享访问终端契约边界（2026-10-02）
+
+终端以 `@timeonchrome/app-runtime-contracts` 1.21.0、架构提交 `60da475` 为固定契约；包 SHA-256 为 `4f71abf0f8f1d79abb92e33c781a2c066a66cb3a806885e96d97c974d808acc0`。Native V3 的 `sharedQuota/getSharedQuotaState` 只返回 `SharedQuotaStateV1` 读模型；本阶段仅在显式调用时读取并校验版本、周期、策略 revision，不保存为执行状态，不替换网页配额。旧 Host 不支持时返回明确不可用，仍执行既有网页账和配额。`reportReminderResult` 虽列入契约，但提醒去重与结果消费尚无端到端实现，不发送结果或改变现有弹层。跨端执行保持关闭，原始网页账本不因本契约变化。
+
+网页来源影子贡献只能从现有已结算 `BrowserDailyUsageSnapshot` 转换：Study／Composite／Rest 秒数精确乘 1000；显式 `other` 仍保留在网页主统计中，但不进入三个扣费桶；未知或其他未定义桶、桶合计与 `activeSeconds` 不一致、来源快照不完整或整数溢出时标记贡献不完整。网页既有借用 Rest 已在 Rest 桶中，不再次计算。转换器不读取原始分段、不上传、不写缓存、不改变现有配额执行。
+
+影子核验只检查共享状态 `sources` 是否包含同一网页来源键、日期和 revision，并核对周期、策略 revision 与完整性；不能据合并总量倒推出单一网页贡献。已有 Rest 日／周合并弹层可按每个覆盖 scope 生成独立、同一弹层关联的 `SharedReminderResultV1` 候选；只允许在真实可见后记录 `visibleAtMs`，失败投递保持 null。本阶段纯构造和校验，不向 Host 上报，不把共享状态用于现有提醒。
+
+### “其他”网站的未来分段归属（2026-10-02，D-076 单项批准，待云端兼容）
+
+现状：站点解析尚无显式 `other`；未识别站点会进入待归类，已定义站点的原始分段以当前 runtime mode 推导 `quotaBucketAtTime`。仅在界面增加“其他”标签仍会扣学习／复合／休息额度。PO 单项批准对**今后明确归为其他的网站**记录 `targetClassificationAtTime=other` 与独立非扣费桶；不改网页 ACTIVE 的开始／停止、idle、焦点、媒体容错、checkpoint、时长、domain、上传确认或历史分段。
+
+| 场景 | 原计时行为 | 批准后的计时行为 | 唯一归属变化 |
+|---|---|---|---|
+| 普通输入、强视频／强音频、弱 audible | 沿现有焦点／媒体证据规则开始、续账或停账 | 完全不变 | 仅显式“其他”新分段使用独立桶 |
+| 失焦、最小化、后台标签、idle、锁屏 | 沿现有容错和停账边界 | 完全不变 | 不凭分类增加有效时间 |
+| checkpoint、结算、跨日 | 按现有事件和整数秒切片 | 完全不变 | 各层总网页秒数守恒 |
+
+误设“其他”可能少扣分类配额，因此黑名单和对象级限制仍先于放行；同一条记录不可同时占用旧分类桶与“其他”。当前 Worker 统计接收的 `VALID_MODES` 不接受新桶，须由云端职责工作线先完成原始字段、日／小时／目标聚合及 V2 快照兼容并以专项测试证明守恒；未就绪时终端不得启用该分类。既有历史数据不自动重分类或改写。
+
 ### 固定终端源码与开发候选边界（2026-09-30）
 
 `D:\Codex\TimeOnchrome-worktrees\extension-local` 是终端扩展唯一源码工作树。`1.7.40 Native Host Development Candidate` 仅由此工作树的 staging 工具生成到隔离的 unpacked 目录；源码 `extension/manifest.json` 的正式版本不随候选版本改变。候选复用已批准候选 manifest 的公开 key 并核对稳定扩展 ID，不生成 CRX 或 `update.xml`，不进入托管更新源。候选包含周 Rest 提醒、默认关闭的复合观察及 Task 可选模块；旧 Popup 纯网页软配额面板不纳入。Chrome 既有 `81a1` 路径作为 junction 兼容入口，只有独立 Profile 验证、完整备份和加载前后只读核对通过后才替换其 D 盘目标包；不卸载扩展或清空本地数据。真实 30 分钟复合上传闭环仍待验收。

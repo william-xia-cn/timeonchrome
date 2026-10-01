@@ -35,6 +35,7 @@ const MANAGED_CLASSIFICATION_TIE_PRIORITY = {
   rejected: 95,
   restricted: 90,
   study: 80,
+  other: 85,
   composite: 70,
   pending_composite: 65,
   rest: 60,
@@ -113,8 +114,9 @@ function normalizeClassification(value) {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === 'approved_study') return 'study';
   if (normalized === 'approved_composite') return 'composite';
+  if (normalized === 'approved_other') return 'other';
   if (normalized === 'reject') return 'rejected';
-  if (['study', 'composite', 'rest', 'restricted', 'blocked', 'rejected', 'pending_composite'].includes(normalized)) {
+  if (['study', 'composite', 'other', 'rest', 'restricted', 'blocked', 'rejected', 'pending_composite'].includes(normalized)) {
     return normalized;
   }
   return null;
@@ -168,6 +170,7 @@ function legacyDecisionToClassification(decision) {
   const normalized = String(decision || '').trim().toLowerCase();
   if (normalized === 'study' || normalized === 'approved_study') return 'study';
   if (normalized === 'composite' || normalized === 'approved_composite') return 'composite';
+  if (normalized === 'other' || normalized === 'approved_other') return 'other';
   if (normalized === 'reject' || normalized === 'rejected') return 'rejected';
   return null;
 }
@@ -496,6 +499,7 @@ function targetToAttribution(target, context, matchLevel) {
     targetRuleId: target.ruleId || null,
     targetMatchLevel: matchLevel || target.targetType,
     targetClassificationAtTime: target.classification || null,
+    quotaBucketAtTime: target.classification === 'other' ? 'other' : null,
   };
 }
 

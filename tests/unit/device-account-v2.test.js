@@ -99,6 +99,9 @@ function check(label, condition, detail = '') {
   check('daily and hourly domain totals are conserved', account.totals.daily_domain === 120 && account.totals.hourly_domain === 120);
   check('daily and hourly target totals are conserved', account.totals.daily_target === 120 && account.totals.hourly_target === 120);
   check('raw fact summary is retained', account.rawFactCount === 2 && /^[a-f0-9]{64}$/.test(account.rawFactHash));
+  const otherRows = account.rows.map((row) => row.kind.endsWith('_target') ? { ...row, quotaBucket: 'other' } : row)
+    .sort((left, right) => api.canonicalDeviceAccountJson(left).localeCompare(api.canonicalDeviceAccountJson(right)));
+  check('future other bucket keeps all device account dimensions conserved', api.validateDeviceAccountRows(otherRows, snapshot.date).ok);
   check('stats hash is deterministic', account.statsHash === (await api.buildDeviceAccountSnapshot(makeSnapshot())).statsHash);
   const compactedSnapshot = makeSnapshot();
   compactedSnapshot.compactedFactCount = 2;
