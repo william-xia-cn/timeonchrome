@@ -31,7 +31,7 @@ import type {
 import { systemToolPackageIds, technicalDistributionKeys } from './productCatalogRules';
 
 const classifications = new Set<ApplicationClassification>([
-  'study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked',
+  'study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked',
 ]);
 const platforms = new Set<RuntimePlatform>(['windows', 'macos']);
 const quotaCategories = ['study', 'composite', 'restrictedEntertainment', 'unclassified'] as const;
@@ -501,7 +501,7 @@ export async function resolveClassification(
   platform: RuntimePlatform,
   runtimeIdentity: string,
   policyVersion: number | null,
-): Promise<{ version: number | null; classification: ApplicationClassification; quotaBucket: string }> {
+): Promise<{ version: number | null; classification: ApplicationClassification; quotaBucket: string | null }> {
   if (policyVersion == null || policyVersion <= 0) {
     return { version: null, classification: 'unclassified', quotaBucket: 'unclassified' };
   }
@@ -519,7 +519,7 @@ export async function resolveClassification(
   const payload = JSON.parse(version.payload_json) as AppPolicyUpdate;
   const projected = payload?.resolvedApplications?.find(entry => entry.platform === platform && entry.runtimeIdentity === runtimeIdentity);
   const classification = row?.classification ?? projected?.classification ?? 'unclassified';
-  return { version: policyVersion, classification, quotaBucket: classification };
+  return { version: policyVersion, classification, quotaBucket: classification === 'other' ? null : classification };
 }
 
 function groupedUnion(groups: Map<string, Array<[number, number]>>): number {

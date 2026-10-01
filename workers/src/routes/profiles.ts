@@ -4,6 +4,7 @@ import { validateQuotaAuditRequest } from '../../../extension/core/quota-audit.j
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeWithDefaults, stripDerivedSiteAccessFields, systemAccessDefaultsResponse, type SystemAccessConfig } from '../config/system-access-config';
 import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
+import { projectLegacySharedAccessPolicy } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { nativeChildDeletedOutboxStatement } from '../services/nativeAppIdentityBridge';
 import { appRuntimeChildDeletedOutboxStatement } from '../services/appRuntimeIdentityBridge';
 
@@ -530,6 +531,7 @@ export const profilesRouter = {
     // ── 以下路由均需 profileId ──────────────────────────────────────────
 
     const configMatch      = path.match(/^\/profiles\/([^/]+)\/config$/);
+    const sharedAccessMatch = path.match(/^\/profiles\/([^/]+)\/shared-access\/v1$/);
     const configHistoryMatch = path.match(/^\/profiles\/([^/]+)\/config-history\/v1$/);
     const defaultsMatch    = path.match(/^\/profiles\/([^/]+)\/defaults$/);
     const devicesMatch     = path.match(/^\/profiles\/([^/]+)\/devices$/);
@@ -542,7 +544,7 @@ export const profilesRouter = {
 
     // 抽取 profileId 并验证归属
     const profileId =
-      configMatch?.[1] ?? configHistoryMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? deviceTokenActionMatch?.[1] ??
+      configMatch?.[1] ?? sharedAccessMatch?.[1] ?? configHistoryMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? deviceTokenActionMatch?.[1] ??
       recoveryRequestsMatch?.[1] ?? recoveryRequestIdMatch?.[1] ?? managedMappingsMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
 
     if (!profileId) return json({ error: 'Not found' }, 404);
@@ -697,6 +699,18 @@ export const profilesRouter = {
         };
       });
       return json({ profileId, history });
+    }
+
+    // GET /profiles/:id/shared-access/v1 — read-only projection of the one Child config.
+    // Stage stays legacy until both clients and the shared source are verified.
+    if (request.method === 'GET' && sharedAccessMatch) {
+      const row = await env.DB.prepare('SELECT config, version, updated_at FROM profiles WHERE id = ?')
+        .bind(profileId).first<{ config: string; version: number; updated_at: number }>();
+      if (!row) return json({ error: 'Profile not found' }, 404);
+      const config = row.config ? JSON.parse(row.config) as Record<string, unknown> : {};
+      migrateLegacyTimeWindows(config);
+      injectEffectiveTimeQuota(config);
+      return json({ profileId, policy: projectLegacySharedAccessPolicy(config, Number(row.version || 0), Number(row.updated_at || 0)) });
     }
 
     // GET /profiles/:id/config

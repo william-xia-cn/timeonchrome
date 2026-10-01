@@ -117,6 +117,7 @@ export type ApplicationClassification =
   | 'composite'
   | 'restrictedEntertainment'
   | 'unclassified'
+  | 'other'
   | 'blocked';
 
 export interface AppPolicyQuotaConfig {

@@ -3,8 +3,8 @@
   const MAIN_CONSOLE = 'https://timeonchrome-console.pages.dev/?launch=app-runtime';
   const authRecovery = AppRuntimeSession.createRecovery(sessionStorage, () => location.assign(MAIN_CONSOLE));
   const mock = new URLSearchParams(location.search).has('mock');
-  const categoryLabels = { study: '学习', composite: '复合', restrictedEntertainment: '受限娱乐', unclassified: '未归类', blocked: '黑名单' };
-  const categoryColors = { study: '#178f6a', composite: '#4d9fd8', restrictedEntertainment: '#ed9f38', unclassified: '#9aa6a0', blocked: '#d64545' };
+  const categoryLabels = { study: '学习', composite: '复合', restrictedEntertainment: '受限娱乐', unclassified: '未归类', other: '其他时间', blocked: '黑名单' };
+  const categoryColors = { study: '#178f6a', composite: '#4d9fd8', restrictedEntertainment: '#ed9f38', unclassified: '#9aa6a0', other: '#7b8f9c', blocked: '#d64545' };
   const projectionReasonLabels = {
     INSTALLATION_PRODUCT: 'Windows 安装产品或可信平台主应用，可作为一个产品管理',
     COMPONENT: '明确的组件或辅助入口，不作为独立产品管理',
@@ -245,7 +245,7 @@
   function classificationActions(app, selected = 'unclassified') {
     if (app.manageability !== 'actionable') return '';
     const index = state.actionApps.push(app) - 1;
-    return ['study','composite','restrictedEntertainment','blocked','unclassified'].map((category) => `<button data-classify-index="${index}" data-classification="${category}"${category === selected ? ' class="current" disabled' : ''}>${category === 'unclassified' ? '暂不归类' : `归为${categoryLabels[category]}`}</button>`).join('');
+    return ['study','composite','restrictedEntertainment','other','blocked','unclassified'].map((category) => `<button data-classify-index="${index}" data-classification="${category}"${category === selected ? ' class="current" disabled' : ''}>${category === 'unclassified' ? '暂不归类' : `归为${categoryLabels[category]}`}</button>`).join('');
   }
   function visibleProductVariants(app) {
     const variants = Array.isArray(app.variants) ? app.variants : [];
@@ -279,7 +279,7 @@
     state.actionApps = [];
     const catalog = [
       ['study', '▣', '学习应用'], ['composite', '∞', '复合应用'],
-      ['restrictedEntertainment', '♟', '受限娱乐应用'], ['blocked', '⊗', '黑名单应用'],
+      ['restrictedEntertainment', '♟', '受限娱乐应用'], ['other', '◌', '其他时间应用'], ['blocked', '⊗', '黑名单应用'],
       ['unclassified', '◉', '已使用未归类应用'],
       ['special','◈','特殊应用'],
     ];

@@ -18,7 +18,9 @@ const {chromium}=require('playwright');
    if(name==='mobile'){await page.click('#mobile-menu');}
    await page.click('[data-view="apps"]');
    await page.waitForSelector('#app-category-nav .app-category-item',{state:'attached'});
-   assert.equal(await page.locator('.nav-item').count(),5);assert.equal(await page.locator('#app-category-nav button').count(),5);
+   if(name==='mobile')await page.waitForFunction(()=>document.querySelector('#sidebar').getBoundingClientRect().right<=0);
+   assert.equal(await page.locator('.nav-item').count(),5);
+   assert.equal(await page.locator('#app-category-nav button').count(),7,'five management classes plus other time and special applications');
    assert.equal(await page.locator('[data-view-panel="apps"] .tabbar').count(),0);
    await page.screenshot({path:path.join(artifacts,`${name}-directory.png`),fullPage:true});
    await page.click('#open-products');await page.waitForSelector('#product-dialog[open]');
@@ -72,6 +74,6 @@ const {chromium}=require('playwright');
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);assert.deepEqual(errors,[]);
    await context.close();
   }
-  console.log('PASS: five directories, 80-item inventory, variant split/unlink, conflict preview, scoped confirmation, selected import, scrolling and privacy (desktop/mobile)');
+  console.log('PASS: five management classes plus other/special directories, 80-item inventory, variant split/unlink, conflict preview, scoped confirmation, selected import, scrolling and privacy (desktop/mobile)');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
