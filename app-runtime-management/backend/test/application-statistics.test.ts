@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { expect,it,vi } from 'vitest';
 import * as authority from '../src/appPolicy';
 import { readPersistentApplicationUsage, rebuildApplicationStatistics,applicationStatisticsSource } from '../src/applicationStatistics';
+import { hashUsageAccountValue } from '@timeonchrome/app-runtime-contracts/usage-account';
 const DAY=86400000,day=Date.parse('2026-09-27T00:00:00+08:00');
 async function fixture(){
   const id=crypto.randomUUID(),child='child-'+id;
@@ -101,6 +102,48 @@ it('watermarks count only facts for requested date and filter, preserving applic
   const f=await fixture();await segment(f,'precision');await segment(f,'other-day',day-DAY);
   expect((await applicationStatisticsSource(env.RUNTIME_DB,f.id,f.child,day,day+DAY,{})).rawRows).toBe(1);
   expect((await applicationStatisticsSource(env.RUNTIME_DB,f.id,f.child,day,day+DAY,{platform:'macos'})).rawRows).toBe(0);
+});
+it('one-date source batching keeps the original five-head and publication hash model exactly',async()=>{
+  const f=await fixture();await segment(f,'same-watermark');
+  const outputs:D1Result[][]=[];
+  const db={prepare:env.RUNTIME_DB.prepare.bind(env.RUNTIME_DB),batch:async(statements:D1PreparedStatement[])=>{
+    const result=await env.RUNTIME_DB.batch(statements);outputs.push(result);return result;
+  }} as D1Database;
+  const source=await applicationStatisticsSource(db,f.id,f.child,day,day+DAY,{machineId:f.id,localUserId:'user',platform:'windows'});
+  expect(outputs).toHaveLength(1);expect(outputs[0]).toHaveLength(6);
+  expect(source).toEqual({revision:await hashUsageAccountValue({model:'application-statistics-day-v2',
+    heads:outputs[0]!.slice(0,5).map(r=>r.results)}),rawRows:1,
+    publicationRevision:await hashUsageAccountValue(outputs[0]![5]!.results)});
+});
+it('daily persisted read checks all seven quota days in one bounded source round trip',async()=>{
+  const f=await fixture();await segment(f,'batch-day');await build(f);
+  const sizes:number[]=[];
+  const db={prepare:env.RUNTIME_DB.prepare.bind(env.RUNTIME_DB),batch:async(statements:D1PreparedStatement[])=>{
+    sizes.push(statements.length);return env.RUNTIME_DB.batch(statements);
+  }} as D1Database;
+  const result=await readPersistentApplicationUsage(db,f.id,f.child,day,day+DAY,{},undefined,day+DAY);
+  expect(result.value).toEqual(await authority.queryAppUsage(env.RUNTIME_DB,f.id,f.child,day,day+DAY,{}));
+  expect(sizes).toEqual([42,7]);expect(result.statistics.stale).toBe(false);
+  await segment(f,'late-quota-day',day-DAY,day-DAY+1501);
+  expect((await readPersistentApplicationUsage(db,f.id,f.child,day,day+DAY,{},undefined,day+DAY)).statistics.stale).toBe(true);
+});
+it('partial dates remain separate and larger ranges split source checks at seven dates',async()=>{
+  const f=await fixture(),sizes:number[]=[];
+  const db={prepare:env.RUNTIME_DB.prepare.bind(env.RUNTIME_DB),batch:async(statements:D1PreparedStatement[])=>{
+    sizes.push(statements.length);return env.RUNTIME_DB.batch(statements);
+  }} as D1Database;
+  try{await expect(readPersistentApplicationUsage(db,f.id,f.child,day+500,day+1000,{},undefined,day+DAY))
+    .rejects.toMatchObject({code:'APPLICATION_STATISTICS_PENDING'});
+  expect(sizes).toEqual([42,6,8]);
+  sizes.length=0;
+  await expect(readPersistentApplicationUsage(db,f.id,f.child,day-6*DAY,day+25*DAY,{},undefined,day+DAY))
+    .rejects.toMatchObject({code:'APPLICATION_STATISTICS_PENDING'});
+  expect(sizes).toEqual([42,42,42,42,18,31]);
+  }finally{
+    // This test intentionally creates 39 unbuilt scopes; do not consume the
+    // unrelated performance fixture's bounded global worker iterations.
+    await env.RUNTIME_DB.prepare('DELETE FROM runtime_application_statistics_queue_v1 WHERE account_id=?1').bind(f.id).run();
+  }
 });
 it('ordinary watermark query uses the bounded date expression index',async()=>{
   const f=await fixture();await segment(f,'indexed');

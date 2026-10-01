@@ -34,13 +34,13 @@ const date=(time:number)=>new Date(time+OFFSET).toISOString().slice(0,10);
 const key=(app:{platform:string;runtimeIdentity:string})=>`${app.platform}\n${app.runtimeIdentity}`;
 
 /** Bounded source watermark; never loads raw payloads into an ordinary GET. */
-export async function applicationStatisticsSource(db:D1Database,account:string,child:string,from:number,to:number,filters:Filters) {
+function sourceStatements(db:D1Database,account:string,child:string,from:number,to:number,filters:Filters) {
   const values:unknown[]=[account,child,from,to];let suffix='';
   for(const [field,column] of [['machineId','machine_id'],['localUserId','local_user_id'],['platform','platform']] as const)
     if(filters[field]){values.push(filters[field]);suffix+=` AND s.${column}=?${values.length}`;}
   const query=(table:string,condition:string)=>db.prepare(`SELECT COUNT(*) AS n,MAX(s.uploaded_at_ms) AS latest FROM ${table} s
     JOIN runtime_machines_v2 m ON m.id=s.machine_id WHERE m.account_id=?1 AND s.child_id=?2 AND ${condition}${suffix}`).bind(...values);
-  const results=await db.batch([
+  return [
     query('runtime_usage_segments_v2','s.diagnostic=0 AND min(COALESCE(s.start_wall_time_ms,s.start_at_ms),COALESCE(s.end_wall_time_ms,s.end_at_ms))<?4+2000 AND max(COALESCE(s.end_wall_time_ms,s.end_at_ms),COALESCE(s.start_wall_time_ms,s.start_at_ms))>?3-2000'),
     query('runtime_media_segments_v2','s.start_wall_time_ms<?4 AND s.end_wall_time_ms>?3'),
     db.prepare(`SELECT MAX(version) AS version FROM runtime_child_app_policy_versions_v1 WHERE account_id=?1 AND child_id=?2`).bind(account,child),
@@ -67,20 +67,34 @@ export async function applicationStatisticsSource(db:D1Database,account:string,c
       LEFT JOIN runtime_usage_segments_v2 a ON a.machine_id=l.machine_id AND a.local_user_id=l.local_user_id AND a.id=l.anchor_id
       ORDER BY l.machine_id,l.local_user_id,l.runtime_session_id,l.clock_epoch_id`)
       .bind(account,child,from,to,filters.machineId??null,filters.localUserId??null,filters.platform??null),
-  ]);
-  const n=results.reduce((sum,result)=>sum+Number((result.results[0] as {n?:number})?.n??0),0);
-  const publications=await db.prepare(`SELECT p.machine_id,p.local_user_id,p.assignment_version,p.revision,p.manifest_id
+    db.prepare(`SELECT p.machine_id,p.local_user_id,p.assignment_version,p.revision,p.manifest_id
     FROM runtime_application_account_publications_v1 p JOIN runtime_machines_v2 m ON m.id=p.machine_id
     WHERE p.account_id=?1 AND p.child_id=?2 AND p.date=?3 AND (?4 IS NULL OR p.machine_id=?4)
       AND (?5 IS NULL OR p.local_user_id=?5) AND (?6 IS NULL OR m.platform=?6)
     ORDER BY p.machine_id,p.local_user_id,p.assignment_version LIMIT 101`)
-    .bind(account,child,date(from),filters.machineId??null,filters.localUserId??null,filters.platform??null).all();
-  return {revision:await hashUsageAccountValue({model:'application-statistics-day-v2',heads:results.map(r=>r.results)}),rawRows:n,
-    publicationRevision:await hashUsageAccountValue(publications.results)};
+    .bind(account,child,date(from),filters.machineId??null,filters.localUserId??null,filters.platform??null),
+  ];
 }
-async function scope(db:D1Database,account:string,child:string,from:number,to:number,filters:Filters):Promise<Scope> {
+/** Same six source queries and hash order, bounded to seven dates per D1 round trip. */
+async function sourceRanges(db:D1Database,account:string,child:string,ranges:Array<{from:number;to:number}>,filters:Filters) {
+  const results:D1Result[]=[];
+  for(let offset=0;offset<ranges.length;offset+=7){
+    const statements=ranges.slice(offset,offset+7).flatMap(r=>sourceStatements(db,account,child,r.from,r.to,filters));
+    results.push(...await db.batch(statements));
+  }
+  return Promise.all(ranges.map(async(_,index)=>{
+    const heads=results.slice(index*6,index*6+5),publications=results[index*6+5]!;
+    return {revision:await hashUsageAccountValue({model:'application-statistics-day-v2',heads:heads.map(r=>r.results)}),
+      rawRows:heads.reduce((sum,result)=>sum+Number((result.results[0] as {n?:number})?.n??0),0),
+      publicationRevision:await hashUsageAccountValue(publications.results)};
+  }));
+}
+export async function applicationStatisticsSource(db:D1Database,account:string,child:string,from:number,to:number,filters:Filters) {
+  return (await sourceRanges(db,account,child,[{from,to}],filters))[0]!;
+}
+async function scope(account:string,child:string,from:number,to:number,filters:Filters,
+    source:Awaited<ReturnType<typeof applicationStatisticsSource>>):Promise<Scope> {
   const normalized={machineId:filters.machineId??null,localUserId:filters.localUserId??null,platform:filters.platform??null};
-  const source=await applicationStatisticsSource(db,account,child,from,to,filters);
   return {scope_key:await hashUsageAccountValue([account,child,normalized,from-midnight(from),to-midnight(from)]),
     account_id:account,child_id:child,date:date(from),filters_json:JSON.stringify(filters),from_ms:from,to_ms:to,
     source_revision:await hashUsageAccountValue([source.revision,source.publicationRevision])};
@@ -180,14 +194,16 @@ export async function readPersistentApplicationUsage(db:D1Database,account:strin
   if(!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||to<=from||to-from>31*DAY)
     throw new HttpError(400,'INVALID_RANGE','统计日期范围无效。');
   const weekStart=midnight(from)-((new Date(from+OFFSET).getUTCDay()+6)%7)*DAY;
-  const scopes=new Map<string,Promise<Scope>>(),requestedWork:Promise<Scope>[]=[],weeklyWork:Promise<Scope>[]=[];
-  const add=(left:number,right:number,target:Promise<Scope>[])=>{
-    const id=`${left}/${right}`;let work=scopes.get(id);
-    if(!work){work=scope(db,account,child,left,right,filters);scopes.set(id,work);}target.push(work);
+  const ranges=new Map<string,{from:number;to:number}>(),requestedIds:string[]=[],weeklyIds:string[]=[];
+  const add=(left:number,right:number,target:string[])=>{
+    const id=`${left}/${right}`;ranges.set(id,{from:left,to:right});target.push(id);
   };
-  for(let cursor=from;cursor<to;){const end=Math.min(to,midnight(cursor)+DAY);add(cursor,end,requestedWork);cursor=end;}
-  for(let cursor=weekStart;cursor<weekStart+7*DAY;cursor+=DAY)add(cursor,cursor+DAY,weeklyWork);
-  const [requested,weekly]=await Promise.all([Promise.all(requestedWork),Promise.all(weeklyWork)]);
+  for(let cursor=from;cursor<to;){const end=Math.min(to,midnight(cursor)+DAY);add(cursor,end,requestedIds);cursor=end;}
+  for(let cursor=weekStart;cursor<weekStart+7*DAY;cursor+=DAY)add(cursor,cursor+DAY,weeklyIds);
+  const sourceHeads=await sourceRanges(db,account,child,[...ranges.values()],filters);
+  const scopes=new Map(await Promise.all([...ranges].map(async([id,r],index)=>
+    [id,await scope(account,child,r.from,r.to,filters,sourceHeads[index]!)] as const)));
+  const requested=requestedIds.map(id=>scopes.get(id)!),weekly=weeklyIds.map(id=>scopes.get(id)!);
   const unique=new Map([...requested,...weekly].map(s=>[`${s.scope_key}/${s.date}`,s]));
   const loaded=new Map<string,PublishedDay>();let pending=false,missing=false;
   const published=await db.batch<PublishedDay>([...unique.values()].map(s=>db.prepare(`SELECT * FROM runtime_application_statistics_days_v1
