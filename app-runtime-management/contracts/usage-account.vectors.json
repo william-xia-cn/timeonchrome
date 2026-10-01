@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "timezone": "Asia/Shanghai",
+  "vectors": [
+    { "id": "application-milliseconds", "sourceKind": "application", "durationUnit": "milliseconds", "hour": 3, "duration": 1501, "categories": [{ "category": "study", "duration": 1501 }, { "category": "composite", "duration": 1501 }], "expectedTotal": 1501 },
+    { "id": "web-integer-seconds", "sourceKind": "web", "durationUnit": "seconds", "hour": 23, "duration": 61, "categories": [{ "category": "study", "duration": 61 }], "expectedTotal": 61 },
+    { "id": "complete-zero", "sourceKind": "application", "durationUnit": "milliseconds", "hour": 0, "duration": 0, "categories": [], "expectedTotal": 0 }
+  ],
+  "canonicalHashVector": { "input": { "b": 2, "a": 1 }, "canonical": "{\"a\":1,\"b\":2}", "sha256": "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777" },
+  "unicodeHashVector": { "input": { "a": "应用", "b": "<>&" }, "canonical": "{\"a\":\"应用\",\"b\":\"<>&\"}", "sha256": "3732e17de4a00fe7ad70592b0efca9b73d6ce689d98d5d595cdbf484406b0c97" }
+}

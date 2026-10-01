@@ -1,5 +1,42 @@
 # App Runtime 技术设计
 
+## D-113：应用补齐与网页同构的持久化统计链路（首批接收实现，未发布）
+
+首批具体协议（本地候选，未发布）：`POST /v2/machines/application-accounts/manifests` 接收 `{localUserId, assignmentVersion, manifest}`；`PUT .../manifests/{id}/chunks/{index}` 接收 `{rows, chunkHash}`；`POST .../manifests/{id}/commit` 校验全部分块、统计摘要与维度一致性；`GET .../manifests/{id}/status` 只返回版本、摘要和接收／发布状态。Child 和 account 由已认证机器及服务端历史 assignment 决定，body 中的 Child／machine／account 字段拒绝。首批没有公开发布命令，没有产品 head 或现有查询切换；commit 返回 `received_not_published`，源管理版本核验与 Native 对照未完成时不能升格为发布成功。
+
+共同行模型区分 total／category／subject，每类又区分日与小时；应用保持毫秒并集，类别／应用明细总和可超过总量，但各自日／小时须一致。`usage-account` 的清单和分块均采用严格字段及确定性 SHA-256；每块最多 100 行、单日最多 10,000 行，行总数不能默默截断。0013 仅增加 immutable manifests/chunks 和接收水位，没有原账 UPDATE／DELETE，也不沿用旧按条相加 hourly 表作为新主统计。
+
+1.20.0 本地候选的算法细节：对象 key 按 UTF-16 ordinal 排序，无空白，UTF-8 编码，字符串遵循 JSON.stringify 的转义规则；中文和 `<>&` 不因平台默认 HTML 转义而改变 hash。行按完整 canonical JSON ordinal 排序，每个日／小时维度只能有一行；total 必须有日行和 24 个小时行，包括真实零值。同维度小时合计等于日值，每小时的单应用／单分类不能超过同小时总量；不同维度不相加。应用 category 使用 study／composite／restrictedEntertainment／unclassified／blocked／historicalUnknown。分块 hash 对行数组计算，rowsHash 对完整排序数组计算，manifestHash 对排除自身 hash 的清单计算。rawFactHash 暂为源水位摘要，不是服务端已证实原账一致的声明；其跨端事实规范及管理版本验证完成后才能发布。
+
+revision 的范围为机器＋本机账户＋assignmentVersion＋北京时间日期。换孩子的当天不得把两孩子事实混在同一清单；后续 Native 按该范围投影已有事实。generation/cutoff 来自统计发布版本，不拿 HTTP 请求时间代替；未完整快照带原因码，零值不代表完整。首批仅校验策略版本存在性，不校验分类内容正确性，也不声称关联／更正版本已批准；所有快照 published=false，原目录和配额仍使用原模型。状态查询提供已接收块索引；chunk ACK 不等于清单完整接收，清单接收 ACK 不等于业务发布。
+
+Native 首次核对的兼容裁决（不改旧统计）：缺失事实 policyVersion 使用 `POLICY_HISTORY_MISSING`；`policyVersions` 只列可证明的版本，不能拿当前版本或 0 伪装历史版本。0 仅表示有依据的无策略。缺失 assignment 使用 `ASSIGNMENT_HISTORY_MISSING`，未知归属事实不得放入任一孩子清单；本机用户原有独立统计仍保留此部分，云端已知 assignment 的部分结果注明缺口。上述部分清单允许完整接收，但仍 complete=false／published=false。旧 v1 或缺分类快照的 unknown 在新传输分类字段映射为 historicalUnknown，明确 Unclassified 映射为 unclassified，只改 adapter 标签，不改变原算法、总量或历史记录。
+
+完整性是“选定已持久化来源／范围／截止的统计是否读取与投影完整”，不是保证 Service／Agent 从零点起全天在线，也不新增原账采集覆盖要求。已知来源与范围、稳定源快照成功读取且无截断／解析／归属缺口时，零条已结算事实可以得到真实的已结算零；明确尚未建立来源、历史覆盖未知、读取失败或范围超限不能假零，使用 `SOURCE_COVERAGE_UNKNOWN` 等原因。不要将新快照的 provenance 诊断直接覆盖旧 Reader／Manager 的 Complete 字段，改变原独立统计行为。subject 标签长度128的限制仅作用于传输行规范化，原应用名称／Manager展示不改。
+
+第一版原始来源摘要为本地水位，不承诺与服务端存储 bytes 相同：rawFactHash 对 canonical 对象 `{schemaVersion:1,date,assignmentVersion,facts,anchors}` 求 SHA-256；facts 为本次投影实际读取的去重来源行 `{kind,id,payloadHash}`，kind 区分 legacy/accounting，payloadHash 为原始已持久化 payload 的 UTF-8 bytes 摘要；按 kind、id 的 ordinal 顺序排列。anchors 为投影实际依赖的持久化 epoch／时间锚点 `{id,payloadHash}`，同法按 id 排序，不依赖锚点时为空数组。rawFactCount 只计 facts，不计 anchors；有重复冲突、不稳定源集合或缺失锚点时不能声明 complete。私密 payload／id 不上传，只上传最终 hash 和计数。归属未知事实保留独立本机分区；清单 digest 不把其偷偷算入已知 assignment。管理关联／更正通过单独版本字段表达，改变管理版本仍需新 revision，不伪装原事实变化。算法版本先以 Native 现有投影及固定截止对照证明后确定；摘要不能替代后续云端原账／管理版本内容校验。
+
+实际来源编码补充：v2 原 `payload_json` 的 UTF-8 bytes 直接求 payloadHash；所需 epoch anchor 采用实际被读取的源行 id/payloadHash。v1 无原 payload_json，固定以已持久化列 `{localUserId,id,assignmentVersion,runtimeSessionId,platform,runtimeIdentity,displayName,startAtMs,endAtMs,durationMs,endReason,contentHash}` canonical 序列化后求 payloadHash；缺失 assignmentVersion 为 null，不用当前分配补值，其他列保留原值，不规范化名称、不重算原 contentHash。kind=legacy 明确区分此列编码；它是确定性兼容编码，不单独造成不完整，也不伪称原始 JSON。真实字段缺失／解析或归属问题分别给出原因。此摘要规范只用于派生版本，不写入旧表、不改变原上传 hash。
+
+共同模型单一来源为根 `docs/STATS_STORAGE_FOUNDATION.md` 的“2026-10-01 跨来源统一统计结构”；本节只维护 Runtime 对应关系，不复制网页落账规则。应用统计已存在，但当前读取时聚合＋缓存并不等于持久化统计完成。云端缓存已上线的证据不受本设计影响，也不能充当新结构验收。
+
+| 实施位置／所属 | 调整内容 | 保留边界 |
+|---|---|---|
+| TimeOnChrome contracts／架构线 | 共同快照语义、能力、received/published、版本替换、黄金向量及 N/N-1 兼容 | 不改网页接口及已发布版本，不预占未核验包版本 |
+| TimeWhereNative Service／Native 线 | 原账事务中的派生 dirty、持久化日／小时／产品／分类、恢复与发布、独立统计 outbox | 原 Segment、clock epoch、计时边界、主／媒体区分及既有精度不变 |
+| Native ApplicationUsageReader／Native 线 | 读取已发布日统计及固定版本排行；周读取一致日版本，不再在普通查询重建整周 | 当前已验证用户隔离、分页及既有快照接口保持兼容 |
+| Runtime backend／标准云端线 | 设备统计接收／校验／完整发布、Child 日／周归集、来源版本及必要旧数据兼容 | 不信任客户端 Child 或分类；原账接收、已批准更正与配额语义不变 |
+| Runtime queryAppUsage 及共同入口／标准云端线 | 切换到已发布统计读取；原读取用于受控对照、兼容构建和诊断，不常驻页面重算 | 原响应保留兼容，网页与应用仍独立；不增加共享扣费 |
+| 页面／所属云端或控件线 | 继续读取权威快照，按需展示真实版本／截至时间／陈旧状态 | 四视图、Chrome 特殊容器、未知重叠与已确认界面范围不变 |
+
+存储设计分为本机 SQLite 派生统计及待更新／待同步状态、Runtime D1 设备统计与孩子归集；不将应用写入 Guardian 网页表，也不新增第三个统计服务。本轮只固定逻辑对象，物理 schema、索引、限额及 additive migration 在实施 diff 中列明，不能借用待处理 migration 或承诺“无需 migration”。
+
+新增接收协议必须具备 manifest／分块／commit／status 四种语义；现有机器认证绑定身份，复用速率与隐私边界。能力未发布或旧 Native 未声明时继续当前流程；不能拿 policy ACK 证明统计快照已发布。具体路由、错误码及包版本由契约任务在代码前落定，BrowserBridge 原应用读取能力原则上无需新增，只在兼容确需变化时交控件适配。
+
+应用分类更正与产品关联进入统计版本；失效更新由受影响日期驱动，不能只刷新目录名称。应用明细与分类可能重叠，主总量保持现有并集，应用毫秒不能截断为网页整数秒。统计校验失败保留上一已发布结果并记录差异，不用服务端另算值静默覆盖。
+
+实施顺序、任务状态、最小测试及交付条件见根 TASK_BOARD 的 D-113 条目。当前不修改 Native／扩展源码，不构建安装包、不部署或应用 migration；本机与云端实现、源码整合、实机验收和生产发布分别登记。
+
 ## ARM-D-039：Chrome 特殊属性与云端统一展示
 
 2026-10-01性能与范围补正：电脑使用固定为孩子/日期汇总，界面不提供电脑/账户/平台筛选；既有只读筛选协议保留兼容，独立统计不改变。应用原查询函数不改，新增鉴权后的内部版本缓存，使用已授权家庭/孩子、查询范围/筛选、涵盖所选范围和当前配额周的v1/v2账本计数/上传摘要、媒体摘要及App Policy最新版本构成不透明键。策略版本覆盖更正与产品投影；迟到上传和政策变化使旧缓存不可命中。计算期间版本变化不写缓存，异常不缓存，缓存失败回退权威读取。内部结果不超过2MB、最多保存5分钟，HTTP响应继续no-store，不向共享公开URL缓存用户数据。前端仅内存保存最多16项30秒，按完整孩子/日期/筛选请求键隔离，合并并发，刷新绕过内存；清除或过期的请求不得重新写回缓存。命中展示原读取时间，不伪装为实时数据。
