@@ -1,5 +1,6 @@
 import { requireAccountModule, requireMachine } from './auth';
 import { routeApplicationAccounts } from './applicationAccounts';
+import { receiveApplicationSharedQuota } from './applicationSharedQuota';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
@@ -379,6 +380,11 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
   }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
     url.pathname !== '/v2/machines/heartbeat');
+  if (url.pathname === '/v2/machines/shared-quota/application-contributions') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    return jsonResponse(await receiveApplicationSharedQuota(env.RUNTIME_DB, machine,
+      await readJsonBody(request,16_384), nowMs));
+  }
   if (url.pathname === '/v2/machines/app-usage-corrections') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
     return jsonResponse(await machineUsageCorrections(env.RUNTIME_DB, machine, url.searchParams.get('after')));

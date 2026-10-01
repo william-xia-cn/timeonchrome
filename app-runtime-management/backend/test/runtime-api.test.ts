@@ -16,6 +16,7 @@ const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE'
 
 beforeEach(async () => {
   await env.RUNTIME_DB.batch([
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_shared_quota_receipts_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_statistics_queue_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_statistics_days_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_knowledge_audit_v1'),
@@ -54,6 +55,35 @@ beforeEach(async () => {
 });
 
 describe('Runtime product API', () => {
+  it('receives versioned application shared contribution without publishing it or trusting a Child from the caller', async () => {
+    const {enrolled,localUserId}=await createMachineWithUser();
+    const contribution={schemaVersion:1,source:'application',date:'2026-10-02',revision:'app-r1',
+      statisticsRevision:'stats-r1',correctionRevision:'correction-r1',productAssociationVersion:'association-r1',
+      policyRevision:'profile-config:1',settledAtMs:1790880000000,complete:true,reasonCodes:[],
+      bucketsMs:{study:1000,composite:2000,rest:3000},applicationClassesMs:{study:1000,composite:2000,
+        restrictedEntertainment:3000,unclassified:0,other:500},chromeExcludedMs:500,
+      chromeIncludedInApplicationMs:500};
+    const upload={schemaVersion:1,localUserId,assignmentVersion:2,revisionOrdinal:1,contribution};
+    const headers=bearer(enrolled.machineToken);
+    const send=(body:unknown)=>call('/v2/machines/shared-quota/application-contributions',{method:'POST',headers,
+      body:JSON.stringify(body)});
+    const first=await send(upload);
+    expect(first.status).toBe(200);
+    const receipt=await first.json<{published:boolean;received:boolean;sourceKey:string;revisionOrdinal:number}>();
+    expect(receipt).toMatchObject({published:false,received:true,revisionOrdinal:1});
+    expect(receipt.sourceKey).toMatch(/^[a-f0-9]{64}$/);
+    expect((await send({...upload,contribution:{...contribution,bucketsMs:{rest:3000,composite:2000,study:1000}}})).status).toBe(200);
+    expect((await send({...upload,contribution:{...contribution,revision:'different'}})).status).toBe(409);
+    expect((await send({...upload,revisionOrdinal:2,contribution:{...contribution,revision:'app-r2'}})).status).toBe(200);
+    expect((await send(upload)).status).toBe(409);
+    expect((await send({...upload,childId:'child-b'})).status).toBe(400);
+    expect((await send({...upload,contribution:{...contribution,source:'web'}})).status).toBe(400);
+    expect((await send({...upload,localUserId:`user_${'x'.repeat(32)}`})).status).toBe(403);
+    expect((await call('/v2/machines/shared-quota/application-contributions',{method:'POST',
+      body:JSON.stringify(upload)})).status).toBe(401);
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_application_shared_quota_receipts_v1')
+      .first<{count:number}>())?.count).toBe(1);
+  });
   it('corrects current-week application attribution end-to-end without rewriting ledger or prior weeks', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const day = 86_400_000, now = Date.now(), shifted = new Date(now + 8 * 3_600_000);
