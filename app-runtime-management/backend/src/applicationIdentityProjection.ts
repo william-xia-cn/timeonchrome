@@ -111,6 +111,30 @@ export async function buildProductIdentityProjection(evidence: AppEvidence[], kn
   return { version: await sha256Hex(JSON.stringify(content)), ...content };
 }
 
+/** Recent ledger-only identities are standalone evidence, never directory/rule input. */
+export async function includeHistoricalStandaloneIdentities(db:D1Database,account:string,child:string,
+    projection:ProductIdentityProjection,now:number):Promise<ProductIdentityProjection> {
+  const day=86400000,start=Math.floor((now+8*3600000)/day)*day-8*3600000-6*day;
+  const history=await db.prepare(`SELECT s.platform,s.runtime_identity,MAX(s.display_name) AS display_name
+    FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
+    WHERE m.account_id=?1 AND s.child_id=?2 AND s.diagnostic=0 AND s.monotonic_duration_ms>0
+      AND s.start_wall_time_ms<?4 AND s.end_wall_time_ms>?3
+    GROUP BY s.platform,s.runtime_identity ORDER BY s.platform,s.runtime_identity LIMIT 10001`)
+    .bind(account,child,start-2000,now+2000).all<{platform:AppEvidence['platform'];runtime_identity:string;display_name:string|null}>();
+  if(history.results.length>10000)throw new Error('APPLICATION_IDENTITY_HISTORY_LIMIT');
+  const keys=new Set(projection.items.map(item=>keyOf(item))),items=[...projection.items];
+  for(const row of history.results){const key=`${row.platform}\n${row.runtime_identity}`;
+    if(keys.has(key))continue;keys.add(key);
+    const canonicalName=(row.display_name??'未命名应用').replace(/[\p{Cc}@\\/]/gu,'').slice(0,128)||'未命名应用';
+    items.push({platform:row.platform,runtimeIdentity:row.runtime_identity,associationKey:key,productId:null,
+      canonicalName,status:'unresolved',reasonCode:'IDENTITY_UNRESOLVED'});
+  }
+  if(items.length===projection.items.length)return projection;
+  items.sort((a,b)=>keyOf(a).localeCompare(keyOf(b)));
+  const content={knowledgeVersion:projection.knowledgeVersion,items};
+  return {version:await sha256Hex(JSON.stringify(content)),...content};
+}
+
 /** Leaf identity is not a suite/container. Never join by name, signer alone or productKey. */
 export function leafApplicationAssociations(evidence: AppEvidence[], knowledge?: ApplicationKnowledge): Map<string, string> {
   return associateApplicationEvidence(evidence.filter(usable).map(item => {

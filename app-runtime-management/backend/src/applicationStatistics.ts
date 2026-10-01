@@ -20,6 +20,8 @@ export interface StatisticsValue {
   outsideTimeWindows:{durationMs:number;segmentCount:number;applications:Array<Omit<AppRow,'classification'|'classifications'|'quota'>>};
   mediaPlaybackTotalMs:number;
   nativeRows?:UsageAccountRow[];
+  legacyQuotaCategoryDurations?:Record<string,number>;
+  legacyComparison?:{totalDurationMs:number;nativeDeltaMs:number};
   materialization?:{estimatedFactKeys:string[];outsideFactKeys:string[];applicationLastEnds:Record<string,number>};
 }
 interface Scope {
@@ -39,12 +41,30 @@ export async function applicationStatisticsSource(db:D1Database,account:string,c
   const query=(table:string,condition:string)=>db.prepare(`SELECT COUNT(*) AS n,MAX(s.uploaded_at_ms) AS latest FROM ${table} s
     JOIN runtime_machines_v2 m ON m.id=s.machine_id WHERE m.account_id=?1 AND s.child_id=?2 AND ${condition}${suffix}`).bind(...values);
   const results=await db.batch([
-    query('runtime_usage_segments_v2','s.diagnostic=0 AND COALESCE(s.start_wall_time_ms,s.start_at_ms)<?4 AND COALESCE(s.end_wall_time_ms,s.end_at_ms)>?3'),
+    query('runtime_usage_segments_v2','s.diagnostic=0 AND min(COALESCE(s.start_wall_time_ms,s.start_at_ms),COALESCE(s.end_wall_time_ms,s.end_at_ms))<?4+2000 AND max(COALESCE(s.end_wall_time_ms,s.end_at_ms),COALESCE(s.start_wall_time_ms,s.start_at_ms))>?3-2000'),
     query('runtime_media_segments_v2','s.start_wall_time_ms<?4 AND s.end_wall_time_ms>?3'),
     db.prepare(`SELECT MAX(version) AS version FROM runtime_child_app_policy_versions_v1 WHERE account_id=?1 AND child_id=?2`).bind(account,child),
     db.prepare(`SELECT COUNT(*) AS n,MAX(s.uploaded_at_ms) AS latest FROM runtime_usage_segments s
       JOIN runtime_devices d ON d.id=s.device_id WHERE d.account_id=?1 AND d.child_id=?2
       AND s.start_at_ms<?4 AND s.end_at_ms>?3 AND ?5 IS NULL AND ?6 IS NULL AND (?7 IS NULL OR s.platform=?7)`)
+      .bind(account,child,from,to,filters.machineId??null,filters.localUserId??null,filters.platform??null),
+    // Only the stable anchors of this day's lanes: new activity on unrelated
+    // days must not invalidate every historical publication.
+    db.prepare(`WITH lanes AS (SELECT DISTINCT s.machine_id,s.local_user_id,s.runtime_session_id,s.clock_epoch_id
+      FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
+      WHERE m.account_id=?1 AND s.child_id=?2 AND s.diagnostic=0 AND s.monotonic_duration_ms>0
+        AND s.start_wall_time_ms<?4+2000 AND s.end_wall_time_ms>?3-2000
+        AND (?5 IS NULL OR s.machine_id=?5) AND (?6 IS NULL OR s.local_user_id=?6) AND (?7 IS NULL OR s.platform=?7)
+      ORDER BY s.machine_id,s.local_user_id,s.runtime_session_id,s.clock_epoch_id LIMIT 257)
+      SELECT a.id,a.start_wall_time_ms,a.start_monotonic_time_ms,a.uploaded_at_ms FROM lanes l
+      LEFT JOIN runtime_usage_segments_v2 a ON a.machine_id=l.machine_id AND a.id=(SELECT anchor.id
+        FROM runtime_usage_segments_v2 anchor WHERE anchor.machine_id=l.machine_id AND anchor.local_user_id=l.local_user_id
+          AND anchor.runtime_session_id=l.runtime_session_id AND anchor.clock_epoch_id=l.clock_epoch_id AND anchor.diagnostic=0
+          AND anchor.monotonic_duration_ms>0 AND anchor.end_wall_time_ms>=anchor.start_wall_time_ms
+          AND anchor.end_monotonic_time_ms-anchor.start_monotonic_time_ms=anchor.monotonic_duration_ms
+          AND abs(anchor.end_wall_time_ms-anchor.start_wall_time_ms-anchor.monotonic_duration_ms)<=2000
+        ORDER BY anchor.start_monotonic_time_ms,anchor.id LIMIT 1)
+      ORDER BY l.machine_id,l.local_user_id,l.runtime_session_id,l.clock_epoch_id`)
       .bind(account,child,from,to,filters.machineId??null,filters.localUserId??null,filters.platform??null),
   ]);
   const n=results.reduce((sum,result)=>sum+Number((result.results[0] as {n?:number})?.n??0),0);
@@ -54,7 +74,7 @@ export async function applicationStatisticsSource(db:D1Database,account:string,c
       AND (?5 IS NULL OR p.local_user_id=?5) AND (?6 IS NULL OR m.platform=?6)
     ORDER BY p.machine_id,p.local_user_id,p.assignment_version LIMIT 101`)
     .bind(account,child,date(from),filters.machineId??null,filters.localUserId??null,filters.platform??null).all();
-  return {revision:await hashUsageAccountValue({model:'application-statistics-day-v1',heads:results.map(r=>r.results)}),rawRows:n,
+  return {revision:await hashUsageAccountValue({model:'application-statistics-day-v2',heads:results.map(r=>r.results)}),rawRows:n,
     publicationRevision:await hashUsageAccountValue(publications.results)};
 }
 async function scope(db:D1Database,account:string,child:string,from:number,to:number,filters:Filters):Promise<Scope> {
@@ -108,13 +128,19 @@ export async function rebuildApplicationStatistics(db:D1Database,now=Date.now(),
     const native=await selectNativeApplicationStatistics(db,s.account_id,s.child_id,s.from_ms,s.to_ms,filters,value,
       async(machineId,localUserId)=>(await applicationStatisticsSource(db,s.account_id,s.child_id,s.from_ms,s.to_ms,{machineId,localUserId})).revision);
     if(native){
+      const total=native.find(r=>r.kind==='total'&&r.hour==null)!.duration;
+      value.legacyComparison={totalDurationMs:value.totalDurationMs,nativeDeltaMs:total-value.totalDurationMs};
+      value.legacyQuotaCategoryDurations=Object.fromEntries(value.categories.map(c=>[c.classification,c.durationMs]));
       value.nativeRows=native;
-      value.totalDurationMs=native.find(r=>r.kind==='total'&&r.hour==null)!.duration;
-      for(const c of value.categories)c.durationMs=native.find(r=>r.kind==='category'&&r.hour==null&&r.category===c.classification)!.duration;
-      for(const b of value.buckets){const hour=Math.floor((b.startAtMs-s.from_ms)/3600000);
-        b.durationMs=native.find(r=>r.kind==='total'&&r.hour===hour)!.duration;
-        for(const c of b.categories)c.durationMs=native.find(r=>r.kind==='category'&&r.hour===hour&&r.category===c.classification)!.duration;
-      }
+      value.totalDurationMs=total;
+      const prior=new Map(value.categories.map(c=>[c.classification,c]));
+      value.categories=native.filter(r=>r.kind==='category'&&r.hour==null).map(r=>({
+        classification:r.category as ApplicationClassification,durationMs:r.duration,
+        quota:prior.get(r.category as ApplicationClassification)?.quota??{limitMs:null,remainingMs:null,exceeded:false}}));
+      value.buckets=Array.from({length:24},(_,hour)=>({startAtMs:s.from_ms+hour*3600000,
+        durationMs:native.find(r=>r.kind==='total'&&r.hour===hour)!.duration,
+        categories:native.filter(r=>r.kind==='category'&&r.hour===hour).map(r=>({
+          classification:r.category as ApplicationClassification,durationMs:r.duration}))}));
     }
     const after=await applicationStatisticsSource(db,s.account_id,s.child_id,s.from_ms,s.to_ms,filters);
     if(before.revision!==after.revision||before.publicationRevision!==after.publicationRevision)
@@ -201,11 +227,13 @@ export async function readPersistentApplicationUsage(db:D1Database,account:strin
     const target=buckets.get(start)??{durationMs:0,categories:new Map()};target.durationMs+=b.durationMs;
     for(const c of b.categories)target.categories.set(c.classification,(target.categories.get(c.classification)??0)+c.durationMs);buckets.set(start,target);}
   const appLimits=new Map(policy.quotas.perApplicationDailyMinutes.map(a=>[key(a),a.minutes]));
-  const restricted=week.reduce((sum,d)=>sum+(d.categories.find(c=>c.classification==='restrictedEntertainment')?.durationMs??0),0);
+  const quotaDuration=(d:StatisticsValue,classification:ApplicationClassification)=>d.legacyQuotaCategoryDurations
+    ?d.legacyQuotaCategoryDurations[classification]??0:d.categories.find(c=>c.classification===classification)?.durationMs??0;
+  const restricted=week.reduce((sum,d)=>sum+quotaDuration(d,'restrictedEntertainment'),0);
   const limitMs=policy.quotas.weeklyRestrictedEntertainmentMinutes==null?null:policy.quotas.weeklyRestrictedEntertainmentMinutes*60000;
   const value:StatisticsValue={totalDurationMs:days.reduce((s,d)=>s+d.totalDurationMs,0),
     categories:[...categories].map(([classification,durations])=>({classification,durationMs:durations.reduce((a,b)=>a+b,0),
-      quota:quota(durations,classification==='blocked'?0:policy.quotas.dailyCategoryMinutes[classification])})).sort((a,b)=>b.durationMs-a.durationMs),
+      quota:quota(days.map(d=>quotaDuration(d,classification)),classification==='blocked'?0:policy.quotas.dailyCategoryMinutes[classification])})).sort((a,b)=>b.durationMs-a.durationMs),
     applications:[...apps.values()].map(({app,days})=>({...app,quota:quota(days,app.classification==='blocked'?0:appLimits.get(key(app))??null)})).sort((a,b)=>b.durationMs-a.durationMs),
     buckets:[...buckets].sort((a,b)=>a[0]-b[0]).map(([startAtMs,b])=>({startAtMs,durationMs:b.durationMs,
       categories:[...b.categories].map(([classification,durationMs])=>({classification,durationMs})).filter(c=>c.durationMs>0)})),

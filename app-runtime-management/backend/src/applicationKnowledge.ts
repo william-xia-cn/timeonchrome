@@ -8,7 +8,7 @@ import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { isRecord } from './validation';
 import { controlledProducts, systemToolPackageIds } from './productCatalogRules';
-import { buildProductIdentityProjection, productIdentityItems, productProjectionEvidence, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
+import { buildProductIdentityProjection, includeHistoricalStandaloneIdentities, productIdentityItems, productProjectionEvidence, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
 import { buildProductBlockPolicy } from './productBlockPolicy';
 
 export const knowledgeEtag = (version: number) => `"application-knowledge-v${version}"`;
@@ -140,7 +140,8 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
     const binding = effectiveKnowledge.bindings.filter(item => item.childId === childId);
     const enabled = new Set(binding.flatMap(item => item.ruleIds));
     const scoped = { ...effectiveKnowledge, bindings: binding, rules: effectiveKnowledge.rules.filter(rule => enabled.has(rule.id)) };
-    const productIdentityProjection = await buildProductIdentityProjection(evidence, scoped, classifications);
+    const productIdentityProjection = await includeHistoricalStandaloneIdentities(db,accountId,childId,
+      await buildProductIdentityProjection(evidence, scoped, classifications),nowMs);
     const productBlockPolicy = buildProductBlockPolicy(scoped, childId, productIdentityProjection.version);
     if (!repairWeekStart && current.productIdentityProjection?.version === productIdentityProjection.version
         && canonical(current.classifications) === canonical(classifications)

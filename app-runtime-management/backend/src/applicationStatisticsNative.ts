@@ -1,8 +1,8 @@
-import {parseUsageAccountRows,type UsageAccountRow,type UsageAccountManifest,hashUsageAccountValue} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {parseUsageAccountRows,type UsageAccountRow,type UsageAccountManifest} from '@timeonchrome/app-runtime-contracts/usage-account';
 import type {StatisticsValue} from './applicationStatistics';
+import { normalizeApplicationUsageClock } from './applicationUsageClock';
 type Filters={machineId?:string;localUserId?:string;platform?:string};
 const DAY=86400000,OFFSET=8*3600000;
-const dimension=(rows:UsageAccountRow[],kind:string,hour:number|null)=>rows.filter(r=>r.kind===kind&&r.hour===hour);
 /** One producer per complete scope/day. Native and legacy are NEVER added together. */
 export async function selectNativeApplicationStatistics(db:D1Database,account:string,child:string,from:number,to:number,filters:Filters,
   original:StatisticsValue,source:(machineId:string,user:string)=>Promise<string>):Promise<UsageAccountRow[]|null> {
@@ -15,12 +15,31 @@ export async function selectNativeApplicationStatistics(db:D1Database,account:st
   const partitions=await db.prepare(`SELECT s.machine_id,s.local_user_id,s.assignment_version,COUNT(*) AS n
     FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
     WHERE m.account_id=?1 AND s.child_id=?2 AND s.diagnostic=0 AND COALESCE(s.start_wall_time_ms,s.start_at_ms)<?4
-      AND COALESCE(s.end_wall_time_ms,s.end_at_ms)>?3 AND (?5 IS NULL OR s.machine_id=?5)
+      AND COALESCE(s.end_wall_time_ms,s.end_at_ms)>?3 AND s.monotonic_duration_ms>0 AND (?5 IS NULL OR s.machine_id=?5)
       AND (?6 IS NULL OR s.local_user_id=?6) AND (?7 IS NULL OR s.platform=?7)
     GROUP BY s.machine_id,s.local_user_id,s.assignment_version LIMIT 101`)
-    .bind(account,child,from,to,filters.machineId??null,filters.localUserId??null,filters.platform??null)
+    .bind(account,child,from-2000,to+2000,filters.machineId??null,filters.localUserId??null,filters.platform??null)
     .all<{machine_id:string;local_user_id:string;assignment_version:number;n:number}>();
   if(!partitions.results.length||partitions.results.length>100)return null;
+  // Different assignments of the same user may overlap. Verify, rather than
+  // replacing this test with equality to the unrelated legacy statistics.
+  const users=new Map<string,typeof partitions.results>();
+  for(const part of partitions.results){const key=JSON.stringify([part.machine_id,part.local_user_id]);
+    const group=users.get(key)??[];group.push(part);users.set(key,group);}
+  for(const group of users.values())if(group.length>1){
+    const part=group[0]!;
+    const facts=await db.prepare(`SELECT s.* FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
+      WHERE m.account_id=?1 AND s.child_id=?2 AND s.machine_id=?3 AND s.local_user_id=?4 AND s.diagnostic=0
+        AND s.monotonic_duration_ms>0 AND s.start_wall_time_ms<?6 AND s.end_wall_time_ms>?5 ORDER BY s.id LIMIT 10001`)
+      .bind(account,child,part.machine_id,part.local_user_id,from-2000,to+2000).all<Record<string,unknown>>();
+    if(facts.results.length>10000)return null;
+    const normalized=await normalizeApplicationUsageClock(db,part.machine_id,part.local_user_id,facts.results,from,to);
+    const spans=normalized.sort((a,b)=>Number(a.start_wall_time_ms)-Number(b.start_wall_time_ms));
+    const ends=new Map<number,number>();
+    for(const span of spans){const assignment=Number(span.assignment_version),start=Number(span.start_wall_time_ms);
+      if([...ends].some(([other,end])=>other!==assignment&&end>start))return null;
+      ends.set(assignment,Math.max(ends.get(assignment)??0,Number(span.end_wall_time_ms)));}
+  }
   const date=new Date(from+OFFSET).toISOString().slice(0,10),merged=new Map<string,UsageAccountRow>();let count=0;
   for(const part of partitions.results){
     const p=await db.prepare(`SELECT p.manifest_id,p.source_revision,m.manifest_json FROM runtime_application_account_publications_v1 p
@@ -38,17 +57,5 @@ export async function selectNativeApplicationStatistics(db:D1Database,account:st
     for(const row of rows){const key=JSON.stringify([row.kind,row.hour,row.category,row.subjectKey]),old=merged.get(key);
       if(old)old.duration+=row.duration;else merged.set(key,{...row});}
   }
-  const rows=[...merged.values()];
-  // Cross-assignment overlap can differ from sum(partitions): decline, do not guess.
-  if(dimension(rows,'total',null)[0]?.duration!==original.totalDurationMs)return null;
-  const nativeCategories=dimension(rows,'category',null).map(r=>[r.category,r.duration]).sort();
-  const oldCategories=original.categories.map(c=>[c.classification,c.durationMs]).sort();
-  if(await hashUsageAccountValue(nativeCategories)!==await hashUsageAccountValue(oldCategories))return null;
-  for(let h=0;h<24;h++){
-    const b=original.buckets.find(b=>b.startAtMs===from+h*3600000);
-    if(dimension(rows,'total',h)[0]?.duration!==(b?.durationMs??0))return null;
-    const categories=dimension(rows,'category',h).filter(r=>r.duration>0).map(r=>[r.category,r.duration]).sort();
-    if(await hashUsageAccountValue(categories)!==await hashUsageAccountValue((b?.categories??[]).map(c=>[c.classification,c.durationMs]).sort()))return null;
-  }
-  return rows;
+  return [...merged.values()];
 }

@@ -3,10 +3,10 @@ import {expect,it} from 'vitest';
 import {createUsageAccount,type UsageAccountRow} from '@timeonchrome/app-runtime-contracts/usage-account';
 import {beginApplicationAccount,putApplicationAccountChunk,commitApplicationAccount,readApplicationAccountStatus} from '../src/applicationAccounts';
 import {publishApplicationAccounts} from '../src/applicationAccountPublication';
-import {getAppPolicy} from '../src/appPolicy';
+import {getAppPolicy,queryAppUsage,refreshHistoricalProductIdentityProjection} from '../src/appPolicy';
 import {sha256Hex} from '../src/crypto';
 import type {MachineSelfResponse} from '../src/contracts';
-import {readPersistentApplicationUsage,rebuildApplicationStatistics} from '../src/applicationStatistics';
+import {readPersistentApplicationUsage,rebuildApplicationStatistics,type StatisticsValue} from '../src/applicationStatistics';
 const DAY=86400000,start=Date.parse('2026-09-27T00:00:00+08:00'),now=start+DAY;
 const user='a'.repeat(64),projection='b'.repeat(64);
 async function fixture(){
@@ -127,9 +127,70 @@ it('stale association or correction version cannot publish and a previous good p
   const correction=await upload(f,3,{correctionVersion:2});await publishApplicationAccounts(env.RUNTIME_DB,now+2);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,correction.manifestId)).toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_CORRECTIONS_PENDING'});
 });
-it('different original session/epoch authority is a diagnosed difference, never silently recomputed',async()=>{
+it('Service user-level union is authoritative across sessions; legacy quota remains unchanged',async()=>{
+  // A finite quota proves remaining milliseconds still use the old quota usage.
   const f=await fixture();await fact(f);await fact(f,'parallel','other-session');const r=await upload(f,1,{count:2});await publishApplicationAccounts(env.RUNTIME_DB,now);
-  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_AUTHORITY_MISMATCH'});
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_child_app_policy_versions_v1 SET payload_json=
+    json_set(payload_json,'$.quotas.dailyCategoryMinutes.study',1) WHERE account_id=?1 AND child_id=?2`)
+    .bind(f.machine.accountId,f.child).run();
+  const original=await queryAppUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{}) as StatisticsValue;
+  expect(original.totalDurationMs).toBe(3002);
+  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
+  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
+  expect(result.value.categories[0]?.quota).toEqual(original.categories[0]?.quota);
+  expect(result.value.categories[0]?.quota.remainingMs).toBe(60000-3002);
+  expect(result.value.weeklyRestrictedEntertainment).toEqual(original.weeklyRestrictedEntertainment);
+});
+it('millisecond wall sampling difference does not reject exact monotonic statistics or accept rounded values',async()=>{
+  const f=await fixture();await fact(f);
+  await env.RUNTIME_DB.prepare('UPDATE runtime_usage_segments_v2 SET end_wall_time_ms=end_wall_time_ms+13 WHERE machine_id=?1')
+    .bind(f.machine.machineId).run();
+  const good=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,good.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,good.manifestId)).toMatchObject({published:true});
+  const wrong=await upload(f,2,{duration:1514});await publishApplicationAccounts(env.RUNTIME_DB,now,wrong.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,wrong.manifestId))
+    .toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_STATISTICS_MISMATCH'});
+});
+it('uses a stable previous-day anchor and includes a neighboring fact mapped across midnight',async()=>{
+  const f=await fixture();await fact(f,'anchor');
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2 SET start_wall_time_ms=?2,end_wall_time_ms=?2+100,
+    start_monotonic_time_ms=0,end_monotonic_time_ms=100,monotonic_duration_ms=100 WHERE machine_id=?1`)
+    .bind(f.machine.machineId,start-1000).run();
+  await fact(f,'neighbor');
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2 SET start_wall_time_ms=?2,end_wall_time_ms=?2+1501,
+    start_monotonic_time_ms=1000,end_monotonic_time_ms=2501 WHERE machine_id=?1 AND id='neighbor'`)
+    .bind(f.machine.machineId,start+13).run();
+  // The previous-day anchor belongs to this snapshot's expanded source window but
+  // contributes no usage today; normalized neighbor is exactly [midnight,+1501].
+  const r=await upload(f,1,{count:2});await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+});
+it('rejects clock jumps instead of using the clock margin as a statistics tolerance',async()=>{
+  const f=await fixture();await fact(f);
+  await env.RUNTIME_DB.prepare('UPDATE runtime_usage_segments_v2 SET end_wall_time_ms=end_wall_time_ms+2001 WHERE machine_id=?1')
+    .bind(f.machine.machineId).run();
+  const r=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId))
+    .toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_CLOCK_ANCHOR_MISSING'});
+});
+it('historical wixstdba receives standalone projection through immutable policy refresh, without configuration changes',async()=>{
+  const f=await fixture();await fact(f);
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2 SET runtime_identity='wixstdba-fixture',display_name='wixstdba'
+    WHERE machine_id=?1`).bind(f.machine.machineId).run();
+  const before=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child);
+  const raw=await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all();
+  expect(await refreshHistoricalProductIdentityProjection(env.RUNTIME_DB,f.machine.accountId,f.child,now)).toBe(true);
+  const after=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child);
+  expect(after.version).toBe(before.version+1);
+  expect(after.productIdentityProjection?.items.find(item=>item.runtimeIdentity==='wixstdba-fixture'))
+    .toMatchObject({associationKey:'windows\nwixstdba-fixture',productId:null,status:'unresolved',canonicalName:'wixstdba'});
+  for(const field of ['classifications','quotas','weekReclassification','resolvedApplications'] as const)expect(after[field]).toEqual(before[field]);
+  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(raw.results);
+  expect(await refreshHistoricalProductIdentityProjection(env.RUNTIME_DB,f.machine.accountId,f.child,now+1)).toBe(false);
+  const foreign=await fixture();
+  expect(await refreshHistoricalProductIdentityProjection(env.RUNTIME_DB,foreign.machine.accountId,foreign.child,now)).toBe(false);
 });
 it('publication transaction failure keeps receipt and previous head intact',async()=>{
   const f=await fixture();await fact(f);const r=await upload(f);

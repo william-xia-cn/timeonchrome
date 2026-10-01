@@ -53,9 +53,13 @@ Native 首次核对的兼容裁决（不改旧统计）：缺失事实 policyVer
 
 兼容能力探测使用机器鉴权的 `GET /v2/machines/application-accounts/capabilities`，返回 `{protocol:'usage-account-v1',schemaVersion:1,enabled:boolean,chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1']}`。`enabled` 只有接收／发布／读模型所需表全部存在才为 true；旧 Worker 404、网络失败或 false 均保持上传关闭，不能靠安装版本或本地布尔常量猜已部署。该探测是统计 HTTP 能力，不改变 Native Host framing 或 BrowserBridge 消息；终端本地持久化读切换不必等待云端部署，但必须先通过固定截止本地 parity。此次未部署与 schema 未应用意味着实际生产仍不会启用新统计上传。
 
-接收完成后后台发布按机器／用户／assignment／日期固定截止核验：真实 assignment 与机器仍有效、原始事实已上传、服务器历史分类和已批准更正、产品关联版本及规范名与终端行完全一致。服务器原始 payload 编码与本机不同，因此 rawFactHash 只保留为本机水位，不伪装为服务端字节证明；业务核验以有界源集合的计数、政策集合及逐维度精确对照为依据。原始尚未到达、缺失历史政策、当前关联／更正尚未同步或原算法读数不一致时，记录稳定原因，保留上一发布头，不修改 receipt 或终端数值。
+接收完成后后台发布按机器／用户／assignment／日期固定截止核验：真实 assignment 与机器仍有效、原始事实已上传、服务器历史分类和已批准更正、产品关联版本及规范名与终端行完全一致。服务器原始 payload 编码与本机不同，因此 rawFactHash 只保留为本机水位，不伪装为服务端字节证明；业务核验以有界源集合的计数、政策集合及逐维度精确对照为依据。原始尚未到达、缺失历史政策、当前关联／更正尚未同步或 Service 同口径核对不一致时，记录稳定原因，保留上一发布头，不修改 receipt 或终端数值。旧算法差异单独保存在派生日的 legacyComparison，不阻断正确 Native 统计。
 
-Windows 现有本机规范化区间采用用户内并集，云端原应用读数按会话／clock epoch 累计；在这些分组真正存在重叠或时钟归一化差异的日期，不允许静默把一端算法替换另一端。发布核验明确返回 `APPLICATION_ACCOUNT_AUTHORITY_MISMATCH`，该日期继续以原云端兼容统计展示。固定政策和来源摘要在核验前后对照，发布头与待归集范围原子写入；新 receipt 不会提前替代旧发布结果。发布事务排队该孩子的默认日范围及已有受影响筛选范围，重启后后台仍可续建，不依赖再次打开页面。孩子统计同范围只能选择已核验的 Native 来源或兼容来源，不能相加。Mac 新算法须对应实现及环境验证后再放行，本轮不猜其算法标识。
+2026-10-01 PO 收口修订：Windows 新持久化统计采用 Service 现有规范化区间及用户内并集，旧云端墙钟／会话分组读数仅用于兼容与差异诊断，不再要求算法相等。核对器按同一机器、用户、runtime session、clock epoch 的稳定历史锚点（有效事实按 startMonotonicTimeMs、id 排序第一条）还原区间，时长为精确 monotonicDuration；沿用 Native 的 2000ms 时钟异常边界，仅用于判断证据可还原，不是统计数值容差。日边界两侧读取相同范围的邻居事实，映射后裁剪，再应用已批准更正；total/category/subject 各自按用户内并集及相同 canonical 行排序/hash 精确核对。缺锚点、真实时钟异常、归属或管理版本缺口、逐维度差异仍拒绝发布。
+
+最近七天已上传但未进入投影的历史技术身份只补 productId=null、associationKey=platform+'\n'+runtimeIdentity 的独立未确认条目，不进入可管理目录，不改变分类、更正或配额。投影刷新复用正常审计及机器策略版本下发，旧 receipt 不改写。已核验 Native 分区按机器／账户／assignment 累计，不跨电脑做时间并集；同一用户多个 assignment 真有交叠时保留兼容结果，不猜去重。新展示 total/category/hour/product 使用 Native 行，原配额消费的兼容分类用量独立保存在派生 JSON 中；旧接口及配额算法不变。
+
+固定政策和来源摘要在核验前后对照，发布头与待归集范围原子写入；新 receipt 不会提前替代旧发布结果。后台排队该孩子默认日范围及已有受影响筛选范围，重启后可续建。孩子统计同范围只选 Native 或兼容来源，不能相加。Mac 新算法仍须对应实现及环境验证后放行。
 
 ## ARM-D-039：Chrome 特殊属性与云端统一展示
 
