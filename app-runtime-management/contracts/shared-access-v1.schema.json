@@ -164,12 +164,46 @@
             "other": { "$ref": "#/$defs/milliseconds" }
           }
         },
-        "chromeExcludedMs": { "$ref": "#/$defs/milliseconds" }
+        "chromeExcludedMs": { "$ref": "#/$defs/milliseconds" },
+        "chromeIncludedInApplicationMs": { "anyOf": [{ "$ref": "#/$defs/milliseconds" }, { "type": "null" }] }
       },
       "allOf": [{
         "if": { "properties": { "source": { "const": "application" } }, "required": ["source"] },
         "then": { "required": ["applicationClassesMs", "chromeExcludedMs", "productAssociationVersion"] }
       }]
+    },
+    "applicationUpload": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "localUserId", "assignmentVersion", "revisionOrdinal", "contribution"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "localUserId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "assignmentVersion": { "type": "integer", "minimum": 1 },
+        "revisionOrdinal": { "type": "integer", "minimum": 1 },
+        "contribution": {
+          "type": "object", "additionalProperties": false,
+          "required": ["schemaVersion", "source", "date", "revision", "statisticsRevision", "correctionRevision",
+            "productAssociationVersion", "policyRevision", "settledAtMs", "complete", "reasonCodes", "bucketsMs",
+            "applicationClassesMs", "chromeExcludedMs", "chromeIncludedInApplicationMs"],
+          "properties": {
+            "schemaVersion": { "const": 1 },
+            "source": { "const": "application" },
+            "date": { "$ref": "#/$defs/date" },
+            "revision": { "$ref": "#/$defs/revision" },
+            "statisticsRevision": { "$ref": "#/$defs/revision" },
+            "correctionRevision": { "$ref": "#/$defs/revision" },
+            "productAssociationVersion": { "$ref": "#/$defs/revision" },
+            "policyRevision": { "$ref": "#/$defs/revision" },
+            "settledAtMs": { "anyOf": [{ "$ref": "#/$defs/milliseconds" }, { "type": "null" }] },
+            "complete": { "type": "boolean" },
+            "reasonCodes": { "$ref": "#/$defs/contribution/properties/reasonCodes" },
+            "bucketsMs": { "$ref": "#/$defs/buckets" },
+            "applicationClassesMs": { "$ref": "#/$defs/contribution/properties/applicationClassesMs" },
+            "chromeExcludedMs": { "$ref": "#/$defs/milliseconds" },
+            "chromeIncludedInApplicationMs": { "$ref": "#/$defs/contribution/properties/chromeIncludedInApplicationMs" }
+          }
+        }
+      }
     }
   }
 }

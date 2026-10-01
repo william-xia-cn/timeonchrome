@@ -6,6 +6,14 @@
 
 机器心跳只有声明 `application-other-v1` 后，机器策略才下发 `other` 分类；未声明的旧终端收到 `unclassified` 兼容投影，云端家长配置和历史事实不改写。能力变化须改变策略 ETag，避免缓存旧投影；策略 ACK 不代表共享配额或提醒能力完成验收。
 
+现有 `runtime_app_classification_history_v1` 的 SQLite `CHECK` 固定旧五类，不能直接插入 `other`；错误也不能被当成 ETag 冲突。迁移 `0014` 仅新增 `runtime_app_classification_history_other_v1` 保存明确的 `other` 历史，不重建或改写原表。写入按分类分流；查询按同一 Child、技术身份和策略版本从两表取最新行；Child 删除同时清理新表。迁移先本地验证，生产执行须与兼容 Worker 发布单独过闸。
+
+Native 对照指出 `chromeExcludedMs` 是 Chrome 自身被排除的区间并集，不能充当电脑总量中实际被应用总量包含的边际扣除。下一契约增量定义独立 `chromeIncludedInApplicationMs`，与应用日统计、分类更正、产品关联及截止版本绑定：`Union(all applications) - Union(non-Chrome applications)`；来源不完整时为 `null`。Runtime 机器鉴权接收时从本机账户 assignment 推导 Child 和不透明来源键，拒绝请求指定他人的 Child；持久化后通过受限 Worker binding 向 Guardian 只读提供最新替换快照。当前 1.21.0 仅有类型与本地影子计算，没有上述上传/读取闭环，不能用于生产电脑总量或共享执行验收。
+
+接收请求用 `ApplicationSharedQuotaUploadV1`：机器令牌确定 machine，body 仅含不透明 `localUserId`、`assignmentVersion`、该范围单调增加的 `revisionOrdinal` 及应用贡献；Child 和 `sourceKey` 由服务端受保护 assignment 推导。相同 ordinal/内容为幂等重放，低版本或同版本不同内容拒绝；仅写入 receipt 不等于来源事实校验或共享状态发布。绝不因缺失云端校验用旧区间近似值补全扣除量。
+
+产品关联投影新增云端权威的可选 `isChromeContainer`：仅审核的 Chrome productId、可信身份依据且已确认/关联状态为 true，并纳入投影版本哈希。旧投影无此字段视为未知，不按显示名称识别 Chrome；终端据此输出 Chrome 扣除，无法证明时将边际值标为 `null`。
+
 电脑展示继续独立于配额：同范围 `webMs + applicationMs - chromeIncludedMs`，其中 Chrome 扣除是应用总量减去非 Chrome 区间并集后的边际值。来源异常保留有效独立分量；历史区间不足不得填平。新增 `other` 只影响后续经能力门控的分类和展示，不追溯原应用账。旧 1.20.0 实机契约与当前已安装终端不因此自动改变；新能力需端到端兼容与启用验收。
 
 ## D-113：应用补齐与网页同构的持久化统计链路（本地实现，未发布）

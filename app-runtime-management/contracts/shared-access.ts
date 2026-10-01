@@ -88,6 +88,18 @@ export interface SharedQuotaContributionV1 {
   applicationClassesMs?: Readonly<Record<'study' | 'composite' | 'restrictedEntertainment' | 'unclassified' | 'other', number>>;
   /** Application union contribution excluded from shared quota, supported by a confirmed Chrome product. */
   chromeExcludedMs?: number;
+  /** Distinct display deduction: marginal Chrome duration included in the app total's own union. */
+  chromeIncludedInApplicationMs?: number | null;
+}
+
+/** Machine-authenticated upload. The Worker derives Child and sourceKey from the active assignment. */
+export interface ApplicationSharedQuotaUploadV1 {
+  schemaVersion: typeof SHARED_ACCESS_SCHEMA_VERSION;
+  localUserId: string;
+  assignmentVersion: number;
+  /** Monotonic within machine/user/assignment/date; never use wall time to order replacements. */
+  revisionOrdinal: number;
+  contribution: Omit<SharedQuotaContributionV1, 'sourceKey' | 'source'> & { source: 'application' };
 }
 
 export interface SharedQuotaDayProjectionV1 {

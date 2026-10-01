@@ -28,6 +28,15 @@ for(const v of vectors.cases) {
   assert.equal(JSON.stringify(input),before,'sources/quotas/ledger input unchanged'); assertions+=6;
 }
 const input=fixture(vectors.cases[0]);
+const nativeMillisecond=structuredClone(input);
+nativeMillisecond.applications[0].totalMs+=1;
+nativeMillisecond.applications[0].categoriesMs.composite+=1;
+nativeMillisecond.applications[0].chromeIncludedInApplicationMs=nativeMillisecond.applications[0].totalMs;
+assert.equal(mergeComputerUsage(nativeMillisecond).totals.computerMs,600000,
+  'same-version Native Chrome marginal value preserves millisecond authority when wall evidence differs');
+nativeMillisecond.applications[0].chromeIncludedInApplicationMs=null;
+assert.equal(mergeComputerUsage(nativeMillisecond).totals.computerMs,null,
+  'missing Native marginal value is not replaced with wall-clock approximation');
 const dual=structuredClone(input);
 dual.web.push({...structuredClone(input.web[0]),key:'opaque-browser-b',computerKey:'opaque-computer-b'});
 dual.applications.push({...structuredClone(input.applications[0]),key:'opaque-app-source-b',computerKey:'opaque-computer-b'});

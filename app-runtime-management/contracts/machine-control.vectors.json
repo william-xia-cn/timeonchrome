@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "contractVersion": "1.21.0",
+  "contractVersion": "1.22.0",
   "http": {
     "commit": {"method":"POST","path":"/v2/machines/uninstall-operations","authorization":"Bearer <machineToken>","status":200,"body":{"operationId":"12345678-1234-4234-8234-123456789abc","status":"committed","revoked":true,"committedAtMs":1800000000000}},
     "receipt": {"method":"GET","path":"/v2/uninstall-operations/{operationId}","authorization":"UninstallReceipt <confirmationSecret>","status":200,"body":{"operationId":"12345678-1234-4234-8234-123456789abc","status":"committed","revoked":true,"committedAtMs":1800000000000}},

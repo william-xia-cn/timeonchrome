@@ -23,6 +23,8 @@ export interface ProductIdentityProjectionItem {
   canonicalName: string;
   status: 'confirmed' | 'associated' | 'unresolved' | 'conflict';
   reasonCode: 'APPROVED_PRODUCT' | 'VERIFIED_LEAF_ALIAS' | 'IDENTITY_UNRESOLVED' | 'IDENTITY_CONFLICT';
+  /** Cloud-reviewed product role; absent means unconfirmed, never infer from the label. */
+  isChromeContainer?: boolean;
 }
 export interface ApplicationDiscoverySummary {
   role: 'application' | 'component' | 'candidate';

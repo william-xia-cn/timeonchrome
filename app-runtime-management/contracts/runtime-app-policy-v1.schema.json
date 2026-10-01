@@ -24,7 +24,8 @@
             "productId": { "type": ["string", "null"], "maxLength": 128 },
             "canonicalName": { "type": "string", "maxLength": 256 },
             "status": { "enum": ["confirmed", "associated", "unresolved", "conflict"] },
-            "reasonCode": { "enum": ["APPROVED_PRODUCT", "VERIFIED_LEAF_ALIAS", "IDENTITY_UNRESOLVED", "IDENTITY_CONFLICT"] }
+            "reasonCode": { "enum": ["APPROVED_PRODUCT", "VERIFIED_LEAF_ALIAS", "IDENTITY_UNRESOLVED", "IDENTITY_CONFLICT"] },
+            "isChromeContainer": { "type": "boolean" }
           }
         } }
       }

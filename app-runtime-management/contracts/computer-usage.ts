@@ -34,6 +34,8 @@ export interface ComputerWebSource extends ComputerUsageSource {
 }
 export interface ComputerApplicationSource extends ComputerUsageSource {
   associationVersion: string;
+  /** Authoritative same-scope marginal Chrome deduction; null means not provable. */
+  chromeIncludedInApplicationMs?: number | null;
   intervals: Array<ComputerUsageInterval & { special: boolean }>;
 }
 export interface ComputerUsageSourceBundle {
@@ -155,6 +157,9 @@ function displayApplicationCategories(source: ComputerApplicationSource): Record
 /** Same union scope as the source total: Chrome's marginal contribution, not its product-row duration. */
 function chromeIncludedInApplication(source: ComputerApplicationSource): number | null {
   if (source.totalMs === null || !validMs(source.totalMs)) return null;
+  if (source.chromeIncludedInApplicationMs !== undefined)
+    return source.chromeIncludedInApplicationMs !== null && validMs(source.chromeIncludedInApplicationMs)
+      && source.chromeIncludedInApplicationMs <= source.totalMs ? source.chromeIncludedInApplicationMs : null;
   if (source.intervals.some(i => !validMs(i.startMs) || !validMs(i.endMs) || i.endMs <= i.startMs)) return null;
   if (length(ranges(source.intervals)) !== source.totalMs) return null;
   const included = source.totalMs - length(ranges(source.intervals.filter(i => !i.special)));
