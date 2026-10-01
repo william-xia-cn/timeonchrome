@@ -30,6 +30,8 @@ assert.deepStrictEqual(JSON.parse(JSON.stringify(result.contribution.bucketsMs))
 assert.strictEqual(result.contribution.revision, snapshot.snapshotRevision);
 assert.strictEqual(result.contribution.policyRevision, options.policyRevision);
 assert.strictEqual(result.contribution.settledAtMs, null);
+assert.strictEqual(Object.hasOwn(result.contribution, 'chromeExcludedMs'), false);
+assert.strictEqual(Object.hasOwn(result.contribution, 'chromeIncludedInApplicationMs'), false);
 assert.strictEqual(snapshot.quotaBucketSeconds.other, 60);
 
 const unknown = project({ ...snapshot, quotaBucketSeconds: { ...snapshot.quotaBucketSeconds, other: 0, unknown: 60 } }, options);
