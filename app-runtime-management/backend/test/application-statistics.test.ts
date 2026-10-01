@@ -111,6 +111,26 @@ it('ordinary watermark query uses the bounded date expression index',async()=>{
     .bind(f.id,f.child,day,day+DAY).all();
   expect(plan.results.map(r=>r.detail).join('\n')).toContain('runtime_application_statistics_source_time_idx');
 });
+it('stable anchor watermark materializes one lookup per lane and joins the full source primary key',async()=>{
+  const f=await fixture();await segment(f,'anchored');
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2 SET start_monotonic_time_ms=1000,
+    end_monotonic_time_ms=2501,monotonic_duration_ms=1501 WHERE machine_id=?1`).bind(f.id).run();
+  let sql='';
+  const db={prepare:(query:string)=>{if(query.startsWith('WITH lanes'))sql=query;return env.RUNTIME_DB.prepare(query);},
+    batch:env.RUNTIME_DB.batch.bind(env.RUNTIME_DB)} as D1Database;
+  const before=await applicationStatisticsSource(db,f.id,f.child,day,day+DAY,{});
+  const plan=await env.RUNTIME_DB.prepare(`EXPLAIN QUERY PLAN ${sql}`)
+    .bind(f.id,f.child,day,day+DAY,null,null,null).all<{detail:string}>();
+  const details=plan.results.map(r=>r.detail).join('\n');
+  expect(details).toContain('MATERIALIZE anchors');
+  expect(details).toMatch(/SEARCH a USING INDEX[^\n]*machine_id=\? AND local_user_id=\? AND id=\?/);
+  await segment(f,'future-unrelated',day+2*DAY,day+2*DAY+1501,'study','future-session');
+  expect((await applicationStatisticsSource(db,f.id,f.child,day,day+DAY,{})).revision).toBe(before.revision);
+  await segment(f,'older-anchor',day-DAY,day-DAY+1501);
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2 SET start_monotonic_time_ms=0,
+    end_monotonic_time_ms=1501,monotonic_duration_ms=1501 WHERE machine_id=?1 AND id='older-anchor'`).bind(f.id).run();
+  expect((await applicationStatisticsSource(db,f.id,f.child,day,day+DAY,{})).revision).not.toBe(before.revision);
+});
 it('5000 settled facts are materialized once; repeated reads do not rerun aggregation and preserve quota',async()=>{
   const f=await fixture();
   for(let offset=0;offset<5000;offset+=100)await env.RUNTIME_DB.batch(Array.from({length:100},(_,i)=>{
