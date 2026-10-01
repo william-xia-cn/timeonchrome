@@ -125,7 +125,10 @@ it('daily persisted read checks all seven quota days in one bounded source round
   expect(result.value).toEqual(await authority.queryAppUsage(env.RUNTIME_DB,f.id,f.child,day,day+DAY,{}));
   expect(sizes).toEqual([42,7]);expect(result.statistics.stale).toBe(false);
   await segment(f,'late-quota-day',day-DAY,day-DAY+1501);
+  sizes.length=0;
   expect((await readPersistentApplicationUsage(db,f.id,f.child,day,day+DAY,{},undefined,day+DAY)).statistics.stale).toBe(true);
+  // The unchanged 2-second watermark margin also dirties the preceding date.
+  expect(sizes).toEqual([42,7,2]);
 });
 it('partial dates remain separate and larger ranges split source checks at seven dates',async()=>{
   const f=await fixture(),sizes:number[]=[];
@@ -134,14 +137,37 @@ it('partial dates remain separate and larger ranges split source checks at seven
   }} as D1Database;
   try{await expect(readPersistentApplicationUsage(db,f.id,f.child,day+500,day+1000,{},undefined,day+DAY))
     .rejects.toMatchObject({code:'APPLICATION_STATISTICS_PENDING'});
-  expect(sizes).toEqual([42,6,8]);
+  expect(sizes).toEqual([42,6,8,7,1]);
   sizes.length=0;
   await expect(readPersistentApplicationUsage(db,f.id,f.child,day-6*DAY,day+25*DAY,{},undefined,day+DAY))
     .rejects.toMatchObject({code:'APPLICATION_STATISTICS_PENDING'});
-  expect(sizes).toEqual([42,42,42,42,18,31]);
+  expect(sizes).toEqual([42,42,42,42,18,31,7,7,7,7,3]);
   }finally{
     // This test intentionally creates 39 unbuilt scopes; do not consume the
     // unrelated performance fixture's bounded global worker iterations.
+    await env.RUNTIME_DB.prepare('DELETE FROM runtime_application_statistics_queue_v1 WHERE account_id=?1').bind(f.id).run();
+  }
+});
+it('bounded enqueue preserves retry state for the same source and rolls back a failed batch',async()=>{
+  const f=await fixture();await segment(f,'queue-batch');await build(f);
+  await segment(f,'queue-late',day+3000,day+4501);await read(f);
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_application_statistics_queue_v1 SET attempts=4,retry_at_ms=123,error_code='FIXTURE_RETRY'
+    WHERE account_id=?1`).bind(f.id).run();
+  await read(f);
+  expect(await env.RUNTIME_DB.prepare(`SELECT attempts,retry_at_ms,error_code FROM runtime_application_statistics_queue_v1
+    WHERE account_id=?1`).bind(f.id).first()).toEqual({attempts:4,retry_at_ms:123,error_code:'FIXTURE_RETRY'});
+  await segment(f,'queue-new-version',day+5000,day+6501);await read(f);
+  expect(await env.RUNTIME_DB.prepare(`SELECT attempts,retry_at_ms,error_code FROM runtime_application_statistics_queue_v1
+    WHERE account_id=?1`).bind(f.id).first()).toEqual({attempts:0,retry_at_ms:0,error_code:null});
+  const other=await fixture();
+  await env.RUNTIME_DB.prepare(`CREATE TRIGGER test_enqueue_failure BEFORE INSERT ON runtime_application_statistics_queue_v1
+    WHEN NEW.date='2026-09-27' BEGIN SELECT RAISE(ABORT,'TEST_ENQUEUE_FAILURE');END`).run();
+  try {
+    await expect(read(other)).rejects.toThrow('TEST_ENQUEUE_FAILURE');
+    expect(await env.RUNTIME_DB.prepare(`SELECT count(*) AS n FROM runtime_application_statistics_queue_v1
+      WHERE account_id=?1`).bind(other.id).first()).toEqual({n:0});
+  } finally {
+    await env.RUNTIME_DB.prepare('DROP TRIGGER test_enqueue_failure').run();
     await env.RUNTIME_DB.prepare('DELETE FROM runtime_application_statistics_queue_v1 WHERE account_id=?1').bind(f.id).run();
   }
 });
