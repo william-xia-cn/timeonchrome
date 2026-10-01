@@ -2,6 +2,8 @@
 
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
+2026-10-01 17:34 云端修复发布：PR #162 已合入 master@a0e656c4cc5c4a31c0514d10adf79af973e8b79c；精确主线 App Runtime CI 36843119177 SUCCESS，功能提交 CI 36842853024 的 Worker 156/156，通过的 Console／Native 无关任务未重跑。PO 再次要求继续修复后，受保护发布 36843409616 SUCCESS，仅部署 Runtime Worker，version=4be84f27-130c-4140-a15c-5bcf5a9f39cf，manifest artifact=11151669863；migration 步骤只读检查“无待执行项”，apply=false。health=200、未认证 catalog=401；Pages／Guardian／D1 schema／R2 未改。线上回读有 APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING，当前派生日仍为 legacy-server，不是新统计生效。Native 交接再次空白结束且会话 idle，仍无代码／测试结果；本机对应修复、新 revision 补发及实际页面／性能验收保持未完成，不能把云端上线称为整体修复完成。
+
 安装后修复实施（PO“继续修复”）：职责 standard-cloud；范围为 backend/applicationAccountPublication 与聚焦测试、既有设计及本条证据。真实缺口含技术进程与旧 Chrome 身份；修复不能靠名称合并、删除时长或伪造产品确认。沿用现有投影：未确认产品但已在云端投影中保持精确独立身份（unresolved、productId=null、associationKey=platform+换行+runtimeIdentity）的对象可按该独立键核验统计；产品冲突、投影缺失／换版及其他不完整事实仍拒绝。Native 所属会话修复派生清单把“用量完整”与“产品归属待确认”混为一谈的问题，保持归属诊断，不改变原账或统计算法；旧 complete=false 清单不强行发布，需生成新版本。最小验证：发布／统计／关联投影固定回归、Worker typecheck、dry-run、范围及 diff；排除 UI、macOS、WiX、无关全量测试。不新建分支／树，不执行生产数据修补、migration、安装或 R2 操作；上线与真机验收独立记录。
 
 云端补丁本地验证：发布／统计／关联投影 38/38、typecheck、Wrangler 4.127.1 dry-run、standard-cloud 四文件范围检查和 diff 检查通过；新增回归证明独立未知身份可发布、产品状态仍 unresolved、原始事实不变，跨身份／冲突拒绝，旧不完整清单不被强制发布。原重试测试显式指定本用例清单，避免共享夹具中其他拒绝清单占用两项 cron 批次；未改变生产批次逻辑。审计 Matched＝云端兼容核验与诊断、原账不变；Deviated/Extra＝无；Missing＝Native 对称修复、新版本补发、真实业务发布与页面／性能验收。现有 Native 会话三次交接均空白结束，没有代码／测试结果；只读确认 ApplicationUsageReader 的 accountReasons 仍混入 Attribution 原因，不能把交接成功记成实现完成。未安装、部署或修改生产数据。
