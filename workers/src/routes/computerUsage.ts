@@ -17,7 +17,7 @@ export async function handleComputerUsage(request:Request,env:ComputerUsageEnv,c
     if(!['summary','timeline','products'].includes(detail)||detail!=='summary'&&!expected||offset>0&&!expected)return json({code:'INVALID_CURSOR'},400);
     const product=url.searchParams.get('product');
     if(expected&&!/^computer-v1:[a-f0-9]{64}$/.test(expected)||product&&detail!=='timeline')return json({code:'INVALID_CURSOR'},400);
-    const snapshot=await readComputerUsage(env,accountId,childId,url.searchParams.get('from')||'',url.searchParams.get('to')||'',url.searchParams.get('computer')||undefined);
+    const snapshot=await readComputerUsage(env,accountId,childId,url.searchParams.get('from')||'',url.searchParams.get('to')||'',url.searchParams.get('computer')||undefined,detail==='summary');
     if(expected&&expected!==snapshot.revision)return json({code:'COMPUTER_USAGE_VERSION_CHANGED'},409);
     return json(computerUsageReadPage(snapshot,detail as 'summary'|'timeline'|'products',expected||undefined,offset,limit,product||undefined));
   }catch(error){

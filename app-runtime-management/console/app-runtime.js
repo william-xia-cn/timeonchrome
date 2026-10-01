@@ -412,7 +412,7 @@
   async function loadUsage({refresh=false}={}) {
     const requestVersion = ++usageRequestVersion;
     computerReader.invalidate();independentReader.invalidate();
-    if(state.usageKind==='computer'){renderUsage();await computerReader.load();return;}
+    if(state.usageKind==='computer'){renderUsage();await computerReader.load({refresh});return;}
     if(['web','media'].includes(state.usageKind)){renderUsage();await independentReader.load();return;}
     if (mock) return;
     const period = range();

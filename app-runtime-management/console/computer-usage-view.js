@@ -42,17 +42,19 @@ return '<ul>'+rows.map(row=>kind==='products'
 }
 function create(host,read,onRange,getScope){
 let generation=0,snapshot=null,scope;
-async function load(){
+const cache=createReadCache({shouldCache:value=>!value.reasons?.some(code=>/UNAVAILABLE|PENDING|STALE|SOURCE_VERSION_CHANGED|MEMORY_LIMIT/.test(code))});
+const readView=(query,refresh=false)=>cache.read(JSON.stringify([getScope?.()??null,query]),()=>read(query),{refresh});
+async function load({refresh=false}={}){
 const currentScope=getScope?.();if(currentScope!==scope){scope=currentScope;snapshot=null;}
 const token=++generation;host.innerHTML='<p>正在读取云端电脑使用…</p>';
-try{const result=await read({detail:'summary'});if(token!==generation)return;snapshot=result;host.classList.add('computer-view');host.innerHTML=summary(result);if(onRange)host.querySelector('.computer-toolbar').insertAdjacentHTML('beforeend','<button data-computer-period="previous">上一周期</button><button data-computer-period="today">今天</button><button data-computer-period="next">下一周期</button>');}
+try{const {value:result}=await readView({detail:'summary'},refresh);if(token!==generation)return;snapshot=result;host.classList.add('computer-view');host.innerHTML=summary(result);if(onRange)host.querySelector('.computer-toolbar').insertAdjacentHTML('beforeend','<button data-computer-period="previous">上一周期</button><button data-computer-period="today">今天</button><button data-computer-period="next">下一周期</button>');}
 catch(error){if(token===generation)host.innerHTML='<section><h3>电脑使用暂不可用</h3><p>独立网页、媒体与应用统计不受影响。请重试。</p><button data-computer-retry>重试</button></section>';}
 }
 async function details(kind,offset=0,product){
 if(!snapshot)return;const token=generation,version=snapshot.revision;
 const target=product?[...host.querySelectorAll('[data-computer-chrome-target]')].find(element=>element.dataset.computerChromeTarget===product):host.querySelector('[data-computer-'+kind+']');if(!target)return;
 const button=host.querySelector('[data-computer-detail="'+kind+'"]');if(button)button.disabled=true;
-try{const result=await read({detail:kind,revision:version,offset,...(product?{product}:{})});if(token!==generation||snapshot.revision!==version)return;
+try{const {value:result}=await readView({detail:kind,revision:version,offset,...(product?{product}:{})});if(token!==generation||snapshot.revision!==version)return;
 if(result.revision!==version)throw new Error('COMPUTER_USAGE_VERSION_CHANGED');
 if(!offset)target.innerHTML='';target.insertAdjacentHTML('beforeend',detailRows(kind,result[kind]));
 target.querySelector('[data-computer-more]')?.remove();
@@ -60,13 +62,13 @@ if(result.nextCursor!==null)target.insertAdjacentHTML('beforeend','<button data-
 }catch(error){if(token===generation)target.innerHTML='<p>明细已更新或暂不可用，请刷新汇总后重试。</p>';}
 finally{if(token===generation&&button)button.disabled=false;}
 }
-host.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;if(button.hasAttribute('data-computer-retry'))void load();if(button.dataset.computerDetail)void details(button.dataset.computerDetail);if(button.dataset.computerChrome)void details('timeline',0,button.dataset.computerChrome);if(button.dataset.computerMore)void details(button.dataset.computerMore,Number(button.dataset.offset),button.dataset.product);if(button.dataset.computerPeriod&&onRange)onRange(button.dataset.computerPeriod);});
+host.addEventListener('click',event=>{const button=event.target.closest('button');if(!button)return;if(button.hasAttribute('data-computer-retry')){cache.clear();void load({refresh:true});}if(button.dataset.computerDetail)void details(button.dataset.computerDetail);if(button.dataset.computerChrome)void details('timeline',0,button.dataset.computerChrome);if(button.dataset.computerMore)void details(button.dataset.computerMore,Number(button.dataset.offset),button.dataset.product);if(button.dataset.computerPeriod&&onRange)onRange(button.dataset.computerPeriod);});
 return {load,invalidate(){generation++;snapshot=null;host.innerHTML='';}};
 }
 
 // Memory only, scoped by the complete authorized URL. No credentials or ledger
 // copies; failures are never cached. Epochs prevent cleared/older reads returning.
-function createReadCache({ttlMs=30000,maxEntries=16,now=Date.now}={}){
+function createReadCache({ttlMs=30000,maxEntries=16,now=Date.now,shouldCache=()=>true}={}){
 const entries=new Map(),pending=new Map();let epoch=0;
 return{clear(){epoch++;entries.clear();pending.clear();},async read(key,loader,{refresh=false}={}){
 if(refresh){entries.delete(key);pending.delete(key);}
@@ -76,7 +78,7 @@ if(pending.has(key))return pending.get(key);
 const started=epoch;
 const request=Promise.resolve().then(loader).then(value=>{
 const result={value,readAtMs:now(),cached:false};
-if(started===epoch&&pending.get(key)===request){entries.set(key,result);while(entries.size>maxEntries)entries.delete(entries.keys().next().value);}
+if(started===epoch&&pending.get(key)===request&&shouldCache(value)){entries.set(key,result);while(entries.size>maxEntries)entries.delete(entries.keys().next().value);}
 return result;
 }).catch(error=>{if(error?.status===401||error?.status===403){epoch++;entries.clear();pending.clear();}throw error;})
 .finally(()=>{if(pending.get(key)===request)pending.delete(key);});

@@ -133,7 +133,7 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||!Number.isFinite(start)||!Number.isFinite(end)
         ||end<start||end-start>6*86400000||new Date(start+8*3600000).toISOString().slice(0,10)!==from||new Date(end+8*3600000).toISOString().slice(0,10)!==to)
         throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
-      const binding=env.GUARDIAN_COMPUTER_USAGE as unknown as {getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string):Promise<import('@timeonchrome/app-runtime-contracts/computer-usage').ComputerUsageResult>;getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string):Promise<unknown>};
+      const binding=env.GUARDIAN_COMPUTER_USAGE as unknown as {getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly?:boolean):Promise<import('@timeonchrome/app-runtime-contracts/computer-usage').ComputerUsageResult>;getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string):Promise<unknown>};
       const source=url.searchParams.get('source');
       if(source){if(!['application','web','media'].includes(source))throw new HttpError(400,'INVALID_SOURCE','统计来源无效。');return jsonResponse(await binding.getIndependentUsage(claims.account_id,childId,from,to,source));}
       const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||100);
@@ -145,7 +145,7 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       const expected=url.searchParams.get('revision'),product=url.searchParams.get('product');
       if(expected&&!/^computer-v1:[a-f0-9]{64}$/.test(expected)||product&&detail!=='timeline')
         throw new HttpError(400,'INVALID_CURSOR','明细请求无效。');
-      const snapshot=await binding.getComputerUsage(claims.account_id,childId,from,to,url.searchParams.get('computer')||undefined);
+      const snapshot=await binding.getComputerUsage(claims.account_id,childId,from,to,url.searchParams.get('computer')||undefined,detail==='summary');
       if(url.searchParams.has('revision')&&url.searchParams.get('revision')!==snapshot.revision)
         throw new HttpError(409,'COMPUTER_USAGE_VERSION_CHANGED','统一统计已更新，请重新读取。');
       try{return jsonResponse(computerUsageReadPage(snapshot,detail as 'summary'|'timeline'|'products',expected||undefined,offset,limit,product||undefined));}
