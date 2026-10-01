@@ -1,4 +1,5 @@
 import { requireAccountModule, requireMachine } from './auth';
+import { routeApplicationAccounts } from './applicationAccounts';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
@@ -373,6 +374,9 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
   }
 
   // Heartbeat records activity only after the complete payload passes validation.
+  if (url.pathname.startsWith('/v2/machines/application-accounts/')) {
+    return routeApplicationAccounts(request, env.RUNTIME_DB, await requireMachine(request, env.RUNTIME_DB, nowMs, false), nowMs);
+  }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
     url.pathname !== '/v2/machines/heartbeat');
   if (url.pathname === '/v2/machines/app-usage-corrections') {

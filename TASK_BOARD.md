@@ -2,7 +2,7 @@
 
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
-实施批次一已开始（契约＋接收基础，不是产品切换）：增加 `usage-account` 固定语义、黄金向量与 1.20.0 本地契约候选；Runtime 以机器认证和既有 assignment 绑定统计归属，增加 manifest／chunk／commit／status 接收及独立 staging 表。下一可用本地 migration 为 `0013_runtime_application_accounts.sql`，只新增派生统计表，不应用生产 migration。首批 commit 只确认完整接收，明确返回 `received_not_published`；在 Native 统计与源版本对照、服务器管理版本核验完成前，不发布到原应用接口、不声明读取能力、不把客户端分类当权威。此边界保留 D-113 的接收与发布分离，不改变既有网页或应用读取。
+实施批次一已完成本地代码（契约＋接收基础，不是产品切换）：增加 `usage-account` 固定语义、黄金向量与 1.20.0 本地契约候选；Runtime 以机器认证和既有 assignment 绑定统计归属，增加 manifest／chunk／commit／status 接收及独立 staging 表。下一可用本地 migration 为 `0013_runtime_application_accounts.sql`，只新增派生统计表，不应用生产 migration。首批 commit 只确认完整接收，明确返回 `received_not_published`；在 Native 统计与源版本对照、服务器管理版本核验完成前，不发布到原应用接口、不声明读取能力、不把客户端分类当权威。此边界保留 D-113 的接收与发布分离，不改变既有网页或应用读取。
 
 批次一文件：contracts 的 usage-account 实现／schema／vectors／聚焦测试、package 与 tsconfig；Runtime applicationAccounts 模块、v2Routes 窄接入、0013 additive schema 及接收测试。必要依赖锁只同步 workspace 版本。验证限定契约构建／兼容／新向量、Runtime 接收测试及 typecheck、dry-run、diff。Native 实现由所属工作线消费固定候选包，随后完成云端发布与归集，不将首批测试通过写成全部 D-113 已完成。
 
@@ -26,7 +26,7 @@ PO 已要求“统一规划，调整”并批准实施。本任务以现有网�
 
 首批实现证据：Contracts build 和包内现有兼容／分类／machine-control／computer-usage／usage-account 测试通过；Runtime typecheck 及本地 D1 接收测试 15/15 通过，涵盖事务中断回滚、旧版本／重复 ACK、部分恢复、归属隔离、维度矛盾、未完整零值、有界请求和原始 Segment／旧 hourly／assignment／App Policy 不变。Wrangler 4.127.1 dry-run 通过；使用现有生成的 Cloudflare 类型，未因受限网络另升级依赖。新请求体有界（manifest 16KiB、chunk 128KiB），commit 最多读取100块、10000行，响应 no-store，不改机器 heartbeat。没有页面变更，未跑截图／平台／安装器或无关全量测试。
 
-首批审计：Matched＝共同候选契约／schema／黄金向量、不可变接收区及单调接收水位、原子接收／ACK区别、权限与有界请求、原账保留、最小本地证据；Deviated／Extra＝无。整体 D-113 的 Missing 仍包括 Native 物化与实测、事实／关联／更正内容校验、云端发布及 Child 归集、兼容构建、正式读取切换和真机冷读对照；不得以首批完成称为慢问题整体解决。未提交／推送／合并／部署／安装／应用生产 migration；不把本地候选哈希当作已发布契约。
+首批审计：Matched＝共同候选契约／schema／黄金向量、不可变接收区及单调接收水位、原子接收／ACK区别、权限与有界请求、原账保留、最小本地证据；Deviated／Extra＝无。整体 D-113 的 Missing 仍包括 Native 物化与实测、事实／关联／更正内容校验、云端发布及 Child 归集、兼容构建、正式读取切换和真机冷读对照；不得以首批完成称为慢问题整体解决。架构契约已独立提交／推送 `e92347c1327fe74c3032730fa0b52ef2c9767c5f` 并创建 [PR #159](https://github.com/william-xia-cn/timeonchrome/pull/159)，包内三个源文件／schema／向量与 Git 来源逐文件对照通过，Native 已收到准确 SHA。接收实现随本记录按 standard-cloud 独立本地提交，暂不加入该架构 PR，避免混合职责。未合并／部署／安装／应用生产 migration；不把本地候选哈希当作已发布契约。
 
 Native 核对已反馈旧事实缺 policyVersion／assignment 和 unknown 分类标签；按既定“历史不猜、缺口明确、不改原账”集中裁决，见模块 DESIGN。没有以当前策略回填历史、没有改变旧统计；未知归属保留本机独立分区，不强塞到孩子账。1.20.0 固定候选 bytes 不变；补充的是已有 incomplete／digest 字段的兼容解释，尚未通过消费者实测，不宣称发布完整。
 
