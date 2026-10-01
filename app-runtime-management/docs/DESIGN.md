@@ -57,6 +57,8 @@ Native 首次核对的兼容裁决（不改旧统计）：缺失事实 policyVer
 
 2026-10-01 PO 收口修订：Windows 新持久化统计采用 Service 现有规范化区间及用户内并集，旧云端墙钟／会话分组读数仅用于兼容与差异诊断，不再要求算法相等。核对器按同一机器、用户、runtime session、clock epoch 的稳定历史锚点（有效事实按 startMonotonicTimeMs、id 排序第一条）还原区间，时长为精确 monotonicDuration；沿用 Native 的 2000ms 时钟异常边界，仅用于判断证据可还原，不是统计数值容差。日边界两侧读取相同范围的邻居事实，映射后裁剪，再应用已批准更正；total/category/subject 各自按用户内并集及相同 canonical 行排序/hash 精确核对。缺锚点、真实时钟异常、归属或管理版本缺口、逐维度差异仍拒绝发布。
 
+稳定锚点水位查询按 lane 先物化锚点 ID，再用原始记录的完整 machine/user/id 主键连接。不得只约束 machine/id 而让相关子查询在候选原账行上反复执行；查询计划回归必须证明最终关联使用三个主键字段。这里只减少重复读取，不改变锚点选取、hash 内容、原账或统计精度。
+
 最近七天已上传但未进入投影的历史技术身份只补 productId=null、associationKey=platform+'\n'+runtimeIdentity 的独立未确认条目，不进入可管理目录，不改变分类、更正或配额。投影刷新复用正常审计及机器策略版本下发，旧 receipt 不改写。已核验 Native 分区按机器／账户／assignment 累计，不跨电脑做时间并集；同一用户多个 assignment 真有交叠时保留兼容结果，不猜去重。新展示 total/category/hour/product 使用 Native 行，原配额消费的兼容分类用量独立保存在派生 JSON 中；旧接口及配额算法不变。
 
 固定政策和来源摘要在核验前后对照，发布头与待归集范围原子写入；新 receipt 不会提前替代旧发布结果。后台排队该孩子默认日范围及已有受影响筛选范围，重启后可续建。孩子统计同范围只选 Native 或兼容来源，不能相加。Mac 新算法仍须对应实现及环境验证后放行。
