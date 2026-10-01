@@ -49,6 +49,8 @@ Native 首次核对的兼容裁决（不改旧统计）：缺失事实 policyVer
 
 ### D-113 机器统计业务发布核验
 
+2026-10-01 实机纠错：用量完整性与产品归属完整性分离。投影中的独立精确身份可以统计，即使它尚未获批加入某个产品；只接受 `status=unresolved`、`productId=null` 且 `associationKey` 等于该对象的 `platform\nruntimeIdentity` 的自引用形式，不按名称建立别名，不将它提升为 confirmed，不改变分类。云端与 Native 使用相同不透明 subject 哈希及云端规范名称；投影缺失、关联版本不一致、冲突或未确认身份带跨身份关联键仍拒绝发布。Native 对这类独立身份保留 Attribution 原因，但不应把已经完整的统计清单改成不完整；原始缺页／时钟／政策等完整性门禁保留。旧不完整清单仍不可发布，重新生成的完整版本经逐项核验后才能发布。本轮不改变原计时、区间并集、分类、更正或配额。
+
 兼容能力探测使用机器鉴权的 `GET /v2/machines/application-accounts/capabilities`，返回 `{protocol:'usage-account-v1',schemaVersion:1,enabled:boolean,chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1']}`。`enabled` 只有接收／发布／读模型所需表全部存在才为 true；旧 Worker 404、网络失败或 false 均保持上传关闭，不能靠安装版本或本地布尔常量猜已部署。该探测是统计 HTTP 能力，不改变 Native Host framing 或 BrowserBridge 消息；终端本地持久化读切换不必等待云端部署，但必须先通过固定截止本地 parity。此次未部署与 schema 未应用意味着实际生产仍不会启用新统计上传。
 
 接收完成后后台发布按机器／用户／assignment／日期固定截止核验：真实 assignment 与机器仍有效、原始事实已上传、服务器历史分类和已批准更正、产品关联版本及规范名与终端行完全一致。服务器原始 payload 编码与本机不同，因此 rawFactHash 只保留为本机水位，不伪装为服务端字节证明；业务核验以有界源集合的计数、政策集合及逐维度精确对照为依据。原始尚未到达、缺失历史政策、当前关联／更正尚未同步或原算法读数不一致时，记录稳定原因，保留上一发布头，不修改 receipt 或终端数值。
