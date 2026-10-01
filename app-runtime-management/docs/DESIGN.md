@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## D-114：共享访问契约与电脑展示（1.21.0 本地草稿）
+
+`shared-access.ts` 规范 Guardian 唯一 Child 公共配置、网页／应用各自的已结算配额贡献、共享状态与提醒结果；来源按 `(source,sourceKey,date,revision)` 版本替换，不按重传次数累加。网页贡献沿用其有效配额桶整数秒和既有借用结果；应用贡献以毫秒报告原分类（复合／未归类尚未借用），明确排除可信 Chrome 与 `other`，再由共享层按现有复合余额借用娱乐。缺任一来源、版本冲突或 Chrome 扣除无证据时不得标记完整。新增的 Guardian `GET /profiles/:id/shared-access/v1` 仅对所属家长返回现有 Profile 配置的只读 `legacy` 投影，既不新建可写配置源，也不启用共享执行。
+
+电脑展示继续独立于配额：同范围 `webMs + applicationMs - chromeIncludedMs`，其中 Chrome 扣除是应用总量减去非 Chrome 区间并集后的边际值。来源异常保留有效独立分量；历史区间不足不得填平。新增 `other` 只影响后续经能力门控的分类和展示，不追溯原应用账。旧 1.20.0 实机契约与当前已安装终端不因此自动改变；新能力需端到端兼容与启用验收。
+
 ## D-113：应用补齐与网页同构的持久化统计链路（本地实现，未发布）
 
 首批具体协议（本地候选，未发布）：`POST /v2/machines/application-accounts/manifests` 接收 `{localUserId, assignmentVersion, manifest}`；`PUT .../manifests/{id}/chunks/{index}` 接收 `{rows, chunkHash}`；`POST .../manifests/{id}/commit` 校验全部分块、统计摘要与维度一致性；`GET .../manifests/{id}/status` 只返回版本、摘要和接收／发布状态。Child 和 account 由已认证机器及服务端历史 assignment 决定，body 中的 Child／machine／account 字段拒绝。首批没有公开发布命令，没有产品 head 或现有查询切换；commit 返回 `received_not_published`，源管理版本核验与 Native 对照未完成时不能升格为发布成功。

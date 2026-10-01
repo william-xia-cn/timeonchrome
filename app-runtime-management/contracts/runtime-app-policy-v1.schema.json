@@ -69,7 +69,7 @@
             "properties": {
               "platform": { "enum": ["windows", "macos"] },
               "runtimeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
-              "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "blocked"] }
+              "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "other", "blocked"] }
             }
           }
         }
@@ -86,7 +86,7 @@
           "platform": { "enum": ["windows", "macos"] },
           "runtimeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
           "displayName": { "type": ["string", "null"], "maxLength": 256 },
-          "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "blocked"] }
+          "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "other", "blocked"] }
         }
       }
     },

@@ -34,7 +34,7 @@ dual.applications.push({...structuredClone(input.applications[0]),key:'opaque-ap
 assert.equal(mergeComputerUsage(dual).totals.computerMs,1200000,'cross-computer concurrency is accumulated, not unioned');
 const unmapped=structuredClone(input);unmapped.web[0].computerKey=null;
 const missing=mergeComputerUsage(unmapped);
-assert.equal(missing.totals.computerMs,null);assert.equal(missing.totals.webMs,600000);assert.equal(missing.totals.applicationMs,600000);
+assert.equal(missing.totals.computerMs,600000);assert.equal(missing.totals.webMs,600000);assert.equal(missing.totals.applicationMs,600000);
 assert(missing.reasons.includes('DEVICE_MAPPING_INCOMPLETE'));
 assert.deepEqual(missing.sourceStatus,{web:'complete',application:'complete'});
 assert.equal(missing.overlapStatus,'unconfirmed');assert.equal(missing.categoryBasis,'sourceCumulative');
@@ -90,7 +90,7 @@ legacy.applications.push({...structuredClone(input.applications[0]),key:'old-app
   intervals:[{...input.applications[0].intervals[0],subjectKey:'old-product',label:'Old product',endMs:start+1500,classification:'study',special:false}]});
 const restored=mergeComputerUsage(legacy);
 assert.equal(restored.historyStatus,'bestEffort');assert.equal(restored.totals.applicationMs,601500);
-assert.equal(restored.categoriesMs.study,601500);assert.equal(restored.totals.computerMs,null);
+assert.equal(restored.categoriesMs.study,601500);assert.equal(restored.totals.computerMs,601500);
 assert.equal(restored.sourceStatus.application,'complete');assert(restored.products.some(row=>row.historyQuality==='bestEffort'));
 legacy.applications[1].totalMs=null;legacy.applications[1].statisticsComplete=false;
 const partialHistory=mergeComputerUsage(legacy);
@@ -120,7 +120,7 @@ assert.equal(mergeComputerUsage(prototypeClass).categoriesMs.__proto__,600000,'d
 assert.throws(()=>mergeComputerUsage({...input,fromDate:'2026-02-30'}),/INVALID_DATE/);
 assert.throws(()=>mergeComputerUsage({...input,fromDate:'2026-09-01'}),/INVALID_RANGE/);
 const across=structuredClone(input);across.fromDate='2026-09-26';across.web[0].intervals[0].startMs=start-1000;across.web[0].intervals[0].endMs=start+1000;across.web[0].totalMs=2000;across.web[0].categoriesMs.study=2000;across.web[0].intervals[0].creditedMs=2000;
-assert.equal(mergeComputerUsage(across).totals.computerMs,601000,'cross-day range evidence retained');
+assert.equal(mergeComputerUsage(across).totals.computerMs,2000,'Chrome container excluded without altering cross-day web credit');
 assert.equal(exactComputerUsageOverlap({startMs:0,endMs:1500,creditedMs:1000},[[0,1500]]),1000);
 assert.equal(exactComputerUsageOverlap({startMs:0,endMs:1500,creditedMs:1000},[[1500,3000]]),0);
 assert.equal(exactComputerUsageOverlap({startMs:0,endMs:1500,creditedMs:1000},[[500,1500]]),null);
@@ -130,7 +130,7 @@ bounded.web[0].intervals=Array.from({length:10000},(_,index)=>({...input.web[0].
 bounded.applications[0].intervals=Array.from({length:10000},(_,index)=>({...input.applications[0].intervals[0],startMs:start+index*2000,endMs:start+index*2000+1500}));
 bounded.web[0].totalMs=10000000;bounded.web[0].categoriesMs={study:10000000};
 bounded.applications[0].totalMs=15000000;bounded.applications[0].categoriesMs={composite:15000000};
-assert.equal(mergeComputerUsage(bounded).totals.computerMs,15000000,'20k bounded evidence uses shared interval unions without per-row re-sorting');
+assert.equal(mergeComputerUsage(bounded).totals.computerMs,10000000,'bounded Chrome container excluded from cumulative sources');
 bounded.web[0].intervals.push(structuredClone(bounded.web[0].intervals[0]));
 assert.throws(()=>mergeComputerUsage(bounded),/EVIDENCE_LIMIT/);
 console.log(`computer usage golden vectors: PASS (${vectors.cases.length} vectors, ${assertions} vector assertions + targeted invariants)`);

@@ -2,7 +2,7 @@ import type { ApplicationKnowledge, AppEvidence, MatchExpression, MatchCondition
 import { safeAutomatic } from './application-classification.js';
 
 const platforms = ['windows', 'macos'];
-const classes = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked'];
+const classes = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked'];
 const types = ['game', 'gameLauncher', 'gameUtility', 'onlineVideo', 'mediaPlayer', 'other', 'unknown'];
 const fields = ['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'signerKey', 'fileSeriesKey', 'productName', 'declaredType', 'installationSource'];
 const applicationOrigins = ['user', 'operatingSystem', 'unknown'];
