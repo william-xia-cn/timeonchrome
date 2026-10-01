@@ -2,6 +2,8 @@
 
 ## NOW：网页／应用同构持久化统计（D-113，2026-10-01）
 
+2026-10-01 收尾执行授权：PO 要求“你先完成剩下的工作”，继续契约及两仓整合、必要 Runtime 0013 派生表与 Worker 发布、Windows 内部候选构建和受控安装后的真实通道对照。架构 PR #159 已合入 `1389d0d`；云端实现 PR #160 使用固定旁路，不新建分支／工作树。远端 migration list 已核实只缺 `0013_runtime_application_accounts.sql`，不得顺带迁移其他功能。Pages／Guardian／扩展、R2/latest 和原账不在变更范围；Mac D-113 继续延后。复用本地 69／83 项证据，补 CI／迁移核验／目标资源 smoke 与实际上传和截止范围对照。Native 现有 PR #13 基于 Mac 开发线，不能将其整体改投 main 带入未核验 Mac 工作；先核对可独立整合的 Windows 提交，构建不替代主线合入或实机验收。
+
 最新实施收口（本地代码，不是上线）：Windows Native 已提交并推送现有分支 `05b8e669102ac1260c0cfb7bb9b4329a82441825`，持久化日／范围统计、原账事务 dirty、恢复 outbox、能力门控补发和 BrowserBridge／Manager 读取切换已实现；Service／Manager build 零警告零错误，Native 83 项聚焦通过（含原 SharedQuotaShadow 回归，但它不是独立应用配额验收）。云端第二批完成设备快照业务核验／独立发布头、发布与 Child dirty 同事务、按日持久化兼容统计、后台更新及普通读取切换；63 项聚焦及原 API 6 项更正／配额端到端通过，typecheck、Wrangler dry-run、源码边界和职责检查通过。5,000 条事实用例证明普通查询不调用原账聚合；这里只记本地性能／正确性，不冒称线上冷读改善。1.20.0 包 bytes／哈希保持不变，架构 PR #159 尚未合入。
 
 PO 已明确批准 **已配对且云端声明 `usage-account-v1.enabled=true` 后自动补发的代码与测试**。不是本机安装或生产上传授权；旧 Worker／未就绪 schema／能力关闭／离线均不上传。0013 未应用生产，Worker／Pages／Guardian、R2/latest 和已安装程序未改。
