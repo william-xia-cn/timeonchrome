@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import fs from 'node:fs';
 import { sharedWebContributionHashV1, verifySharedWebContributionV1, sharedWebExecutionSourceV1,
-  signSharedWebSourceBindingV1, verifySharedWebSourceBindingV1, sharedQuotaExecutionIdentityV1 } from './dist/shared-web-sync.js';
+  signSharedWebSourceBindingV1, verifySharedWebSourceBindingV1, sharedQuotaExecutionIdentityV1,
+  sharedWebLocalLeaseCurrentV1 } from './dist/shared-web-sync.js';
 globalThis.crypto ??= webcrypto;
 const policyIdentity={schemaVersion:1,revision:'profile-config:8',effectiveAtMs:0,stage:'shadow',policyHash:'a'.repeat(64)};
 const base={schemaVersion:1,date:'2026-10-03',revisionOrdinal:1,statisticsRevision:'statistics-hash',correctionRevision:'correction-1',
@@ -35,6 +36,16 @@ const claims={schemaVersion:1,audience:'timeonchrome:shared-web-source:v1',chall
 const expected={challengeId:claims.challengeId,connectionHash:claims.connectionHash,applicationSourceKey:claims.applicationSourceKey,
   childScopeHash:claims.childScopeHash,assignmentVersion:3};
 const proof=await signSharedWebSourceBindingV1(claims,'a'.repeat(64),key.privateKey);
+const lease={schemaVersion:1,scopeRevision:'9'.repeat(64),policyIdentity,claims,verifiedAtMs:1000};
+const live={scopeRevision:lease.scopeRevision,policyIdentity,connectionLive:true,capabilityNegotiated:true,nowMs:86401000};
+for(const vector of vectors.localLeaseCases) assert.equal(sharedWebLocalLeaseCurrentV1({...lease,...vector.lease},
+  {...live,...vector.current,policyIdentity:{...policyIdentity,...vector.currentPolicy}}),vector.expected,vector.name);
+assert.equal(sharedWebLocalLeaseCurrentV1(lease,live),true,'verified same live connection accepts offline growth after proof expiry');
+for(const change of [{connectionLive:false},{capabilityNegotiated:false},{scopeRevision:'8'.repeat(64)},
+  {policyIdentity:{...policyIdentity,stage:'shared'}},{policyIdentity:{...policyIdentity,policyHash:'f'.repeat(64)}},
+  {nowMs:999},{callerAuthority:true}]) assert.equal(sharedWebLocalLeaseCurrentV1(lease,{...live,...change}),false);
+assert.equal(sharedWebLocalLeaseCurrentV1({...lease,verifiedAtMs:301000},live),false,'expired proof cannot create lease');
+assert.equal(sharedWebLocalLeaseCurrentV1({...lease,persisted:true},live),false,'lease has no persisted authorization field');
 assert.deepEqual(await verifySharedWebSourceBindingV1(proof,proof.keyId,key.publicKey,expected,1000),claims);
 for(const change of [{challengeId:'0'.repeat(64)},{connectionHash:'0'.repeat(64)},{applicationSourceKey:'0'.repeat(64)},
   {childScopeHash:'0'.repeat(64)},{assignmentVersion:4}]) {

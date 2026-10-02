@@ -35,6 +35,15 @@
       {"source":"web","sourceKey":"web:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","date":"2026-09-28","revisionOrdinal":2,"contentRevision":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
       {"source":"application","sourceKey":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","date":"2026-09-28","revisionOrdinal":3,"contentRevision":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}],
     "reasonCodes":[],"executionEnabled":false},
+  "localLeaseCases":[
+    {"name":"live-offline-after-expiry","current":{"nowMs":86401000},"expected":true},
+    {"name":"disconnected","current":{"connectionLive":false},"expected":false},
+    {"name":"old-client","current":{"capabilityNegotiated":false},"expected":false},
+    {"name":"connection-or-credential-or-assignment-changed","current":{"scopeRevision":"8888888888888888888888888888888888888888888888888888888888888888"},"expected":false},
+    {"name":"policy-changed","currentPolicy":{"stage":"shared"},"expected":false},
+    {"name":"clock-regressed","current":{"nowMs":999},"expected":false},
+    {"name":"expired-proof-cannot-create","lease":{"verifiedAtMs":301000},"expected":false}
+  ],
   "verificationTimeMs":1000,
   "invalidCases":["expiry-at-301000","wrong-connection","wrong-child-scope","wrong-assignment","wrong-trusted-key","modified-web-source","caller-device-token"]
 }

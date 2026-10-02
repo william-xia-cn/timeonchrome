@@ -200,6 +200,34 @@ export interface SharedWebSourceBindingProofV1 {
   /** IEEE P1363 ES256 r||s, base64url without padding, exactly 64 bytes. */
   signature: string;
 }
+
+/** Internal Service state only. Construct after fresh proof verification, never from Host payload/storage. */
+export interface SharedWebLocalLeaseV1 {
+  schemaVersion: 1;
+  scopeRevision: string;
+  policyIdentity: SharedAccessPolicyIdentityV1;
+  claims: SharedWebSourceBindingClaimsV1;
+  verifiedAtMs: number;
+}
+/** Authorizes only local replacement in the already verified scope, never cloud requests or execution. */
+export function sharedWebLocalLeaseCurrentV1(lease: SharedWebLocalLeaseV1, current: {
+  scopeRevision: string; policyIdentity: SharedAccessPolicyIdentityV1;
+  connectionLive: boolean; capabilityNegotiated: boolean; nowMs: number;
+}): boolean {
+  try {
+    if (!exact(lease,['schemaVersion','scopeRevision','policyIdentity','claims','verifiedAtMs'])
+      || lease.schemaVersion !== 1 || !hash(lease.scopeRevision)
+      || !exact(current,['scopeRevision','policyIdentity','connectionLive','capabilityNegotiated','nowMs'])
+      || current.connectionLive !== true || current.capabilityNegotiated !== true
+      || current.scopeRevision !== lease.scopeRevision || !ms(current.nowMs) || !ms(lease.verifiedAtMs)) return false;
+    validateSharedAccessPolicyIdentityV1(lease.policyIdentity);
+    validateSharedAccessPolicyIdentityV1(current.policyIdentity);
+    validateSharedWebSourceBindingClaimsV1(lease.claims);
+    return lease.verifiedAtMs >= lease.claims.issuedAtMs && lease.verifiedAtMs < lease.claims.expiresAtMs
+      && current.nowMs >= lease.verifiedAtMs
+      && canonicalSharedWebSync(current.policyIdentity) === canonicalSharedWebSync(lease.policyIdentity);
+  } catch { return false; }
+}
 export interface SharedWebSourceChallengeV1 {
   schemaVersion: 1;
   challengeId: string;
