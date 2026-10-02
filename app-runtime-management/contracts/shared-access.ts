@@ -187,7 +187,8 @@ export interface SharedQuotaStateV1 {
   sources: readonly { source: 'web' | 'application'; sourceKey: string; date: string; revision: string }[];
   day: { date: string; usedMs: Readonly<Record<SharedQuotaBucket, number>>;
     remainingMs: Readonly<Record<SharedQuotaBucket, number | null>>; borrowedRestMs: number };
-  week: { fromDate: string; restUsedMs: number; restRemainingMs: number | null };
+  week: { fromDate: string; toDate: string; complete: boolean; reasonCodes: readonly string[];
+    restUsedMs: number; restRemainingMs: number | null };
   offline: boolean;
 }
 
