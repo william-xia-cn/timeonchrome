@@ -43,6 +43,8 @@ function moduleSource(instance) {
     .replace(/import \{ readCurrentWeekBrowserSnapshots \} from '\.\/browser-bridge-v3-snapshot\.js';/, 'const readCurrentWeekBrowserSnapshots = (...args) => globalThis.__readBrowserSnapshots(...args);')
     .replace(/import \{ validateSharedQuotaStateV1 \} from '\.\.\/core\/shared-quota-state\.js';/,
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-quota-state.js'), 'utf8').replace(/export function /g, 'function '))
+    .replace(/import \{ validateSharedReminderResultV1 \} from '\.\.\/core\/shared-reminder-result\.js';/,
+      fs.readFileSync(path.join(root, 'extension', 'core', 'shared-reminder-result.js'), 'utf8').replace(/export function /g, 'function '))
     + `\n// test-instance-${instance}`;
 }
 
@@ -531,22 +533,98 @@ async function run() {
       sharedPayloads.push(payload);
       queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true,
         receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [1, 2, 3],
+        capabilities: ['health', 'shared-quota-state-read'],
         ...(payload.messageType === 'getSharedQuotaState' ? { sharedQuota: sharedState } : {}) })));
     }) });
   const expectedShared = { date: '2026-10-02', weekStart: '2026-09-28', policyRevision: 'profile-config:12' };
+  assert.strictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).errorCode, 'shared_quota_disabled');
+  sharedRead.module.configureSharedQuotaNativeBridge({ enabled: true });
   const sharedResult = await sharedRead.module.requestSharedQuotaState(expectedShared);
   assert.strictEqual(sharedResult.ok, true, JSON.stringify(sharedResult));
   assert.strictEqual(sharedPayloads.at(-1).channel, 'sharedQuota');
   assert.strictEqual(sharedPayloads.at(-1).messageType, 'getSharedQuotaState');
-  assert.deepStrictEqual(sharedPayloads.at(-1).payload, {});
+  assert.deepStrictEqual(sharedPayloads.at(-1).payload, { date: expectedShared.date });
+  sharedState.complete = false;
+  sharedState.reasonCodes = ['APPLICATION_SOURCE_INCOMPLETE'];
+  const partialShared = await sharedRead.module.requestSharedQuotaState(expectedShared);
+  assert.strictEqual(partialShared.ok, true);
+  assert.strictEqual(partialShared.state.complete, false);
+  assert.deepStrictEqual(partialShared.state.reasonCodes, ['APPLICATION_SOURCE_INCOMPLETE']);
+  sharedState.complete = true;
+  sharedState.reasonCodes = [];
   assert.strictEqual((await sharedRead.module.requestSharedQuotaState({ ...expectedShared, date: '2026-10-03' })).errorCode,
     'shared_quota_stale_state');
   assert.strictEqual((await sharedRead.module.requestSharedQuotaState({})).errorCode, 'shared_quota_query_invalid');
   const oldSharedHost = await loadGuardian({ storage: {}, policy, development: true,
     connectNative: () => createPort((payload, onMessage) => queueMicrotask(() =>
       onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(), requestId: payload.requestId })))) });
+  oldSharedHost.module.configureSharedQuotaNativeBridge({ enabled: true });
   assert.strictEqual((await oldSharedHost.module.requestSharedQuotaState(expectedShared)).errorCode,
-    'shared_quota_unavailable');
+    'shared_quota_unsupported');
+  const reportPayloads = [], reportPorts = [];
+  let reportError = null, omitReportRequestId = false, holdSharedRead = false, releaseSharedRead;
+  let holdReport = false, releaseReport;
+  let sharedCapabilities = ['health', 'shared-quota-state-read', 'shared-reminder-result-shadow'];
+  const reportHost = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => {
+      const port = createPort((payload, onMessage) => {
+        reportPayloads.push(payload);
+        const reply = () => onMessage.listeners.forEach(listener => listener({
+          ok: !(payload.messageType === 'reportReminderResult' && reportError), receivedAt: Date.now(),
+          ...(!(payload.messageType === 'reportReminderResult' && omitReportRequestId) ? { requestId: payload.requestId } : {}),
+          supportedProtocols: [1, 2, 3], capabilities: sharedCapabilities,
+          ...(payload.messageType === 'getSharedQuotaState' ? { sharedQuota: sharedState } : {}),
+          ...(payload.messageType === 'reportReminderResult' ? { errorCode: reportError, duplicate: true } : {}),
+        }));
+        if (payload.messageType === 'getSharedQuotaState' && holdSharedRead) releaseSharedRead = reply;
+        else if (payload.messageType === 'reportReminderResult' && holdReport) releaseReport = reply;
+        else queueMicrotask(reply);
+      });
+      reportPorts.push(port);
+      return port;
+    } });
+  const reminderResult = { schemaVersion: 1, reminderId: 'native-issued-test', policyRevision: 'profile-config:12',
+    stateRevision: 'shared:1', kind: 'daily', delivery: 'visible', visibleAtMs: 1000,
+    action: 'end_rest', resolvedAtMs: 2000 };
+  assert.strictEqual((await reportHost.module.reportSharedReminderResult(reminderResult)).errorCode, 'shared_reminder_disabled');
+  reportHost.module.configureSharedQuotaNativeBridge({ enabled: true });
+  assert.strictEqual((await reportHost.module.reportSharedReminderResult({ ...reminderResult, force: true })).errorCode,
+    'shared_reminder_result_invalid');
+  holdSharedRead = true;
+  const readingShared = reportHost.module.requestSharedQuotaState(expectedShared);
+  await waitFor(() => releaseSharedRead);
+  const sendingResult = reportHost.module.reportSharedReminderResult(reminderResult);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  assert.strictEqual(reportPayloads.some(payload => payload.messageType === 'reportReminderResult'), false);
+  releaseSharedRead();
+  assert.strictEqual((await readingShared).ok, true);
+  assert.strictEqual((await sendingResult).duplicate, true);
+  assert.deepStrictEqual(reportPayloads.at(-1).payload, reminderResult);
+  assert.strictEqual(reportPayloads.at(-1).channel, 'sharedQuota');
+  reportError = 'SHARED_REMINDER_NOT_ISSUED';
+  assert.strictEqual((await reportHost.module.reportSharedReminderResult(reminderResult)).errorCode, 'shared_reminder_not_issued');
+  reportError = null;
+  omitReportRequestId = true;
+  assert.strictEqual((await reportHost.module.reportSharedReminderResult(reminderResult)).errorCode, 'shared_reminder_invalid_ack');
+  omitReportRequestId = false;
+  holdReport = true;
+  const disconnectedReport = reportHost.module.reportSharedReminderResult(reminderResult);
+  await waitFor(() => releaseReport);
+  reportPorts[0].disconnect();
+  assert.strictEqual((await disconnectedReport).errorCode, 'native_port_disconnected');
+  holdReport = false;
+  releaseReport();
+  await reportHost.module.requestLocalGuardianHeartbeat({ force: true });
+  assert.strictEqual((await reportHost.module.reportSharedReminderResult(reminderResult)).ok, true);
+  sharedCapabilities = ['health'];
+  await reportHost.module.requestLocalGuardianHeartbeat({ force: true });
+  const beforeUnsupported = reportPayloads.length;
+  assert.strictEqual((await reportHost.module.reportSharedReminderResult(reminderResult)).errorCode, 'shared_reminder_unsupported');
+  assert.strictEqual((await reportHost.module.requestSharedQuotaState(expectedShared)).errorCode, 'shared_quota_unsupported');
+  assert.strictEqual(reportPayloads.length, beforeUnsupported);
+  reportPorts.at(-1).disconnect();
+  assert.strictEqual((await reportHost.module.reportSharedReminderResult(reminderResult)).ok, false);
+  assert.strictEqual(reportPayloads.filter(payload => payload.messageType === 'reportReminderResult').length, 5);
   let denied;
   appRead.runtime.onMessage.listeners[0]({ type: appRead.module.APPLICATION_USAGE_READ_MESSAGE, query },
     { id: appRead.runtime.id, url: 'https://example.test/' }, value => { denied = value; });

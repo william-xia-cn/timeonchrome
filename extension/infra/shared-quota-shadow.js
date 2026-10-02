@@ -8,6 +8,7 @@ const READ_ERRORS = new Set([
   'managed_marker_unavailable', 'native_host_unavailable', 'native_port_disconnected',
   'native_response_timeout', 'native_post_failed', 'shared_quota_unavailable',
   'shared_quota_invalid_state', 'shared_quota_stale_state', 'shared_quota_busy',
+  'shared_quota_disabled', 'shared_quota_unsupported',
 ]);
 
 export async function inspectSharedQuotaShadowV1({ snapshot, sourceKey, policyRevision, weekStart,

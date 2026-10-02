@@ -14,6 +14,8 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 共享访问终端契约边界（2026-10-02）
 
+当前消费基线为 Contracts 1.23.1，主线 `9c1381f`。扩展同仓继续使用 workspace，不改为 tgz 依赖；固定包仅作为消费者验真证据，Native 跨仓则锁定包与 SHA-256。控件提交 `8a3ba2c` 的能力协商、串行请求与有界影子结果适配按原文件集成，不重新实现；其分支中的旧云端提交 `9574c30` 不覆盖已由 PR #179 修订的主线共享状态接口。影子查询合法完整／部分结果均 `ok=true`、`sharedQuotaStage=shadow`，这不授予执行权限。提醒实际签发、可见确认和关闭执行仍待贯通，当前保持默认关闭。下文 1.22.0 为前一阶段记录，不作为当前消费版本。
+
 终端以 `@timeonchrome/app-runtime-contracts` 1.22.0、架构提交 `c403176` 为固定契约；包 SHA-256 为 `1e3188147f56cf7b945a0acf2646bc24bc6b5bcbb8212ed01a7f2d75ffd7adaa`。该版本相对 1.21.0 只增加云端确认的 Chrome 产品身份、应用贡献的 `chromeIncludedInApplicationMs` 显示边际扣除字段及机器鉴权上传外壳；网页贡献不生成该字段，也不生成仅属于应用配额排除的 `chromeExcludedMs`。Native V3 的 `sharedQuota/getSharedQuotaState` 只返回 `SharedQuotaStateV1` 读模型；本阶段仅在显式调用时读取并校验版本、周期、策略 revision，不保存为执行状态，不替换网页配额。旧 Host 不支持时返回明确不可用，仍执行既有网页账和配额。`reportReminderResult` 虽列入契约，但提醒去重与结果消费尚无端到端实现，不发送结果或改变现有弹层。跨端执行保持关闭，原始网页账本不因本契约变化。
 
 网页来源影子贡献只能从现有已结算 `BrowserDailyUsageSnapshot` 转换：Study／Composite／Rest 秒数精确乘 1000；显式 `other` 仍保留在网页主统计中，但不进入三个扣费桶；未知或其他未定义桶、桶合计与 `activeSeconds` 不一致、来源快照不完整或整数溢出时标记贡献不完整。网页既有借用 Rest 已在 Rest 桶中，不再次计算。转换器不读取原始分段、不上传、不写缓存、不改变现有配额执行。
