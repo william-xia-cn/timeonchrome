@@ -2,6 +2,22 @@
 
 ## D-114 统一访问配置、其他时间与电脑使用汇总（2026-10-02）
 
+### 三批贯通与派生网页贡献（2026-10-03，PO 已批准）
+
+按配置／贡献／余额、实际访问／提醒、最终集成／发布／真机验收三批收口。原网页与应用统计权威不变；新增共享派生来源不得混用网页本机统计摘要和 V2 manifest ordinal。集中契约候选统一为下一 Minor，在全部字段、失败语义与来源证明固定后只发布一次；原 1.29／1.28 准备层继续兼容，不逐字段发版。
+
+网页新贡献由扩展现行权威统计生成。每个已认证设备、孩子及日期拥有独立单调 `revisionOrdinal`、内容 SHA-256、统计／更正版本及 ACK 水位；新版本允许因批准更正减少用量。上传不能提供 Child 或来源键，云端从 DeviceBearer 派生来源。独立贡献包含三个实际扣费桶、其他用量和 ACTIVE 总量；桶总量须与有效总量精确一致，网页保持整数秒。完整策略身份、计算时间、已结算截止时间与完整性分开保存；不能伪造截止时间。完整性不足仍可存储诊断，但不能当作完整共享执行依据。
+
+Guardian additive `033_shared_web_contributions_v1.sql` 仅新增贡献 receipt／head，不修改原账／统计表。不可变 receipt 按家庭、孩子、设备、日期、单调版本唯一；head 只前进、同版异内容拒绝，ACK 丢失重放返回同一内容水位。上传事务通过当前设备归属条件写入，改绑后旧范围上传不能进入新孩子；旧孩子已消费贡献保留。水位用于本机恢复，不向客户端授予其他来源替换权。不存在派生数据的旧客户端保留旧只读诊断，明确新贡献覆盖缺失，不切换原网页统计权威。
+
+Service 的跨端网页替换另需专用云签名来源绑定证明：绑定经机器鉴权核实的应用来源、当前分配版本、孩子范围摘要、经真实 Host 连接生成的浏览器连接摘要、挑战随机量与网页来源。Host 仅转发；证明不能由调用方指定 Child／来源授权，不能携带设备令牌或凭据。专用密钥只用于本证明，不复用登录、机器或 lifecycle 密钥；无密钥配置时稳定返回不可用，不 fallback。挑战与证明均短期、限定 audience，重连／改绑使旧证明失效；离线只能沿用已验证且仍匹配的 LKG 范围，不能为新连接制造授权。最终接口／证明字段需同一契约候选核对后才允许两端实现，生产密钥配置留到发布批。
+
+批次 1 不启用硬限制或结束动作。新增派生上传和读取不触碰原网页 Segment、manifest、修正及上传确认链；两端独立贡献按来源版本替换，不能用总量减本机的近似算法或补造 V2 序号。
+
+来源证明实施口径：Service 在已核验 Host 连接内自行生成 `connectionHash`，通过机器鉴权为当前受保护用户请求挑战；Runtime 验证当前 assignment 后经 Guardian 专属内部绑定创建 90 秒挑战。Guardian 的新增派生表仅保存挑战随机 ID 与服务端范围，无令牌；浏览器用自己的 DeviceBearer 兑换，Guardian 核对同家庭／孩子，并经 Runtime 内部绑定再次核验分配。单挑战只能绑定一个网页来源；签发最多 300 秒、专用 ES256 密钥的证明，原始机器／用户／孩子 ID 不进入证明。Native 从已配对 HTTPS 机器接口取得专用公开验证键，核对签名、audience、时间、挑战、连接、应用来源、孩子范围摘要和 assignment；不得使用证明中的自报 key 作为信任根。缺钥、过期、撤销或改绑均不授予新网页 scope。离线 proof 过期后显示来源覆盖不足，已有已认证云端依据仍可只读，不冒称当前本机网页增量已纳入。短期证明只授予统计替换，不授予关闭、策略写入或设备登录。
+
+真实余额读出口沿用 `getSharedQuotaState`：旧 `sharedQuota` 仍返回云端读数，不覆盖其来源含义；协商 `shared-quota-execution-preparation-read-v1` 后可选返回 `sharedQuotaPreparation`，包含完整配置身份、依据版本、本机替换版本列表、投影、运输 online/offline/unavailable 和稳定原因，`executionEnabled` 本批固定 false。缺失已认证 scope／全页／配置一致性时 projection=null，不能以零余额或最终共享统计替代。新 `shared-web-contribution-sync-v1` 能力开放三个 sharedQuota 请求：`getSharedWebSourceChallenge` payload={}；`bindSharedWebSource` payload={proof}；`replaceSharedWebContribution` payload={challengeId,upload}。Service 验证已绑定当前连接的 proof 后才保存网页本机贡献；同日期只接受内容一致的同版本或更高版本，不累加，改绑／换连接失效。浏览器设备令牌只用于扩展直接 HTTPS 上传，不经过 Host。云端机器依据读取可附 `X-Shared-Web-Source-Proof` header，Guardian 再核验当前绑定后仅添加该 proof 来源的网页替换 scope；证明不进入 URL。
+
 执行去重记录的安全回收条件：Native对经认证、身份匹配的执行结果在SQLite事务中同时保存Ack和Consumed，事务提交后才返回browserExecutionAck；读取许可拒绝已有Ack或Consumed，重启沿用持久记录。消费者不能仅凭发送成功、墙钟超时、换租约或配置删除claim。只有收到匹配executionId/outcome的成功ACK，并使同一ID旧请求全部终结或由不可复活的请求代际拒绝后，才可在本地持久事务删除claim。ACK丢失、冲突、未持久确认或在途结果未隔离时保留并fail-closed；不能靠扩容无限累积解决长期运行。此为现有1.26许可一次性与ACK语义的实现核验，不增加关闭权限或改变计时。
 
 网站用途规则导入复用 Profile 条件写入：仅接收 `classification: other`、`targetType: host/url` 和 `normalizedValue` 三个公开字段，服务端重新规范化目标并拒绝重复、类型不一致及额外元数据。既有同目标规则的服务端 ID、申请关联与创建时间保留；新规则由服务端生成 ID 和时间。缺省字段不改变规则，显式空数组表示清除。主页面只将已选用途差异应用到当前规则候选，提交公开字段；家庭归属、配置版本和审计继续由现有入口核验，不导入其他家庭的申请 ID，不改访问权限、历史分类或原始账本。
@@ -37,6 +53,8 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 2026-10-03 1.29完整policy身份准备层：交接确认PR #211及相关CI通过；只读验真最终包93321字节、SHA-256 `1338ab2b2621ed4c19b8208203fd77d8e648b4f20721529479fc73a947bbbaf4`。既有getSharedQuotaState响应仅在V3连接协商 `shared-access-policy-identity-read` 后接受可选sharedAccessPolicyIdentity；旧端或缺字段返回未核实，不能凭policyRevision相同补身份。严格校验schema／revision／effectiveAtMs／stage／64位小写摘要；独立默认关闭核对器对当前完整policy递归排序key、UTF-8无空白JSON求SHA-256，并比较全部身份字段。请求前后复核认证scope和完整policy摘要，迟到响应或绑定／策略变化不可通过；不存身份载荷、不另建配置或协议。匹配只证明内容相等，executionEnabled始终false，不证明来源真实性、替换scope授权或共享执行许可。聚焦测试使用固定1.29真实契约函数及隔离Native响应，Native尚未实现，mock不称真机验收；不改原账、候选、TASK_BOARD或部署。
 
 1.29准备层本地证据：`shared-policy-identity-reader.test.js` 携带最终固定包通过，校验真实契约canonical／SHA生成、同revision异内容／阶段／生效时间、错摘要、缺字段、单在途及身份换代／迟到；`local-guardian.test.js` 与 `shared-quota-state.test.js`、typecheck、extension-root、app-runtime-boundaries通过。Native专项首轮因夹具刷新心跳被原去重跳过，改为测试显式force刷新后通过，生产去重规则未放宽。Matched＝能力协商／严格完整身份／默认关闭／响应后身份复核；Deviated／Extra＝无。Missing＝Native实现与真实Host／设备联合验收；无生产调用者、启用、安装或部署，不把mock及policy匹配称为来源授权。固定1.28vendor、分页器及原账代码无变更。
+
+机器挑战响应在四字段挑战外返回机器鉴权派生的 `applicationSourceKey`、`childScopeHash`，供 Native 构造可信 expected context；不能从待验证 proof 读取这两字段当作授权。BrowserBridge 只需要四字段挑战。绑定表仅存设备令牌的专用范围哈希，换令牌后旧证明立即失效，不保存或输出设备令牌。
 
 ### D-114 共享访问终端契约边界（2026-10-02）
 

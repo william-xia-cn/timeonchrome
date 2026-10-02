@@ -9,6 +9,9 @@ vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEn
 if(name==='cloudflare:workers')return {WorkerEntrypoint:class{constructor(_,env){this.env=env;}}};
 if(name in overrides)return overrides[name];
 if(name==='@timeonchrome/app-runtime-contracts/computer-usage')return load('app-runtime-management/contracts/computer-usage.ts');
+if(name==='@timeonchrome/app-runtime-contracts/shared-access')return load('app-runtime-management/contracts/shared-access.ts');
+if(name==='@timeonchrome/app-runtime-contracts/shared-web-sync')return load('app-runtime-management/contracts/shared-web-sync.ts');
+if(name==='./shared-access.js')return load('app-runtime-management/contracts/shared-access.ts');
 const next=path.posix.normalize(path.posix.join(path.posix.dirname(file),name));
 return load(next.endsWith('.js')||next.endsWith('.ts')?next:next+'.ts');
 }});

@@ -25,6 +25,7 @@ function load(relative, dependencies) {
   let missing = false, fail = false;
   let basisRevision = 'a'.repeat(64), policyChanged = false, bindingChanged = false, basisFail = false;
   let basisReads = 0, authReads = 0;
+  let derivedError = '', derivedReads = 0;
   const calls = [];
   const config = { timeQuota: { daily: { friday: { studyMinutes: 0, compositeMinutes: 30, restMinutes: 60 } },
     weekly: { restMinutes: 120 } }, restConfig: { repeatReminderMinutes: 10 } };
@@ -44,6 +45,27 @@ function load(relative, dependencies) {
   const { deviceRouter } = load('workers/src/routes/device.ts', {
     '../db/middleware': { json },
     './profiles': { readSharedAccessPolicyForChild },
+    '@timeonchrome/app-runtime-contracts/shared-access': contract,
+    '../services/sharedWebContributions': {
+      readSharedWebJson: request => request.json(),
+      publishSharedWebContribution: async (_env, scope, body) => {
+        derivedReads++; basisReads++;
+        assert.deepEqual(scope,{accountId:'bound-owner',childId:'bound-child',deviceId:'bound-device',deviceToken:'fixture-device'});
+        if(derivedError)throw Error(derivedError);
+        return {status:'accepted',revisionOrdinal:body.revisionOrdinal};
+      },
+      readSharedWebWatermark: async (_env, scope, date) => {
+        derivedReads++; assert.equal(scope.childId,'bound-child');
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw Error('INVALID_WEB_CONTRIBUTION_DATE');
+        return {schemaVersion:1,date,revisionOrdinal:0};
+      },
+    },
+    '../services/sharedWebSourceBinding': {
+      issueSharedWebSourceBinding: async (_env, scope, challengeId) => {
+        derivedReads++;assert.equal(scope.deviceToken,'fixture-device');
+        return {challengeId};
+      },
+    },
     '../services/sharedAccessState': {
       readSharedQuotaExecutionBasis: async (_env, owner, child, date, policy) => {
         basisReads++; if (basisFail) throw Error('private failure');
@@ -131,5 +153,33 @@ function load(relative, dependencies) {
   basisFail=false;missing=true;assert.equal((await deviceRouter.handle(execution(),env)).status,404);missing=false;
   assert.equal((await deviceRouter.handle(new Request('https://fixture/device/shared-quota-execution/v1',{method:'POST'}),env)).status,404);
   assert.equal((await deviceRouter.handle(new Request('https://fixture/device/shared-access/v1', { method: 'POST' }), env)).status, 404);
-  console.log('device shared access policy: PASS (actual routes, scope isolation, shared projection, failures)');
+  const derived=(path,body,auth=true)=>new Request('https://fixture/device/'+path,{method:body?'POST':'GET',
+    headers:auth?{Authorization:'Bearer fixture-device'}:{},...(body?{body:JSON.stringify(body)}:{})});
+  const capabilities=await deviceRouter.handle(derived('shared-web-capabilities/v1'),env);
+  assert.deepEqual(await capabilities.json(),{schemaVersion:1,protocol:'shared-web-sync-v1',enabled:false});
+  assert.equal((await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env)).status,503,
+    'default disabled does not require new tables or silently enable contributions');
+  env.SHARED_WEB_CONTRIBUTIONS_ENABLED='true';
+  const startReads=derivedReads;
+  assert.equal((await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1},false),env)).status,401);
+  assert.equal((await deviceRouter.handle(derived('shared-web-watermark/v1?date=2026-10-03&childId=foreign'),env)).status,400);
+  assert.equal((await deviceRouter.handle(derived('shared-web-contributions/v1?sourceKey=foreign',{revisionOrdinal:1}),env)).status,400);
+  assert.equal(derivedReads,startReads,'unauthenticated or caller-selected scope never reaches derived storage');
+  assert.equal((await deviceRouter.handle(derived('shared-web-watermark/v1?date=2026-10-03'),env)).status,200);
+  assert.equal((await deviceRouter.handle(derived('shared-web-watermark/v1'),env)).status,400);
+  assert.equal((await deviceRouter.handle(derived('shared-web-source-binding/v1',{challengeId:'a'.repeat(64),deviceToken:'caller'}),env)).status,400);
+  assert.equal((await deviceRouter.handle(derived('shared-web-source-binding/v1',{challengeId:'a'.repeat(64)}),env)).status,200);
+  const published=await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env);
+  assert.equal(published.status,200);assert.equal(published.headers.get('Cache-Control'),'no-store');
+  for(const [code,status] of [['WEB_CONTRIBUTION_HASH_MISMATCH',400],['WEB_CONTRIBUTION_REVISION_CONFLICT',409],
+    ['WEB_CONTRIBUTION_BODY_TOO_LARGE',413],['private database failure',503]]){
+    derivedError=code;const response=await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env);
+    assert.equal(response.status,status);assert.ok(!JSON.stringify(await response.json()).includes('private'));
+  }
+  derivedError='';basisReads=0;policyChanged=true;
+  assert.deepEqual(await (await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env)).json(),
+    {code:'SHARED_ACCESS_POLICY_CHANGED'},'policy mutation during publication invalidates its response');
+  policyChanged=false;authReads=0;bindingChanged=true;
+  assert.equal((await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env)).status,409);
+  console.log('device shared access policy: PASS (actual routes, derived scope isolation, shared projection, failures)');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -10,7 +10,12 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.29.0');
+assert.equal(pkg.version, '1.30.0');
+assert(pkg.exports['./shared-web-sync']);
+const webSync=JSON.parse(fs.readFileSync(path.join(root,'shared-web-sync-v1.schema.json'),'utf8'));
+assert.equal(webSync.$defs.upload.additionalProperties,false);
+assert.equal(webSync.$defs.proof.additionalProperties,false);
+assert(!webSync.$defs.upload.properties.sourceKey&&!webSync.$defs.upload.properties.childId);
 assert(pkg.exports['./shared-quota-execution']);
 const executionSchema = JSON.parse(fs.readFileSync(path.join(root, 'shared-quota-execution-v1.schema.json'), 'utf8'));
 assert.equal(executionSchema.$defs.basis.additionalProperties, false);
@@ -117,7 +122,8 @@ assert.equal(nativeHostV3.properties.protocolVersion.const, 3);
 assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics', 'application', 'sharedQuota']);
 assert.deepEqual(nativeHostV3.properties.messageType.enum,
   ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getSharedQuotaState', 'reportReminderResult',
-    'getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution']);
+    'getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution',
+    'getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution']);
 assert.equal(nativeHostV3.$defs.applicationQuery.additionalProperties, false);
 assert.deepEqual(nativeHostV3.$defs.sharedQuotaQuery.required, ['date']);
 assert.deepEqual(Object.keys(nativeHostV3.$defs.sharedQuotaQuery.properties), ['date']);

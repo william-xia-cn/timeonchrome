@@ -4,6 +4,7 @@ import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota, appli
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import type { SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
+import { routeSharedWebSourceBinding, parseMachineWebSourceProof } from './sharedWebSourceBinding';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
 import { machineUsageCorrections } from './applicationUsageCorrections';
 import { readPersistentApplicationUsage } from './applicationStatistics';
@@ -513,7 +514,10 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     return routeApplicationAccounts(request, env.RUNTIME_DB, await requireMachine(request, env.RUNTIME_DB, nowMs, false), nowMs);
   }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
-    url.pathname !== '/v2/machines/heartbeat' && url.pathname !== '/v2/machines/shared-quota/execution-basis');
+    url.pathname !== '/v2/machines/heartbeat' && url.pathname !== '/v2/machines/shared-quota/execution-basis'
+      && !url.pathname.startsWith('/v2/machines/shared-web-source/'));
+  if(url.pathname==='/v2/machines/shared-web-source/challenge'||url.pathname==='/v2/machines/shared-web-source/verification-key')
+    return routeSharedWebSourceBinding(request,env,machine,nowMs);
   if (url.pathname === '/v2/machines/shared-quota/execution-basis') {
     if(request.method!=='GET')return methodNotAllowed('GET');
     const allowed=['localUserId','assignmentVersion','date','offset','limit','revision'];
@@ -542,11 +546,12 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     if(!assignment)throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
     if(!env.GUARDIAN_COMPUTER_USAGE)throw new HttpError(503,'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis is unavailable.');
     const ownSourceKey=await applicationSharedQuotaSourceKey(machine.machineId,localUserId,assignmentVersion);
+    const webSourceProof=await parseMachineWebSourceProof(request,machine,assignment.child_id,assignmentVersion,ownSourceKey);
     let result:unknown;
     try{
       const response=await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedQuotaExecutionBasis',{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:machine.accountId,
-          childId:assignment.child_id,date,ownSourceKey,offset,limit,expectedRevision})}));
+          childId:assignment.child_id,date,ownSourceKey,offset,limit,expectedRevision,...(webSourceProof?{webSourceProof}:{})})}));
       if(!response.ok)throw new HttpError(response.status===409?409:response.status===400?400:response.status===404?403:503,
         response.status===409?'EXECUTION_BASIS_VERSION_CHANGED':response.status===400?'INVALID_EXECUTION_CURSOR'
           :response.status===404?'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE':'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis is unavailable.');
@@ -566,9 +571,10 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       ||typeof result.basisRevision!=='string'||!/^[a-f0-9]{64}$/.test(result.basisRevision)
       ||(expectedRevision!==null&&result.basisRevision!==expectedRevision)
       ||!isRecord(result.page)||result.page.offset!==offset||result.page.limit!==limit
-      ||!Array.isArray(result.authorizedScopes)||result.authorizedScopes.length>7
-      ||result.authorizedScopes.some(scope=>!isRecord(scope)||Object.keys(scope).length!==3||scope.source!=='application'
-        ||scope.sourceKey!==ownSourceKey||typeof scope.date!=='string'))
+      ||!Array.isArray(result.authorizedScopes)||result.authorizedScopes.length>(webSourceProof?14:7)
+      ||result.authorizedScopes.some(scope=>!isRecord(scope)||Object.keys(scope).length!==3
+        ||!(scope.source==='application'&&scope.sourceKey===ownSourceKey
+          ||webSourceProof&&scope.source==='web'&&scope.sourceKey===webSourceProof.claims.webSourceKey)||typeof scope.date!=='string'))
       throw new HttpError(503,'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis response is invalid.');
     const currentMachine=await requireMachine(request,env.RUNTIME_DB,nowMs,false),currentAssignment=await readAssignment();
     if(currentMachine.machineId!==machine.machineId||currentMachine.accountId!==machine.accountId

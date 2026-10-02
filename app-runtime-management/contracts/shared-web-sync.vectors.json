@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "1.30.0",
+  "canonicalization": "UTF-8 JSON，递归按 ASCII key 排序；数组保留次序；contentHash 不参与自身哈希",
+  "upload": {
+    "schemaVersion":1,"date":"2026-10-03","revisionOrdinal":1,
+    "statisticsRevision":"statistics-hash","correctionRevision":"correction-1",
+    "policyIdentity":{"schemaVersion":1,"revision":"profile-config:8","effectiveAtMs":0,"stage":"shadow","policyHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "computedAtMs":1000,"settledAtMs":null,"activeMs":1200000,
+    "bucketsMs":{"study":600000,"composite":0,"rest":0},"otherMs":600000,"complete":true,"reasonCodes":[],
+    "contentHash":"98631ab7a40962866b66ca6cdf3119164b25dcf501bc2f97691af3f30d9040ab"
+  },
+  "signatureEncoding": "ES256 IEEE P1363 r||s，64 bytes base64url，无 padding；不使用 DER",
+  "publicJwk":{"kty":"EC","crv":"P-256","x":"-DMgk-9Pj8MrCdJj878wjDB52hBjBPF-JIcRAPoFJOo","y":"waCOWVQXtLMcYvAj1u09lCbMIXorlBMPaWqGKrLifE0"},
+  "proof": {
+    "schemaVersion":1,"keyId":"77f22d832571b2fa17f529001a9a32a5257eab5e99530d2ef8d3a290449f01ad",
+    "claims":{
+      "applicationSourceKey":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","assignmentVersion":3,
+      "audience":"timeonchrome:shared-web-source:v1","challengeId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "childScopeHash":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "connectionHash":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "expiresAtMs":301000,"issuedAtMs":1000,"schemaVersion":1,
+      "webSourceKey":"web:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "signature":"JeSwx9ZPdk4Yu8Vw85NKHHaxDtwVVHVZfjJS9sY0aIb6JwGLsUYEZP-VyGSfyYaHtX8jSEItBhY83kU1xvVl9w"
+  },
+  "verificationTimeMs":1000,
+  "invalidCases":["expiry-at-301000","wrong-connection","wrong-child-scope","wrong-assignment","wrong-trusted-key","modified-web-source","caller-device-token"]
+}

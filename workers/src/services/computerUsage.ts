@@ -11,6 +11,7 @@ import { statsRouter } from '../routes/stats';
 import { readSharedAccessPolicyForChild } from '../routes/profiles';
 import { readSharedAccessDayState, readSharedQuotaExecutionBasis, pageSharedQuotaExecutionBasis, type SharedAccessStateEnv } from './sharedAccessState';
 import type { SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
+import { createSharedWebSourceChallenge, readSharedWebVerificationKey, verifyCurrentSharedWebSource } from './sharedWebSourceBinding';
 
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
@@ -180,7 +181,8 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
 export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
   async fetch(request:Request):Promise<Response> {
     const operation=new URL(request.url).pathname;
-    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy','/readSharedQuotaState','/readSharedQuotaExecutionBasis'].includes(operation))
+    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy','/readSharedQuotaState','/readSharedQuotaExecutionBasis',
+      '/createSharedWebSourceChallenge','/readSharedWebVerificationKey'].includes(operation))
       return Response.json({code:'METHOD_NOT_ALLOWED'},{status:405});
     const reader=request.body?.getReader();
     if(!reader)return Response.json({code:'INVALID_SCOPE'},{status:400});
@@ -191,12 +193,21 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     const body=new TextDecoder().decode(bytes);
     let input:Record<string,unknown>;
     try {input=JSON.parse(body);}catch{return Response.json({code:'INVALID_SCOPE'},{status:400});}
+    if(operation==='/readSharedWebVerificationKey'){
+      if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length) return Response.json({code:'INVALID_SCOPE'},{status:400});
+      try{return Response.json(await readSharedWebVerificationKey(this.env),{headers:{'cache-control':'no-store'}});}
+      catch{return Response.json({code:'WEB_SOURCE_BINDING_UNAVAILABLE'},{status:503});}
+    }
     if(!input||['accountId','childId'].some(key=>typeof input[key]!=='string'||!String(input[key]).length||String(input[key]).length>200))return Response.json({code:'INVALID_SCOPE'},{status:400});
     try {
+      if(operation==='/createSharedWebSourceChallenge'){
+        return Response.json(await createSharedWebSourceChallenge(this.env,input),{headers:{'cache-control':'no-store'}});
+      }
       if(operation==='/readSharedQuotaExecutionBasis'){
         const allowed=['accountId','childId','date','ownSourceKey','offset','limit','expectedRevision'];
         const date=String(input.date??''),start=Date.parse(date+'T00:00:00Z');
-        if(Object.keys(input).length!==allowed.length||Object.keys(input).some(key=>!allowed.includes(key))
+        if(Object.keys(input).length!==allowed.length+(Object.hasOwn(input,'webSourceProof')?1:0)
+          ||Object.keys(input).some(key=>!allowed.includes(key)&&key!=='webSourceProof')
           ||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||!Number.isFinite(start)||new Date(start).toISOString().slice(0,10)!==date
           ||typeof input.ownSourceKey!=='string'||!/^[a-f0-9]{64}$/.test(input.ownSourceKey)
           ||!Number.isSafeInteger(input.offset)||Number(input.offset)<0||Number(input.offset)>1400
@@ -207,6 +218,11 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
         if(!policy)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
         const basis=await readSharedQuotaExecutionBasis(this.env,String(input.accountId),String(input.childId),date,policy);
         const page=pageSharedQuotaExecutionBasis(basis,input.ownSourceKey,Number(input.offset),Number(input.limit),input.expectedRevision as string|null,'application');
+        if(Object.hasOwn(input,'webSourceProof')){
+          const web=await verifyCurrentSharedWebSource(this.env,input.webSourceProof,String(input.accountId),String(input.childId),input.ownSourceKey);
+          page.authorizedScopes.push(...basis.days.flatMap(day=>day.sources.filter(source=>source.contribution.source==='web'
+            &&source.contribution.sourceKey===web.webSourceKey).map(()=>({source:'web' as const,sourceKey:web.webSourceKey,date:day.date}))));
+        }
         const current=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
         if(!current||current.revision!==policy.revision||current.stage!==policy.stage)
           return Response.json({code:'EXECUTION_BASIS_VERSION_CHANGED'},{status:409});

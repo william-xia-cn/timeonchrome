@@ -9,6 +9,8 @@ export const BROWSER_BRIDGE_V3_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridg
 /** These capabilities never imply shared enforcement is enabled. */
 export const SHARED_QUOTA_STATE_READ_CAPABILITY = 'shared-quota-state-read' as const;
 export const SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY = 'shared-access-policy-identity-read' as const;
+export const SHARED_WEB_CONTRIBUTION_SYNC_CAPABILITY = 'shared-web-contribution-sync-v1' as const;
+export const SHARED_QUOTA_EXECUTION_PREPARATION_CAPABILITY = 'shared-quota-execution-preparation-read-v1' as const;
 export const SHARED_REMINDER_RESULT_SHADOW_CAPABILITY = 'shared-reminder-result-shadow' as const;
 export { SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY,
   SHARED_BROWSER_EXECUTION_CAPABILITY } from './shared-reminder-lifecycle.js';
@@ -77,6 +79,11 @@ export interface NativeHostResponse {
   sharedQuota?: import('./shared-access.js').SharedQuotaStateV1;
   /** Optional only after capability negotiation; equality is not execution authorization. */
   sharedAccessPolicyIdentity?: import('./shared-access.js').SharedAccessPolicyIdentityV1;
+  sharedQuotaPreparation?: import('./shared-web-sync.js').SharedQuotaExecutionPreparationV1;
+  /** Returned only to the verified BrowserBridge connection that created this challenge. */
+  sharedWebSourceChallenge?: import('./shared-web-sync.js').SharedWebSourceChallengeV1;
+  sharedWebSourceBound?: { challengeId:string;webSourceKey:string;expiresAtMs:number };
+  sharedWebContributionAccepted?: { date:string;revisionOrdinal:number;contentHash:string;duplicate:boolean };
   /** Read success is not permission to enforce quota or end an application. */
   sharedQuotaStage?: 'shadow';
   sharedReminder?: import('./shared-reminder-lifecycle.js').SharedReminderState | null;
@@ -137,7 +144,7 @@ export interface BrowserBridgeV3Envelope<TPayload = unknown> {
   requestId: string;
   messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getSharedQuotaState' | 'reportReminderResult'
     | 'getSharedReminderState' | 'acknowledgeSharedReminderDelivery' | 'resolveSharedReminder' | 'reportBrowserActivity'
-    | 'acknowledgeBrowserExecution';
+    | 'acknowledgeBrowserExecution' | 'getSharedWebSourceChallenge' | 'bindSharedWebSource' | 'replaceSharedWebContribution';
   extensionId: string;
   profileId: string;
   sentAtMs: number;
