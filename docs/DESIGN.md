@@ -14,6 +14,12 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 共享访问终端契约边界（2026-10-02）
 
+浏览器执行由扩展负责，提醒呈现者可以是browser或native，两者不得混同。Service保存实例的执行目标source=browser和当时lease/activity；Native兜底窗口仅呈现及确认选择，不调用Windows closer结束Chrome。`stage/resolution`是状态不是许可：只有Service执行开启、shared、已收到可见确认并解决为end_rest/timeout_end、当前scope/策略/统计版本及活动仍匹配时，才在已验证浏览器连接响应返回可选`browserExecution`。许可包含原提醒六项身份、executionId、leaseId、activityId、targetSource=browser、effect及剩余maxAgeMs（1–5000）；不接受客户端指定目标进程或页面。end_rest只为request-normal-close，timeout_end只为force-close；继续、影子、未送达或撤回均无许可。
+
+许可按同一executionId重送，不生成第二次动作。Service从原授权转换时刻起按自身单调钟最多保留5秒，boot/lease改变、已消费或过期不再发行；重查/重送不得重置期限。扩展从请求发起时以本地单调时钟计剩余maxAgeMs，包含传输耗时而非收到响应才重置期限，执行前重查当前连接lease/活动/配置/状态版本与Rest资格，并先持久登记该executionId的一次执行尝试。重放不得再次执行；断连、活动切换、版本变化、过期均取消许可，不能用缓存执行。扩展只结束本次绑定且当前产生Rest用量的网页，不结束整个Chrome、不影响后台页。主动结束允许保存/取消，canceled不自动升级；超时强制仅由Service既有60秒单调转换签发。`sharedQuota/acknowledgeBrowserExecution`严格返回同一许可身份及outcome=completed|canceled|failed|stale，不含URL/标题/Child/进程或客户端时间。Service核对发行记录及认证lease，逐项幂等记录，冲突拒绝；ACK不授予新执行权、不得重试已消费动作或改变原账。Native本地目标继续沿原执行器，与浏览器许可分开。
+
+本项增量契约1.26.0：仅补显式许可/回执及共同向量，1.25活动和1.24生命周期保持兼容；缺能力则只保留提醒/状态，不猜测网页执行权。两端各自实现，默认关闭；源代码验证、真实窗口/网页验收与正式启用分开，不改变网页落账语义。
+
 实时网页提醒资格增加 `shared-browser-activity-v1`，不以累计快照、heartbeat或一次查询当作正在休息的证据。Service在v3能力协商时为已验证Host进程代际/扩展连接发放不透明`browserActivityLeaseId`；它绑定受保护用户会话、Profile和策略作用域，不允许客户端选择其他用户。Native Host仍只转发。新消息`sharedQuota/reportBrowserActivity`严格包含schemaVersion、leaseId、activityId、sequence、status、quotaBucket、presentationEligible，不接受时间戳、URL/域名/标题、tab/window原始标识、Child/SID/用户名或进程目标。
 
 扩展从既有getSession与当前页面复核取得ACTIVE且实际Rest桶资格（包括借用Rest），每次自然活动身份变更生成随机activityId，lease内sequence单调增加。active仅允许quotaBucket=rest；inactive必须quotaBucket=null且presentationEligible=false。当前可见聚焦页面才可声明presentationEligible；既有强媒体继续记账但无提醒展示资格时可active/false。不新增、结束或改写任何原始网页会话。停止、导航、标签/窗口切换、失焦/idle/锁屏后立即重验并发送当前事实；关闭结算失败保留旧session不够，须独立复核页面和展示资格。

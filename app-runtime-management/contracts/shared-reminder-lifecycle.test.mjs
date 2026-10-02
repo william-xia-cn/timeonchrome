@@ -4,7 +4,10 @@ import { acknowledgeSharedReminderDelivery, resolveSharedReminder, expireSharedR
   validateSharedReminderDeliveryAck, validateSharedReminderResolution,
   SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY,
   SHARED_BROWSER_ACTIVITY_RENEW_MS, SHARED_BROWSER_ACTIVITY_MAX_AGE_MS,
-  validateSharedBrowserActivity, receiveSharedBrowserActivity, sharedBrowserReminderEligibility } from './dist/shared-reminder-lifecycle.js';
+  validateSharedBrowserActivity, receiveSharedBrowserActivity, sharedBrowserReminderEligibility,
+  SHARED_BROWSER_EXECUTION_CAPABILITY, SHARED_BROWSER_EXECUTION_MAX_AGE_MS,
+  validateSharedBrowserExecution, validateSharedBrowserExecutionAck, authorizeSharedBrowserExecution,
+  sharedBrowserExecutionEligibility, acknowledgeSharedBrowserExecution } from './dist/shared-reminder-lifecycle.js';
 const data=JSON.parse(fs.readFileSync(new URL('./shared-reminder-lifecycle.vectors.json',import.meta.url),'utf8'));
 const identity=Object.fromEntries(['schemaVersion','roundId','reminderId','deliveryId','policyRevision','stateRevision']
   .map(key=>[key,data.state[key]]));
@@ -81,3 +84,51 @@ assert.equal(schema.$defs.browserActivity.additionalProperties,false);
 assert.equal(schema.$defs.browserActivity.properties.sequence.maximum,Number.MAX_SAFE_INTEGER);
 console.log(`shared reminder lifecycle: PASS (${data.cases.length} golden vectors + strict boundary checks)`);
 console.log(`browser activity: PASS (${activity.cases.length} golden vectors + strict boundary checks)`);
+const execution=data.browserExecution;
+const runtime={...data.context,nowMs:10000,monotonicNowMs:10000,state:{...data.state,...execution.statePatch}};
+const browser={...activity.context,bootId:runtime.bootId};
+browser.current=receiveSharedBrowserActivity(browser,activity.message).receipt;
+const permit=authorizeSharedBrowserExecution(runtime,browser,execution.target);
+const ack={...identity,...Object.fromEntries(['executionId','leaseId','activityId'].map(key=>[key,permit[key]])),outcome:'completed'};
+for(const vector of execution.cases){
+  const context={...runtime,...vector.contextPatch,state:{...runtime.state,...vector.statePatch}};
+  const before=JSON.stringify({context,browser,permit,ack});
+  const invoke=()=>vector.operation==='consumer'
+    ?sharedBrowserExecutionEligibility({...permit,...vector.permitPatch},{...execution.consumer,...vector.consumerPatch,
+      reminder:{...identity,...vector.reminderPatch},
+      attemptedIds:new Set(vector.attempted?[permit.executionId]:[])})
+    :vector.operation==='ack'?acknowledgeSharedBrowserExecution({...permit,...vector.permitPatch},
+      {...ack,...vector.ackPatch},vector.existing?ack:null,vector.authenticatedLeaseCurrent??true)
+    :authorizeSharedBrowserExecution(context,{...browser,monotonicNowMs:context.monotonicNowMs,
+      current:{...browser.current,receivedMonotonicMs:context.monotonicNowMs},...vector.browserPatch},
+      {...execution.target,...vector.targetPatch});
+  if(vector.error)assert.throws(invoke,error=>error.message===vector.error,vector.name);
+  else{
+    const result=invoke();
+    if(vector.operation==='consumer'){
+      assert.equal(result.reasonCode,vector.expectReason,vector.name);
+      assert.equal(result.eligible,vector.expectReason===null,vector.name);
+    }else if(vector.operation==='ack')assert.equal(result.duplicate,vector.expectDuplicate,vector.name);
+    else{
+      assert.equal(result?.effect??null,vector.expectEffect,vector.name);
+      if(vector.expectMaxAgeMs!==undefined)assert.equal(result.maxAgeMs,vector.expectMaxAgeMs,vector.name);
+    }
+  }
+  assert.equal(JSON.stringify({context,browser,permit,ack}),before,'execution inputs remain immutable');
+}
+for(const field of ['url','title','tabId','targetProcess','childId','sid','sentAtMs']){
+  assert.throws(()=>validateSharedBrowserExecution({...permit,[field]:'private'}),/INVALID/);
+  assert.throws(()=>validateSharedBrowserExecutionAck({...ack,[field]:'private'}),/INVALID/);
+}
+for(const maxAgeMs of [0,5001,NaN,Infinity,1.5])
+  assert.throws(()=>validateSharedBrowserExecution({...permit,maxAgeMs}),/INVALID/);
+for(const patch of [{effect:'end_rest'},{targetSource:'application'},{schemaVersion:2},{executionId:' '},{leaseId:'x'.repeat(129)}])
+  assert.throws(()=>validateSharedBrowserExecution({...permit,...patch}),/INVALID/);
+assert.throws(()=>validateSharedBrowserExecutionAck({...ack,outcome:'force-close'}),/INVALID/);
+for(const value of [permit,ack])for(const field of Object.keys(value)){
+  const incomplete={...value};delete incomplete[field];
+  assert.throws(()=>field==='outcome'||value===ack?validateSharedBrowserExecutionAck(incomplete):validateSharedBrowserExecution(incomplete),/INVALID/);
+}
+assert.equal(SHARED_BROWSER_EXECUTION_CAPABILITY,'shared-browser-execution-v1');
+assert.equal(SHARED_BROWSER_EXECUTION_MAX_AGE_MS,5000);
+console.log(`browser execution: PASS (${execution.cases.length} golden vectors + strict boundary checks)`);
