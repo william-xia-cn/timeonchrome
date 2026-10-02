@@ -45,6 +45,8 @@ function moduleSource(instance) {
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-quota-state.js'), 'utf8').replace(/export function /g, 'function '))
     .replace(/import \{ validateSharedReminderResultV1 \} from '\.\.\/core\/shared-reminder-result\.js';/,
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-reminder-result.js'), 'utf8').replace(/export function /g, 'function '))
+    .replace(/import \{ validateSharedReminderMessage, validateSharedReminderState \} from '\.\.\/core\/shared-reminder-lifecycle\.js';/,
+      fs.readFileSync(path.join(root, 'extension', 'core', 'shared-reminder-lifecycle.js'), 'utf8').replace(/export function /g, 'function '))
     + `\n// test-instance-${instance}`;
 }
 
@@ -748,6 +750,60 @@ async function run() {
   assert.match(background, /configureLocalGuardianStateProvider/);
   assert.match(background, /TIMEONCHROME_LOCAL_HEALTH_PROBE/);
 
+  const lifecycleState = { schemaVersion: 1, roundId: 'round-1', reminderId: 'reminder-1', deliveryId: 'delivery-1',
+    policyRevision: 'policy-1', stateRevision: 'state-1', date: '2026-10-02', kinds: ['daily', 'weekly'],
+    presenter: 'browser', stage: 'shadow', issuedAtMs: 1000, offerExpiresAtMs: 300000,
+    visibleAtMs: null, responseDeadlineSeconds: 60, timeoutAction: 'end', status: 'offered', resolution: null };
+  const lifecycleRequests = [];
+  let lifecycleError = null;
+  let lifecycleSupported = true;
+  let missingLifecycleId = false;
+  let holdLifecycle = false;
+  let releaseLifecycle;
+  const lifecycle = await loadGuardian({ storage: {}, policy,
+    connectNative: () => createPort((payload, onMessage) => {
+      lifecycleRequests.push(payload);
+      const isLifecycle = ['getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder'].includes(payload.messageType);
+      const reply = () => onMessage.listeners.forEach(listener => listener({
+        ok: !(isLifecycle && lifecycleError), errorCode: lifecycleError,
+        receivedAt: Date.now(), requestId: isLifecycle && missingLifecycleId ? undefined : payload.requestId,
+        supportedProtocols: [1, 2, 3], capabilities: lifecycleSupported ? ['shared-reminder-lifecycle-v1'] : [],
+        ...(isLifecycle ? { sharedReminder: { ...lifecycleState,
+          ...(payload.messageType === 'acknowledgeSharedReminderDelivery' ? { status: 'visible', visibleAtMs: 2500 } : {}),
+          ...(payload.messageType === 'resolveSharedReminder' ? { status: 'resolved', visibleAtMs: 2500, resolution: payload.payload.action } : {}) } } : {}) }));
+      if (isLifecycle && holdLifecycle) releaseLifecycle = reply;
+      else queueMicrotask(reply);
+    }) });
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date: lifecycleState.date })).errorCode, 'shared_reminder_disabled');
+  lifecycle.module.configureSharedQuotaNativeBridge({ enabled: true });
+  holdLifecycle = true;
+  const lifecycleRead = lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date: lifecycleState.date });
+  await waitFor(() => releaseLifecycle);
+  const { date, kinds, presenter, stage, issuedAtMs, offerExpiresAtMs, visibleAtMs, responseDeadlineSeconds, timeoutAction, status, resolution, ...lifeIdentity } = lifecycleState;
+  const lifeAck = lifecycle.module.requestSharedReminderLifecycle('acknowledgeSharedReminderDelivery', { ...lifeIdentity, delivery: 'visible' });
+  const heldCount = lifecycleRequests.length;
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.strictEqual(lifecycleRequests.length, heldCount);
+  holdLifecycle = false;
+  releaseLifecycle();
+  assert.strictEqual((await lifecycleRead).state.status, 'offered');
+  assert.strictEqual((await lifeAck).state.visibleAtMs, 2500);
+  assert.deepStrictEqual(lifecycleRequests.at(-1).payload, { ...lifeIdentity, delivery: 'visible' });
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('resolveSharedReminder', { ...lifeIdentity, action: 'end_rest' })).state.resolution, 'end_rest');
+  const lifeCount = lifecycleRequests.length;
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('resolveSharedReminder', { ...lifeIdentity, action: 'timeout_end' })).ok, false);
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeSharedReminderDelivery', { ...lifeIdentity, delivery: 'visible', visibleAtMs: 1 })).ok, false);
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date: '2026-02-30' })).ok, false);
+  assert.strictEqual(lifecycleRequests.length, lifeCount);
+  lifecycleError = 'SHARED_REMINDER_DEADLINE_ELAPSED';
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('resolveSharedReminder', { ...lifeIdentity, action: 'continue' })).errorCode, lifecycleError);
+  lifecycleError = null;
+  missingLifecycleId = true;
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date })).errorCode, 'shared_reminder_invalid_ack');
+  missingLifecycleId = false;
+  lifecycleSupported = false;
+  await lifecycle.module.requestLocalGuardianHeartbeat({ trigger: 'test_lifecycle_revoked', force: true });
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date })).errorCode, 'shared_reminder_unsupported');
   console.log('[Local Guardian] passed');
   process.exit(0);
 }

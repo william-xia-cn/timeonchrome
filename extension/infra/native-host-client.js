@@ -7,6 +7,7 @@ import { registerPersistedUsageSegmentObserver } from '../core/usage-segments.js
 import { readCurrentWeekBrowserSnapshots } from './browser-bridge-v3-snapshot.js';
 import { validateSharedQuotaStateV1 } from '../core/shared-quota-state.js';
 import { validateSharedReminderResultV1 } from '../core/shared-reminder-result.js';
+import { validateSharedReminderMessage, validateSharedReminderState } from '../core/shared-reminder-lifecycle.js';
 
 export const TIMEONCHROME_NATIVE_HOST = 'com.timeonchrome.nativehost';
 export const LEGACY_LOCAL_GUARDIAN_HOST = 'com.timeonchrome.guardian';
@@ -50,11 +51,18 @@ let queuedProbe = null;
 let queuedApplicationRead = null;
 let queuedSharedQuotaRead = null;
 let queuedSharedReminderReport = null;
+let queuedSharedLifecycle = null;
 let sharedBridgeConfig = { enabled: false };
 const SHARED_NATIVE_CAPABILITIES = {
   getSharedQuotaState: 'shared-quota-state-read',
   reportReminderResult: 'shared-reminder-result-shadow',
+  getSharedReminderState: 'shared-reminder-lifecycle-v1',
+  acknowledgeSharedReminderDelivery: 'shared-reminder-lifecycle-v1',
+  resolveSharedReminder: 'shared-reminder-lifecycle-v1',
 };
+const LIFECYCLE_ERRORS = new Set(['INVALID_SHARED_REMINDER_MESSAGE', 'SHARED_REMINDER_SCOPE_CHANGED',
+  'SHARED_REMINDER_PRESENTER_CHANGED', 'SHARED_REMINDER_INSTANCE_CHANGED', 'SHARED_REMINDER_DELIVERY_CONFLICT',
+  'SHARED_REMINDER_NOT_VISIBLE', 'SHARED_REMINDER_DEADLINE_ELAPSED', 'SHARED_REMINDER_RESULT_CONFLICT']);
 let sharedNativeV3 = false;
 let sharedNativeCapabilities = new Set();
 let applicationUsageSupported = false;
@@ -251,6 +259,7 @@ async function persistStatus(patch) {
 }
 
 function normalizeErrorCode(value) {
+  if (LIFECYCLE_ERRORS.has(value) || value === 'shared_reminder_invalid_state') return value;
   const allowed = new Set([
     'native_host_unavailable',
     'native_port_disconnected',
@@ -329,13 +338,15 @@ function ensureNativePort() {
     if (!pendingAck) return;
     // A delayed v3 response cannot consume the ACK slot of a different request.
     if (response?.requestId && pendingAck.requestId && response.requestId !== pendingAck.requestId) return;
-    if ((pendingAck.sharedQuotaRead || pendingAck.sharedReminderReport)
+    if ((pendingAck.sharedQuotaRead || pendingAck.sharedReminderReport || pendingAck.sharedLifecycle)
       && response?.requestId !== pendingAck.requestId) {
-      rejectPendingAck(pendingAck.sharedReminderReport ? 'shared_reminder_invalid_ack' : 'shared_quota_invalid_state');
+      rejectPendingAck(pendingAck.sharedReminderReport || pendingAck.sharedLifecycle ? 'shared_reminder_invalid_ack' : 'shared_quota_invalid_state');
       return;
     }
     if (response?.ok !== true) {
       const code = response?.errorCode === 'RUNTIME_SERVICE_UNAVAILABLE' ? 'runtime_service_unavailable'
+        : pendingAck.sharedLifecycle ? LIFECYCLE_ERRORS.has(response?.errorCode)
+          ? response.errorCode : 'shared_reminder_unavailable'
         : pendingAck.sharedReminderReport && response?.errorCode === 'SHARED_REMINDER_NOT_ISSUED' ? 'shared_reminder_not_issued'
         : response?.errorCode === 'APPLICATION_USAGE_REVISION_CHANGED' ? 'application_usage_revision_changed'
         : pendingAck.applicationRead ? 'application_usage_unavailable'
@@ -367,6 +378,7 @@ function ensureNativePort() {
       stale: response.stale === true,
       applicationUsage: response.applicationUsage,
       sharedQuota: response.sharedQuota,
+      sharedReminder: response.sharedReminder,
       requestId: response.requestId,
     });
   });
@@ -394,6 +406,8 @@ function postToNativeHost(payload) {
   const applicationRead = payload.channel === 'application' && payload.messageType === 'getApplicationUsage';
   const sharedQuotaRead = payload.channel === 'sharedQuota' && payload.messageType === 'getSharedQuotaState';
   const sharedReminderReport = payload.channel === 'sharedQuota' && payload.messageType === 'reportReminderResult';
+  const sharedLifecycle = payload.channel === 'sharedQuota' && ['getSharedReminderState',
+    'acknowledgeSharedReminderDelivery', 'resolveSharedReminder'].includes(payload.messageType);
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
       if (!pendingAck || pendingAck.timeoutId !== timeoutId) return;
@@ -402,7 +416,7 @@ function postToNativeHost(payload) {
       reject(new Error('native_response_timeout'));
     }, applicationRead || sharedQuotaRead ? APPLICATION_USAGE_RESPONSE_TIMEOUT_MS : NATIVE_RESPONSE_TIMEOUT_MS);
     pendingAck = { resolve, reject, timeoutId, requestId: payload.requestId,
-      applicationRead, sharedQuotaRead, sharedReminderReport };
+      applicationRead, sharedQuotaRead, sharedReminderReport, sharedLifecycle };
     try {
       port.postMessage(payload);
     } catch (_) {
@@ -675,6 +689,19 @@ async function performSnapshotDrain() {
 }
 
 async function performSend(options) {
+  if (options.type === 'sharedLifecycle') {
+    try {
+      if (!sharedCapabilityAvailable(options.method)) return { ok: false, errorCode: 'shared_reminder_unsupported' };
+      const payload = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
+        messageType: options.method, extensionId: chrome.runtime.id,
+        profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.payload };
+      const ack = await postToNativeHost(payload);
+      if (ack.requestId !== payload.requestId) return { ok: false, errorCode: 'shared_reminder_invalid_ack' };
+      return validateSharedReminderState(ack.sharedReminder, options.expected);
+    } catch (error) {
+      return { ok: false, errorCode: normalizeErrorCode(error?.message) };
+    }
+  }
   if (options.type === 'sharedQuotaRead') {
     try {
       if (!sharedCapabilityAvailable('getSharedQuotaState')) return { ok: false, errorCode: 'shared_quota_unsupported' };
@@ -825,6 +852,12 @@ function drainQueuedSend() {
   if (queuedSharedReminderReport) {
     const queued = queuedSharedReminderReport;
     queuedSharedReminderReport = null;
+    startSend(queued.options).then(queued.resolve, () => queued.resolve({ ok: false, errorCode: 'shared_reminder_unavailable' }));
+    return;
+  }
+  if (queuedSharedLifecycle) {
+    const queued = queuedSharedLifecycle;
+    queuedSharedLifecycle = null;
     startSend(queued.options).then(queued.resolve, () => queued.resolve({ ok: false, errorCode: 'shared_reminder_unavailable' }));
     return;
   }
@@ -1010,6 +1043,29 @@ export async function reportSharedReminderResult(result) {
   if (!activeSendPromise) return startSend(options);
   if (queuedSharedReminderReport) return { ok: false, errorCode: 'shared_reminder_busy' };
   return new Promise(resolve => { queuedSharedReminderReport = { options, resolve }; });
+}
+
+export async function requestSharedReminderLifecycle(method, value) {
+  let checked;
+  if (method === 'getSharedReminderState') {
+    const validDate = typeof value?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.date);
+    const ms = validDate ? Date.parse(`${value.date}T00:00:00+08:00`) : NaN;
+    if (!value || Object.keys(value).length !== 1 || !Number.isFinite(ms)
+      || new Date(ms + 28_800_000).toISOString().slice(0, 10) !== value.date) {
+      return { ok: false, errorCode: 'INVALID_SHARED_REMINDER_MESSAGE' };
+    }
+    checked = { ok: true, payload: { date: value.date } };
+  } else checked = validateSharedReminderMessage(value, method);
+  if (!checked.ok) return checked;
+  if (!await readNativeHostDeploymentMarker().catch(() => false)) return { ok: false, errorCode: 'managed_marker_unavailable' };
+  const negotiated = await negotiateSharedCapability(method, 'shared_reminder');
+  if (!negotiated.ok) return negotiated;
+  const { delivery, action, ...identity } = checked.payload;
+  const options = { type: 'sharedLifecycle', method, payload: checked.payload,
+    expected: method === 'getSharedReminderState' ? { date: value.date } : identity };
+  if (!activeSendPromise) return startSend(options);
+  if (queuedSharedLifecycle) return { ok: false, errorCode: 'shared_reminder_busy' };
+  return new Promise(resolve => { queuedSharedLifecycle = { options, resolve }; });
 }
 
 function isTrustedRecheckSender(sender) {
