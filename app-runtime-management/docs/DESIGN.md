@@ -4,6 +4,8 @@
 
 `shared-access.ts` 规范 Guardian 唯一 Child 公共配置、网页／应用各自的已结算配额贡献、共享状态与提醒结果；来源按 `(source,sourceKey,date,revision)` 版本替换，不按重传次数累加。网页贡献沿用其有效配额桶整数秒和既有借用结果；应用贡献以毫秒报告原分类（复合／未归类尚未借用），明确排除可信 Chrome 与 `other`，再由共享层按现有复合余额借用娱乐。缺任一来源、版本冲突或 Chrome 扣除无证据时不得标记完整。新增的 Guardian `GET /profiles/:id/shared-access/v1` 仅对所属家长返回现有 Profile 配置的只读 `legacy` 投影，既不新建可写配置源，也不启用共享执行。
 
+2026-10-02 云端影子状态读取补充：Runtime 机器鉴权 `GET /v2/machines/shared-quota/state` 按当前受保护的本机账户分配推导 Child，不接受调用方指定 Child；通过现有受限 Guardian `ComputerUsageService` binding 读取同 Child 的共享策略和网页来源。Guardian 网页侧只复用已发布的 V2 日统计配额桶及现有批准更正，不从 Segment 重算；`other` 不贡献学习／复合／娱乐额度。Runtime 侧仅使用与当前统计 manifest、收据哈希和后台核验头完全一致的应用贡献。查询覆盖不完整、策略版本不一致、账本表未就绪或来源修订期间变化时，返回稳定不可用原因，不能以零值冒充完整。该端点仅供影子展示和兼容性验证，不授权本地共享配额执行；新增能力不改变原账、旧配额或网页计时。
+
 机器心跳只有声明 `application-other-v1` 后，机器策略才下发 `other` 分类；未声明的旧终端收到 `unclassified` 兼容投影，云端家长配置和历史事实不改写。能力变化须改变策略 ETag，避免缓存旧投影；策略 ACK 不代表共享配额或提醒能力完成验收。
 
 现有 `runtime_app_classification_history_v1` 的 SQLite `CHECK` 固定旧五类，不能直接插入 `other`；错误也不能被当成 ETag 冲突。迁移 `0014` 仅新增 `runtime_app_classification_history_other_v1` 保存明确的 `other` 历史，不重建或改写原表。写入按分类分流；查询按同一 Child、技术身份和策略版本从两表取最新行；Child 删除同时清理新表。迁移先本地验证，生产执行须与兼容 Worker 发布单独过闸。

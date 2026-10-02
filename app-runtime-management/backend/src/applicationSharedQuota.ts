@@ -226,6 +226,91 @@ export async function readVerifiedChromeMarginals(db:D1Database,accountId:string
   return result.results;
 }
 
+export type SharedQuotaApplicationInputs={
+  contributions:SharedQuotaContributionV1[];
+  expectedSourceKeys:string[];
+  reasonCodes:string[];
+};
+
+/** Reads only source-verified replacement receipts for the requested Child/date range. */
+export async function readSharedQuotaApplicationInputs(db:D1Database,accountId:string,childId:string,
+  fromDate:string,toDate:string,policyRevision:string,nowMs=Date.now()):Promise<Record<string,SharedQuotaApplicationInputs>> {
+  parseDate(fromDate);parseDate(toDate);
+  if(toDate<fromDate||Date.parse(`${toDate}T00:00:00+08:00`)-Date.parse(`${fromDate}T00:00:00+08:00`)>6*86_400_000||!policyRevision)
+    fail('SHARED_QUOTA_INVALID_RANGE');
+  const byDate:Record<string,SharedQuotaApplicationInputs>={};
+  const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`);
+  for(let day=from;day<=to;day+=86_400_000) {
+    const date=new Date(day+28_800_000).toISOString().slice(0,10),end=day+86_400_000;
+    const expected=await db.prepare(`WITH expected AS (
+        SELECT a.machine_id,a.local_user_id,a.assignment_version FROM runtime_user_assignments_v2 a
+        JOIN runtime_machines_v2 machine ON machine.id=a.machine_id
+        WHERE machine.account_id=?1 AND a.child_id=?2 AND a.protected=1 AND a.effective_at_ms<?3
+          AND (machine.revoked_at_ms IS NULL OR EXISTS (SELECT 1 FROM runtime_application_shared_quota_receipts_v1 old_receipt
+            WHERE old_receipt.machine_id=a.machine_id AND old_receipt.local_user_id=a.local_user_id
+              AND old_receipt.assignment_version=a.assignment_version AND old_receipt.date=?4))
+          AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer
+            WHERE newer.machine_id=a.machine_id AND newer.local_user_id=a.local_user_id
+              AND newer.effective_at_ms<=?3 AND (newer.effective_at_ms>a.effective_at_ms
+                OR (newer.effective_at_ms=a.effective_at_ms AND newer.assignment_version>a.assignment_version)))
+        ORDER BY a.machine_id,a.local_user_id LIMIT 101
+      )
+      SELECT e.machine_id,e.local_user_id,e.assignment_version,r.payload_json,r.payload_hash,r.source_key,
+        v.revision_ordinal AS verified_ordinal,v.payload_hash AS verified_payload_hash,
+        v.statistics_manifest_hash,v.source_verified,v.reason_code,r.revision_ordinal,manifest.manifest_hash
+      FROM expected e
+      LEFT JOIN runtime_application_shared_quota_receipts_v1 r ON r.machine_id=e.machine_id
+        AND r.local_user_id=e.local_user_id AND r.assignment_version=e.assignment_version
+        AND r.account_id=?1 AND r.child_id=?2 AND r.date=?4
+      LEFT JOIN runtime_application_shared_quota_verified_v1 v ON v.machine_id=r.machine_id
+        AND v.local_user_id=r.local_user_id AND v.assignment_version=r.assignment_version AND v.date=r.date
+      LEFT JOIN runtime_application_account_publications_v1 p ON p.machine_id=r.machine_id
+        AND p.local_user_id=r.local_user_id AND p.assignment_version=r.assignment_version AND p.date=r.date
+        AND p.account_id=r.account_id AND p.child_id=r.child_id
+      LEFT JOIN runtime_application_account_manifests_v1 manifest ON manifest.id=p.manifest_id
+      ORDER BY e.machine_id,e.local_user_id`)
+      .bind(accountId,childId,end,date).all<{machine_id:string;local_user_id:string;assignment_version:number;
+        payload_json:string|null;payload_hash:string|null;source_key:string|null;verified_ordinal:number|null;
+        verified_payload_hash:string|null;statistics_manifest_hash:string|null;source_verified:number|null;
+        reason_code:string|null;revision_ordinal:number|null;manifest_hash:string|null}>();
+    if(expected.results.length>100)throw new HttpError(422,'SHARED_QUOTA_SOURCE_LIMIT','Too many application scopes.');
+    const expectedSourceKeys:string[]=[],contributions:SharedQuotaContributionV1[]=[],reasons=new Set<string>();
+    for(const scope of expected.results) {
+      const sourceKey=await sha256Hex(`application\n${scope.machine_id}\n${scope.local_user_id}\n${scope.assignment_version}`);
+      expectedSourceKeys.push(sourceKey);
+      if(date>new Date(nowMs+28_800_000).toISOString().slice(0,10)) {
+        contributions.push({schemaVersion:1,source:'application',sourceKey,date,revision:`future:${date}:${policyRevision}`,
+          statisticsRevision:`future:${date}`,correctionRevision:'none',productAssociationVersion:'future',policyRevision,
+          settledAtMs:day,complete:true,reasonCodes:[],bucketsMs:{study:0,composite:0,rest:0},
+          applicationClassesMs:{study:0,composite:0,restrictedEntertainment:0,unclassified:0,other:0},chromeExcludedMs:0,
+          chromeIncludedInApplicationMs:0});
+        continue;
+      }
+      const row=scope;
+      if(!row.payload_json||!row.payload_hash||!row.source_key||row.revision_ordinal===null) {
+        reasons.add('APPLICATION_SOURCE_SNAPSHOT_MISSING'); continue;
+      }
+      if(row.source_verified!==1||row.verified_ordinal!==row.revision_ordinal||row.verified_payload_hash!==row.payload_hash
+        ||!row.manifest_hash||row.statistics_manifest_hash!==row.manifest_hash) {
+        reasons.add(row.reason_code||'APPLICATION_SOURCE_NOT_VERIFIED');continue;
+      }
+      try {
+        const contribution=JSON.parse(row.payload_json) as SharedQuotaContributionV1;
+        if(await sha256Hex(canonicalUsageAccountJson(contribution))!==row.payload_hash||contribution.schemaVersion!==1
+          ||contribution.source!=='application'||contribution.sourceKey!==row.source_key||contribution.date!==date
+          ||contribution.policyRevision!==policyRevision||contribution.statisticsRevision!==row.manifest_hash
+          ||!contribution.complete||contribution.reasonCodes.length!==0) {
+          reasons.add(contribution.policyRevision!==policyRevision?'SHARED_POLICY_REVISION_MISMATCH':'APPLICATION_SOURCE_VERSION_MISMATCH');continue;
+        }
+        contributions.push(contribution);
+      } catch { reasons.add('APPLICATION_RECEIPT_INTEGRITY_FAILED'); }
+    }
+    if(!expectedSourceKeys.length)reasons.add('APPLICATION_COVERAGE_MISSING');
+    byDate[date]={contributions,expectedSourceKeys,reasonCodes:[...reasons].sort()};
+  }
+  return byDate;
+}
+
 /** Exact native-account coverage check for one machine and at most seven Beijing dates. */
 export async function readCoveredChromeDeduction(db:D1Database,accountId:string,childId:string,
   machineId:string,fromDate:string,toDate:string,totalMs:number):Promise<number|null> {

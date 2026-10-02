@@ -1,6 +1,10 @@
 import { requireAccountModule, requireMachine } from './auth';
 import { routeApplicationAccounts } from './applicationAccounts';
-import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota } from './applicationSharedQuota';
+import { applicationSharedQuotaUploadReady, readSharedQuotaApplicationInputs, receiveApplicationSharedQuota } from './applicationSharedQuota';
+import { projectSharedQuotaDay, type SharedQuotaStateV1, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
+import type { SharedQuotaContributionV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
+import type { MachineSelfResponse } from './contracts';
+import { sha256Hex } from './crypto';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
@@ -61,6 +65,119 @@ import {
 } from './terminalLogging';
 
 const policyStates = new Set(['pending', 'cached', 'applied', 'failed', 'offline']);
+
+const sharedQuotaDate=(date:string)=>{const value=Date.parse(`${date}T00:00:00+08:00`);return /^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(value)&&new Date(value+28_800_000).toISOString().slice(0,10)===date?value:null;};
+const sharedQuotaDateString=(ms:number)=>new Date(ms+28_800_000).toISOString().slice(0,10);
+const sharedQuotaKeys=['study','composite','rest'] as const;
+function isSharedQuotaInput(value:unknown,expectedSource:'web'|'application',date:string,policyRevision:string):value is SharedQuotaStateInputSource {
+  if(!isRecord(value)||!Array.isArray(value.contributions)||value.contributions.length>100
+    ||!Array.isArray(value.expectedSourceKeys)||value.expectedSourceKeys.length>100
+    ||value.expectedSourceKeys.some(key=>typeof key!=='string'||!/^[a-f0-9]{64}$/.test(key))
+    ||!Array.isArray(value.reasonCodes)||value.reasonCodes.some(code=>typeof code!=='string'||code.length>128))return false;
+  return value.contributions.every(item=>{
+    if(!isRecord(item))return false;
+    const buckets=item.bucketsMs;
+    if(!isRecord(item)||item.schemaVersion!==1||item.source!==expectedSource||item.date!==date
+      ||typeof item.sourceKey!=='string'||!/^[a-f0-9]{64}$/.test(item.sourceKey)
+      ||typeof item.policyRevision!=='string'||item.policyRevision!==policyRevision
+      ||typeof item.revision!=='string'||!item.revision||typeof item.statisticsRevision!=='string'
+      ||typeof item.correctionRevision!=='string'||typeof item.complete!=='boolean'
+      ||!Array.isArray(item.reasonCodes)||item.reasonCodes.length>16||item.reasonCodes.some(code=>typeof code!=='string')
+      ||(item.complete&&item.reasonCodes.length!==0)||(!item.complete&&item.reasonCodes.length===0)
+      ||(item.settledAtMs!==null&&(!Number.isSafeInteger(item.settledAtMs)||Number(item.settledAtMs)<0))
+      ||!isRecord(buckets)||!sharedQuotaKeys.every(key=>Number.isSafeInteger(buckets[key])&&Number(buckets[key])>=0))return false;
+    if(expectedSource==='web')return sharedQuotaKeys.every(key=>Number(buckets[key])%1000===0);
+    const classes=item.applicationClassesMs;
+    return isRecord(classes)&&['study','composite','restrictedEntertainment','unclassified','other']
+      .every(key=>Number.isSafeInteger(classes[key])&&Number(classes[key])>=0)
+      &&Number.isSafeInteger(item.chromeExcludedMs)&&Number(item.chromeExcludedMs)>=0
+      &&(item.chromeIncludedInApplicationMs===undefined||item.chromeIncludedInApplicationMs===null
+        ||(Number.isSafeInteger(item.chromeIncludedInApplicationMs)&&Number(item.chromeIncludedInApplicationMs)>=0));
+  });
+}
+
+async function readSharedQuotaStateForMachine(request:Request,env:Env,machine:MachineSelfResponse,nowMs:number):Promise<SharedQuotaStateV1> {
+  const url=new URL(request.url),localUserId=url.searchParams.get('localUserId')??'',assignmentVersion=Number(url.searchParams.get('assignmentVersion'));
+  const date=url.searchParams.get('date')??'',weekStart=url.searchParams.get('weekStart')??'';
+  const dateMs=sharedQuotaDate(date),weekMs=sharedQuotaDate(weekStart);
+  if(!/^[A-Za-z0-9_-]{32,128}$/.test(localUserId)||!Number.isSafeInteger(assignmentVersion)||assignmentVersion<1
+    ||dateMs===null||weekMs===null||new Date(weekMs+8*3_600_000).getUTCDay()!==1
+    ||dateMs<weekMs||dateMs>=weekMs+7*86_400_000)
+    throw new HttpError(400,'INVALID_REQUEST','Shared quota date or assignment is invalid.');
+  const assignment=await env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
+    WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3 AND a.protected=1 AND a.child_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer WHERE newer.machine_id=a.machine_id
+        AND newer.local_user_id=a.local_user_id AND newer.assignment_version>a.assignment_version)`)
+    .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
+  if(!assignment)throw new HttpError(403,'SHARED_QUOTA_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
+  if(!env.GUARDIAN_COMPUTER_USAGE)throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source is unavailable.');
+  let guardian:Response;
+  try {guardian=await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedQuotaInputs',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:machine.accountId,
+      childId:assignment.child_id,fromDate:weekStart,toDate:sharedQuotaDateString(weekMs+6*86_400_000)})}));}
+  catch {throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source is unavailable.');}
+  let guardianValue:{policy?:UnifiedChildAccessPolicyV1;web?:Record<string,{contributions:SharedQuotaContributionV1[];expectedSourceKeys:string[];reasonCodes:string[]}>};
+  try {guardianValue=await guardian.json() as typeof guardianValue;}
+  catch {throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source is unavailable.');}
+  if(!guardian.ok||guardianValue.policy?.schemaVersion!==1||typeof guardianValue.policy.revision!=='string'
+    ||!guardianValue.web||typeof guardianValue.web!=='object')
+    throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source is unavailable.');
+  const policy=guardianValue.policy;
+  for(let day=weekMs;day<weekMs+7*86_400_000;day+=86_400_000) {
+    const source=guardianValue.web[sharedQuotaDateString(day)];
+    if(source!==undefined&&!isSharedQuotaInput(source,'web',sharedQuotaDateString(day),policy.revision))
+      throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source snapshot is invalid.');
+  }
+  if(!await applicationSharedQuotaUploadReady(env.RUNTIME_DB))
+    throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source snapshots are not ready.');
+  const applications=await readSharedQuotaApplicationInputs(env.RUNTIME_DB,machine.accountId,assignment.child_id,
+    weekStart,sharedQuotaDateString(weekMs+6*86_400_000),policy.revision,nowMs);
+  const reasonCodes=new Set<string>(),sources:SharedQuotaStateV1['sources'][number][]=[];
+  const daily=new Map<string,ReturnType<typeof projectSharedQuotaDay>>();
+  let weekRestUsedMs=0,weekComplete=true;
+  for(let day=weekMs;day<weekMs+7*86_400_000;day+=86_400_000) {
+    const currentDate=sharedQuotaDateString(day),web=guardianValue.web[currentDate],app=applications[currentDate];
+    if(app&&!isSharedQuotaInput(app,'application',currentDate,policy.revision))
+      throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Application quota source snapshot is invalid.');
+    const webContributions=web?.contributions??[],appContributions=app?.contributions??[];
+    const webKeys=new Set(webContributions.map(item=>item.sourceKey)),appKeys=new Set(appContributions.map(item=>item.sourceKey));
+    if(!web||web.expectedSourceKeys.length===0||web.expectedSourceKeys.some(key=>!webKeys.has(key)))reasonCodes.add('WEB_SOURCE_COVERAGE_INCOMPLETE');
+    if(!app||app.expectedSourceKeys.length===0||app.expectedSourceKeys.some(key=>!appKeys.has(key)))reasonCodes.add('APPLICATION_SOURCE_COVERAGE_INCOMPLETE');
+    for(const code of web?.reasonCodes??[])reasonCodes.add(code);
+    for(const code of app?.reasonCodes??[])reasonCodes.add(code);
+    const daySources=[...webContributions,...appContributions];
+    for(const source of daySources) {
+      if(source.date!==currentDate||source.policyRevision!==policy.revision||!source.complete) {
+        reasonCodes.add(source.policyRevision!==policy.revision?'SHARED_POLICY_REVISION_MISMATCH':'SHARED_SOURCE_INCOMPLETE');
+      }
+      sources.push({source:source.source,sourceKey:source.sourceKey,date:source.date,revision:source.revision});
+    }
+    const projected=projectSharedQuotaDay(policy,currentDate,daySources);
+    daily.set(currentDate,projected);weekRestUsedMs+=projected.usedMs.rest;
+    if(!projected.complete)weekComplete=false;
+    for(const code of projected.reasonCodes)reasonCodes.add(code);
+    if(!Number.isSafeInteger(weekRestUsedMs))reasonCodes.add('CONTRIBUTION_OVERFLOW');
+  }
+  const selected=daily.get(date);
+  if(!selected)throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota date is unavailable.');
+  const weeklyLimit=policy.weeklyRestMinutes===null?null:Math.max(0,policy.weeklyRestMinutes*60_000);
+  const orderedSources=sources.sort((a,b)=>`${a.date}:${a.source}:${a.sourceKey}`.localeCompare(`${b.date}:${b.source}:${b.sourceKey}`));
+  const settledValues=[...webContributionsForDate(guardianValue.web[date]),...appContributionsForDate(applications[date])]
+    .map(source=>source.settledAtMs);
+  const settledAtMs=settledValues.length&&settledValues.every(value=>value!==null)
+    ?Math.min(...settledValues as number[]):null;
+  const reasons=[...reasonCodes].sort();
+  const stateBase={schemaVersion:1 as const,policyRevision:policy.revision,computedAtMs:nowMs,settledAtMs,
+    complete:reasons.length===0&&weekComplete,reasonCodes:reasons,sources:orderedSources,
+    day:{date,usedMs:selected.usedMs,remainingMs:selected.remainingMs,borrowedRestMs:selected.borrowedRestMs},
+    week:{fromDate:weekStart,restUsedMs:weekRestUsedMs,restRemainingMs:weeklyLimit===null?null:Math.max(0,weeklyLimit-weekRestUsedMs)},offline:false};
+  const revision=await sha256Hex(JSON.stringify(stateBase));
+  return {...stateBase,revision};
+}
+
+function webContributionsForDate(value:SharedQuotaStateInputSource|undefined):SharedQuotaContributionV1[]{return value?.contributions??[];}
+function appContributionsForDate(value:SharedQuotaStateInputSource|undefined):SharedQuotaContributionV1[]{return value?.contributions??[];}
+type SharedQuotaStateInputSource={contributions:SharedQuotaContributionV1[];expectedSourceKeys:string[];reasonCodes:string[]};
 
 export async function routeV2(request: Request, env: Env, nowMs: number, defer?:(work:Promise<unknown>)=>void): Promise<Response | null> {
   const url = new URL(request.url);
@@ -409,6 +526,10 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       ||!['legacy','shadow','shared'].includes(String(result.policy.stage)))
       throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');
     return jsonResponse({policy:result.policy});
+  }
+  if (url.pathname === '/v2/machines/shared-quota/state') {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    return jsonResponse(await readSharedQuotaStateForMachine(request,env,machine,nowMs));
   }
   if (url.pathname === '/v2/machines/shared-quota/capabilities') {
     if (request.method !== 'GET') return methodNotAllowed('GET');

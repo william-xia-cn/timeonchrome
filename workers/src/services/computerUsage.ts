@@ -9,6 +9,7 @@ import { applyCorrectionsToV1StatsRows, listUsageAccountingCorrections } from '.
 import { generateToken } from '../db/middleware';
 import { statsRouter } from '../routes/stats';
 import { readSharedAccessPolicyForChild } from '../routes/profiles';
+import type { SharedQuotaContributionV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
@@ -31,6 +32,103 @@ async function readRuntime<T>(env:ComputerUsageEnv,operation:'applicationEvidenc
 }
 const DAY=86400000;
 const sha=async(value:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
+const sharedBuckets=['study','composite','rest'] as const;
+const sharedDate=(date:string)=>{const value=Date.parse(`${date}T00:00:00+08:00`);return /^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(value)&&new Date(value+28_800_000).toISOString().slice(0,10)===date?value:null;};
+const sharedDateString=(ms:number)=>new Date(ms+28_800_000).toISOString().slice(0,10);
+
+/** Read the already-published Guardian quota buckets; never reconstruct web time from segments. */
+export async function readSharedQuotaWebInputs(env:ComputerUsageEnv,accountId:string,childId:string,
+  fromDate:string,toDate:string,policyRevision:string,nowMs=Date.now()):Promise<{
+    contributions:SharedQuotaContributionV1[];expectedSourceKeys:string[];reasonCodes:string[];
+  }> {
+  const from=sharedDate(fromDate),to=sharedDate(toDate);
+  if(from===null||to===null||to<from||to-from>6*DAY||!policyRevision)throw new Error('SHARED_QUOTA_INVALID_RANGE');
+  const devices=await env.DB.prepare(`SELECT id FROM devices WHERE profile_id=?1 ORDER BY id LIMIT 101`)
+    .bind(childId).all<{id:string}>();
+  if((devices.results?.length??0)>100)throw new Error('COMPUTER_USAGE_SOURCE_LIMIT');
+  const contributions:SharedQuotaContributionV1[]=[],expectedSourceKeys:string[]=[],reasonCodes=new Set<string>();
+  const activeToday=sharedDateString(nowMs);
+  for(const device of devices.results??[]) {
+    const sourceKey=await sha(`${accountId}\nweb\n${device.id}`);expectedSourceKeys.push(sourceKey);
+    for(let day=from;day<=to;day+=DAY) {
+      const date=sharedDateString(day),dayStart=day;
+      const emptyBuckets={study:0,composite:0,rest:0};
+      // Future dates have provably elapsed zero time; past/current missing data is not zero.
+      if(date>activeToday) {
+        contributions.push({schemaVersion:1,source:'web',sourceKey,date,revision:`future:${date}:${policyRevision}`,
+          statisticsRevision:`future:${date}`,correctionRevision:'none',policyRevision,settledAtMs:dayStart,
+          complete:true,reasonCodes:[],bucketsMs:emptyBuckets});
+        continue;
+      }
+      try {
+        const head=await env.DB.prepare(`SELECT manifest_id FROM device_account_heads_v2 WHERE profile_id=?1 AND device_id=?2 AND date=?3`)
+          .bind(childId,device.id,date).first<{manifest_id:string}>();
+        let seconds={study:0,composite:0,rest:0},statisticsRevision='missing',correctionRevision='missing',settledAtMs:number|null=null;
+        let complete=false;const reasons=new Set<string>();
+        if(head) {
+          const account=await readManifestAccountV2(env,head.manifest_id);
+          if(!account||account.profileId!==childId||account.deviceId!==device.id||account.date!==date)throw new Error('WEB_ACCOUNT_SCOPE_CONFLICT');
+          const corrections=await readCompositeCorrections(env.DB.withSession('first-primary'),childId,device.id,date,account.generatedAt);
+          const effective=projectCompositeDailyRows(account,corrections.items);
+          for(const row of effective) {
+            if(row.channel!=='active'||!row.durationSeconds)continue;
+            const bucket=String(row.quotaBucket??'');
+            if(bucket==='other')continue;
+            if(!(sharedBuckets as readonly string[]).includes(bucket)||!Number.isSafeInteger(row.durationSeconds)||row.durationSeconds<0) {
+              reasons.add('WEB_QUOTA_BUCKET_UNKNOWN');continue;
+            }
+            seconds[bucket as keyof typeof seconds]+=row.durationSeconds;
+          }
+          const current=await env.DB.prepare(`SELECT manifest_id FROM device_account_heads_v2 WHERE profile_id=?1 AND device_id=?2 AND date=?3`)
+            .bind(childId,device.id,date).first<{manifest_id:string}>();
+          if(current?.manifest_id!==head.manifest_id)reasons.add('WEB_SOURCE_VERSION_CHANGED');
+          const correctionsAfter=await readCompositeCorrections(env.DB.withSession('first-primary'),childId,device.id,date,account.generatedAt);
+          if(correctionsAfter.revision!==corrections.revision)reasons.add('WEB_SOURCE_VERSION_CHANGED');
+          if(!account.complete||account.lossCount)reasons.add('WEB_ACCOUNT_INCOMPLETE');
+          statisticsRevision=`${account.manifestId}:${account.revision}:${account.statsHash}`;
+          correctionRevision=corrections.revision;settledAtMs=account.generatedAt;
+          complete=account.complete&&account.lossCount===0&&reasons.size===0;
+        } else {
+          // Legacy target aggregates are retained as best-effort evidence, never upgraded to complete coverage.
+          const raw=await env.DB.prepare(`SELECT * FROM target_stats_v1 WHERE profile_id=?1 AND device_id=?2 AND date=?3 ORDER BY target_key,channel,mode,quota_bucket`)
+            .bind(childId,device.id,date).all<Record<string,unknown>>();
+          const rows=raw.results??[];
+          if(rows.length) {
+            const corrections=await listUsageAccountingCorrections(env,childId,{from:date,to:date,deviceId:device.id});
+            const corrected=applyCorrectionsToV1StatsRows(rows,corrections,'daily_target');
+            for(const row of corrected) {
+              if(row.channel!=='active')continue;
+              const bucket=String(row.quota_bucket??'');
+              if(bucket==='other')continue;
+              if(!(sharedBuckets as readonly string[]).includes(bucket)||!Number.isSafeInteger(Number(row.duration_seconds))||Number(row.duration_seconds)<0) {
+                reasons.add('WEB_QUOTA_BUCKET_UNKNOWN');continue;
+              }
+              seconds[bucket as keyof typeof seconds]+=Number(row.duration_seconds);
+            }
+            statisticsRevision=await sha(JSON.stringify(rows));correctionRevision=await sha(JSON.stringify(corrections));
+            settledAtMs=Math.max(...rows.map(row=>Number(row.last_seen_at??row.updated_at??0)));
+          }
+          reasons.add(rows.length?'WEB_LEGACY_STATISTICS_BEST_EFFORT':'WEB_SOURCE_SNAPSHOT_MISSING');
+        }
+        const safe=Object.values(seconds).every(value=>Number.isSafeInteger(value)&&value>=0&&Number.isSafeInteger(value*1000));
+        if(!safe)reasons.add('WEB_QUOTA_DURATION_INVALID');
+        const contribution:SharedQuotaContributionV1={schemaVersion:1,source:'web',sourceKey,date,
+          revision:await sha(JSON.stringify({statisticsRevision,correctionRevision,head:head?.manifest_id??null})),
+          statisticsRevision,correctionRevision,policyRevision,settledAtMs,complete:complete&&reasons.size===0,
+          reasonCodes:[...reasons].sort(),bucketsMs:Object.fromEntries(sharedBuckets.map(bucket=>[bucket,safe?seconds[bucket]*1000:0])) as Record<'study'|'composite'|'rest',number>};
+        if(!contribution.complete)for(const reason of contribution.reasonCodes)reasonCodes.add(reason);
+        contributions.push(contribution);
+      } catch(error) {
+        const code=error instanceof Error&&/^COMPOSITE_|^PROFILE_ACCOUNT_|^WEB_/.test(error.message)?error.message:'WEB_SOURCE_UNAVAILABLE';
+        reasonCodes.add(code);
+        contributions.push({schemaVersion:1,source:'web',sourceKey,date,revision:'unavailable',statisticsRevision:'unavailable',
+          correctionRevision:'unavailable',policyRevision,settledAtMs:null,complete:false,reasonCodes:[code],bucketsMs:emptyBuckets});
+      }
+    }
+  }
+  if(!expectedSourceKeys.length)reasonCodes.add('WEB_COVERAGE_MISSING');
+  return {contributions,expectedSourceKeys,reasonCodes:[...reasonCodes].sort()};
+}
 export function validateComputerUsageRange(from:string,to:string) {
   const start=Date.parse(`${from}T00:00:00+08:00`),end=Date.parse(`${to}T00:00:00+08:00`);
   const valid=(date:string,time:number)=>/^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(time)
@@ -178,7 +276,7 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
 export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
   async fetch(request:Request):Promise<Response> {
     const operation=new URL(request.url).pathname;
-    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy'].includes(operation))
+    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy','/readSharedQuotaInputs'].includes(operation))
       return Response.json({code:'METHOD_NOT_ALLOWED'},{status:405});
     const reader=request.body?.getReader();
     if(!reader)return Response.json({code:'INVALID_SCOPE'},{status:400});
@@ -189,15 +287,25 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     const body=new TextDecoder().decode(bytes);
     let input:Record<string,unknown>;
     try {input=JSON.parse(body);}catch{return Response.json({code:'INVALID_SCOPE'},{status:400});}
-    if(!input||['accountId','childId'].some(key=>typeof input[key]!=='string'||!String(input[key]).length||String(input[key]).length>200))return Response.json({code:'INVALID_SCOPE'},{status:400});
+    if(!input||['accountId','childId'].some(key=>typeof input[key]!=='string'||!String(input[key]).length||String(input[key]).length>200)
+      ||(operation==='/readSharedQuotaInputs'&&['fromDate','toDate'].some(key=>typeof input[key]!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(String(input[key])))))
+      return Response.json({code:'INVALID_SCOPE'},{status:400});
     try {
       if(operation==='/readSharedAccessPolicy'){
         const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
         return policy?Response.json({policy}):Response.json({code:'CHILD_NOT_FOUND'},{status:404});
       }
+      if(operation==='/readSharedQuotaInputs'){
+        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
+        if(!policy)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
+        const web=await readSharedQuotaWebInputs(this.env,String(input.accountId),String(input.childId),
+          String(input.fromDate),String(input.toDate),policy.revision);
+        return Response.json({policy,web});
+      }
       const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(input.childId,input.accountId).first();
       return Response.json({owned:!!owned});
-    }catch{return Response.json({code:operation==='/readSharedAccessPolicy'?'SHARED_ACCESS_POLICY_UNAVAILABLE':'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});}
+    }catch{return Response.json({code:operation==='/readSharedAccessPolicy'?'SHARED_ACCESS_POLICY_UNAVAILABLE'
+      :operation==='/readSharedQuotaInputs'?'SHARED_QUOTA_SOURCE_UNAVAILABLE':'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});}
   }
   async getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly=false){return readComputerUsage(this.env,accountId,childId,from,to,computer,summaryOnly);}
   async getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string) {

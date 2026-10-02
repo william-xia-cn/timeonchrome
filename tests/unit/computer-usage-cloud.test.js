@@ -7,9 +7,11 @@ const module={exports:{}};cache.set(file,module);
 const source=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,URLSearchParams,Date,Map,Set,Request,Response,console,require:name=>{
 if(name==='cloudflare:workers')return {WorkerEntrypoint:class{constructor(_,env){this.env=env;}}};
+if(name==='postal-mime')return {default:class PostalMime{async parse(){return {};}}};
 if(name in overrides)return overrides[name];
 if(name==='@timeonchrome/app-runtime-contracts/computer-usage')return load('app-runtime-management/contracts/computer-usage.ts');
 const next=path.posix.normalize(path.posix.join(path.posix.dirname(file),name));
+if(next.endsWith('.json'))return JSON.parse(fs.readFileSync(path.join(root,next),'utf8'));
 return load(next.endsWith('.js')||next.endsWith('.ts')?next:next+'.ts');
 }});
 return module.exports;};}
@@ -47,6 +49,40 @@ const policyRequest=(accountId,childId)=>new Request('https://private-capability
 assert.deepEqual(await (await scoped.fetch(policyRequest('current-account','current-child'))).json(),
   {policy:{schemaVersion:1,revision:'profile-config:7',stage:'legacy'}});
 assert.equal((await scoped.fetch(policyRequest('foreign-account','current-child'))).status,404);
+const quotaDate='2026-10-01',quotaDay=Date.parse(quotaDate+'T00:00:00+08:00');
+const quotaDb={prepare(sql){return {bind(...params){return {
+  async first(){if(sql.includes('FROM devices'))return null;if(sql.includes('SELECT manifest_id'))return {manifest_id:'quota-head'};return null;},
+  async all(){if(sql.includes('FROM devices'))return {results:[{id:'browser'}]};return {results:[]};}
+};}};},withSession(){return this;}};
+const quotaAccount={profileId:'current-child',deviceId:'browser',date:quotaDate,revision:1,statsHash:'web-hash',manifestId:'manifest-1',
+  generatedAt:quotaDay+5000,committedAt:quotaDay+6000,complete:true,lossCount:0,rows:[]};
+const quotaModule=loader({'./profileAccountsV2':{readManifestAccountV2:async()=>quotaAccount},
+  './compositePageCorrections':{readCompositeCorrections:async()=>({revision:'correction-r1',items:[]}),
+    projectCompositeDailyRows:()=>[{channel:'active',quotaBucket:'study',durationSeconds:3},
+      {channel:'active',quotaBucket:'other',durationSeconds:7}]},
+  '../routes/profiles':{readSharedAccessPolicyForChild:async()=>({schemaVersion:1,revision:'profile-config:7',stage:'legacy'})}
+})('workers/src/services/computerUsage.ts');
+const quotaResponse=await new quotaModule.ComputerUsageService({}, {DB:quotaDb}).fetch(new Request('https://private-capability/readSharedQuotaInputs',
+  {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'account-a',childId:'current-child',
+    fromDate:quotaDate,toDate:quotaDate})}));
+assert.equal(quotaResponse.status,200);const quotaBody=await quotaResponse.json();
+assert.equal(quotaBody.web.contributions.length,1);assert.equal(quotaBody.web.contributions[0].complete,true);
+assert.deepEqual(JSON.parse(JSON.stringify(quotaBody.web.contributions[0].bucketsMs)),{study:3000,composite:0,rest:0},
+  'Guardian shared contribution reuses published effective quota buckets and excludes other');
+let correctionReads=0;
+const unstableQuotaModule=loader({'./profileAccountsV2':{readManifestAccountV2:async()=>quotaAccount},
+  './compositePageCorrections':{readCompositeCorrections:async()=>({revision:`correction-r${++correctionReads}`,items:[]}),
+    projectCompositeDailyRows:()=>[{channel:'active',quotaBucket:'study',durationSeconds:3}]},
+  '../routes/profiles':{readSharedAccessPolicyForChild:async()=>({schemaVersion:1,revision:'profile-config:7',stage:'legacy'})}
+})('workers/src/services/computerUsage.ts');
+const unstableWeb=await unstableQuotaModule.readSharedQuotaWebInputs({DB:quotaDb},'account-a','current-child',
+  quotaDate,quotaDate,'profile-config:7',quotaDay+7000);
+assert.equal(unstableWeb.contributions[0].complete,false,'correction revision changing during read cannot be published complete');
+assert.ok(unstableWeb.contributions[0].reasonCodes.includes('WEB_SOURCE_VERSION_CHANGED'));
+const badQuota=await new quotaModule.ComputerUsageService({}, {DB:quotaDb}).fetch(new Request('https://private-capability/readSharedQuotaInputs',
+  {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'account-a',childId:'current-child',
+    fromDate:'not-a-date',toDate:quotaDate})}));
+assert.equal(badQuota.status,400);
 assert.equal((await scoped.fetch(new Request('https://private-capability/getUsage',{method:'POST'}))).status,405);
 assert.equal((await scoped.fetch(scopeRequest('x'.repeat(3000),'current-child'))).status,400);
 const failedScope=new service.ComputerUsageService({}, {DB:{prepare(){throw Error('private DB failure');}}});
