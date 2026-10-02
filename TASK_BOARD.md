@@ -2,6 +2,10 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+云端接续小批（standard-cloud）：在现有sharedAccessState读取器旁补独立执行依据组装，保留网页原manifest ordinal和应用原共享贡献revision、外层发布revision；旧shared state响应和计算不变。读取仅已持久化统计，不读Segment。来源没有可信ordinal/覆盖缺口时保留原因，不补造来源；全周按当前Child读取。最小测试为真实读取器聚焦fixture、旧共享state回归、根typecheck/职责/diff；认证公开接入与分页运输尚待下一步，不把内部组装函数当权限接口或启用证据。PR204已合入2418714，全部相关CI通过；1.27固定包88646bytes/SHA256 c277f13547f28d0c619c036f1b0ef9cee8a053fa0384647fd3b3d30c5485c41d已通知两端。
+
+本接续批审计：实际sharedAccessState读取器聚焦测试、旧共享路由、根typecheck、源码与职责/diff通过。新增依据只顺序读取最多七个已结算统计日，无原Segment重算/写入；保留原应用贡献版本与外层发布版本及可信ordinal，旧接口计算不变。历史缺ordinal和来源失败保留原因，有效来源继续保留；revision绑定account/Child/policy/stage及全部来源。首次隐私断言误检查夹具非真实statsHash内的设备标签，改为明确检查sourceKey后通过，不将第一次失败称通过。Matched=内部读取与原响应兼容；Deviated/Extra=无；Missing=公开设备/机器授权、分页与两端实际消费及执行，未部署/启用。Native已获内部local-only候选及原gate通过后同body promotion具体交接，不允许改变上传事实或先发送未认可清单。
+
 本轮契约子批（architecture-integration）：Contracts1.27新增独立执行依据/替换纯函数和共同向量，区分发布版本与来源单调版本，仅按认证允许的精确scope替换已存在来源；不从云端最终总量减自身，不重新结算。允许路径为contracts、工作区版本锁及现有DESIGN/任务板。最小验证为契约编译、旧兼容检查与新增向量、实际云端typecheck/边界/diff；两端锁待新包验真后所属任务更新，无关平台/安装器/浏览器不跑，不部署启用。设备policy PR203已合入8330873，真实Guardian兼容CI37032059827含新路由测试通过。
 
 本批本地审计：新增执行依据schema与12共同向量，以及授权scope、周期、重复来源、私密字段、网页整数秒、不可变输入/覆盖缺口回归通过；契约build、兼容、既有shared-access及根typecheck通过。首次编译的类型错误/沙箱写入失败已修正并重新成功，不计失败为通过。machine-control向量只同步包版本元数据，既有协议/消息不改。Matched=逐来源版本替换核心与schema；Deviated/Extra=无；Missing=云端分页来源依据/认证绑定、两端执行与实际联调，整体仍未完成。Native自身上传回执子项已提交3a00945，控件设备配置LKG已再次明确交接；本轮无部署/安装/启用。

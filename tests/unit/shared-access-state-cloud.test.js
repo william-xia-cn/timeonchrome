@@ -4,6 +4,8 @@ function loader(overrides={}){const cache=new Map();return function load(file){i
 const source=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,Request,Response,Date,Map,Set,Promise,Number,Object,JSON,Error,console,require:name=>{
 if(name in overrides)return overrides[name];if(name==='@timeonchrome/app-runtime-contracts/shared-access')return load('app-runtime-management/contracts/shared-access.ts');
+if(name==='@timeonchrome/app-runtime-contracts/shared-quota-execution')return load('app-runtime-management/contracts/shared-quota-execution.ts');
+if(name==='./shared-access.js')return load('app-runtime-management/contracts/shared-access.ts');
 const next=path.posix.normalize(path.posix.join(path.posix.dirname(file),name));return load(next.endsWith('.js')||next.endsWith('.ts')?next:next+'.ts');}});return module.exports;};}
 const date='2026-10-02',start=Date.parse(`${date}T00:00:00+08:00`),allDay=[{start:'00:00',end:'24:00'}];
 const weekdays=['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
@@ -31,14 +33,14 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
     if(sql.includes('FROM stats_v1'))return{results:[]};return{results:[]};}
  };}};},withSession(){return db;}};
  const mocks={'./profileAccountsV2':{readManifestAccountV2:async(_env,manifestId)=>{const scope=manifestScopes.get(manifestId)??{date,deviceId:'browser'};
-   return{...account,deviceId:scope.deviceId,date:scope.date,revision:`2:${scope.date}`,statsHash:`web-hash-${scope.date}-${scope.deviceId}`};}},
+   return{...account,deviceId:scope.deviceId,date:scope.date,revision:2,statsHash:`web-hash-${scope.date}-${scope.deviceId}`};}},
   './compositePageCorrections':{readCompositeCorrections:async()=>({items:[],revision:'corr-web'}),projectCompositeDailyRows:(_account,rows)=>account.rows.filter(row=>row.kind==='daily_target')},
   './usageAccountingCorrections':{listUsageAccountingCorrections:async()=>[],applyCorrectionsToV1StatsRows:rows=>rows}};
  const load=loader(mocks),service=load('workers/src/services/sharedAccessState.ts');
  const env={DB:db,RUNTIME_COMPUTER_USAGE:{fetch:async request=>{const body=await request.json();
-  const current={...application,date:body.fromDate,revision:`4:${body.fromDate}`,statisticsRevision:`hash-app-${body.fromDate}`};
+  const current={...application,date:body.fromDate,revision:`raw-app-${body.fromDate}`,statisticsRevision:`hash-app-${body.fromDate}`};
   return Response.json({complete:appCoverage,expectedScopeCount:expectedAppScopes,verifiedScopeCount:appCoverage?1:0,
-    reasonCodes:appCoverage?[]:['APPLICATION_ACCOUNT_NOT_PUBLISHED'],contributions:appCoverage?[{sourceKey:application.sourceKey,revision:current.revision,contribution:current}]:[]});}}};
+    reasonCodes:appCoverage?[]:['APPLICATION_ACCOUNT_NOT_PUBLISHED'],contributions:appCoverage?[{sourceKey:application.sourceKey,revision:`4:${body.fromDate}`,contribution:current}]:[]});}}};
  return{service,env};
 }
 (async()=>{
@@ -55,6 +57,18 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
  assert.equal(result.week.restUsedMs,5*60000,'weekly state sums Monday through Friday daily Rest projections');
  assert.equal(result.week.restRemainingMs,240*60000-5*60000,'weekly entertainment quota uses the unified policy');
  assert.equal(result.usableForEnforcement,false,'shadow state is not an enforcement input');
+ const basis=await service.readSharedQuotaExecutionBasis(env,'account','child',date,policy);
+ assert.equal(basis.fromDate,'2026-09-28');assert.equal(basis.days.length,5);
+ const appBasis=basis.days.at(-1).sources.find(entry=>entry.contribution.source==='application');
+ assert.equal(appBasis.revisionOrdinal,4);
+ assert.equal(appBasis.publicationRevision,`4:${date}`);
+ assert.equal(appBasis.contribution.revision,`raw-app-${date}`,'raw contribution revision is not overwritten by publication revision');
+ assert.equal(basis.days[0].sources.find(entry=>entry.contribution.source==='web').revisionOrdinal,2);
+ assert.equal((await service.readSharedQuotaExecutionBasis(env,'account','child',date,policy)).revision,basis.revision);
+ assert.notEqual((await service.readSharedQuotaExecutionBasis(env,'another-account','child',date,policy)).revision,basis.revision);
+ assert.equal(JSON.stringify(basis).includes('device_name'),false);
+ assert.ok(basis.days.every(day=>day.sources.every(entry=>entry.contribution.sourceKey!=='browser')),
+   'source keys are opaque, never raw device identifiers');
  const stageChanged=await service.readSharedAccessDayState(env,'account','child',date,{...policy,stage:'shadow'});
  assert.notEqual(result.revision,stageChanged.revision,'policy rollout stage changes produce a new state revision');
  assert.equal(JSON.stringify(result).includes('local_user_id'),false,'raw Runtime account identifiers never reach the Child reader');
@@ -78,6 +92,12 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
  assert.equal(bestEffort.complete,false,'legacy aggregates are best-effort only');
  assert.ok(bestEffort.reasonCodes.includes('HISTORICAL_SOURCE_BEST_EFFORT'));
  assert.equal(bestEffort.web.bucketsMs.study,600000,'legacy value remains visible as a separate diagnostic');
+ const historicalBasis=await old.service.readSharedQuotaExecutionBasis(old.env,'account','child',date,policy);
+ assert.ok(historicalBasis.days[0].reasonCodes.includes('SOURCE_EXECUTION_VERSION_UNAVAILABLE'));
+ assert.equal(historicalBasis.days[0].sources.some(entry=>entry.contribution.source==='web'),false,'no invented ordinal for legacy sources');
+ const partialBasis=await incomplete.service.readSharedQuotaExecutionBasis(incomplete.env,'account','child',date,policy);
+ assert.ok(partialBasis.days[0].reasonCodes.includes('SOURCE_COVERAGE_INCOMPLETE'));
+ assert.equal(partialBasis.days[0].sources.length,1,'valid web source remains when application source is missing');
 
  const buckets=service.quotaBucketsFromRows([
   {channel:'active',quotaBucket:'study',durationSeconds:3},{channel:'active',quotaBucket:'other',durationSeconds:7},
