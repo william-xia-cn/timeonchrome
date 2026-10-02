@@ -16,6 +16,10 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 单项授权后复验：`managed-targets.test.js` 47/47、`classification-effective-boundary.test.js` 12/12、`usage-segments.test.js` 295/295 通过，`git diff --check` 通过。已验证“其他”60秒新分段在原始、日、小时账中均保留60秒，独立桶计入60秒且Study桶不增加；用途归类不触发配置变更切分。仅是本地专项证据，不替代真实浏览器或上线验收；本次没有新增产品代码变更、历史改账、提交或部署。
 
+2026-10-03 分页包精确审查续修：已确认固定1.28组装器允许应用scope，且终端缓存替换此前未比较持久来源版本。设备HTTPS消费者增加独立授权边界：只接受web授权scope，同一设备各日期的授权sourceKey必须一致；应用贡献可读但应用scope不得授予。在derived串行写入中读取同scope／完整policy摘要／同截止日期的可信旧LKG，逐source/date比较revisionOrdinal；旧ordinal、同ordinal异内容及无明确退休协议的已有来源消失均拒绝替换并保留旧缓存。新ordinal允许用量下降，不对opaque basisRevision排序，不修改固定契约或原账。仅复验真实reader的授权／缓存回归及类型、职责、diff；默认关闭，不启用、发布或改候选。
+
+续修验证：固定1.28包原字节及真实分页reader专项通过，覆盖合法schema的应用scope仍被拒绝（有／无旧缓存）、重启后的旧ordinal拒绝、同ordinal内容／publication冲突、新ordinal合法降量及basis摘要不排序、旧来源消失不清账。typecheck、三文件职责检查和diff通过；固定vendor、cloud传输和background均未改，复用712bce3对应证据。Matched＝设备web授权边界与持久来源版本保护；Deviated／Extra＝无。真实API／Host验收和完整policy身份缺口仍未关闭。
+
 ### D-114 终端契约与实施边界
 
 2026-10-03 统一配置读取／LKG独立包：云端交接明确 `GET /device/shared-access/v1` 使用既有设备Bearer、自绑定Child、无scope query/body，最终响应为 `{schemaVersion:1,profileId,policy}`，同父端UnifiedChildAccessPolicyV1。必须核对服务端profileId与捕获的本机cloud_profile_id；错Child明确不可用，不把政策写入旧scope或沿用旧LKG冒充当前授权。旧云端404保持旧网页路径，不改 `/device/config`、配置源或stage。终端只增加捕获凭据的只读传输和默认关闭消费适配；初始化同步注册生命周期／身份与Native能力监听，显式候选启用后才在启动／重连读取。旧Service未协商V3和shared-quota-state-read时不读取、不共享执行。原云同步、网页访问和配置保存函数不接入此缓存。

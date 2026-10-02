@@ -46,10 +46,22 @@ export function createSharedQuotaExecutionReader({ enabled = false, readContext 
   function project(context, assembled, date) {
     if (!assembled || Object.keys(assembled).length !== 2 || !assembled.basis || !Array.isArray(assembled.authorizedScopes)
       || assembled.basis.toDate !== date || !/^[a-f0-9]{64}$/.test(assembled.basis.revision)) throw Error('shared_execution_invalid_cache');
+    if (assembled.authorizedScopes.some(scope => scope.source !== 'web')
+      || new Set(assembled.authorizedScopes.map(scope => scope.sourceKey)).size > 1) throw Error('shared_execution_invalid_scope');
     const result = projectLocalSharedQuotaExecution(context.policy, assembled.basis, [], assembled.authorizedScopes);
     const existing = new Set(assembled.basis.days.flatMap(day => day.sources.map(source => scopeKey(source.contribution))));
     if (assembled.authorizedScopes.some(scope => !existing.has(scopeKey(scope)))) throw Error('shared_execution_invalid_cache');
     return result;
+  }
+  function checkSourceVersions(previous, next) {
+    const incoming = new Map(next.basis.days.flatMap(day => day.sources.map(entry => [scopeKey(entry.contribution), entry])));
+    for (const old of previous.basis.days.flatMap(day => day.sources)) {
+      const value = incoming.get(scopeKey(old.contribution));
+      if (!value || value.revisionOrdinal < old.revisionOrdinal) throw Error('shared_execution_stale_source');
+      if (value.revisionOrdinal === old.revisionOrdinal && canonicalSharedPolicy(value) !== canonicalSharedPolicy(old)) {
+        throw Error('shared_execution_source_conflict');
+      }
+    }
   }
   async function validRecord(value, context, date) {
     if (!value || Object.keys(value).length !== 7 || value.schemaVersion !== 1 || value.scopeHash !== context.scopeHash
@@ -142,19 +154,24 @@ export function createSharedQuotaExecutionReader({ enabled = false, readContext 
         return await fallback(epoch, context, date, result.errorCode);
       }
       if (signal.aborted) return await fallback(epoch, context, date, 'shared_execution_cancelled');
+      project(context, result.assembled, date);
       const record = { schemaVersion: 1, scopeHash: context.scopeHash, policyHash: context.policyHash,
         date, receivedAtMs: now(), assembled: result.assembled, basisHash: await digest(canonicalSharedPolicy(result.assembled)) };
       if (!Number.isSafeInteger(record.receivedAtMs) || record.receivedAtMs < 0 || bytes(record) > MAX_BYTES) return fail('shared_execution_size_limit');
       const committed = await mutate(async storage => {
+        const previous = await validRecord((await storage.get(SHARED_QUOTA_EXECUTION_LKG_KEY))[SHARED_QUOTA_EXECUTION_LKG_KEY], context, date);
+        if (previous) checkSourceVersions(previous.assembled, result.assembled);
         if (!await matches(epoch, context) || signal.aborted) return false;
         await storage.set({ [SHARED_QUOTA_EXECUTION_LKG_KEY]: record }); return true;
       }, { priority: 'derived', source: 'shared_execution_lkg' });
       if (!committed || !await matches(epoch, context)) return fail('shared_execution_identity_changed');
       blockedScope = null;
       return present(record, context, 'fresh');
-    } catch (_) {
+    } catch (error) {
       if (!context) return fail('shared_execution_policy_unavailable');
-      try { return await fallback(epoch, context, date, 'shared_execution_unavailable'); }
+      const errorCode = ['shared_execution_invalid_scope', 'shared_execution_stale_source', 'shared_execution_source_conflict'].includes(error?.message)
+        ? error.message : 'shared_execution_unavailable';
+      try { return await fallback(epoch, context, date, errorCode); }
       catch (_) { return fail('shared_execution_local_read_failed'); }
     }
   }

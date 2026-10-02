@@ -92,6 +92,31 @@ async function run() {
   const stored = f.cache(); assert.equal(Object.keys(stored).length, 7);
   for (const text of ['fixture-A', 'device-A', 'child-A', 'https://fixture.invalid']) assert(!JSON.stringify(stored).includes(text));
   assert.equal((await f.reader().read()).status, 'lkg', 'restart reads the complete persisted record');
+  const unauthorized = makePages();
+  for (const page of unauthorized) page.authorizedScopes[0] = { source: 'application', sourceKey: 'application-1', date: '2026-09-28' };
+  f.pages(unauthorized);
+  assert.equal((await reader.refresh()).errorCode, 'shared_execution_invalid_scope');
+  assert.deepEqual(f.cache(), stored, 'schema-valid application scopes cannot replace a device web authorization');
+  const noAuth = fixture(); noAuth.pages(unauthorized);
+  assert.equal((await noAuth.reader().refresh()).errorCode, 'shared_execution_invalid_scope'); assert.equal(noAuth.writes.length, 0);
+  const versions = fixture(), vr = versions.reader();
+  const high = makePages({ revision: 'f'.repeat(64) });
+  for (const page of high) for (const item of page.page.items) item.revisionOrdinal = 2;
+  versions.pages(high); assert.equal((await vr.refresh()).status, 'fresh'); const highCache = versions.cache();
+  versions.pages(makePages({ revision: 'a'.repeat(64) }));
+  assert.equal((await versions.reader().refresh()).errorCode, 'shared_execution_stale_source'); assert.deepEqual(versions.cache(), highCache);
+  for (const change of [item => { item.contribution.bucketsMs.rest = 2000; }, item => { item.publicationRevision = 'pub-conflict'; }]) {
+    const conflictPages = clone(high); change(conflictPages[0].page.items[0]); versions.pages(conflictPages);
+    assert.equal((await vr.refresh()).errorCode, 'shared_execution_source_conflict'); assert.deepEqual(versions.cache(), highCache);
+  }
+  const lowerUsage = clone(high);
+  for (const page of lowerUsage) {
+    page.basisRevision = '0'.repeat(64);
+    for (const item of page.page.items) { item.revisionOrdinal = 3; item.publicationRevision += '-new'; item.contribution.bucketsMs.rest = 0; }
+  }
+  versions.pages(lowerUsage); assert.equal((await vr.refresh()).status, 'fresh', 'new ordinal can lower usage despite lexically lower opaque basis');
+  assert.equal(versions.cache().assembled.basis.days[0].sources[0].contribution.bucketsMs.rest, 0);
+  f.pages(makePages());
   assert.equal((await reader.read('2026-10-03')).ok, false, 'different daily cutoff cannot consume old coverage');
   f.response(async () => ({ ok: false, errorCode: 'shared_access_unavailable' }));
   assert.equal((await reader.refresh()).status, 'lkg'); assert.deepEqual(f.cache(), stored);
@@ -110,8 +135,10 @@ async function run() {
   const empty = makePages()[0]; empty.authorizedScopes = [];
   empty.days.forEach(day => { day.sourceCount = 0; day.reasonCodes = []; });
   empty.page = { offset: 0, limit: 50, total: 0, nextOffset: null, items: [] }; f.pages([empty]);
-  const noSources = await reader.refresh(); assert.equal(noSources.complete, false); assert.equal(noSources.executionEnabled, false);
+  const absent = fixture(); absent.pages([empty]);
+  const noSources = await absent.reader().refresh(); assert.equal(noSources.complete, false); assert.equal(noSources.executionEnabled, false);
   assert(noSources.reasonCodes.includes('WEB_COVERAGE_MISSING'));
+  assert.equal((await reader.refresh()).errorCode, 'shared_execution_stale_source'); assert.deepEqual(f.cache(), stored, 'missing old sources cannot erase published contributions');
   f.pages(makePages({ missing: true }));
   const incomplete = await reader.refresh(); assert.equal(incomplete.complete, false); assert.equal(incomplete.executionEnabled, false);
   assert(incomplete.reasonCodes.includes('APPLICATION_COVERAGE_MISSING'));
