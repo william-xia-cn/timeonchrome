@@ -117,6 +117,25 @@ describe('Runtime product API', () => {
     expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_application_shared_quota_receipts_v1')
       .first<{count:number}>())?.count).toBe(1);
   });
+
+  it('returns the shared quota shadow only for the machine protected assignment, never a caller Child ID', async () => {
+    const {enrolled,localUserId}=await createMachineWithUser();
+    const headers=bearer(enrolled.machineToken);
+    const path=`/v2/machines/shared-quota/state?localUserId=${encodeURIComponent(localUserId)}&assignmentVersion=2&date=2026-10-02&childId=attacker-child`;
+    const response=await call(path,{headers});
+    expect(response.status).toBe(200);
+    const result=await response.json<{sharedQuota:Record<string,unknown>}>();
+    expect(result.sharedQuota).toMatchObject({schemaVersion:1,policyRevision:'profile-config:1',revision:'shadow-r1',
+      complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],offline:false,
+      day:{date:'2026-10-02',usedMs:{study:1000,composite:2000,rest:3000}},
+      week:{fromDate:'2026-09-28',toDate:'2026-10-02',complete:false}});
+    expect(result.sharedQuota).not.toHaveProperty('profileId');
+    expect((await call(path.replace('assignmentVersion=2','assignmentVersion=1'),{headers})).status).toBe(403);
+    expect((await call(path.replace('date=2026-10-02','date=2026-02-30'),{headers})).status).toBe(400);
+    expect((await call(path.replace('date=2026-10-02','date=2026-10-03'),{headers})).status).toBe(503);
+    expect((await call(path,{headers:bearer(enrolled.machineToken+'x')})).status).toBe(401);
+    expect((await call(path,{method:'POST',headers})).status).toBe(405);
+  });
   it('corrects current-week application attribution end-to-end without rewriting ledger or prior weeks', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const day = 86_400_000, now = Date.now(), shifted = new Date(now + 8 * 3_600_000);

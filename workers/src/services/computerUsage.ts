@@ -9,6 +9,8 @@ import { applyCorrectionsToV1StatsRows, listUsageAccountingCorrections } from '.
 import { generateToken } from '../db/middleware';
 import { statsRouter } from '../routes/stats';
 import { readSharedAccessPolicyForChild } from '../routes/profiles';
+import { readSharedAccessDayState, type SharedAccessStateEnv } from './sharedAccessState';
+import type { SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
@@ -178,7 +180,7 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
 export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
   async fetch(request:Request):Promise<Response> {
     const operation=new URL(request.url).pathname;
-    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy'].includes(operation))
+    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy','/readSharedQuotaState'].includes(operation))
       return Response.json({code:'METHOD_NOT_ALLOWED'},{status:405});
     const reader=request.body?.getReader();
     if(!reader)return Response.json({code:'INVALID_SCOPE'},{status:400});
@@ -195,9 +197,31 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
         const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
         return policy?Response.json({policy}):Response.json({code:'CHILD_NOT_FOUND'},{status:404});
       }
+      if(operation==='/readSharedQuotaState'){
+        const date=String(input.date??'');
+        const dayStart=Date.parse(`${date}T00:00:00+08:00`);
+        if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||!Number.isFinite(dayStart)
+          ||new Date(dayStart+28_800_000).toISOString().slice(0,10)!==date)
+          return Response.json({code:'INVALID_DATE'},{status:400});
+        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
+        if(!policy)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
+        const projected=await readSharedAccessDayState(this.env as SharedAccessStateEnv,String(input.accountId),
+          String(input.childId),date,policy);
+        const state:SharedQuotaStateV1={schemaVersion:1,policyRevision:projected.policyRevision,revision:projected.revision,
+          computedAtMs:projected.computedAtMs,settledAtMs:projected.settledAtMs,complete:projected.complete,
+          reasonCodes:projected.reasonCodes,sources:projected.sources,
+          day:{date:projected.day.date,usedMs:projected.day.usedMs,remainingMs:projected.day.remainingMs,
+            borrowedRestMs:projected.day.borrowedRestMs},week:projected.week,offline:false};
+        return Response.json({state});
+      }
       const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(input.childId,input.accountId).first();
       return Response.json({owned:!!owned});
-    }catch{return Response.json({code:operation==='/readSharedAccessPolicy'?'SHARED_ACCESS_POLICY_UNAVAILABLE':'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});}
+    }catch(error){
+      const code=error instanceof Error&&error.message==='INVALID_DATE'?'INVALID_DATE'
+        :operation==='/readSharedAccessPolicy'?'SHARED_ACCESS_POLICY_UNAVAILABLE'
+          :operation==='/readSharedQuotaState'?'SHARED_QUOTA_STATE_UNAVAILABLE':'APPLICATION_SCOPE_UNAVAILABLE';
+      return Response.json({code},{status:code==='INVALID_DATE'?400:503});
+    }
   }
   async getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly=false){return readComputerUsage(this.env,accountId,childId,from,to,computer,summaryOnly);}
   async getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string) {

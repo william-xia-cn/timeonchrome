@@ -2,6 +2,7 @@ import { requireAccountModule, requireMachine } from './auth';
 import { routeApplicationAccounts } from './applicationAccounts';
 import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota } from './applicationSharedQuota';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
+import type { SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
 import { machineUsageCorrections } from './applicationUsageCorrections';
@@ -87,6 +88,66 @@ async function readSharedAccessPolicy(env: Env, accountId: string, childId: stri
     throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置响应无效。');
   }
   return policy;
+}
+
+function isSharedQuotaState(value: unknown): value is SharedQuotaStateV1 {
+  const exactKeys=(record:Record<string,unknown>,keys:readonly string[])=>
+    Object.keys(record).length===keys.length&&keys.every(key=>Object.hasOwn(record,key));
+  if (!isRecord(value) || !exactKeys(value,['schemaVersion','policyRevision','revision','computedAtMs','settledAtMs',
+    'complete','reasonCodes','sources','day','week','offline']) || value.schemaVersion !== 1
+    || typeof value.policyRevision !== 'string' || !value.policyRevision
+    || typeof value.revision !== 'string' || !value.revision || !Number.isSafeInteger(value.computedAtMs)
+    || !(value.settledAtMs === null || Number.isSafeInteger(value.settledAtMs))
+    || typeof value.complete !== 'boolean' || !Array.isArray(value.reasonCodes)
+    || !value.reasonCodes.every(code => typeof code === 'string') || !Array.isArray(value.sources)
+    || typeof value.offline !== 'boolean' || !isRecord(value.day) || !isRecord(value.week)) return false;
+  const buckets = ['study', 'composite', 'rest'] as const;
+  const used = value.day.usedMs, remaining = value.day.remainingMs;
+  if (!exactKeys(value.day,['date','usedMs','remainingMs','borrowedRestMs'])
+    || !exactKeys(value.week,['fromDate','toDate','complete','reasonCodes','restUsedMs','restRemainingMs'])
+    || typeof value.day.date !== 'string' || !isRecord(used) || !exactKeys(used,buckets) || !isRecord(remaining)
+    || !exactKeys(remaining,buckets)
+    || !buckets.every(bucket => Number.isSafeInteger(used[bucket]) && Number(used[bucket]) >= 0
+      && (remaining[bucket] === null || (Number.isSafeInteger(remaining[bucket]) && Number(remaining[bucket]) >= 0)))
+    || !Number.isSafeInteger(value.day.borrowedRestMs) || Number(value.day.borrowedRestMs) < 0
+    || typeof value.week.fromDate !== 'string' || typeof value.week.toDate !== 'string'
+    || typeof value.week.complete !== 'boolean' || !Array.isArray(value.week.reasonCodes)
+    || !value.week.reasonCodes.every(code => typeof code === 'string')
+    || !Number.isSafeInteger(value.week.restUsedMs) || Number(value.week.restUsedMs) < 0
+    || !(value.week.restRemainingMs === null || (Number.isSafeInteger(value.week.restRemainingMs)
+      && Number(value.week.restRemainingMs) >= 0))) return false;
+  const dayDate=value.day.date as string;
+  return value.sources.every(source => isRecord(source) && exactKeys(source,['source','sourceKey','date','revision'])
+    && (source.source === 'web' || source.source === 'application') && typeof source.sourceKey === 'string' && !!source.sourceKey
+    && source.date === dayDate && typeof source.revision === 'string' && !!source.revision);
+}
+
+async function readSharedQuotaState(env: Env, accountId: string, childId: string, date: string): Promise<SharedQuotaStateV1> {
+  if (!env.GUARDIAN_COMPUTER_USAGE) {
+    throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态服务暂不可用。');
+  }
+  let response: Response;
+  try {
+    response = await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedQuotaState', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId, childId, date }),
+    }));
+  } catch {
+    throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态服务暂不可用。');
+  }
+  if (!response.ok) {
+    let code = 'SHARED_QUOTA_STATE_UNAVAILABLE';
+    try { code = String((await response.json() as { code?: unknown }).code || code); } catch { /* Stable fallback below. */ }
+    throw new HttpError(response.status === 400 && code === 'INVALID_DATE' ? 400
+      : response.status === 404 ? 403 : 503,
+    response.status === 400 && code === 'INVALID_DATE' ? 'INVALID_DATE'
+      : response.status === 404 ? 'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE' : 'SHARED_QUOTA_STATE_UNAVAILABLE',
+    '共享用量状态暂不可用。');
+  }
+  let body: { state?: unknown };
+  try { body = await response.json() as typeof body; }
+  catch { throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态响应无效。'); }
+  if (!isSharedQuotaState(body.state)) throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态响应无效。');
+  return body.state;
 }
 
 export async function routeV2(request: Request, env: Env, nowMs: number, defer?:(work:Promise<unknown>)=>void): Promise<Response | null> {
@@ -428,6 +489,27 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
     if (!assignment) throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
     return jsonResponse({ policy: await readSharedAccessPolicy(env, machine.accountId, assignment.child_id) });
+  }
+  if (url.pathname === '/v2/machines/shared-quota/state') {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const localUserId=url.searchParams.get('localUserId');
+    const assignmentVersion=Number(url.searchParams.get('assignmentVersion'));
+    const date=url.searchParams.get('date')||new Date(Date.now()+28_800_000).toISOString().slice(0,10);
+    const dayStart=Date.parse(`${date}T00:00:00+08:00`);
+    if (!localUserId || localUserId.length<32 || localUserId.length>128 || !/^[A-Za-z0-9_-]+$/u.test(localUserId)
+      || !Number.isSafeInteger(assignmentVersion) || assignmentVersion<1
+      || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date) || !Number.isFinite(dayStart)
+      || new Date(dayStart+28_800_000).toISOString().slice(0,10)!==date)
+      throw new HttpError(400,'INVALID_REQUEST','Shared quota scope is invalid.');
+    const assignment=await env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
+      WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3
+        AND a.protected=1 AND a.child_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer
+          WHERE newer.machine_id=a.machine_id AND newer.local_user_id=a.local_user_id
+            AND newer.assignment_version>a.assignment_version)`)
+      .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
+    if (!assignment) throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
+    return jsonResponse({sharedQuota:await readSharedQuotaState(env,machine.accountId,assignment.child_id,date)});
   }
   if (url.pathname === '/v2/machines/shared-quota/capabilities') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
