@@ -19,14 +19,14 @@ const sha=async(value:string)=>Array.from(new Uint8Array(await crypto.subtle.dig
 export const sharedWebSourceKey = async(accountId:string,deviceId:string) => `web:${await sha(`${accountId}\n${deviceId}`)}`;
 
 export function pageSharedQuotaExecutionBasis(basis:SharedQuotaExecutionBasisV1,ownWebSourceKey:string,
-  offset:number,limit:number,expectedRevision:string|null) {
+  offset:number,limit:number,expectedRevision:string|null,source:'web'|'application'='web') {
   if(!Number.isSafeInteger(offset)||offset<0||offset>1400||!Number.isSafeInteger(limit)||limit<1||limit>100
     ||(offset>0&&!expectedRevision))throw new Error('INVALID_EXECUTION_CURSOR');
   if(expectedRevision!==null&&expectedRevision!==basis.revision)throw new Error('EXECUTION_BASIS_VERSION_CHANGED');
   const items=basis.days.flatMap(day=>day.sources);
   if(offset>items.length)throw new Error('INVALID_EXECUTION_CURSOR');
-  const authorizedScopes=basis.days.flatMap(day=>day.sources.filter(item=>item.contribution.source==='web'
-    &&item.contribution.sourceKey===ownWebSourceKey).map(item=>({source:'web' as const,sourceKey:ownWebSourceKey,date:day.date})));
+  const authorizedScopes=basis.days.flatMap(day=>day.sources.filter(item=>item.contribution.source===source
+    &&item.contribution.sourceKey===ownWebSourceKey).map(item=>({source,sourceKey:ownWebSourceKey,date:day.date})));
   const next=offset+Math.min(limit,items.length-offset);
   return {schemaVersion:1 as const,basisRevision:basis.revision,policyRevision:basis.policyRevision,
     fromDate:basis.fromDate,toDate:basis.toDate,

@@ -71,6 +71,13 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
  assert.equal(page1.days.length,5);assert.equal(page1.authorizedScopes.length,5);
  assert.ok(page1.authorizedScopes.every(scope=>scope.source==='web'&&scope.sourceKey===ownWeb));
  assert.equal(service.pageSharedQuotaExecutionBasis(basis,'not-own',0,100,null).authorizedScopes.length,0);
+ const ownApp=appBasis.contribution.sourceKey;
+ const appPage=service.pageSharedQuotaExecutionBasis(basis,ownApp,0,100,null,'application');
+ assert.equal(appPage.authorizedScopes.length,5);
+ assert.ok(appPage.authorizedScopes.every(scope=>scope.source==='application'&&scope.sourceKey===ownApp));
+ assert.equal(service.pageSharedQuotaExecutionBasis(basis,ownApp,0,100,null).authorizedScopes.length,0,
+   'an application source key never grants a web replacement scope');
+ assert.equal(service.pageSharedQuotaExecutionBasis(basis,ownWeb,0,100,null,'application').authorizedScopes.length,0);
  const wirePages=[{profileId:'child',...page1}];
  const collected=[...page1.page.items];let cursor=page1.page.nextOffset;
  while(cursor!==null){const next=service.pageSharedQuotaExecutionBasis(basis,ownWeb,cursor,3,basis.revision);

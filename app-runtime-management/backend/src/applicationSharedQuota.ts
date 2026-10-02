@@ -58,6 +58,10 @@ export function parseApplicationSharedQuotaUpload(value: unknown): ApplicationSh
 
 interface Receipt { revision_ordinal: number; payload_hash: string; source_key: string; received_at_ms: number }
 
+/** Only authenticated machine/assignment facts may supply these arguments. */
+export const applicationSharedQuotaSourceKey=(machineId:string,localUserId:string,assignmentVersion:number)=>
+  sha256Hex(`application\n${machineId}\n${localUserId}\n${assignmentVersion}`);
+
 /** Durable receipt only. A separate source validator must publish a usable shared state. */
 export async function receiveApplicationSharedQuota(db: D1Database, machine: MachineSelfResponse,
   value: unknown, nowMs: number) {
@@ -69,7 +73,7 @@ export async function receiveApplicationSharedQuota(db: D1Database, machine: Mac
     .bind(machine.machineId,upload.localUserId,upload.assignmentVersion,machine.accountId)
     .first<{child_id:string}>();
   if (!assignment) throw new HttpError(403,'SHARED_QUOTA_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
-  const sourceKey=await sha256Hex(`application\n${machine.machineId}\n${upload.localUserId}\n${upload.assignmentVersion}`);
+  const sourceKey=await applicationSharedQuotaSourceKey(machine.machineId,upload.localUserId,upload.assignmentVersion);
   const contribution:SharedQuotaContributionV1={...upload.contribution,sourceKey};
   const payloadJson=canonicalUsageAccountJson(contribution), payloadHash=await sha256Hex(payloadJson);
   await db.prepare(`INSERT INTO runtime_application_shared_quota_receipts_v1

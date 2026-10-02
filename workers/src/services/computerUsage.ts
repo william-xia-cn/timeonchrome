@@ -9,7 +9,7 @@ import { applyCorrectionsToV1StatsRows, listUsageAccountingCorrections } from '.
 import { generateToken } from '../db/middleware';
 import { statsRouter } from '../routes/stats';
 import { readSharedAccessPolicyForChild } from '../routes/profiles';
-import { readSharedAccessDayState, type SharedAccessStateEnv } from './sharedAccessState';
+import { readSharedAccessDayState, readSharedQuotaExecutionBasis, pageSharedQuotaExecutionBasis, type SharedAccessStateEnv } from './sharedAccessState';
 import type { SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 
 export interface ComputerUsageEnv extends Env {
@@ -180,7 +180,7 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
 export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
   async fetch(request:Request):Promise<Response> {
     const operation=new URL(request.url).pathname;
-    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy','/readSharedQuotaState'].includes(operation))
+    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy','/readSharedQuotaState','/readSharedQuotaExecutionBasis'].includes(operation))
       return Response.json({code:'METHOD_NOT_ALLOWED'},{status:405});
     const reader=request.body?.getReader();
     if(!reader)return Response.json({code:'INVALID_SCOPE'},{status:400});
@@ -193,6 +193,25 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     try {input=JSON.parse(body);}catch{return Response.json({code:'INVALID_SCOPE'},{status:400});}
     if(!input||['accountId','childId'].some(key=>typeof input[key]!=='string'||!String(input[key]).length||String(input[key]).length>200))return Response.json({code:'INVALID_SCOPE'},{status:400});
     try {
+      if(operation==='/readSharedQuotaExecutionBasis'){
+        const allowed=['accountId','childId','date','ownSourceKey','offset','limit','expectedRevision'];
+        const date=String(input.date??''),start=Date.parse(date+'T00:00:00Z');
+        if(Object.keys(input).length!==allowed.length||Object.keys(input).some(key=>!allowed.includes(key))
+          ||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||!Number.isFinite(start)||new Date(start).toISOString().slice(0,10)!==date
+          ||typeof input.ownSourceKey!=='string'||!/^[a-f0-9]{64}$/.test(input.ownSourceKey)
+          ||!Number.isSafeInteger(input.offset)||Number(input.offset)<0||Number(input.offset)>1400
+          ||!Number.isSafeInteger(input.limit)||Number(input.limit)<1||Number(input.limit)>100
+          ||!(input.expectedRevision===null||(typeof input.expectedRevision==='string'&&/^[a-f0-9]{64}$/.test(input.expectedRevision)))
+          ||(Number(input.offset)>0&&input.expectedRevision===null))return Response.json({code:'INVALID_EXECUTION_CURSOR'},{status:400});
+        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
+        if(!policy)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
+        const basis=await readSharedQuotaExecutionBasis(this.env,String(input.accountId),String(input.childId),date,policy);
+        const page=pageSharedQuotaExecutionBasis(basis,input.ownSourceKey,Number(input.offset),Number(input.limit),input.expectedRevision as string|null,'application');
+        const current=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
+        if(!current||current.revision!==policy.revision||current.stage!==policy.stage)
+          return Response.json({code:'EXECUTION_BASIS_VERSION_CHANGED'},{status:409});
+        return Response.json({profileId:input.childId,...page},{headers:{'cache-control':'no-store'}});
+      }
       if(operation==='/readSharedAccessPolicy'){
         const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
         return policy?Response.json({policy}):Response.json({code:'CHILD_NOT_FOUND'},{status:404});
@@ -217,6 +236,11 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
       const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(input.childId,input.accountId).first();
       return Response.json({owned:!!owned});
     }catch(error){
+      if(operation==='/readSharedQuotaExecutionBasis'){
+        const message=error instanceof Error?error.message:'';
+        const status=message==='INVALID_EXECUTION_CURSOR'?400:message==='EXECUTION_BASIS_VERSION_CHANGED'?409:503;
+        return Response.json({code:status===503?'SHARED_EXECUTION_BASIS_UNAVAILABLE':message},{status});
+      }
       const code=error instanceof Error&&error.message==='INVALID_DATE'?'INVALID_DATE'
         :operation==='/readSharedAccessPolicy'?'SHARED_ACCESS_POLICY_UNAVAILABLE'
           :operation==='/readSharedQuotaState'?'SHARED_QUOTA_STATE_UNAVAILABLE':'APPLICATION_SCOPE_UNAVAILABLE';
