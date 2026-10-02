@@ -1,4 +1,5 @@
 import { projectSharedQuotaDay, type SharedQuotaContributionV1, type SharedQuotaStateV1, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
+import { projectLocalSharedQuotaExecution, type SharedQuotaExecutionBasisV1, type SharedQuotaExecutionSourceV1 } from '@timeonchrome/app-runtime-contracts/shared-quota-execution';
 import type { Env } from '../db/middleware';
 import { readManifestAccountV2 } from './profileAccountsV2';
 import { projectCompositeDailyRows, readCompositeCorrections } from './compositePageCorrections';
@@ -9,6 +10,7 @@ export interface SharedAccessStateEnv extends Env { RUNTIME_COMPUTER_USAGE?: Run
 type BucketTotals = {study:number;composite:number;rest:number};
 const emptyBuckets=():BucketTotals=>({study:0,composite:0,rest:0});
 const unavailableWeb=(reasonCode:string)=>({contributions:[] as SharedQuotaContributionV1[],complete:false,
+  executionSources:[] as SharedQuotaExecutionSourceV1[],
   expectedScopeCount:0,availableScopeCount:0,reasonCodes:[reasonCode],visibleBucketsMs:emptyBuckets()});
 const dayMs=86_400_000;
 const sha=async(value:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
@@ -48,6 +50,7 @@ async function readWebContributions(env:SharedAccessStateEnv,accountId:string,ch
     .bind(childId,date).all<{id:string;device_name:string}>();
   if(devices.results.length>100)throw new Error('SHARED_ACCESS_SOURCE_LIMIT');
   const contributions:SharedQuotaContributionV1[]=[];
+  const executionSources:SharedQuotaExecutionSourceV1[]=[];
   const reasons=new Set<string>();
   const visibleBuckets:BucketTotals=emptyBuckets();
   for(const device of devices.results) {
@@ -71,6 +74,9 @@ async function readWebContributions(env:SharedAccessStateEnv,accountId:string,ch
           statisticsRevision:account.statsHash,correctionRevision:corrections.revision,policyRevision:policy.revision,
           settledAtMs:account.generatedAt,complete,reasonCodes:complete?[]:['WEB_ACCOUNT_INCOMPLETE'],
           bucketsMs:{study:seconds.study*1000,composite:seconds.composite*1000,rest:seconds.rest*1000}});
+        if(Number.isSafeInteger(account.revision)&&account.revision>0)executionSources.push({
+          publicationRevision:`${account.revision}:${account.statsHash}`,revisionOrdinal:account.revision,
+          contribution:contributions[contributions.length-1]});
       } catch(error) {
         reasons.add(error instanceof Error&&error.message==='WEB_SOURCE_VERSION_CHANGED'?'WEB_SOURCE_VERSION_CHANGED':'WEB_SOURCE_UNAVAILABLE');
       }
@@ -98,12 +104,13 @@ async function readWebContributions(env:SharedAccessStateEnv,accountId:string,ch
     } catch { reasons.add('WEB_SOURCE_UNAVAILABLE'); }
   }
   if(!devices.results.length)reasons.add('WEB_COVERAGE_MISSING');
-  return {contributions,complete:contributions.length===devices.results.length&&reasons.size===0,
+  return {contributions,executionSources,complete:contributions.length===devices.results.length&&reasons.size===0,
     expectedScopeCount:devices.results.length,availableScopeCount:contributions.length,reasonCodes:[...reasons].sort(),visibleBucketsMs:visibleBuckets};
 }
 
 async function readApplicationContributions(env:SharedAccessStateEnv,accountId:string,childId:string,date:string) {
   if(!env.RUNTIME_COMPUTER_USAGE?.fetch)return {contributions:[] as SharedQuotaContributionV1[],complete:false,
+    executionSources:[] as SharedQuotaExecutionSourceV1[],
     expectedScopeCount:0,availableScopeCount:0,reasonCodes:['APPLICATION_SERVICE_UNAVAILABLE'],visibleClassesMs:{}};
   try {
     const response=await env.RUNTIME_COMPUTER_USAGE.fetch(new Request('https://runtime-capability/readApplicationSharedQuotaContributions',{
@@ -113,13 +120,19 @@ async function readApplicationContributions(env:SharedAccessStateEnv,accountId:s
     if(!response.ok||!Array.isArray(result.contributions)||!Array.isArray(result.reasonCodes))
       throw new Error('APPLICATION_SHARED_QUOTA_SOURCE_UNAVAILABLE');
     const contributions=result.contributions.map(item=>({...item.contribution,revision:item.revision}));
+    const executionSources:SharedQuotaExecutionSourceV1[]=result.contributions.flatMap(item=>{
+      const ordinal=Number(item.revision.split(':',1)[0]);
+      return Number.isSafeInteger(ordinal)&&ordinal>0&&/^[1-9][0-9]*:/.test(item.revision)
+        ?[{publicationRevision:item.revision,revisionOrdinal:ordinal,contribution:item.contribution}]:[];
+    });
     const visibleClassesMs:Record<string,number>={};
     for(const contribution of contributions)for(const [kind,value] of Object.entries(contribution.applicationClassesMs??{}))
       visibleClassesMs[kind]=(visibleClassesMs[kind]??0)+value;
-    return {contributions,complete:result.complete===true,expectedScopeCount:Number(result.expectedScopeCount??0),
+    return {contributions,executionSources,complete:result.complete===true,expectedScopeCount:Number(result.expectedScopeCount??0),
       availableScopeCount:Number(result.verifiedScopeCount??0),reasonCodes:result.reasonCodes,visibleClassesMs};
   } catch {
     return {contributions:[] as SharedQuotaContributionV1[],complete:false,expectedScopeCount:0,availableScopeCount:0,
+      executionSources:[] as SharedQuotaExecutionSourceV1[],
       reasonCodes:['APPLICATION_SHARED_QUOTA_SOURCE_UNAVAILABLE'],visibleClassesMs:{}};
   }
 }
@@ -160,6 +173,32 @@ async function readSharedAccessDayProjection(env:SharedAccessStateEnv,accountId:
 
 function beijingDateAt(dayStartMs:number):string {
   return new Date(dayStartMs+28_800_000).toISOString().slice(0,10);
+}
+
+/** Internal assembled basis, not an authenticated endpoint or an execution permission. */
+export async function readSharedQuotaExecutionBasis(env:SharedAccessStateEnv,accountId:string,childId:string,date:string,
+  policy:UnifiedChildAccessPolicyV1):Promise<SharedQuotaExecutionBasisV1> {
+  const selected=Date.parse(`${date}T00:00:00+08:00`);
+  if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||!Number.isFinite(selected)||beijingDateAt(selected)!==date)
+    throw new Error('INVALID_DATE');
+  const offset=(new Date(selected+28_800_000).getUTCDay()+6)%7;
+  const days:SharedQuotaExecutionBasisV1['days'][number][]=[];
+  // Bounded sequential days avoid multiplying concurrent cross-service queries.
+  for(let index=0;index<=offset;index++) {
+    const day=beijingDateAt(selected-(offset-index)*dayMs);
+    const web=await readWebContributions(env,accountId,childId,day,policy).catch(()=>unavailableWeb('WEB_SOURCE_UNAVAILABLE'));
+    const app=await readApplicationContributions(env,accountId,childId,day);
+    const reasons=new Set([...web.reasonCodes,...app.reasonCodes]);
+    if(web.executionSources.length!==web.contributions.length||app.executionSources.length!==app.contributions.length)
+      reasons.add('SOURCE_EXECUTION_VERSION_UNAVAILABLE');
+    if(!web.complete||!app.complete)reasons.add('SOURCE_COVERAGE_INCOMPLETE');
+    days.push({date:day,reasonCodes:[...reasons].sort(),sources:[...web.executionSources,...app.executionSources]
+      .sort((a,b)=>`${a.contribution.source}:${a.contribution.sourceKey}`.localeCompare(`${b.contribution.source}:${b.contribution.sourceKey}`))});
+  }
+  const basis:SharedQuotaExecutionBasisV1={schemaVersion:1,revision:await sha(JSON.stringify({accountId,childId,
+    policyRevision:policy.revision,stage:policy.stage,days})),policyRevision:policy.revision,fromDate:days[0].date,toDate:date,days};
+  projectLocalSharedQuotaExecution(policy,basis,[],[]); // Reject invalid upstream shape; never bless malformed source facts.
+  return basis;
 }
 
 /** Reads the selected week's persisted day projections through the selected Beijing date; never scans raw segments. */
