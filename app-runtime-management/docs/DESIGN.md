@@ -6,6 +6,8 @@
 
 只读响应的 `ok` 表示请求和校验成功，不表示可以执行配额。合法云端状态（完整或部分）原样返回 `ok=true`、`sharedQuota`、`sharedQuotaStage=shadow`；缺失来源仍由状态自己的完整性与原因说明。连接／鉴权／日期／schema／版本错误才返回 `ok=false` 和稳定错误码。不能因仍为影子就拒绝合法读取，也不能在完整云端原值中伪造错误。消费端不得把读取成功或完整性当作共享执行许可。
 
+PR #182 初次 CI 发现机器控制黄金向量的 `contractVersion` 仍为 1.22.0；本批只同步该元数据为 1.23.0，机器控制 schema／行为不变。补验整个契约包测试（不扩大到产品全平台），失败记录保留，不把旧运行记为通过。
+
 2026-10-02 通道语义补齐（实现设计，包消费以正式固定版本为准）：`sharedQuota/getSharedQuotaState` 的 payload 仅为 `{date: "YYYY-MM-DD"}`，使用北京时间日期；不接受 Child、本机用户、assignment 或 expectedRevision。Service 从已验证连接及当前受保护分配生成机器鉴权 `GET /v2/machines/shared-quota/state?localUserId=...&assignmentVersion=...&date=...`，返回的 `{sharedQuota}` 是云端只读影子，不能以本机部分统计伪造余额。能力名固定为 `shared-quota-state-read`；完整性、日期和策略版本不足时不可用于执行。
 
 `reportReminderResult` 直接携带 `SharedReminderResultV1`，影子能力名为 `shared-reminder-result-shadow`，只校验／记录，不触发结束或扣费。Native 必须在已验证用户范围校验 policyRevision、stateRevision 和 Service 已签发的 reminderId；未签发返回 `SHARED_REMINDER_NOT_ISSUED`。重复同 ID／双版本且内容相同只 ACK，冲突拒绝；可见事件和时间关系必须有记录，未送达不能当作超时。当前 Service 尚无完整提醒签发／可见生命周期，两端测试可注入登记，但真实统一提醒仍保持未完成／关闭；不能靠接收任意扩展结果宣称完成。后续执行阶段须补齐可恢复签发、单电脑唯一投递、可见确认与截止状态，未实现前不得声明执行能力。
