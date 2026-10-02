@@ -39,6 +39,44 @@ function fixture({hold=false,invalid=false,holdStyles=false}={}){
   assert.equal(race.root.clears,clears,'stale CSS completion cannot clear the new Child root');assert.equal(race.mounts.length,1);assert.equal(race.mounts[0].childId,'b');newerController.dispose();
   const html=fs.readFileSync(require.resolve('../../pages/index.html'),'utf8');
   for(const part of html.matchAll(/<script>([\s\S]*?)<\/script>/g))new vm.Script(part[1]);
+  // 实际手动用途保存：不写权限列表，不导入申请身份，迟到回复不改新Child/版本。
+  const otherStart=html.indexOf('let otherUsageSavePending = false;');
+  const otherEnd=html.indexOf('function moveCustomSiteToPolicy(',otherStart);
+  function otherFixture({hold=false,fail=false}={}) {
+    let release;const writes=[],reads=[],renders=[],messages=[];
+    const config={customStudyList:['study.test'],siteUsageClassificationRulesV1:[{id:'server',requestId:'request',classification:'other',targetType:'host',normalizedValue:'old.test'}]};
+    const context={window:{},currentProfileId:'child-a',remoteConfigVersion:7,remoteConfig:config,
+      unknownUsageIdentifier:()=>false,toast:(...args)=>messages.push(args),
+      renderRulesPolicyNav:()=>renders.push('nav'),renderRulesSiteDirectory:()=>renders.push('directory'),
+      saveProfileConfig:async(data,action)=>{writes.push({data,action});if(fail)throw new Error('conflict');context.remoteConfigVersion=8;return {version:8};},
+      api:async path=>{reads.push(path);if(hold)await new Promise(yes=>release=yes);return {version:8,config:{siteUsageClassificationRulesV1:[{id:'normalized-server',classification:'other',targetType:'host',normalizedValue:'new.test'}]}};}};
+    vm.runInNewContext(html.slice(otherStart,otherEnd),context);
+    return {context,writes,reads,renders,messages,config,release:()=>release()};
+  }
+  const manual=otherFixture();await manual.context.saveOtherUsageTarget('new.test');
+  assert.deepEqual(JSON.parse(JSON.stringify(manual.writes[0].data)),{siteUsageClassificationRulesV1:[
+    {classification:'other',targetType:'host',normalizedValue:'old.test'},
+    {classification:'other',targetType:'host',normalizedValue:'new.test'}]});
+  assert.equal(manual.writes[0].action,'site_access_save');assert.deepEqual(manual.config.customStudyList,['study.test']);
+  assert.equal(manual.config.siteUsageClassificationRulesV1[0].id,'normalized-server');assert.equal(manual.renders.length,2);
+  const remove=otherFixture();await remove.context.saveOtherUsageTarget('old.test',true);
+  assert.deepEqual(JSON.parse(JSON.stringify(remove.writes[0].data)),{siteUsageClassificationRulesV1:[]});
+  const url=otherFixture();await url.context.saveOtherUsageTarget('https://tool.test/page');
+  assert.equal(url.writes[0].data.siteUsageClassificationRulesV1[1].targetType,'url');
+  for(const changed of ['child','version']){
+    const delayed=otherFixture({hold:true});const waiting=delayed.context.saveOtherUsageTarget('new.test');
+    await new Promise(resolve=>setImmediate(resolve));
+    await delayed.context.saveOtherUsageTarget('another.test');assert.equal(delayed.writes.length,1);
+    if(changed==='child')delayed.context.currentProfileId='child-b';else delayed.context.remoteConfigVersion=9;
+    delayed.release();await waiting;
+    assert.equal(delayed.config.siteUsageClassificationRulesV1[0].id,'server');assert.equal(delayed.renders.length,0);
+  }
+  const failed=otherFixture({fail:true});await failed.context.saveOtherUsageTarget('new.test');
+  assert.equal(failed.reads.length,0);assert.equal(failed.config.siteUsageClassificationRulesV1[0].id,'server');
+  assert.equal(failed.messages[0][1],false);await failed.context.saveOtherUsageTarget('retry.test');assert.equal(failed.writes.length,2);
+  assert.match(html,/key: 'other'.*isUsage: true/);
+  assert.match(html,/\['used-unclassified', 'usage', 'custom', 'system', 'rule', 'unmarked'\]/);
+  assert.match(html,/entry.source === 'usage'.*deleteRulesOtherUsage/s);
   for(const view of ['apps','devices']){assert.match(html,new RegExp('data-page="'+view+'"'));assert.match(html,new RegExp('id="page-'+view+'"'));}
   assert(!html.includes('class="nav-item runtime-launch"'));assert.match(html,/\/app-runtime\/manage\/v1\//);assert.match(html,/If-Match/);
   assert.match(html,/data-system-management-tab="runtime-diagnostics"/);
