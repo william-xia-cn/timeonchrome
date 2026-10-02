@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {validateSharedQuotaStateQuery, SHARED_QUOTA_STATE_READ_CAPABILITY,
+import {validateSharedQuotaStateQuery, SHARED_QUOTA_STATE_READ_CAPABILITY, SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY,
   SHARED_REMINDER_RESULT_SHADOW_CAPABILITY} from './dist/native-host.js';
 import { projectSharedQuotaDay, projectLegacySharedAccessPolicy, SHARED_ACCESS_SCHEMA_VERSION,
-  validateSharedReminderResult } from './dist/shared-access.js';
+  validateSharedReminderResult, canonicalSharedAccessPolicyV1, createSharedAccessPolicyIdentityV1,
+  validateSharedAccessPolicyIdentityV1, matchesSharedAccessPolicyIdentityV1 } from './dist/shared-access.js';
 
 const date = '2026-10-02';
 assert.equal(SHARED_QUOTA_STATE_READ_CAPABILITY, 'shared-quota-state-read');
@@ -83,3 +84,37 @@ for (const vector of vectors.cases) {
   else assert.deepEqual(validateSharedReminderResult(result,context),result,vector.name);
 }
 console.log(`shared reminder golden vectors: PASS (${vectors.cases.length})`);
+
+assert.equal(SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY, 'shared-access-policy-identity-read');
+const identityPolicy = {...structuredClone(policy), revision: 'profile-config:4'};
+const beforeIdentity = structuredClone(identityPolicy);
+const identity = await createSharedAccessPolicyIdentityV1(identityPolicy);
+validateSharedAccessPolicyIdentityV1(identity);
+assert.equal(await matchesSharedAccessPolicyIdentityV1(identityPolicy, identity), true);
+const reorder = value => Array.isArray(value) ? value.map(reorder) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).reverse().map(key => [key, reorder(value[key])])) : value;
+assert.deepEqual(await createSharedAccessPolicyIdentityV1(reorder(identityPolicy)), identity);
+const source = fs.readFileSync(new URL('../../extension/core/shared-access-policy.js', import.meta.url), 'utf8');
+const deviceValidator = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+assert.equal(canonicalSharedAccessPolicyV1(identityPolicy), deviceValidator.validateSharedAccessPolicyV1(identityPolicy).canonical);
+for (const change of [p => { p.stage = 'shared'; }, p => { p.effectiveAtMs += 1; },
+  p => { p.dailyMinutes.monday.study += 1; }, p => { p.autonomy.repeatReminderMinutes += 1; },
+  p => { p.timeWindows.monday.study = [{start:'01:00', end:'24:00'}]; }]) {
+  const changed = structuredClone(identityPolicy); change(changed);
+  assert.equal(await matchesSharedAccessPolicyIdentityV1(changed, identity), false);
+}
+for (const bad of [{...identityPolicy, token:'private'}, {...identityPolicy, revision:'profile-config:9007199254740992'},
+  {...identityPolicy, stage:{toString:() => 'legacy'}},
+  {...identityPolicy, autonomy:{...identityPolicy.autonomy, extra:true}},
+  {...identityPolicy, timeWindows:{...identityPolicy.timeWindows, monday:{study:[{start:'24:00',end:'24:00'}], composite:null,rest:null}}}])
+  assert.throws(() => canonicalSharedAccessPolicyV1(bad), /INVALID_SHARED_ACCESS_POLICY/);
+for (const bad of [{...identity, policyHash:'A'.repeat(64)}, {...identity, token:'private'}, {...identity, stage:'unknown'}])
+  assert.throws(() => validateSharedAccessPolicyIdentityV1(bad), /INVALID_SHARED_ACCESS_POLICY_IDENTITY/);
+const duringDigest = structuredClone(identityPolicy), pendingIdentity = createSharedAccessPolicyIdentityV1(duringDigest);
+duringDigest.stage = 'shared'; duringDigest.effectiveAtMs += 1;
+assert.deepEqual(await pendingIdentity, identity, 'capture policy before asynchronous digest');
+const mutableIdentity = {...identity, policyHash:'0'.repeat(64)}, pendingMatch = matchesSharedAccessPolicyIdentityV1(identityPolicy, mutableIdentity);
+mutableIdentity.policyHash = identity.policyHash;
+assert.equal(await pendingMatch, false, 'capture received identity before asynchronous digest');
+assert.deepEqual(identityPolicy, beforeIdentity, 'identity generation never mutates the authoritative policy');
+console.log('shared policy identity: PASS (actual device canonical bytes, complete content, invalid fields, digest race)');

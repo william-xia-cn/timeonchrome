@@ -204,6 +204,80 @@ export interface SharedReminderResultV1 {
   resolvedAtMs: number;
 }
 
+/** Content equality only; neither authentication nor permission to enforce. */
+export interface SharedAccessPolicyIdentityV1 {
+  schemaVersion: 1;
+  revision: string;
+  effectiveAtMs: number;
+  stage: SharedAccessStage;
+  policyHash: string;
+}
+const policyExact = (value: unknown, fields: readonly string[]): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value)
+  && Object.keys(value).length === fields.length && fields.every(field => Object.hasOwn(value, field));
+const policyCanonical = (value: unknown): string => Array.isArray(value)
+  ? `[${value.map(policyCanonical).join(',')}]`
+  : value && typeof value === 'object'
+    ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${policyCanonical((value as Record<string, unknown>)[key])}`).join(',')}}`
+    : JSON.stringify(value);
+
+/** Same strict policy shape as the device consumer; no defaults or normalization of windows. */
+export function canonicalSharedAccessPolicyV1(value: unknown): string {
+  const invalid = () => { throw new Error('INVALID_SHARED_ACCESS_POLICY'); };
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const buckets = ['study', 'composite', 'rest'];
+  const minutes = (v: unknown) => v === null || validMs(v) && v <= 10080;
+  const time = (v: unknown) => typeof v === 'string' && /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(v);
+  const windows = (v: unknown) => v === null || Array.isArray(v) && v.every(item =>
+    policyExact(item, ['start', 'end']) && time(item.start) && (time(item.end) || item.end === '24:00'));
+  if (!policyExact(value, ['schemaVersion', 'revision', 'effectiveAtMs', 'stage', 'dailyMinutes', 'weeklyRestMinutes', 'timeWindows', 'autonomy'])
+    || value.schemaVersion !== 1 || typeof value.revision !== 'string'
+    || !/^profile-config:(?:0|[1-9][0-9]*)$/.test(value.revision)
+    || !Number.isSafeInteger(Number(value.revision.slice(15)))
+    || !validMs(value.effectiveAtMs) || typeof value.stage !== 'string' || !['legacy', 'shadow', 'shared'].includes(value.stage)
+    || !minutes(value.weeklyRestMinutes) || !policyExact(value.dailyMinutes, days) || !policyExact(value.timeWindows, days)) return invalid();
+  for (const day of days) {
+    const daily = value.dailyMinutes[day], dailyWindows = value.timeWindows[day];
+    if (!policyExact(daily, buckets) || !policyExact(dailyWindows, buckets)
+      || !buckets.every(bucket => minutes(daily[bucket]) && windows(dailyWindows[bucket]))) return invalid();
+  }
+  const autonomy = value.autonomy;
+  if (!policyExact(autonomy, ['restrictedEntryConfirmationRequired', 'dailyFirstReminderMinutes', 'weeklyFirstReminderMinutes',
+    'repeatReminderMinutes', 'softReminderTimeoutAction', 'visibleResponseDeadlineSeconds'])
+    || typeof autonomy.restrictedEntryConfirmationRequired !== 'boolean'
+    || !minutes(autonomy.dailyFirstReminderMinutes) || !minutes(autonomy.weeklyFirstReminderMinutes)
+    || !validMs(autonomy.repeatReminderMinutes) || autonomy.repeatReminderMinutes < 1 || autonomy.repeatReminderMinutes > 1440
+    || typeof autonomy.softReminderTimeoutAction !== 'string'
+    || !['continue', 'end_rest'].includes(autonomy.softReminderTimeoutAction) || autonomy.visibleResponseDeadlineSeconds !== 60) return invalid();
+  const canonical = policyCanonical(value);
+  if (new TextEncoder().encode(canonical).length > 30 * 1024) return invalid();
+  return canonical;
+}
+
+export async function createSharedAccessPolicyIdentityV1(policy: UnifiedChildAccessPolicyV1): Promise<SharedAccessPolicyIdentityV1> {
+  const canonical = canonicalSharedAccessPolicyV1(policy);
+  const captured = JSON.parse(canonical) as UnifiedChildAccessPolicyV1;
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical)));
+  return {schemaVersion: 1, revision: captured.revision, effectiveAtMs: captured.effectiveAtMs, stage: captured.stage,
+    policyHash: [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('')};
+}
+
+export function validateSharedAccessPolicyIdentityV1(value: unknown): asserts value is SharedAccessPolicyIdentityV1 {
+  if (!policyExact(value, ['schemaVersion', 'revision', 'effectiveAtMs', 'stage', 'policyHash'])
+    || value.schemaVersion !== 1 || typeof value.revision !== 'string' || !/^profile-config:(?:0|[1-9][0-9]*)$/.test(value.revision)
+    || !Number.isSafeInteger(Number(value.revision.slice(15))) || !validMs(value.effectiveAtMs)
+    || typeof value.stage !== 'string' || !['legacy', 'shadow', 'shared'].includes(value.stage) || typeof value.policyHash !== 'string'
+    || !/^[a-f0-9]{64}$/.test(value.policyHash)) throw new Error('INVALID_SHARED_ACCESS_POLICY_IDENTITY');
+}
+
+export async function matchesSharedAccessPolicyIdentityV1(policy: UnifiedChildAccessPolicyV1, identity: unknown): Promise<boolean> {
+  validateSharedAccessPolicyIdentityV1(identity);
+  const captured = {...identity};
+  const expected = await createSharedAccessPolicyIdentityV1(policy);
+  return expected.revision === captured.revision && expected.effectiveAtMs === captured.effectiveAtMs
+    && expected.stage === captured.stage && expected.policyHash === captured.policyHash;
+}
+
 /** Service-local registration, never accepted from an extension request. */
 export interface SharedReminderRegistration {
   reminderId: string;
