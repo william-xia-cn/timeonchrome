@@ -1,6 +1,6 @@
 const assert = require('assert/strict');
-const { checkScope, declaration, relevant } = require('../../tools/check-task-scope');
-const check = (role, paths, exceptions) => checkScope(paths, { role, exceptions });
+const { assertIntegrationSources, checkScope, declaration, mergeParents, relevant } = require('../../tools/check-task-scope');
+const check = (role, paths, exceptions, integrationSourcePaths) => checkScope(paths, { role, exceptions, integrationSourcePaths });
 assert.deepEqual(check('architecture-integration', ['contracts/composite-page-evidence/v1.js', 'app-runtime-management/contracts/src/index.ts', 'PROJECT_WORKFLOW.md', 'tools/check-task-scope.js']), []);
 assert.deepEqual(check('standard-cloud', ['app-runtime-management/backend/src/index.ts', 'app-runtime-management/console/index.html', 'workers/src/index.ts', 'pages/index.html']), []);
 for (const file of ['extension/infra/native-host-client.js', 'dist/native-host-managed-candidate/package-extension/a.js', 'agents/Service/a.cs']) {
@@ -30,6 +30,21 @@ for (const file of ['native-app-control/a.ts', 'pages/native-apps/index.html', '
 assert.equal(check('architecture-integration', ['package-lock.json']).length, 1);
 assert.deepEqual(check('architecture-integration', ['package-lock.json'], { 'package-lock.json': 'pin contract dependency only' }), []);
 assert.throws(() => declaration('Task-Role: architecture-integration\nScope-Exception: * | all'));
+const cloudSource = '4e748f6735c52ee4cb6cfdcab51785235bb7a5e6';
+const extensionSource = 'dd92791e6c94c125c1034af821683d9dc5f7d502';
+const integrationDeclaration = declaration(`Task-Role: architecture-integration\nIntegration-Source: ${cloudSource}\nIntegration-Source: ${extensionSource}`);
+assert.deepEqual(integrationDeclaration.integrationSources, [cloudSource, extensionSource]);
+assert.throws(() => declaration('Task-Role: standard-cloud\nIntegration-Source: ' + cloudSource));
+assert.throws(() => declaration('Task-Role: architecture-integration\nIntegration-Source: xyz'));
+assert.throws(() => declaration(`Task-Role: architecture-integration\nIntegration-Source: ${cloudSource}\nIntegration-Source: ${cloudSource}`));
+assert.deepEqual([...mergeParents(`aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ${cloudSource}\n`)].sort(), [cloudSource, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'].sort());
+assert.throws(() => mergeParents('not-a-merge'));
+assert.doesNotThrow(() => assertIntegrationSources([cloudSource], `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ${cloudSource}\n`));
+assert.throws(() => assertIntegrationSources([extensionSource], `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ${cloudSource}\n`), /not a direct parent/);
+const integratedPaths = ['extension/background.js', 'app-runtime-management/backend/src/index.ts', 'contracts/shared-access/v1.js'];
+assert.deepEqual(checkScope(integratedPaths, { role: 'architecture-integration', integrationSourcePaths: integratedPaths }), []);
+assert.equal(checkScope(['extension/other.js'], { role: 'architecture-integration', integrationSourcePaths: integratedPaths }).length, 1);
+assert.equal(checkScope(['app-runtime-management/backend/src/index.ts'], { role: 'extension-local', integrationSourcePaths: integratedPaths }).length, 1);
 assert.throws(() => declaration('Task-Role: runtime-cloud-contract'));
 assert.throws(() => declaration('Task-Role: nope'));
 assert.throws(() => declaration('Task-Role: release\nTask-Role: extension-local'));

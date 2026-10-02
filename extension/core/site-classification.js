@@ -1,8 +1,8 @@
 import { canonicalSiteIdentityHost, matchDomain, normalizeHostname } from './domain-semantics.js';
 
 export const SITE_CLASSIFICATION_TARGET_TYPES = new Set(['host', 'url']);
-export const SITE_CLASSIFICATION_DECISIONS = new Set(['study', 'composite', 'return', 'reject']);
-export const SITE_CLASSIFICATION_STATUSES = new Set(['pending', 'returned', 'approved_study', 'approved_composite', 'rejected']);
+export const SITE_CLASSIFICATION_DECISIONS = new Set(['study', 'composite', 'other', 'return', 'reject']);
+export const SITE_CLASSIFICATION_STATUSES = new Set(['pending', 'returned', 'approved_study', 'approved_composite', 'approved_other', 'rejected']);
 export const SITE_CLASSIFICATION_RECORD_SOURCES = new Set(['auto_unclassified_access', 'manual_learning_request', 'legacy']);
 export const SITE_CLASSIFICATION_REQUESTED_CLASSIFICATIONS = new Set(['study']);
 export const SITE_ACCESS_CLASSIFICATION_GROUPS = [
@@ -18,6 +18,7 @@ const CLASSIFICATION_TIE_PRIORITY = {
   rejected: 95,
   restricted: 90,
   study: 80,
+  other: 85,
   composite: 70,
   pending_composite: 65,
   rest: 60,
@@ -95,6 +96,7 @@ export function normalizeSiteClassificationTarget(input) {
 export function normalizeSiteClassificationDecision(decision) {
   if (decision === 'approved_study' || decision === 'study') return 'study';
   if (decision === 'approved_composite' || decision === 'composite') return 'composite';
+  if (decision === 'approved_other' || decision === 'other') return 'other';
   if (decision === 'returned' || decision === 'return') return 'return';
   if (decision === 'rejected' || decision === 'reject') return 'reject';
   if (decision === 'approved_blocked' || decision === 'blocked') return 'blocked';
@@ -105,6 +107,7 @@ export function decisionToStatus(decision) {
   const normalized = normalizeSiteClassificationDecision(decision);
   if (normalized === 'study') return 'approved_study';
   if (normalized === 'composite') return 'approved_composite';
+  if (normalized === 'other') return 'approved_other';
   if (normalized === 'return') return 'returned';
   if (normalized === 'reject') return 'rejected';
   if (normalized === 'blocked') return 'blocked';
@@ -270,6 +273,7 @@ function decisionToClassification(decision) {
   const normalized = normalizeSiteClassificationDecision(decision);
   if (normalized === 'study') return 'study';
   if (normalized === 'composite') return 'composite';
+  if (normalized === 'other') return 'other';
   if (normalized === 'return') return null;
   if (normalized === 'reject') return 'rejected';
   return null;
@@ -492,7 +496,7 @@ export function getSiteAccessExactConflicts(config = {}) {
 
 function normalizeActionClassification(value) {
   const decisionClass = decisionToClassification(value);
-  if (decisionClass === 'study' || decisionClass === 'composite') return decisionClass;
+  if (decisionClass === 'study' || decisionClass === 'composite' || decisionClass === 'other') return decisionClass;
   if (decisionClass === 'rejected' || value === 'restricted' || value === 'reject') return 'restricted';
   if (value === 'blocked') return 'blocked';
   return null;
@@ -501,6 +505,7 @@ function normalizeActionClassification(value) {
 function actionClassificationLabel(value) {
   if (value === 'study') return '学习网站';
   if (value === 'composite') return '复合网站';
+  if (value === 'other') return '其他网站';
   if (value === 'restricted' || value === 'rejected') return '受限娱乐网站';
   if (value === 'blocked') return '黑名单网站';
   return '目标分类';
@@ -763,6 +768,7 @@ export function getSiteClassificationForUrl(config = {}, requests = [], urlOrDom
     if (!rule || !siteDecisionMatchesUrl(rule, urlOrDomain)) continue;
     if (rule.decision === 'study') return { classification: 'study', rule };
     if (rule.decision === 'composite') return { classification: 'composite', rule };
+    if (rule.decision === 'other') return { classification: 'other', rule };
     if (rule.decision === 'reject') return { classification: 'rejected', rule };
   }
 

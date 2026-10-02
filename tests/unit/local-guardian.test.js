@@ -41,6 +41,8 @@ function moduleSource(instance) {
     .replace(/import \{ budgetedLocalSet \} from '\.\/storage-budget\.js';/, 'const budgetedLocalSet = (...args) => globalThis.__guardianBudgetedSet(...args);')
     .replace(/import \{ registerPersistedUsageSegmentObserver \} from '\.\.\/core\/usage-segments\.js';/, 'const registerPersistedUsageSegmentObserver = (observer) => { globalThis.__persistedSegmentObserver = observer; };')
     .replace(/import \{ readCurrentWeekBrowserSnapshots \} from '\.\/browser-bridge-v3-snapshot\.js';/, 'const readCurrentWeekBrowserSnapshots = (...args) => globalThis.__readBrowserSnapshots(...args);')
+    .replace(/import \{ validateSharedQuotaStateV1 \} from '\.\.\/core\/shared-quota-state\.js';/,
+      fs.readFileSync(path.join(root, 'extension', 'core', 'shared-quota-state.js'), 'utf8').replace(/export function /g, 'function '))
     + `\n// test-instance-${instance}`;
 }
 
@@ -515,6 +517,36 @@ async function run() {
   assert.deepStrictEqual(appRead.runtime.messages, [{ type: 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE' }]);
   assert.deepStrictEqual(appPayloads.at(-1).payload, query);
   assert.strictEqual((await appRead.module.requestApplicationUsage({ ...query, localUserId: 'other' })).ok, false);
+
+  const sharedState = {
+    schemaVersion: 1, policyRevision: 'profile-config:12', revision: 'shared:1',
+    computedAtMs: Date.now(), settledAtMs: Date.now(), complete: true, reasonCodes: [], sources: [],
+    day: { date: '2026-10-02', usedMs: { study: 0, composite: 0, rest: 60000 },
+      remainingMs: { study: null, composite: null, rest: 3600000 }, borrowedRestMs: 0 },
+    week: { fromDate: '2026-09-28', restUsedMs: 60000, restRemainingMs: null }, offline: false,
+  };
+  const sharedPayloads = [];
+  const sharedRead = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => {
+      sharedPayloads.push(payload);
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true,
+        receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [1, 2, 3],
+        ...(payload.messageType === 'getSharedQuotaState' ? { sharedQuota: sharedState } : {}) })));
+    }) });
+  const expectedShared = { date: '2026-10-02', weekStart: '2026-09-28', policyRevision: 'profile-config:12' };
+  const sharedResult = await sharedRead.module.requestSharedQuotaState(expectedShared);
+  assert.strictEqual(sharedResult.ok, true, JSON.stringify(sharedResult));
+  assert.strictEqual(sharedPayloads.at(-1).channel, 'sharedQuota');
+  assert.strictEqual(sharedPayloads.at(-1).messageType, 'getSharedQuotaState');
+  assert.deepStrictEqual(sharedPayloads.at(-1).payload, {});
+  assert.strictEqual((await sharedRead.module.requestSharedQuotaState({ ...expectedShared, date: '2026-10-03' })).errorCode,
+    'shared_quota_stale_state');
+  assert.strictEqual((await sharedRead.module.requestSharedQuotaState({})).errorCode, 'shared_quota_query_invalid');
+  const oldSharedHost = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => queueMicrotask(() =>
+      onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(), requestId: payload.requestId })))) });
+  assert.strictEqual((await oldSharedHost.module.requestSharedQuotaState(expectedShared)).errorCode,
+    'shared_quota_unavailable');
   let denied;
   appRead.runtime.onMessage.listeners[0]({ type: appRead.module.APPLICATION_USAGE_READ_MESSAGE, query },
     { id: appRead.runtime.id, url: 'https://example.test/' }, value => { denied = value; });

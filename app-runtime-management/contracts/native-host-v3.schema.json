@@ -7,9 +7,9 @@
   "required": ["protocolVersion", "channel", "requestId", "messageType", "extensionId", "profileId", "sentAtMs", "payload"],
   "properties": {
     "protocolVersion": { "const": 3 },
-    "channel": { "enum": ["health", "statistics", "application"] },
+    "channel": { "enum": ["health", "statistics", "application", "sharedQuota"] },
     "requestId": { "type": "string", "format": "uuid" },
-    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage"] },
+    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getSharedQuotaState", "reportReminderResult"] },
     "extensionId": { "type": "string", "minLength": 1 },
     "profileId": { "type": "string", "format": "uuid" },
     "sentAtMs": { "type": "integer", "minimum": 0 },
@@ -27,6 +27,10 @@
     {
       "if": { "properties": { "channel": { "const": "health" } }, "required": ["channel"] },
       "then": { "properties": { "messageType": { "enum": ["heartbeat", "probe"] } } }
+    },
+    {
+      "if": { "properties": { "channel": { "const": "sharedQuota" } }, "required": ["channel"] },
+      "then": { "properties": { "messageType": { "enum": ["getSharedQuotaState", "reportReminderResult"] } } }
     }
   ],
   "$defs": {

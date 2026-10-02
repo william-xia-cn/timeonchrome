@@ -8,6 +8,7 @@ import { projectCompositeDailyRows, readCompositeCorrections } from './composite
 import { applyCorrectionsToV1StatsRows, listUsageAccountingCorrections } from './usageAccountingCorrections';
 import { generateToken } from '../db/middleware';
 import { statsRouter } from '../routes/stats';
+import { readSharedAccessPolicyForChild } from '../routes/profiles';
 
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
@@ -176,7 +177,9 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
 /** Only callers granted this entrypoint binding can reach the cross-cloud read capability. */
 export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
   async fetch(request:Request):Promise<Response> {
-    if(request.method!=='POST'||new URL(request.url).pathname!=='/verifyChildAccess')return Response.json({code:'METHOD_NOT_ALLOWED'},{status:405});
+    const operation=new URL(request.url).pathname;
+    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy'].includes(operation))
+      return Response.json({code:'METHOD_NOT_ALLOWED'},{status:405});
     const reader=request.body?.getReader();
     if(!reader)return Response.json({code:'INVALID_SCOPE'},{status:400});
     const chunks:Uint8Array[]=[];let length=0;
@@ -188,9 +191,13 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     try {input=JSON.parse(body);}catch{return Response.json({code:'INVALID_SCOPE'},{status:400});}
     if(!input||['accountId','childId'].some(key=>typeof input[key]!=='string'||!String(input[key]).length||String(input[key]).length>200))return Response.json({code:'INVALID_SCOPE'},{status:400});
     try {
+      if(operation==='/readSharedAccessPolicy'){
+        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
+        return policy?Response.json({policy}):Response.json({code:'CHILD_NOT_FOUND'},{status:404});
+      }
       const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(input.childId,input.accountId).first();
       return Response.json({owned:!!owned});
-    }catch{return Response.json({code:'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});}
+    }catch{return Response.json({code:operation==='/readSharedAccessPolicy'?'SHARED_ACCESS_POLICY_UNAVAILABLE':'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});}
   }
   async getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly=false){return readComputerUsage(this.env,accountId,childId,from,to,computer,summaryOnly);}
   async getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string) {

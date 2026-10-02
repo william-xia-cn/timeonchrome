@@ -3,7 +3,7 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.AppRuntimePolicy = api;
 })(typeof globalThis === 'undefined' ? this : globalThis, () => {
-  const categories = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked'];
+  const categories = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked'];
   const scheduleCategories = ['study', 'composite', 'restrictedEntertainment', 'unclassified'];
   const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
   const allOpenTimeWindows = () => Object.fromEntries(weekdays.map((day) => [day,
@@ -90,12 +90,16 @@
   }
   function exportPayload(policy) {
     const normalized = normalize(policy);
-    return { schemaVersion: 2, classifications: normalized.classifications, quotas: normalized.quotas, timeWindows: normalized.timeWindows };
+    return { schemaVersion: 3, classifications: normalized.classifications,
+      quotas: { perApplicationDailyMinutes: normalized.quotas.perApplicationDailyMinutes } };
   }
   function importDiff(current, incoming) {
-    if (!incoming || ![1, 2].includes(incoming.schemaVersion)) throw new Error('不支持的配置文件');
+    if (!incoming || ![1, 2, 3].includes(incoming.schemaVersion)) throw new Error('不支持的配置文件');
     const before = normalize(current);
-    const after = normalize({ ...incoming, timeWindows: incoming.schemaVersion === 1 ? allOpenTimeWindows() : incoming.timeWindows });
+    const after = incoming.schemaVersion === 3
+      ? normalize({ ...before, classifications: incoming.classifications,
+        quotas: { ...before.quotas, perApplicationDailyMinutes: incoming.quotas?.perApplicationDailyMinutes } })
+      : normalize({ ...incoming, timeWindows: incoming.schemaVersion === 1 ? allOpenTimeWindows() : incoming.timeWindows });
     const beforeMap = new Map(before.classifications.map((item) => [keyOf(item), item.classification]));
     const afterMap = new Map(after.classifications.map((item) => [keyOf(item), item.classification]));
     let added = 0; let changed = 0; let removed = 0;
@@ -103,8 +107,8 @@
     for (const key of beforeMap.keys()) removed += Number(!afterMap.has(key));
     return {
       policy: after, added, changed, removed,
-      quotasChanged: JSON.stringify(before.quotas) !== JSON.stringify(after.quotas),
-      timeWindowsChanged: JSON.stringify(before.timeWindows) !== JSON.stringify(after.timeWindows),
+      quotasChanged: JSON.stringify(before.quotas.perApplicationDailyMinutes) !== JSON.stringify(after.quotas.perApplicationDailyMinutes),
+      timeWindowsChanged: incoming.schemaVersion === 3 ? false : JSON.stringify(before.timeWindows) !== JSON.stringify(after.timeWindows),
     };
   }
   return { categories, scheduleCategories, weekdays, allOpenTimeWindows, defaultPolicy, normalize, classify, withQuotas, withTimeWindows, exportPayload, importDiff, keyOf };

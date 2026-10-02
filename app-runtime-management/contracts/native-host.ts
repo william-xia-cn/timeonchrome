@@ -52,6 +52,7 @@ export interface NativeHostResponse {
   duplicate?: boolean;
   stale?: boolean;
   applicationUsage?: ApplicationUsageSnapshot;
+  sharedQuota?: import('./shared-access.js').SharedQuotaStateV1;
 }
 
 export type BrowserBridgeChannel = 'health' | 'ledger';
@@ -99,9 +100,9 @@ export interface BrowserDailyUsageSnapshot {
 
 export interface BrowserBridgeV3Envelope<TPayload = unknown> {
   protocolVersion: typeof BROWSER_BRIDGE_V3_PROTOCOL_VERSION;
-  channel: 'health' | 'statistics' | 'application';
+  channel: 'health' | 'statistics' | 'application' | 'sharedQuota';
   requestId: string;
-  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage';
+  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getSharedQuotaState' | 'reportReminderResult';
   extensionId: string;
   profileId: string;
   sentAtMs: number;

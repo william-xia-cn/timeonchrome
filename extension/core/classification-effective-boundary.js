@@ -130,6 +130,10 @@ export async function applyClassificationEffectiveBoundaryForActiveTab({
     return { ok: true, applied: false, reason: 'session_window_mismatch' };
   }
 
+  if (session.targetSourceAtTime === 'siteUsageClassificationRulesV1') {
+    return { ok: true, applied: false, reason: 'usage_classification_session_snapshot_preserved' };
+  }
+
   const domain = extractDomain(tab.url || '');
   if (!domain || session.domain !== domain) {
     return { ok: true, applied: false, reason: 'session_domain_mismatch', domain, sessionDomain: session.domain || null };
@@ -139,7 +143,9 @@ export async function applyClassificationEffectiveBoundaryForActiveTab({
     getConfig().catch(() => ({})),
     getSiteClassificationRequestRecords({ includeAll: true }).catch(() => []),
   ]);
-  const attribution = resolveManagedTargetAttribution(config, requests, tab.url || domain);
+  const attribution = resolveManagedTargetAttribution(config, requests, tab.url || domain, {
+    includeUsageClassificationRules: false,
+  });
   const nextFields = managedTargetSnapshotFields(attribution, session.quotaBucketAtTime || session.mode || null);
   if (!sessionTargetDiffers(session, nextFields)) {
     return { ok: true, applied: false, reason: 'target_snapshot_unchanged' };

@@ -12,6 +12,7 @@ import type {
 import { randomToken, sha256Hex } from './crypto';
 import { commitUninstallOperation } from './uninstallOperations';
 import { getAppPolicy, resolveClassification } from './appPolicy';
+import type { AppPolicyDocument } from './contracts';
 import { getLoggingPolicy } from './terminalLogging';
 
 type PolicyState = MachineSelfResponse['policyState'];
@@ -424,13 +425,21 @@ export async function getMachinePolicy(
   for (const user of policyUsers) {
     if (user.protected && typeof user.childId === 'string') childIds.add(user.childId);
   }
+  const capabilityRow = await database.prepare('SELECT capabilities_json FROM runtime_machines_v2 WHERE id=?1 AND account_id=?2')
+    .bind(machine.machineId,machine.accountId).first<{capabilities_json:string|null}>();
+  let reportedCapabilities: string[] = [];
+  try { const parsed=JSON.parse(capabilityRow?.capabilities_json ?? '[]');
+    if(Array.isArray(parsed))reportedCapabilities=parsed.filter((v):v is string=>typeof v==='string'); }
+  catch { /* Malformed legacy heartbeat cannot enable a new policy category. */ }
+  const supportsOther=reportedCapabilities.includes('application-other-v1');
   const appPolicies = await Promise.all([...childIds].map(async (childId) => ({
     childId,
-    policy: await getAppPolicy(database, machine.accountId, childId),
+    policy: projectAppPolicyForMachine(await getAppPolicy(database, machine.accountId, childId),supportsOther),
   })));
   const loggingPolicy = await getLoggingPolicy(database, machine.accountId, machine.machineId);
   const policy = {
-    capabilities: ['heartbeat-os-version-v1', 'uninstall-operation-receipt-v1'],
+    capabilities: ['heartbeat-os-version-v1', 'uninstall-operation-receipt-v1',
+      ...(supportsOther?['application-other-v1']:[])],
     version: machine.desiredPolicyVersion,
     defaultChildId: machine.defaultChildId,
     users: policyUsers,
@@ -438,6 +447,17 @@ export async function getMachinePolicy(
     loggingPolicy,
   };
   return { etag: await machinePolicyEtag(machine.machineId,machine.desiredPolicyVersion,policy.capabilities), policy };
+}
+
+/** Wire-only compatibility projection; the saved Child policy and history stay unchanged. */
+export function projectAppPolicyForMachine(policy:AppPolicyDocument,supportsOther:boolean):AppPolicyDocument {
+  if(supportsOther)return policy;
+  const walk=(value:unknown):unknown=>Array.isArray(value)?value.map(walk)
+    :value!==null&&typeof value==='object'
+      ?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,
+        key==='classification'&&item==='other'?'unclassified':walk(item)]))
+      :value;
+  return walk(policy) as AppPolicyDocument;
 }
 
 export async function machinePolicyEtag(machineId:string,version:number,capabilities:readonly string[]):Promise<string> {
@@ -477,7 +497,7 @@ export async function recordMachineHeartbeat(
       policy_state=?6, capabilities_json=?8, last_seen_at_ms=?5, updated_at_ms=?5 WHERE id=?7
   `).bind(input.serviceVersion, input.osVersion, input.architecture, input.tamperCount,
     nowMs, input.policyState, machine.machineId,
-    JSON.stringify(input.capabilities?.includes('product-block-v1') ? ['product-block-v1'] : [])).run();
+    JSON.stringify(['product-block-v1','application-other-v1'].filter(value=>input.capabilities?.includes(value)))).run();
 }
 
 export async function persistMachineSegments(
@@ -949,6 +969,7 @@ export async function deleteRuntimeChildV2(database: D1Database, accountId: stri
   `).bind(accountId).all<{ id: string; desired_policy_version: number; default_child_id: string | null }>();
   const statements: D1PreparedStatement[] = [
     database.prepare('DELETE FROM runtime_app_classification_history_v1 WHERE account_id=?1 AND child_id=?2').bind(accountId, childId),
+    database.prepare('DELETE FROM runtime_app_classification_history_other_v1 WHERE account_id=?1 AND child_id=?2').bind(accountId, childId),
     database.prepare('DELETE FROM runtime_child_app_policy_versions_v1 WHERE account_id=?1 AND child_id=?2').bind(accountId, childId),
     database.prepare('DELETE FROM runtime_media_segments_v2 WHERE child_id=?1').bind(childId),
     database.prepare('DELETE FROM runtime_usage_diagnostic_segments_v2 WHERE child_id=?1').bind(childId),

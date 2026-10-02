@@ -72,6 +72,17 @@ function loadRenderUndeterminedList() {
 }
 
 function run() {
+  const adminSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'admin', 'admin.js'), 'utf8');
+  const labels = { siteClassificationRecordKind: () => 'unclassified_visit' };
+  const statusSource = adminSource.slice(
+    adminSource.indexOf('function siteRequestStatusLabel('),
+    adminSource.indexOf('function siteRequestTypeLabel(')
+  );
+  vm.runInNewContext(`${statusSource}\nthis.statusLabel = siteRequestStatusLabel;`, labels);
+  expectEqual('other approval is displayed in Chinese', labels.statusLabel('approved_other'), '已确认为其他');
+  expectEqual('resolved other is displayed in Chinese', labels.statusLabel('pending', {
+    syncStatus: 'resolved', syncResolutionClassifiedAs: 'other',
+  }), '当前配置已归为其他');
   console.log('[Admin Undetermined List — D-015 Label Neutralization]');
 
   const { fn: renderUndeterminedList, ctx } = loadRenderUndeterminedList();

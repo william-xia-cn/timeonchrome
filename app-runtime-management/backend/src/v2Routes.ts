@@ -1,5 +1,6 @@
 import { requireAccountModule, requireMachine } from './auth';
 import { routeApplicationAccounts } from './applicationAccounts';
+import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota } from './applicationSharedQuota';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
@@ -61,6 +62,33 @@ import {
 
 const policyStates = new Set(['pending', 'cached', 'applied', 'failed', 'offline']);
 
+async function readSharedAccessPolicy(env: Env, accountId: string, childId: string): Promise<Record<string, unknown>> {
+  if (!env.GUARDIAN_COMPUTER_USAGE) {
+    throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置服务暂不可用。');
+  }
+  let response: Response;
+  try {
+    response = await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedAccessPolicy', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId, childId }),
+    }));
+  } catch {
+    throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置服务暂不可用。');
+  }
+  if (!response.ok) throw new HttpError(response.status === 404 ? 404 : 503,
+    response.status === 404 ? 'CHILD_NOT_FOUND' : 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置服务暂不可用。');
+  let result: { policy?: Record<string, unknown> };
+  try { result = await response.json() as typeof result; }
+  catch { throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置响应无效。'); }
+  const policy = result.policy;
+  if (!policy || policy.schemaVersion !== 1 || typeof policy.revision !== 'string'
+    || !Number.isSafeInteger(policy.effectiveAtMs)
+    || !['legacy', 'shadow', 'shared'].includes(String(policy.stage))
+    || !isRecord(policy.dailyMinutes) || !isRecord(policy.timeWindows) || !isRecord(policy.autonomy)) {
+    throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置响应无效。');
+  }
+  return policy;
+}
+
 export async function routeV2(request: Request, env: Env, nowMs: number, defer?:(work:Promise<unknown>)=>void): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/v2/') && url.pathname !== '/v1/devices/self/retire') return null;
@@ -115,6 +143,11 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       }
       return childId;
     };
+    if (url.pathname === '/v2/module/shared-access-policy') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild();
+      return jsonResponse({ policy: await readSharedAccessPolicy(env, claims.account_id, childId) });
+    }
     const requireRange = (maximumDays = 31): { fromMs: number; toMs: number } => {
       const fromMs = Number(url.searchParams.get('fromMs'));
       const toMs = Number(url.searchParams.get('toMs'));
@@ -379,6 +412,35 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
   }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
     url.pathname !== '/v2/machines/heartbeat');
+  if (url.pathname === '/v2/machines/shared-access-policy') {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const localUserId=url.searchParams.get('localUserId');
+    const assignmentVersion=Number(url.searchParams.get('assignmentVersion'));
+    if (!localUserId||localUserId.length<32||localUserId.length>128||!/^[A-Za-z0-9_-]+$/u.test(localUserId)
+      ||!Number.isSafeInteger(assignmentVersion)||assignmentVersion<1)
+      throw new HttpError(400,'INVALID_REQUEST','Shared access scope is invalid.');
+    const assignment=await env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
+      WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3
+        AND a.protected=1 AND a.child_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer
+          WHERE newer.machine_id=a.machine_id AND newer.local_user_id=a.local_user_id
+            AND newer.assignment_version>a.assignment_version)`)
+      .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
+    if (!assignment) throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
+    return jsonResponse({ policy: await readSharedAccessPolicy(env, machine.accountId, assignment.child_id) });
+  }
+  if (url.pathname === '/v2/machines/shared-quota/capabilities') {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    return jsonResponse({protocol:'application-shared-quota-v1',schemaVersion:1,
+      enabled:await applicationSharedQuotaUploadReady(env.RUNTIME_DB)});
+  }
+  if (url.pathname === '/v2/machines/shared-quota/application-contributions') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    if (!await applicationSharedQuotaUploadReady(env.RUNTIME_DB))
+      throw new HttpError(503,'SHARED_QUOTA_UPLOAD_UNAVAILABLE','Shared quota receipt storage is not ready.');
+    return jsonResponse(await receiveApplicationSharedQuota(env.RUNTIME_DB, machine,
+      await readJsonBody(request,16_384), nowMs));
+  }
   if (url.pathname === '/v2/machines/app-usage-corrections') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
     return jsonResponse(await machineUsageCorrections(env.RUNTIME_DB, machine, url.searchParams.get('after')));

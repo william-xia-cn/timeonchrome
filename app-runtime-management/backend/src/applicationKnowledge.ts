@@ -159,7 +159,8 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
       (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms)
       VALUES(?1,?2,?3,?4,?5,?6,?6)`).bind(accountId, childId, current.version + 1, payload, await sha256Hex(payload), nowMs));
     // Old classification history remains immutable; only the new snapshot omits migrated redundant entries.
-    for (const entry of classifications) statements.push(db.prepare(`INSERT INTO runtime_app_classification_history_v1
+    for (const entry of classifications) statements.push(db.prepare(`INSERT INTO ${entry.classification === 'other'
+      ? 'runtime_app_classification_history_other_v1' : 'runtime_app_classification_history_v1'}
       (account_id,child_id,platform,runtime_identity,policy_version,classification,display_name,effective_at_ms,created_at_ms)
       VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)`).bind(accountId, childId, entry.platform, entry.runtimeIdentity,
         current.version + 1, entry.classification, entry.displayName, nowMs));

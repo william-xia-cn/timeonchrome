@@ -5,6 +5,7 @@ import { readNativeHostDeploymentMarker, readNativeHostDevelopmentMarker } from 
 import { budgetedLocalSet } from './storage-budget.js';
 import { registerPersistedUsageSegmentObserver } from '../core/usage-segments.js';
 import { readCurrentWeekBrowserSnapshots } from './browser-bridge-v3-snapshot.js';
+import { validateSharedQuotaStateV1 } from '../core/shared-quota-state.js';
 
 export const TIMEONCHROME_NATIVE_HOST = 'com.timeonchrome.nativehost';
 export const LEGACY_LOCAL_GUARDIAN_HOST = 'com.timeonchrome.guardian';
@@ -46,6 +47,7 @@ let activeSendPromise = null;
 let queuedHeartbeat = null;
 let queuedProbe = null;
 let queuedApplicationRead = null;
+let queuedSharedQuotaRead = null;
 let applicationUsageSupported = false;
 let queuedLegacyLedger = null;
 let ledgerDrainRequested = false;
@@ -253,6 +255,9 @@ function normalizeErrorCode(value) {
     'heartbeat_build_failed',
     'application_usage_revision_changed',
     'application_usage_unavailable',
+    'shared_quota_unavailable',
+    'shared_quota_invalid_state',
+    'shared_quota_stale_state',
   ]);
   return allowed.has(value) ? value : 'heartbeat_build_failed';
 }
@@ -313,7 +318,8 @@ function ensureNativePort() {
     if (response?.ok !== true) {
       const code = response?.errorCode === 'RUNTIME_SERVICE_UNAVAILABLE' ? 'runtime_service_unavailable'
         : response?.errorCode === 'APPLICATION_USAGE_REVISION_CHANGED' ? 'application_usage_revision_changed'
-        : pendingAck.applicationRead ? 'application_usage_unavailable' : 'native_invalid_response';
+        : pendingAck.applicationRead ? 'application_usage_unavailable'
+        : pendingAck.sharedQuotaRead ? 'shared_quota_unavailable' : 'native_invalid_response';
       rejectPendingAck(code);
       if (code === 'native_invalid_response') disconnectPort();
       return;
@@ -339,6 +345,7 @@ function ensureNativePort() {
       duplicate: response.duplicate === true,
       stale: response.stale === true,
       applicationUsage: response.applicationUsage,
+      sharedQuota: response.sharedQuota,
       requestId: response.requestId,
     });
   });
@@ -360,15 +367,16 @@ function ensureNativePort() {
 function postToNativeHost(payload) {
   const port = ensureNativePort();
   const applicationRead = payload.channel === 'application' && payload.messageType === 'getApplicationUsage';
+  const sharedQuotaRead = payload.channel === 'sharedQuota' && payload.messageType === 'getSharedQuotaState';
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
       if (!pendingAck || pendingAck.timeoutId !== timeoutId) return;
       pendingAck = null;
       disconnectPort();
       reject(new Error('native_response_timeout'));
-    }, applicationRead ? APPLICATION_USAGE_RESPONSE_TIMEOUT_MS : NATIVE_RESPONSE_TIMEOUT_MS);
+    }, applicationRead || sharedQuotaRead ? APPLICATION_USAGE_RESPONSE_TIMEOUT_MS : NATIVE_RESPONSE_TIMEOUT_MS);
     pendingAck = { resolve, reject, timeoutId, requestId: payload.requestId,
-      applicationRead };
+      applicationRead, sharedQuotaRead };
     try {
       port.postMessage(payload);
     } catch (_) {
@@ -641,6 +649,19 @@ async function performSnapshotDrain() {
 }
 
 async function performSend(options) {
+  if (options.type === 'sharedQuotaRead') {
+    try {
+      const payload = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
+        messageType: 'getSharedQuotaState', extensionId: chrome.runtime.id,
+        profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: {} };
+      const ack = await postToNativeHost(payload);
+      if (ack.requestId !== payload.requestId) return { ok: false, errorCode: 'shared_quota_invalid_state' };
+      if (ack.sharedQuota == null) return { ok: false, errorCode: 'shared_quota_unavailable' };
+      return validateSharedQuotaStateV1(ack.sharedQuota, options.expected);
+    } catch (error) {
+      return { ok: false, errorCode: normalizeErrorCode(error?.message) };
+    }
+  }
   if (options.type === 'applicationRead') {
     try {
       if (!applicationUsageSupported) return { ok: false, errorCode: 'application_usage_unsupported' };
@@ -749,6 +770,12 @@ function drainQueuedSend() {
     const queued = queuedApplicationRead;
     queuedApplicationRead = null;
     startSend(queued.options).then(queued.resolve, () => queued.resolve({ ok: false, errorCode: 'application_usage_unavailable' }));
+    return;
+  }
+  if (queuedSharedQuotaRead) {
+    const queued = queuedSharedQuotaRead;
+    queuedSharedQuotaRead = null;
+    startSend(queued.options).then(queued.resolve, () => queued.resolve({ ok: false, errorCode: 'shared_quota_unavailable' }));
     return;
   }
   if (snapshotDrainRequested && v3Supported) {
@@ -875,6 +902,21 @@ export async function requestApplicationUsage(query, { recheck = false } = {}) {
   // A page fetches serially. Bound competing page requests to one queued read.
   if (queuedApplicationRead) return { ok: false, errorCode: 'application_usage_busy' };
   return new Promise(resolve => { queuedApplicationRead = { options, resolve }; });
+}
+
+export async function requestSharedQuotaState(expected = {}) {
+  if (!await readNativeHostDeploymentMarker().catch(() => false)) {
+    return { ok: false, errorCode: 'managed_marker_unavailable' };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expected?.date)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(expected?.weekStart)
+    || typeof expected?.policyRevision !== 'string' || !expected.policyRevision) {
+    return { ok: false, errorCode: 'shared_quota_query_invalid' };
+  }
+  const options = { type: 'sharedQuotaRead', expected };
+  if (!activeSendPromise) return startSend(options);
+  if (queuedSharedQuotaRead) return { ok: false, errorCode: 'shared_quota_busy' };
+  return new Promise(resolve => { queuedSharedQuotaRead = { options, resolve }; });
 }
 
 function isTrustedRecheckSender(sender) {

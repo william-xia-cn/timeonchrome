@@ -3,6 +3,7 @@ import { getAppPolicy } from './appPolicy';
 import { readPersistentApplicationUsage } from './applicationStatistics';
 import { correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
 import { sha256Hex } from './crypto';
+import { readCoveredChromeDeduction } from './applicationSharedQuota';
 import { HttpError } from './http';
 import { isConfirmedChrome, CHROME_DISPLAY_VERSION, CHROME_SPECIAL_PRODUCT } from './specialApplications';
 import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
@@ -54,10 +55,11 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
     const limited=rows.length>remaining;
     const reasons = limited ? ['APPLICATION_EVIDENCE_LIMIT'] : rows.length===0 ? ['APPLICATION_EVIDENCE_UNAVAILABLE'] : [];
     if(rows.some(row=>Number(row.estimated)!==0||!row.clock_epoch_id||Number(row.accounting_schema_version)!==2))reasons.push('APPLICATION_CLOCK_EVIDENCE_INCOMPLETE');
-    let authoritative:Usage|null=null;
+    let authoritative:Usage|null=null,nativeAuthority=false;
     if(!limited)try{
       const snapshot=await readPersistentApplicationUsage(db,accountId,childId,fromMs,toMs,{machineId:machine.id},defer);
       authoritative=snapshot.value;
+      nativeAuthority=snapshot.statistics.producer==='native'&&!snapshot.statistics.stale;
       if(snapshot.statistics.stale)reasons.push('APPLICATION_STATISTICS_STALE');
     }catch(error){
       if(error instanceof HttpError)reasons.push(error.code);else throw error;
@@ -88,13 +90,17 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
     }
     remaining-=Math.min(rows.length,remaining);
     const computerKey=await sha256Hex(`${accountId}\ncomputer\n${machine.id}`);
+    const chromeIncludedInApplicationMs=nativeAuthority&&authoritative
+      ?await readCoveredChromeDeduction(db,accountId,childId,machine.id,fromDate,toDate,authoritative.totalDurationMs)
+      :null;
     sources.push({key:`app:${computerKey}`,computerKey,computerName:machine.display_name || '电脑',
       revision:await sha256Hex(JSON.stringify({rows,authority:authoritative?.totalDurationMs??null})),
       associationVersion:`${policy.productIdentityProjection?.version ?? 'unavailable'}:${CHROME_DISPLAY_VERSION}`,
       correctionRevision:await sha256Hex(JSON.stringify(corrections)),
       settledAtMs:rows.length?Math.max(...rows.map(row=>Number(row.end_wall_time_ms))):null,
       complete:reasons.length===0,statisticsComplete:authoritative!==null&&!reasons.includes('APPLICATION_STATISTICS_STALE'),reasons,totalMs:authoritative?.totalDurationMs??null,
-      categoriesMs:Object.fromEntries((authoritative?.categories??[]).map(item=>[item.classification,item.durationMs])),intervals});
+      categoriesMs:Object.fromEntries((authoritative?.categories??[]).map(item=>[item.classification,item.durationMs])),
+      chromeIncludedInApplicationMs,intervals});
   }
   try {
   const legacy=await db.prepare(`SELECT d.id,d.display_name,COUNT(s.id) AS count,MAX(s.uploaded_at_ms) AS latest

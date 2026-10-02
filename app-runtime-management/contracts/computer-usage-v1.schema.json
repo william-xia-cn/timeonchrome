@@ -41,6 +41,7 @@
         "reasons": { "type": "array", "items": { "type": "string" } },
         "totalMs": { "$ref": "#/$defs/milliseconds" }, "webMs": { "$ref": "#/$defs/milliseconds" },
         "applicationMs": { "$ref": "#/$defs/milliseconds" }, "overlapMs": { "$ref": "#/$defs/milliseconds" },
+        "chromeIncludedMs": { "$ref": "#/$defs/milliseconds", "description": "应用总量中 Chrome 容器的边际贡献；电脑汇总仅扣此值" },
         "chromeUnexplainedMs": { "$ref": "#/$defs/milliseconds" }, "categoriesMs": { "$ref": "#/$defs/categories" }
       }
     },
@@ -104,7 +105,8 @@
           "required": ["computerMs", "webMs", "applicationMs", "overlapMs"],
           "properties": {
             "computerMs": { "$ref": "#/$defs/milliseconds" }, "webMs": { "$ref": "#/$defs/milliseconds" },
-            "applicationMs": { "$ref": "#/$defs/milliseconds" }, "overlapMs": { "$ref": "#/$defs/milliseconds" }
+            "applicationMs": { "$ref": "#/$defs/milliseconds" }, "overlapMs": { "$ref": "#/$defs/milliseconds" },
+            "chromeIncludedMs": { "$ref": "#/$defs/milliseconds" }
           }
         },
         "categoriesMs": { "$ref": "#/$defs/categories" },

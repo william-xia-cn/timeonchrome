@@ -31,7 +31,9 @@ const db={
 const load=loader({'./profileAccountsV2':{readManifestAccountV2:async(_db,manifest)=>{if(webFailure||manifest.split('|')[1]===failedDate)throw Error('private DB detail');return {...account,date:manifest.split('|')[1]||date,revision:heads};}},
 './compositePageCorrections':{readCompositeCorrections:async()=>({revision:'c1',items:[]}),projectCompositeDailyRows:()=>account.rows.filter(row=>row.kind==='daily_target')},
 './usageAccountingCorrections':{listUsageAccountingCorrections:async()=>[],applyCorrectionsToV1StatsRows:rows=>rows},
-'../db/middleware':{generateToken:async()=> 'test-internal'},'../routes/stats':{statsRouter:{handle:async request=>Response.json({stats:new URL(request.url).pathname.includes('hourly')?publicStats.map(row=>({...row,hour:0})):publicStats})}}});
+'../db/middleware':{generateToken:async()=> 'test-internal'},'../routes/stats':{statsRouter:{handle:async request=>Response.json({stats:new URL(request.url).pathname.includes('hourly')?publicStats.map(row=>({...row,hour:0})):publicStats})}},
+'../routes/profiles':{readSharedAccessPolicyForChild:async(_db,accountId,childId)=>accountId==='current-account'&&childId==='current-child'
+  ?{schemaVersion:1,revision:'profile-config:7',stage:'legacy'}:null}});
 return {load,env:{DB:db,CONFIG_CACHE:{get:async key=>store.has(key)?JSON.parse(store.get(key)):null,put:async(key,value)=>store.set(key,value)},RUNTIME_COMPUTER_USAGE:{applicationEvidenceRevision:async()=>{if(appFailure)throw Error(appError);return 'a1';},readApplicationEvidence:async()=>{appReads++;if(appFailure)throw Error(appError);return [app];}}},store,reads:()=>reads,appReads:()=>appReads,change(){heads++;}};
 }
 (async()=>{
@@ -40,12 +42,17 @@ const scoped=new service.ComputerUsageService({}, {DB:{prepare(sql){assert.equal
 const scopeRequest=(accountId,childId)=>new Request('https://private-capability/verifyChildAccess',{method:'POST',body:JSON.stringify({accountId,childId})});
 assert.deepEqual(await (await scoped.fetch(scopeRequest('current-account','current-child'))).json(),{owned:true});
 assert.deepEqual(await (await scoped.fetch(scopeRequest('foreign-account','current-child'))).json(),{owned:false});
+const policyRequest=(accountId,childId)=>new Request('https://private-capability/readSharedAccessPolicy',
+  {method:'POST',body:JSON.stringify({accountId,childId})});
+assert.deepEqual(await (await scoped.fetch(policyRequest('current-account','current-child'))).json(),
+  {policy:{schemaVersion:1,revision:'profile-config:7',stage:'legacy'}});
+assert.equal((await scoped.fetch(policyRequest('foreign-account','current-child'))).status,404);
 assert.equal((await scoped.fetch(new Request('https://private-capability/getUsage',{method:'POST'}))).status,405);
 assert.equal((await scoped.fetch(scopeRequest('x'.repeat(3000),'current-child'))).status,400);
 const failedScope=new service.ComputerUsageService({}, {DB:{prepare(){throw Error('private DB failure');}}});
 assert.deepEqual(await (await failedScope.fetch(scopeRequest('current-account','current-child'))).json(),{code:'APPLICATION_SCOPE_UNAVAILABLE'});
 let result=await service.readComputerUsage(f.env,'account','child',date,date);
-assert.equal(result.totals.webMs,3000);assert.equal(result.totals.applicationMs,2000);assert.equal(result.totals.computerMs,null);
+assert.equal(result.totals.webMs,3000);assert.equal(result.totals.applicationMs,2000);assert.equal(result.totals.computerMs,5000);
 assert.ok(result.reasons.includes('DEVICE_MAPPING_INCOMPLETE'));assert.equal(result.timeline.some(row=>row.key.includes('private-segment')),false);
 assert.equal(result.sourceStatus.web,'complete','missing computer mapping does not invalidate authoritative web statistics');assert.equal(result.sourceStatus.application,'complete');
 const firstReads=f.reads();await service.readComputerUsage(f.env,'account','child',date,date);assert.equal(f.reads(),firstReads,'same source versions reuse interval cache');

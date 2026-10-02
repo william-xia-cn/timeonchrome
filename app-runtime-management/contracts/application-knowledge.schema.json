@@ -16,7 +16,7 @@
     "text": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f]+$" },
     "id": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9._:-]+$" },
     "platform": { "enum": ["windows", "macos"] },
-    "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "blocked"] },
+    "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "other", "blocked"] },
     "appType": { "enum": ["game", "gameLauncher", "gameUtility", "onlineVideo", "mediaPlayer", "other", "unknown"] },
     "condition": {
       "type": "object", "additionalProperties": false, "required": ["field", "value"],

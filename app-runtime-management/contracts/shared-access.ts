@@ -1,0 +1,205 @@
+/** D-114: one Child policy. Source ledgers remain separately authoritative. */
+export const SHARED_ACCESS_SCHEMA_VERSION = 1 as const;
+
+export type SharedAccessWeekday = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+export type SharedQuotaBucket = 'study' | 'composite' | 'rest';
+export type SharedAccessCategory = 'study' | 'composite' | 'restrictedEntertainment' | 'unclassified' | 'other' | 'blocked';
+export type SharedAccessStage = 'legacy' | 'shadow' | 'shared';
+
+export interface SharedAccessTimeWindow { start: string; end: string }
+
+export interface UnifiedChildAccessPolicyV1 {
+  schemaVersion: typeof SHARED_ACCESS_SCHEMA_VERSION;
+  /** Opaque, monotonically replaced Guardian policy revision. */
+  revision: string;
+  effectiveAtMs: number;
+  stage: SharedAccessStage;
+  dailyMinutes: Record<SharedAccessWeekday, Record<SharedQuotaBucket, number | null>>;
+  weeklyRestMinutes: number | null;
+  /** null means unrestricted, as in the existing web configuration. */
+  timeWindows: Record<SharedAccessWeekday, Record<SharedQuotaBucket, readonly SharedAccessTimeWindow[] | null>>;
+  autonomy: {
+    restrictedEntryConfirmationRequired: boolean;
+    dailyFirstReminderMinutes: number | null;
+    weeklyFirstReminderMinutes: number | null;
+    repeatReminderMinutes: number;
+    softReminderTimeoutAction: 'continue' | 'end_rest';
+    visibleResponseDeadlineSeconds: 60;
+  };
+}
+
+/** Read-only compatibility projection; it does not activate shared enforcement. */
+export function projectLegacySharedAccessPolicy(config: Record<string, unknown>, version: number,
+  updatedAtMs: number): UnifiedChildAccessPolicyV1 {
+  if (!Number.isSafeInteger(version) || version < 0 || !validMs(updatedAtMs)) throw new RangeError('INVALID_POLICY_REVISION');
+  const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : {};
+  const quota = asRecord(config.timeQuota), daily = asRecord(quota.daily), weekly = asRecord(quota.weekly);
+  const windows = asRecord(asRecord(config.timeWindows).daily);
+  const rest = asRecord(config.restConfig), autonomy = asRecord(config.autonomyConfig);
+  const weekdays: readonly SharedAccessWeekday[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const minutes = (value: unknown): number | null => value === null || value === undefined
+    ? null : validMs(value) ? value : null;
+  const normalizedWindows = (value: unknown): readonly SharedAccessTimeWindow[] | null =>
+    Array.isArray(value) && value.length > 0 ? value.map(item => ({ start: String(item.start), end: String(item.end) })) : null;
+  return {
+    schemaVersion: SHARED_ACCESS_SCHEMA_VERSION,
+    revision: `profile-config:${version}`, effectiveAtMs: updatedAtMs, stage: 'legacy',
+    dailyMinutes: Object.fromEntries(weekdays.map(day => {
+      const dayQuota = asRecord(daily[day]);
+      return [day, {study: minutes(dayQuota.studyMinutes), composite: minutes(dayQuota.compositeMinutes),
+        rest: minutes(dayQuota.restMinutes)}];
+    })) as UnifiedChildAccessPolicyV1['dailyMinutes'],
+    weeklyRestMinutes: Object.hasOwn(weekly, 'restMinutes') ? minutes(weekly.restMinutes)
+      : minutes(config.weeklyRestQuota === 0 ? null : config.weeklyRestQuota),
+    timeWindows: Object.fromEntries(weekdays.map(day => {
+      const dayWindows = asRecord(windows[day]);
+      return [day, {study: normalizedWindows(dayWindows.studyWindows),
+        composite: normalizedWindows(dayWindows.compositeWindows), rest: normalizedWindows(dayWindows.restWindows)}];
+    })) as UnifiedChildAccessPolicyV1['timeWindows'],
+    autonomy: {restrictedEntryConfirmationRequired: autonomy.restrictedEntryConfirmationRequired !== false,
+      dailyFirstReminderMinutes: rest.firstReminderMinutes === 0 ? null : minutes(rest.firstReminderMinutes),
+      weeklyFirstReminderMinutes: rest.weeklyFirstReminderMinutes === 0 ? null : minutes(rest.weeklyFirstReminderMinutes),
+      repeatReminderMinutes: validMs(rest.repeatReminderMinutes) && rest.repeatReminderMinutes > 0
+        ? rest.repeatReminderMinutes : 60,
+      softReminderTimeoutAction: autonomy.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
+      visibleResponseDeadlineSeconds: 60},
+  };
+}
+
+/** One source's settled replacement snapshot, never a transfer of raw segments. */
+export interface SharedQuotaContributionV1 {
+  schemaVersion: typeof SHARED_ACCESS_SCHEMA_VERSION;
+  source: 'web' | 'application';
+  /** Opaque stable device/user/source scope. Authenticated assignment decides the Child. */
+  sourceKey: string;
+  date: string;
+  revision: string;
+  statisticsRevision: string;
+  correctionRevision: string;
+  productAssociationVersion?: string;
+  policyRevision: string;
+  settledAtMs: number | null;
+  complete: boolean;
+  reasonCodes: readonly string[];
+  /** Effective source buckets: web retains its authoritative Rest borrowing. */
+  bucketsMs: Readonly<Record<SharedQuotaBucket, number>>;
+  /** Application source reports pre-borrow composite and unclassified separately. */
+  applicationClassesMs?: Readonly<Record<'study' | 'composite' | 'restrictedEntertainment' | 'unclassified' | 'other', number>>;
+  /** Application union contribution excluded from shared quota, supported by a confirmed Chrome product. */
+  chromeExcludedMs?: number;
+  /** Distinct display deduction: marginal Chrome duration included in the app total's own union. */
+  chromeIncludedInApplicationMs?: number | null;
+}
+
+/** Machine-authenticated upload. The Worker derives Child and sourceKey from the active assignment. */
+export interface ApplicationSharedQuotaUploadV1 {
+  schemaVersion: typeof SHARED_ACCESS_SCHEMA_VERSION;
+  localUserId: string;
+  assignmentVersion: number;
+  /** Monotonic within machine/user/assignment/date; never use wall time to order replacements. */
+  revisionOrdinal: number;
+  contribution: Omit<SharedQuotaContributionV1, 'sourceKey' | 'source'> & { source: 'application' };
+}
+
+export interface SharedQuotaDayProjectionV1 {
+  date: string;
+  complete: boolean;
+  reasonCodes: readonly string[];
+  usedMs: Readonly<Record<SharedQuotaBucket, number>>;
+  remainingMs: Readonly<Record<SharedQuotaBucket, number | null>>;
+  borrowedRestMs: number;
+}
+
+const buckets: readonly SharedQuotaBucket[] = ['study', 'composite', 'rest'];
+const validMs = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+
+/**
+ * Read-only shared quota projection. Source revisions REPLACE previous snapshots;
+ * callers must supply one current revision per authenticated source scope.
+ * Web Rest already includes web borrowing. Application composite and unclassified
+ * borrow only after the existing effective web composite contribution is counted.
+ * This function never mutates either authority's ledger or quotas.
+ */
+export function projectSharedQuotaDay(policy: UnifiedChildAccessPolicyV1, date: string,
+  sources: readonly SharedQuotaContributionV1[]): SharedQuotaDayProjectionV1 {
+  const dayStart = Date.parse(`${date}T00:00:00+08:00`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(dayStart)
+    || new Date(dayStart + 28_800_000).toISOString().slice(0, 10) !== date) throw new RangeError('INVALID_DATE');
+  const reasons = new Set<string>();
+  const seen = new Set<string>();
+  const web = { study: 0, composite: 0, rest: 0 };
+  const app = { study: 0, composite: 0, restrictedEntertainment: 0, unclassified: 0 };
+  let webCount = 0, appCount = 0;
+  for (const source of sources) {
+    const scope = `${source.source}\u0000${source.sourceKey}\u0000${source.date}`;
+    if (seen.has(scope)) { reasons.add('DUPLICATE_SOURCE_SCOPE'); continue; }
+    seen.add(scope);
+    if (source.schemaVersion !== SHARED_ACCESS_SCHEMA_VERSION || source.date !== date || !source.sourceKey
+      || !source.revision || source.policyRevision !== policy.revision || !source.complete) {
+      reasons.add('SOURCE_INCOMPLETE_OR_VERSION_MISMATCH'); continue;
+    }
+    if (source.source === 'web') {
+      if (!buckets.every(bucket => validMs(source.bucketsMs[bucket]) && source.bucketsMs[bucket] % 1000 === 0)) {
+        reasons.add('INVALID_WEB_CONTRIBUTION'); continue;
+      }
+      webCount++;
+      for (const bucket of buckets) web[bucket] += source.bucketsMs[bucket];
+    } else {
+      const classes = source.applicationClassesMs;
+      if (!classes || !Object.values(classes).every(validMs) || !validMs(source.chromeExcludedMs)) {
+        reasons.add('INVALID_APPLICATION_CONTRIBUTION'); continue;
+      }
+      appCount++;
+      app.study += classes.study;
+      app.composite += classes.composite;
+      app.unclassified += classes.unclassified;
+      app.restrictedEntertainment += classes.restrictedEntertainment;
+    }
+  }
+  if (!webCount) reasons.add('WEB_COVERAGE_MISSING');
+  if (!appCount) reasons.add('APPLICATION_COVERAGE_MISSING');
+  const weekday = (['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const)
+    [new Date(dayStart + 28_800_000).getUTCDay()];
+  const limits = policy.dailyMinutes[weekday];
+  const compositeRaw = app.composite + app.unclassified;
+  const compositeAvailable = limits.composite === null ? Infinity
+    : Math.max(0, limits.composite * 60000 - web.composite);
+  const borrowedRestMs = Math.max(0, compositeRaw - compositeAvailable);
+  const usedMs = { study: web.study + app.study,
+    composite: web.composite + compositeRaw - borrowedRestMs,
+    rest: web.rest + app.restrictedEntertainment + borrowedRestMs };
+  if (!Object.values(usedMs).every(validMs)) reasons.add('CONTRIBUTION_OVERFLOW');
+  const remainingMs = Object.fromEntries(buckets.map(bucket => [bucket,
+    limits[bucket] === null ? null : Math.max(0, limits[bucket]! * 60000 - usedMs[bucket])])) as Record<SharedQuotaBucket, number | null>;
+  return { date, complete: reasons.size === 0, reasonCodes: [...reasons].sort(), usedMs, remainingMs, borrowedRestMs };
+}
+
+export interface SharedQuotaStateV1 {
+  schemaVersion: typeof SHARED_ACCESS_SCHEMA_VERSION;
+  policyRevision: string;
+  revision: string;
+  computedAtMs: number;
+  settledAtMs: number | null;
+  complete: boolean;
+  reasonCodes: readonly string[];
+  /** All contributing source revisions, for replacement and self-copy exclusion. */
+  sources: readonly { source: 'web' | 'application'; sourceKey: string; date: string; revision: string }[];
+  day: { date: string; usedMs: Readonly<Record<SharedQuotaBucket, number>>;
+    remainingMs: Readonly<Record<SharedQuotaBucket, number | null>>; borrowedRestMs: number };
+  week: { fromDate: string; toDate: string; complete: boolean; reasonCodes: readonly string[];
+    restUsedMs: number; restRemainingMs: number | null };
+  offline: boolean;
+}
+
+export interface SharedReminderResultV1 {
+  schemaVersion: typeof SHARED_ACCESS_SCHEMA_VERSION;
+  reminderId: string;
+  policyRevision: string;
+  stateRevision: string;
+  kind: 'entry' | 'daily' | 'weekly';
+  delivery: 'visible' | 'failed';
+  visibleAtMs: number | null;
+  action: 'continue' | 'end_rest' | 'timeout_continue' | 'timeout_end' | 'delivery_failed_continue' | 'delivery_failed_end';
+  resolvedAtMs: number;
+}
