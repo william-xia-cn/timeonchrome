@@ -2,6 +2,8 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+控件准备层集成（未启用）：所属任务已推送 `186000e0380e6cc158e46d268db3576c4bb4fbe4`，真实隔离Chrome IDB提交/回滚、45次退休、旧代次拒绝、SW及浏览器重启有记录，但ACK为夹具，未证明实际Service执行。其原工作树仍有Content等未提交草稿，原地保护。架构集成在本现有干净云端树合入该精确已提交源，仅处理docs/DESIGN文档冲突；源代码保留所属任务字节，默认关闭。复用相同源码哈希对应的浏览器/单元证据，再核对源文件字节、契约/作用域和CI；不新建分支/工作树，不替换原候选、不启用、不改网页原账。当前master已包含PR200 `f56a1fc51120e7b730b8ede1f819bc825ed46391`。
+
 共享状态读取契约消费核对：`readSharedQuotaState` 仅校验结构，未绑定返回 day/week 与请求日期；计算/截止时间仅检查 safe integer，负数仍可通过，违反既有毫秒契约。本批仅拒绝错日、错误北京时间周起止及负时间响应，不改变源统计、配额投影或执行阶段。先补文档，再修改 Runtime 读路由与隔离 Service Binding 夹具/真实路由回归；运行本项 focused API test、Worker typecheck/dry-run/职责/diff，不跑平台/页面/账本全量。标准云端范围包含本项 backend 测试配置，无新增分支、迁移或生产操作。
 
 本项真实本地路由聚焦通过（1 passed、73 unrelated skipped）：错误 day、week.toDate、非周一 week.fromDate、负 computedAtMs/settledAtMs 均503稳定错误码；合法下一周200，原机器认证/受保护账户拒绝仍覆盖。Worker typecheck、Wrangler dry-run 459.72KiB、源码边界、standard-cloud四路径及diff通过。首轮类型检查因负值测试夹具将null推断为唯一类型失败，改为明确故障注入后重跑通过；不计首轮失败为通过。Matched=本项既有读取契约校验；Deviated/Extra=无；完整目标真实跨端仍未完成，不修改共享状态生成或原账。
