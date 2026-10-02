@@ -77,6 +77,49 @@ function fixture({hold=false,invalid=false,holdStyles=false}={}){
   assert.match(html,/key: 'other'.*isUsage: true/);
   assert.match(html,/\['used-unclassified', 'usage', 'custom', 'system', 'rule', 'unmarked'\]/);
   assert.match(html,/entry.source === 'usage'.*deleteRulesOtherUsage/s);
+  // 后续主站明确归类解除旧host用途覆盖；不清具体页面、其他域或历史。
+  const identityCode=html.slice(html.indexOf('function canonicalSiteIdentityHost('),html.indexOf('function getSiteAccessListsForValidation('));
+  const payloadCode=html.slice(html.indexOf('function buildCustomSiteAccessPayload('),html.indexOf('function isYouTubeRootDomain('));
+  const moveCode=html.slice(html.indexOf('function moveCustomSiteToPolicy('),html.indexOf('window.deleteRulesCustomSite'));
+  const originalConfig={customStudyList:[],customCompositeList:['example.test'],timeQuota:{unchanged:true},siteUsageClassificationRulesV1:[
+    {id:'old-host',classification:'other',targetType:'host',normalizedValue:'www.example.test'},
+    {id:'page',classification:'other',targetType:'url',normalizedValue:'https://example.test/settings'},
+    {id:'other-host',classification:'other',targetType:'host',normalizedValue:'another.test'}]};
+  const moveContext={URL,remoteConfig:originalConfig,
+    classificationPolicyDefs:()=>[{key:'study',label:'学习网站',customKey:'customStudyList'},{key:'composite',customKey:'customCompositeList'}],
+    matchDomain:(a,b)=>a===b,uniqueSiteAccessValues:value=>[...new Set(value)],
+    findSiteAccessExactConflicts:()=>[],renderRulesPage:()=>{},toast:()=>{}};
+  vm.runInNewContext(identityCode+payloadCode+moveCode,moveContext);
+  assert.equal(moveContext.moveCustomSiteToPolicy('example.test','study'),true);
+  assert.deepEqual(JSON.parse(JSON.stringify(moveContext.remoteConfig.siteUsageClassificationRulesV1)).map(rule=>rule.id),['page','other-host']);
+  assert.equal(originalConfig.siteUsageClassificationRulesV1.length,3,'never mutate source config');
+  assert.equal(moveContext.remoteConfig.timeQuota,originalConfig.timeQuota);
+  const savedPayload=JSON.parse(JSON.stringify(moveContext.buildCustomSiteAccessPayload()));
+  assert.deepEqual(savedPayload.customStudyList,['example.test']);
+  assert.deepEqual(savedPayload.siteUsageClassificationRulesV1,[
+    {classification:'other',targetType:'url',normalizedValue:'https://example.test/settings'},
+    {classification:'other',targetType:'host',normalizedValue:'another.test'}]);
+  assert.equal(Object.hasOwn(moveContext.buildCustomSiteAccessPayload({}),'siteUsageClassificationRulesV1'),false);
+  assert.deepEqual(JSON.parse(JSON.stringify(moveContext.buildCustomSiteAccessPayload({siteUsageClassificationRulesV1:[]}))).siteUsageClassificationRulesV1,[]);
+  moveContext.remoteConfig=originalConfig;moveContext.findSiteAccessExactConflicts=()=>['conflict'];moveContext.formatSiteAccessConflict=()=>'';
+  assert.equal(moveContext.moveCustomSiteToPolicy('example.test','study'),false);
+  assert.equal(moveContext.remoteConfig,originalConfig,'conflicting operation cannot remove an override');
+  const websiteSaveCode=html.slice(html.indexOf('async function saveSiteAccessConfig('),html.indexOf('// ── Quota',html.indexOf('async function saveSiteAccessConfig(')));
+  for(const change of ['none','child','version','write-child']){
+    let release;const reads=[],applied=[],renders=[];
+    const context={currentProfileId:'child-a',remoteConfigVersion:7,remoteConfig:{},
+      buildCustomSiteAccessPayload:()=>({siteUsageClassificationRulesV1:[]}),findSiteAccessExactConflicts:()=>[],
+      toast:()=>{},applyProfileConfigResponse:r=>applied.push(r),renderRulesPage:()=>renders.push(true),
+      saveProfileConfig:async()=>{context.remoteConfigVersion=8;if(change==='write-child')context.currentProfileId='child-b';return{version:8};},
+      api:async path=>{reads.push(path);await new Promise(yes=>release=yes);return{version:8,config:{}};}};
+    vm.runInNewContext(websiteSaveCode,context);
+    const pending=context.saveSiteAccessConfig();await new Promise(resolve=>setImmediate(resolve));
+    if(change==='write-child'){await pending;assert.equal(reads.length,0);continue;}
+    assert.equal(reads[0],'/profiles/child-a/config');
+    if(change==='child')context.currentProfileId='child-b';if(change==='version')context.remoteConfigVersion=9;
+    release();await pending;
+    assert.equal(applied.length,change==='none'?1:0);assert.equal(renders.length,change==='none'?1:0);
+  }
   for(const view of ['apps','devices']){assert.match(html,new RegExp('data-page="'+view+'"'));assert.match(html,new RegExp('id="page-'+view+'"'));}
   assert(!html.includes('class="nav-item runtime-launch"'));assert.match(html,/\/app-runtime\/manage\/v1\//);assert.match(html,/If-Match/);
   assert.match(html,/data-system-management-tab="runtime-diagnostics"/);
