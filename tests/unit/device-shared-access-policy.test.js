@@ -17,7 +17,7 @@ function load(relative, dependencies) {
 (async () => {
   const contract = await import('../../app-runtime-management/contracts/dist/shared-access.js');
   const quota = load('extension/core/quota-config.js', {});
-  const { readSharedAccessPolicyForChild } = load('workers/src/routes/profiles.ts', {
+  const { readSharedAccessPolicyForChild, normalizeSharedAccessRolloutV1 } = load('workers/src/routes/profiles.ts', {
     '@timeonchrome/app-runtime-contracts/shared-access': contract,
     '../../../extension/core/quota-config.js': quota,
   });
@@ -25,6 +25,7 @@ function load(relative, dependencies) {
   let missing = false, fail = false;
   let basisRevision = 'a'.repeat(64), policyChanged = false, bindingChanged = false, basisFail = false;
   let basisReads = 0, authReads = 0;
+  let derivedError = '', derivedReads = 0;
   const calls = [];
   const config = { timeQuota: { daily: { friday: { studyMinutes: 0, compositeMinutes: 30, restMinutes: 60 } },
     weekly: { restMinutes: 120 } }, restConfig: { repeatReminderMinutes: 10 } };
@@ -44,6 +45,27 @@ function load(relative, dependencies) {
   const { deviceRouter } = load('workers/src/routes/device.ts', {
     '../db/middleware': { json },
     './profiles': { readSharedAccessPolicyForChild },
+    '@timeonchrome/app-runtime-contracts/shared-access': contract,
+    '../services/sharedWebContributions': {
+      readSharedWebJson: request => request.json(),
+      publishSharedWebContribution: async (_env, scope, body) => {
+        derivedReads++; basisReads++;
+        assert.deepEqual(scope,{accountId:'bound-owner',childId:'bound-child',deviceId:'bound-device',deviceToken:'fixture-device'});
+        if(derivedError)throw Error(derivedError);
+        return {status:'accepted',revisionOrdinal:body.revisionOrdinal};
+      },
+      readSharedWebWatermark: async (_env, scope, date) => {
+        derivedReads++; assert.equal(scope.childId,'bound-child');
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(date))throw Error('INVALID_WEB_CONTRIBUTION_DATE');
+        return {schemaVersion:1,date,revisionOrdinal:0};
+      },
+    },
+    '../services/sharedWebSourceBinding': {
+      issueSharedWebSourceBinding: async (_env, scope, challengeId) => {
+        derivedReads++;assert.equal(scope.deviceToken,'fixture-device');
+        return {challengeId};
+      },
+    },
     '../services/sharedAccessState': {
       readSharedQuotaExecutionBasis: async (_env, owner, child, date, policy) => {
         basisReads++; if (basisFail) throw Error('private failure');
@@ -94,6 +116,50 @@ function load(relative, dependencies) {
   assert.equal(body.policy.weeklyRestMinutes, 120);
   assert.deepEqual(body.policy, await readSharedAccessPolicyForChild(env.DB, 'bound-owner', 'bound-child'),
     'device and parent consume exactly the same projection');
+  for(const invalid of [null,[],{schemaVersion:2,stage:'shared'}, {schemaVersion:1,stage:'active'},
+    {schemaVersion:1,stage:'shared',enabled:true},{schemaVersion:1,stage:{toString:()=> 'shared'}}])
+    assert.equal(normalizeSharedAccessRolloutV1(invalid),null,'rollout metadata cannot smuggle a separate configuration');
+  config.sharedAccessRolloutV1={schemaVersion:1,stage:'shadow'};
+  const shadow=await readSharedAccessPolicyForChild(env.DB,'bound-owner','bound-child');
+  assert.equal(shadow.stage,'shadow');
+  assert.deepEqual(shadow.dailyMinutes,body.policy.dailyMinutes,'stage does not create another quota source');
+  config.sharedAccessRolloutV1.stage='shared';
+  assert.equal((await readSharedAccessPolicyForChild(env.DB,'bound-owner','bound-child')).stage,'shadow',
+    'stored rollout intent cannot bypass the default-off deployment switch');
+  env.SHARED_ACCESS_EXECUTION_ENABLED='true';
+  const shared=(await (await deviceRouter.handle(request(),env)).json()).policy;
+  assert.equal(shared.stage,'shared');
+  assert.deepEqual(shared,await readSharedAccessPolicyForChild(env.DB,'bound-owner','bound-child',true));
+  assert.notEqual((await contract.createSharedAccessPolicyIdentityV1(shared)).policyHash,
+    (await contract.createSharedAccessPolicyIdentityV1(shadow)).policyHash,'phase switch invalidates cached full configuration identity');
+  delete config.sharedAccessRolloutV1;delete env.SHARED_ACCESS_EXECUTION_ENABLED;
+  const parent = load('workers/src/routes/profiles.ts',{
+    '../db/middleware':{json,verifyAccountToken:async req=>req.headers.get('Authorization')==='Bearer parent-fixture'?'bound-owner':null},
+    '../config/system-access-config':{getSystemAccessConfig:async()=>({defaultCompositeSites:[],defaultUserCompositeSites:[]}),mergeWithDefaults:()=>[]},
+    '@timeonchrome/app-runtime-contracts/shared-access':contract,
+    '../../../extension/core/quota-config.js':quota,
+  }).profilesRouter;
+  let writes=0;
+  const parentEnv={DB:{prepare(sql){return {bind(...args){return {
+    async first(){
+      if(sql.trim()==='SELECT id FROM profiles WHERE id = ? AND account_id = ?')return args[1]==='bound-owner'?{id:'bound-child'}:null;
+      if(sql.trim()==='SELECT config, version, updated_at FROM profiles WHERE id = ?')return {config:JSON.stringify(config),version:9,updated_at:100};
+      throw Error('unexpected parent query');
+    },async run(){writes++;throw Error('disabled execution must not write');},
+  };}};}}};
+  const parentRequest=(rollout,expectedVersion=9,auth=true)=>new Request('https://fixture/profiles/bound-child/config',{
+    method:'PUT',headers:auth?{Authorization:'Bearer parent-fixture'}:{},
+    body:JSON.stringify({expectedVersion,data:{sharedAccessRolloutV1:rollout},sourceAction:'shared_access_rollout'}),
+  });
+  assert.equal((await parent.handle(parentRequest({schemaVersion:1,stage:'shared'},9,false),parentEnv)).status,401);
+  assert.equal((await parent.handle(parentRequest({schemaVersion:1,stage:'shared'},8),parentEnv)).status,409);
+  assert.equal((await parent.handle(parentRequest({schemaVersion:1,stage:'shared',dailyMinutes:{}}),parentEnv)).status,400);
+  assert.deepEqual(await (await parent.handle(parentRequest({schemaVersion:1,stage:'shared'}),parentEnv)).json(),
+    {code:'SHARED_ACCESS_EXECUTION_NOT_ENABLED'});
+  parentEnv.SHARED_ACCESS_EXECUTION_ENABLED='true';
+  parentEnv.SHARED_WEB_CONTRIBUTIONS_ENABLED='true';
+  assert.equal((await parent.handle(parentRequest({schemaVersion:1,stage:'shared'}),parentEnv)).status,409,'missing dedicated proof key cannot enable execution');
+  assert.equal(writes,0,'failed rollout cannot mutate config, audit or ledgers');
   missing = true;
   assert.equal((await deviceRouter.handle(request(), env)).status, 404);
   missing = false; fail = true;
@@ -131,5 +197,33 @@ function load(relative, dependencies) {
   basisFail=false;missing=true;assert.equal((await deviceRouter.handle(execution(),env)).status,404);missing=false;
   assert.equal((await deviceRouter.handle(new Request('https://fixture/device/shared-quota-execution/v1',{method:'POST'}),env)).status,404);
   assert.equal((await deviceRouter.handle(new Request('https://fixture/device/shared-access/v1', { method: 'POST' }), env)).status, 404);
-  console.log('device shared access policy: PASS (actual routes, scope isolation, shared projection, failures)');
+  const derived=(path,body,auth=true)=>new Request('https://fixture/device/'+path,{method:body?'POST':'GET',
+    headers:auth?{Authorization:'Bearer fixture-device'}:{},...(body?{body:JSON.stringify(body)}:{})});
+  const capabilities=await deviceRouter.handle(derived('shared-web-capabilities/v1'),env);
+  assert.deepEqual(await capabilities.json(),{schemaVersion:1,protocol:'shared-web-sync-v1',enabled:false});
+  assert.equal((await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env)).status,503,
+    'default disabled does not require new tables or silently enable contributions');
+  env.SHARED_WEB_CONTRIBUTIONS_ENABLED='true';
+  const startReads=derivedReads;
+  assert.equal((await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1},false),env)).status,401);
+  assert.equal((await deviceRouter.handle(derived('shared-web-watermark/v1?date=2026-10-03&childId=foreign'),env)).status,400);
+  assert.equal((await deviceRouter.handle(derived('shared-web-contributions/v1?sourceKey=foreign',{revisionOrdinal:1}),env)).status,400);
+  assert.equal(derivedReads,startReads,'unauthenticated or caller-selected scope never reaches derived storage');
+  assert.equal((await deviceRouter.handle(derived('shared-web-watermark/v1?date=2026-10-03'),env)).status,200);
+  assert.equal((await deviceRouter.handle(derived('shared-web-watermark/v1'),env)).status,400);
+  assert.equal((await deviceRouter.handle(derived('shared-web-source-binding/v1',{challengeId:'a'.repeat(64),deviceToken:'caller'}),env)).status,400);
+  assert.equal((await deviceRouter.handle(derived('shared-web-source-binding/v1',{challengeId:'a'.repeat(64)}),env)).status,200);
+  const published=await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env);
+  assert.equal(published.status,200);assert.equal(published.headers.get('Cache-Control'),'no-store');
+  for(const [code,status] of [['WEB_CONTRIBUTION_HASH_MISMATCH',400],['WEB_CONTRIBUTION_REVISION_CONFLICT',409],
+    ['WEB_CONTRIBUTION_BODY_TOO_LARGE',413],['private database failure',503]]){
+    derivedError=code;const response=await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env);
+    assert.equal(response.status,status);assert.ok(!JSON.stringify(await response.json()).includes('private'));
+  }
+  derivedError='';basisReads=0;policyChanged=true;
+  assert.deepEqual(await (await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env)).json(),
+    {code:'SHARED_ACCESS_POLICY_CHANGED'},'policy mutation during publication invalidates its response');
+  policyChanged=false;authReads=0;bindingChanged=true;
+  assert.equal((await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env)).status,409);
+  console.log('device shared access policy: PASS (actual routes, derived scope isolation, shared projection, failures)');
 })().catch(error => { console.error(error); process.exitCode = 1; });

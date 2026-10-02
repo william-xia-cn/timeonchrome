@@ -35,6 +35,7 @@
         "policyRevision": { "$ref": "#/$defs/key" },
         "stateRevision": { "$ref": "#/$defs/key" },
         "executionId": { "$ref": "#/$defs/key" },
+        "triggerStateRevision": { "$ref": "#/$defs/key" },
         "leaseId": { "$ref": "#/$defs/key" },
         "activityId": { "$ref": "#/$defs/key" },
         "targetSource": { "const": "browser" },
@@ -53,6 +54,7 @@
         "policyRevision": { "$ref": "#/$defs/key" },
         "stateRevision": { "$ref": "#/$defs/key" },
         "executionId": { "$ref": "#/$defs/key" },
+        "triggerStateRevision": { "$ref": "#/$defs/key" },
         "leaseId": { "$ref": "#/$defs/key" },
         "activityId": { "$ref": "#/$defs/key" },
         "outcome": { "enum": ["completed", "canceled", "failed", "stale"] }

@@ -1,20 +1,28 @@
-import { requestSharedReminderLifecycle, getSharedBrowserActivityLease } from '../infra/native-host-client.js';
+import { requestSharedReminderLifecycle, getSharedBrowserActivityLease, hasSharedReminderContinuityCapability } from '../infra/native-host-client.js';
 import { sharedReminderIdentity } from '../core/shared-reminder-lifecycle.js';
 import { sharedBrowserExecutionEligibility, validateSharedBrowserExecution } from '../core/shared-browser-execution.js';
 import { inspectSharedBrowserActivity, readBrowserRestActivity } from './shared-browser-activity.js';
 import { sharedBrowserExecutionAttempts } from '../infra/shared-browser-execution-attempts.js';
 import { browserExecutionFence } from '../infra/shared-browser-execution-fence.js';
+import { readSharedAccessRuntime } from './shared-access-runtime.js';
 
 export async function readBrowserExecutionContext(state) {
   const before = inspectSharedBrowserActivity();
+  const model = await readSharedAccessRuntime(state.date);
+  if (!model?.ok) throw Error('shared_execution_balance_unavailable');
+  const executionRevision = model.executionRevision;
   const fact = await readBrowserRestActivity();
+  const latest = await readSharedAccessRuntime(state.date);
+  if (!latest?.ok) throw Error('shared_execution_balance_unavailable');
+  const latestRevision = latest.executionRevision;
   const after = inspectSharedBrowserActivity();
   return { connectionCurrent: !!before?.leaseId && getSharedBrowserActivityLease() === before.leaseId,
     leaseId: after?.leaseId, activityId: after?.activityId,
     restEligible: before?.active === true && after?.active === true && fact.active === true
       && fact.key === before.key && before.key === after.key && before.activityId === after.activityId
-      && before.leaseId === after.leaseId,
-    policyRevision: state.policyRevision, stateRevision: state.stateRevision };
+      && before.leaseId === after.leaseId && executionRevision === latestRevision,
+    policyRevision: model.policy.revision, stateRevision: latestRevision,
+    continuitySupported: hasSharedReminderContinuityCapability() };
 }
 
 // No execution callback: even an eligible explicit permit cannot close a page here.

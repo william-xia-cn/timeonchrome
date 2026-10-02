@@ -4,6 +4,7 @@ function loader(overrides={}){const cache=new Map();return function load(file){i
 const source=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,Request,Response,Date,Map,Set,Promise,Number,Object,JSON,Error,console,require:name=>{
 if(name in overrides)return overrides[name];if(name==='@timeonchrome/app-runtime-contracts/shared-access')return load('app-runtime-management/contracts/shared-access.ts');
+if(name==='@timeonchrome/app-runtime-contracts/shared-web-sync')return load('app-runtime-management/contracts/shared-web-sync.ts');
 if(name==='@timeonchrome/app-runtime-contracts/shared-quota-execution')return load('app-runtime-management/contracts/shared-quota-execution.ts');
 if(name==='./shared-access.js')return load('app-runtime-management/contracts/shared-access.ts');
 const next=path.posix.normalize(path.posix.join(path.posix.dirname(file),name));return load(next.endsWith('.js')||next.endsWith('.ts')?next:next+'.ts');}});return module.exports;};}
@@ -17,7 +18,8 @@ const policy={schemaVersion:1,revision:'profile-config:8',effectiveAtMs:start,st
 const application={schemaVersion:1,source:'application',sourceKey:'app:opaque',date,revision:'4:hash-app',statisticsRevision:'hash-app',
  correctionRevision:'corr-app',productAssociationVersion:'assoc-3',policyRevision:policy.revision,settledAtMs:start+1000,complete:true,reasonCodes:[],
  bucketsMs:{study:0,composite:0,rest:0},applicationClassesMs:{study:600000,composite:0,restrictedEntertainment:60000,unclassified:0,other:3600000},chromeExcludedMs:0};
-function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=false,webUnavailable=false,unboundWithHistory=false}={}){
+function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=false,webUnavailable=false,unboundWithHistory=false,
+ derived=false,derivedMissing=false}={}){
  const manifestScopes=new Map();
  const account={profileId:'child',deviceId:'browser',date,revision:2,statsHash:'web-hash',generatedAt:start+5000,complete:true,lossCount:0,
   rows:[{kind:'daily_target',channel:'active',quotaBucket:'study',durationSeconds:600,targetKey:'x'},
@@ -36,11 +38,23 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
    return{...account,deviceId:scope.deviceId,date:scope.date,revision:2,statsHash:`web-hash-${scope.date}-${scope.deviceId}`};}},
   './compositePageCorrections':{readCompositeCorrections:async()=>({items:[],revision:'corr-web'}),projectCompositeDailyRows:(_account,rows)=>account.rows.filter(row=>row.kind==='daily_target')},
   './usageAccountingCorrections':{listUsageAccountingCorrections:async()=>[],applyCorrectionsToV1StatsRows:rows=>rows}};
+ if(derived)mocks['./sharedWebContributions']={readPublishedSharedWebContribution:async(_env,owner,child,device,day,currentPolicy)=>{
+   if(derivedMissing)return null;
+   assert.equal(owner,'account');assert.equal(child,'child');
+   const sync=await import('../../app-runtime-management/contracts/dist/shared-web-sync.js');
+   const contract=await import('../../app-runtime-management/contracts/dist/shared-access.js');
+   const body={schemaVersion:1,date:day,revisionOrdinal:7,statisticsRevision:'current-authoritative-hash',correctionRevision:'corr-web',
+     policyIdentity:await contract.createSharedAccessPolicyIdentityV1(currentPolicy),computedAtMs:start+1000,settledAtMs:start,
+     activeMs:900000,bucketsMs:{study:600000,composite:0,rest:0},otherMs:300000,complete:true,reasonCodes:[]};
+   const digest=Buffer.from(await webcrypto.subtle.digest('SHA-256',new TextEncoder().encode(owner+'\n'+device))).toString('hex');
+   return sync.sharedWebExecutionSourceV1({...body,contentHash:await sync.sharedWebContributionHashV1(body)},'web:'+digest);
+ }};
  const load=loader(mocks),service=load('workers/src/services/sharedAccessState.ts');
  const env={DB:db,RUNTIME_COMPUTER_USAGE:{fetch:async request=>{const body=await request.json();
   const current={...application,date:body.fromDate,revision:`raw-app-${body.fromDate}`,statisticsRevision:`hash-app-${body.fromDate}`};
   return Response.json({complete:appCoverage,expectedScopeCount:expectedAppScopes,verifiedScopeCount:appCoverage?1:0,
     reasonCodes:appCoverage?[]:['APPLICATION_ACCOUNT_NOT_PUBLISHED'],contributions:appCoverage?[{sourceKey:application.sourceKey,revision:`4:${body.fromDate}`,contribution:current}]:[]});}}};
+ if(derived)env.SHARED_WEB_CONTRIBUTIONS_ENABLED='true';
  return{service,env};
 }
 (async()=>{
@@ -97,6 +111,12 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
    'source keys are opaque, never raw device identifiers');
  const stageChanged=await service.readSharedAccessDayState(env,'account','child',date,{...policy,stage:'shadow'});
  assert.notEqual(result.revision,stageChanged.revision,'policy rollout stage changes produce a new state revision');
+ const sameRevisionPolicy=structuredClone(policy);
+ sameRevisionPolicy.dailyMinutes.friday.study=61;
+ assert.notEqual((await service.readSharedQuotaExecutionBasis(env,'account','child',date,sameRevisionPolicy)).revision,basis.revision,
+   'same revision but changed quota content invalidates pagination');
+ assert.notEqual((await service.readSharedAccessDayState(env,'account','child',date,sameRevisionPolicy)).revision,result.revision,
+   'same revision but changed quota content invalidates shared balance');
  assert.equal(JSON.stringify(result).includes('local_user_id'),false,'raw Runtime account identifiers never reach the Child reader');
 
  const incomplete=fixture({appCoverage:false}),partial=await incomplete.service.readSharedAccessDayState(incomplete.env,'account','child',date,policy);
@@ -136,5 +156,19 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
  assert.equal(retained.web.expectedScopeCount,2,'a same-day unbound device remains in Child quota coverage');
  assert.equal(retained.web.bucketsMs.study,1200000,'already-settled use remains counted after mid-day unbinding');
  assert.equal(retained.complete,true,'complete same-day receipts from bound and unbound devices remain complete');
+ const current=fixture({derived:true}),currentState=await current.service.readSharedAccessDayState(current.env,'account','child',date,policy);
+ assert.equal(currentState.day.usedMs.study,1200000,'authoritative web ten minutes + non-Chrome application ten minutes = twenty minutes');
+ const currentBasis=await current.service.readSharedQuotaExecutionBasis(current.env,'account','child',date,policy);
+ assert.equal(currentBasis.days[0].sources.find(source=>source.contribution.source==='web').revisionOrdinal,7,
+   'derived queue ordinal is preserved, never replaced by the original V2 manifest ordinal 2');
+ assert.equal(currentBasis.days[0].sources.find(source=>source.contribution.source==='web').contribution.statisticsRevision,
+   'current-authoritative-hash');
+ const absent=fixture({derived:true,derivedMissing:true}),absentBasis=await absent.service.readSharedQuotaExecutionBasis(absent.env,'account','child',date,policy);
+ assert.ok(absentBasis.days[0].reasonCodes.includes('WEB_DERIVED_CONTRIBUTION_MISSING'));
+ assert.ok(absentBasis.days[0].sources.every(source=>source.contribution.source!=='web'),
+   'missing derived receipt cannot fall back to unrelated V2 manifest ordinal');
+ const multiple=fixture({derived:true,unboundWithHistory:true}),multipleState=await multiple.service.readSharedAccessDayState(multiple.env,'account','child',date,policy);
+ assert.equal(multipleState.web.expectedScopeCount,2);
+ assert.equal(multipleState.day.usedMs.study,1800000,'other device contributions are not lost when local contribution is replaced');
  console.log('PASS child shared-access state: quota buckets, partial sources, legacy quality, source coverage, privacy');
 })().catch(error=>{console.error(error);process.exitCode=1;});

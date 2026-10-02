@@ -1,5 +1,20 @@
 {
   "schemaVersion": 1,
+  "continuity": {
+    "description": "Only Service-verified ordinary growth continues the original visible episode; permits bind latest state plus original trigger. Both endpoints negotiate shared-reminder-continuity-v1.",
+    "currentStateRevision": "new-complete-execution",
+    "cases": [
+      {"name":"continued-growth-fresh-permit","operation":"authorize","expectedEffect":"request-normal-close"},
+      {"name":"no-trusted-continuity-withdraws","operation":"authorize","continuity":false,"expectedEffect":null},
+      {"name":"wrong-continuity-current-withdraws","operation":"authorize","continuityCurrent":"stale","expectedEffect":null},
+      {"name":"policy-changed-withdraws","operation":"authorize","policyRevision":"changed","expectedEffect":null},
+      {"name":"old-consumer-no-continuation-permit","operation":"authorize","supported":false,"expectedEffect":null},
+      {"name":"consumer-binds-trigger-and-current","operation":"consume","expectedEligible":true},
+      {"name":"consumer-wrong-trigger","operation":"consume","triggerRevision":"other","expectedEligible":false},
+      {"name":"consumer-old-current","operation":"consume","currentRevision":"old","expectedEligible":false},
+      {"name":"consumer-unnegotiated-continuity","operation":"consume","supported":false,"expectedEligible":false}
+    ]
+  },
   "state": {
     "schemaVersion": 1, "roundId": "round-1", "reminderId": "reminder-1", "deliveryId": "delivery-1",
     "policyRevision": "policy-1", "stateRevision": "state-1", "date": "2026-10-02",

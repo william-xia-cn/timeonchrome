@@ -192,6 +192,46 @@ export interface SharedQuotaStateV1 {
   offline: boolean;
 }
 
+/** Admission only: never starts/stops accounting or authorizes a process action. */
+export function sharedAccessAdmissionV1(policy: UnifiedChildAccessPolicyV1,
+  day: SharedQuotaDayProjectionV1, week: {complete: boolean; restRemainingMs: number | null},
+  category: SharedAccessCategory, minuteOfDay: number, objectAllowed = true): {
+    decision: 'allow' | 'deny' | 'unavailable'; reasonCode: string | null; quotaBucket: SharedQuotaBucket | null;
+  } {
+  canonicalSharedAccessPolicyV1(policy);
+  if (!['study','composite','restrictedEntertainment','unclassified','other','blocked'].includes(category)
+    || !Number.isInteger(minuteOfDay) || minuteOfDay < 0 || minuteOfDay >= 1440
+    || typeof objectAllowed !== 'boolean') throw new Error('INVALID_SHARED_ACCESS_ADMISSION');
+  const result = (decision: 'allow' | 'deny' | 'unavailable', reasonCode: string | null,
+    quotaBucket: SharedQuotaBucket | null = null) => ({decision,reasonCode,quotaBucket});
+  if (!objectAllowed || category === 'blocked') return result('deny','OBJECT_BLOCKED');
+  if (category === 'other') return result('allow',null);
+  if (!day.complete || !week.complete) return result('unavailable','SHARED_USAGE_INCOMPLETE');
+  const start = Date.parse(day.date + 'T00:00:00Z');
+  if (!Number.isFinite(start) || new Date(start).toISOString().slice(0,10) !== day.date
+    || !buckets.every(bucket => day.remainingMs[bucket] === null || validMs(day.remainingMs[bucket]))
+    || !(week.restRemainingMs === null || validMs(week.restRemainingMs)))
+    throw new Error('INVALID_SHARED_ACCESS_ADMISSION');
+  const available = (value: number | null) => value === null || value > 0;
+  const nature: SharedQuotaBucket = category === 'study' ? 'study'
+    : category === 'restrictedEntertainment' ? 'rest' : 'composite';
+  let quotaBucket = nature;
+  if (nature === 'composite' && !available(day.remainingMs.composite)) quotaBucket = 'rest';
+  if (!available(day.remainingMs[quotaBucket])) return result('deny',
+    nature === 'composite' ? 'QUOTA_COMPOSITE_AND_REST' : `QUOTA_${quotaBucket.toUpperCase()}`,quotaBucket);
+  if (quotaBucket === 'rest' && !available(week.restRemainingMs))
+    return result('deny','QUOTA_WEEKLY_REST',quotaBucket);
+  const weekday = (['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const)
+    [new Date(start).getUTCDay()];
+  const windows = policy.timeWindows[weekday][nature];
+  const minute = (time: string) => Number(time.slice(0,2)) * 60 + Number(time.slice(3));
+  const inWindow = !windows?.length || windows.some(window => {
+    const from = minute(window.start), to = minute(window.end);
+    return from < to && minuteOfDay >= from && minuteOfDay < to;
+  });
+  return inWindow ? result('allow',null,quotaBucket) : result('deny',`WINDOW_${nature.toUpperCase()}`,quotaBucket);
+}
+
 export interface SharedReminderResultV1 {
   schemaVersion: typeof SHARED_ACCESS_SCHEMA_VERSION;
   reminderId: string;

@@ -1,6 +1,87 @@
 # TimeOnChrome — 技术设计文档
 
+## D-114 第二批终端接线（2026-10-03，本地及隔离关页验证通过，生产执行关闭）
+
+真实期限对齐：Guardian challenge的90秒是兑换窗口，签名proof的300秒是绑定有效期，不得要求proof到期早于challenge。只分别校验challenge当前可兑换、proof结构／签名来源／身份和当前有效期；Host负责真实验签及scope确认。固定回归使用90秒challenge与300秒proof，过期challenge不进入兑换。
+
+旧提醒退出：进入shared消费者前暂停旧Rest提醒调用者，串行清除旧弹层／投递截止并恢复其暂停的媒体；不触发结束休息、不改模式或网页会话、不推进软限额阈值。shared退出后恢复旧提醒评估。旧Content action／restore不在shared期间继续消费，避免两套提醒同时生效。真实关页专项仅测关闭自然结算，固定隔离idle夹具不代表OS idle精度验收。
+
+整批续接线：固定最终local-lease契约包源 `eea0143f85b9c34bed8695660ceb9306ba6782c5`，109153字节，SHA256 `83138e4e8b66cebc8331ac6b87cc4b58a2b9f1f2169c976b1eb440f8915984d7`，保留旧包证据。实际bootstrap在激活有效且managed／经身份核验的开发渠道启用准备读取与派生贡献，普通／CWS保持旧路径；消费者只在可信云端policy为shared且当前Host支持时启用，关页另需开发权限门禁。初始化异步失败不得阻塞原bootstrap。短proof仅授权新绑定与在线云请求；已被Host接受并协商 `shared-web-local-lease-v1` 的同一活Port可通过共同helper延续内存本地lease，不得持久化、断连复用或将过期proof用于云请求。身份／策略变化和Host拒绝立即撤销准备完整性；新增派生事实先走仍有效的本地lease，网络不可用不得阻止本地替换。验收固定包、能力隔离、离线与重连，不以测试开关冒充实际入口；最终候选尚不生成。
+
+此前派生贡献专项复验：PO 已批准修正夹具后再次运行 `shared-web-contribution-sync.test.js`，限定本地测试，不变更原始记账或发布。当时契约包源 `a5597b6c84b904e79cc2371f826a87ee087b8d5a`，108218字节，SHA256 `c89294a50ea3d6425d082329d6781ecef7daa248666f72d198c9e572368b1570`；保留为历史证据，当前固定包见本节local-lease续接线。版本冲突保护不得为使夹具通过而放宽。
+
+本次复验通过（退出码0）：固定包大小／SHA256／编译模块原字节、签名证明、队列重建、旧ACK与版本隔离、下降更正、离线退避、重启水位及网页与应用派生合并均通过。未修改生产实现或放宽契约；Matched＝批准的专项复验，Deviated／Extra＝无。该结果仅为本地夹具和消费者验证，不代表真实Native／HTTPS联调或第二批整体验收完成。
+
+第二批连续性接线使用最终共同契约：提醒身份固定在触发摘要，短期结束许可核验最新摘要，增长许可及ACK必须携带同一 `triggerStateRevision`。仅当前Native连接声明 `shared-reminder-continuity-v1` 时接受增长分支；客户端不得上传自称连续增长的标记。Service负责完整来源、策略、修订与递增用量判定，消费者在每次请求前后核对当前摘要，并要求可见实例身份保持不变。显式隔离开关同时配置既有Native、策略、basis读取和贡献控制器；生产默认仍关闭。关页准备API也须有界，迟到attach须撤销，命令成功不充当关闭证据。专项范围为最终共同向量、真实调用者、Native回执、提醒、执行及隔离Chromium原账守恒，不扩大至生产或全量回归。
+
+开发候选权限闸门：现有staging工具新增显式 `--shared-browser-close-development`，仅与 `--native-host-development` 的unpacked staging组合允许；临时manifest增加debugger，marker增加 `sharedBrowserCloseDevelopment:true`。未指定标记、普通／CWS或正式managed包均剥离debugger；不得生成CRX或update feed，不改正在加载的候选。真实消费者同时确认开发渠道、授权marker、manifest权限和Chrome实际授予权限，缺失时报 `shared_browser_close_permission_unavailable`，不claim、不关闭。此候选权限专项仅在临时目录验证；Native联合授权仍待验收。
+
+后续接线清单：独立内存来源绑定读取（云签名proof对应当前Host连接）→ 同完整policy／本机web版本的Native合并准备余额读取 → quota实际调用者及mode访问窗口消费 → 可见提醒绑定执行摘要与许可消费 → 目标标签正常／强制关闭及自然事件确认 → 隔离Chromium验收。所有新增调用者由一个显式本地开关控制，默认false，云端stage shared仅是必要条件，不能自行开启。公共分类用量按共享余额计算，Online／domain继续读取原网页用量；临时运行配置只投影Guardian公共配置、不保存到storage。原始分段和上传不改。关闭成功必须观察目标onRemoved，正常取消不升级；强制仅消费Service显式force-close许可，debugger仅在隔离候选具有批准权限时可用，正式manifest不增加权限。本批最小专项覆盖实际quota调用、提醒摘要竞态、关页结果及原自然结算；真实浏览器只用全新隔离Profile和本地测试页，不操作既有候选及家庭数据。
+
+此前准备小步只验证共同执行身份、原43执行／28生命周期／24活动向量和派生贡献，当时共享调用者及真实关页为Missing。现由下面整批结果补充，不把早期小步当整批交付，不复用旧持久性证据覆盖新关页结果。
+
+终端工作线仅修改派生准备余额和执行许可消费者，不修改原账、云端、候选或生产开关。按顺序核对：固定第二批1.30包 → 共同执行摘要 → 当前准备余额读取 → 许可检查及claim前后复核 → 专项测试。最终固定源与包哈希见上文 `a5597b6`；中间 `d199d01` 包及第一批包保留为历史证据。整批集成使用现有云端分支最终 `778be44`，保留merge父节点，不用选择性复制替换来源。
+
+执行身份使用契约共同函数，对完整policy身份、basis、完整projection及排序后的来源替换版本求摘要；不能只使用云端state revision。当前准备余额缺失或不完整时不可准备许可；本机贡献变化后摘要变化，旧permit不得登记或执行。连接／认证／租约代次独立校验，同摘要不延长许可期限。源码默认关闭，隔离显式开关可评估效果，绝不手工结算。既有TASK_BOARD草稿不改。
+
+整批实现与审计：
+- 来源绑定只来自当前Host challenge对应的云端签名proof，内存保存有效期；Native准备余额必须匹配完整policy、本机web版本、授权应用source和当前lease，异步前后复核一致。
+- 实际quota消费者使用临时投影，不保存Guardian配置；Online／单站点仍读取网页量。ACCESS_OBSERVED使用共同准入，复合借Rest仍受Composite窗口管理，窗口边界固定北京时间；黑名单及独立对象限制优先，“其他”不扣公共分类桶。
+- 可见提醒固定触发身份，协商连续性后正常增长不撤销或重新投递；短期许可、claim及效果前复核最新执行摘要，ACK完整回传触发摘要。默认关闭的集成控制器统一配置既有读取器，迟到enable不能恢复已关闭执行。
+- 已确认且指纹／水位不变的派生贡献不再重复上传整周；Host重接仍重新接受贡献，不能以云端ACK替代Host状态。只改变独立派生队列，不改原始上传。
+- 正常结束只走可取消的Page.close；超时结束只接受Service明确force-close许可。准备API有界，迟到attach撤销；只有目标onRemoved证明完成，beforeunload取消不升级强制，无关alert不能伪装成取消。
+
+专项结果：共同13准入／12连续性／9增长许可向量、执行摘要、实际共享配额调用者、81项mode-service、17项原模式矩阵、Native Port／完整ACK、提醒bridge、执行claim／结果／重试、控制器开关竞态、派生队列、策略／basis读取器、媒体配额隔离均通过；typecheck、extension-root（2.16MB）、职责边界及diff检查通过。无全量测试、生产操作或候选改动。
+
+新真实隔离证据位于临时 `toc-close-isolated-sQao6n/close-ledger-evidence.json`，不是旧 `output/playwright/d114/execution-persistence.json`。Chromium `147.0.7727.15`：正常与强制各自然结算1段，原始／日／小时均2秒；取消为0段／0秒且原页面ACTIVE，无关页存活，计时dispatch无错误。真实SW加载当前整合模块图、默认关闭检查通过；Native授权仍明确 `FIXTURE_NOT_VERIFIED`。脚本SHA256 `c54ae7c0656dedc92069c10d8370c2f245697666bcbca437d6cfc4f2a900d61c`，closer `a5858b1021ade441e1a872d53a9288a374975f54b19efbd033f068dbede8a97f`，原signal `da4feb79660579ebc5998a244684e47085261186d4c96bcf4491fc8502f4ce56`、timing-dispatcher `9606b3703170c991c3703e07341bb455dd0c76a0f306e1ba90c09fdd4df1170e`、session `5263798a0372bc07690aa4d5661875b91cdc94736f90ca5988f3876c60e24966`。测试只在隔离临时包授予debugger，不改正式manifest或现有家庭数据。
+
+续接线结果：最终local-lease包四个编译模块原字节及7项共同lease向量通过；实际派生调用覆盖过期后同连接新增、能力缺失、换Port拒绝、重连不继承、90秒challenge／300秒proof及不变整周不重复发送。实际bootstrap按渠道／activation／Host／可信stage自动进入与退出，旧提醒清理114项专项通过。开发权限临时包矩阵、executor前置拒绝、closer目标和超时专项通过，不改加载中的候选。
+
+最新隔离关页证据：`C:\Users\William\AppData\Local\Temp\toc-close-isolated-uGhD52\close-ledger-evidence.json`，Chromium147.0.7727.15；normal／force各1段，原始／日／小时均2秒，cancel零段且ACTIVE，无关页存活。脚本SHA256 `e2f22a7b6e327ce7596293779a12e84e0ff347127a4df38abcd98b10c57b7fc4`、closer `2413ba23f75c0732ec6308cf39aedfa9d8d128be0148109e3784f9bda0322d73`。旧sQao6n仅为旧代码证据。首次复跑因测试机器OS idle让ACTIVE夹具提前关闭；隔离测试单独设置idle检测间隔，不改产品代码，证据明确 `idleBoundary=ISOLATED_FIXTURE_NOT_VERIFIED`，不能称真实idle计时验收。
+
+Matched＝批准的整批消费者、实际启动入口、候选权限闸门、同连接内存lease及隔离关页评估；Deviated／Extra＝无。Missing＝真实已部署HTTPS／Native Service联合授权、连续增长／更正／离线／断线实机链路和最终候选安装验收。最终wire只在Host响应声明能力，没有新增客户端capability字段；Service如何绑定终端连续性支持须由架构／Native联合验证，未协商时拒绝增长许可。不得由Host或客户端提供 `continuousUsageGrowth` 自证，不因专项通过宣称生产贯通。最终集成来源为云端整批 `b695549`，保留真实merge父节点；尚不生成候选、不发布。
+
+## D-114 第一批派生贡献接线（2026-10-03，本地专项通过，真实联调未验收）
+
+使用已核验的集中源码 `30d53c11c9fbc7613539b0e05d99628e9ea27187` 对应1.30.0开发契约（101100字节，SHA256 `63309999adf5115803d5eaee83852126f8d35ed390944208e1acfb07b8783c3e`），替代此前临时草包。新增独立、有界、默认关闭的网页统计贡献队列，读取已落地日统计和批准更正，不改变原始分段、聚合、既有observer或上传队列。当前周启动重建及统计变化驱动；每日期独立ordinal、内容hash、云端ACK及重试状态。旧ACK不得清理新贡献，服务器水位不能被当作V2版本；绑定或策略变化后重新捕获身份，异步旧结果不得生效。
+
+云端令牌仅用于DeviceBearer HTTPS能力、贡献、水位和来源证明兑换，不进入Native payload。Native使用现有串行Port的当前连接challenge，云端签名proof兑换后由Host验签并绑定，再接受本机贡献替换。共享余额准备读取完整basis并按可信web scope替换；保持1.28契约原字节及`executionEnabled=false`。缺能力、证明、完整来源或版本冲突只能报告未准备，不开启限制。最小验证覆盖队列恢复、旧ACK、回退水位、身份切换、贡献守恒及令牌隔离；真实Host/HTTPS验收另列，不伪报完成。
+
+实现：`shared-web-contribution-sync.js` 在background同步注册启动／安装、已落地统计变化及既有健康alarm兜底，默认关闭；离线先保存当前周最多七天／128KB派生队列。独立版本按真实统计／更正／完整policy摘要推进，读服务器独立水位恢复版本，重复ACK不增号，较新版本可以下降更正；逐版本ACK不清后来版本，失败冷却上限30分钟。现有Native串行Port增加三个固定方法，严格校验输入、响应、当前Port及能力；没有令牌转发，也没有来源授权由Host自报替代。Host接受和云端确认分别处理；有效的本机替换可以在云端上传ACK前进入准备投影，缺其他日替换明确不完整。准备读模型另核对最新本地统计及绑定有效期，不以旧准备余额伪报当前完整。Native可选准备字段按协商能力单独验证，不覆盖原`sharedQuota`。
+
+验证：派生专项（固定包原字节、真实公开键P1363向量、当前周恢复、独立版本／旧ACK／下降替换、离线保存、退避、身份隔离、本地新统计使准备失效、网页10分＋应用10分＝20分）、Native Port／能力／字段和policy／HTTP专项、1.28分页回归均通过；typecheck、extension-root、app-runtime-boundaries、diff检查通过。都是本地夹具和真实消费者函数，不是生产HTTPS／真实Native验收。审计Matched＝批准第一批源码调用链；Deviated／Extra＝无；Missing＝真实设备联调、最终执行接入及启用，继续第二批实现。集中本地提交只包含此批文档／源码／测试，不建PR、不改候选、不部署；既有TASK_BOARD两行草稿原样保留。
+
 ## D-114 统一访问配置、其他时间与电脑使用汇总（2026-10-02）
+
+### 同连接离线来源租约
+
+`shared-web-local-lease-v1` 是显式协商的本机能力。云端ES256来源证明必须在300秒内验签并建立绑定；过期证明永远不能建立新连接、恢复重启后的授权或访问云端。验证成功后Service在内存保存该绑定的本机租约：完整policyIdentity、既有proof来源范围，以及由可信Service生成的scopeRevision。该摘要必须覆盖Host连接代际/PID启动实例、Windows用户/会话/boot、机器凭据代际、孩子分配及来源范围；不接受Host自行声明摘要作为授权。
+
+同一连接仍存活、身份/配置/范围均一致且双方协商时，证明过期不撤销这个既存本机租约，因此断网时仍能替换该来源的新增贡献。它不扩展来源范围、不授权过期proof的云端请求，也不独立启用动作；执行仍要求完整当前投影及云端shared阶段。失联、Service重启、凭据/分配/配置变化立即撤销，不能从持久化恢复租约；待发送正文保留，联网后新证明可补发。旧端未协商仍按证明期限处理，并明确报告覆盖不足。任何已连接但未授权的活跃来源都使当前投影不完整，即使其旧数据已被云端ACK。
+
+实际提醒连续性：固定 reminder/delivery/round、触发 stateRevision 与首次可见单调时刻。Service 使用同授权范围、日周、完整配置身份、来源集合、更正及产品关联版本的原贡献对照证明连续；逐来源序号与有效贡献不得下降，每次刷新均须通过。普通增长不重启60秒；授权、连接、目标变化独立撤销，下降或更正不冒充增长。许可的 stateRevision 仍为最新执行摘要，可选 triggerStateRevision 绑定原提醒；ACK 必须完整回传。两端声明 shared-reminder-continuity-v1 后才使用该新增许可行为，旧端保持原严格比较。共用准入不改变原账：复合借娱乐仍按复合窗，null/[]全天、起含终不含、等端点或逆序不命中，跨午夜需拆段，其他只受对象限制。
+
+### 三批贯通与派生网页贡献（2026-10-03，PO 已批准）
+
+第二批本机执行版本裁决：`basisRevision` 只标识云端依据，不能独立标识本机替换后的余额。执行许可、提醒轮次与 ACK 必须引用独立内部 `executionRevision`：SHA-256 对规范 JSON `{schemaVersion:1,policyIdentity,basisRevision,projection,replacementVersions}` 求摘要；对象键递归 ASCII 排序，替换版本按 date/source/sourceKey ASCII 排序且不得重复 scope，其他数组保持严格投影顺序。投影包括完整性、失败原因、日桶／借用及周结果；不含 computedAt、transportStatus 或原云端状态。旧序号不得覆盖新值，较新序号下降更正允许；相同身份也不能绕过连接代次、来源授权或配置完整性复核。准备响应不可用／不完整时不生成可执行身份。该身份只绑定执行读模型，不修改网页／应用原统计或公开云端 `sharedQuota`。
+
+云端阶段控制复用孩子唯一 config：可选 `sharedAccessRolloutV1={schemaVersion:1,stage:legacy|shadow|shared}`，不携带另一套配额。父端沿现有受鉴权 config PUT、expectedVersion、版本和操作审计写入；非法字段拒绝。shared 保存需 `SHARED_ACCESS_EXECUTION_ENABLED=true`、派生贡献能力和专用签名密钥配置；默认不具备。读取 shared 时部署开关关闭则降为 shadow，保持旧执行且使完整 policyIdentity 变化；同一受限读取函数用于家长、设备和机器内部绑定，不允许终端请求自选阶段。开关只是最终发布安全开关，不能代替来源完整性、配置一致性、执行能力和真实联调验收；第三批验收前不配置开关或 shared 元数据。
+
+按配置／贡献／余额、实际访问／提醒、最终集成／发布／真机验收三批收口。原网页与应用统计权威不变；新增共享派生来源不得混用网页本机统计摘要和 V2 manifest ordinal。集中契约候选统一为下一 Minor，在全部字段、失败语义与来源证明固定后只发布一次；原 1.29／1.28 准备层继续兼容，不逐字段发版。
+
+网页新贡献由扩展现行权威统计生成。每个已认证设备、孩子及日期拥有独立单调 `revisionOrdinal`、内容 SHA-256、统计／更正版本及 ACK 水位；新版本允许因批准更正减少用量。上传不能提供 Child 或来源键，云端从 DeviceBearer 派生来源。独立贡献包含三个实际扣费桶、其他用量和 ACTIVE 总量；桶总量须与有效总量精确一致，网页保持整数秒。完整策略身份、计算时间、已结算截止时间与完整性分开保存；不能伪造截止时间。完整性不足仍可存储诊断，但不能当作完整共享执行依据。
+
+Guardian additive `033_shared_web_contributions_v1.sql` 仅新增贡献 receipt／head，不修改原账／统计表。不可变 receipt 按家庭、孩子、设备、日期、单调版本唯一；head 只前进、同版异内容拒绝，ACK 丢失重放返回同一内容水位。上传事务通过当前设备归属条件写入，改绑后旧范围上传不能进入新孩子；旧孩子已消费贡献保留。水位用于本机恢复，不向客户端授予其他来源替换权。不存在派生数据的旧客户端保留旧只读诊断，明确新贡献覆盖缺失，不切换原网页统计权威。
+
+Service 的跨端网页替换另需专用云签名来源绑定证明：绑定经机器鉴权核实的应用来源、当前分配版本、孩子范围摘要、经真实 Host 连接生成的浏览器连接摘要、挑战随机量与网页来源。Host 仅转发；证明不能由调用方指定 Child／来源授权，不能携带设备令牌或凭据。专用密钥只用于本证明，不复用登录、机器或 lifecycle 密钥；无密钥配置时稳定返回不可用，不 fallback。挑战与证明均短期、限定 audience，重连／改绑使旧证明失效；离线只能沿用已验证且仍匹配的 LKG 范围，不能为新连接制造授权。最终接口／证明字段需同一契约候选核对后才允许两端实现，生产密钥配置留到发布批。
+
+批次 1 不启用硬限制或结束动作。新增派生上传和读取不触碰原网页 Segment、manifest、修正及上传确认链；两端独立贡献按来源版本替换，不能用总量减本机的近似算法或补造 V2 序号。
+
+分页依据与影子状态 revision 包含完整公共配置摘要、生效时间和阶段，而非只包含 profile-config 序号。云端读取完成再比较完整身份；相同序号但配置内容变化也必须失效，不能把旧页面或余额复用到新配置。
+
+来源证明实施口径：Service 在已核验 Host 连接内自行生成 `connectionHash`，通过机器鉴权为当前受保护用户请求挑战；Runtime 验证当前 assignment 后经 Guardian 专属内部绑定创建 90 秒挑战。Guardian 的新增派生表仅保存挑战随机 ID 与服务端范围，无令牌；浏览器用自己的 DeviceBearer 兑换，Guardian 核对同家庭／孩子，并经 Runtime 内部绑定再次核验分配。单挑战只能绑定一个网页来源；签发最多 300 秒、专用 ES256 密钥的证明，原始机器／用户／孩子 ID 不进入证明。Native 从已配对 HTTPS 机器接口取得专用公开验证键，核对签名、audience、时间、挑战、连接、应用来源、孩子范围摘要和 assignment；不得使用证明中的自报 key 作为信任根。缺钥、过期、撤销或改绑均不授予新网页 scope。离线 proof 过期后显示来源覆盖不足，已有已认证云端依据仍可只读，不冒称当前本机网页增量已纳入。短期证明只授予统计替换，不授予关闭、策略写入或设备登录。
+
+真实余额读出口沿用 `getSharedQuotaState`：旧 `sharedQuota` 仍返回云端读数，不覆盖其来源含义；协商 `shared-quota-execution-preparation-read-v1` 后可选返回 `sharedQuotaPreparation`，包含完整配置身份、依据版本、本机替换版本列表、投影、运输 online/offline/unavailable 和稳定原因，`executionEnabled` 本批固定 false。缺失已认证 scope／全页／配置一致性时 projection=null，不能以零余额或最终共享统计替代。新 `shared-web-contribution-sync-v1` 能力开放三个 sharedQuota 请求：`getSharedWebSourceChallenge` payload={}；`bindSharedWebSource` payload={proof}；`replaceSharedWebContribution` payload={challengeId,upload}。Service 验证已绑定当前连接的 proof 后才保存网页本机贡献；同日期只接受内容一致的同版本或更高版本，不累加，改绑／换连接失效。浏览器设备令牌只用于扩展直接 HTTPS 上传，不经过 Host。云端机器依据读取可附 `X-Shared-Web-Source-Proof` header，Guardian 再核验当前绑定后仅添加该 proof 来源的网页替换 scope；证明不进入 URL。
 
 执行去重记录的安全回收条件：Native对经认证、身份匹配的执行结果在SQLite事务中同时保存Ack和Consumed，事务提交后才返回browserExecutionAck；读取许可拒绝已有Ack或Consumed，重启沿用持久记录。消费者不能仅凭发送成功、墙钟超时、换租约或配置删除claim。只有收到匹配executionId/outcome的成功ACK，并使同一ID旧请求全部终结或由不可复活的请求代际拒绝后，才可在本地持久事务删除claim。ACK丢失、冲突、未持久确认或在途结果未隔离时保留并fail-closed；不能靠扩容无限累积解决长期运行。此为现有1.26许可一次性与ACK语义的实现核验，不增加关闭权限或改变计时。
 
@@ -37,6 +118,15 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 2026-10-03 1.29完整policy身份准备层：交接确认PR #211及相关CI通过；只读验真最终包93321字节、SHA-256 `1338ab2b2621ed4c19b8208203fd77d8e648b4f20721529479fc73a947bbbaf4`。既有getSharedQuotaState响应仅在V3连接协商 `shared-access-policy-identity-read` 后接受可选sharedAccessPolicyIdentity；旧端或缺字段返回未核实，不能凭policyRevision相同补身份。严格校验schema／revision／effectiveAtMs／stage／64位小写摘要；独立默认关闭核对器对当前完整policy递归排序key、UTF-8无空白JSON求SHA-256，并比较全部身份字段。请求前后复核认证scope和完整policy摘要，迟到响应或绑定／策略变化不可通过；不存身份载荷、不另建配置或协议。匹配只证明内容相等，executionEnabled始终false，不证明来源真实性、替换scope授权或共享执行许可。聚焦测试使用固定1.29真实契约函数及隔离Native响应，Native尚未实现，mock不称真机验收；不改原账、候选、TASK_BOARD或部署。
 
 1.29准备层本地证据：`shared-policy-identity-reader.test.js` 携带最终固定包通过，校验真实契约canonical／SHA生成、同revision异内容／阶段／生效时间、错摘要、缺字段、单在途及身份换代／迟到；`local-guardian.test.js` 与 `shared-quota-state.test.js`、typecheck、extension-root、app-runtime-boundaries通过。Native专项首轮因夹具刷新心跳被原去重跳过，改为测试显式force刷新后通过，生产去重规则未放宽。Matched＝能力协商／严格完整身份／默认关闭／响应后身份复核；Deviated／Extra＝无。Missing＝Native实现与真实Host／设备联合验收；无生产调用者、启用、安装或部署，不把mock及policy匹配称为来源授权。固定1.28vendor、分页器及原账代码无变更。
+
+2026-10-03 核心链路集中交付来源审查（恢复执行，仅审查，不是已贯通）：现行 `buildLocalQuotaProjectionV2` 只读本机 `daily_usage_stats_v1` 的active及实际quota bucket，并按设备应用批准更正；它是可复用的统计贡献基础，不用mode或媒体反算。`readCurrentWeekBrowserSnapshots`／`buildAuthoritativeDailySnapshots` 另提供北京时间日期、statisticsRevision、correctionRevision及snapshotRevision，但其complete还包含原始／恢复区间的完整性校验，不能把区间缺失等同于日统计缺失，也不能为新贡献放宽这个既有函数。`buildWebSharedQuotaContributionV1` 已提供整数秒转毫秒及other非扣费投影，目前仅由 `inspectSharedQuotaShadowV1` 消费，未接入1.28完整basis替换；1.28分页reader仅以空replacements检验和读取，不等于已计入本机未上传增量。
+
+版本与触发缺口：BrowserBridge的三个版本及 `readV3LocalVersion` 均是内容摘要；V2 manifest ordinal则在 `prepareDeviceAccountV2Upload` 根据stats／raw事实指纹于既有上传准备事务内生成，两者不是同一版本域，不允许为D-114调用它增号、借用其ACK或改原上传队列。现有 `registerPersistedUsageSegmentObserver` 是单一监听槽，已由Native占用，且原始分段写入通知不证明聚合已完成；新派生队列应独立观察已落地日统计、相关更正／绑定／policy变化并有界合并重读，不能再次注册替换它。现有分钟健康／小时reconcile只服务旧BrowserBridge，未驱动D-114贡献HTTP上传。固定契约交付前不猜新端点、ACK、水位、来源证明字段或给云V2 ordinal加一。
+
+第一批待接线：使用已批准的独立派生贡献队列／单调版本／摘要／逐版本ACK，持久版本严格绑定设备Child及日期，旧ACK不得清新版本；范围／更正版本和完整policy捕获沿用已有可信读取。自有web scope必须来自设备HTTPS及架构新增的云签名绑定证明，Host自报appscope不授予网页替换权。贡献组装调用冻结1.28的真实 `projectLocalSharedQuotaExecution`，不新增第二套余额算法；现行统计、原账、原上传队列及配额／提醒调用者不变。当前只有本机只读代码证据，没有固定新契约或真实上传闭环，禁止宣称余额贯通；本次不新建PR／中间候选／提交／部署，保留TASK_BOARD草稿，待同批固定包接线与集中验收。
+
+### D-114 终端契约与实施边界
+机器挑战响应在四字段挑战外返回机器鉴权派生的 `applicationSourceKey`、`childScopeHash`，供 Native 构造可信 expected context；不能从待验证 proof 读取这两字段当作授权。BrowserBridge 只需要四字段挑战。绑定表仅存设备令牌的专用范围哈希，换令牌后旧证明立即失效，不保存或输出设备令牌。
 
 ### D-114 共享访问终端契约边界（2026-10-02）
 
@@ -115,7 +205,9 @@ PR #197 CI 只读核对：`app-runtime.yml` 对所有 PR opened/synchronize/reop
 
 1.26 无效果准备层：固定源 `7ceab64bbe1f5c5e997edbd872c705d03cd5fb56`，82747 字节验真包 SHA-256 `a53d765f239d2f04d7c172c109f49ea2ae0db73689cbcea6d588da81074722c5`。校验独立 `browserExecution`，严格绑定提醒 identity、lease、activity、版本及当前 Rest 页面；有效期从 Native 请求入口的单调时间计入排队和传输延迟。不从 resolution/stage 推断许可。默认关闭的准备调用者 `inspectSharedBrowserExecution(date, { enabled })` 经 Native 读取、实时活动复核、许可资格检查返回无效果结果，不调用网页关闭、模式切换、结算或存储写入；一次尝试登记通过显式注入接口准备，claim 前再次核对身份、时间及已有尝试，真实持久登记及效果调用仍待单项批准。`acknowledgeBrowserExecution` 使用既有串行 Port，发送及回执时复核当前 lease，严格确认 executionId/requestId；准备检查本身不发送 completed，不把 canceled 升级。43 项执行、28 项生命周期、24 项活动共同向量及 Native 回执、实例、未知字段专项通过，真实扩展／Service／效果执行未验收。
 
-### 网页结束执行待裁决边界（尚未实施）
+### 网页结束执行边界（已批准隔离评估，候选执行未启用）
+
+2026-10-03 架构交接补齐此前PO批准原文：允许隔离评估网页强制结束及必要的debugger路径；必须证明必要性、目标隔离、取消行为和原账自然事件守恒后，才能纳入最终候选。以下10月2日“待单项裁决／无浏览器运行授权”记录是历史状态，不再作为拒绝隔离评估的依据；隔离评估批准不等于直接新增正式权限、更新现有候选或开启生产执行，也不允许改原账语义。当前小步仍只完成执行身份准备检查，关闭效果及隔离实测尚未完成。
 
 2026-10-02 API 只读核验：Chrome Tabs API 的 remove 仅接受 tabIds，没有 force/cancel 参数；当前 Chromium main 的 `TabsRemoveFunction::RemoveTab` 调用 WebContents::Close，并等 WebContentsDestroyed 才回响应，不能把请求发出当作关闭完成。其 delegate 经 CanCloseContents 与 CloseWebContents 进入标签关闭路径，不能仅靠 Promise<void> 分辨用户取消。CDP `PageHandler::Close` 明确派发 TAB_CLOSE beforeunload，可作为正常关闭候选；CDP 与 `chrome.debugger` 需要额外权限、挂接和真实取消/目标销毁验收，当前 manifest 无 debugger，不新增权限或实现。不能把 Target.closeTarget 的返回 true 当成页面已销毁或强制保证。证据为 Chromium main，不冒充当前安装 Chrome 的实测。来源：https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/extensions/api/tabs/tabs_api.cc 、https://raw.githubusercontent.com/chromium/chromium/main/content/browser/devtools/protocol/page_handler.cc 、https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc 。
 

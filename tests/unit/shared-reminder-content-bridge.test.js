@@ -6,8 +6,10 @@ const { pathToFileURL } = require('node:url');
 const root = path.resolve(__dirname, '../..');
 async function run() {
   let source = fs.readFileSync(path.join(root, 'extension/product/shared-reminder-content-bridge.js'), 'utf8')
-    .replace(/import \{ requestSharedReminderLifecycle, getSharedBrowserActivityLease \} from '[^']+';/,
-      'const requestSharedReminderLifecycle = () => { throw Error("not configured"); }; const getSharedBrowserActivityLease = () => "lease-1";')
+    .replace(/import \{ readSharedAccessRuntime \}[^;]+;/, 'const readSharedAccessRuntime=async()=>({ok:true,executionRevision:globalThis.__reminderExecutionRevision||"state-1",policy:{revision:"policy-1"}});')
+    .replace(/import \{ createSharedBrowserExecutor \}[^;]+;/, 'const createSharedBrowserExecutor=()=>({execute:async()=>({ok:true,effectsEnabled:false})});')
+    .replace(/import \{ requestSharedReminderLifecycle, getSharedBrowserActivityLease, hasSharedReminderContinuityCapability \} from '[^']+';/,
+      'const requestSharedReminderLifecycle = () => { throw Error("not configured"); }; const getSharedBrowserActivityLease = () => "lease-1",hasSharedReminderContinuityCapability=()=>false;')
     .replace(/from '\.\.\/infra\/shared-reminder-lifecycle.js'/, `from '${pathToFileURL(path.join(root, 'extension/infra/shared-reminder-lifecycle.js')).href}'`)
     .replace(/from '\.\.\/core\/shared-reminder-lifecycle.js'/, `from '${pathToFileURL(path.join(root, 'extension/core/shared-reminder-lifecycle.js')).href}'`);
   const { createSharedReminderContentBridge, initSharedReminderContentBridge,
@@ -57,6 +59,22 @@ async function run() {
   assert.equal((await bridge.handleAction({ ...msg, payload: { ...msg.payload, action: 'timeout_end' } }, sender)).ok, false);
   assert.equal((await bridge.handleAction(msg, sender)).state.resolution, 'continue');
   assert.equal(messages.at(-1).type, 'DISMISS_SHARED_REMINDER');
+
+  backend = { ...state };
+  const growing = createSharedReminderContentBridge({ ...options, readContinuity: () => true });
+  await growing.poll(1, state.date);
+  const displayedAt = growing.inspect().state.visibleAtMs;
+  const shows = messages.filter(x => x.type === 'SHOW_SHARED_REMINDER').length;
+  globalThis.__reminderExecutionRevision = 'state-2';
+  assert.equal((await growing.poll(1, state.date)).ok, true, 'Service keeps trigger identity across negotiated growth');
+  assert.equal(growing.inspect().state.stateRevision, 'state-1');
+  assert.equal(growing.inspect().state.visibleAtMs, displayedAt);
+  assert.equal(messages.filter(x => x.type === 'SHOW_SHARED_REMINDER').length, shows, 'no redisplay/deadline restart');
+  backend = { ...backend, stateRevision: 'state-2' };
+  assert.equal((await growing.poll(1, state.date)).ok, true);
+  assert.notEqual(growing.inspect().state?.stateRevision, 'state-1', 'corrected Service identity cannot keep old prompt');
+  await growing.invalidate();
+  globalThis.__reminderExecutionRevision = null;
 
   backend = { ...state }; visible = false;
   const invisible = createSharedReminderContentBridge(options);

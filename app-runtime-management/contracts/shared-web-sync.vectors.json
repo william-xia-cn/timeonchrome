@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "1.30.0",
+  "canonicalization": "UTF-8 JSON，递归按 ASCII key 排序；数组保留次序；contentHash 不参与自身哈希",
+  "upload": {
+    "schemaVersion":1,"date":"2026-10-03","revisionOrdinal":1,
+    "statisticsRevision":"statistics-hash","correctionRevision":"correction-1",
+    "policyIdentity":{"schemaVersion":1,"revision":"profile-config:8","effectiveAtMs":0,"stage":"shadow","policyHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "computedAtMs":1000,"settledAtMs":null,"activeMs":1200000,
+    "bucketsMs":{"study":600000,"composite":0,"rest":0},"otherMs":600000,"complete":true,"reasonCodes":[],
+    "contentHash":"98631ab7a40962866b66ca6cdf3119164b25dcf501bc2f97691af3f30d9040ab"
+  },
+  "signatureEncoding": "ES256 IEEE P1363 r||s，64 bytes base64url，无 padding；不使用 DER",
+  "publicJwk":{"kty":"EC","crv":"P-256","x":"-DMgk-9Pj8MrCdJj878wjDB52hBjBPF-JIcRAPoFJOo","y":"waCOWVQXtLMcYvAj1u09lCbMIXorlBMPaWqGKrLifE0"},
+  "proof": {
+    "schemaVersion":1,"keyId":"77f22d832571b2fa17f529001a9a32a5257eab5e99530d2ef8d3a290449f01ad",
+    "claims":{
+      "applicationSourceKey":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","assignmentVersion":3,
+      "audience":"timeonchrome:shared-web-source:v1","challengeId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "childScopeHash":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "connectionHash":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "expiresAtMs":301000,"issuedAtMs":1000,"schemaVersion":1,
+      "webSourceKey":"web:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "signature":"JeSwx9ZPdk4Yu8Vw85NKHHaxDtwVVHVZfjJS9sY0aIb6JwGLsUYEZP-VyGSfyYaHtX8jSEItBhY83kU1xvVl9w"
+  },
+  "executionIdentityHash":"4c0f9512a8fef4f4bcf5481f4f60804ef410e1f6f453a948ca02c4fe05765e4d",
+  "executionPreparation":{
+    "schemaVersion":1,"basisRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "policyIdentity":{"schemaVersion":1,"revision":"profile-config:8","effectiveAtMs":0,"stage":"shadow","policyHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "projection":{"basisRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","policyRevision":"profile-config:8","complete":true,"reasonCodes":[],
+      "days":[{"date":"2026-09-28","complete":true,"reasonCodes":[],"usedMs":{"study":1200000,"composite":0,"rest":0},"remainingMs":{"study":null,"composite":null,"rest":null},"borrowedRestMs":0}],
+      "week":{"fromDate":"2026-09-28","toDate":"2026-09-28","restUsedMs":0,"restRemainingMs":null}},
+    "transportStatus":"online","replacementVersions":[
+      {"source":"web","sourceKey":"web:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","date":"2026-09-28","revisionOrdinal":2,"contentRevision":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+      {"source":"application","sourceKey":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","date":"2026-09-28","revisionOrdinal":3,"contentRevision":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}],
+    "reasonCodes":[],"executionEnabled":false},
+  "localLeaseCases":[
+    {"name":"live-offline-after-expiry","current":{"nowMs":86401000},"expected":true},
+    {"name":"disconnected","current":{"connectionLive":false},"expected":false},
+    {"name":"old-client","current":{"capabilityNegotiated":false},"expected":false},
+    {"name":"connection-or-credential-or-assignment-changed","current":{"scopeRevision":"8888888888888888888888888888888888888888888888888888888888888888"},"expected":false},
+    {"name":"policy-changed","currentPolicy":{"stage":"shared"},"expected":false},
+    {"name":"clock-regressed","current":{"nowMs":999},"expected":false},
+    {"name":"expired-proof-cannot-create","lease":{"verifiedAtMs":301000},"expected":false}
+  ],
+  "verificationTimeMs":1000,
+  "invalidCases":["expiry-at-301000","wrong-connection","wrong-child-scope","wrong-assignment","wrong-trusted-key","modified-web-source","caller-device-token"]
+}

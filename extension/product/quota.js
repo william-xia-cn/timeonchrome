@@ -6,6 +6,7 @@ import { getEffectiveQuotaForDate } from '../core/quota-config.js';
 import { readQuotaReadModelV2 } from '../core/quota-read-model-v2.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { rememberQuotaEvaluation } from '../infra/diagnostic-evidence.js';
+import { isSharedAccessRuntimeEnabled, readSharedAccessRuntime, projectSharedRuntimeQuota } from './shared-access-runtime.js';
 import {
   CLOUD_QUOTA_STATE_FACT_KEY,
   combineQuotaStates,
@@ -71,6 +72,11 @@ export function getQuotaAccountingVersion(config = {}) {
 }
 
 export async function getQuotaUsageForConfig(config = {}, date = getQuotaCalendarContext().date) {
+  if (isSharedAccessRuntimeEnabled()) {
+    const web = await readQuotaReadModelV2({ date });
+    const projected = projectSharedRuntimeQuota(config, await readSharedAccessRuntime(date), web?.ok ? web.usage : { ok: false }, date);
+    return projected.usage;
+  }
   if (getQuotaAccountingVersion(config) !== 2) return getQuotaUsageView(date, { config });
   const model = await readQuotaReadModelV2({ date });
   if (!model?.ok) return { ...model, quotaReadModel: model };
@@ -96,8 +102,8 @@ function emptyQuotaState(extra = {}) {
   };
 }
 
-async function evaluateQuotaStateV2(config, calendar, effectiveQuota) {
-  const usage = await getQuotaUsageForConfig(config, calendar.date);
+async function evaluateQuotaStateV2(config, calendar, effectiveQuota, capturedUsage = null) {
+  const usage = capturedUsage || await getQuotaUsageForConfig(config, calendar.date);
   await chrome.storage.local.remove(CLOUD_QUOTA_STATE_FACT_KEY).catch(() => {});
   if (usage?.ok === false) {
     const newState = emptyQuotaState({ accountingUnavailable: true });
@@ -179,6 +185,14 @@ export async function evaluateQuotaState() {
 
   const calendar = getQuotaCalendarContext();
   const effectiveQuota = getEffectiveQuotaForDate(config, calendar.date);
+  if (isSharedAccessRuntimeEnabled()) {
+    const web = await readQuotaReadModelV2({ date: calendar.date });
+    const sharedModel = await readSharedAccessRuntime(calendar.date);
+    const projected = projectSharedRuntimeQuota(config, sharedModel, web?.ok ? web.usage : { ok: false }, calendar.date);
+    const runtimeConfig = projected.config || { ...config, timeQuota: { ...config.timeQuota, accountingVersion: 2 } };
+    return { ...await evaluateQuotaStateV2(runtimeConfig, calendar, getEffectiveQuotaForDate(runtimeConfig, calendar.date), projected.usage),
+      sharedRuntime: true, sharedModel: projected.ok ? sharedModel : null };
+  }
   if (getQuotaAccountingVersion(config) === 2) {
     return evaluateQuotaStateV2(config, calendar, effectiveQuota);
   }

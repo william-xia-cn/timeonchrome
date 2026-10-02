@@ -49,7 +49,7 @@
           "type":"object","additionalProperties":false,"required":["date","reasonCodes","sourceCount"],
           "properties":{"date":{"$ref":"#/$defs/date"},"reasonCodes":{"$ref":"#/$defs/reasons"},"sourceCount":{"type":"integer","minimum":0,"maximum":200}}
         }},
-        "authorizedScopes":{"type":"array","maxItems":14,"items":{"$ref":"#/$defs/authenticatedScope"}},
+        "authorizedScopes":{"type":"array","maxItems":1400,"items":{"$ref":"#/$defs/authenticatedScope"}},
         "page":{"type":"object","additionalProperties":false,"required":["offset","limit","total","nextOffset","items"],
           "properties":{"offset":{"type":"integer","minimum":0,"maximum":1400},"limit":{"type":"integer","minimum":1,"maximum":100},
             "total":{"type":"integer","minimum":0,"maximum":1400},"nextOffset":{"type":["integer","null"],"minimum":0,"maximum":1400},

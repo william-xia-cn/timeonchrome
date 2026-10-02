@@ -51,6 +51,7 @@ function loadModule(injected) {
     'evaluateRestUsageReminder',
     'handleRestUsageReminderAction',
     'restoreRestUsageReminderForTab',
+    'suspendLegacyRestUsageReminder',
   ];
   const factory = new Function('__injected', `
     const { getEffectiveQuotaForDate, budgetedLocalSet } = __injected;
@@ -381,6 +382,16 @@ async function main() {
 
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'product', 'rest-usage-reminder.js'), 'utf8');
   check('temporary unpacked ID override is removed', !source.includes('LOCAL_ACCEPTANCE_EXTENSION_ID') && !source.includes('mfmmfemipnmbccecemahcpbiolofcppm'));
+  const endCount = endCalls.length;
+  local.data[module.REST_USAGE_REMINDER_STATE_KEY] = { prompt: { token: 'migration-prompt', sourceTabId: 11 }, nextThresholdSeconds: 7200 };
+  await module.suspendLegacyRestUsageReminder(true);
+  equal('shared transition clears legacy prompt', local.data[module.REST_USAGE_REMINDER_STATE_KEY].prompt, null);
+  equal('shared transition preserves legacy threshold', local.data[module.REST_USAGE_REMINDER_STATE_KEY].nextThresholdSeconds, 7200);
+  equal('shared transition does not end rest', endCalls.length, endCount);
+  equal('legacy evaluation suspended during shared runtime', (await module.evaluateRestUsageReminder({ deps })).skipped, 'shared_runtime_active');
+  check('shared transition dismisses and restores media', messages.some(m => m.type === 'DISMISS_REST_USAGE_REMINDER' && m.token === 'migration-prompt')
+    && messages.some(m => m.type === 'RESUME_REST_USAGE_MEDIA' && m.token === 'migration-prompt'));
+  await module.suspendLegacyRestUsageReminder(false);
 
   console.log(`rest-usage-reminder: ${passed} passed, ${failed} failed`);
   if (failed) process.exit(1);

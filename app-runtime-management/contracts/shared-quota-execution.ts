@@ -1,4 +1,4 @@
-import { projectSharedQuotaDay, type SharedQuotaContributionV1, type SharedQuotaDayProjectionV1,
+import { projectSharedQuotaDay, validateSharedAccessPolicyIdentityV1, type SharedQuotaContributionV1, type SharedQuotaDayProjectionV1,
   type UnifiedChildAccessPolicyV1 } from './shared-access.js';
 
 /** Assembled read-only basis. Transport pages must be verified before constructing it. */
@@ -93,6 +93,56 @@ function validateContribution(value: unknown, policyRevision: string, date: stri
 const canonical = (value: unknown): string => JSON.stringify(value, (_name, item) => record(item)
   ? Object.fromEntries(Object.keys(item).sort().map(name => [name, item[name]])) : item);
 
+/** Service-only evidence. Scope revision includes current user/Child/assignment/target lease.
+ * Compare raw contributions, not borrowed projection buckets which can move between buckets.
+ * Neither this predicate nor caller payload grants permission to execute. */
+export function sharedQuotaReminderContinuityV1(previous: {
+  scopeRevision: string; policyIdentity: unknown; fromDate: string; toDate: string;
+  sources: readonly SharedQuotaExecutionSourceV1[];
+}, next: typeof previous): boolean {
+  const valid = (value: typeof previous) => {
+    if (!revision(value.scopeRevision) || !record(value.policyIdentity)
+      || !revision(value.policyIdentity.revision) || !Array.isArray(value.sources)
+      || value.sources.length < 1 || value.sources.length > 1400) return false;
+    validateSharedAccessPolicyIdentityV1(value.policyIdentity);
+    const from = dateMs(value.fromDate), to = dateMs(value.toDate);
+    if (to < from || to - from > 6 * 86400000) return false;
+    const seen = new Set<string>();
+    for (const entry of value.sources) {
+      if (!ms(entry.revisionOrdinal) || !revision(entry.publicationRevision)) return false;
+      validateContribution(entry.contribution, value.policyIdentity.revision, entry.contribution.date);
+      const contribution = entry.contribution, date = dateMs(contribution.date), scope = key(contribution);
+      if (!contribution.complete || date < from || date > to || seen.has(scope)) return false;
+      seen.add(scope);
+    }
+    return true;
+  };
+  try {
+    if (!valid(previous) || !valid(next) || previous.scopeRevision !== next.scopeRevision
+      || canonical(previous.policyIdentity) !== canonical(next.policyIdentity)
+      || previous.fromDate !== next.fromDate || previous.toDate !== next.toDate
+      || previous.sources.length !== next.sources.length) return false;
+    const latest = new Map(next.sources.map(entry => [key(entry.contribution),entry]));
+    return previous.sources.every(old => {
+      const entry = latest.get(key(old.contribution));
+      if (!entry || entry.revisionOrdinal < old.revisionOrdinal) return false;
+      const a = old.contribution, b = entry.contribution;
+      if (a.correctionRevision !== b.correctionRevision || a.productAssociationVersion !== b.productAssociationVersion
+        || (a.settledAtMs !== null && (b.settledAtMs === null || b.settledAtMs < a.settledAtMs))) return false;
+      if (entry.revisionOrdinal === old.revisionOrdinal && canonical(a) !== canonical(b)) return false;
+      const amounts = (item: SharedQuotaContributionV1) => item.source === 'web' ? Object.values(item.bucketsMs)
+        : [...Object.values(item.applicationClassesMs!),item.chromeExcludedMs!];
+      // Stable key order, not object insertion order.
+      const amountsByKey = (item: SharedQuotaContributionV1) => item.source === 'web' ? item.bucketsMs :
+        {...item.applicationClassesMs,chromeExcludedMs:item.chromeExcludedMs};
+      if (!amounts(a).every(ms) || !amounts(b).every(ms)) return false;
+      const before = amountsByKey(a), after = amountsByKey(b);
+      return Object.keys(before).every(field => Number(after[field as keyof typeof after])
+        >= Number(before[field as keyof typeof before]));
+    });
+  } catch { return false; }
+}
+
 /** Full transport validation only. Caller must authenticate the connection and capture Child scope. */
 export function assembleSharedQuotaExecutionPages(policy: UnifiedChildAccessPolicyV1,
   expectedProfileId: string, pages: readonly SharedQuotaExecutionPageV1[]): {
@@ -108,7 +158,7 @@ export function assembleSharedQuotaExecutionPages(policy: UnifiedChildAccessPoli
       || value.schemaVersion !== 1 || value.profileId !== expectedProfileId
       || typeof value.basisRevision !== 'string' || !/^[a-f0-9]{64}$/.test(value.basisRevision)
       || value.policyRevision !== policy.revision || !Array.isArray(value.days) || value.days.length < 1 || value.days.length > 7
-      || !Array.isArray(value.authorizedScopes) || value.authorizedScopes.length > 14
+      || !Array.isArray(value.authorizedScopes) || value.authorizedScopes.length > 1400
       || !exact(value.page, ['offset','limit','total','nextOffset','items'])
       || !ms(value.page.offset) || value.page.offset !== offset || !ms(value.page.total) || value.page.total > 1400
       || !ms(value.page.limit) || value.page.limit < 1 || value.page.limit > 100 || !Array.isArray(value.page.items))
@@ -158,7 +208,7 @@ export function projectLocalSharedQuotaExecution(policy: UnifiedChildAccessPolic
   if (!exact(basis, ['schemaVersion', 'revision', 'policyRevision', 'fromDate', 'toDate', 'days'])
     || basis.schemaVersion !== 1 || !revision(basis.revision) || basis.policyRevision !== policy.revision
     || !Array.isArray(basis.days) || !Array.isArray(replacements) || !Array.isArray(authorizedScopes)
-    || replacements.length > 14 || authorizedScopes.length > 14) throw new Error('INVALID_EXECUTION_BASIS');
+    || replacements.length > 1400 || authorizedScopes.length > 1400) throw new Error('INVALID_EXECUTION_BASIS');
   const from = dateMs(basis.fromDate), to = dateMs(basis.toDate);
   const count = (to - from) / 86_400_000 + 1;
   if (new Date(from).getUTCDay() !== 1 || !Number.isInteger(count) || count < 1 || count > 7

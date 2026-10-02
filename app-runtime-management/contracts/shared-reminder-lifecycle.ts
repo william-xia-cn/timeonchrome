@@ -1,5 +1,7 @@
 /** Service-issued reminders. These messages never select a child, user or process. */
 export const SHARED_REMINDER_LIFECYCLE_CAPABILITY = 'shared-reminder-lifecycle-v1' as const;
+/** Required by both endpoints before issuing growth-continuation execution permits. */
+export const SHARED_REMINDER_CONTINUITY_CAPABILITY = 'shared-reminder-continuity-v1' as const;
 export const SHARED_BROWSER_ACTIVITY_CAPABILITY = 'shared-browser-activity-v1' as const;
 export const SHARED_BROWSER_ACTIVITY_RENEW_MS = 5_000 as const;
 export const SHARED_BROWSER_ACTIVITY_MAX_AGE_MS = 15_000 as const;
@@ -101,6 +103,8 @@ export interface SharedReminderResolution extends SharedReminderIdentity {
 }
 /** Explicit Service permission, not inferred from the reminder's resolution. */
 export interface SharedBrowserExecution extends SharedReminderIdentity {
+  /** Present only when ordinary growth continued the original visible instance. */
+  triggerStateRevision?: string;
   executionId: string;
   leaseId: string;
   activityId: string;
@@ -110,6 +114,7 @@ export interface SharedBrowserExecution extends SharedReminderIdentity {
   maxAgeMs: number;
 }
 export interface SharedBrowserExecutionAck extends SharedReminderIdentity {
+  triggerStateRevision?: string;
   executionId: string;
   leaseId: string;
   activityId: string;
@@ -119,11 +124,15 @@ const executionIdentityFields = ['executionId','leaseId','activityId'];
 function validateExecution(value: unknown, ack: boolean): Record<string, unknown> {
   const fields = [...identityFields,...executionIdentityFields,...(ack ? ['outcome'] : ['targetSource','effect','maxAgeMs'])];
   if (!value || typeof value!=='object' || Array.isArray(value)
-    || Object.keys(value).length!==fields.length || fields.some(field=>!Object.hasOwn(value,field)))
+    || !Object.keys(value).every(field=>fields.includes(field)||field==='triggerStateRevision')
+    || fields.some(field=>!Object.hasOwn(value,field)))
     throw new Error('INVALID_SHARED_BROWSER_EXECUTION');
   const item=value as Record<string,unknown>;
   if(item.schemaVersion!==1 || [...identityFields.slice(1),...executionIdentityFields].some(field=>
     typeof item[field]!=='string'||!(item[field] as string).trim()||(item[field] as string).length>128))
+    throw new Error('INVALID_SHARED_BROWSER_EXECUTION');
+  if(Object.hasOwn(item,'triggerStateRevision')&&(typeof item.triggerStateRevision!=='string'
+    ||!item.triggerStateRevision.trim()||item.triggerStateRevision.length>128))
     throw new Error('INVALID_SHARED_BROWSER_EXECUTION');
   if(ack ? !['completed','canceled','failed','stale'].includes(item.outcome as string)
     : item.targetSource!=='browser'||!['request-normal-close','force-close'].includes(item.effect as string)
@@ -140,7 +149,7 @@ export function validateSharedBrowserExecutionAck(value: unknown): SharedBrowser
 /** Service uses persisted target binding; presenter=native may still target browser. */
 export function authorizeSharedBrowserExecution(context: SharedReminderRuntimeContext,
   browser: SharedBrowserActivityContext, target: {source:'browser'|'application';activityId:string;executionId:string;
-    leaseId:string;issuedMonotonicMs:number;bootId:string;consumed:boolean}): SharedBrowserExecution|null {
+    leaseId:string;issuedMonotonicMs:number;bootId:string;consumed:boolean;continuitySupported?:boolean}): SharedBrowserExecution|null {
   if(!current(context)||context.state.stage!=='shared'||!context.executionEnabled
     ||target.source!=='browser'||context.state.status!=='resolved'||!visibleClockValid(context)
     ||!validTime(context.state.visibleAtMs))return null;
@@ -154,6 +163,11 @@ export function authorizeSharedBrowserExecution(context: SharedReminderRuntimeCo
     ||context.monotonicNowMs-target.issuedMonotonicMs>=SHARED_BROWSER_EXECUTION_MAX_AGE_MS)return null;
   if(!sharedBrowserReminderEligibility(browser,target.activityId).eligible)return null;
   const identity=Object.fromEntries(identityFields.map(field=>[field,context.state[field as keyof SharedReminderIdentity]]));
+  if(context.currentStateRevision!==context.state.stateRevision){
+    if(target.continuitySupported!==true)return null;
+    identity.triggerStateRevision=context.state.stateRevision;
+    identity.stateRevision=context.currentStateRevision;
+  }
   return validateSharedBrowserExecution({...identity,executionId:target.executionId,leaseId:browser.leaseId,
     activityId:target.activityId,targetSource:'browser',effect:resolution==='end_rest'?'request-normal-close':'force-close',
     maxAgeMs:SHARED_BROWSER_EXECUTION_MAX_AGE_MS-(context.monotonicNowMs-target.issuedMonotonicMs)});
@@ -161,6 +175,7 @@ export function authorizeSharedBrowserExecution(context: SharedReminderRuntimeCo
 /** Local receipt clock and current facts. Caller durably claims the ID BEFORE effects. */
 export function sharedBrowserExecutionEligibility(value: unknown, context: {
   connectionCurrent:boolean;leaseId:string;activityId:string;policyRevision:string;stateRevision:string;
+  continuitySupported?:boolean;
   reminder:SharedReminderIdentity;restEligible:boolean;requestStartedMonotonicMs:number;monotonicNowMs:number;attemptedIds:ReadonlySet<string>;
 }): {eligible:boolean;reasonCode:string|null} {
   const permit=validateSharedBrowserExecution(value);
@@ -168,8 +183,12 @@ export function sharedBrowserExecutionEligibility(value: unknown, context: {
   if(context.attemptedIds.has(permit.executionId))return reject('SHARED_BROWSER_EXECUTION_ALREADY_ATTEMPTED');
   if(!context.connectionCurrent||context.leaseId!==permit.leaseId)return reject('SHARED_BROWSER_ACTIVITY_LEASE_CHANGED');
   if(context.activityId!==permit.activityId||!context.restEligible)return reject('SHARED_BROWSER_ACTIVITY_CHANGED');
-  if(identityFields.some(field=>context.reminder[field as keyof SharedReminderIdentity]
+  if(identityFields.filter(field=>field!=='stateRevision').some(field=>context.reminder[field as keyof SharedReminderIdentity]
     !==permit[field as keyof SharedReminderIdentity]))return reject('SHARED_BROWSER_EXECUTION_INSTANCE_CHANGED');
+  if(context.reminder.stateRevision!==(permit.triggerStateRevision??permit.stateRevision))
+    return reject('SHARED_BROWSER_EXECUTION_INSTANCE_CHANGED');
+  if(permit.triggerStateRevision!==undefined&&context.continuitySupported!==true)
+    return reject('SHARED_REMINDER_CONTINUITY_UNSUPPORTED');
   if(context.policyRevision!==permit.policyRevision||context.stateRevision!==permit.stateRevision)
     return reject('SHARED_REMINDER_SCOPE_CHANGED');
   if(!validTime(context.monotonicNowMs)||!validTime(context.requestStartedMonotonicMs)
@@ -185,6 +204,8 @@ export function acknowledgeSharedBrowserExecution(issued: SharedBrowserExecution
   if(!authenticatedLeaseCurrent)throw new Error('SHARED_BROWSER_ACTIVITY_LEASE_CHANGED');
   if([...identityFields,...executionIdentityFields].some(field=>
     ack[field as keyof SharedBrowserExecutionAck]!==permit[field as keyof SharedBrowserExecution]))
+    throw new Error('SHARED_BROWSER_EXECUTION_INSTANCE_CHANGED');
+  if(ack.triggerStateRevision!==permit.triggerStateRevision)
     throw new Error('SHARED_BROWSER_EXECUTION_INSTANCE_CHANGED');
   if(ack.outcome==='canceled'&&permit.effect==='force-close')throw new Error('SHARED_BROWSER_EXECUTION_RESULT_CONFLICT');
   if(existing){
@@ -216,6 +237,9 @@ export interface SharedReminderRuntimeContext {
   presenterCurrent: boolean;
   currentPolicyRevision: string;
   currentStateRevision: string;
+  /** Internal only. Issuer must derive via sharedQuotaReminderContinuityV1;
+   * every refresh since the trigger must pass. Never deserialize this from Host. */
+  continuousUsageGrowth?: {triggerStateRevision: string; currentStateRevision: string};
   executionEnabled: boolean;
   nowMs: number;
   monotonicNowMs: number;
@@ -267,7 +291,9 @@ function current(context: SharedReminderRuntimeContext): boolean {
   if (!context.scopeCurrent) throw new Error('SHARED_REMINDER_SCOPE_CHANGED');
   if (!context.presenterCurrent) throw new Error('SHARED_REMINDER_PRESENTER_CHANGED');
   return context.currentPolicyRevision === context.state.policyRevision
-    && context.currentStateRevision === context.state.stateRevision;
+    && (context.currentStateRevision === context.state.stateRevision
+      || context.continuousUsageGrowth?.triggerStateRevision === context.state.stateRevision
+        && context.continuousUsageGrowth.currentStateRevision === context.currentStateRevision);
 }
 function bound(item: SharedReminderIdentity, state: SharedReminderState): void {
   if (identityFields.some(field => item[field as keyof SharedReminderIdentity]

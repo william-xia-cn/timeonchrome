@@ -17,6 +17,7 @@ const MAX_REMINDER_MINUTES = 1440;
 const MAX_DELIVERY_ATTEMPTS = 2;
 
 let runtimeDeps = null;
+let sharedRuntimeSuspended = false;
 let operationQueue = Promise.resolve();
 
 function runSerialized(task) {
@@ -332,6 +333,21 @@ export function configureRestUsageReminder(deps) {
   runtimeDeps = deps;
 }
 
+export function suspendLegacyRestUsageReminder(suspended) {
+  sharedRuntimeSuspended = suspended === true;
+  return runSerialized(async () => {
+    if (!sharedRuntimeSuspended) return { ok: true };
+    const state = await readState(), prompt = state?.prompt || state?.deliveryDue;
+    if (state) await writeState({ ...state, prompt: null, deliveryDue: null });
+    await Promise.all([clearAlarm(REST_USAGE_REMINDER_DEADLINE_ALARM), clearAlarm(REST_USAGE_REMINDER_RETRY_ALARM)]);
+    if (prompt?.token) {
+      await chrome.tabs.sendMessage(prompt.sourceTabId, { type: 'DISMISS_REST_USAGE_REMINDER', token: prompt.token }).catch(() => null);
+      await chrome.tabs.sendMessage(prompt.sourceTabId, { type: 'RESUME_REST_USAGE_MEDIA', token: prompt.token }).catch(() => null);
+    }
+    return { ok: true };
+  });
+}
+
 export function restUsageReminderConfigValue(config = {}) {
   return firstReminderMinutes(config);
 }
@@ -346,6 +362,7 @@ export function restUsageReminderTimeoutAction(config = {}) {
 
 export async function evaluateRestUsageReminder(options = {}) {
   return runSerialized(async () => {
+    if (sharedRuntimeSuspended) return { ok: true, skipped: 'shared_runtime_active' };
     const deps = options.deps || runtimeDeps;
     if (!deps) return { ok: false, error: 'rest_reminder_not_configured' };
     const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
@@ -434,6 +451,7 @@ export async function evaluateRestUsageReminder(options = {}) {
 
 export async function handleRestUsageReminderAction(message = {}, sender = {}, options = {}) {
   return runSerialized(async () => {
+    if (sharedRuntimeSuspended) return { ok: false, error: 'legacy_rest_reminder_inactive' };
     const deps = options.deps || runtimeDeps;
     const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
     if (!deps) return { ok: false, error: 'rest_reminder_not_configured' };
@@ -457,6 +475,7 @@ export async function handleRestUsageReminderAction(message = {}, sender = {}, o
 
 export async function restoreRestUsageReminderForTab(tabId, options = {}) {
   return runSerialized(async () => {
+    if (sharedRuntimeSuspended) return { ok: true, skipped: 'shared_runtime_active' };
     const deps = options.deps || runtimeDeps;
     if (!deps || !Number.isInteger(tabId)) return { ok: false, error: 'invalid_restore' };
     const state = await readState();

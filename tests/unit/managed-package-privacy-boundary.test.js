@@ -22,7 +22,7 @@ const developmentExtensionId = [...developmentDigest.subarray(0, 16)]
 const publicKeyManifestPath = path.join(tempRoot, 'public-key-source.json');
 fs.writeFileSync(publicKeyManifestPath, JSON.stringify({ key: developmentPublicKey.toString('base64') }));
 
-function stage(name, mode, candidateVersion) {
+function stage(name, mode, candidateVersion, closeDevelopment = false) {
   const outputDir = path.join(tempRoot, name);
   const targetExtensionId = mode === 'native-host-development' ? developmentExtensionId : extensionId;
   const args = [tool, '--output-dir', outputDir, '--extension-id', targetExtensionId];
@@ -31,6 +31,7 @@ function stage(name, mode, candidateVersion) {
     args.push('--native-host-development', '--public-key-manifest', publicKeyManifestPath);
   }
   if (candidateVersion) args.push('--candidate-version', candidateVersion);
+  if (closeDevelopment) args.push('--shared-browser-close-development');
   const result = spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8' });
   assert.strictEqual(result.status, 0, result.stderr || result.stdout);
   return { outputDir, packageDir: path.join(outputDir, 'package-extension'), result };
@@ -46,6 +47,7 @@ try {
   assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(managed, 'deployment-profile.json'), 'utf8')), { mode: 'managed' });
   const managedManifest = JSON.parse(fs.readFileSync(path.join(managed, 'manifest.json'), 'utf8'));
   assert.strictEqual(managedManifest.permissions.includes('nativeMessaging'), true);
+  assert.strictEqual(managedManifest.permissions.includes('debugger'), false);
   assert.strictEqual(managedManifest.web_accessible_resources.some((entry) => entry.resources.includes('health-probe.html')), true);
 
   const developmentStage = stage('native-host-development', 'native-host-development');
@@ -58,12 +60,26 @@ try {
   assert.strictEqual(developmentManifest.key, developmentPublicKey.toString('base64'));
   assert.strictEqual(developmentManifest.version_name, `${developmentManifest.version} Native Host Development Candidate`);
   assert.strictEqual(developmentManifest.permissions.includes('nativeMessaging'), true);
+  assert.strictEqual(developmentManifest.permissions.includes('debugger'), false);
   assert.strictEqual(developmentManifest.web_accessible_resources.some((entry) => entry.resources.includes('health-probe.html')), true);
   assert.strictEqual(fs.existsSync(path.join(developmentStage.outputDir, 'update.xml')), false);
   assert.strictEqual(fs.existsSync(path.join(developmentStage.outputDir, 'SHA256SUMS.txt')), false);
   const developmentOutput = JSON.parse(developmentStage.result.stdout);
   assert.strictEqual(developmentOutput.deploymentMode, 'native-host-development');
   assert.strictEqual(developmentOutput.publicKeyManifestProvided, true);
+  const closeStage = stage('close-development', 'native-host-development', null, true);
+  const closeManifest = JSON.parse(fs.readFileSync(path.join(closeStage.packageDir, 'manifest.json'), 'utf8'));
+  assert.strictEqual(closeManifest.permissions.includes('debugger'), true);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(closeStage.packageDir, 'deployment-profile.json'), 'utf8')),
+    { mode: 'native-host-development', sharedBrowserCloseDevelopment: true });
+  for (const modeArgs of [[], ['--managed-deployment']]) {
+    const destination = path.join(tempRoot, `forbidden-close-${modeArgs.length}`);
+    const rejected = spawnSync(process.execPath, [tool, '--output-dir', destination,
+      '--shared-browser-close-development', ...modeArgs], { cwd: root, encoding: 'utf8' });
+    assert.notStrictEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /requires an unpacked/);
+    assert.strictEqual(fs.existsSync(destination), false);
+  }
 
   const sourceVersion = JSON.parse(fs.readFileSync(path.join(root, 'extension', 'manifest.json'), 'utf8')).version;
   const fixedStage = stage('native-host-managed-candidate', 'native-host-development', '1.7.35');
@@ -106,6 +122,7 @@ try {
   assert.strictEqual(fs.existsSync(path.join(regular, 'deployment-profile.json')), false);
   const regularManifest = JSON.parse(fs.readFileSync(path.join(regular, 'manifest.json'), 'utf8'));
   assert.strictEqual(regularManifest.permissions.includes('nativeMessaging'), false);
+  assert.strictEqual(regularManifest.permissions.includes('debugger'), false);
   assert.strictEqual(regularManifest.web_accessible_resources.some((entry) => entry.resources.includes('health-probe.html')), false);
   console.log('[Managed Package Privacy Boundary] managed/development/regular matrix passed');
 } finally {

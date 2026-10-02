@@ -23,6 +23,8 @@ const manifest = {
   gitSha: process.env.GITHUB_SHA || null,
   contractVersion: readJson('app-runtime-management/contracts/package.json').version,
   runtimeMigrations: (process.env.APPLIED_RUNTIME_MIGRATIONS || '').split(',').filter(Boolean),
+  guardianMigrations: (process.env.APPLIED_GUARDIAN_MIGRATIONS || '').split(',').filter(Boolean),
+  sharedAccessShadowPrepared: process.env.PREPARE_SHARED_ACCESS_SHADOW === 'true',
   deployedResources: [
     ['DEPLOY_RUNTIME_WORKER', 'runtimeWorker'],
     ['DEPLOY_RUNTIME_PAGES', 'runtimePages'],
@@ -46,6 +48,8 @@ if (process.env.GITHUB_STEP_SUMMARY) {
     `- Contract: \`${manifest.contractVersion}\``,
     `- Deployed resources: \`${manifest.deployedResources.join(', ') || 'none'}\``,
     `- Runtime migrations: \`${manifest.runtimeMigrations.join(', ') || 'none'}\``,
+    `- Guardian migrations: \`${manifest.guardianMigrations.join(', ') || 'none'}\``,
+    `- Shared access shadow prepared (not execution enabled): \`${manifest.sharedAccessShadowPrepared}\``,
     `- Runtime Worker: \`${manifest.runtimeWorkerVersion}\``,
     `- Guardian Worker: \`${manifest.guardianWorkerVersion}\``,
     `- Runtime Pages: \`${manifest.runtimePages?.id || 'unknown'}\``,

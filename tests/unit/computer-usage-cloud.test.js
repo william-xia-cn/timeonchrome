@@ -9,6 +9,9 @@ vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEn
 if(name==='cloudflare:workers')return {WorkerEntrypoint:class{constructor(_,env){this.env=env;}}};
 if(name in overrides)return overrides[name];
 if(name==='@timeonchrome/app-runtime-contracts/computer-usage')return load('app-runtime-management/contracts/computer-usage.ts');
+if(name==='@timeonchrome/app-runtime-contracts/shared-access')return load('app-runtime-management/contracts/shared-access.ts');
+if(name==='@timeonchrome/app-runtime-contracts/shared-web-sync')return load('app-runtime-management/contracts/shared-web-sync.ts');
+if(name==='./shared-access.js')return load('app-runtime-management/contracts/shared-access.ts');
 const next=path.posix.normalize(path.posix.join(path.posix.dirname(file),name));
 return load(next.endsWith('.js')||next.endsWith('.ts')?next:next+'.ts');
 }});
@@ -19,7 +22,9 @@ const authorityRows=['daily_domain','hourly_domain','daily_target','hourly_targe
 assert.equal(schema.validateDeviceAccountRows(authorityRows,date).ok,true,'fixture must match the real authoritative schema');
 assert.equal(schema.validateDeviceAccountRows([{kind:'daily_total'}],date).code,'DEVICE_ACCOUNT_INVALID_KIND');
 const app={key:'app:opaque',computerKey:'opaque-computer',computerName:'电脑',revision:'a1',associationVersion:'association1',correctionRevision:'ac1',settledAtMs:start+4000,complete:true,reasons:[],totalMs:2000,categoriesMs:{composite:2000},intervals:[{startMs:start+1500,endMs:start+3500,classification:'composite',subjectKey:'opaque-product',label:'办公应用',special:false}]};
-function fixture({owned=true,appFailure=false,webFailure=false,sharedStateFailure=false,policyChanges=false,failedDate,legacy=false,appError='private runtime failure',publicStats=[]}={}){
+const fullPolicy=JSON.parse(JSON.stringify(loader()('app-runtime-management/contracts/shared-access.ts').projectLegacySharedAccessPolicy(
+ {timeQuota:{daily:{friday:{studyMinutes:60,compositeMinutes:30,restMinutes:60}}}},7,0)));
+function fixture({owned=true,appFailure=false,webFailure=false,sharedStateFailure=false,policyChanges=false,policyContentChanges=false,failedDate,legacy=false,appError='private runtime failure',publicStats=[]}={}){
 let reads=0,heads=1,appReads=0;const store=new Map();
 let policyReads=0;
 const account={profileId:'child',deviceId:'browser',date,revision:1,statsHash:'hash',generatedAt:start+4000,committedAt:start+5000,complete:true,lossCount:0,rows:authorityRows};
@@ -33,8 +38,13 @@ const load=loader({'./profileAccountsV2':{readManifestAccountV2:async(_db,manife
 './compositePageCorrections':{readCompositeCorrections:async()=>({revision:'c1',items:[]}),projectCompositeDailyRows:()=>account.rows.filter(row=>row.kind==='daily_target')},
 './usageAccountingCorrections':{listUsageAccountingCorrections:async()=>[],applyCorrectionsToV1StatsRows:rows=>rows},
 '../db/middleware':{generateToken:async()=> 'test-internal'},'../routes/stats':{statsRouter:{handle:async request=>Response.json({stats:new URL(request.url).pathname.includes('hourly')?publicStats.map(row=>({...row,hour:0})):publicStats})}},
-'../routes/profiles':{readSharedAccessPolicyForChild:async(_db,accountId,childId)=>accountId==='current-account'&&childId==='current-child'
-  ?{schemaVersion:1,revision:policyChanges&&++policyReads>1?'profile-config:8':'profile-config:7',stage:'legacy'}:null},
+'../routes/profiles':{readSharedAccessPolicyForChild:async(_db,accountId,childId)=>{
+  if(accountId!=='current-account'||childId!=='current-child')return null;
+  const value=structuredClone(fullPolicy);policyReads++;
+  if(policyReads>1&&policyChanges)value.revision='profile-config:8';
+  if(policyReads>1&&policyContentChanges)value.dailyMinutes.friday.study=61;
+  return value;
+}},
 './sharedAccessState':{readSharedQuotaExecutionBasis:async(_env,accountId,childId,selectedDate,policy)=>{
   assert.equal(accountId,'current-account');assert.equal(childId,'current-child');
   if(sharedStateFailure)throw Error('private database failure');
@@ -64,7 +74,7 @@ assert.deepEqual(await (await scoped.fetch(scopeRequest('foreign-account','curre
 const policyRequest=(accountId,childId)=>new Request('https://private-capability/readSharedAccessPolicy',
   {method:'POST',body:JSON.stringify({accountId,childId})});
 assert.deepEqual(await (await scoped.fetch(policyRequest('current-account','current-child'))).json(),
-  {policy:{schemaVersion:1,revision:'profile-config:7',stage:'legacy'}});
+  {policy:fullPolicy});
 assert.equal((await scoped.fetch(policyRequest('foreign-account','current-child'))).status,404);
 assert.equal((await scoped.fetch(new Request('https://private-capability/getUsage',{method:'POST'}))).status,405);
 assert.equal((await scoped.fetch(scopeRequest('x'.repeat(3000),'current-child'))).status,400);
@@ -95,6 +105,9 @@ assert.equal((await scoped.fetch(basisRequest({expectedRevision:'c'.repeat(64)})
 const changingFixture=fixture({policyChanges:true});
 const changingService=new (changingFixture.load('workers/src/services/computerUsage.ts').ComputerUsageService)({},f.env);
 assert.equal((await changingService.fetch(basisRequest())).status,409,'a policy change during basis loading cannot publish a mixed page');
+const contentFixture=fixture({policyContentChanges:true});
+const contentService=new (contentFixture.load('workers/src/services/computerUsage.ts').ComputerUsageService)({},f.env);
+assert.equal((await contentService.fetch(basisRequest())).status,409,'a full policy content change with the same ordinal invalidates an in-flight page');
 const stateFailureFixture=fixture({sharedStateFailure:true});const stateFailureService=new (stateFailureFixture.load('workers/src/services/computerUsage.ts').ComputerUsageService)({}, {DB:{
   prepare(){return {bind(){return {first:async()=>({id:'current-child'})};}};}}});
 const stateFailure=await stateFailureService.fetch(quotaStateRequest('current-account','current-child'));

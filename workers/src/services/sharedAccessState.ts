@@ -1,9 +1,10 @@
-import { projectSharedQuotaDay, type SharedQuotaContributionV1, type SharedQuotaStateV1, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
+import { projectSharedQuotaDay, createSharedAccessPolicyIdentityV1, type SharedQuotaContributionV1, type SharedQuotaStateV1, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { projectLocalSharedQuotaExecution, type SharedQuotaExecutionBasisV1, type SharedQuotaExecutionSourceV1 } from '@timeonchrome/app-runtime-contracts/shared-quota-execution';
 import type { Env } from '../db/middleware';
 import { readManifestAccountV2 } from './profileAccountsV2';
 import { projectCompositeDailyRows, readCompositeCorrections } from './compositePageCorrections';
 import { applyCorrectionsToV1StatsRows, listUsageAccountingCorrections } from './usageAccountingCorrections';
+import { readPublishedSharedWebContribution } from './sharedWebContributions';
 
 type RuntimeQuotaRead = { fetch?(request:Request):Promise<Response> };
 export interface SharedAccessStateEnv extends Env { RUNTIME_COMPUTER_USAGE?: RuntimeQuotaRead }
@@ -66,6 +67,7 @@ async function readWebContributions(env:SharedAccessStateEnv,accountId:string,ch
       OR EXISTS(SELECT 1 FROM device_account_heads_v2 h WHERE h.profile_id=d.profile_id AND h.device_id=d.id AND h.date=?2)
       OR EXISTS(SELECT 1 FROM target_stats_v1 t WHERE t.profile_id=d.profile_id AND t.device_id=d.id AND t.date=?2)
       OR EXISTS(SELECT 1 FROM stats_v1 s WHERE s.profile_id=d.profile_id AND s.device_id=d.id AND s.date=?2)
+      ${env.SHARED_WEB_CONTRIBUTIONS_ENABLED === 'true' ? 'OR EXISTS(SELECT 1 FROM shared_web_contribution_heads_v1 q WHERE q.profile_id=d.profile_id AND q.device_id=d.id AND q.date=?2)' : ''}
     ) ORDER BY d.id LIMIT 101`)
     .bind(childId,date).all<{id:string;device_name:string}>();
   if(devices.results.length>100)throw new Error('SHARED_ACCESS_SOURCE_LIMIT');
@@ -75,6 +77,17 @@ async function readWebContributions(env:SharedAccessStateEnv,accountId:string,ch
   const visibleBuckets:BucketTotals=emptyBuckets();
   for(const device of devices.results) {
     const sourceKey=await sharedWebSourceKey(accountId,device.id);
+    if(env.SHARED_WEB_CONTRIBUTIONS_ENABLED === 'true') {
+      const published=await readPublishedSharedWebContribution(env,accountId,childId,device.id,date,policy);
+      if(published) {
+        contributions.push(published.contribution);executionSources.push(published);
+        for(const bucket of ['study','composite','rest'] as const)visibleBuckets[bucket]+=published.contribution.bucketsMs[bucket];
+        for(const reason of published.contribution.reasonCodes)reasons.add(reason);
+        continue;
+      }
+      // The old manifest is retained as a diagnostic only. Never reinterpret its ordinal as a derived queue version.
+      reasons.add('WEB_DERIVED_CONTRIBUTION_MISSING');
+    }
     const head=await env.DB.prepare(`SELECT manifest_id FROM device_account_heads_v2 WHERE profile_id=? AND device_id=? AND date=?`)
       .bind(childId,device.id,date).first<{manifest_id:string}>();
     if(head) {
@@ -94,7 +107,7 @@ async function readWebContributions(env:SharedAccessStateEnv,accountId:string,ch
           statisticsRevision:account.statsHash,correctionRevision:corrections.revision,policyRevision:policy.revision,
           settledAtMs:account.generatedAt,complete,reasonCodes:complete?[]:['WEB_ACCOUNT_INCOMPLETE'],
           bucketsMs:{study:seconds.study*1000,composite:seconds.composite*1000,rest:seconds.rest*1000}});
-        if(Number.isSafeInteger(account.revision)&&account.revision>0)executionSources.push({
+        if(env.SHARED_WEB_CONTRIBUTIONS_ENABLED !== 'true' && Number.isSafeInteger(account.revision)&&account.revision>0)executionSources.push({
           publicationRevision:`${account.revision}:${account.statsHash}`,revisionOrdinal:account.revision,
           contribution:contributions[contributions.length-1]});
       } catch(error) {
@@ -172,7 +185,7 @@ async function readSharedAccessDayProjection(env:SharedAccessStateEnv,accountId:
   const coverageReasons=[...new Set([...webSource.reasonCodes,...appSource.reasonCodes])].sort();
   const complete=projection.complete&&webSource.complete&&appSource.complete;
   const reasons=[...new Set([...projection.reasonCodes,...coverageReasons])].sort();
-  const revision=await sha(JSON.stringify({schemaVersion:1,date,policy:policy.revision,stage:policy.stage,
+  const revision=await sha(JSON.stringify({schemaVersion:1,date,policyIdentity:await createSharedAccessPolicyIdentityV1(policy),
     web:webSource.contributions.map(({sourceKey,revision,correctionRevision})=>[sourceKey,revision,correctionRevision]).sort(),
     application:appSource.contributions.map(({sourceKey,revision,correctionRevision,productAssociationVersion})=>
       [sourceKey,revision,correctionRevision,productAssociationVersion]).sort(),
@@ -216,7 +229,7 @@ export async function readSharedQuotaExecutionBasis(env:SharedAccessStateEnv,acc
       .sort((a,b)=>`${a.contribution.source}:${a.contribution.sourceKey}`.localeCompare(`${b.contribution.source}:${b.contribution.sourceKey}`))});
   }
   const basis:SharedQuotaExecutionBasisV1={schemaVersion:1,revision:await sha(JSON.stringify({accountId,childId,
-    policyRevision:policy.revision,stage:policy.stage,days})),policyRevision:policy.revision,fromDate:days[0].date,toDate:date,days};
+    policyIdentity:await createSharedAccessPolicyIdentityV1(policy),days})),policyRevision:policy.revision,fromDate:days[0].date,toDate:date,days};
   projectLocalSharedQuotaExecution(policy,basis,[],[]); // Reject invalid upstream shape; never bless malformed source facts.
   return basis;
 }

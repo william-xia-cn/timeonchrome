@@ -132,3 +132,46 @@ for(const value of [permit,ack])for(const field of Object.keys(value)){
 assert.equal(SHARED_BROWSER_EXECUTION_CAPABILITY,'shared-browser-execution-v1');
 assert.equal(SHARED_BROWSER_EXECUTION_MAX_AGE_MS,5000);
 console.log(`browser execution: PASS (${execution.cases.length} golden vectors + strict boundary checks)`);
+
+// A visible episode is fixed; only a trusted, continuously verified source growth path continues it.
+const grown = {...runtime,currentStateRevision:'new-complete-execution',
+  continuousUsageGrowth:{triggerStateRevision:runtime.state.stateRevision,currentStateRevision:'new-complete-execution'}};
+const continuedTarget={...execution.target,continuitySupported:true};
+const grownPermit=authorizeSharedBrowserExecution(grown,browser,continuedTarget);
+assert.equal(authorizeSharedBrowserExecution(grown,browser,execution.target),null,'old consumer cannot receive a continuation permit');
+assert.equal(grownPermit.stateRevision,grown.currentStateRevision);
+assert.equal(grownPermit.triggerStateRevision,runtime.state.stateRevision);
+assert.equal(authorizeSharedBrowserExecution({...grown,continuousUsageGrowth:undefined},browser,execution.target),null);
+assert.equal(authorizeSharedBrowserExecution({...grown,continuousUsageGrowth:{...grown.continuousUsageGrowth,
+  currentStateRevision:'stale-current'}},browser,execution.target),null);
+assert.equal(authorizeSharedBrowserExecution({...grown,currentPolicyRevision:'changed'},browser,execution.target),null);
+const currentConsumer={...execution.consumer,reminder:identity,stateRevision:grown.currentStateRevision,attemptedIds:new Set(),continuitySupported:true};
+for(const vector of data.continuity.cases){
+  if(vector.operation==='authorize'){
+    const context={...grown,currentStateRevision:data.continuity.currentStateRevision,
+      currentPolicyRevision:vector.policyRevision??grown.currentPolicyRevision,
+      continuousUsageGrowth:vector.continuity===false?undefined:{...grown.continuousUsageGrowth,
+        currentStateRevision:vector.continuityCurrent??grown.currentStateRevision}};
+    assert.equal(authorizeSharedBrowserExecution(context,browser,{...continuedTarget,
+      continuitySupported:vector.supported??true})?.effect??null,vector.expectedEffect,vector.name);
+  }else assert.equal(sharedBrowserExecutionEligibility({...grownPermit,
+    triggerStateRevision:vector.triggerRevision??grownPermit.triggerStateRevision},{...currentConsumer,
+      stateRevision:vector.currentRevision??currentConsumer.stateRevision,continuitySupported:vector.supported??true}).eligible,
+    vector.expectedEligible,vector.name);
+}
+assert.equal(sharedBrowserExecutionEligibility(grownPermit,currentConsumer).eligible,true);
+assert.equal(sharedBrowserExecutionEligibility(grownPermit,{...currentConsumer,continuitySupported:false}).eligible,false);
+assert.equal(sharedBrowserExecutionEligibility({...grownPermit,triggerStateRevision:'another-trigger'},currentConsumer).eligible,false);
+assert.equal(sharedBrowserExecutionEligibility(grownPermit,{...currentConsumer,stateRevision:'older-current'}).eligible,false);
+const grownAck={...ack,stateRevision:grownPermit.stateRevision,triggerStateRevision:grownPermit.triggerStateRevision};
+assert.equal(acknowledgeSharedBrowserExecution(grownPermit,grownAck,null,true).duplicate,false);
+assert.throws(()=>acknowledgeSharedBrowserExecution(grownPermit,{...grownAck,triggerStateRevision:'other'},null,true),/INSTANCE_CHANGED/);
+const visibleGrowth={...data.context,state:{...data.state,status:'visible',visibleAtMs:1000},currentStateRevision:'grown',
+  continuousUsageGrowth:{triggerStateRevision:data.state.stateRevision,currentStateRevision:'grown'},
+  visibleBootId:data.context.bootId,visibleMonotonicMs:1000,monotonicNowMs:61000,nowMs:61000};
+const timedOut=expireSharedReminder(visibleGrowth);
+assert.equal(timedOut.state.status,'resolved','ordinary growth cannot reset the visible 60-second clock');
+assert.equal(timedOut.visibleMonotonicMs,1000);
+assert.equal(timedOut.state.stateRevision,data.state.stateRevision,'trigger remains fixed');
+assert.equal(expireSharedReminder({...visibleGrowth,continuousUsageGrowth:undefined}).state.status,'withdrawn');
+console.log('reminder continuity: PASS (fixed visible clock, fresh permit, correction withdrawal, exact ACK)');

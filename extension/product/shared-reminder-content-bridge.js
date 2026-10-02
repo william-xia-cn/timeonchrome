@@ -1,6 +1,8 @@
-import { requestSharedReminderLifecycle, getSharedBrowserActivityLease } from '../infra/native-host-client.js';
+import { requestSharedReminderLifecycle, getSharedBrowserActivityLease, hasSharedReminderContinuityCapability } from '../infra/native-host-client.js';
 import { createSharedReminderLifecycle } from '../infra/shared-reminder-lifecycle.js';
 import { sharedReminderIdentity, validateSharedReminderMessage, validateSharedReminderState } from '../core/shared-reminder-lifecycle.js';
+import { readSharedAccessRuntime } from './shared-access-runtime.js';
+import { createSharedBrowserExecutor } from './shared-browser-executor.js';
 
 const ACTION = 'SHARED_REMINDER_ACTION';
 const DISMISSED = 'SHARED_REMINDER_DISMISSED';
@@ -9,7 +11,9 @@ let registered = false;
 
 export function createSharedReminderContentBridge({ enabled = false, request = requestSharedReminderLifecycle,
   tabs = chrome.tabs, windows = chrome.windows, runtimeId = chrome.runtime.id,
-  readLease = getSharedBrowserActivityLease, deliveryTimeoutMs = 3000 } = {}) {
+  readLease = getSharedBrowserActivityLease, deliveryTimeoutMs = 3000,
+  readExecution = readSharedAccessRuntime, readContinuity = hasSharedReminderContinuityCapability, effectsEnabled = false,
+  executor = createSharedBrowserExecutor({ enabled, effectsEnabled }) } = {}) {
   let binding = null;
   let identity = null;
   let generation = 0;
@@ -40,6 +44,11 @@ export function createSharedReminderContentBridge({ enabled = false, request = r
     request: async (method, payload) => {
       const captured = generation;
       const target = binding;
+      const before = await bounded(() => readExecution(method === 'getSharedReminderState' ? payload.date : lifecycle.inspect().state?.date));
+      const continuity = readContinuity() === true;
+      if (!before?.ok || target?.executionRevision && target.executionRevision !== before.executionRevision && !continuity) {
+        await invalidate(); return { ok: false, errorCode: 'shared_reminder_balance_changed' };
+      }
       if (!await sameTab(target) || captured !== generation || target?.lease !== readLease()) {
         await invalidate();
         return { ok: false, errorCode: 'shared_reminder_context_changed' };
@@ -48,11 +57,17 @@ export function createSharedReminderContentBridge({ enabled = false, request = r
       if (captured !== generation) return { ok: false, errorCode: 'shared_reminder_context_changed' };
       const checked = response?.ok ? validateSharedReminderState(response.state,
         method === 'getSharedReminderState' ? { date: payload.date } : sharedReminderIdentity(payload)) : null;
+      const after = await bounded(() => readExecution(method === 'getSharedReminderState' ? payload.date : lifecycle.inspect().state?.date));
       if (!response || !await sameTab(target) || target.lease !== readLease()
+        || !after?.ok || before.executionRevision !== after.executionRevision
+        || response.state && (response.state.policyRevision !== after.policy.revision
+          || response.state.stateRevision !== after.executionRevision && (!continuity || readContinuity() !== true
+            || !identity || Object.keys(identity).some(key => response.state[key] !== identity[key])))
         || (response.ok && !checked?.ok) || (!response.ok && response.errorCode !== 'shared_reminder_busy')) {
         await invalidate();
         return { ok: false, errorCode: 'shared_reminder_context_changed' };
       }
+      target.executionRevision = after.executionRevision;
       return response;
     },
     present: async state => {
@@ -105,7 +120,11 @@ export function createSharedReminderContentBridge({ enabled = false, request = r
       if (!binding) binding = { id: tab.id, windowId: tab.windowId, url: tab.url,
         presentationId: crypto.randomUUID(), lease: readLease() };
       if (!await sameTab()) { await invalidate(); return { ok: false, errorCode: 'shared_reminder_tab_unavailable' }; }
-      return lifecycle.poll(date);
+      const result = await lifecycle.poll(date);
+      if (result?.ok && result.state?.status === 'resolved' && binding) {
+        result.execution = await executor.execute(result.state, { ...binding });
+      }
+      return result;
     },
     async handleAction(message, sender) {
       if (enabled !== true) return { ok: false, errorCode: 'shared_reminder_disabled' };
@@ -127,7 +146,10 @@ export function createSharedReminderContentBridge({ enabled = false, request = r
       if (!identity || Object.keys(identity).some(key => checked.payload[key] !== identity[key])) {
         return { ok: false, errorCode: 'SHARED_REMINDER_INSTANCE_CHANGED' };
       }
-      return lifecycle.choose(checked.payload.action);
+      const target = { ...binding };
+      const result = await lifecycle.choose(checked.payload.action);
+      if (result?.ok && result.state?.status === 'resolved') result.execution = await executor.execute(result.state, target);
+      return result;
     },
     invalidate,
     invalidateTab: async (tabId, windowId) => {
@@ -139,7 +161,9 @@ export function createSharedReminderContentBridge({ enabled = false, request = r
 
 // Only an explicit candidate caller can configure this; no cloud flag or page message enables it.
 export function configureSharedReminderContentBridge(options = {}) {
-  if (current?.inspect().displayed || current?.inspect().busy) return { ok: false, errorCode: 'shared_reminder_busy' };
+  if (options.enabled === false) {
+    void current?.invalidate().catch(() => {});
+  } else if (current?.inspect().displayed || current?.inspect().busy) return { ok: false, errorCode: 'shared_reminder_busy' };
   current = createSharedReminderContentBridge(options);
   return { ok: true };
 }
