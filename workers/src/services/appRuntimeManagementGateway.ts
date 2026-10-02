@@ -17,6 +17,7 @@ const resources: Record<string, { methods: readonly string[]; query: readonly st
   'pairing-codes': { methods: ['POST'], query: [] },
   'logging-policy': { methods: ['GET', 'PUT'], query: ['machineId'] },
   'runtime-logs': { methods: ['GET'], query: ['childId', 'fromMs', 'toMs', 'limit', 'cursor', 'machineId', 'level', 'category'] },
+  'segment-diagnostics': { methods: ['GET'], query: ['childId', 'kind', 'fromMs', 'toMs', 'limit'] },
 };
 
 function route(resource: string): { methods: readonly string[]; query: readonly string[] } | null {
