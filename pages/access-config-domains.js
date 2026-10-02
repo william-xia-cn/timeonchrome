@@ -42,8 +42,9 @@
         customLists: pick(source.siteAccess?.customLists, ['studySites', 'compositeSites', 'restrictedEntertainmentSites', 'blockedSites']),
         // 只保存公开匹配条件，不复制 rawRule、审核人、请求身份或诊断信息。
         classificationRules: (source.siteAccess?.classificationRules || []).map(rule => pick(rule, ['decision', 'targetType', 'normalizedValue'])),
-        usageClassificationRules: (source.siteAccess?.usageClassificationRules || []).map(rule => pick(rule, ['classification', 'targetType', 'normalizedValue'])),
       };
+      // 旧文件没有这个字段不等于要求删除当前 other 规则。
+      if (own(source.siteAccess, 'usageClassificationRules')) result.siteAccess.usageClassificationRules = (source.siteAccess.usageClassificationRules || []).map(rule => pick(rule, ['classification', 'targetType', 'normalizedValue']));
       result.quota = { domainQuotas: clone(source.quota?.domainQuotas || {}), timeQuota: { daily: days(source.quota?.timeQuota?.daily, ['onlineMinutes']) } };
       if (source.notifications?.unclassifiedUsage) result.notifications = { unclassifiedUsage: pick(source.notifications.unclassifiedUsage, ['enabled', 'thresholdMinutes']) };
     }
@@ -52,7 +53,9 @@
   function createFile(domain, profile, systemConfig) {
     checkDomain(domain);
     if (systemConfig && domain !== 'websites') throw new Error('全局网站库不能进入公共访问配置');
-    const file = { app: 'TimeOnChrome', configType: 'access-domain-config', schemaVersion: 2, domain, profileConfig: projectProfile(domain, profile) };
+    if (!profile && !systemConfig) throw new Error('请选择至少一项配置');
+    const file = { app: 'TimeOnChrome', configType: 'access-domain-config', schemaVersion: 2, domain };
+    if(profile)file.profileConfig=projectProfile(domain, profile);
     if (systemConfig) file.systemConfig = clone(systemConfig);
     return file;
   }

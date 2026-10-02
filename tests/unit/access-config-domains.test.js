@@ -67,6 +67,17 @@ test('系统单文件只可在网站域读取', () => {
   assert.equal(api.readFile('websites', system).profileConfig, null);
   assert.throws(() => api.readFile('publicAccess', system));
 });
+test('系统独立导出无需孩子配置且能往返', () => {
+  const file = api.createFile('websites', null, system);
+  assert.equal(file.profileConfig, undefined);
+  assert.deepEqual(api.readFile('websites', file), { domain: 'websites', profileConfig: null, systemConfig: system });
+});
+test('旧文件缺少用途规则不产生显式空清单', () => {
+  const old = structuredClone(legacy); delete old.siteAccess.usageClassificationRules;
+  assert.equal(Object.hasOwn(api.readFile('websites', old).profileConfig.siteAccess, 'usageClassificationRules'), false);
+  old.siteAccess.usageClassificationRules = [];
+  assert.deepEqual(api.readFile('websites', old).profileConfig.siteAccess.usageClassificationRules, []);
+});
 test('非法混入全局库的新公共文件拒绝', () => assert.throws(() => api.readFile('publicAccess', { ...api.createFile('publicAccess', legacy), systemConfig: system })));
 test('域内差异筛选覆盖在线额与 other 用途规则', () => {
   const diffs = [{ area: 'quota', field: 'studyMinutes' }, { area: 'quota', field: 'onlineMinutes' }, { area: 'usage-rule' }, { area: 'autonomy', key: 'softReminderTimeoutAction' }, { area: 'application-policy' }];

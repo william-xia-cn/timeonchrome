@@ -11,7 +11,7 @@
   const assertLive=()=>{if(!live())throw Object.assign(new Error('组件上下文已变化'),{code:'COMPONENT_CONTEXT_CHANGED'});};
   const RUNTIME_API = 'https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev';
   const requestedLaunchView = embedded?config.view:new URLSearchParams(location.search).get('view');
-  if(embedded&&!['apps','devices','access','system'].includes(requestedLaunchView))throw new Error('INVALID_RUNTIME_MANAGEMENT_VIEW');
+  if(embedded&&!['apps','devices','access','system','configuration'].includes(requestedLaunchView))throw new Error('INVALID_RUNTIME_MANAGEMENT_VIEW');
   const initialView = embedded?requestedLaunchView:['apps', 'devices'].includes(requestedLaunchView) ? requestedLaunchView : 'usage';
   const mainConsoleUrl = new URL('https://timeonchrome-console.pages.dev/?launch=app-runtime');
   if (['apps', 'devices'].includes(initialView)) mainConsoleUrl.searchParams.set('view', initialView);
@@ -36,8 +36,16 @@
     usage: ['使用统计', '查看电脑应用主使用账本'], access: ['应用访问管理', '管理独立配额、七天时间段和配置文件'],
     apps: ['应用管理', '管理安装发现、产品确认与孩子分类规则'], devices: ['设备管理', '管理电脑、账户分配与运行状态'],
     system: ['系统管理', '查看系统日志、技术进程、主账本、辅助媒体和运行健康'],
+    configuration: ['应用配置文件', '仅应用分类和单应用限制；公共时间配置由综合访问管理'],
   };
   const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', sharedAccess: null, sharedAccessError: null, loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: initialView, appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
+  let applicationImportDraft = null;
+  let applicationImportGeneration = 0;
+  const applicationImportContext = () => ({ childId: state.childId, view: state.view, etag: state.policyEtag });
+  function assertApplicationImportContext(context) {
+    assertLive();
+    if (!context || context.childId !== state.childId || context.view !== state.view || context.etag !== state.policyEtag) throw new Error('孩子或应用配置已变化，请重新预览导入文件');
+  }
   const $ = (selector) => root.querySelector(selector);
   const $$ = (selector) => [...root.querySelectorAll(selector)];
   if(embedded){state.children=config.children.map(item=>({...item}));state.childId=config.childId;if(!state.children.some(item=>item.id===state.childId))throw new Error('INVALID_RUNTIME_CHILD_CONTEXT');}
@@ -434,7 +442,11 @@
       if (freshToken) state.session = null;
       if (mock) { mockData(); renderAll(); markLoaded(); if(state.view==='usage')await loadUsage(); return; }
       await moduleToken(false);
-      if (requestedView === 'system') {
+      if (requestedView === 'configuration') {
+        const policy = await runtime(`/v2/module/app-policy?childId=${encodeURIComponent(state.childId)}`);
+        state.policy = AppRuntimePolicy.normalize(policy); state.policyEtag = `"app-policy-v${state.policy.version}"`;
+        markLoaded(); clearError();
+      } else if (requestedView === 'system') {
         let technicalError = null;
         await Promise.all([loadMachineState(), runtime(`/v2/module/app-catalog?childId=${encodeURIComponent(state.childId)}`)
           .then(catalog => { state.catalog = catalog; })
@@ -609,7 +621,34 @@
   function switchTab(type, name) { $$(`[data-${type}-tab]`).forEach((button) => button.classList.toggle('active', button.dataset[`${type}Tab`] === name)); $$(`[data-${type}-panel]`).forEach((panel) => { panel.hidden = panel.dataset[`${type}Panel`] !== name; }); }
   async function loadLedger(kind) { const period = range(); const result = mock ? { items: kind === 'usage' ? [{ startAtMs: Date.now() - 60000, displayName: 'Visual Studio Code', durationMs: 60000, applicationClassification: 'study', estimated: false }] : [{ startAtMs: Date.now() - 120000, displayName: 'Microsoft Edge', durationMs: 120000, mediaKind: 'video', presentation: 'background', estimated: false }] } : await runtime(`/v2/module/segment-diagnostics?kind=${kind}&childId=${encodeURIComponent(state.childId)}&fromMs=${period.from}&toMs=${period.to}&limit=50`); const target = kind === 'usage' ? $('#ledger-list') : $('#media-list'); target.className = 'table-list'; target.innerHTML = result.items.length ? result.items.map((item) => `<div class="table-row"><time>${time(item.startAtMs)}</time><strong>${escape(item.displayName || '未知应用')}</strong><span>${duration(item.durationMs)}</span><span>${kind === 'usage' ? categoryLabels[item.applicationClassification] || '未归类' : `${item.mediaKind}/${item.presentation}`}</span></div>`).join('') : '<p>暂无明细</p>'; if(result.hasMore)target.insertAdjacentHTML('beforeend','<p>仅显示最近50条诊断记录；该明细不代表范围总用量。</p>'); }
   function exportConfig() { const blob = new Blob([JSON.stringify(AppRuntimePolicy.exportPayload(state.policy), null, 2)], { type: 'application/json' }); const link = ownerDocument.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'timeonchrome-app-runtime-config.json'; link.click(); URL.revokeObjectURL(link.href); }
-  async function reviewImport(file) { const incoming = JSON.parse(await file.text()); const diff = AppRuntimePolicy.importDiff(state.policy, incoming); const box = $('#import-diff'); box.hidden = false; box.dataset.payload = JSON.stringify(diff.policy); const legacySharedFields = incoming.schemaVersion < 3 && (incoming.timeWindows !== undefined || incoming.quotas?.dailyCategoryMinutes !== undefined || incoming.quotas?.weeklyRestrictedEntertainmentMinutes !== undefined); box.innerHTML = `<div class="import-review"><h3>导入差异</h3><label><input type="checkbox" id="import-classifications" checked> 应用分类：新增 ${diff.added}、修改 ${diff.changed}、移除 ${diff.removed}</label><br><label><input type="checkbox" id="import-quotas" checked> 单应用限制：${diff.quotasChanged ? '有变化' : '无变化'}</label><p>${legacySharedFields ? '此旧版文件含孩子级公共配额或时间段；为保持单一配置来源，这些字段将忽略。' : '孩子级公共配额和时间段由主控制台统一管理，不从此文件写入。'}</p><p><button id="confirm-import" class="primary">确认导入所选内容</button></p></div>`; }
+  async function reviewImport(file) {
+    assertLive();
+    const context = applicationImportContext(), generation = ++applicationImportGeneration;
+    applicationImportDraft = null;
+    $('#import-diff').hidden = true;
+    const text = await file.text();
+    assertApplicationImportContext(context);
+    if (generation !== applicationImportGeneration) return;
+    const incoming = JSON.parse(text);
+    const diff = AppRuntimePolicy.importDiff(state.policy, incoming);
+    applicationImportDraft = { context, policy: diff.policy, applying: false };
+    const box = $('#import-diff'); box.hidden = false;
+    const legacySharedFields = incoming.schemaVersion < 3 && (incoming.timeWindows !== undefined || incoming.quotas?.dailyCategoryMinutes !== undefined || incoming.quotas?.weeklyRestrictedEntertainmentMinutes !== undefined);
+    box.innerHTML = `<div class="import-review"><h3>导入差异</h3><label><input type="checkbox" id="import-classifications" checked> 应用分类：新增 ${diff.added}、修改 ${diff.changed}、移除 ${diff.removed}</label><br><label><input type="checkbox" id="import-quotas" checked> 单应用限制：${diff.quotasChanged ? '有变化' : '无变化'}</label><p>${legacySharedFields ? '此旧版文件含孩子级公共配额或时间段；为保持单一配置来源，这些字段将忽略。' : '孩子级公共配额和时间段由主控制台统一管理，不从此文件写入。'}</p><p><button id="confirm-import" class="primary">确认导入所选内容</button></p></div>`;
+  }
+  async function confirmApplicationImport() {
+    const draft = applicationImportDraft;
+    if (!draft) throw new Error('请先选择应用配置文件并预览');
+    assertApplicationImportContext(draft.context);
+    if (draft.applying) throw new Error('正在应用导入，请勿重复提交');
+    const next = AppRuntimePolicy.normalize({ ...state.policy, classifications: $('#import-classifications').checked ? draft.policy.classifications : state.policy.classifications, quotas: $('#import-quotas').checked ? { ...state.policy.quotas, perApplicationDailyMinutes: draft.policy.quotas.perApplicationDailyMinutes } : state.policy.quotas, timeWindows: state.policy.timeWindows });
+    draft.applying = true;
+    try {
+      await savePolicy(next);
+      assertLive();
+      if (applicationImportDraft === draft) { applicationImportDraft = null; $('#import-diff').hidden = true; }
+    } finally { draft.applying = false; }
+  }
 
   listen(root,'click', async (event) => { if(!live())return;const groupToggle = event.target.closest('summary[data-app-group-toggle]'); if (groupToggle) { event.preventDefault(); if (!($('#app-search').value || '').trim()) { const key = groupToggle.dataset.appGroupToggle; state.appGroups[key] = !state.appGroups[key]; renderAppDirectory(); } return; } const button = event.target.closest('button'); if (!button) return; try {
     if (button.dataset.view) { switchView(button.dataset.view); if (button.dataset.view === 'system') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
@@ -646,7 +685,7 @@
     if (button.dataset.scheduleAdd) updateSchedule('add', button.dataset.scheduleAdd);
     if (button.dataset.scheduleRemove) updateSchedule('remove', button.dataset.scheduleRemove);
     if (button.id === 'export-config') exportConfig();
-    if (button.id === 'confirm-import') { const incoming = JSON.parse($('#import-diff').dataset.payload); const next = AppRuntimePolicy.normalize({ ...state.policy, classifications: $('#import-classifications').checked ? incoming.classifications : state.policy.classifications, quotas: $('#import-quotas').checked ? { ...state.policy.quotas, perApplicationDailyMinutes: incoming.quotas.perApplicationDailyMinutes } : state.policy.quotas, timeWindows: state.policy.timeWindows }); await savePolicy(next); $('#import-diff').hidden = true; }
+    if (button.id === 'confirm-import') await confirmApplicationImport();
   } catch (error) { showError(error); } });
   listen(root,'change', async (event) => { if(!live())return;const control = event.target; try {
     if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
@@ -682,7 +721,8 @@
   }
   mountKnowledgeManager();
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === state.view));
-  $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === state.view));
+  $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === (state.view==='configuration'?'access':state.view)));
+  if(state.view==='configuration') { $('[data-view-panel="access"] .tabbar').hidden=true; switchTab('access','config'); }
   [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[state.view];
   const ready=load();
   function dispose(){if(disposed)return;disposed=true;usageRequestVersion++;pairingGeneration++;clearInterval(state.timer);clearTimeout(state.searchTimer);applicationReadCache.clear();computerReader.invalidate();independentReader.invalidate();knowledgeManager.dispose();for(const [target,type,handler]of listeners)target.removeEventListener(type,handler);for(const dialog of $$('dialog[open]'))dialog.close();}

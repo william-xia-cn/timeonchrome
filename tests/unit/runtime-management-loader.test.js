@@ -43,7 +43,36 @@ function fixture({hold=false,invalid=false,holdStyles=false}={}){
   assert(!html.includes('class="nav-item runtime-launch"'));assert.match(html,/\/app-runtime\/manage\/v1\//);assert.match(html,/If-Match/);
   assert.match(html,/data-system-management-tab="runtime-diagnostics"/);
   assert.match(html,/id="runtime-system-host"/);
-  assert.match(html,/view==='system'\?'system-management':view/);
+  assert.match(html,/\['system','configuration'\]\.includes\(view\)\?'system-management':view/);
+  assert.match(html,/id="runtime-configuration-host"/);
+  assert.match(html,/data-system-management-tab="config-files"/);
+  assert.match(html,/id="access-config-domain"/);
+  assert.match(html,/await applyProfileNotificationImport\(userDiffs,context\)/);
+  assert.match(html,/if\(generation!==accessConfigImportGeneration\)return/);
+  // 实际通知导入函数：迟到响应不得更新另一个孩子，预览失效不得先发请求。
+  const notificationStart=html.indexOf('async function applyProfileNotificationImport(');
+  const notificationEnd=html.indexOf('function renderConfigImportVisibleDiffs',notificationStart);
+  function notificationFixture(){
+    let resolve;const calls=[];
+    const context={currentProfileId:'child-a',profileNotificationSettingsState:{profileId:'child-a',settings:{}},
+      buildProfileNotificationImportPayload:()=>({enabled:true,thresholdMinutes:30}),
+      profileNotificationSettingsView:value=>value,
+      assertAccessConfigContext:lease=>{if(lease.childId!==context.currentProfileId)throw new Error('context changed');},
+      api:async(path,method,body)=>{calls.push({path,method,body});return await new Promise(yes=>resolve=yes);}};
+    vm.runInNewContext(html.slice(notificationStart,notificationEnd),context);
+    return{context,calls,release:value=>resolve(value)};
+  }
+  const leased=notificationFixture();const notificationPending=leased.context.applyProfileNotificationImport([],{childId:'child-a'});
+  leased.context.currentProfileId='child-b';leased.context.profileNotificationSettingsState={profileId:'child-b',settings:{enabled:false}};
+  leased.release({settings:{enabled:true}});await assert.rejects(notificationPending,/context changed/);
+  assert.equal(leased.calls[0].path,'/profiles/child-a/unclassified-usage-notification/v1');
+  assert.equal(leased.context.profileNotificationSettingsState.profileId,'child-b');
+  assert.equal(leased.context.profileNotificationSettingsState.settings.enabled,false);
+  const invalidLease=notificationFixture();await assert.rejects(invalidLease.context.applyProfileNotificationImport([],{childId:'child-b'}),/context changed/);
+  assert.equal(invalidLease.calls.length,0);
+  const legacyNotification=notificationFixture();const legacyPending=legacyNotification.context.applyProfileNotificationImport([]);
+  legacyNotification.context.currentProfileId='child-b';legacyNotification.release({settings:{enabled:true}});await legacyPending;
+  assert.equal(legacyNotification.context.profileNotificationSettingsState.profileId,'child-a','legacy late response cannot relabel state as new Child');
   assert.match(html,/cloudSystemManagementActiveTab==='runtime-diagnostics'/);
   for(const tab of ['reconciliation','web-settlements','media-settlements','client-logs','notifications','backup-restore','account-management'])assert(html.includes(`data-system-management-tab="${tab}"`));
   console.log('PASS management loader: fixed same-origin assets, parent Child/auth, disposal, stale mount, invalid assets, main navigation and syntax');
