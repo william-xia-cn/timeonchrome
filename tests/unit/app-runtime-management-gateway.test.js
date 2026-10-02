@@ -111,6 +111,15 @@ async function test(name, run) { await run(); count++; console.log(`PASS ${name}
       assert.equal(calls.at(-1).url,`https://app-runtime.internal/v2/module/${resource}`);
     }
   });
+  await test('diagnostics allow only fixed read-only redacted resource, never original segment APIs', async()=>{
+    upstream=async()=>new Response('{"items":[],"hasMore":false}');
+    const resource='segment-diagnostics?childId=child-a&kind=usage&fromMs=0&toMs=86400000&limit=50';
+    assert.equal((await call(resource)).status,200);
+    assert.equal(calls.at(-1).url,`https://app-runtime.internal/v2/module/${resource}`);
+    assert.equal((await call(resource,{method:'POST'})).status,405);
+    assert.equal((await call(resource+'&cursor=raw')).status,400);
+    for(const raw of ['usage-segments','media-segments']) assert.equal((await call(raw)).status,404);
+  });
   await test('upstream redirects and cookies never escape the management gateway', async()=>{
     upstream=async()=>new Response(null,{status:302,headers:{Location:'https://outside.invalid/?token=private'}});
     const response=await call('machines'); assert.equal(response.status,502);

@@ -55,6 +55,23 @@ beforeEach(async () => {
 });
 
 describe('Runtime product API', () => {
+  it('limits segment diagnostics to the owning Child and fixed read-only query', async () => {
+    const path = '/v2/module/segment-diagnostics?childId=child-a&kind=usage&fromMs=0&toMs=86400000';
+    expect((await call(path)).status).toBe(401);
+    const account = await accountToken();
+    expect((await call(path.replace('child-a', 'foreign'), { headers: bearer(account) })).status).toBe(404);
+    expect((await call(path, { method: 'POST', headers: bearer(account) })).status).toBe(405);
+    for (const suffix of ['&limit=101', '&limit=0', '&limit=1.5', '&cursor=opaque', '&kind=media']) {
+      expect((await call(path + suffix, { headers: bearer(account) })).status).toBe(400);
+    }
+    expect((await call(path.replace('kind=usage', 'kind=unknown'), { headers: bearer(account) })).status).toBe(400);
+    for (const kind of ['usage', 'media']) {
+      const response = await call(path.replace('kind=usage', `kind=${kind}`), { headers: bearer(account) });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      await expect(response.json()).resolves.toEqual({ items: [], hasMore: false });
+    }
+  });
   it('exposes the shared policy only to the owning Child session and supports GET only', async () => {
     const unauthenticated = await call('/v2/module/shared-access-policy?childId=child-a');
     expect(unauthenticated.status).toBe(401);
@@ -719,6 +736,17 @@ describe('Runtime product API', () => {
     await expect(mediaResponse.json()).resolves.toEqual({
       acceptedIds: [audio.id, video.id], rejected: [],
     });
+    const mediaDiagnostic = await call('/v2/module/segment-diagnostics?childId=child-a&kind=media&fromMs=0&toMs=80000&limit=1', { headers: bearer(account) });
+    expect(mediaDiagnostic.status).toBe(200);
+    const mediaDiagnosticBody = await mediaDiagnostic.json<{ items: Record<string, unknown>[]; hasMore: boolean }>();
+    expect(mediaDiagnosticBody.hasMore).toBe(true);
+    expect(mediaDiagnosticBody.items).toHaveLength(1);
+    expect(mediaDiagnosticBody.items[0]).toMatchObject({ durationMs: 60_000, mediaKind: 'video', presentation: 'foreground', displayName: null });
+    expect(Object.keys(mediaDiagnosticBody.items[0]).sort()).toEqual([
+      'displayName', 'durationMs', 'endAtMs', 'estimated', 'mediaKind', 'presentation', 'startAtMs',
+    ]);
+    expect(JSON.stringify(mediaDiagnosticBody)).not.toContain(video.id);
+    expect(JSON.stringify(mediaDiagnosticBody)).not.toContain('app:movie');
 
     const read = await call('/v2/module/accounting?childId=child-a&fromMs=0&toMs=80000', {
       headers: bearer(account),
@@ -870,6 +898,16 @@ describe('Runtime product API', () => {
     await expect(records.json()).resolves.toMatchObject({ pending: [], processed: [] });
     const ledger = await call('/v2/module/usage-segments?childId=child-a&fromMs=0&toMs=86400000&limit=1', { headers: bearer(account) });
     await expect(ledger.json()).resolves.toMatchObject({ items: [{ runtimeIdentity: 'app:editor', authoritativeForUsage: true }] });
+    const diagnostic = await call('/v2/module/segment-diagnostics?childId=child-a&kind=usage&fromMs=0&toMs=86400000&limit=1', { headers: bearer(account) });
+    expect(diagnostic.status).toBe(200);
+    const diagnosticBody = await diagnostic.json<{ items: Record<string, unknown>[]; hasMore: boolean }>();
+    expect(diagnosticBody.items).toHaveLength(1);
+    expect(diagnosticBody.items[0]).toMatchObject({ durationMs: 600_000, applicationClassification: 'study' });
+    expect(Object.keys(diagnosticBody.items[0]).sort()).toEqual([
+      'applicationClassification', 'displayName', 'durationMs', 'endAtMs', 'estimated', 'startAtMs',
+    ]);
+    expect(JSON.stringify(diagnosticBody)).not.toContain(segment.id);
+    expect(JSON.stringify(diagnosticBody)).not.toContain('app:editor');
   });
 
   it('keeps legacy process usage in the ledger but outside the manageable app directory', async () => {

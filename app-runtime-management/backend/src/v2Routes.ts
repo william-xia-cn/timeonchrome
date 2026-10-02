@@ -315,6 +315,39 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
         },defer,nowMs);
       return jsonResponse({...result.value,statistics:result.statistics},{headers:{'x-application-usage-cache':result.cacheStatus}});
     }
+    if (url.pathname === '/v2/module/segment-diagnostics') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild();
+      const range = requireRange();
+      const kind = url.searchParams.get('kind');
+      if (kind !== 'usage' && kind !== 'media') {
+        throw new HttpError(400, 'INVALID_DIAGNOSTIC_KIND', 'Diagnostic kind is invalid.');
+      }
+      const limit = Number(url.searchParams.get('limit') || 50);
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+        throw new HttpError(400, 'INVALID_LIMIT', 'Limit must be between 1 and 100.');
+      }
+      if ([...url.searchParams.keys()].some(key => !['childId', 'kind', 'fromMs', 'toMs', 'limit'].includes(key)
+          || url.searchParams.getAll(key).length !== 1)) {
+        throw new HttpError(400, 'INVALID_DIAGNOSTIC_QUERY', 'Diagnostic query is invalid.');
+      }
+      const result = await querySegmentDetails(env.RUNTIME_DB, claims.account_id, childId,
+        kind, range.fromMs, range.toMs, limit, null);
+      const items = result.items.map(item => {
+        if (!isRecord(item)) throw new HttpError(500, 'INVALID_DIAGNOSTIC_RESULT', 'Diagnostic data is invalid.');
+        // Do not spread records: raw identities and cursor must never reach the management component.
+        return {
+          startAtMs: item.startAtMs, endAtMs: item.endAtMs, durationMs: item.durationMs,
+          displayName: typeof item.displayName === 'string'
+            && ![item.runtimeIdentity, item.id, item.machineId, item.localUserId].includes(item.displayName)
+            && !/[\\/]/.test(item.displayName) ? item.displayName : null,
+          estimated: item.estimated,
+          ...(kind === 'usage' ? { applicationClassification: item.applicationClassification }
+            : { mediaKind: item.mediaKind, presentation: item.presentation }),
+        };
+      });
+      return jsonResponse({ items, hasMore: result.nextCursor !== null }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     if (url.pathname === '/v2/module/usage-segments' || url.pathname === '/v2/module/media-segments') {
       if (request.method !== 'GET') return methodNotAllowed('GET');
       const childId = requireChild();

@@ -16,6 +16,8 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### 主控制台 Runtime 管理通道
 
+系统诊断使用只读 `/v2/module/segment-diagnostics?childId=&kind=usage|media&fromMs=&toMs=&limit=`，Guardian仅通过同名固定管理资源代理。账户与Child归属、日期范围沿现有校验，limit为1–100，默认50；它是最近一页检查，不提供原始身份游标。响应`items`采用显式字段白名单：startAtMs/endAtMs/durationMs、displayName、estimated、历史applicationClassification（主账）或mediaKind/presentation（媒体）。`hasMore`仅说明存在后续记录；不返回id、machineId、localUserId、runtimeIdentity、凭据、路径、原始分类切片或nextCursor。原明细接口、账本查询和统计不变；此检查不作为用量总量，仍由原权威统计提供。兼容上线需要先提供该云端只读资源再挂载页面，当前不部署。
+
 主控制台发布构建从 canonical `app-runtime-management/console/` 生成仅管理组件的 `runtime-management-component/` 资源。固定 JS/CSS 白名单与无脚本模板 manifest，不发布独立 `index.html`、SSO bootstrap 或 RuntimeSession；模板包含原管理表单和抽屉，由主控制台同源加载器挂载到隔离根。源文件不复制回 pages、不单独维护，独立 Runtime Pages 暂保留兼容入口。拒绝符号链接、覆盖已有输出及路径越界，主 Pages 的 Task 发布排除不变。
 
 Runtime canonical 控制器提供 `AppRuntimeManagement.mount`：注入 DOM root、Guardian 管理网关 request、当前家庭 children/Child、管理 view 和宿主 isCurrent 检查。嵌入实例只服务管理视图，不取得 Runtime 浏览器会话、不执行票据交换/登录跳转；宿主统一管理选择和退出。销毁释放监听器、定时器和知识组件，未完成请求只能被丢弃，不能声称服务端已取消写入。独立 Runtime 页面继续自动创建默认实例直到主控制台实际整合验收。模板和静态依赖由 canonical source 生成同源组件资产，不恢复 pages/app-runtime 副本或 iframe 子站。

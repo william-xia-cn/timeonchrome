@@ -2,6 +2,10 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+PR #188 已合入 master `8882a9a`；4259a6e 的五组相关 CI 全部通过，未部署。继续系统管理整合：先补只读 `segment-diagnostics`，沿原账户/Child授权和有界账本查询，仅返回时间、展示名称、时长、历史分类或媒体属性；不返回 Segment/机器/账户/技术身份及原始游标。之后主系统页挂载 canonical 诊断面板，保留原网页系统功能。职责 standard-cloud；本批先运行 Runtime API 聚焦回归、Guardian网关回归、两侧typecheck、边界/diff；不跑平台、安装器、全量账本测试，不改账、不部署。页面实现另补组件和目视证据后才提交。
+
+该只读资源已实现：聚焦Runtime3/3、Guardian网关10/10、两侧typecheck、Runtime dry-run、源码边界及diff通过。非零真实结构夹具暴露displayName回退技术身份，响应已置null并过滤路径样式，原账和旧接口不变。重复查询字段/原始游标拒绝、主账与媒体显式字段裁剪、hasMore有界及账户/Child隔离有证据。Matched=本批云端诊断通道；Deviated/Extra=无；完整目标Missing仍含系统面板挂载、旧站切换、浏览器实时提醒证据和两端实机/启用验收。无生产操作。
+
 PR #188 CI：Console 和 Guardian/主入口通过，源码边界检查准确拒绝了 visual fixture 反向导入根 tools。修正生成器归属到 canonical Runtime console，主发布工具及根测试从该模块消费；不修改边界检查规则，不将测试代码列入豁免。重新跑该检查和受影响加载器/构建回归后推送同一PR，既有目视证据不因单纯生成器路径移动失效。
 
 下一批为主控制台发布资源构建：从 canonical Runtime console 显式列出的管理依赖生成 `/runtime-management-component/` 与模板清单，禁止复制独立 index、Session/bootstrap 或恢复 `/app-runtime/` 静态子站。模板去除脚本/样式外链，由后续同源加载器注入；保留原产品/账户/配对面板，不维护第二份源码。聚焦验证资源白名单、源码不变、输出禁止覆盖、symlink拒绝和Task发布隔离；工具及测试路径为本任务精确例外，不触发平台测试，不部署。
