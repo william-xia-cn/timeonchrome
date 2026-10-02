@@ -51,3 +51,73 @@ assert.deepEqual(K.editedConditions(null,[],[{field:'binaryHash',value:'x'},{fie
 const hitHTML=K.previewHitsHTML([{childIndex:0,displayName:'<video>',platform:'windows',result:{classification:'study',status:'conflict',productId:'private-product',ruleIds:['private-rule']}}],[{id:'private-child',name:'测试孩子'}]);
 assert.match(hitHTML,/规则冲突，保留原有效分类/);assert.match(hitHTML,/&lt;video&gt;/);assert.match(hitHTML,/测试孩子/);assert(!hitHTML.includes('private-'));
 console.log('PASS: knowledge UI scope, variants, merge guards and selected import');
+
+// The canonical component can be mounted inside the main console without
+// listening to its sibling pages or applying responses to another Child.
+async function componentLifecycleTests(){
+  const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return{promise,resolve,reject};};
+  function fixture(initialChild='child-a'){
+    const listeners=new Map(),queries=[],filtered=[{textContent:'Excel',hidden:false},{textContent:'Other',hidden:false}];
+    let closed=0,created=0;
+    const root={ownerDocument:{createElement(){created++;throw new Error('Unexpected render');}},
+      querySelector(selector){queries.push(selector);throw new Error(`Unexpected render: ${selector}`);},
+      querySelectorAll(selector){queries.push(selector);return selector==='dialog[open]'?[{close(){closed++;}}]:selector.includes('.knowledge-child:checked')?[{value:'0'}]:filtered;},
+      addEventListener(type,handler){listeners.set(type,handler);},
+      removeEventListener(type,handler){assert.equal(listeners.get(type),handler);listeners.delete(type);}};
+    let context={childId:initialChild,contextRevision:1,children:[{id:'child-a',name:'A'},{id:'child-b',name:'B'}]};
+    const calls=[],errors=[],saved=[];
+    const requests=[];
+    const component=K.mount({root,getContext:()=>context,mock:false,
+      request:(...args)=>{calls.push(args);const pending=deferred();requests.push(pending);return pending.promise;},
+      onSaved:async value=>{saved.push(value);context={...context,contextRevision:context.contextRevision+1};},onError:error=>errors.push(error)});
+    return{root,listeners,queries,filtered,calls,errors,saved,requests,component,
+      setContext(value){context={...context,...value};},get closed(){return closed;},get created(){return created;}};
+  }
+  const late=fixture();assert.deepEqual([...late.listeners.keys()],['click','change','input']);
+  late.listeners.get('input')({target:{id:'product-search',value:'excel'}});
+  assert.deepEqual(late.filtered.map(item=>item.hidden),[false,true]);
+  const opening=late.component.open('product');assert.equal(late.calls.length,2);
+  late.setContext({childId:'child-b'});
+  late.requests[0].resolve(K.empty());late.requests[1].resolve({observations:[]});
+  await assert.rejects(opening,{code:'COMPONENT_CONTEXT_CHANGED'});
+  assert.equal(late.created,0);assert.equal(late.queries.length,1);
+  await assert.rejects(late.component.classify('excel','study'),{code:'COMPONENT_CONTEXT_CHANGED'});
+  assert.equal(late.calls.length,2,'old component must not write under the new Child');
+  late.component.dispose();late.component.dispose();assert.equal(late.listeners.size,0);assert.equal(late.closed,1);
+
+  const login=fixture(null);login.setContext({childId:'child-a'});
+  const firstOpen=login.component.open('product');assert.equal(login.calls.length,2,'login before first use must not invalidate an unused component');
+  login.component.dispose();login.requests[0].resolve(K.empty());login.requests[1].resolve({observations:[]});
+  await assert.rejects(firstOpen,{code:'COMPONENT_CONTEXT_CHANGED'});
+
+  const removed=fixture(),read=removed.component.open('rule');removed.component.dispose();
+  removed.requests[0].resolve(K.empty());removed.requests[1].resolve({observations:[]});
+  await assert.rejects(read,{code:'COMPONENT_CONTEXT_CHANGED'});assert.equal(removed.created,0);
+  await assert.rejects(removed.component.publish(K.empty()),{code:'COMPONENT_CONTEXT_CHANGED'});
+  assert.equal(removed.calls.length,2);
+
+  const failed=fixture(),errorRead=failed.component.open('product');failed.setContext({contextRevision:2});
+  failed.requests[0].reject(new Error('old request failed'));failed.requests[1].resolve({observations:[]});
+  await assert.rejects(errorRead,{code:'COMPONENT_CONTEXT_CHANGED'});assert.equal(failed.errors.length,0);
+  failed.component.dispose();
+
+  const write=fixture(),saving=write.component.publish({...K.empty(),bindings:[{childId:'child-a',products:[],ruleIds:[]}]});
+  assert.equal(write.calls.length,1);assert.equal(JSON.parse(write.calls[0][1].body).knowledge.bindings[0].childId,'child-a');
+  write.requests[0].resolve({...K.empty(),version:1});
+  await assert.rejects(saving,{code:'COMPONENT_CONTEXT_CHANGED'});
+  assert.equal(write.saved.length,1,'a delivered write is not claimed to have been cancelled');
+  assert.equal(write.created,0,'onSaved navigation must prevent rendering an obsolete component');
+  write.component.dispose();
+
+  const file=fixture(),reading=deferred();
+  const importing=file.listeners.get('change')({target:{id:'import-rules',files:[{text:()=>reading.promise}]}});
+  file.setContext({childId:'child-b'});reading.resolve(JSON.stringify(K.empty()));await importing;
+  assert.equal(file.calls.length,0,'late file parsing must not start an import preview for another Child');
+  assert.equal(file.errors.length,0);assert.equal(file.created,0);file.component.dispose();
+
+  const legacy=fixture();globalThis.document=legacy.root;
+  const standalone=K.mount({request:async()=>K.empty(),getContext:()=>({childId:'legacy'}),onSaved:async()=>{},onError:()=>{}});
+  assert.equal(legacy.listeners.size,3);standalone.dispose();delete globalThis.document;
+  console.log('PASS: scoped component, Child/revision isolation, disposal, late reads/writes and standalone compatibility');
+}
+componentLifecycleTests().catch(error=>{console.error(error);process.exitCode=1;});
