@@ -150,7 +150,7 @@ function beijingDateAt(dayStartMs:number):string {
   return new Date(dayStartMs+28_800_000).toISOString().slice(0,10);
 }
 
-/** Reads seven persisted daily projections to expose the weekly entertainment limit without scanning raw segments. */
+/** Reads the selected week's persisted day projections through the selected Beijing date; never scans raw segments. */
 export async function readSharedAccessDayState(env:SharedAccessStateEnv,accountId:string,childId:string,date:string,
   policy:UnifiedChildAccessPolicyV1) {
   const dayStart=Date.parse(`${date}T00:00:00+08:00`);
@@ -159,7 +159,7 @@ export async function readSharedAccessDayState(env:SharedAccessStateEnv,accountI
   const weekday=new Date(dayStart+28_800_000).getUTCDay();
   const mondayOffset=(weekday+6)%7;
   const fromMs=dayStart-mondayOffset*dayMs;
-  const dates=Array.from({length:7},(_,index)=>beijingDateAt(fromMs+index*dayMs));
+  const dates=Array.from({length:mondayOffset+1},(_,index)=>beijingDateAt(fromMs+index*dayMs));
   const results=await Promise.allSettled(dates.map(day=>readSharedAccessDayProjection(env,accountId,childId,day,policy)));
   const selectedIndex=dates.indexOf(date);
   const selected=results[selectedIndex];
@@ -175,7 +175,7 @@ export async function readSharedAccessDayState(env:SharedAccessStateEnv,accountI
     }
   }
   const weekComplete=weekReasons.size===0;
-  const week={fromDate:dates[0],toDate:dates[6],complete:weekComplete,reasonCodes:[...weekReasons].sort(),restUsedMs,
+  const week={fromDate:dates[0],toDate:date,complete:weekComplete,reasonCodes:[...weekReasons].sort(),restUsedMs,
     restRemainingMs:policy.weeklyRestMinutes===null?null:Math.max(0,policy.weeklyRestMinutes*60_000-restUsedMs)};
   const weekRevision=await sha(JSON.stringify(results.map((result,index)=>
     result.status==='fulfilled'?[dates[index],result.value.revision,result.value.complete]:[dates[index],'unavailable'])));
