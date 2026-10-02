@@ -8,6 +8,7 @@ export const BROWSER_BRIDGE_V2_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridg
 export const BROWSER_BRIDGE_V3_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v3' as const;
 /** These capabilities never imply shared enforcement is enabled. */
 export const SHARED_QUOTA_STATE_READ_CAPABILITY = 'shared-quota-state-read' as const;
+export const SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY = 'shared-access-policy-identity-read' as const;
 export const SHARED_REMINDER_RESULT_SHADOW_CAPABILITY = 'shared-reminder-result-shadow' as const;
 export { SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY,
   SHARED_BROWSER_EXECUTION_CAPABILITY } from './shared-reminder-lifecycle.js';
@@ -74,6 +75,8 @@ export interface NativeHostResponse {
   stale?: boolean;
   applicationUsage?: ApplicationUsageSnapshot;
   sharedQuota?: import('./shared-access.js').SharedQuotaStateV1;
+  /** Optional only after capability negotiation; equality is not execution authorization. */
+  sharedAccessPolicyIdentity?: import('./shared-access.js').SharedAccessPolicyIdentityV1;
   /** Read success is not permission to enforce quota or end an application. */
   sharedQuotaStage?: 'shadow';
   sharedReminder?: import('./shared-reminder-lifecycle.js').SharedReminderState | null;

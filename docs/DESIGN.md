@@ -36,6 +36,8 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 共享访问终端契约边界（2026-10-02）
 
+完整配置一致性契约：新增可选`sharedAccessPolicyIdentity`（schemaVersion/revision/effectiveAtMs/stage/policyHash），配合`shared-access-policy-identity-read`能力，随既有getSharedQuotaState只读响应返回。内容摘要是完整已验证UnifiedChildAccessPolicyV1的UTF-8规范JSON的SHA-256：递归对象key按ASCII序排列、数组保留顺序、无空白、整数/布尔/null采用JSON标准表达；不包含身份、token或路径，摘要只表明配置相同，不授予来源替换或执行权限。先按严格完整配置校验后计算；两端必须核对完整摘要、revision、生效时间和stage，而非只比revision。旧Service没有字段/能力时报告配置身份尚未核实并保持既有路径，不能默认一致。本批只固化1.29函数、类型/schema和共同回归，消费者由所属任务接入；Native原内部缓存hash不是跨端规范摘要，禁止直接冒用。
+
 Native机器只读运输使用`GET /v2/machines/shared-quota/execution-basis?localUserId=opaque&assignmentVersion=N&date=YYYY-MM-DD&offset=0&limit=50[&revision=64hex]`，返回同1.28页结构。机器认证禁止写last_seen；Child由当前受保护assignment决定，拒绝其他query/重复key/外部Child或sourceKey。Runtime沿既有source算法派生application sourceKey，经GUARDIAN_COMPUTER_USAGE内部`/readSharedQuotaExecutionBasis`传递owner/Child/date/分页及opaque自身key；不传机器token、localUserId或SID。Guardian复核Child ownership和policy版本、只授予basis中已有自身application来源；非自身web来源仍完整保留但不授予替换权。Runtime读取后再次验证机器未撤销及同assignment，内部响应有界读取、错版409/参数400/故障503/no-store。此接口没有跨端web授权，也不启用shared；Native必须全页严格组装并按当前身份原子缓存，不能把ACK或单页当完整执行依据。
 
 Contracts1.28固定`SharedQuotaExecutionPageV1`和`assembleSharedQuotaExecutionPages(policy, expectedProfileId, pages)`：transport携带profileId、basis/policy revision、日期覆盖及sourceCount、授权scope和分页游标。认证调用方完整收齐同一次读取所有页后调用组装；函数拒绝未知字段、跨Child/版本/配置混页、缺页/重页、非法游标、总计与逐日来源数不符、范围外或不存在的授权scope。首offset=0，连续递进，末nextOffset=null；limit1–100，总计0–1400，每日最多200，最多七天。零来源需要明确完整空页及各日原因，不把缺页当零。输入保持不可变，输出组装依据与授权scope，随后交既有1.27投影核验；该函数不认证服务器或授予执行能力，只接受调用方通过既定鉴权取得的响应。不增加双向控制或改变原来源统计；Native机器读取和可信跨端来源仍未完成。

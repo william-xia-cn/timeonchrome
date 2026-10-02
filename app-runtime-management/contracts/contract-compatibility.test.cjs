@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.28.0');
+assert.equal(pkg.version, '1.29.0');
 assert(pkg.exports['./shared-quota-execution']);
 const executionSchema = JSON.parse(fs.readFileSync(path.join(root, 'shared-quota-execution-v1.schema.json'), 'utf8'));
 assert.equal(executionSchema.$defs.basis.additionalProperties, false);
@@ -23,6 +23,9 @@ assert(pkg.exports['./shared-reminder-lifecycle']);
 assert(pkg.exports['./shared-access'], 'shared access contract must be exported');
 const sharedAccess = JSON.parse(fs.readFileSync(path.join(root, 'shared-access-v1.schema.json'), 'utf8'));
 assert.equal(sharedAccess.$defs.policy.properties.stage.enum[0], 'legacy');
+assert.equal(sharedAccess.$defs.policyIdentity.additionalProperties, false);
+assert.deepEqual(sharedAccess.$defs.policyIdentity.required, Object.keys(sharedAccess.$defs.policyIdentity.properties));
+assert.equal(sharedAccess.$defs.policyIdentity.properties.policyHash.pattern, '^[a-f0-9]{64}$');
 assert.equal(sharedAccess.$defs.policy.properties.autonomy.properties.visibleResponseDeadlineSeconds.const, 60);
 const quotaWeek=sharedAccess.$defs.state.properties.week;
 assert.equal(quotaWeek.additionalProperties,false);
