@@ -112,9 +112,12 @@
             "borrowedRestMs": { "$ref": "#/$defs/milliseconds" }
           } },
         "week": { "type": "object", "additionalProperties": false,
-          "required": ["fromDate", "restUsedMs", "restRemainingMs"],
+          "required": ["fromDate", "toDate", "complete", "reasonCodes", "restUsedMs", "restRemainingMs"],
           "properties": {
             "fromDate": { "$ref": "#/$defs/date" },
+            "toDate": { "$ref": "#/$defs/date" },
+            "complete": { "type": "boolean" },
+            "reasonCodes": { "type": "array", "maxItems": 32, "items": { "type": "string", "maxLength": 64 } },
             "restUsedMs": { "$ref": "#/$defs/milliseconds" },
             "restRemainingMs": { "anyOf": [{ "$ref": "#/$defs/milliseconds" }, { "type": "null" }] }
           } },
