@@ -395,6 +395,47 @@ function getCloudApiBase() {
   return syncState.apiBase || CLOUD_CONFIG.API_BASE;
 }
 
+// Optional read adapter: captured credentials only, no binding/config mutations or parent session.
+export async function readSharedAccessPolicyCloudScope() {
+  const activation = await requireRuntimeActivation();
+  return activation.ok ? { ok: true, apiBase: getCloudApiBase() }
+    : { ok: false, errorCode: 'shared_access_inactive' };
+}
+
+export async function readCloudSharedAccessPolicy({ deviceToken, apiBase, signal } = {}) {
+  if (typeof deviceToken !== 'string' || !deviceToken || apiBase !== getCloudApiBase()) {
+    return { ok: false, errorCode: 'shared_access_identity_changed' };
+  }
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  const timeout = setTimeout(abort, CLOUD_CONFIG.REQUEST_TIMEOUT_MS);
+  try {
+    if (signal?.aborted) return { ok: false, errorCode: 'shared_access_cancelled' };
+    const response = await fetch(`${apiBase}/device/shared-access/v1`, {
+      method: 'GET', headers: { Authorization: `Bearer ${deviceToken}` }, signal: controller.signal,
+      redirect: 'error', cache: 'no-store',
+    });
+    if (!response.ok) return { ok: false, errorCode: response.status === 401 ? 'shared_access_unauthorized'
+      : response.status === 403 ? 'shared_access_unbound' : response.status === 404 ? 'shared_access_unsupported'
+      : 'shared_access_unavailable' };
+    const text = await response.text();
+    if (text.length > 64 * 1024) return { ok: false, errorCode: 'shared_access_invalid_policy' };
+    let result;
+    try { result = JSON.parse(text); } catch (_) { return { ok: false, errorCode: 'shared_access_invalid_policy' }; }
+    if (!result || result.schemaVersion !== 1 || Object.keys(result).length !== 3 || !Object.hasOwn(result, 'policy')
+      || typeof result.profileId !== 'string' || !result.profileId) {
+      return { ok: false, errorCode: 'shared_access_invalid_policy' };
+    }
+    return { ok: true, profileId: result.profileId, policy: result.policy };
+  } catch (_) {
+    return { ok: false, errorCode: signal?.aborted ? 'shared_access_cancelled' : 'shared_access_unavailable' };
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
+  }
+}
+
 async function requireRuntimeActivation() {
   const activation = await getRuntimeActivationStateSafe();
   applyActivationCloudEndpoint(activation);
