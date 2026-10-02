@@ -15,20 +15,23 @@ const policy={schemaVersion:1,revision:'profile-config:8',effectiveAtMs:start,st
 const application={schemaVersion:1,source:'application',sourceKey:'app:opaque',date,revision:'4:hash-app',statisticsRevision:'hash-app',
  correctionRevision:'corr-app',productAssociationVersion:'assoc-3',policyRevision:policy.revision,settledAtMs:start+1000,complete:true,reasonCodes:[],
  bucketsMs:{study:0,composite:0,rest:0},applicationClassesMs:{study:600000,composite:0,restrictedEntertainment:60000,unclassified:0,other:3600000},chromeExcludedMs:0};
-function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=false,webUnavailable=false}={}){
- const manifestDates=new Map();
+function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=false,webUnavailable=false,unboundWithHistory=false}={}){
+ const manifestScopes=new Map();
  const account={profileId:'child',deviceId:'browser',date,revision:2,statsHash:'web-hash',generatedAt:start+5000,complete:true,lossCount:0,
   rows:[{kind:'daily_target',channel:'active',quotaBucket:'study',durationSeconds:600,targetKey:'x'},
     {kind:'daily_target',channel:'active',quotaBucket:'other',durationSeconds:900,targetKey:'y'}]};
  const db={prepare(sql){if(webUnavailable)throw new Error('D1 unavailable');return{bind(...params){return{
-  async first(){if(sql.includes('SELECT manifest_id')){const queryDate=String(params[2]??date),manifestId=`manifest-${queryDate}`;
-    manifestDates.set(manifestId,queryDate);return legacy?null:{manifest_id:manifestId};}return null;},
-  async all(){if(sql.includes('FROM devices'))return{results:noDevice?[]:[{id:'browser',device_name:'browser'}]};
+  async first(){if(sql.includes('SELECT manifest_id')){const queryDate=String(params[2]??date),deviceId=String(params[1]??'browser'),manifestId=`manifest-${deviceId}-${queryDate}`;
+    manifestScopes.set(manifestId,{date:queryDate,deviceId});return legacy?null:{manifest_id:manifestId};}return null;},
+  async all(){if(sql.includes('FROM devices')){
+      const retainsUnboundHistory=sql.includes('device_account_heads_v2')&&sql.includes('target_stats_v1')&&sql.includes('stats_v1');
+      return{results:noDevice?[]:unboundWithHistory&&retainsUnboundHistory?
+        [{id:'browser',device_name:'browser'},{id:'previously-unbound',device_name:'previously-unbound'}]:[{id:'browser',device_name:'browser'}]};}
     if(sql.includes('FROM target_stats_v1'))return{results:[{channel:'active',mode:'study',quota_bucket:'study',duration_seconds:600,updated_at:start+1}]};
     if(sql.includes('FROM stats_v1'))return{results:[]};return{results:[]};}
  };}};},withSession(){return db;}};
- const mocks={'./profileAccountsV2':{readManifestAccountV2:async(_env,manifestId)=>{const queryDate=manifestDates.get(manifestId)??date;
-   return{...account,date:queryDate,revision:`2:${queryDate}`,statsHash:`web-hash-${queryDate}`};}},
+ const mocks={'./profileAccountsV2':{readManifestAccountV2:async(_env,manifestId)=>{const scope=manifestScopes.get(manifestId)??{date,deviceId:'browser'};
+   return{...account,deviceId:scope.deviceId,date:scope.date,revision:`2:${scope.date}`,statsHash:`web-hash-${scope.date}-${scope.deviceId}`};}},
   './compositePageCorrections':{readCompositeCorrections:async()=>({items:[],revision:'corr-web'}),projectCompositeDailyRows:(_account,rows)=>account.rows.filter(row=>row.kind==='daily_target')},
   './usageAccountingCorrections':{listUsageAccountingCorrections:async()=>[],applyCorrectionsToV1StatsRows:rows=>rows}};
  const load=loader(mocks),service=load('workers/src/services/sharedAccessState.ts');
@@ -83,5 +86,9 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
  const missing=fixture({noDevice:true}),noWeb=await missing.service.readSharedAccessDayState(missing.env,'account','child',date,policy);
  assert.equal(noWeb.complete,false,'no known browser source is never treated as zero coverage');
  assert.ok(noWeb.reasonCodes.includes('WEB_COVERAGE_MISSING'));
+ const unbound=fixture({unboundWithHistory:true}),retained=await unbound.service.readSharedAccessDayState(unbound.env,'account','child',date,policy);
+ assert.equal(retained.web.expectedScopeCount,2,'a same-day unbound device remains in Child quota coverage');
+ assert.equal(retained.web.bucketsMs.study,1200000,'already-settled use remains counted after mid-day unbinding');
+ assert.equal(retained.complete,true,'complete same-day receipts from bound and unbound devices remain complete');
  console.log('PASS child shared-access state: quota buckets, partial sources, legacy quality, source coverage, privacy');
 })().catch(error=>{console.error(error);process.exitCode=1;});

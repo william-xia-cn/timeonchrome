@@ -36,8 +36,16 @@ function mapLegacyBucket(row:Record<string,unknown>):string {
 }
 
 async function readWebContributions(env:SharedAccessStateEnv,accountId:string,childId:string,date:string,policy:UnifiedChildAccessPolicyV1) {
-  const devices=await env.DB.prepare(`SELECT id,device_name FROM devices WHERE profile_id=? AND COALESCE(status,'bound')='bound' ORDER BY id LIMIT 101`)
-    .bind(childId).all<{id:string;device_name:string}>();
+  // Current bound devices are expected even before their first upload. Also retain
+  // same-day facts from a device that was unbound after use; otherwise a mid-day
+  // unbind silently removes already-consumed Child quota from the shadow projection.
+  const devices=await env.DB.prepare(`SELECT d.id,d.device_name FROM devices d WHERE d.profile_id=? AND (
+      COALESCE(d.status,'bound')='bound'
+      OR EXISTS(SELECT 1 FROM device_account_heads_v2 h WHERE h.profile_id=d.profile_id AND h.device_id=d.id AND h.date=?2)
+      OR EXISTS(SELECT 1 FROM target_stats_v1 t WHERE t.profile_id=d.profile_id AND t.device_id=d.id AND t.date=?2)
+      OR EXISTS(SELECT 1 FROM stats_v1 s WHERE s.profile_id=d.profile_id AND s.device_id=d.id AND s.date=?2)
+    ) ORDER BY d.id LIMIT 101`)
+    .bind(childId,date).all<{id:string;device_name:string}>();
   if(devices.results.length>100)throw new Error('SHARED_ACCESS_SOURCE_LIMIT');
   const contributions:SharedQuotaContributionV1[]=[];
   const reasons=new Set<string>();
