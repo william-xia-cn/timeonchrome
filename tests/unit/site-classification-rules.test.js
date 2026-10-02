@@ -366,6 +366,9 @@ async function run() {
   expectEqual('approved other status remains other after rule reload', mod.resolveSiteAccessClassification({
     siteClassificationRulesV1: [{ ...otherRule, decision: 'approved_other' }],
   }, [], 'https://other.example.test/').classification, 'other');
+  expectEqual('usage-only approval does not alter access classification', mod.resolveSiteAccessClassification({
+    siteUsageClassificationRulesV1: [{ targetType: 'host', normalizedValue: 'other.example.test', classification: 'other' }],
+  }, [], 'https://other.example.test/').classification, null);
   expectEqual('other rule is visible to future classification validation', mod.validateSiteClassificationAction({
     siteClassificationRulesV1: [otherRule],
   }, 'other.example.test', 'study').code, 'ALREADY_CLASSIFIED');

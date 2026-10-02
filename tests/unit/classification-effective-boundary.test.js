@@ -30,6 +30,8 @@ const messageRouter = read('extension/message-router.js');
 check('helper exports classification sync effects runner', helper.includes('export async function runClassificationSyncEffects'));
 check('helper applies dedicated classification boundary', helper.includes("transitionStateAt('ACTIVE'") && helper.includes('classification_effective_boundary'));
 check('helper compares current session target snapshot before splitting', helper.includes('sessionTargetDiffers') && helper.includes('targetClassificationAtTime'));
+check('usage-only attribution sessions skip config-triggered segment boundaries', helper.includes("session.targetSourceAtTime === 'siteUsageClassificationRulesV1'") && helper.includes('usage_classification_session_snapshot_preserved'));
+check('effective-boundary resolver ignores usage-only rules', helper.includes('includeUsageClassificationRules: false'));
 check('helper logs approved request without effective rule', helper.includes('site_classification_approved_rule_missing') && helper.includes('approved_request_without_effective_rule'));
 check('session allows classification boundary settlement', session.includes("reason === 'classification_effective_boundary'"));
 check('session records classification boundary as config action', session.includes("if (value === 'classification_effective_boundary') return 'config_action';"));

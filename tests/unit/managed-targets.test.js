@@ -234,6 +234,25 @@ async function run() {
     siteClassificationRulesV1: [{ targetType: 'host', targetValue: 'other.example.test', decision: 'approved_other' }],
   }, [], 'https://other.example.test/').targetClassificationAtTime, 'other');
 
+  const usageRuleConfig = {
+    studyList: ['usage.example.com'],
+    siteUsageClassificationRulesV1: [{
+      id: 'usage_rule_42', requestId: '42', targetType: 'host', normalizedValue: 'usage.example.com',
+      classification: 'other', createdAt: 100, updatedAt: 200,
+    }],
+  };
+  const usageAttribution = mod.resolveManagedTargetAttribution(usageRuleConfig, [], 'https://usage.example.com/');
+  expectEqual('Guardian usage rule applies other to target attribution', usageAttribution.targetClassificationAtTime, 'other');
+  expectEqual('Guardian usage rule gives the separate non-charging bucket', usageAttribution.quotaBucketAtTime, 'other');
+  expectEqual('Guardian usage rule preserves source marker', usageAttribution.targetSourceAtTime, 'siteUsageClassificationRulesV1');
+  expectEqual('access-only resolution ignores usage rule', mod.resolveManagedTargetAttribution(
+    usageRuleConfig, [], 'https://usage.example.com/', { includeUsageClassificationRules: false }
+  ).targetClassificationAtTime, 'study');
+  expect('usage rule does not create an access configuration conflict', mod.validateManagedTargetsConfig(usageRuleConfig).ok);
+  expectEqual('non-other usage rules are ignored', mod.resolveManagedTargetAttribution({
+    siteUsageClassificationRulesV1: [{ targetType: 'host', normalizedValue: 'usage.example.com', classification: 'study' }],
+  }, [], 'https://usage.example.com/').fallback, true);
+
   const sessionSource = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'runtime', 'session.js'), 'utf8');
   const sessionFieldsSource = sessionSource.slice(
     sessionSource.indexOf('function managedTargetFieldsFrom('),

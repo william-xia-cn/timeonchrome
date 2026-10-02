@@ -22,6 +22,8 @@
 
 误设“其他”可能少扣分类配额；同一条记录不可同时占用旧分类桶与“其他”。本批准只改变未来 Segment 的 `targetClassificationAtTime` 与独立 `quotaBucketAtTime`，不改变网站访问路由、时间窗、配额执行、模式、频道、开始／停止、时长、上传确认或既有账。终端 V2 设备账必须仅在目标行接受 `quotaBucket=other`，运行 `mode` 仍只允许真实运行模式。云端原始账兼容已由 `416c492` 增加；V2 设备账校验及网站分类审批路径仍须各自兼容并通过守恒测试，完成前不启用新桶。既有历史数据不自动重分类或改写。
 
+终端从云端档案配置读取独立的 `siteUsageClassificationRulesV1`。仅接受其中 `classification='other'` 且目标类型和值合法的规则，并仅作为新会话的 managed-target 归属输入；不得并入 `siteClassificationRulesV1`、访问路由或网站冲突校验。配置同步时，活动网页会话的有效边界计算忽略该独立规则，避免因它新增网页 Segment 边界；既有会话保留原分类和配额桶，下一次自然新会话才应用 `other`。规则中的 `other` 只映射至 Segment 的 `targetClassificationAtTime` 与 `quotaBucketAtTime`，runtime `mode`、`channel`、时长和结算事件不变。
+
 ### 固定终端源码与开发候选边界（2026-09-30）
 
 `D:\Codex\TimeOnchrome-worktrees\extension-local` 是终端扩展唯一源码工作树。`1.7.40 Native Host Development Candidate` 仅由此工作树的 staging 工具生成到隔离的 unpacked 目录；源码 `extension/manifest.json` 的正式版本不随候选版本改变。候选复用已批准候选 manifest 的公开 key 并核对稳定扩展 ID，不生成 CRX 或 `update.xml`，不进入托管更新源。候选包含周 Rest 提醒、默认关闭的复合观察及 Task 可选模块；旧 Popup 纯网页软配额面板不纳入。Chrome 既有 `81a1` 路径作为 junction 兼容入口，只有独立 Profile 验证、完整备份和加载前后只读核对通过后才替换其 D 盘目标包；不卸载扩展或清空本地数据。真实 30 分钟复合上传闭环仍待验收。

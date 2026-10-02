@@ -252,6 +252,18 @@ function requestToManagedTarget(record) {
   return null;
 }
 
+function usageClassificationRuleToManagedTarget(rule) {
+  if (!rule || typeof rule !== 'object' || String(rule.classification || '').trim().toLowerCase() !== 'other') return null;
+  const rawType = String(rule.targetType || '').trim().toLowerCase();
+  const value = rule.normalizedValue || rule.targetValue;
+  const targetType = rawType === 'host' ? legacyHostManagedType(value) : rawType;
+  return normalizeManagedTargetRecord({ ...rule, targetType }, {
+    sourceCollection: 'siteUsageClassificationRulesV1',
+    targetSource: 'siteUsageClassificationRulesV1',
+    classification: 'other',
+  });
+}
+
 function getConfigListValues(config = {}, keys = []) {
   const values = [];
   for (const key of keys) {
@@ -264,7 +276,7 @@ function getConfigListValues(config = {}, keys = []) {
   return values;
 }
 
-export function collectManagedTargets(config = {}, requests = []) {
+export function collectManagedTargets(config = {}, requests = [], { includeUsageClassificationRules = true } = {}) {
   const targets = [];
 
   const explicitTargets = Array.isArray(config.managedTargetsV1) ? config.managedTargetsV1 : [];
@@ -277,6 +289,14 @@ export function collectManagedTargets(config = {}, requests = []) {
   for (const rule of rules) {
     const target = legacyRuleToManagedTarget(rule);
     if (target) targets.push(target);
+  }
+
+  if (includeUsageClassificationRules) {
+    const usageRules = Array.isArray(config.siteUsageClassificationRulesV1) ? config.siteUsageClassificationRulesV1 : [];
+    for (const rule of usageRules) {
+      const target = usageClassificationRuleToManagedTarget(rule);
+      if (target?.classification === 'other') targets.push(target);
+    }
   }
 
   for (const group of SITE_ACCESS_CLASSIFICATION_GROUPS) {
@@ -463,7 +483,7 @@ function pickBestTarget(candidates) {
 export function validateManagedTargetsConfig(config = {}) {
   const conflicts = [];
   const seen = new Map();
-  const targets = collectManagedTargets(config, []);
+  const targets = collectManagedTargets(config, [], { includeUsageClassificationRules: false });
   for (const target of targets) {
     const key = `${target.namespace}:${target.targetType}:${target.targetType === 'domain' ? stripWwwAlias(target.normalizedValue) || target.normalizedValue : target.normalizedValue}`;
     const existing = seen.get(key) || [];
@@ -520,10 +540,10 @@ export function fallbackDomainAttribution(urlOrDomain = '') {
   };
 }
 
-export function resolveManagedTargetAttribution(config = {}, requests = [], urlOrDomain = '') {
+export function resolveManagedTargetAttribution(config = {}, requests = [], urlOrDomain = '', options = {}) {
   const context = parseManagedTargetContext(urlOrDomain);
   if (!context.domain) return fallbackDomainAttribution(urlOrDomain);
-  const targets = collectManagedTargets(config, requests);
+  const targets = collectManagedTargets(config, requests, options);
   const candidates = [];
   for (const target of targets) {
     const specificity = targetSpecificity(target, context);
