@@ -2,6 +2,7 @@
 
 import { initSignal } from './core/signal.js';
 import { initCompositePageObserver } from './infra/composite-page-observer.js';
+import { initSharedBrowserActivity } from './product/shared-browser-activity.js';
 import { dispatchTimingSignal, drainPendingModeBoundaries } from './core/timing-dispatcher.js';
 import { confirmForegroundPageCheckpoint, resolveUnknownDomainForSettlement } from './core/foreground-timing.js';
 import { closeMediaForTabLifecycle, handleMediaTabActivated, handleMediaTabReplaced, handleMediaWindowFocusChanged, handleMediaWindowStateChanged, runMediaCheckpoint } from './core/media-timing.js';
@@ -39,6 +40,7 @@ import { dispatchOptionalModuleAlarm, dispatchOptionalModuleMessage, getOptional
 
 registerStoragePressureHandler((options) => runV1StorageMaintenance(options));
 initCompositePageObserver();
+initSharedBrowserActivity();
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;

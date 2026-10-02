@@ -26,6 +26,62 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 浏览器执行由扩展负责，提醒呈现者可以是browser或native，两者不得混同。Service保存实例的执行目标source=browser和当时lease/activity；Native兜底窗口仅呈现及确认选择，不调用Windows closer结束Chrome。`stage/resolution`是状态不是许可：只有Service执行开启、shared、已收到可见确认并解决为end_rest/timeout_end、当前scope/策略/统计版本及活动仍匹配时，才在已验证浏览器连接响应返回可选`browserExecution`。许可包含原提醒六项身份、executionId、leaseId、activityId、targetSource=browser、effect及剩余maxAgeMs（1–5000）；不接受客户端指定目标进程或页面。end_rest只为request-normal-close，timeout_end只为force-close；继续、影子、未送达或撤回均无许可。
 
+#### 控件准备层实施与验收记录（默认关闭）
+2026-10-02 执行许可持久登记准备层：新增独立 IndexedDB `shared-browser-execution-attempts-v1`，仅显式启用准备层时打开，不在 bootstrap 运行；inspect 只读登记（首次打开创建独立数据库），claim 才登记尝试。唯一 executionId 在 strict readwrite 事务中先检查、再登记，事务提交后才返回成功；最多20条且逻辑记录总量不超过8KB，容量满、损坏、读取或提交失败均拒绝。记录仅含 executionId、leaseId、时间，不包含网页内容；不自动淘汰已登记 ID，不因断线或重启重新授予同一 ID。此存储不属于网页账本，不改变 storage.local 预算或落账。登记后再次检查当前许可和租约，失效仍保留登记并拒绝；执行效果始终关闭。专项只用隔离事务故障夹具验证，真实 IndexedDB／重启验收仍未通过，不新增浏览器运行。
+
+边界补充：8KB 是记录逻辑载荷上限，不是 IndexedDB 文件的物理大小保证。20条未确认登记满后停止接收新 claim，仅允许下述持久 ACK 证明的安全退休，不按时间清除 tombstone。普通与 split-incognito 存储分区不假定共享，隐身上下文拒绝此准备登记；启用跨上下文效果前需另行验证全局去重与持久性。登记后的故障只消耗该 ID，不可通过重新执行弥补。
+
+后续隔离验收只生成临时最小 MV3 测试扩展，复制登记模块而不加载正式 background 或任何家庭认证；通过 Chrome for Testing、真实扩展 Service Worker 和同一隔离 Profile 重启核对登记。事务失败以真实 IndexedDB abort 注入，许可过期使用明确隔离上下文；不会把这些夹具称为真实共享 Service 授权、计时或效果验收。未确认项满额保持拒绝；安全退休实现不替代真实持久性验收，不在测试中清库绕过。
+
+2026-10-02 真实持久性验收阻塞：首次隔离 agent-browser 启动命令失败；非破坏性 doctor 的本地环境／浏览器检查通过。第二次使用空配置及显式隔离 Profile，Chrome for Testing 返回 about:blank 成功，但 agent-browser 子命令超过60秒未结束（ETIMEDOUT），未取得 IndexedDB、扩展 SW 或浏览器重启结论。同一命令两次失败后停止，不创建第三份 Profile 重试；临时测试扩展和 Profile 留存，不清库，正式候选未改。新验收脚本未提交，不用夹具证据覆盖该缺项。替代入口建议：经批准后改用现有 Playwright persistent-context 直接驱动同一隔离 Chrome；保持相同临时扩展和 Profile，只复验本登记库，不用家庭 Profile、不新增关页权限。
+
+### 执行登记安全退休（默认关闭的准备层）
+
+后续受控验收改用 Playwright 直接 persistent-context，必须显式指定此前留存的隔离 fixture 根目录，不创建新 Profile。仅更新该最小测试扩展的登记／代次模块，复验真实 strict IDB 提交／abort、ACK 后退休、旧候选拒绝、SW 重建和同 Profile 浏览器重启。ACK 权威输入仍由测试夹具模拟，不能称为真实 Native Service 联调；仅关闭自己启动的隔离 context。不新增 debugger 权限、不触碰原候选或家庭 Chrome，不更改原账。PR CI 同时核查 workflow 触发、角色声明与合并冲突；无运行不视为成功。
+
+真实隔离持久性结果：Chrome for Testing `149.0.7827.55`，沿用原隔离 Profile。第一轮失败来自 Chrome 保留旧 unpacked SW 脚本，不是生产退休实现；只重载同一隔离测试扩展后通过。保留此前旧代码写入的一条无摘要登记，不清库；连续45笔新登记／模拟 ACK 退休、重复退休、旧候选及断流代次拒绝、实际 IDB 添加／删除 abort、SW boot 变化、浏览器重启后的丢 ACK tombstone、20条满额拒绝均通过。ACK 为夹具权威输入，Native Service 授权／ACK、隐身分区、真实关页及原账守恒仍未验收。忽略目录证据 `output/playwright/d114/execution-persistence.json` 绑定登记源码 SHA-256 `d50e8ba08bc173a5d7e5c52ddc072e34e5324724d5a05e07f2aa5b60d6cdcae7` 和代次模块 `fe0a64302eabf513ae9a1ff1c5550c571127893199c8ec3fd9a1f57dd12b7079`。脚本要求显式 `TOC_PERSISTENCE_FIXTURE_ROOT`／`TOC_PERSISTENCE_CHROME`，只允许此前留存的临时 fixture；命令为 `node tests/e2e/shared-browser-execution-persistence.js`。此前 CLI 失败记录仍保留，但该登记库／SW／浏览器重启的 Missing 已由此隔离验收补齐。
+
+PR #197 CI 只读核对：`app-runtime.yml` 对所有 PR opened/synchronize/reopened/edited 提供检查，push 则只覆盖 master；草稿并非排除条件。GitHub 返回 mergeable=false，三路只读比较确认 `docs/DESIGN.md` 一处冲突，故 pull_request 运行被阻断（GitHub 官方说明：https://docs.github.com/en/actions/how-tos/troubleshoot-workflows）。另发现 PR 缺少角色检查必需的 `Task-Role: extension-local`，已补元数据，未改 CI 文件、重试旧入口或自行合并主线。冲突保留为集成 blocker；无 run 不记为通过，不以本地浏览器证据替代 CI。
+
+2026-10-02 架构提供 Native `main@2436a8f` 的实际持久性依据：`AcknowledgeBrowserExecutionAsync` 在同一 SQLite 事务写入 ACK 与 `Target.Consumed=true`，等待 CommitAsync 后 Coordinator 才回成功；读取和授权均拒绝已消费目标。因此不新增 wire 字段。终端仅在现有严格 requestId、executionId、lease 及成功响应校验后生成内部不可伪造的退休凭据，绑定完整执行身份与 outcome。成功 ACK 推进本 SW 请求代次；所有旧请求、旧准备候选及旧代次 claim 被永久隔离后，strict IDB 事务才删除对应登记。断连同样推进代次，但不生成退休凭据。
+
+登记新增固定 SHA-256 身份摘要，不存网页内容；旧无摘要登记不自动退休。未知、失败、丢失或冲突 ACK 保留 tombstone；删除失败也保留且允许相同结果重新 ACK，不重新执行。容量仍为20条／8KB，不因墙钟或配置清库；已 ACK 项安全退休使长期连续尝试可超过20次。验证覆盖连续超过20次、丢 ACK 满额、迟到回复／旧候选、SW 重建、删除失败及重复 ACK；事务夹具不替代仍缺失的真实浏览器持久性验收。执行、计时、关页及候选目录均不改。
+
+实施证据：登记事务夹具连续45次成功退休；丢 ACK／满额拒绝、旧候选与排队事务的代次拒绝、SW 重建、删除失败、重复 ACK、身份冲突通过。Native 专项验证严格 ACK 才退休、重复 ACK 可恢复、无效回执与结果冲突不生成证明；执行准备层43项执行／28项生命周期／24项活动向量通过，typecheck 与扩展根目录检查通过。上文最初仅三字段且无退休的描述作为实施顺序保留，由本节身份摘要及安全退休规则取代；真实 IDB／浏览器重启仍为 Missing，未实施执行效果或修改原候选。此安全批排除未验收 Content/UI 草稿与浏览器脚本。
+
+20条满后永久拒绝不是长期交付；已确认项使用安全退休，未知项保持拒绝。退休属于独立桥传输／幂等设计，不以网页产品语义批准替代，也不实施自动清库。
+
+- 1.26 的 Service authorize 在原始 issuedMonotonicMs 后5秒到期，且要求 target 未 consumed、同 Service boot／lease／activity；消费方以原请求起点量剩余 maxAge，排队不能刷新期限。这里的5秒不是“本机 registeredAt 超过5秒便可删除”：登记仅保存墙钟时间，重启或调时不能由它证明 Service 永久撤销。
+- 实施使用请求代次隔离代替墙钟等待：严格 ACK 后旧请求／候选不可再进入 claim，才事务删除对应登记。取消、失败或过期不重做；ACK丢失时保留并重发相同结果，不伪造 completed。
+- SW／浏览器重启后旧单调时间不可比较。需要旧通道彻底失效、候选为空、全新协商和 Service 对该 ID 的持久终态证明；缺少任何条件保留 tombstone。配置或共享状态不同、activity 改变只证明当前不合格，不证明以后不能恢复；不能据此删除。断线、离线或墙钟变化也不构成回收依据。
+- wire 回执仍为 executionId＋duplicate；采用上文架构核验的实际 Native 持久事务保证，而不是仅凭 authorize 纯函数推断。终端保存完整九字段身份的摘要；Service 拒绝冲突 outcome，终端不会从普通 success、墙钟、配置变化或越来越大的容量推导退休许可。
+- 实施回收前固定回归：ACK前后迟到回复、ACK丢失、清理与claim并发、Service/SW重启、旧lease重现、墙钟回拨、同ID新许可冲突；全部证明退役ID不再执行，当前准备层继续关闭，不提前删除登记。
+
+1.26 无效果准备层：固定源 `7ceab64bbe1f5c5e997edbd872c705d03cd5fb56`，82747 字节验真包 SHA-256 `a53d765f239d2f04d7c172c109f49ea2ae0db73689cbcea6d588da81074722c5`。校验独立 `browserExecution`，严格绑定提醒 identity、lease、activity、版本及当前 Rest 页面；有效期从 Native 请求入口的单调时间计入排队和传输延迟。不从 resolution/stage 推断许可。默认关闭的准备调用者 `inspectSharedBrowserExecution(date, { enabled })` 经 Native 读取、实时活动复核、许可资格检查返回无效果结果，不调用网页关闭、模式切换、结算或存储写入；一次尝试登记通过显式注入接口准备，claim 前再次核对身份、时间及已有尝试，真实持久登记及效果调用仍待单项批准。`acknowledgeBrowserExecution` 使用既有串行 Port，发送及回执时复核当前 lease，严格确认 executionId/requestId；准备检查本身不发送 completed，不把 canceled 升级。43 项执行、28 项生命周期、24 项活动共同向量及 Native 回执、实例、未知字段专项通过，真实扩展／Service／效果执行未验收。
+
+### 网页结束执行待裁决边界（尚未实施）
+
+2026-10-02 API 只读核验：Chrome Tabs API 的 remove 仅接受 tabIds，没有 force/cancel 参数；当前 Chromium main 的 `TabsRemoveFunction::RemoveTab` 调用 WebContents::Close，并等 WebContentsDestroyed 才回响应，不能把请求发出当作关闭完成。其 delegate 经 CanCloseContents 与 CloseWebContents 进入标签关闭路径，不能仅靠 Promise<void> 分辨用户取消。CDP `PageHandler::Close` 明确派发 TAB_CLOSE beforeunload，可作为正常关闭候选；CDP 与 `chrome.debugger` 需要额外权限、挂接和真实取消/目标销毁验收，当前 manifest 无 debugger，不新增权限或实现。不能把 Target.closeTarget 的返回 true 当成页面已销毁或强制保证。证据为 Chromium main，不冒充当前安装 Chrome 的实测。来源：https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/extensions/api/tabs/tabs_api.cc 、https://raw.githubusercontent.com/chromium/chromium/main/content/browser/devtools/protocol/page_handler.cc 、https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc 。
+
+PO 待单项裁决：正常结束若用户取消，保留原页面和 ACTIVE，不先切 Study／停账；真正关闭后仅由现有 tabClosed 自然事件结算，不手工双重关 session。强制结束是否允许绕过 beforeunload、丢失页面未保存内容，以及是否批准 debugger 权限/执行技术路径，均未获批。本批默认关闭的登记准备层不实施上述行为，也不改变现行 Rest 结束路径。误关会少记，取消先停账会少记，关闭后漏事件会多记，手动与自然事件并行可能重复；必须通过隔离真实浏览器与原始账守恒后才能开启。
+
+- 旧路径：`product/rest-usage-reminder.js:endPrompt()` 调用 background 注入的 `endRestUsage()`，以 `REQUEST_MODE_CHANGE` 请求 Study；既有拦截器可用 `chrome.tabs.update()` 导航到完整 Reminder。这是模式／页面跳转，不是有取消结果的正常关页，不能冒充 `request-normal-close`。
+- 新许可读取位置：`infra/native-host-client.js:requestSharedReminderLifecycle()` 保留显式许可和请求发起单调时间；`product/shared-browser-execution-preparation.js` 绑定当前实例，仅返回准备结果。后续真实执行器尚未创建或接线，不能将纯校验称为实际结束执行。
+- 拟裁决行为：主动结束仅一次可取消正常关闭，取消保留页面且不升级为强制；Service 超时结束仅在独立有效的 `force-close` 许可下终止绑定页面。不能由弹层所在平台决定目标，不能调用 Windows 应用 closer 关闭 Chrome 或其他标签／进程。
+- API 未决：`chrome.tabs.remove(tabId)` 是关闭标签的候选 API，但官方签名没有 force 参数，也未给出本项目所需的 canceled／force 双分支保证（https://developer.chrome.com/docs/extensions/reference/api/tabs#method-remove）。必须先单独验证；在真实关闭／取消证据不足时，不实现或宣称这两个动作。不得擅增 debugger 权限、终止 Chrome 进程或以跳转 Reminder 代替关闭。
+- 原自然结算保持：`core/signal.js` 的 `onRemoved` 仍产生 `tabClosedSuccessor/tabClosedNoActiveTab`，既有 foreground/timing-dispatcher/session 链路负责结算；本批未改这些文件。未来关闭动作不得同时手工 closeCurrentSession 再依赖自然事件重复结算。
+- 少记风险：过期／串页许可导致错误关闭会提前终止真实使用；正常关闭取消后若错误停账会少记。多记风险：真实关页后事件丢失或残留 ACTIVE 会续记；人工停账与自然事件双结算会重叠。均须保持 P0，不能因各层秒数一致而消除。
+- 真实验收方案：独立 unpacked Profile 和测试页面，保存许可请求单调时间、活动／原提醒绑定及关闭前后原始分段；分别验证正常关闭、取消保留、超时强制、导航／标签切换／锁屏、断连、重复 executionId、迟到响应及存储登记失败。原始账只允许沿自然导航边界结束一次，不能少记取消后的有效用量；核对小时／日／设备账守恒。本次未获新的真实浏览器运行授权，未执行。
+
+
+活动观察器导航竞态补严：强媒体核验可能没有 `observedUrl`，因此采样时另用既有 `extractDomain()` 校验实际 tab URL 与会话域名一致；核验后的导航不能继续沿用旧域名的租约证据。仅影响默认关闭的活动上报，不修改网页会话或原始账。
+
+2026-10-02 活动租约适配：固定 contracts 源 `543d5062f238f2378a1ec637672727647030a926`（1.25.0，架构通报已集成于 `14f5896`）；验真包 78698 字节，SHA-256 `27115fe33c4ac585fda3468ec42c6835e41277b5f93ca77969210285ce64a403`。继续使用同仓 workspace 依赖，固定包仅用于验真，不替换依赖或根锁。仅能力 `shared-browser-activity-v1`、Service 签发的 `browserActivityLeaseId` 和显式本地开关均满足时启用。每 5 秒只读复核已有 ACTIVE、实际 Rest 桶及当前页面，包含借用 Rest；展示资格另查聚焦、未最小化和 Content 可见。读取最多等待 3 秒，超时报告 inactive，晚到读取不恢复活动。上报严格七字段 `schemaVersion/leaseId/activityId/sequence/status/quotaBucket/presentationEligible`，不含客户端时间或网页身份；既有 V3 通讯外壳不作为活动期限依据。自然页面切换随机新 activityId，lease 内 sequence 递增；观察事件先撤销旧活动，复核后续报。串行 Port 只有一个待发活动槽，较新事实替换旧事实，活动与既有消息轮换，不中断在途账快照；长请求下 Service 的 15 秒期限可以失效，不延长权限。断连清除 lease、停止定时器，旧结果不得恢复；重新协商后重新核实。停止或读取异常报 inactive，不调用开段、停段或结算；关闭失败的残留 ACTIVE 不是活动证明。默认关闭，不安装或发布，不修改契约源码。24 个活动契约向量、只读采样及控制器、Native 串行／ACK／重连专项、typecheck 和扩展根目录检查通过；真实扩展和 Service 联调仍待验收，Content 第三次浏览器复验保持暂停。1.26 网页结束执行许可尚未消费，不从 stage/resolution 推断正常或强制结束权限。
+
+2026-10-02 生命周期候选适配：固定验真 contracts 1.24.0，正式来源 d8764de7fc7972d212fef95b93db8ec1e4922d14，包 SHA-256 058437273406a52e53cd9161d3bd556acdccd9278c74312396457346b9dbd22c。保持同仓 workspace 来源，不手改共享源码或根锁。新增默认关闭的生命周期协调器与 Native 串行请求，要求 V3 和 shared-reminder-lifecycle-v1 能力。读取 Service 已签发的 browser presenter 状态；展示器返回实际可见后才发送严格 identity + delivery（无客户端时间），采用 Service canonical visibleAtMs；按钮只发送 identity + continue/end_rest。日周由同一轮 kinds 表达，不自行签发 ID；退回、失联、旧轮次及无效响应不产生关闭效果。超时仅查询 Service 状态，不发送 timeout，不使用浏览器墙钟授权结束。当前协调器通过注入展示接口做隔离验收，不接入现行 Rest、网页原账或执行开关；真实 Content 展示、Service 联调及 D-076 执行验收仍未完成。
+
+2026-10-02 终端后续适配：共享查询与提醒结果上报默认关闭，显式开启影子适配且本次 Native health/probe ACK 同时声明 V3 和对应能力后才可进入既有串行连接。按架构澄清 d7fed58，getSharedQuotaState 能力名为 shared-quota-state-read，payload 仅含 date；reportReminderResult 能力名为 shared-reminder-result-shadow，payload 直接为 SharedReminderResultV1，只记录不执行。断连清除协商结果，排队请求发送前再次核验；旧 Host 不接收探测性 sharedQuota 请求。提醒结果按同一 requestId 的成功 NativeHostResponse 确认；Native 只接收自己已登记签发的 reminderId 及已缓存 policy/state 版本，否则返回 SHARED_REMINDER_NOT_ISSUED。终端有界影子适配器最多保留20个待发送结果及20个确认指纹，显式重试采用递增冷却，当前只驻内存、不接入现行 Rest 动作或自动启用。传输失败保留原动作和 delivery，不得伪造 timeout_end；主动 end_rest 不转换为强制动作。正式契约包、Native 签发生命周期、接收幂等和候选实测待配合，不影响原网页账或现行配额。
+
 许可按同一executionId重送，不生成第二次动作。Service从原授权转换时刻起按自身单调钟最多保留5秒，boot/lease改变、已消费或过期不再发行；重查/重送不得重置期限。扩展从请求发起时以本地单调时钟计剩余maxAgeMs，包含传输耗时而非收到响应才重置期限，执行前重查当前连接lease/活动/配置/状态版本与Rest资格，并先持久登记该executionId的一次执行尝试。重放不得再次执行；断连、活动切换、版本变化、过期均取消许可，不能用缓存执行。扩展只结束本次绑定且当前产生Rest用量的网页，不结束整个Chrome、不影响后台页。主动结束允许保存/取消，canceled不自动升级；超时强制仅由Service既有60秒单调转换签发。`sharedQuota/acknowledgeBrowserExecution`严格返回同一许可身份及outcome=completed|canceled|failed|stale，不含URL/标题/Child/进程或客户端时间。Service核对发行记录及认证lease，逐项幂等记录，冲突拒绝；ACK不授予新执行权、不得重试已消费动作或改变原账。Native本地目标继续沿原执行器，与浏览器许可分开。
 
 本项增量契约1.26.0：仅补显式许可/回执及共同向量，1.25活动和1.24生命周期保持兼容；缺能力则只保留提醒/状态，不猜测网页执行权。两端各自实现，默认关闭；源代码验证、真实窗口/网页验收与正式启用分开，不改变网页落账语义。
@@ -73,6 +129,8 @@ canonical 产品知识组件接入主控制台前，DOM 查询与事件绑定须
 误设“其他”可能少扣分类配额；同一条记录不可同时占用旧分类桶与“其他”。本批准只改变未来 Segment 的 `targetClassificationAtTime` 与独立 `quotaBucketAtTime`，不改变网站访问路由、时间窗、配额执行、模式、频道、开始／停止、时长、上传确认或既有账。终端 V2 设备账仅在目标行接受 `quotaBucket=other`，运行 `mode` 仍只允许真实运行模式。云端原始账兼容由 `416c492` 提供，V2 设备账校验及网站分类审批路径已在云端分支实现，并由 Worker／终端聚焦测试验证；代码尚未合入 master 或生产发布。既有历史数据不自动重分类或改写。
 
 终端从云端档案配置读取独立的 `siteUsageClassificationRulesV1`。仅接受其中 `classification='other'` 且目标类型和值合法的规则，并仅作为新会话的 managed-target 归属输入；不得并入 `siteClassificationRulesV1`、访问路由或网站冲突校验。配置同步时，活动网页会话的有效边界计算忽略该独立规则，避免因它新增网页 Segment 边界；既有会话保留原分类和配额桶，下一次自然新会话才应用 `other`。规则中的 `other` 只映射至 Segment 的 `targetClassificationAtTime` 与 `quotaBucketAtTime`，runtime `mode`、`channel`、时长和结算事件不变。
+
+2026-10-02 PO 对上述未来分段归属变更作出 D-076 单项明确批准：仅新分段写入 `targetClassificationAtTime=other`、`quotaBucketAtTime=other`，不修改历史账或网页开始／停止及总秒数。误设“其他”会少扣分类配额的风险已在确认问题中明示；本项批准不授权其他记账语义变更或生产发布。当前源码路径已存在，本次不重复修改实现；`managed-targets` 47/47、`classification-effective-boundary` 12/12 通过，仅作为归属和边界专项证据，不替代真实浏览器及原始账守恒验收。
 
 ### 固定终端源码与开发候选边界（2026-09-30）
 
