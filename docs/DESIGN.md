@@ -14,7 +14,9 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 终端契约与实施边界
 
-终端以 `@timeonchrome/app-runtime-contracts` 1.22.0、架构提交 `c403176` 为固定契约；包 SHA-256 为 `1e3188147f56cf7b945a0acf2646bc24bc6b5bcbb8212ed01a7f2d75ffd7adaa`。该版本相对 1.21.0 只增加云端确认的 Chrome 产品身份、应用贡献的 `chromeIncludedInApplicationMs` 显示边际扣除字段及机器鉴权上传外壳；网页贡献不生成该字段，也不生成仅属于应用配额排除的 `chromeExcludedMs`。Native V3 的 `sharedQuota/getSharedQuotaState` 只返回 `SharedQuotaStateV1` 读模型；本阶段仅在显式调用时读取并校验版本、周期、策略 revision，不保存为执行状态，不替换网页配额。旧 Host 不支持时返回明确不可用，仍执行既有网页账和配额。`reportReminderResult` 虽列入契约，但提醒去重与结果消费尚无端到端实现，不发送结果或改变现有弹层。跨端执行保持关闭，原始网页账本不因本契约变化。
+2026-10-02 终端后续适配：共享查询与提醒结果上报默认关闭，显式开启影子适配且本次 Native health/probe ACK 同时声明 V3 和对应能力后才可进入既有串行连接。按架构澄清 d7fed58，getSharedQuotaState 能力名为 shared-quota-state-read，payload 仅含 date；reportReminderResult 能力名为 shared-reminder-result-shadow，payload 直接为 SharedReminderResultV1，只记录不执行。断连清除协商结果，排队请求发送前再次核验；旧 Host 不接收探测性 sharedQuota 请求。提醒结果按同一 requestId 的成功 NativeHostResponse 确认；Native 只接收自己已登记签发的 reminderId 及已缓存 policy/state 版本，否则返回 SHARED_REMINDER_NOT_ISSUED。终端有界影子适配器最多保留20个待发送结果及20个确认指纹，显式重试采用递增冷却，当前只驻内存、不接入现行 Rest 动作或自动启用。传输失败保留原动作和 delivery，不得伪造 timeout_end；主动 end_rest 不转换为强制动作。正式契约包、Native 签发生命周期、接收幂等和候选实测待配合，不影响原网页账或现行配额。
+
+终端以 `@timeonchrome/app-runtime-contracts` 1.22.0、架构提交 `c403176` 为固定契约；包 SHA-256 为 `1e3188147f56cf7b945a0acf2646bc24bc6b5bcbb8212ed01a7f2d75ffd7adaa`。该版本相对 1.21.0 只增加云端确认的 Chrome 产品身份、应用贡献的 `chromeIncludedInApplicationMs` 显示边际扣除字段及机器鉴权上传外壳；网页贡献不生成该字段，也不生成仅属于应用配额排除的 `chromeExcludedMs`。Native V3 的 `sharedQuota/getSharedQuotaState` 只返回 `SharedQuotaStateV1` 读模型；本阶段仅在显式调用时读取并校验版本、周期、策略 revision，不保存为执行状态，不替换网页配额。合法 partial 状态同样返回 ok=true，完整性及原因保留在 state 内；ok 不授予共享执行。架构拟补的 1.23.0 sharedQuotaStage=shadow 尚未正式发布，本批不升级契约。旧 Host 不支持时返回明确不可用，仍执行既有网页账和配额。`reportReminderResult` 已有默认关闭的校验与传输适配，但 Native 提醒签发及结果消费尚无端到端实现，现行 Rest 不自动发送结果或改变弹层。跨端执行保持关闭，原始网页账本不因本契约变化。
 
 网页来源影子贡献只能从现有已结算 `BrowserDailyUsageSnapshot` 转换：Study／Composite／Rest 秒数精确乘 1000；显式 `other` 保留在网页统计，但不进入三个扣费桶；未知桶、桶合计与 `activeSeconds` 不一致、来源不完整或整数溢出时标记贡献不完整。网页既有借用 Rest 已在 Rest 桶中，不再次计算。转换器不读取原始分段、不上传、不写缓存、不改变现有配额执行。
 
