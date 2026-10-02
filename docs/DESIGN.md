@@ -34,6 +34,10 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 夹具修正后，普通专项命令及带固定1.28包验真的专项命令均通过，diff和两文件职责检查通过。产品源码零变更，复用ca0bb56的typecheck／边界证据；Matched＝独立建立可信LKG再验证超时降级与迟到不写，Deviated／Extra＝无。真实API／Host缺项不变，TASK_BOARD草稿未纳入。
 
+2026-10-03 1.29完整policy身份准备层：交接确认PR #211及相关CI通过；只读验真最终包93321字节、SHA-256 `1338ab2b2621ed4c19b8208203fd77d8e648b4f20721529479fc73a947bbbaf4`。既有getSharedQuotaState响应仅在V3连接协商 `shared-access-policy-identity-read` 后接受可选sharedAccessPolicyIdentity；旧端或缺字段返回未核实，不能凭policyRevision相同补身份。严格校验schema／revision／effectiveAtMs／stage／64位小写摘要；独立默认关闭核对器对当前完整policy递归排序key、UTF-8无空白JSON求SHA-256，并比较全部身份字段。请求前后复核认证scope和完整policy摘要，迟到响应或绑定／策略变化不可通过；不存身份载荷、不另建配置或协议。匹配只证明内容相等，executionEnabled始终false，不证明来源真实性、替换scope授权或共享执行许可。聚焦测试使用固定1.29真实契约函数及隔离Native响应，Native尚未实现，mock不称真机验收；不改原账、候选、TASK_BOARD或部署。
+
+1.29准备层本地证据：`shared-policy-identity-reader.test.js` 携带最终固定包通过，校验真实契约canonical／SHA生成、同revision异内容／阶段／生效时间、错摘要、缺字段、单在途及身份换代／迟到；`local-guardian.test.js` 与 `shared-quota-state.test.js`、typecheck、extension-root、app-runtime-boundaries通过。Native专项首轮因夹具刷新心跳被原去重跳过，改为测试显式force刷新后通过，生产去重规则未放宽。Matched＝能力协商／严格完整身份／默认关闭／响应后身份复核；Deviated／Extra＝无。Missing＝Native实现与真实Host／设备联合验收；无生产调用者、启用、安装或部署，不把mock及policy匹配称为来源授权。固定1.28vendor、分页器及原账代码无变更。
+
 ### D-114 共享访问终端契约边界（2026-10-02）
 
 完整配置一致性契约：新增可选`sharedAccessPolicyIdentity`（schemaVersion/revision/effectiveAtMs/stage/policyHash），配合`shared-access-policy-identity-read`能力，随既有getSharedQuotaState只读响应返回。内容摘要是完整已验证UnifiedChildAccessPolicyV1的UTF-8规范JSON的SHA-256：递归对象key按ASCII序排列、数组保留顺序、无空白、整数/布尔/null采用JSON标准表达；不包含身份、token或路径，摘要只表明配置相同，不授予来源替换或执行权限。先按严格完整配置校验后计算；两端必须核对完整摘要、revision、生效时间和stage，而非只比revision。旧Service没有字段/能力时报告配置身份尚未核实并保持既有路径，不能默认一致。本批只固化1.29函数、类型/schema和共同回归，消费者由所属任务接入；Native原内部缓存hash不是跨端规范摘要，禁止直接冒用。
