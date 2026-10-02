@@ -43,7 +43,7 @@
     const date=ms=>new Date(ms+8*3600000).toISOString().slice(0,10);
     const params=new URLSearchParams({childId:selected,from:date(period.from),to:date(period.to-1),...Object.fromEntries(Object.entries(query).filter(([,value])=>value!==''&&value!==undefined).map(([key,value])=>[key,String(value)]))});
     if(mock&&window.__readComputerUsageMock)return window.__readComputerUsageMock(params);
-    if(mock){return window.__computerUsageMock||{schemaVersion:1,revision:'mock-only',fromDate:date(period.from),toDate:date(period.to-1),complete:false,reasons:['DEVICE_MAPPING_INCOMPLETE'],totals:{computerMs:null,webMs:600000,applicationMs:900000,overlapMs:null},categoriesMs:{study:null,composite:null},devices:[],products:[],timeline:[],sourceVersions:[],nextCursor:null};}
+    if(mock){return window.__computerUsageMock||{schemaVersion:1,revision:'mock-only',fromDate:date(period.from),toDate:date(period.to-1),complete:false,reasons:['APPLICATION_SOURCE_UNAVAILABLE'],totals:{computerMs:null,webMs:600000,applicationMs:null,overlapMs:null},categoriesMs:{study:null,composite:null},devices:[],products:[],timeline:[],sourceVersions:[],nextCursor:null};}
     const result=await runtime(`/v2/module/computer-usage?${params}`);
     if(selected!==state.childId)throw new Error('SELECTION_CHANGED');return result;
   },null,()=>{const period=range();return state.childId+'|'+period.from+'|'+period.to;});

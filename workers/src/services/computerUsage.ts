@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { mergeComputerUsage, withComputerUsageRevision, computerUsageSourceGroupKey,
+import { mergeComputerUsage, withComputerUsageRevision,
   computerUsageReadPage, type ComputerUsageResult,
   type ComputerApplicationSource, type ComputerWebSource } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import type { Env } from '../db/middleware';
@@ -114,7 +114,7 @@ export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:str
   return sources;
 }
 
-export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly=false) {
+export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,_computer?:string,summaryOnly=false) {
   validateComputerUsageRange(from,to);
   const owned=await env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(childId,accountId).first();
   if(!owned)throw new Error('CHILD_NOT_FOUND');
@@ -128,11 +128,13 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
       env.RUNTIME_COMPUTER_USAGE?readRuntime<string>(env,'applicationEvidenceRevision',accountId,childId,from,to):Promise.resolve(undefined),
     ]);
     if((heads.results?.length??0)>700)throw new Error('COMPUTER_USAGE_SOURCE_LIMIT');
-    return sha(JSON.stringify({model:'computer-projection-v4',heads:heads.results,evidence,corrections,application}));
+    return sha(JSON.stringify({model:'computer-projection-v5',heads:heads.results,evidence,corrections,application}));
   };
   let version:string|null=null;
-  const scopeKey=await sha(JSON.stringify([accountId,childId,from,to,computer??null]));
-  const cacheKey=(kind:'summary'|'details')=>`computer-projection-v4:${scopeKey}:${version}:${kind}`;
+  // Keep the former optional machine selector for wire compatibility, but this
+  // projection is now always the whole Child aggregate.
+  const scopeKey=await sha(JSON.stringify([accountId,childId,from,to]));
+  const cacheKey=(kind:'summary'|'details')=>`computer-projection-v5:${scopeKey}:${version}:${kind}`;
   try {
     version=await fingerprint();
     const cached=await env.CONFIG_CACHE.get<ComputerUsageResult>(cacheKey(summaryOnly?'summary':'details'),'json');
@@ -161,9 +163,7 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
   if(version){try{stable=await fingerprint()===version;if(!stable)for(const source of [...web,...applications]){
     source.complete=false;source.statisticsComplete=false;source.reasons.push('SOURCE_VERSION_CHANGED');
   }}catch{ /* No cache publication when freshness cannot be verified. */ }}
-  const select=(source:ComputerWebSource|ComputerApplicationSource,kind:'web'|'application')=>!computer||computerUsageSourceGroupKey(source,kind)===computer;
-  if(computer&&!web.some(s=>select(s,'web'))&&!applications.some(s=>select(s,'application')))throw new Error('COMPUTER_NOT_FOUND');
-  const result=await withComputerUsageRevision(mergeComputerUsage({fromDate:from,toDate:to,web:web.filter(s=>select(s,'web')),applications:applications.filter(s=>select(s,'application'))}));
+  const result=await withComputerUsageRevision(mergeComputerUsage({fromDate:from,toDate:to,web,applications}));
   const summary=computerUsageReadPage(result,'summary');
   // Cache generated views, not sources that must be merged again on every read.
   // A summary hit never transfers/parses the potentially large detail generation.
