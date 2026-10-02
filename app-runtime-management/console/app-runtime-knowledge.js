@@ -138,9 +138,9 @@
     const $=selector=>root.querySelector(selector), all=selector=>[...root.querySelectorAll(selector)];
     let disposed=false;
     const contextKey=()=>JSON.stringify([getContext().childId,getContext().contextRevision??null]);
-    const mountedContext=contextKey();
-    const active=()=>!disposed&&contextKey()===mountedContext;
-    const lease=()=>{if(!active())throw stale();return mountedContext;};
+    let mountedContext;
+    const active=()=>!disposed&&(mountedContext===undefined||contextKey()===mountedContext);
+    const lease=()=>{if(!active())throw stale();if(mountedContext===undefined)mountedContext=contextKey();return mountedContext;};
     const stale=()=>Object.assign(new Error('组件上下文已变化，请重新读取'),{code:'COMPONENT_CONTEXT_CHANGED'});
     const assertCurrent=key=>{if(disposed||key!==contextKey())throw stale();};
     const request=async(...args)=>{const key=lease();let value;try{value=await send(...args);}catch(error){assertCurrent(key);throw error;}assertCurrent(key);return value;};

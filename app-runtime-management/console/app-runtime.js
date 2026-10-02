@@ -625,7 +625,7 @@
   document.addEventListener('change', async (event) => { const control = event.target; try {
     if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
     if (['directory-scope','management-platform'].includes(control.id)) { renderAppDirectory(); return; }
-    if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { usageRequestVersion++;computerReader.invalidate();independentReader.invalidate();state.usage={};renderUsage();state.childId = selected.id; state.managementLoaded = false; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
+    if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { usageRequestVersion++;computerReader.invalidate();independentReader.invalidate();state.usage={};renderUsage();state.childId = selected.id; mountKnowledgeManager(); state.managementLoaded = false; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
     else if (control.id === 'machine-filter') { renderFilters(); if (!mock) await loadUsage(); renderUsage(); }
     else if (['user-filter','platform-filter'].includes(control.id)) { if (!mock) await loadUsage(); renderUsage(); }
     else if (control.id === 'media-toggle') renderUsage();
@@ -643,13 +643,18 @@
     AppRuntimeSession.clear(sessionStorage);
     location.assign('https://timeonchrome-console.pages.dev/');
   });
-  const knowledgeManager = AppRuntimeKnowledge.mount({request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onSaved:async knowledge=>{
+  let knowledgeManager;
+  function mountKnowledgeManager(){
+    knowledgeManager?.dispose();
+    knowledgeManager = AppRuntimeKnowledge.mount({request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onSaved:async knowledge=>{
     if(!mock){await load();return;}
     state.mockKnowledge=knowledge;
     const binding=knowledge.bindings.find(item=>item.childId===state.childId);
     for(const item of state.catalog.items){const evidence=state.mockInventory.find(observation=>observation.evidence.runtimeIdentity===item.runtimeIdentity)?.evidence;if(!evidence)continue;const products=knowledge.products.filter(product=>product.selectors.some(selector=>selector.platform===evidence.platform&&selector.match.conditions.every(condition=>evidence.values[condition.field]===condition.value)));if(products.length===1){const explicit=binding?.products.find(entry=>entry.productId===products[0].id);if(explicit){item.productId=products[0].id;item.displayName=products[0].name;item.classification=explicit.classification;item.classificationReason='孩子产品明确分类';item.installationState='installed';}}}
     state.machines.forEach(machine=>{machine.desiredPolicyVersion+=1;machine.policyState=machine.status==='online'?'pending':'offline';});renderAll();
-  }});
+    }});
+  }
+  mountKnowledgeManager();
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === state.view));
   $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === state.view));
   [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[state.view];

@@ -56,7 +56,7 @@ console.log('PASS: knowledge UI scope, variants, merge guards and selected impor
 // listening to its sibling pages or applying responses to another Child.
 async function componentLifecycleTests(){
   const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return{promise,resolve,reject};};
-  function fixture(){
+  function fixture(initialChild='child-a'){
     const listeners=new Map(),queries=[],filtered=[{textContent:'Excel',hidden:false},{textContent:'Other',hidden:false}];
     let closed=0,created=0;
     const root={ownerDocument:{createElement(){created++;throw new Error('Unexpected render');}},
@@ -64,7 +64,7 @@ async function componentLifecycleTests(){
       querySelectorAll(selector){queries.push(selector);return selector==='dialog[open]'?[{close(){closed++;}}]:selector.includes('.knowledge-child:checked')?[{value:'0'}]:filtered;},
       addEventListener(type,handler){listeners.set(type,handler);},
       removeEventListener(type,handler){assert.equal(listeners.get(type),handler);listeners.delete(type);}};
-    let context={childId:'child-a',contextRevision:1,children:[{id:'child-a',name:'A'},{id:'child-b',name:'B'}]};
+    let context={childId:initialChild,contextRevision:1,children:[{id:'child-a',name:'A'},{id:'child-b',name:'B'}]};
     const calls=[],errors=[],saved=[];
     const requests=[];
     const component=K.mount({root,getContext:()=>context,mock:false,
@@ -84,6 +84,11 @@ async function componentLifecycleTests(){
   await assert.rejects(late.component.classify('excel','study'),{code:'COMPONENT_CONTEXT_CHANGED'});
   assert.equal(late.calls.length,2,'old component must not write under the new Child');
   late.component.dispose();late.component.dispose();assert.equal(late.listeners.size,0);assert.equal(late.closed,1);
+
+  const login=fixture(null);login.setContext({childId:'child-a'});
+  const firstOpen=login.component.open('product');assert.equal(login.calls.length,2,'login before first use must not invalidate an unused component');
+  login.component.dispose();login.requests[0].resolve(K.empty());login.requests[1].resolve({observations:[]});
+  await assert.rejects(firstOpen,{code:'COMPONENT_CONTEXT_CHANGED'});
 
   const removed=fixture(),read=removed.component.open('rule');removed.component.dispose();
   removed.requests[0].resolve(K.empty());removed.requests[1].resolve({observations:[]});

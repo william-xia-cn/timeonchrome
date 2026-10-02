@@ -6,6 +6,8 @@
 
 本批证据：既有产品知识测试及新增 root/Child/revision/dispose/迟到读取/写后切换/迟到文件读取/独立 document 兼容固定回归通过；JS 语法、standard-cloud 精确 diff 范围检查、git diff --check 通过。无 HTML/CSS 或布局修改，本批不以假 DOM 测试冒称主控制台实际展示通过。Matched=组件隔离准备；Deviated/Extra=无；全目标 Missing=完整主控制台挂载、浏览器呈现签发证据、两端实际提醒与共享执行及生产验收，持续实施。
 
+调用顺序复核：独立页在登录前 mount、登录后才设置 Child，初始固定空 Child 会错误拒绝首次操作；改为首次租约绑定，Child 切换时销毁并重建知识组件，并补空 Child 初始化回归。此为本批兼容要求纠错，不放宽迟到响应保护，不改原账或产品分类。
+
 主控制台整合接入批：先新增 Guardian `/app-runtime/manage/v1/*` 受限管理网关，复用现有家长鉴权、家庭子用户投影、短期模块 JWT 和 APP_RUNTIME_SERVICE；token 仅留 Worker 内，不交给浏览器，不新增身份系统或公共 Runtime CORS。固定资源／方法白名单，禁止机器上传、身份生命周期和任意 URL 代理；请求与响应流式转发，保留 ETag／If-Match，错误不暴露内部凭据。随后主控制台复用 canonical 管理组件接入，不能用 iframe 或恢复旧静态子站副本代替整合。本批测试等级为鉴权／管理接口，最小验证为网关授权、路径／方法拒绝、条件写入、上游失败隔离、相关 Guardian 集成和 typecheck／diff；排除平台、安装器和网页账本测试。没有部署、migration、安装或共享执行启用。
 
 本批本地证据：网关9/9聚焦回归、既有 Runtime 集成、共享配置 owner 路由、Guardian typecheck 与 diff 通过；Wrangler4.127.1 dry-run 已输出构建与既有 binding 清单，未部署。JWT测试实际执行现有HMAC家长鉴权和ES256内部签发／验签，缺失、过期、伪造认证均不访问DB/Runtime；覆盖限定路径、重复查询拒绝、流式对象写入、条件版本冲突、上游失败及重定向/私密响应头过滤。初次测试失败因VM二进制对象跨realm的instanceof不一致，仅补测试沙箱原生ArrayBuffer/Uint8Array后通过，运行时鉴权未放宽。最新types下载未完成，使用已安装4.20260702.1核对Fetcher签名并typecheck；未改依赖或绑定。Matched=本批通道与签发器语义补齐；Deviated/Extra=无；全目标Missing=主控制台组件接入、实际提醒链路、真实设备及分阶段上线，不能称完整交付。CI仅在既有Guardian集成job加这一个回归命令。
