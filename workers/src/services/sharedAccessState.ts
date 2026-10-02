@@ -15,6 +15,26 @@ const unavailableWeb=(reasonCode:string)=>({contributions:[] as SharedQuotaContr
 const dayMs=86_400_000;
 const sha=async(value:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value))),byte=>byte.toString(16).padStart(2,'0')).join('');
 
+/** Only call with server-authenticated owner/device identity, never a request-selected device. */
+export const sharedWebSourceKey = async(accountId:string,deviceId:string) => `web:${await sha(`${accountId}\n${deviceId}`)}`;
+
+export function pageSharedQuotaExecutionBasis(basis:SharedQuotaExecutionBasisV1,ownWebSourceKey:string,
+  offset:number,limit:number,expectedRevision:string|null) {
+  if(!Number.isSafeInteger(offset)||offset<0||offset>1400||!Number.isSafeInteger(limit)||limit<1||limit>100
+    ||(offset>0&&!expectedRevision))throw new Error('INVALID_EXECUTION_CURSOR');
+  if(expectedRevision!==null&&expectedRevision!==basis.revision)throw new Error('EXECUTION_BASIS_VERSION_CHANGED');
+  const items=basis.days.flatMap(day=>day.sources);
+  if(offset>items.length)throw new Error('INVALID_EXECUTION_CURSOR');
+  const authorizedScopes=basis.days.flatMap(day=>day.sources.filter(item=>item.contribution.source==='web'
+    &&item.contribution.sourceKey===ownWebSourceKey).map(item=>({source:'web' as const,sourceKey:ownWebSourceKey,date:day.date})));
+  const next=offset+Math.min(limit,items.length-offset);
+  return {schemaVersion:1 as const,basisRevision:basis.revision,policyRevision:basis.policyRevision,
+    fromDate:basis.fromDate,toDate:basis.toDate,
+    days:basis.days.map(day=>({date:day.date,reasonCodes:day.reasonCodes,sourceCount:day.sources.length})),
+    authorizedScopes,page:{offset,limit,total:items.length,nextOffset:next<items.length?next:null,
+      items:items.slice(offset,next)}};
+}
+
 /** Sums only already-settled active rows. `other` and blocked never consume a shared bucket. */
 export function quotaBucketsFromRows(rows:readonly Record<string,unknown>[],bucketField:'quotaBucket'|'quota_bucket',durationField:'durationSeconds'|'duration_seconds'):BucketTotals {
   const totals=emptyBuckets();
@@ -54,7 +74,7 @@ async function readWebContributions(env:SharedAccessStateEnv,accountId:string,ch
   const reasons=new Set<string>();
   const visibleBuckets:BucketTotals=emptyBuckets();
   for(const device of devices.results) {
-    const sourceKey=`web:${await sha(`${accountId}\n${device.id}`)}`;
+    const sourceKey=await sharedWebSourceKey(accountId,device.id);
     const head=await env.DB.prepare(`SELECT manifest_id FROM device_account_heads_v2 WHERE profile_id=? AND device_id=? AND date=?`)
       .bind(childId,device.id,date).first<{manifest_id:string}>();
     if(head) {

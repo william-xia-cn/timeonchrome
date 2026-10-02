@@ -5,6 +5,7 @@ import { compactUsageAccountingCorrectionDeltas, getBeijingWeekForTimestamp, lis
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
 import { readSharedAccessPolicyForChild } from './profiles';
+import { pageSharedQuotaExecutionBasis, readSharedQuotaExecutionBasis, sharedWebSourceKey, type SharedAccessStateEnv } from '../services/sharedAccessState';
 
 type DeviceIdentityLinkBody = {
   chromeIdentityId?: string;
@@ -371,6 +372,48 @@ export const deviceRouter = {
         return response;
       } catch {
         return json({ error: 'INTERVAL_EVIDENCE_UNAVAILABLE' }, 503);
+      }
+    }
+
+    // Bounded read-only execution basis. Device identity is the only source of Child and own web scope.
+    if (request.method === 'GET' && path === '/device/shared-quota-execution/v1') {
+      try {
+        const identity = await verifyDeviceTokenFromRequest(request, env);
+        if (!identity) return json({ code: 'INVALID_DEVICE_TOKEN' }, 401);
+        if (identity.unbound) return deviceUnboundResponse(identity.deviceId);
+        if (!identity.deviceId) return json({ code: 'SHARED_SOURCE_BINDING_UNAVAILABLE' }, 403);
+        const params = url.searchParams;
+        if ([...params.keys()].some(key => !['date', 'offset', 'limit', 'revision'].includes(key) || params.getAll(key).length !== 1))
+          return json({ code: 'INVALID_EXECUTION_CURSOR' }, 400);
+        const date = params.get('date') || '';
+        const dateMs = Date.parse(`${date}T00:00:00Z`);
+        const offsetRaw = params.get('offset') ?? '0', limitRaw = params.get('limit') ?? '50';
+        const offset = Number(offsetRaw), limit = Number(limitRaw), revision = params.get('revision');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(dateMs) || new Date(dateMs).toISOString().slice(0,10) !== date
+          || !/^(0|[1-9][0-9]*)$/.test(offsetRaw) || !/^[1-9][0-9]*$/.test(limitRaw)
+          || !Number.isSafeInteger(offset) || offset > 1400 || !Number.isSafeInteger(limit) || limit > 100
+          || (offset > 0 && revision === null) || (revision !== null && !/^[a-f0-9]{64}$/.test(revision)))
+          return json({ code: 'INVALID_EXECUTION_CURSOR' }, 400);
+        const owner = await env.DB.prepare('SELECT account_id FROM profiles WHERE id = ?')
+          .bind(identity.profileId).first<{ account_id: string }>();
+        if (!owner) return json({ code: 'CHILD_NOT_FOUND' }, 404);
+        const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId);
+        if (!policy) return json({ code: 'CHILD_NOT_FOUND' }, 404);
+        const basis = await readSharedQuotaExecutionBasis(env as SharedAccessStateEnv, owner.account_id, identity.profileId, date, policy);
+        const page = pageSharedQuotaExecutionBasis(basis, await sharedWebSourceKey(owner.account_id, identity.deviceId), offset, limit, revision);
+        const current = await verifyDeviceTokenFromRequest(request, env);
+        if (!current || current.unbound || current.profileId !== identity.profileId || current.deviceId !== identity.deviceId)
+          return json({ code: 'SHARED_ACCESS_BINDING_CHANGED' }, 409);
+        const currentPolicy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId);
+        if (!currentPolicy || currentPolicy.revision !== policy.revision || currentPolicy.stage !== policy.stage)
+          return json({ code: 'EXECUTION_BASIS_VERSION_CHANGED' }, 409);
+        const response = json({ profileId: identity.profileId, ...page });
+        response.headers.set('Cache-Control', 'no-store');
+        return response;
+      } catch (error) {
+        if (error instanceof Error && error.message === 'INVALID_EXECUTION_CURSOR') return json({ code: error.message }, 400);
+        if (error instanceof Error && error.message === 'EXECUTION_BASIS_VERSION_CHANGED') return json({ code: error.message }, 409);
+        return json({ code: 'SHARED_EXECUTION_BASIS_UNAVAILABLE' }, 503);
       }
     }
 

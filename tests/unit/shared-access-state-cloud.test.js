@@ -65,6 +65,20 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
  assert.equal(appBasis.contribution.revision,`raw-app-${date}`,'raw contribution revision is not overwritten by publication revision');
  assert.equal(basis.days[0].sources.find(entry=>entry.contribution.source==='web').revisionOrdinal,2);
  assert.equal((await service.readSharedQuotaExecutionBasis(env,'account','child',date,policy)).revision,basis.revision);
+ const ownWeb=basis.days[0].sources.find(entry=>entry.contribution.source==='web').contribution.sourceKey;
+ const page1=service.pageSharedQuotaExecutionBasis(basis,ownWeb,0,3,null);
+ assert.equal(page1.page.total,10);assert.equal(page1.page.nextOffset,3);assert.equal(page1.page.items.length,3);
+ assert.equal(page1.days.length,5);assert.equal(page1.authorizedScopes.length,5);
+ assert.ok(page1.authorizedScopes.every(scope=>scope.source==='web'&&scope.sourceKey===ownWeb));
+ assert.equal(service.pageSharedQuotaExecutionBasis(basis,'not-own',0,100,null).authorizedScopes.length,0);
+ const collected=[...page1.page.items];let cursor=page1.page.nextOffset;
+ while(cursor!==null){const next=service.pageSharedQuotaExecutionBasis(basis,ownWeb,cursor,3,basis.revision);
+   collected.push(...next.page.items);cursor=next.page.nextOffset;}
+ assert.equal(collected.length,10);assert.equal(JSON.stringify(collected),JSON.stringify(basis.days.flatMap(day=>day.sources)));
+ assert.throws(()=>service.pageSharedQuotaExecutionBasis(basis,ownWeb,1,3,null),/INVALID_EXECUTION_CURSOR/);
+ assert.throws(()=>service.pageSharedQuotaExecutionBasis(basis,ownWeb,1,3,'changed'),/EXECUTION_BASIS_VERSION_CHANGED/);
+ assert.throws(()=>service.pageSharedQuotaExecutionBasis(basis,ownWeb,11,3,basis.revision),/INVALID_EXECUTION_CURSOR/);
+ assert.throws(()=>service.pageSharedQuotaExecutionBasis(basis,ownWeb,0,101,null),/INVALID_EXECUTION_CURSOR/);
  assert.notEqual((await service.readSharedQuotaExecutionBasis(env,'another-account','child',date,policy)).revision,basis.revision);
  assert.equal(JSON.stringify(basis).includes('device_name'),false);
  assert.ok(basis.days.every(day=>day.sources.every(entry=>entry.contribution.sourceKey!=='browser')),
