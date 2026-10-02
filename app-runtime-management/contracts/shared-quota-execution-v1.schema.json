@@ -34,6 +34,29 @@
         "days":{"type":"array","minItems":1,"maxItems":7,"items":{"$ref":"#/$defs/day"}}
       }
     },
+    "authenticatedScope": {
+      "type":"object","additionalProperties":false,"required":["source","sourceKey","date"],
+      "properties":{"source":{"enum":["web","application"]},"sourceKey":{"$ref":"#/$defs/revision"},"date":{"$ref":"#/$defs/date"}}
+    },
+    "transportPage": {
+      "type":"object","additionalProperties":false,
+      "required":["schemaVersion","profileId","basisRevision","policyRevision","fromDate","toDate","days","authorizedScopes","page"],
+      "properties": {
+        "schemaVersion":{"const":1},"profileId":{"$ref":"#/$defs/revision"},
+        "basisRevision":{"type":"string","pattern":"^[a-f0-9]{64}$"},"policyRevision":{"$ref":"#/$defs/revision"},
+        "fromDate":{"$ref":"#/$defs/date"},"toDate":{"$ref":"#/$defs/date"},
+        "days":{"type":"array","minItems":1,"maxItems":7,"items":{
+          "type":"object","additionalProperties":false,"required":["date","reasonCodes","sourceCount"],
+          "properties":{"date":{"$ref":"#/$defs/date"},"reasonCodes":{"$ref":"#/$defs/reasons"},"sourceCount":{"type":"integer","minimum":0,"maximum":200}}
+        }},
+        "authorizedScopes":{"type":"array","maxItems":14,"items":{"$ref":"#/$defs/authenticatedScope"}},
+        "page":{"type":"object","additionalProperties":false,"required":["offset","limit","total","nextOffset","items"],
+          "properties":{"offset":{"type":"integer","minimum":0,"maximum":1400},"limit":{"type":"integer","minimum":1,"maximum":100},
+            "total":{"type":"integer","minimum":0,"maximum":1400},"nextOffset":{"type":["integer","null"],"minimum":0,"maximum":1400},
+            "items":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/source"}}}
+        }
+      }
+    },
     "replacement": {
       "type":"object","additionalProperties":false,
       "required":["basisRevision","expectedPublicationRevision","revisionOrdinal","contribution"],

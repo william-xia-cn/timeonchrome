@@ -21,6 +21,19 @@ export interface AuthenticatedSharedQuotaScope {
   sourceKey: string;
   date: string;
 }
+/** Authenticated device response. These fields do not authenticate a forwarded Host payload. */
+export interface SharedQuotaExecutionPageV1 {
+  schemaVersion: 1;
+  profileId: string;
+  basisRevision: string;
+  policyRevision: string;
+  fromDate: string;
+  toDate: string;
+  days: readonly { date: string; reasonCodes: readonly string[]; sourceCount: number }[];
+  authorizedScopes: readonly AuthenticatedSharedQuotaScope[];
+  page: { offset: number; limit: number; total: number; nextOffset: number | null;
+    items: readonly SharedQuotaExecutionSourceV1[] };
+}
 export interface SharedQuotaSourceReplacementV1 {
   basisRevision: string;
   expectedPublicationRevision: string;
@@ -79,6 +92,64 @@ function validateContribution(value: unknown, policyRevision: string, date: stri
 }
 const canonical = (value: unknown): string => JSON.stringify(value, (_name, item) => record(item)
   ? Object.fromEntries(Object.keys(item).sort().map(name => [name, item[name]])) : item);
+
+/** Full transport validation only. Caller must authenticate the connection and capture Child scope. */
+export function assembleSharedQuotaExecutionPages(policy: UnifiedChildAccessPolicyV1,
+  expectedProfileId: string, pages: readonly SharedQuotaExecutionPageV1[]): {
+    basis: SharedQuotaExecutionBasisV1; authorizedScopes: readonly AuthenticatedSharedQuotaScope[];
+  } {
+  if (!revision(expectedProfileId) || !Array.isArray(pages) || pages.length < 1 || pages.length > 1400)
+    throw new Error('INVALID_EXECUTION_PAGES');
+  let signature: string | null = null, offset = 0, total = 0;
+  const entries: SharedQuotaExecutionSourceV1[] = [];
+  for (let index = 0; index < pages.length; index++) {
+    const value = pages[index];
+    if (!exact(value, ['schemaVersion','profileId','basisRevision','policyRevision','fromDate','toDate','days','authorizedScopes','page'])
+      || value.schemaVersion !== 1 || value.profileId !== expectedProfileId
+      || typeof value.basisRevision !== 'string' || !/^[a-f0-9]{64}$/.test(value.basisRevision)
+      || value.policyRevision !== policy.revision || !Array.isArray(value.days) || value.days.length < 1 || value.days.length > 7
+      || !Array.isArray(value.authorizedScopes) || value.authorizedScopes.length > 14
+      || !exact(value.page, ['offset','limit','total','nextOffset','items'])
+      || !ms(value.page.offset) || value.page.offset !== offset || !ms(value.page.total) || value.page.total > 1400
+      || !ms(value.page.limit) || value.page.limit < 1 || value.page.limit > 100 || !Array.isArray(value.page.items))
+      throw new Error('INVALID_EXECUTION_PAGE');
+    const metadata = canonical({basisRevision:value.basisRevision,policyRevision:value.policyRevision,
+      fromDate:value.fromDate,toDate:value.toDate,days:value.days,authorizedScopes:value.authorizedScopes,
+      total:value.page.total,limit:value.page.limit});
+    if (signature !== null && signature !== metadata) throw new Error('EXECUTION_PAGE_CONTEXT_CHANGED');
+    signature = metadata; total = value.page.total;
+    const expectedCount = Math.min(value.page.limit, total - offset);
+    if (expectedCount < 0 || value.page.items.length !== expectedCount
+      || (expectedCount === 0 && (index !== 0 || total !== 0 || pages.length !== 1)))
+      throw new Error('INVALID_EXECUTION_PAGE_COUNT');
+    offset += expectedCount;
+    if (value.page.nextOffset !== (offset < total ? offset : null)
+      || (value.page.nextOffset === null) !== (index === pages.length - 1))
+      throw new Error('INCOMPLETE_EXECUTION_PAGES');
+    entries.push(...value.page.items);
+  }
+  const first: SharedQuotaExecutionPageV1 = pages[0], from = dateMs(first.fromDate), to = dateMs(first.toDate);
+  const dayCount = (to - from) / 86_400_000 + 1;
+  if (new Date(from).getUTCDay() !== 1 || !Number.isInteger(dayCount) || dayCount < 1 || dayCount > 7
+    || first.days.length !== dayCount || entries.length !== total) throw new Error('INVALID_EXECUTION_PERIOD');
+  let cursor = 0;
+  const days = first.days.map((day, index) => {
+    const date = new Date(from + index * 86_400_000).toISOString().slice(0,10);
+    if (!exact(day, ['date','reasonCodes','sourceCount']) || day.date !== date || !reasons(day.reasonCodes)
+      || !ms(day.sourceCount) || day.sourceCount > 200) throw new Error('INVALID_EXECUTION_COVERAGE');
+    const sources = entries.slice(cursor, cursor + day.sourceCount); cursor += day.sourceCount;
+    if (sources.length !== day.sourceCount || sources.some(entry => !record(entry?.contribution) || entry.contribution.date !== date))
+      throw new Error('INVALID_EXECUTION_COVERAGE');
+    return {date,reasonCodes:day.reasonCodes,sources};
+  });
+  if (cursor !== total) throw new Error('INVALID_EXECUTION_COVERAGE');
+  const basis: SharedQuotaExecutionBasisV1 = {schemaVersion:1,revision:first.basisRevision,
+    policyRevision:first.policyRevision,fromDate:first.fromDate,toDate:first.toDate,days};
+  projectLocalSharedQuotaExecution(policy, basis, [], first.authorizedScopes);
+  const existing = new Set(entries.map(entry => key(entry.contribution)));
+  if (first.authorizedScopes.some(scope => !existing.has(key(scope)))) throw new Error('INVALID_EXECUTION_SCOPE');
+  return JSON.parse(JSON.stringify({basis,authorizedScopes:first.authorizedScopes}));
+}
 
 /** Replaces source snapshots, then applies quota routing only. Never settles source ledgers. */
 export function projectLocalSharedQuotaExecution(policy: UnifiedChildAccessPolicyV1,

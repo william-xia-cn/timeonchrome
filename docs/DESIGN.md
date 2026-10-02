@@ -24,6 +24,8 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 共享访问终端契约边界（2026-10-02）
 
+Contracts1.28固定`SharedQuotaExecutionPageV1`和`assembleSharedQuotaExecutionPages(policy, expectedProfileId, pages)`：transport携带profileId、basis/policy revision、日期覆盖及sourceCount、授权scope和分页游标。认证调用方完整收齐同一次读取所有页后调用组装；函数拒绝未知字段、跨Child/版本/配置混页、缺页/重页、非法游标、总计与逐日来源数不符、范围外或不存在的授权scope。首offset=0，连续递进，末nextOffset=null；limit1–100，总计0–1400，每日最多200，最多七天。零来源需要明确完整空页及各日原因，不把缺页当零。输入保持不可变，输出组装依据与授权scope，随后交既有1.27投影核验；该函数不认证服务器或授予执行能力，只接受调用方通过既定鉴权取得的响应。不增加双向控制或改变原来源统计；Native机器读取和可信跨端来源仍未完成。
+
 #### 共享执行来源替换接入（2026-10-03，待实现）
 
 契约1.27增量批固定只读依据核心：`SharedQuotaExecutionBasisV1`保存周一至查询日逐日的来源条目，每项区分云端`publicationRevision`、来源单调`revisionOrdinal`与原贡献revision。替换请求绑定basis版本、旧publicationRevision及日期/来源键；替换权限来自已验证认证上下文，不从请求自报获取。新贡献ordinal不得倒退，同ordinal必须原贡献完全相同，旧更正/产品关联口径不混用；较新来源版本可改变完整统计而不是假定用量只增不减。不存在的scope不能凭名称或空旧revision插入。本批先实现纯契约与共同向量，云端认证分页/覆盖信息及两端接入另行完成；global覆盖缺口不被替换清除。逐日重新运行既有共享配额投影后汇总周Rest，输出只称本机执行投影，云端权威统计及原账不变。验证替换、重复、错版/非自身/倒退/同版冲突、更正隔离、跨日借用与毫秒；旧shared-access/BrowserBridge契约字节保持兼容，未新增控制指令或启用。
