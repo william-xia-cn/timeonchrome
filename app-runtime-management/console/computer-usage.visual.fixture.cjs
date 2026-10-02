@@ -45,6 +45,9 @@ if(path.includes('/shared-access-policy'))return {policy:null};
 if(path.includes('/app-classification-records'))return {pending:[],processed:[],technical:[]};
 if(path.includes('/application-knowledge'))return {schemaVersion:2,version:0,products:[],associations:[],bindings:[],rules:[]};
 if(path.includes('/application-inventory'))return {items:[]};
+if(path.includes('/logging-policy'))return {version:1,enabled:false,minLevel:'error',categories:['service'],expiresAtMs:null};
+if(path.includes('/runtime-logs'))return {items:[{timestampMs:1790899200000,level:'info',category:'service',eventCode:'MOCK_READY',source:'terminal',machineName:'演示电脑',module:'service',message:'隔离夹具：服务正常'}],nextCursor:null};
+if(path.includes('/segment-diagnostics'))return {items:[{startAtMs:1790899200000,endAtMs:1790899260000,durationMs:60000,displayName:'演示办公应用',applicationClassification:'study',estimated:false,mediaKind:'video',presentation:'foreground'}],hasMore:true};
 return {};
 }
 if(path.includes('computer-usage')){const params=new URLSearchParams(path.split('?')[1]);if(params.has('source'))return {source:params.get('source'),fromDate:params.get('from'),toDate:params.get('to'),totalDurationMs:5134000,categories:[{classification:'study',durationMs:5134000}],buckets:[{startAtMs:${day},durationMs:5134000}],applications:[{displayName:'演示办公应用',classification:'study',durationMs:5134000}]};return (await fetch('/mock-computer-usage?'+params)).json();}

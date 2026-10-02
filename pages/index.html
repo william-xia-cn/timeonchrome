@@ -1536,11 +1536,15 @@
           <button class="tab-btn" data-system-management-tab="web-settlements">网页落账</button>
           <button class="tab-btn" data-system-management-tab="media-settlements">媒体落账</button>
           <button class="tab-btn" data-system-management-tab="client-logs">系统日志</button>
+          <button class="tab-btn" data-system-management-tab="runtime-diagnostics">应用运行诊断</button>
           <button class="tab-btn" data-system-management-tab="notifications">消息通知</button>
           <button class="tab-btn" data-system-management-tab="backup-restore">数据备份与恢复</button>
           <button class="tab-btn" data-system-management-tab="account-management">账户管理</button>
         </div>
 
+        <section class="system-management-panel" data-system-management-panel="runtime-diagnostics">
+          <div id="runtime-system-host"></div><div id="runtime-system-error" hidden role="alert"></div>
+        </section>
         <section class="system-management-panel active" data-system-management-panel="reconciliation">
         <div class="card">
           <div class="card-header">
@@ -2063,7 +2067,7 @@ let runtimeManagementEpoch = 0;
 function disposeRuntimeManagement() {
   runtimeManagementEpoch++;
   runtimeManagementController?.dispose();runtimeManagementController=null;
-  for(const view of ['apps','devices']) {
+  for(const view of ['apps','devices','system']) {
     const host=document.getElementById(`runtime-${view}-host`);
     host?.shadowRoot?.replaceChildren();
     const error=document.getElementById(`runtime-${view}-error`);
@@ -2073,7 +2077,9 @@ function disposeRuntimeManagement() {
 async function renderRuntimeManagement(view) {
   disposeRuntimeManagement();
   const epoch=runtimeManagementEpoch, childId=currentProfileId;
-  const isCurrent=()=>epoch===runtimeManagementEpoch&&currentProfileId===childId&&document.getElementById(`page-${view}`)?.classList.contains('active');
+  const isCurrent=()=>epoch===runtimeManagementEpoch&&currentProfileId===childId
+    &&document.getElementById(`page-${view==='system'?'system-management':view}`)?.classList.contains('active')
+    &&(view!=='system'||cloudSystemManagementActiveTab==='runtime-diagnostics');
   const host=document.getElementById(`runtime-${view}-host`);
   if(!childId){host.textContent='请选择孩子后查看';return;}
   host.textContent='正在加载…';
@@ -2632,6 +2638,8 @@ function syncSystemManagementTabs() {
 
 function renderSystemManagementPage() {
   syncSystemManagementTabs();
+  if(cloudSystemManagementActiveTab==='runtime-diagnostics'){void renderRuntimeManagement('system');return;}
+  disposeRuntimeManagement();
   if (cloudSystemManagementActiveTab === 'reconciliation') renderReconciliationPage();
   if (cloudSystemManagementActiveTab === 'web-settlements') renderCloudSettlementsPage({ reset: true });
   if (cloudSystemManagementActiveTab === 'media-settlements') renderCloudMediaSettlementsPage({ reset: true });

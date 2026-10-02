@@ -41,5 +41,10 @@ function fixture({hold=false,invalid=false,holdStyles=false}={}){
   for(const part of html.matchAll(/<script>([\s\S]*?)<\/script>/g))new vm.Script(part[1]);
   for(const view of ['apps','devices']){assert.match(html,new RegExp('data-page="'+view+'"'));assert.match(html,new RegExp('id="page-'+view+'"'));}
   assert(!html.includes('class="nav-item runtime-launch"'));assert.match(html,/\/app-runtime\/manage\/v1\//);assert.match(html,/If-Match/);
+  assert.match(html,/data-system-management-tab="runtime-diagnostics"/);
+  assert.match(html,/id="runtime-system-host"/);
+  assert.match(html,/view==='system'\?'system-management':view/);
+  assert.match(html,/cloudSystemManagementActiveTab==='runtime-diagnostics'/);
+  for(const tab of ['reconciliation','web-settlements','media-settlements','client-logs','notifications','backup-restore','account-management'])assert(html.includes(`data-system-management-tab="${tab}"`));
   console.log('PASS management loader: fixed same-origin assets, parent Child/auth, disposal, stale mount, invalid assets, main navigation and syntax');
 })().catch(error=>{console.error(error);process.exitCode=1;});
