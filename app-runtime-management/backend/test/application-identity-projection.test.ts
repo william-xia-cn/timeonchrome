@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 import { buildProductIdentityProjection, leafApplicationAssociations, projectExplicitApplicationClassifications } from '../src/applicationIdentityProjection';
 import { promoteProductClassifications, resolvePolicyApplications, validateRepairWeek } from '../src/applicationKnowledge';
+import chromeRules from '../src/chrome-display-rules.json';
 
 const evidence = (runtimeIdentity: string, values: AppEvidence['values'], discovery?: AppEvidence['discovery']): AppEvidence => ({
   platform: 'windows', runtimeIdentity, displayName: 'Same name', values,
@@ -13,6 +14,17 @@ const choice = (runtimeIdentity: string, classification: 'study' | 'composite' |
 const key = (identity: string) => `windows\n${identity}`;
 
 describe('trusted application identity projection', () => {
+  it('marks only reviewed Chrome product identities, never a same-name application', async () => {
+    const items=[evidence('chrome-approved',{fileSeriesKey:chromeRules.windows.fileSeriesKey,
+      signerKey:chromeRules.windows.signerKey}),evidence('same-name-third-party',{binaryHash:'unrelated'})];
+    const knowledge={schemaVersion:2 as const,version:1,products:[{id:chromeRules.productId,name:'Chrome',type:'other' as const,
+      selectors:[{platform:'windows' as const,match:{operator:'all' as const,
+        conditions:[{field:'fileSeriesKey' as const,value:chromeRules.windows.fileSeriesKey}]}}]}],rules:[],bindings:[]};
+    const projection=await buildProductIdentityProjection(items,knowledge);
+    expect(projection.items.find(item=>item.runtimeIdentity==='chrome-approved')?.isChromeContainer).toBe(true);
+    expect(projection.items.find(item=>item.runtimeIdentity==='same-name-third-party')?.isChromeContainer).toBeUndefined();
+    expect((await buildProductIdentityProjection(items,{...knowledge,products:[]},[])).version).not.toBe(projection.version);
+  });
   it('replays sanitized retained scan topology: two signed Excel versions, Word, mislabelled Codex and an unproven old ChatGPT', async () => {
     // Retained scan/file evidence shape from 2026-09-27; all device-specific keys replaced.
     const suite: AppEvidence['discovery'] = {role:'application',nameSource:'appList',sourceKinds:['shortcut'],

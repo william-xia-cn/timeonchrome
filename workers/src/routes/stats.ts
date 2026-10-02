@@ -20,6 +20,9 @@ import {
 
 const VALID_CHANNELS = new Set(['active', 'backgroundMedia', 'pip']);
 const VALID_MODES = new Set(['study', 'rest', 'locked', 'paused', 'unknown', 'composite']);
+// Attribution is independent from the actual browser mode. "other" is never a mode.
+const VALID_QUOTA_BUCKETS = new Set([...VALID_MODES, 'other']);
+const VALID_TARGET_CLASSIFICATIONS = new Set(['study', 'composite', 'pending_composite', 'restricted', 'rejected', 'other']);
 // One D1 batch statement is reserved for the correction batch header.
 const ACCOUNTING_CORRECTION_MAX_SEGMENTS = 99;
 const VALID_MEDIA_CLASSES = new Set(['foregroundAudio', 'backgroundAudio', 'foregroundVideo', 'backgroundVideo', 'pip']);
@@ -139,7 +142,7 @@ function expandTargetStatsRows(targets: any[] | undefined): Array<{
         const mode = row?.mode;
         const quotaBucket = row?.quotaBucket || mode;
         const durationSeconds = Number(row?.durationSeconds || 0);
-        if (!VALID_CHANNELS.has(channel) || !VALID_MODES.has(mode) || !VALID_MODES.has(quotaBucket)) continue;
+        if (!VALID_CHANNELS.has(channel) || !VALID_MODES.has(mode) || !VALID_QUOTA_BUCKETS.has(quotaBucket)) continue;
         if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) continue;
         const segmentsCount = Number.isFinite(Number(row?.segmentsCount))
           ? Math.max(0, Math.trunc(Number(row.segmentsCount)))
@@ -164,8 +167,8 @@ function expandTargetStatsRows(targets: any[] | undefined): Array<{
       if (Object.keys(byMode || {}).length === 0) {
         for (const [quotaBucket, seconds] of Object.entries(byQuota || {})) {
           const durationSeconds = Number(seconds || 0);
-          if (!VALID_MODES.has(quotaBucket) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) continue;
-          expandedRows.push({ ...base, channel, mode: quotaBucket, quotaBucket, durationSeconds, segmentsCount: 0 });
+          if (!VALID_QUOTA_BUCKETS.has(quotaBucket) || !Number.isFinite(durationSeconds) || durationSeconds <= 0) continue;
+          expandedRows.push({ ...base, channel, mode: VALID_MODES.has(quotaBucket) ? quotaBucket : 'unknown', quotaBucket, durationSeconds, segmentsCount: 0 });
         }
       }
     }
@@ -374,7 +377,7 @@ export const statsRouter = {
         if (!expected.deviceId || !expected.date || !expected.domain || !expected.mode || !expected.targetClassification || !expected.quotaBucket) {
           return json({ error: 'Complete expected attribution is required', code: 'ACCOUNTING_CORRECTION_EXPECTED_REQUIRED' }, 400);
         }
-        if (!VALID_MODES.has(effective.mode) || !VALID_MODES.has(effective.quotaBucket) || !['study', 'composite', 'pending_composite', 'restricted', 'rejected'].includes(effective.targetClassification)) {
+        if (!VALID_MODES.has(effective.mode) || !VALID_QUOTA_BUCKETS.has(effective.quotaBucket) || !VALID_TARGET_CLASSIFICATIONS.has(effective.targetClassification)) {
           return json({ error: 'Invalid effective attribution', code: 'ACCOUNTING_CORRECTION_EFFECTIVE_INVALID' }, 400);
         }
         const placeholders = segmentIds.map(() => '?').join(',');
@@ -895,7 +898,7 @@ export const statsRouter = {
           const targetRuleId = normalizeOptionalString(s.targetRuleId, 128);
           const targetMatchLevel = normalizeOptionalString(s.targetMatchLevel, 64);
           const targetClassificationAtTime = normalizeOptionalString(s.targetClassificationAtTime, 64);
-          const quotaBucketAtTime = VALID_MODES.has(s.quotaBucketAtTime) ? s.quotaBucketAtTime : null;
+          const quotaBucketAtTime = VALID_QUOTA_BUCKETS.has(s.quotaBucketAtTime) ? s.quotaBucketAtTime : null;
           const normalizedContent = {
             ...s,
             domain: normalizedDomain,
@@ -1573,7 +1576,7 @@ export const statsRouter = {
       if ((from && !isDateKey(from)) || (to && !isDateKey(to))) return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
       if (channel && !VALID_CHANNELS.has(channel)) return json({ error: 'invalid channel' }, 400);
       if (mode && !VALID_MODES.has(mode)) return json({ error: 'invalid mode' }, 400);
-      if (quotaBucket && !VALID_MODES.has(quotaBucket)) return json({ error: 'invalid quotaBucket' }, 400);
+      if (quotaBucket && !VALID_QUOTA_BUCKETS.has(quotaBucket)) return json({ error: 'invalid quotaBucket' }, 400);
       if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
 
       const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
@@ -1627,7 +1630,7 @@ export const statsRouter = {
       if ((from && !isDateKey(from)) || (to && !isDateKey(to))) return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
       if (channel && !VALID_CHANNELS.has(channel)) return json({ error: 'invalid channel' }, 400);
       if (mode && !VALID_MODES.has(mode)) return json({ error: 'invalid mode' }, 400);
-      if (quotaBucket && !VALID_MODES.has(quotaBucket)) return json({ error: 'invalid quotaBucket' }, 400);
+      if (quotaBucket && !VALID_QUOTA_BUCKETS.has(quotaBucket)) return json({ error: 'invalid quotaBucket' }, 400);
       if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
 
       const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];

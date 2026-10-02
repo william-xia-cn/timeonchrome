@@ -10,7 +10,16 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.20.0');
+assert.equal(pkg.version, '1.22.0');
+assert(pkg.exports['./shared-access'], 'shared access contract must be exported');
+const sharedAccess = JSON.parse(fs.readFileSync(path.join(root, 'shared-access-v1.schema.json'), 'utf8'));
+assert.equal(sharedAccess.$defs.policy.properties.stage.enum[0], 'legacy');
+assert.equal(sharedAccess.$defs.policy.properties.autonomy.properties.visibleResponseDeadlineSeconds.const, 60);
+assert(sharedAccess.$defs.contribution.allOf[0].then.required.includes('chromeExcludedMs'));
+assert(sharedAccess.$defs.contribution.properties.chromeIncludedInApplicationMs,
+  'Chrome marginal display deduction is distinct from quota exclusion');
+assert(!sharedAccess.$defs.applicationUpload.properties.childId && !sharedAccess.$defs.applicationUpload.properties.sourceKey,
+  'machine-authenticated upload cannot select a Child or server-derived source key');
 const computerUsage = JSON.parse(fs.readFileSync(path.join(root, 'computer-usage-v1.schema.json'), 'utf8'));
 assert.equal(computerUsage.$defs.response.properties.schemaVersion.const, 1);
 assert.equal(computerUsage.$defs.request.properties.limit.maximum, 100);
@@ -31,11 +40,15 @@ assert(!appPolicy.required.includes('productBlockPolicy'), 'N-1 policy does not 
 assert.deepEqual(appPolicy.properties.productBlockPolicy.required,
   ['schemaVersion','knowledgeVersion','associationVersion','entries']);
 assert.deepEqual(appPolicy.properties.productIdentityProjection.required, ['version','knowledgeVersion','items']);
+assert.equal(appPolicy.properties.productIdentityProjection.properties.items.items.properties.isChromeContainer.type,'boolean');
+assert(!appPolicy.properties.productIdentityProjection.properties.items.items.required.includes('isChromeContainer'),
+  'older client projections without Chrome role remain valid and unconfirmed');
 assert.equal(appPolicy.properties.repairWeekStart.const, '2026-09-21');
 assert(!appPolicy.required.includes('weekReclassification'), 'N-1 policy stays valid');
 assert.deepEqual(appPolicy.properties.weekReclassification.required, ['fromMs', 'toMs', 'applications']);
 assert.deepEqual(appPolicy.properties.weekReclassification.properties.applications.items.properties.classification.enum,
-  ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked']);
+  ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked']);
+assert(appPolicy.properties.classifications.items.properties.classification.enum.includes('other'));
 assert.equal(appPolicy.properties.weekReclassification.properties.applications.maxItems, 12000);
 const machineApi = JSON.parse(fs.readFileSync(path.join(root, 'runtime-machine-api-v2.schema.json'), 'utf8'));
 assert(!machineApi.required.includes('applicationCorrectionPage'), 'N-1 machine protocol stays valid');
@@ -76,8 +89,9 @@ assert(nativeHostV2.required.includes('channel'));
 assert(nativeHostV2.allOf.some((rule) => rule.then?.required?.includes('batchId')));
 const nativeHostV3 = JSON.parse(fs.readFileSync(path.join(root, 'native-host-v3.schema.json'), 'utf8'));
 assert.equal(nativeHostV3.properties.protocolVersion.const, 3);
-assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics', 'application']);
-assert.deepEqual(nativeHostV3.properties.messageType.enum, ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage']);
+assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics', 'application', 'sharedQuota']);
+assert.deepEqual(nativeHostV3.properties.messageType.enum,
+  ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getSharedQuotaState', 'reportReminderResult']);
 assert.equal(nativeHostV3.$defs.applicationQuery.additionalProperties, false);
 assert.deepEqual(nativeHostV3.$defs.applicationQuery.required, ['fromDate', 'toDate', 'offset']);
 assert.equal(nativeHostV3.$defs.applicationQuery.properties.offset.maximum, 20000);

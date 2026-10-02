@@ -33,7 +33,7 @@
         "appPolicyVersion": { "type": ["integer", "null"], "minimum": 0 },
         "applicationClassification": {
           "type": ["string", "null"],
-          "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "blocked", null]
+          "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "other", "blocked", null]
         },
         "quotaBucket": { "type": ["string", "null"], "maxLength": 64 }
       }

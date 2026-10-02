@@ -255,7 +255,7 @@ export async function readPersistentApplicationUsage(db:D1Database,account:strin
   const value:StatisticsValue={totalDurationMs:days.reduce((s,d)=>s+d.totalDurationMs,0),
     categories:[...categories].map(([classification,durations])=>({classification,durationMs:durations.reduce((a,b)=>a+b,0),
       quota:quota(days.filter(d=>d.categories.some(c=>c.classification===classification)).map(d=>quotaDuration(d,classification)),
-        classification==='blocked'?0:policy.quotas.dailyCategoryMinutes[classification])})).sort((a,b)=>b.durationMs-a.durationMs),
+        classification==='blocked'?0:classification==='other'?null:policy.quotas.dailyCategoryMinutes[classification])})).sort((a,b)=>b.durationMs-a.durationMs),
     applications:[...apps.values()].map(({app,days})=>({...app,quota:quota(days,app.classification==='blocked'?0:appLimits.get(key(app))??null)})).sort((a,b)=>b.durationMs-a.durationMs),
     buckets:[...buckets].sort((a,b)=>a[0]-b[0]).map(([startAtMs,b])=>({startAtMs,durationMs:b.durationMs,
       categories:[...b.categories].map(([classification,durationMs])=>({classification,durationMs})).filter(c=>c.durationMs>0)})),

@@ -31,7 +31,7 @@ import type {
 import { systemToolPackageIds, technicalDistributionKeys } from './productCatalogRules';
 
 const classifications = new Set<ApplicationClassification>([
-  'study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked',
+  'study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked',
 ]);
 const platforms = new Set<RuntimePlatform>(['windows', 'macos']);
 const quotaCategories = ['study', 'composite', 'restrictedEntertainment', 'unclassified'] as const;
@@ -390,6 +390,12 @@ export async function putAppPolicy(
   if (expectedEtag !== appPolicyEtag(current.version)) {
     throw new HttpError(412, 'APP_POLICY_CONFLICT', 'App policy has changed. Reload before saving.');
   }
+  if (JSON.stringify(update.quotas.dailyCategoryMinutes) !== JSON.stringify(current.quotas.dailyCategoryMinutes)
+    || update.quotas.weeklyRestrictedEntertainmentMinutes !== current.quotas.weeklyRestrictedEntertainmentMinutes
+    || (update.timeWindows !== undefined && JSON.stringify(update.timeWindows) !== JSON.stringify(current.timeWindows))) {
+    throw new HttpError(409, 'SHARED_ACCESS_CONFIG_OWNED_BY_GUARDIAN',
+      '公共时间配额和时间段由主控制台统一管理，请从访问管理修改。');
+  }
   const inventory = await listApplicationInventory(database, accountId);
   const knowledge = effectiveApplicationKnowledge(current.applicationKnowledge ?? {
     schemaVersion: 2, version: 0, products: [], rules: [], bindings: [],
@@ -418,7 +424,8 @@ export async function putAppPolicy(
     ) VALUES(?1,?2,?3,?4,?5,?6,?6)
   `).bind(accountId, childId, version, payloadJson, await sha256Hex(payloadJson), nowMs)];
   for (const entry of completeUpdate.classifications) statements.push(database.prepare(`
-    INSERT INTO runtime_app_classification_history_v1(
+    INSERT INTO ${entry.classification === 'other'
+      ? 'runtime_app_classification_history_other_v1' : 'runtime_app_classification_history_v1'}(
       account_id,child_id,platform,runtime_identity,policy_version,classification,
       display_name,effective_at_ms,created_at_ms
     ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)
@@ -501,7 +508,7 @@ export async function resolveClassification(
   platform: RuntimePlatform,
   runtimeIdentity: string,
   policyVersion: number | null,
-): Promise<{ version: number | null; classification: ApplicationClassification; quotaBucket: string }> {
+): Promise<{ version: number | null; classification: ApplicationClassification; quotaBucket: string | null }> {
   if (policyVersion == null || policyVersion <= 0) {
     return { version: null, classification: 'unclassified', quotaBucket: 'unclassified' };
   }
@@ -511,15 +518,19 @@ export async function resolveClassification(
   `).bind(accountId, childId, policyVersion).first<{ version: number; payload_json: string }>();
   if (!version) throw new HttpError(409, 'APP_POLICY_VERSION_INVALID', 'App policy version is not valid for this Child.');
   const row = await database.prepare(`
-    SELECT classification FROM runtime_app_classification_history_v1
-    WHERE account_id=?1 AND child_id=?2 AND platform=?3 AND runtime_identity=?4
-      AND policy_version=?5
+    SELECT classification FROM (
+      SELECT classification FROM runtime_app_classification_history_v1
+      WHERE account_id=?1 AND child_id=?2 AND platform=?3 AND runtime_identity=?4 AND policy_version=?5
+      UNION ALL
+      SELECT classification FROM runtime_app_classification_history_other_v1
+      WHERE account_id=?1 AND child_id=?2 AND platform=?3 AND runtime_identity=?4 AND policy_version=?5
+    ) LIMIT 1
   `).bind(accountId, childId, platform, runtimeIdentity, policyVersion)
     .first<{ classification: ApplicationClassification }>();
   const payload = JSON.parse(version.payload_json) as AppPolicyUpdate;
   const projected = payload?.resolvedApplications?.find(entry => entry.platform === platform && entry.runtimeIdentity === runtimeIdentity);
   const classification = row?.classification ?? projected?.classification ?? 'unclassified';
-  return { version: policyVersion, classification, quotaBucket: classification };
+  return { version: policyVersion, classification, quotaBucket: classification === 'other' ? null : classification };
 }
 
 function groupedUnion(groups: Map<string, Array<[number, number]>>): number {

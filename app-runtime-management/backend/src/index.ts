@@ -14,6 +14,7 @@ import { deleteRuntimeChildV2 } from './v2Repository';
 import { exchangeBrowserSession, revokeBrowserSession } from './browserSessions';
 import { rebuildApplicationStatistics } from './applicationStatistics';
 import { publishApplicationAccounts } from './applicationAccountPublication';
+import { reconcileApplicationSharedQuotaEvidence } from './applicationSharedQuota';
 export { RuntimeComputerUsageService } from './computerUsageService';
 
 interface WindowsV2ReleaseManifest {
@@ -217,7 +218,8 @@ async function route(request: Request, env: Env, defer?:(work:Promise<unknown>)=
 
 export default {
   async scheduled(_controller:ScheduledController,env:Env,ctx:ExecutionContext):Promise<void> {
-    ctx.waitUntil((async()=>{await publishApplicationAccounts(env.RUNTIME_DB);await rebuildApplicationStatistics(env.RUNTIME_DB);})());
+    ctx.waitUntil((async()=>{await publishApplicationAccounts(env.RUNTIME_DB);await rebuildApplicationStatistics(env.RUNTIME_DB);
+      await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB);})());
   },
   async fetch(request: Request, env: Env, ctx?:ExecutionContext): Promise<Response> {
     const origin = request.headers.get('origin');

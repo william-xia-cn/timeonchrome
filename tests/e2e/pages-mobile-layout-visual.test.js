@@ -165,3 +165,33 @@ test('Pages has native mobile navigation and touch layouts without page overflow
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: path.join(OUTPUT, 'pages-desktop-autonomy.png'), fullPage: true });
 });
+
+test('D-114 main navigation separates shared access settings, website management, apps and devices', async ({ page }) => {
+  fs.mkdirSync(OUTPUT, { recursive: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await openMockConsole(page);
+
+  const primaryNavigation = await page.locator('.sidebar-nav > .nav-item:not(.mobile-more-nav)').evaluateAll(items =>
+    items.map(item => item.innerText.trim().replace(/\s+/g, ' '))
+  );
+  expect(primaryNavigation).toEqual(['使用统计', '访问管理', '网站管理', '应用管理', '设备管理', '系统管理']);
+  expect(await page.locator('.runtime-launch[data-runtime-view="apps"]').getAttribute('href')).toContain('view=apps');
+  expect(await page.locator('.runtime-launch[data-runtime-view="devices"]').getAttribute('href')).toContain('view=devices');
+
+  await page.locator('.nav-item[data-page="rules"]').click();
+  await expect(page.locator('#rules-management-heading')).toHaveText('访问管理');
+  await expect(page.locator('#access-management-tabs')).toBeVisible();
+  await expect(page.locator('[data-rules-management-tab="site-management"]')).toHaveCount(0);
+  await page.screenshot({ path: path.join(OUTPUT, 'd114-desktop-access-management.png'), fullPage: true });
+
+  await page.locator('.nav-item[data-page="sites"]').click();
+  await expect(page.locator('#rules-management-heading')).toHaveText('网站管理');
+  await expect(page.locator('#access-management-tabs')).toBeHidden();
+  await page.screenshot({ path: path.join(OUTPUT, 'd114-desktop-website-management.png'), fullPage: true });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('.nav-item[data-page="stats"]').click();
+  await expect(page.locator('.sidebar-nav')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: path.join(OUTPUT, 'd114-mobile-primary-navigation.png'), fullPage: true });
+});

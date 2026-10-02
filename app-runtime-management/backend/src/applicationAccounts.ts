@@ -6,7 +6,7 @@ import { HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http'
 import { isRecord } from './validation';
 
 const prefix = '/v2/machines/application-accounts/manifests';
-const categories = new Set(['study','composite','restrictedEntertainment','unclassified','blocked','historicalUnknown']);
+const categories = new Set(['study','composite','restrictedEntertainment','unclassified','other','blocked','historicalUnknown']);
 interface StoredManifest {
   id: string; machine_id: string; local_user_id: string; assignment_version: number;
   account_id: string; child_id: string; date: string; revision: number;
