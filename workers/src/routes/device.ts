@@ -386,7 +386,7 @@ export const deviceRouter = {
         if (!owner) return json({ code: 'CHILD_NOT_FOUND' }, 404);
         const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId);
         if (!policy) return json({ code: 'CHILD_NOT_FOUND' }, 404);
-        return json({ schemaVersion: 1, policy }, 200);
+        return json({ schemaVersion: 1, profileId: identity.profileId, policy }, 200);
       } catch {
         return json({ code: 'SHARED_ACCESS_POLICY_UNAVAILABLE' }, 503);
       }

@@ -63,7 +63,8 @@ function load(relative, dependencies) {
   const response = await deviceRouter.handle(request(), env);
   assert.equal(response.status, 200);
   const body = await response.json();
-  assert.deepEqual(Object.keys(body).sort(), ['policy', 'schemaVersion']);
+  assert.deepEqual(Object.keys(body).sort(), ['policy', 'profileId', 'schemaVersion']);
+  assert.equal(body.profileId, 'bound-child', 'binding is authenticated, not caller-selected');
   assert.equal(body.schemaVersion, 1);
   assert.equal(body.policy.stage, 'legacy', 'read does not enable shared execution');
   assert.equal(body.policy.revision, 'profile-config:9');

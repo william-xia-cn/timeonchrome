@@ -26,7 +26,7 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 #### 共享执行来源替换接入（2026-10-03，待实现）
 
-统一配置设备读取补齐：新增只读 `GET /device/shared-access/v1`，使用既有设备 Bearer 鉴权，Child 只能来自认证绑定，不接受 query/body 指定其他 Child/设备。复用 `readSharedAccessPolicyForChild` 的同一 Guardian 配置投影，返回 `{schemaVersion:1,policy}`，不返回父账户信息、凭据或来源替换许可。未鉴权401、解绑403、档案缺失404、查询参数400、读取失败503稳定错误码；不修改现有 `/device/config`、不写数据库、不切换 stage。扩展按其当前认证作用域原子缓存已验证 policy，旧云端404不生成假配置。该接口仅补只读接入，不证明用量完整或开启共享执行。
+统一配置设备读取补齐：新增只读 `GET /device/shared-access/v1`，使用既有设备 Bearer 鉴权，Child 只能来自认证绑定，不接受 query/body 指定其他 Child/设备。复用 `readSharedAccessPolicyForChild` 的同一 Guardian 配置投影，返回 `{schemaVersion:1,profileId,policy}`；profileId为认证绑定结果，消费方必须与当前既有cloud_profile_id核对，父端改变绑定后不得把另一个孩子的policy缓存到旧作用域。它不返回父账户信息、凭据或来源替换许可。未鉴权401、解绑403、档案缺失404、查询参数400、读取失败503稳定错误码；不修改现有 `/device/config`、不写数据库、不切换 stage。扩展按其当前认证作用域原子缓存已验证 policy，旧云端404不生成假配置。该接口仅补只读接入，不证明用量完整或开启共享执行。
 
 现有共享状态 `sources` 只有来源、日期和版本，缺少各来源逐日贡献；不能由已借用后的 `day.usedMs` 减去自己的分类总量来恢复原贡献。下一接入批按同一最终结构补齐只读执行依据：云端固定配置版本和北京时间周一至查询日的来源向量，携带每个日期各来源已发布的有效贡献、统计/更正/产品关联版本、结算截止、完整性及覆盖原因。它是已结算统计快照，不是原始 Segment；缺页或缺来源不能成为零值，已有展示接口仍保持独立。
 
