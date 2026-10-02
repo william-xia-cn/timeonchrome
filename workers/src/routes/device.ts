@@ -4,6 +4,7 @@ import { applySystemAccessDefaultsToProfileConfig, composeDeviceConfigVersion, g
 import { compactUsageAccountingCorrectionDeltas, getBeijingWeekForTimestamp, listDeviceCorrectionEvidencePage, listDeviceIntervalEvidencePage, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
+import { readSharedAccessPolicyForChild } from './profiles';
 
 type DeviceIdentityLinkBody = {
   chromeIdentityId?: string;
@@ -370,6 +371,24 @@ export const deviceRouter = {
         return response;
       } catch {
         return json({ error: 'INTERVAL_EVIDENCE_UNAVAILABLE' }, 503);
+      }
+    }
+
+    // Read only the authenticated device's Child policy, never a caller-selected scope.
+    if (request.method === 'GET' && path === '/device/shared-access/v1') {
+      try {
+        const identity = await verifyDeviceTokenFromRequest(request, env);
+        if (!identity) return json({ code: 'INVALID_DEVICE_TOKEN' }, 401);
+        if (identity.unbound) return deviceUnboundResponse(identity.deviceId);
+        if ([...url.searchParams].length) return json({ code: 'INVALID_SHARED_ACCESS_QUERY' }, 400);
+        const owner = await env.DB.prepare('SELECT account_id FROM profiles WHERE id = ?')
+          .bind(identity.profileId).first<{ account_id: string }>();
+        if (!owner) return json({ code: 'CHILD_NOT_FOUND' }, 404);
+        const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId);
+        if (!policy) return json({ code: 'CHILD_NOT_FOUND' }, 404);
+        return json({ schemaVersion: 1, profileId: identity.profileId, policy }, 200);
+      } catch {
+        return json({ code: 'SHARED_ACCESS_POLICY_UNAVAILABLE' }, 503);
       }
     }
 

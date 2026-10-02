@@ -7,10 +7,13 @@ on:
       - 'workers/src/services/appRuntimeIdentityBridge.ts'
       - 'workers/src/services/appRuntimeManagementGateway.ts'
       - 'workers/src/index.ts'
+      - 'workers/src/routes/device.ts'
+      - 'workers/src/routes/profiles.ts'
       - 'workers/wrangler.toml'
       - 'app-runtime-management/contracts/**'
       - 'tests/unit/app-runtime-integration.test.js'
       - 'tests/unit/app-runtime-management-gateway.test.js'
+      - 'tests/unit/device-shared-access-policy.test.js'
       - '.github/workflows/app-runtime-guardian-integration.yml'
   push:
     branches: [master]
@@ -18,8 +21,11 @@ on:
       - 'workers/src/services/appRuntimeIdentityBridge.ts'
       - 'workers/src/services/appRuntimeManagementGateway.ts'
       - 'workers/src/index.ts'
+      - 'workers/src/routes/device.ts'
+      - 'workers/src/routes/profiles.ts'
       - 'app-runtime-management/contracts/**'
       - 'tests/unit/app-runtime-management-gateway.test.js'
+      - 'tests/unit/device-shared-access-policy.test.js'
       - '.github/workflows/app-runtime-guardian-integration.yml'
 
 jobs:
@@ -34,3 +40,4 @@ jobs:
       - run: npx tsc --noEmit
       - run: node tests/unit/app-runtime-integration.test.js
       - run: node tests/unit/app-runtime-management-gateway.test.js
+      - run: node tests/unit/device-shared-access-policy.test.js
