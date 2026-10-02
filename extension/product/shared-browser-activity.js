@@ -1,5 +1,6 @@
 import { getSession } from '../runtime/session.js';
 import { confirmForegroundPageCheckpoint } from '../core/foreground-timing.js';
+import { extractDomain } from '../infra/storage.js';
 import { observeSharedBrowserActivityLease, reportSharedBrowserActivity } from '../infra/native-host-client.js';
 
 function sessionKey(session) {
@@ -22,7 +23,8 @@ export async function readBrowserRestActivity({ readSession = getSession,
       || evidence.observedDomain !== session.domain) return { active: false };
     const tab = await tabs.get(session.tabId);
     const win = await windows.get(session.windowId);
-    if (!tab?.active || tab.windowId !== session.windowId || !/^https?:\/\//.test(tab.url || '')
+    if (!tab?.active || tab.id !== session.tabId || tab.windowId !== session.windowId || !/^https?:\/\//.test(tab.url || '')
+      || extractDomain(tab.url) !== session.domain
       || win.state === 'minimized' || (evidence.observedUrl && evidence.observedUrl !== tab.url)) return { active: false };
     const visibility = await tabs.sendMessage(tab.id, { type: 'GET_MEDIA_SNAPSHOT' }, { frameId: 0 }).catch(() => null);
     const latestTab = await tabs.get(session.tabId);

@@ -13,6 +13,7 @@ async function run() {
   const source = fs.readFileSync(path.join(root, 'extension/product/shared-browser-activity.js'), 'utf8');
   const { readBrowserRestActivity, createSharedBrowserActivity } = await importSource(
     'const getSession = async () => null; const confirmForegroundPageCheckpoint = async () => ({ok:false});\n'
+    + 'const extractDomain = url => new URL(url).hostname;\n'
     + 'const chrome = {tabs:{},windows:{}}; const reportSharedBrowserActivity = async () => ({ok:false});\n'
     + source.replace(/^import .*;\r?\n/gm, ''));
   const readContract = file => execFileSync('git', ['show', `${CONTRACT_SHA}:app-runtime-management/contracts/${file}`],
@@ -59,6 +60,9 @@ async function run() {
   evidence = { ...evidence, foregroundMediaActive: true, observedUrl: undefined };
   assert.equal((await sampler()).active, true, 'fresh strong-media verification keeps existing activity');
   assert.equal((await sampler()).presentationEligible, false);
+  const initialUrl = tab.url;
+  tab.url = 'https://other.test/page'; assert.equal((await sampler()).active, false, 'actual URL must match even when strong evidence omits observedUrl');
+  tab.url = initialUrl;
   win.state = 'minimized'; assert.equal((await sampler()).active, false);
   win.state = 'normal'; tab.active = false; assert.equal((await sampler()).active, false);
   tab.active = true; evidence.ok = false; assert.equal((await sampler()).active, false, 'failed-close residual ACTIVE is not proof');

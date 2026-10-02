@@ -14,6 +14,8 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 终端契约与实施边界
 
+活动观察器导航竞态补严：强媒体核验可能没有 `observedUrl`，因此采样时另用既有 `extractDomain()` 校验实际 tab URL 与会话域名一致；核验后的导航不能继续沿用旧域名的租约证据。仅影响默认关闭的活动上报，不修改网页会话或原始账。
+
 2026-10-02 活动租约适配：固定 contracts 源 `543d5062f238f2378a1ec637672727647030a926`（1.25.0，架构通报已集成于 `14f5896`）；验真包 78698 字节，SHA-256 `27115fe33c4ac585fda3468ec42c6835e41277b5f93ca77969210285ce64a403`。继续使用同仓 workspace 依赖，固定包仅用于验真，不替换依赖或根锁。仅能力 `shared-browser-activity-v1`、Service 签发的 `browserActivityLeaseId` 和显式本地开关均满足时启用。每 5 秒只读复核已有 ACTIVE、实际 Rest 桶及当前页面，包含借用 Rest；展示资格另查聚焦、未最小化和 Content 可见。读取最多等待 3 秒，超时报告 inactive，晚到读取不恢复活动。上报严格七字段 `schemaVersion/leaseId/activityId/sequence/status/quotaBucket/presentationEligible`，不含客户端时间或网页身份；既有 V3 通讯外壳不作为活动期限依据。自然页面切换随机新 activityId，lease 内 sequence 递增；观察事件先撤销旧活动，复核后续报。串行 Port 只有一个待发活动槽，较新事实替换旧事实，活动与既有消息轮换，不中断在途账快照；长请求下 Service 的 15 秒期限可以失效，不延长权限。断连清除 lease、停止定时器，旧结果不得恢复；重新协商后重新核实。停止或读取异常报 inactive，不调用开段、停段或结算；关闭失败的残留 ACTIVE 不是活动证明。默认关闭，不安装或发布，不修改契约源码。24 个活动契约向量、只读采样及控制器、Native 串行／ACK／重连专项、typecheck 和扩展根目录检查通过；真实扩展和 Service 联调仍待验收，Content 第三次浏览器复验保持暂停。1.26 网页结束执行许可尚未消费，不从 stage/resolution 推断正常或强制结束权限。
 
 2026-10-02 生命周期候选适配：固定验真 contracts 1.24.0，正式来源 d8764de7fc7972d212fef95b93db8ec1e4922d14，包 SHA-256 058437273406a52e53cd9161d3bd556acdccd9278c74312396457346b9dbd22c。保持同仓 workspace 来源，不手改共享源码或根锁。新增默认关闭的生命周期协调器与 Native 串行请求，要求 V3 和 shared-reminder-lifecycle-v1 能力。读取 Service 已签发的 browser presenter 状态；展示器返回实际可见后才发送严格 identity + delivery（无客户端时间），采用 Service canonical visibleAtMs；按钮只发送 identity + continue/end_rest。日周由同一轮 kinds 表达，不自行签发 ID；退回、失联、旧轮次及无效响应不产生关闭效果。超时仅查询 Service 状态，不发送 timeout，不使用浏览器墙钟授权结束。当前协调器通过注入展示接口做隔离验收，不接入现行 Rest、网页原账或执行开关；真实 Content 展示、Service 联调及 D-076 执行验收仍未完成。
