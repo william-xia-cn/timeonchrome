@@ -8,6 +8,7 @@ on:
       - 'pages/access-config-domains.js'
       - 'tests/unit/access-config-domains.test.js'
       - 'tests/unit/runtime-management-loader.test.js'
+      - 'tests/unit/shared-access-management-view.test.js'
       - 'pages/composite-review.js'
       - 'tests/unit/composite-parent-console.test.js'
       - '.github/workflows/app-runtime-main-console.yml'
@@ -22,6 +23,7 @@ on:
       - 'pages/access-config-domains.js'
       - 'tests/unit/access-config-domains.test.js'
       - 'pages/_redirects'
+      - 'tests/unit/shared-access-management-view.test.js'
 
 jobs:
   launch-route:
@@ -35,3 +37,4 @@ jobs:
       - run: node tests/unit/main-console-release-stage.test.js
       - run: node tests/unit/access-config-domains.test.js
       - run: node tests/unit/runtime-management-loader.test.js
+      - run: node tests/unit/shared-access-management-view.test.js
