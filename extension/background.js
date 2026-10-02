@@ -5,6 +5,7 @@ import { initCompositePageObserver } from './infra/composite-page-observer.js';
 import { initSharedReminderContentBridge } from './product/shared-reminder-content-bridge.js';
 import { initSharedAccessPolicyReader } from './infra/shared-access-policy-reader.js';
 import { initSharedQuotaExecutionReader } from './infra/shared-quota-execution-reader.js';
+import { initSharedWebContributionSync } from './infra/shared-web-contribution-sync.js';
 import { initSharedBrowserActivity } from './product/shared-browser-activity.js';
 import { dispatchTimingSignal, drainPendingModeBoundaries } from './core/timing-dispatcher.js';
 import { confirmForegroundPageCheckpoint, resolveUnknownDomainForSettlement } from './core/foreground-timing.js';
@@ -46,6 +47,7 @@ initCompositePageObserver();
 initSharedReminderContentBridge();
 initSharedAccessPolicyReader();
 initSharedQuotaExecutionReader();
+initSharedWebContributionSync();
 initSharedBrowserActivity();
 
 let badgeUpdateQueue = Promise.resolve();

@@ -1,5 +1,15 @@
 # TimeOnChrome — 技术设计文档
 
+## D-114 第一批派生贡献接线（2026-10-03，本地专项通过，真实联调未验收）
+
+使用已核验的集中源码 `30d53c11c9fbc7613539b0e05d99628e9ea27187` 对应1.30.0开发契约（101100字节，SHA256 `63309999adf5115803d5eaee83852126f8d35ed390944208e1acfb07b8783c3e`），替代此前临时草包。新增独立、有界、默认关闭的网页统计贡献队列，读取已落地日统计和批准更正，不改变原始分段、聚合、既有observer或上传队列。当前周启动重建及统计变化驱动；每日期独立ordinal、内容hash、云端ACK及重试状态。旧ACK不得清理新贡献，服务器水位不能被当作V2版本；绑定或策略变化后重新捕获身份，异步旧结果不得生效。
+
+云端令牌仅用于DeviceBearer HTTPS能力、贡献、水位和来源证明兑换，不进入Native payload。Native使用现有串行Port的当前连接challenge，云端签名proof兑换后由Host验签并绑定，再接受本机贡献替换。共享余额准备读取完整basis并按可信web scope替换；保持1.28契约原字节及`executionEnabled=false`。缺能力、证明、完整来源或版本冲突只能报告未准备，不开启限制。最小验证覆盖队列恢复、旧ACK、回退水位、身份切换、贡献守恒及令牌隔离；真实Host/HTTPS验收另列，不伪报完成。
+
+实现：`shared-web-contribution-sync.js` 在background同步注册启动／安装、已落地统计变化及既有健康alarm兜底，默认关闭；离线先保存当前周最多七天／128KB派生队列。独立版本按真实统计／更正／完整policy摘要推进，读服务器独立水位恢复版本，重复ACK不增号，较新版本可以下降更正；逐版本ACK不清后来版本，失败冷却上限30分钟。现有Native串行Port增加三个固定方法，严格校验输入、响应、当前Port及能力；没有令牌转发，也没有来源授权由Host自报替代。Host接受和云端确认分别处理；有效的本机替换可以在云端上传ACK前进入准备投影，缺其他日替换明确不完整。准备读模型另核对最新本地统计及绑定有效期，不以旧准备余额伪报当前完整。Native可选准备字段按协商能力单独验证，不覆盖原`sharedQuota`。
+
+验证：派生专项（固定包原字节、真实公开键P1363向量、当前周恢复、独立版本／旧ACK／下降替换、离线保存、退避、身份隔离、本地新统计使准备失效、网页10分＋应用10分＝20分）、Native Port／能力／字段和policy／HTTP专项、1.28分页回归均通过；typecheck、extension-root、app-runtime-boundaries、diff检查通过。都是本地夹具和真实消费者函数，不是生产HTTPS／真实Native验收。审计Matched＝批准第一批源码调用链；Deviated／Extra＝无；Missing＝真实设备联调、最终执行接入及启用，继续第二批实现。集中本地提交只包含此批文档／源码／测试，不建PR、不改候选、不部署；既有TASK_BOARD两行草稿原样保留。
+
 ## D-114 统一访问配置、其他时间与电脑使用汇总（2026-10-02）
 
 Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主度配置；网页／应用只保留各自对象级分类、黑名单和独立限制。网站管理、应用管理从访问管理中独立，配置文件入口放入系统管理。增加明确分类 `other`，与 `unclassified` 分离：可统计、不借用或扣减三类公共额度，也不触发对应时间段和休息提醒；对象级限制不受影响。Chrome 由可信产品关联确认后作为特殊容器，分类为 `other`，其应用账仍保留。
@@ -27,6 +37,12 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 2026-10-03 1.29完整policy身份准备层：交接确认PR #211及相关CI通过；只读验真最终包93321字节、SHA-256 `1338ab2b2621ed4c19b8208203fd77d8e648b4f20721529479fc73a947bbbaf4`。既有getSharedQuotaState响应仅在V3连接协商 `shared-access-policy-identity-read` 后接受可选sharedAccessPolicyIdentity；旧端或缺字段返回未核实，不能凭policyRevision相同补身份。严格校验schema／revision／effectiveAtMs／stage／64位小写摘要；独立默认关闭核对器对当前完整policy递归排序key、UTF-8无空白JSON求SHA-256，并比较全部身份字段。请求前后复核认证scope和完整policy摘要，迟到响应或绑定／策略变化不可通过；不存身份载荷、不另建配置或协议。匹配只证明内容相等，executionEnabled始终false，不证明来源真实性、替换scope授权或共享执行许可。聚焦测试使用固定1.29真实契约函数及隔离Native响应，Native尚未实现，mock不称真机验收；不改原账、候选、TASK_BOARD或部署。
 
 1.29准备层本地证据：`shared-policy-identity-reader.test.js` 携带最终固定包通过，校验真实契约canonical／SHA生成、同revision异内容／阶段／生效时间、错摘要、缺字段、单在途及身份换代／迟到；`local-guardian.test.js` 与 `shared-quota-state.test.js`、typecheck、extension-root、app-runtime-boundaries通过。Native专项首轮因夹具刷新心跳被原去重跳过，改为测试显式force刷新后通过，生产去重规则未放宽。Matched＝能力协商／严格完整身份／默认关闭／响应后身份复核；Deviated／Extra＝无。Missing＝Native实现与真实Host／设备联合验收；无生产调用者、启用、安装或部署，不把mock及policy匹配称为来源授权。固定1.28vendor、分页器及原账代码无变更。
+
+2026-10-03 核心链路集中交付来源审查（恢复执行，仅审查，不是已贯通）：现行 `buildLocalQuotaProjectionV2` 只读本机 `daily_usage_stats_v1` 的active及实际quota bucket，并按设备应用批准更正；它是可复用的统计贡献基础，不用mode或媒体反算。`readCurrentWeekBrowserSnapshots`／`buildAuthoritativeDailySnapshots` 另提供北京时间日期、statisticsRevision、correctionRevision及snapshotRevision，但其complete还包含原始／恢复区间的完整性校验，不能把区间缺失等同于日统计缺失，也不能为新贡献放宽这个既有函数。`buildWebSharedQuotaContributionV1` 已提供整数秒转毫秒及other非扣费投影，目前仅由 `inspectSharedQuotaShadowV1` 消费，未接入1.28完整basis替换；1.28分页reader仅以空replacements检验和读取，不等于已计入本机未上传增量。
+
+版本与触发缺口：BrowserBridge的三个版本及 `readV3LocalVersion` 均是内容摘要；V2 manifest ordinal则在 `prepareDeviceAccountV2Upload` 根据stats／raw事实指纹于既有上传准备事务内生成，两者不是同一版本域，不允许为D-114调用它增号、借用其ACK或改原上传队列。现有 `registerPersistedUsageSegmentObserver` 是单一监听槽，已由Native占用，且原始分段写入通知不证明聚合已完成；新派生队列应独立观察已落地日统计、相关更正／绑定／policy变化并有界合并重读，不能再次注册替换它。现有分钟健康／小时reconcile只服务旧BrowserBridge，未驱动D-114贡献HTTP上传。固定契约交付前不猜新端点、ACK、水位、来源证明字段或给云V2 ordinal加一。
+
+第一批待接线：使用已批准的独立派生贡献队列／单调版本／摘要／逐版本ACK，持久版本严格绑定设备Child及日期，旧ACK不得清新版本；范围／更正版本和完整policy捕获沿用已有可信读取。自有web scope必须来自设备HTTPS及架构新增的云签名绑定证明，Host自报appscope不授予网页替换权。贡献组装调用冻结1.28的真实 `projectLocalSharedQuotaExecution`，不新增第二套余额算法；现行统计、原账、原上传队列及配额／提醒调用者不变。当前只有本机只读代码证据，没有固定新契约或真实上传闭环，禁止宣称余额贯通；本次不新建PR／中间候选／提交／部署，保留TASK_BOARD草稿，待同批固定包接线与集中验收。
 
 ### D-114 终端契约与实施边界
 

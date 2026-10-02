@@ -204,16 +204,30 @@ async function run() {
     .replace(/export /g, '');
   let response = new Response(JSON.stringify({ schemaVersion: 1, profileId: 'child-A', policy: policy(4) }));
   const calls = [];
-  const context = { AbortController, TextDecoder, setTimeout, clearTimeout, CLOUD_CONFIG: { REQUEST_TIMEOUT_MS: 15000 },
+  const context = { AbortController, TextDecoder, TextEncoder, setTimeout, clearTimeout, CLOUD_CONFIG: { REQUEST_TIMEOUT_MS: 15000 },
     requireRuntimeActivation: async () => ({ ok: true }), getCloudApiBase: () => 'https://fixture.invalid',
     fetch: async (url, options) => { calls.push({ url, options }); return response; } };
-  vm.runInNewContext(`${transport};this.read = readCloudSharedAccessPolicy;`, context);
+  vm.runInNewContext(`${transport};this.read = readCloudSharedAccessPolicy;this.uploadWeb=postCloudSharedWebContribution;this.bindWeb=requestCloudSharedWebSourceBinding;this.webCapability=readCloudSharedWebCapabilities;this.webWatermark=readCloudSharedWebWatermark;`, context);
   const input = { deviceToken: 'fixture-credential-A', apiBase: 'https://fixture.invalid' };
   assert.equal((await context.read(input)).profileId, 'child-A');
   assert.equal(calls[0].url, 'https://fixture.invalid/device/shared-access/v1');
   assert.equal(calls[0].options.headers.Authorization, 'Bearer fixture-credential-A');
   assert.equal(calls[0].options.method, 'GET'); assert.equal(calls[0].options.body, undefined);
   assert.equal(calls[0].options.redirect, 'error');
+  response = new Response(JSON.stringify({ accepted: true }));
+  assert.equal((await context.uploadWeb(input, { schemaVersion: 1, example: 'fixture' })).ok, true);
+  assert.equal(calls.at(-1).url, 'https://fixture.invalid/device/shared-web-contributions/v1');
+  assert.equal(calls.at(-1).options.method, 'POST');
+  assert.equal(calls.at(-1).options.headers.Authorization, 'Bearer fixture-credential-A');
+  assert.equal(calls.at(-1).options.body.includes('fixture-credential-A'), false);
+  const webRequests = calls.length;
+  assert.equal((await context.uploadWeb(input, { value: 'x'.repeat(17000) })).ok, false);
+  assert.equal(calls.length, webRequests);
+  response = new Response('{}');
+  await context.bindWeb(input, 'a'.repeat(64));
+  assert.equal(calls.at(-1).options.body, JSON.stringify({ challengeId: 'a'.repeat(64) }));
+  response = new Response('{}'); await context.webWatermark(input, '2026-10-03');
+  assert.equal(calls.at(-1).url, 'https://fixture.invalid/device/shared-web-watermark/v1?date=2026-10-03');
   for (const [status, code] of [[401, 'shared_access_unauthorized'], [403, 'shared_access_unbound'], [404, 'shared_access_unsupported'], [503, 'shared_access_unavailable']]) {
     response = new Response('private backend body must not be returned', { status });
     assert.equal((await context.read(input)).errorCode, code);

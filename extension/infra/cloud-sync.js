@@ -402,7 +402,7 @@ export async function readSharedAccessPolicyCloudScope() {
     : { ok: false, errorCode: 'shared_access_inactive' };
 }
 
-async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {}, path) {
+async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {}, path, body) {
   if (typeof deviceToken !== 'string' || !deviceToken || apiBase !== getCloudApiBase()) {
     return { ok: false, errorCode: 'shared_access_identity_changed' };
   }
@@ -413,7 +413,9 @@ async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {
   try {
     if (signal?.aborted) return { ok: false, errorCode: 'shared_access_cancelled' };
     const response = await fetch(`${apiBase}${path}`, {
-      method: 'GET', headers: { Authorization: `Bearer ${deviceToken}` }, signal: controller.signal,
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { Authorization: `Bearer ${deviceToken}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: controller.signal,
       redirect: 'error', cache: 'no-store',
     });
     if (!response.ok) return { ok: false, errorCode: response.status === 401 ? 'shared_access_unauthorized'
@@ -454,6 +456,24 @@ async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {
     clearTimeout(timeout);
     signal?.removeEventListener('abort', abort);
   }
+}
+
+// Dedicated derived protocol: never calls original ledger or aggregate upload ACKs.
+export async function readCloudSharedWebCapabilities(options = {}) {
+  return readCapturedSharedDeviceJson(options, '/device/shared-web-capabilities/v1');
+}
+export async function readCloudSharedWebWatermark(options = {}, date) {
+  const ms = Date.parse(`${date}T00:00:00Z`);
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== date) return { ok: false, errorCode: 'shared_web_invalid_date' };
+  return readCapturedSharedDeviceJson(options, `/device/shared-web-watermark/v1?date=${date}`);
+}
+export async function postCloudSharedWebContribution(options = {}, upload) {
+  if (new TextEncoder().encode(JSON.stringify(upload)).length > 16384) return { ok: false, errorCode: 'shared_web_size_limit' };
+  return readCapturedSharedDeviceJson(options, '/device/shared-web-contributions/v1', upload);
+}
+export async function requestCloudSharedWebSourceBinding(options = {}, challengeId) {
+  if (!/^[a-f0-9]{64}$/.test(challengeId)) return { ok: false, errorCode: 'shared_web_invalid_challenge' };
+  return readCapturedSharedDeviceJson(options, '/device/shared-web-source-binding/v1', { challengeId });
 }
 
 export async function readCloudSharedAccessPolicy(options = {}) {

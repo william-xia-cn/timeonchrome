@@ -36,6 +36,7 @@ function createPort(onPost) {
 
 function moduleSource(instance) {
   return originalSource
+    .replace(/from '\.\.\/core\/shared-web-native.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-web-native.js')).href}'`)
     .replace(/import \{ MANAGED_POLICY_KEYS, readManagedActivationPolicy \} from '\.\.\/core\/activation-gate\.js';/, `const MANAGED_POLICY_KEYS = globalThis.__guardianPolicyKeys;\nconst readManagedActivationPolicy = (...args) => globalThis.__guardianReadPolicy(...args);`)
     .replace(/import \{ readNativeHostDeploymentMarker, readNativeHostDevelopmentMarker \} from '\.\.\/core\/deployment-mode\.js';/, 'const readNativeHostDeploymentMarker = (...args) => globalThis.__guardianReadMarker(...args);\nconst readNativeHostDevelopmentMarker = (...args) => globalThis.__guardianReadDevelopmentMarker(...args);')
     .replace(/import \{ budgetedLocalSet \} from '\.\/storage-budget\.js';/, 'const budgetedLocalSet = (...args) => globalThis.__guardianBudgetedSet(...args);')
@@ -539,7 +540,7 @@ async function run() {
       restUsedMs: 60000, restRemainingMs: null }, offline: false,
   };
   const sharedPayloads = [];
-  let identityCapabilities = ['health', 'shared-quota-state-read'], sharedIdentity;
+  let identityCapabilities = ['health', 'shared-quota-state-read'], sharedIdentity, nativePreparation;
   let sharedPolicyTestPort;
   const sharedRead = await loadGuardian({ storage: {}, policy, development: true,
     connectNative: () => (sharedPolicyTestPort = createPort((payload, onMessage) => {
@@ -547,7 +548,7 @@ async function run() {
       queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true,
         receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [1, 2, 3],
         capabilities: identityCapabilities,
-        ...(payload.messageType === 'getSharedQuotaState' ? { sharedQuota: sharedState, sharedAccessPolicyIdentity: sharedIdentity } : {}) })));
+        ...(payload.messageType === 'getSharedQuotaState' ? { sharedQuota: sharedState, sharedAccessPolicyIdentity: sharedIdentity, sharedQuotaPreparation: nativePreparation } : {}) })));
     })) });
   const expectedShared = { date: '2026-10-02', weekStart: '2026-09-28', policyRevision: 'profile-config:12' };
   assert.strictEqual(sharedRead.module.hasSharedAccessPolicyCapability(), false);
@@ -566,6 +567,15 @@ async function run() {
   const identityResult = await sharedRead.module.requestSharedQuotaState(expectedShared);
   assert.strictEqual(identityResult.policyIdentityStatus, 'available');
   assert.deepStrictEqual(identityResult.sharedAccessPolicyIdentity, sharedIdentity);
+  nativePreparation = { schemaVersion: 1, basisRevision: null, policyIdentity: sharedIdentity, projection: null,
+    transportStatus: 'unavailable', replacementVersions: [], reasonCodes: ['BASIS_UNAVAILABLE'], executionEnabled: false };
+  assert.strictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).sharedQuotaPreparation, undefined, 'unnegotiated preparation is ignored');
+  identityCapabilities.push('shared-quota-execution-preparation-read-v1');
+  await sharedRead.module.requestLocalGuardianHeartbeat({ force: true });
+  assert.deepStrictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).sharedQuotaPreparation, nativePreparation);
+  nativePreparation.executionEnabled = true;
+  assert.strictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).preparationStatus, 'invalid');
+  nativePreparation = undefined;
   sharedIdentity.policyHash = 'invalid';
   assert.strictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).errorCode, 'shared_policy_identity_invalid');
   sharedIdentity = undefined;
@@ -985,6 +995,38 @@ async function run() {
   assert.strictEqual((await activity.module.reportSharedBrowserActivity(makeActivity(2))).ok, false);
   assert.strictEqual(activityRequests.length, oldHostCount);
   assert(leasesObserved.includes(null) && leasesObserved.includes('fixture-lease-2'));
+  const webRequests = [], challenge = { schemaVersion: 1, challengeId: 'c'.repeat(64), connectionHash: 'd'.repeat(64), expiresAtMs: Date.now() + 300000 };
+  let webCapable = true, badWebReceipt = false;
+  const webHost = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => {
+      webRequests.push(payload);
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(), requestId: payload.requestId,
+        supportedProtocols: [3], capabilities: ['health', ...(webCapable ? ['shared-web-contribution-sync-v1'] : [])],
+        ...(payload.messageType === 'getSharedWebSourceChallenge' ? { sharedWebSourceChallenge: badWebReceipt ? { ...challenge, deviceToken: 'forbidden' } : challenge } : {}),
+        ...(payload.messageType === 'bindSharedWebSource' ? { sharedWebSourceBound: { challengeId: challenge.challengeId, webSourceKey: payload.payload.proof.claims.webSourceKey, expiresAtMs: payload.payload.proof.claims.expiresAtMs } } : {}),
+        ...(payload.messageType === 'replaceSharedWebContribution' ? { sharedWebContributionAccepted: {
+          date: payload.payload.upload.date, revisionOrdinal: payload.payload.upload.revisionOrdinal,
+          contentHash: payload.payload.upload.contentHash, duplicate: false } } : {}) })));
+    }) });
+  await webHost.module.requestLocalGuardianHeartbeat({ force: true });
+  assert.strictEqual((await webHost.module.requestSharedWebSync('getSharedWebSourceChallenge', {})).ok, false);
+  webHost.module.configureSharedQuotaNativeBridge({ enabled: true });
+  assert.deepStrictEqual((await webHost.module.requestSharedWebSync('getSharedWebSourceChallenge', {})).value, challenge);
+  const proof = { schemaVersion: 1, keyId: 'a'.repeat(64), signature: 'A'.repeat(86), claims: { schemaVersion: 1,
+    audience: 'timeonchrome:shared-web-source:v1', challengeId: challenge.challengeId, connectionHash: challenge.connectionHash,
+    applicationSourceKey: 'e'.repeat(64), childScopeHash: 'f'.repeat(64), assignmentVersion: 1, webSourceKey: 'web:' + 'b'.repeat(64),
+    issuedAtMs: challenge.expiresAtMs - 300000, expiresAtMs: challenge.expiresAtMs } };
+  assert.strictEqual((await webHost.module.requestSharedWebSync('bindSharedWebSource', { proof })).ok, true);
+  assert.strictEqual(webRequests.at(-1).channel, 'sharedQuota');
+  assert.deepStrictEqual(webRequests.at(-1).payload, { proof });
+  assert.strictEqual((await webHost.module.requestSharedWebSync('bindSharedWebSource', { proof, deviceToken: 'forbidden' })).ok, false);
+  badWebReceipt = true;
+  assert.strictEqual((await webHost.module.requestSharedWebSync('getSharedWebSourceChallenge', {})).ok, false);
+  webCapable = false;
+  await webHost.module.requestLocalGuardianHeartbeat({ force: true });
+  const unsupportedCount = webRequests.length;
+  assert.strictEqual((await webHost.module.requestSharedWebSync('getSharedWebSourceChallenge', {})).ok, false);
+  assert.strictEqual(webRequests.length, unsupportedCount);
   console.log('[Local Guardian] passed');
   process.exit(0);
 }
