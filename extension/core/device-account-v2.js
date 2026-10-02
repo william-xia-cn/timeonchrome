@@ -8,6 +8,7 @@ const DEVICE_ACCOUNT_V2_MAX_LOCAL_DATES = 16;
 const VALID_KINDS = new Set(['daily_domain', 'hourly_domain', 'daily_target', 'hourly_target']);
 const VALID_CHANNELS = new Set(['active', 'backgroundMedia', 'pip']);
 const VALID_MODES = new Set(['study', 'rest', 'locked', 'paused', 'unknown', 'composite']);
+const VALID_QUOTA_BUCKETS = new Set([...VALID_MODES, 'other']);
 const COMMON_ROW_KEYS = new Set([
   'kind', 'periodKey', 'channel', 'mode', 'durationSeconds', 'segmentsCount', 'firstSeenAt', 'lastSeenAt',
 ]);
@@ -160,7 +161,7 @@ export function validateDeviceAccountRows(rows, date, { requireConservation = tr
     if (!VALID_CHANNELS.has(row.channel) || !VALID_MODES.has(row.mode)) {
       return { ok: false, code: 'DEVICE_ACCOUNT_INVALID_ROUTE' };
     }
-    if (row.kind.endsWith('_target') && !VALID_MODES.has(row.quotaBucket)) {
+    if (row.kind.endsWith('_target') && !VALID_QUOTA_BUCKETS.has(row.quotaBucket)) {
       return { ok: false, code: 'DEVICE_ACCOUNT_INVALID_QUOTA_BUCKET' };
     }
     if (row.kind.endsWith('_domain') ? !row.domain : !row.targetKey) {

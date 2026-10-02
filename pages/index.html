@@ -3507,7 +3507,7 @@ function renderUnclassifiedReviewRow(row, rowIdx) {
   const observationText = isRequest ? siteRequestObservationText(request) : unclassifiedReviewStatsText(site);
   const statusText = isRequest ? siteRequestStatusLabel(request.status, request) : (site.historicalPending || site.actionable === false ? `当前已归类：${sitePolicyLabel(site.currentClassification)}` : '待生成记录');
   const actionHtml = unknown ? '<span class="rules-site-badge">未识别页面，不适用网站归类</span>' : isPending
-    ? classificationPolicyDefs().map(def => `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`).join('') + `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, 'return')">暂不归类</button>`
+    ? classificationPolicyDefs().map(def => `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`).join('') + `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, 'other')">归为其他时间</button><button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, 'return')">暂不归类</button>`
     : `<span class="rules-site-badge">${escHtml(statusText)}</span>`;
   return `
     <div class="rules-site-row-wrap" data-source="${isRequest ? 'site-request' : 'used-unclassified'}" data-domain="${escHtml(title)}">
@@ -3747,6 +3747,7 @@ function decisionForUnclassifiedPolicy(targetPolicy) {
   if (targetPolicy === 'composite') return 'composite';
   if (targetPolicy === 'restricted') return 'reject';
   if (targetPolicy === 'blocked') return 'blocked';
+  if (targetPolicy === 'other') return 'other';
   if (targetPolicy === 'return') return 'return';
   return null;
 }
@@ -9511,6 +9512,7 @@ function siteRequestStatusLabel(status, request = {}) {
   if (status === 'returned') return kind === 'unclassified_visit' ? '已暂不归类' : '已退回';
   if (status === 'approved_study') return '已确认为学习';
   if (status === 'approved_composite') return '已确认为复合';
+  if (status === 'approved_other') return '已确认为其他时间';
   if (status === 'rejected') return '已归为受限娱乐';
   if (request?.decision === 'blocked' || status === 'blocked' || status === 'approved_blocked') return '已归为黑名单';
   return status || '未知';
@@ -9586,6 +9588,7 @@ function renderSiteRequestRow(request, idx) {
     <div class="site-request-actions">
       <button class="btn-classify study" onclick="decideSiteClassificationRequest(${idx},'study')">${primaryAction}</button>
       <button class="btn-classify rest" onclick="decideSiteClassificationRequest(${idx},'composite')">${compositeAction}</button>
+      <button class="btn-classify" onclick="decideSiteClassificationRequest(${idx},'other')">归为其他时间</button>
       <button class="btn-classify" onclick="decideSiteClassificationRequest(${idx},'return')">${returnAction}</button>
       <button class="btn-classify" style="color:var(--danger);border-color:rgba(239,68,68,.35);" onclick="decideSiteClassificationRequest(${idx},'reject')">归为受限娱乐</button>
       <button class="btn-classify" style="color:var(--danger);border-color:rgba(17,24,39,.35);" onclick="decideSiteClassificationRequest(${idx},'blocked')">归为黑名单</button>
@@ -9634,7 +9637,7 @@ async function decideSiteClassificationRequestRecord(request, decision, options 
     toast('请输入审批生效对象', false);
     return;
   }
-  const targetPolicy = decision === 'study' ? 'study' : decision === 'composite' ? 'composite' : decision === 'blocked' ? 'blocked' : 'restricted';
+  const targetPolicy = decision === 'study' ? 'study' : decision === 'composite' ? 'composite' : decision === 'blocked' ? 'blocked' : decision === 'other' ? 'other' : 'restricted';
   const protectedScope = decision === 'study' || decision === 'composite'
     ? findProtectedSiteClassificationActionScope(targetValue, targetPolicy)
     : null;
@@ -9651,6 +9654,8 @@ async function decideSiteClassificationRequestRecord(request, decision, options 
     ? '已批准为学习网站'
     : decision === 'composite'
     ? '已批准为复合网站'
+    : decision === 'other'
+    ? '已批准为其他时间；仅影响后续使用归属，不改变网站访问权限'
     : decision === 'return'
     ? (siteRequestRecordKind(request) === 'unclassified_visit' ? '已暂不归类' : '已退回申请')
     : decision === 'blocked'
