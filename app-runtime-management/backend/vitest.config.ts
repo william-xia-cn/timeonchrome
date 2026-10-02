@@ -18,11 +18,19 @@ export default defineConfig({
           if(operation==='/readSharedQuotaState'){
             const scope=await request.json() as {accountId:string;childId:string;date:string};
             if(scope.childId!=='child-a')return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
+            const dayStart=Date.parse(`${scope.date}T00:00:00+08:00`);
+            const monday=new Date(dayStart-((new Date(dayStart+28_800_000).getUTCDay()+6)%7)*86_400_000+28_800_000)
+              .toISOString().slice(0,10);
             const state={schemaVersion:1,policyRevision:'profile-config:1',revision:'shadow-r1',computedAtMs:1790880000000,
               settledAtMs:null,complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],sources:[],
               day:{date:scope.date,usedMs:{study:1000,composite:2000,rest:3000},remainingMs:{study:4000,composite:3000,rest:2000},borrowedRestMs:0},
-              week:{fromDate:'2026-09-28',toDate:scope.date,complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],restUsedMs:3000,restRemainingMs:9000},offline:false};
+              week:{fromDate:monday,toDate:scope.date,complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],restUsedMs:3000,restRemainingMs:9000},offline:false};
             if(scope.date==='2026-10-03')Object.assign(state,{unexpected:'not-in-contract'});
+            if(scope.date==='2026-10-04')state.day.date='2026-10-02';
+            if(scope.date==='2026-10-05')state.week.toDate='2026-10-04';
+            if(scope.date==='2026-10-06')state.computedAtMs=-1;
+            if(scope.date==='2026-10-07')Object.assign(state,{settledAtMs:-1});
+            if(scope.date==='2026-10-08')state.week.fromDate='2026-10-07';
             return Response.json({state});
           }
           if(operation!=='/verifyChildAccess')return new Response('Fixture service unavailable',{status:503});
