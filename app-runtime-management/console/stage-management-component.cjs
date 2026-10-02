@@ -1,3 +1,4 @@
+// Canonical Runtime component builder; consumers may depend on this module, never the reverse.
 const fs = require('node:fs');
 const path = require('node:path');
 const scripts = ['computer-usage-view.js', 'app-runtime-time.js', 'app-runtime-network.js', 'app-runtime-clipboard.js', 'app-runtime-policy.js', 'app-runtime-knowledge.js', 'app-runtime-devices.js', 'app-runtime.js'];

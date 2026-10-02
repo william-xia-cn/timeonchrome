@@ -2,7 +2,7 @@
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),{pathToFileURL}=require('node:url');
 const root=path.resolve(__dirname,'../..');
 const component=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'toc-component-visual-'));
-require('../../tools/stage-runtime-management-component').stageRuntimeManagementComponent(__dirname,path.join(component,'assets'));
+require('./stage-management-component.cjs').stageRuntimeManagementComponent(__dirname,path.join(component,'assets'));
 (async()=>{
 const {mergeComputerUsage,withComputerUsageRevision,computerUsageReadPage}=await import(pathToFileURL(path.join(root,'app-runtime-management/contracts/dist/computer-usage.js')));
 const day=Date.parse('2026-10-01T00:00:00+08:00');

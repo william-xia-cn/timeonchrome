@@ -1,7 +1,7 @@
 // Release-only projection: Task remains in source but is not published this cycle.
 const fs = require('node:fs');
 const path = require('node:path');
-const {stageRuntimeManagementComponent} = require('./stage-runtime-management-component');
+const {stageRuntimeManagementComponent} = require('../app-runtime-management/console/stage-management-component.cjs');
 
 function stageMainConsole(source, destination, options = {}) {
   source = fs.realpathSync(source);

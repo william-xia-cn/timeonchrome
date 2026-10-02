@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { stageMainConsole } = require('../../tools/stage-main-console-release');
-const {stageRuntimeManagementComponent} = require('../../tools/stage-runtime-management-component');
+const {stageRuntimeManagementComponent} = require('../../app-runtime-management/console/stage-management-component.cjs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'toc-main-release-'));
 const source = path.join(root, 'source'), out = path.join(root, 'out');
 fs.mkdirSync(path.join(source, 'task'), {recursive:true});

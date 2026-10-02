@@ -2,6 +2,8 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+PR #188 CI：Console 和 Guardian/主入口通过，源码边界检查准确拒绝了 visual fixture 反向导入根 tools。修正生成器归属到 canonical Runtime console，主发布工具及根测试从该模块消费；不修改边界检查规则，不将测试代码列入豁免。重新跑该检查和受影响加载器/构建回归后推送同一PR，既有目视证据不因单纯生成器路径移动失效。
+
 下一批为主控制台发布资源构建：从 canonical Runtime console 显式列出的管理依赖生成 `/runtime-management-component/` 与模板清单，禁止复制独立 index、Session/bootstrap 或恢复 `/app-runtime/` 静态子站。模板去除脚本/样式外链，由后续同源加载器注入；保留原产品/账户/配对面板，不维护第二份源码。聚焦验证资源白名单、源码不变、输出禁止覆盖、symlink拒绝和Task发布隔离；工具及测试路径为本任务精确例外，不触发平台测试，不部署。
 
 主导航挂载：新增同源组件加载器，主控制台 apps/devices 按当前 Child 注入 Guardian 管理网关，条件写入保留 If-Match。父页面负责身份/孩子/导航，组件只负责本面板。切换立即销毁，资源加载和旧请求以 epoch 失效，失败原地重试；聚焦加载器回归、导航结构及桌面/移动 mock 目视，不改网页统计或身份鉴权语义。

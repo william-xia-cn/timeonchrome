@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
-const {scripts,styles}=require('../../tools/stage-runtime-management-component');
+const {scripts,styles}=require('../../app-runtime-management/console/stage-management-component.cjs');
 const code=fs.readFileSync(require.resolve('../../pages/runtime-management-loader'),'utf8');
 function fixture({hold=false,invalid=false,holdStyles=false}={}){
   const fetched=[],loaded=[],mounts=[];let resolve,disposed=0;
