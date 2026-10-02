@@ -47,10 +47,10 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
  assert.equal(result.web.bucketsMs.composite,0,'other time does not consume a shared quota bucket');
  assert.equal(result.application.classesMs.study,600000);
  assert.equal(result.week.fromDate,'2026-09-28','weekly aggregation starts Monday in Beijing time');
- assert.equal(result.week.toDate,'2026-10-04','weekly aggregation ends Sunday in Beijing time');
- assert.equal(result.week.complete,true,'all seven persisted daily source projections can produce a complete week');
- assert.equal(result.week.restUsedMs,7*60000,'weekly state sums the seven daily Rest projections');
- assert.equal(result.week.restRemainingMs,240*60000-7*60000,'weekly entertainment quota uses the unified policy');
+ assert.equal(result.week.toDate,date,'weekly state is through the selected Beijing date, not future days');
+ assert.equal(result.week.complete,true,'all persisted days through the selected date can produce a complete week-to-date state');
+ assert.equal(result.week.restUsedMs,5*60000,'weekly state sums Monday through Friday daily Rest projections');
+ assert.equal(result.week.restRemainingMs,240*60000-5*60000,'weekly entertainment quota uses the unified policy');
  assert.equal(result.usableForEnforcement,false,'shadow state is not an enforcement input');
  const stageChanged=await service.readSharedAccessDayState(env,'account','child',date,{...policy,stage:'shadow'});
  assert.notEqual(result.revision,stageChanged.revision,'policy rollout stage changes produce a new state revision');
