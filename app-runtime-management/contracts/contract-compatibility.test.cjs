@@ -142,7 +142,9 @@ assert.equal(nativeHostV3.allOf[3].then.allOf[6].then.properties.payload.$ref,
   'shared-reminder-lifecycle-v1.schema.json#/$defs/browserExecutionAck');
 for(const type of ['browserExecution','browserExecutionAck']) {
   assert.equal(lifecycle.$defs[type].additionalProperties,false);
-  assert.deepEqual(lifecycle.$defs[type].required,Object.keys(lifecycle.$defs[type].properties));
+  assert.deepEqual(lifecycle.$defs[type].required,Object.keys(lifecycle.$defs[type].properties)
+    .filter(field=>field!=='triggerStateRevision'));
+  assert.equal(lifecycle.$defs[type].properties.triggerStateRevision.$ref,'#/$defs/key');
 }
 assert.equal(lifecycle.$defs.state.additionalProperties,false);
 assert.deepEqual(lifecycle.$defs.state.required,Object.keys(lifecycle.$defs.state.properties));

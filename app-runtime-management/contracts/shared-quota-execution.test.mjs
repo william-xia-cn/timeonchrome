@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { projectLocalSharedQuotaExecution, assembleSharedQuotaExecutionPages } from './dist/shared-quota-execution.js';
+import { projectLocalSharedQuotaExecution, assembleSharedQuotaExecutionPages, sharedQuotaReminderContinuityV1 } from './dist/shared-quota-execution.js';
+import { sharedAccessAdmissionV1, createSharedAccessPolicyIdentityV1 } from './dist/shared-access.js';
 const vectors = JSON.parse(fs.readFileSync(new URL('./shared-quota-execution.vectors.json', import.meta.url)));
 const clone = value => structuredClone(value);
 const weekdays = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
@@ -15,6 +16,44 @@ function basis() {
     fromDate:vectors.dates[0],toDate:vectors.dates.at(-1),days:vectors.dates.map(date => ({date,reasonCodes:[],
       sources:vectors.sourceEntries.map(entry => ({...clone(entry),contribution:{...clone(entry.contribution),date}}))}))};
 }
+const admissionPolicy = {...clone(policy),revision:'profile-config:1'};
+for (const vector of vectors.admissionCases) {
+  const activePolicy = clone(admissionPolicy);
+  const nature = vector.category === 'restrictedEntertainment' ? 'rest'
+    : ['composite','unclassified'].includes(vector.category) ? 'composite' : 'study';
+  activePolicy.timeWindows.tuesday[nature] = vector.windows;
+  activePolicy.timeWindows.tuesday.rest = nature === 'rest' ? vector.windows : [{start:'00:00',end:'00:01'}];
+  const day = {date:'2026-09-29',complete:vector.complete??true,reasonCodes:[],usedMs:{study:0,composite:0,rest:0},
+    remainingMs:{study:vector.study??1,composite:vector.composite??1,rest:vector.rest??1},borrowedRestMs:0};
+  assert.deepEqual(sharedAccessAdmissionV1(activePolicy,day,{complete:true,restRemainingMs:vector.weekRest??1},
+    vector.category,vector.minute,vector.objectAllowed??true),
+    {decision:vector.decision,reasonCode:vector.reason,quotaBucket:vector.bucket},vector.name);
+}
+const continuityIdentity = await createSharedAccessPolicyIdentityV1(admissionPolicy);
+for (const vector of vectors.continuityCases) {
+  const old = {scopeRevision:'verified-assignment-target',policyIdentity:continuityIdentity,
+    fromDate:vectors.dates[0],toDate:vectors.dates.at(-1),sources:basis().days.flatMap(day=>day.sources)};
+  // Bind the fixture's policy identity, without changing any real source.
+  old.sources.forEach(entry=>entry.contribution.policyRevision=admissionPolicy.revision);
+  const next=clone(old), entry=next.sources.at(-1);
+  entry.revisionOrdinal++; entry.contribution.revision='next';
+  entry.contribution.statisticsRevision='next-statistics'; entry.contribution.applicationClassesMs.composite++;
+  if(vector.change==='reorder')next.sources.reverse();
+  if(vector.change==='lower')entry.contribution.applicationClassesMs.study=0;
+  if(vector.change==='correction')entry.contribution.correctionRevision='new-correction';
+  if(vector.change==='association')entry.contribution.productAssociationVersion='new-products';
+  if(vector.change==='missing')next.sources.pop();
+  if(vector.change==='scope')next.scopeRevision='changed-assignment';
+  if(vector.change==='policy')next.policyIdentity.policyHash='b'.repeat(64);
+  if(vector.change==='incomplete'){entry.contribution.complete=false;entry.contribution.reasonCodes=['MISSING'];}
+  if(vector.change==='ordinal')entry.revisionOrdinal=0;
+  if(vector.change==='conflict')entry.revisionOrdinal=old.sources.at(-1).revisionOrdinal;
+  if(vector.change==='settlement')entry.contribution.settledAtMs=0;
+  const before=JSON.stringify({old,next});
+  assert.equal(sharedQuotaReminderContinuityV1(old,next),vector.expected,vector.name);
+  assert.equal(JSON.stringify({old,next}),before,'continuity does not rewrite sources');
+}
+console.log(`admission/continuity: PASS (${vectors.admissionCases.length}/${vectors.continuityCases.length} common vectors)`);
 for (const vector of vectors.cases) {
   const input = basis(), before = JSON.stringify(input), scopes = [], replacements = [];
   if (vector.source) {

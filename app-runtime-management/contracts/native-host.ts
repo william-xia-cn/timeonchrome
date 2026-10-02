@@ -12,7 +12,7 @@ export const SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY = 'shared-access-poli
 export const SHARED_WEB_CONTRIBUTION_SYNC_CAPABILITY = 'shared-web-contribution-sync-v1' as const;
 export const SHARED_QUOTA_EXECUTION_PREPARATION_CAPABILITY = 'shared-quota-execution-preparation-read-v1' as const;
 export const SHARED_REMINDER_RESULT_SHADOW_CAPABILITY = 'shared-reminder-result-shadow' as const;
-export { SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY,
+export { SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_REMINDER_CONTINUITY_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY,
   SHARED_BROWSER_EXECUTION_CAPABILITY } from './shared-reminder-lifecycle.js';
 
 export interface SharedQuotaStateQuery { date: string }

@@ -2,6 +2,8 @@
 
 ## D-114 统一访问配置、其他时间与电脑使用汇总（2026-10-02）
 
+实际提醒连续性：固定 reminder/delivery/round、触发 stateRevision 与首次可见单调时刻。Service 使用同授权范围、日周、完整配置身份、来源集合、更正及产品关联版本的原贡献对照证明连续；逐来源序号与有效贡献不得下降，每次刷新均须通过。普通增长不重启60秒；授权、连接、目标变化独立撤销，下降或更正不冒充增长。许可的 stateRevision 仍为最新执行摘要，可选 triggerStateRevision 绑定原提醒；ACK 必须完整回传。两端声明 shared-reminder-continuity-v1 后才使用该新增许可行为，旧端保持原严格比较。共用准入不改变原账：复合借娱乐仍按复合窗，null/[]全天、起含终不含、等端点或逆序不命中，跨午夜需拆段，其他只受对象限制。
+
 ### 三批贯通与派生网页贡献（2026-10-03，PO 已批准）
 
 第二批本机执行版本裁决：`basisRevision` 只标识云端依据，不能独立标识本机替换后的余额。执行许可、提醒轮次与 ACK 必须引用独立内部 `executionRevision`：SHA-256 对规范 JSON `{schemaVersion:1,policyIdentity,basisRevision,projection,replacementVersions}` 求摘要；对象键递归 ASCII 排序，替换版本按 date/source/sourceKey ASCII 排序且不得重复 scope，其他数组保持严格投影顺序。投影包括完整性、失败原因、日桶／借用及周结果；不含 computedAt、transportStatus 或原云端状态。旧序号不得覆盖新值，较新序号下降更正允许；相同身份也不能绕过连接代次、来源授权或配置完整性复核。准备响应不可用／不完整时不生成可执行身份。该身份只绑定执行读模型，不修改网页／应用原统计或公开云端 `sharedQuota`。
