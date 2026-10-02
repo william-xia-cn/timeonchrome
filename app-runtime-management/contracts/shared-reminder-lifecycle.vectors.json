@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "state": {
+    "schemaVersion": 1, "roundId": "round-1", "reminderId": "reminder-1", "deliveryId": "delivery-1",
+    "policyRevision": "policy-1", "stateRevision": "state-1", "date": "2026-10-02",
+    "kinds": ["daily", "weekly"], "presenter": "browser", "stage": "shared",
+    "issuedAtMs": 1000, "offerExpiresAtMs": 300000, "visibleAtMs": 2000,
+    "responseDeadlineSeconds": 60, "timeoutAction": "end", "status": "visible", "resolution": null
+  },
+  "context": {
+    "scopeCurrent": true, "presenterCurrent": true, "currentPolicyRevision": "policy-1", "currentStateRevision": "state-1",
+    "executionEnabled": true, "nowMs": 62000, "monotonicNowMs": 62000,
+    "bootId": "boot-1", "visibleBootId": "boot-1", "visibleMonotonicMs": 2000
+  },
+  "cases": [
+    { "name": "visible starts Service clock", "operation": "ack", "message": {"delivery":"visible"}, "statePatch":{"status":"offered","visibleAtMs":null}, "contextPatch":{"nowMs":2500,"monotonicNowMs":2400,"visibleBootId":null,"visibleMonotonicMs":null}, "expect":{"status":"visible","effect":"none","visibleAtMs":2500,"visibleMonotonicMs":2400} },
+    { "name": "duplicate visible never restarts clock", "operation":"ack", "message":{"delivery":"visible"}, "expect":{"status":"visible","effect":"none","duplicate":true,"visibleMonotonicMs":2000} },
+    { "name": "failed display cannot close", "operation":"ack", "message":{"delivery":"failed"}, "statePatch":{"status":"offered","visibleAtMs":null}, "contextPatch":{"visibleBootId":null,"visibleMonotonicMs":null}, "expect":{"status":"delivery_failed","effect":"none"} },
+    { "name": "conflicting display ACK rejected", "operation":"ack", "message":{"delivery":"failed"}, "error":"SHARED_REMINDER_DELIVERY_CONFLICT" },
+    { "name": "late offer ACK withdraws", "operation":"ack", "message":{"delivery":"visible"}, "statePatch":{"status":"offered","visibleAtMs":null}, "contextPatch":{"nowMs":300000}, "expect":{"status":"withdrawn","effect":"none"} },
+    { "name": "client timestamp forbidden", "operation":"ack", "message":{"delivery":"visible","visibleAtMs":2000}, "error":"INVALID_SHARED_REMINDER_MESSAGE" },
+    { "name": "old delivery ID rejected", "operation":"ack", "message":{"delivery":"visible","deliveryId":"old"}, "error":"SHARED_REMINDER_INSTANCE_CHANGED" },
+    { "name": "different user scope rejected", "operation":"ack", "message":{"delivery":"visible"}, "contextPatch":{"scopeCurrent":false}, "error":"SHARED_REMINDER_SCOPE_CHANGED" },
+    { "name": "different presenter cannot acknowledge", "operation":"ack", "message":{"delivery":"visible"}, "contextPatch":{"presenterCurrent":false}, "error":"SHARED_REMINDER_PRESENTER_CHANGED" },
+    { "name": "changed policy withdraws", "operation":"resolve", "message":{"action":"end_rest"}, "contextPatch":{"currentPolicyRevision":"policy-2"}, "expect":{"status":"withdrawn","effect":"none"} },
+    { "name": "changed state withdraws", "operation":"timeout", "contextPatch":{"currentStateRevision":"state-2"}, "expect":{"status":"withdrawn","effect":"none"} },
+    { "name": "active end is normal close only", "operation":"resolve", "message":{"action":"end_rest"}, "contextPatch":{"monotonicNowMs":3000}, "expect":{"status":"resolved","effect":"request-normal-close","resolution":"end_rest"} },
+    { "name": "continue does not close", "operation":"resolve", "message":{"action":"continue"}, "contextPatch":{"monotonicNowMs":3000}, "expect":{"status":"resolved","effect":"none","resolution":"continue"} },
+    { "name": "late button cannot override elapsed timeout or force", "operation":"resolve", "message":{"action":"continue"}, "error":"SHARED_REMINDER_DEADLINE_ELAPSED" },
+    { "name": "client timeout action forbidden", "operation":"resolve", "message":{"action":"timeout_end"}, "error":"INVALID_SHARED_REMINDER_MESSAGE" },
+    { "name": "not shown cannot resolve", "operation":"resolve", "message":{"action":"end_rest"}, "statePatch":{"status":"offered","visibleAtMs":null}, "error":"SHARED_REMINDER_NOT_VISIBLE" },
+    { "name": "not shown cannot timeout", "operation":"timeout", "statePatch":{"status":"offered","visibleAtMs":null}, "error":"SHARED_REMINDER_NOT_VISIBLE" },
+    { "name": "59999ms cannot force", "operation":"timeout", "contextPatch":{"monotonicNowMs":61999}, "error":"SHARED_REMINDER_TIMEOUT_EARLY" },
+    { "name": "60000ms may force", "operation":"timeout", "expect":{"status":"resolved","effect":"force-close","resolution":"timeout_end"} },
+    { "name": "shadow timeout never forces", "operation":"timeout", "statePatch":{"stage":"shadow"}, "expect":{"status":"resolved","effect":"none","resolution":"timeout_end"} },
+    { "name": "disabled execution never forces", "operation":"timeout", "contextPatch":{"executionEnabled":false}, "expect":{"status":"resolved","effect":"none"} },
+    { "name": "shadow active end never closes", "operation":"resolve", "message":{"action":"end_rest"}, "statePatch":{"stage":"shadow"}, "contextPatch":{"monotonicNowMs":3000}, "expect":{"status":"resolved","effect":"none"} },
+    { "name": "restart lost clock withdraws", "operation":"timeout", "contextPatch":{"bootId":"boot-2"}, "expect":{"status":"withdrawn","effect":"none"} },
+    { "name": "restart duplicate ACK cannot revive old timer", "operation":"ack", "message":{"delivery":"visible"}, "contextPatch":{"bootId":"boot-2"}, "expect":{"status":"withdrawn","effect":"none"} },
+    { "name": "wallclock forward cannot shortcut", "operation":"timeout", "contextPatch":{"nowMs":900000,"monotonicNowMs":3000}, "error":"SHARED_REMINDER_TIMEOUT_EARLY" },
+    { "name": "timeout configured continue", "operation":"timeout", "statePatch":{"timeoutAction":"continue"}, "expect":{"status":"resolved","effect":"none","resolution":"timeout_continue"} },
+    { "name": "duplicate resolved intent has no second effect", "operation":"resolve", "message":{"action":"end_rest"}, "statePatch":{"status":"resolved","resolution":"end_rest"}, "expect":{"status":"resolved","effect":"none","duplicate":true} },
+    { "name": "conflicting resolved intent rejected", "operation":"resolve", "message":{"action":"continue"}, "statePatch":{"status":"resolved","resolution":"end_rest"}, "error":"SHARED_REMINDER_RESULT_CONFLICT" }
+  ]
+}

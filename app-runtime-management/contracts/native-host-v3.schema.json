@@ -9,7 +9,7 @@
     "protocolVersion": { "const": 3 },
     "channel": { "enum": ["health", "statistics", "application", "sharedQuota"] },
     "requestId": { "type": "string", "format": "uuid" },
-    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getSharedQuotaState", "reportReminderResult"] },
+    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder"] },
     "extensionId": { "type": "string", "minLength": 1 },
     "profileId": { "type": "string", "format": "uuid" },
     "sentAtMs": { "type": "integer", "minimum": 0 },
@@ -31,12 +31,18 @@
     {
       "if": { "properties": { "channel": { "const": "sharedQuota" } }, "required": ["channel"] },
       "then": {
-        "properties": { "messageType": { "enum": ["getSharedQuotaState", "reportReminderResult"] } },
+        "properties": { "messageType": { "enum": ["getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder"] } },
         "allOf": [
           { "if": { "properties": { "messageType": { "const": "getSharedQuotaState" } } },
             "then": { "properties": { "payload": { "$ref": "#/$defs/sharedQuotaQuery" } } } },
           { "if": { "properties": { "messageType": { "const": "reportReminderResult" } } },
-            "then": { "properties": { "payload": { "$ref": "shared-access-v1.schema.json#/$defs/reminderResult" } } } }
+            "then": { "properties": { "payload": { "$ref": "shared-access-v1.schema.json#/$defs/reminderResult" } } } },
+          { "if": { "properties": { "messageType": { "const": "getSharedReminderState" } } },
+            "then": { "properties": { "payload": { "$ref": "#/$defs/sharedQuotaQuery" } } } },
+          { "if": { "properties": { "messageType": { "const": "acknowledgeSharedReminderDelivery" } } },
+            "then": { "properties": { "payload": { "$ref": "shared-reminder-lifecycle-v1.schema.json#/$defs/deliveryAck" } } } },
+          { "if": { "properties": { "messageType": { "const": "resolveSharedReminder" } } },
+            "then": { "properties": { "payload": { "$ref": "shared-reminder-lifecycle-v1.schema.json#/$defs/resolution" } } } }
         ]
       }
     }
