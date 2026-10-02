@@ -408,7 +408,7 @@ export const deviceRouter = {
         if (!owner) return json({code:'CHILD_NOT_FOUND'},404);
         const scope = {accountId:owner.account_id,childId:identity.profileId,deviceId:identity.deviceId,
           deviceToken:request.headers.get('Authorization')!.slice(7)};
-        const policy = await readSharedAccessPolicyForChild(env.DB,scope.accountId,scope.childId);
+        const policy = await readSharedAccessPolicyForChild(env.DB,scope.accountId,scope.childId,env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         if (!policy) return json({code:'CHILD_NOT_FOUND'},404);
         const capturedPolicyIdentity=await createSharedAccessPolicyIdentityV1(policy);
         let result:unknown;
@@ -422,7 +422,7 @@ export const deviceRouter = {
         const current = await verifyDeviceTokenFromRequest(request,env);
         if (!current || current.unbound || current.profileId !== identity.profileId || current.deviceId !== identity.deviceId)
           return json({code:'SHARED_ACCESS_BINDING_CHANGED'},409);
-        const currentPolicy=await readSharedAccessPolicyForChild(env.DB,scope.accountId,scope.childId);
+        const currentPolicy=await readSharedAccessPolicyForChild(env.DB,scope.accountId,scope.childId,env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         if(!currentPolicy||JSON.stringify(await createSharedAccessPolicyIdentityV1(currentPolicy))!==JSON.stringify(capturedPolicyIdentity))
           return json({code:'SHARED_ACCESS_POLICY_CHANGED'},409);
         const response = json(result); response.headers.set('Cache-Control','no-store'); return response;
@@ -457,14 +457,14 @@ export const deviceRouter = {
         const owner = await env.DB.prepare('SELECT account_id FROM profiles WHERE id = ?')
           .bind(identity.profileId).first<{ account_id: string }>();
         if (!owner) return json({ code: 'CHILD_NOT_FOUND' }, 404);
-        const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId);
+        const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         if (!policy) return json({ code: 'CHILD_NOT_FOUND' }, 404);
         const basis = await readSharedQuotaExecutionBasis(env as SharedAccessStateEnv, owner.account_id, identity.profileId, date, policy);
         const page = pageSharedQuotaExecutionBasis(basis, await sharedWebSourceKey(owner.account_id, identity.deviceId), offset, limit, revision);
         const current = await verifyDeviceTokenFromRequest(request, env);
         if (!current || current.unbound || current.profileId !== identity.profileId || current.deviceId !== identity.deviceId)
           return json({ code: 'SHARED_ACCESS_BINDING_CHANGED' }, 409);
-        const currentPolicy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId);
+        const currentPolicy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         if (!currentPolicy || currentPolicy.revision !== policy.revision || currentPolicy.stage !== policy.stage)
           return json({ code: 'EXECUTION_BASIS_VERSION_CHANGED' }, 409);
         const response = json({ profileId: identity.profileId, ...page });
@@ -487,7 +487,7 @@ export const deviceRouter = {
         const owner = await env.DB.prepare('SELECT account_id FROM profiles WHERE id = ?')
           .bind(identity.profileId).first<{ account_id: string }>();
         if (!owner) return json({ code: 'CHILD_NOT_FOUND' }, 404);
-        const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId);
+        const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         if (!policy) return json({ code: 'CHILD_NOT_FOUND' }, 404);
         return json({ schemaVersion: 1, profileId: identity.profileId, policy }, 200);
       } catch {

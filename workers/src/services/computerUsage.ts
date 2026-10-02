@@ -214,7 +214,7 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
           ||!Number.isSafeInteger(input.limit)||Number(input.limit)<1||Number(input.limit)>100
           ||!(input.expectedRevision===null||(typeof input.expectedRevision==='string'&&/^[a-f0-9]{64}$/.test(input.expectedRevision)))
           ||(Number(input.offset)>0&&input.expectedRevision===null))return Response.json({code:'INVALID_EXECUTION_CURSOR'},{status:400});
-        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
+        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId),this.env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         if(!policy)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
         const policyIdentity=await createSharedAccessPolicyIdentityV1(policy);
         const basis=await readSharedQuotaExecutionBasis(this.env,String(input.accountId),String(input.childId),date,policy);
@@ -224,13 +224,13 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
           page.authorizedScopes.push(...basis.days.flatMap(day=>day.sources.filter(source=>source.contribution.source==='web'
             &&source.contribution.sourceKey===web.webSourceKey).map(()=>({source:'web' as const,sourceKey:web.webSourceKey,date:day.date}))));
         }
-        const current=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
+        const current=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId),this.env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         if(!current||JSON.stringify(await createSharedAccessPolicyIdentityV1(current))!==JSON.stringify(policyIdentity))
           return Response.json({code:'EXECUTION_BASIS_VERSION_CHANGED'},{status:409});
         return Response.json({profileId:input.childId,...page},{headers:{'cache-control':'no-store'}});
       }
       if(operation==='/readSharedAccessPolicy'){
-        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
+        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId),this.env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         return policy?Response.json({policy}):Response.json({code:'CHILD_NOT_FOUND'},{status:404});
       }
       if(operation==='/readSharedQuotaState'){
@@ -239,7 +239,7 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
         if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||!Number.isFinite(dayStart)
           ||new Date(dayStart+28_800_000).toISOString().slice(0,10)!==date)
           return Response.json({code:'INVALID_DATE'},{status:400});
-        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
+        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId),this.env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         if(!policy)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
         const projected=await readSharedAccessDayState(this.env as SharedAccessStateEnv,String(input.accountId),
           String(input.childId),date,policy);

@@ -17,7 +17,7 @@ function load(relative, dependencies) {
 (async () => {
   const contract = await import('../../app-runtime-management/contracts/dist/shared-access.js');
   const quota = load('extension/core/quota-config.js', {});
-  const { readSharedAccessPolicyForChild } = load('workers/src/routes/profiles.ts', {
+  const { readSharedAccessPolicyForChild, normalizeSharedAccessRolloutV1 } = load('workers/src/routes/profiles.ts', {
     '@timeonchrome/app-runtime-contracts/shared-access': contract,
     '../../../extension/core/quota-config.js': quota,
   });
@@ -116,6 +116,50 @@ function load(relative, dependencies) {
   assert.equal(body.policy.weeklyRestMinutes, 120);
   assert.deepEqual(body.policy, await readSharedAccessPolicyForChild(env.DB, 'bound-owner', 'bound-child'),
     'device and parent consume exactly the same projection');
+  for(const invalid of [null,[],{schemaVersion:2,stage:'shared'}, {schemaVersion:1,stage:'active'},
+    {schemaVersion:1,stage:'shared',enabled:true},{schemaVersion:1,stage:{toString:()=> 'shared'}}])
+    assert.equal(normalizeSharedAccessRolloutV1(invalid),null,'rollout metadata cannot smuggle a separate configuration');
+  config.sharedAccessRolloutV1={schemaVersion:1,stage:'shadow'};
+  const shadow=await readSharedAccessPolicyForChild(env.DB,'bound-owner','bound-child');
+  assert.equal(shadow.stage,'shadow');
+  assert.deepEqual(shadow.dailyMinutes,body.policy.dailyMinutes,'stage does not create another quota source');
+  config.sharedAccessRolloutV1.stage='shared';
+  assert.equal((await readSharedAccessPolicyForChild(env.DB,'bound-owner','bound-child')).stage,'shadow',
+    'stored rollout intent cannot bypass the default-off deployment switch');
+  env.SHARED_ACCESS_EXECUTION_ENABLED='true';
+  const shared=(await (await deviceRouter.handle(request(),env)).json()).policy;
+  assert.equal(shared.stage,'shared');
+  assert.deepEqual(shared,await readSharedAccessPolicyForChild(env.DB,'bound-owner','bound-child',true));
+  assert.notEqual((await contract.createSharedAccessPolicyIdentityV1(shared)).policyHash,
+    (await contract.createSharedAccessPolicyIdentityV1(shadow)).policyHash,'phase switch invalidates cached full configuration identity');
+  delete config.sharedAccessRolloutV1;delete env.SHARED_ACCESS_EXECUTION_ENABLED;
+  const parent = load('workers/src/routes/profiles.ts',{
+    '../db/middleware':{json,verifyAccountToken:async req=>req.headers.get('Authorization')==='Bearer parent-fixture'?'bound-owner':null},
+    '../config/system-access-config':{getSystemAccessConfig:async()=>({defaultCompositeSites:[],defaultUserCompositeSites:[]}),mergeWithDefaults:()=>[]},
+    '@timeonchrome/app-runtime-contracts/shared-access':contract,
+    '../../../extension/core/quota-config.js':quota,
+  }).profilesRouter;
+  let writes=0;
+  const parentEnv={DB:{prepare(sql){return {bind(...args){return {
+    async first(){
+      if(sql.trim()==='SELECT id FROM profiles WHERE id = ? AND account_id = ?')return args[1]==='bound-owner'?{id:'bound-child'}:null;
+      if(sql.trim()==='SELECT config, version, updated_at FROM profiles WHERE id = ?')return {config:JSON.stringify(config),version:9,updated_at:100};
+      throw Error('unexpected parent query');
+    },async run(){writes++;throw Error('disabled execution must not write');},
+  };}};}}};
+  const parentRequest=(rollout,expectedVersion=9,auth=true)=>new Request('https://fixture/profiles/bound-child/config',{
+    method:'PUT',headers:auth?{Authorization:'Bearer parent-fixture'}:{},
+    body:JSON.stringify({expectedVersion,data:{sharedAccessRolloutV1:rollout},sourceAction:'shared_access_rollout'}),
+  });
+  assert.equal((await parent.handle(parentRequest({schemaVersion:1,stage:'shared'},9,false),parentEnv)).status,401);
+  assert.equal((await parent.handle(parentRequest({schemaVersion:1,stage:'shared'},8),parentEnv)).status,409);
+  assert.equal((await parent.handle(parentRequest({schemaVersion:1,stage:'shared',dailyMinutes:{}}),parentEnv)).status,400);
+  assert.deepEqual(await (await parent.handle(parentRequest({schemaVersion:1,stage:'shared'}),parentEnv)).json(),
+    {code:'SHARED_ACCESS_EXECUTION_NOT_ENABLED'});
+  parentEnv.SHARED_ACCESS_EXECUTION_ENABLED='true';
+  parentEnv.SHARED_WEB_CONTRIBUTIONS_ENABLED='true';
+  assert.equal((await parent.handle(parentRequest({schemaVersion:1,stage:'shared'}),parentEnv)).status,409,'missing dedicated proof key cannot enable execution');
+  assert.equal(writes,0,'failed rollout cannot mutate config, audit or ledgers');
   missing = true;
   assert.equal((await deviceRouter.handle(request(), env)).status, 404);
   missing = false; fail = true;

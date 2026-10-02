@@ -122,4 +122,6 @@ export interface Env {
   SHARED_WEB_CONTRIBUTIONS_ENABLED?: string;
   /** Dedicated ES256 source-proof key, never fallback to login/machine/lifecycle secrets. */
   SHARED_WEB_SOURCE_BINDING_PRIVATE_JWK?: string;
+  /** Default off; enabled only after the consolidated real-client acceptance. */
+  SHARED_ACCESS_EXECUTION_ENABLED?: string;
 }

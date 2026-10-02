@@ -18,6 +18,10 @@ PO 已批准三个完整功能批次；现有准备层与测试证据保留，�
 
 第二批共同函数本地审计：执行身份黄金输入／摘要、替换输入顺序与离线状态稳定、本机用量／序号变化撤销旧身份、不完整／重复 scope 拒绝、异步调用输入隔离通过；多本机网页来源聚焦保留应用来源后通过，首轮仅网页夹具被正确标为应用覆盖不足，未放宽覆盖判定。集中契约 build/compatibility、12 个既有执行向量及分页、根 typecheck/diff 通过；初次类型收窄编译失败已修正。Matched＝共同执行身份及有界多来源纯函数；Deviated/Extra＝无；Missing＝两端真实访问与提醒调用接入、安装及生产联合验收，限制动作仍关闭。该摘要不授予来源或执行权限。
 
+第二批云端阶段接入：复用孩子现有 config、expectedVersion 和审计，增加严格的 sharedAccessRolloutV1 元数据（schemaVersion/stage），不建立第二配置源。shadow 不执行限制；shared 写入和有效投影同时要求专用部署开关 SHARED_ACCESS_EXECUTION_ENABLED。开关默认缺失，且 shared 保存要求派生贡献接入及专用证明密钥已配置；本轮不配置生产。阶段变化进入现有配置 revision/effectiveAt/hash，各读取入口使用同一投影。通过源码实现不代表已获真机启用条件；第三批联合验收后才操作共享阶段。最小验证配置校验／同源读取／默认关闭／阶段身份变化及根 typecheck/diff，无关平台和原账测试排除。
+
+阶段接入审计：实际父端路由拒绝未认证／错 expectedVersion／额外字段／关闭开关／缺专用密钥，全程无写入；实际设备路由与父端投影一致，默认关闭及阶段变化完整身份失效通过。配置并发与既有 other 审计回归、computer/shared-state 兼容、根 typecheck、源码边界、职责及 diff 通过；Guardian 本地 dry-run 978.52 KiB。未修改部署 vars/secrets，未发布或启用。Matched＝同一配置源可控阶段；Deviated/Extra＝无；Missing＝第二批实际动作和第三批联合验收。
+
 本批新网页贡献只从扩展当前权威统计派生，单独持久版本、摘要和 ACK；不得修改原 Segment、原统计或原上传队列。生产发布前本地新增 migration 只在测试数据库验证，不执行待处理生产迁移。源码、部署、安装、真实验收分别记录，不把默认关闭准备层称为整批功能完成。
 
 第一批云端代码审计：集中契约 1.30.0 新增独立贡献、ACK、水位、专用 ES256 来源证明及本地余额准备读出口；Guardian DeviceBearer 由服务端派生来源，Runtime MachineBearer 返回可信上下文，受限内部绑定重验当前分配，令牌轮换使旧绑定失效。新增 033 只在独立本地 D1 执行，五条 SQL 通过；发布／幂等／下降更正／改绑竞态在隔离 SQLite 实测；真实设备路由、机器挑战路由、公开 P1363 向量及共享读模型聚焦通过，网页10分钟＋非Chrome应用10分钟＝20分钟，缺派生来源不回退旧 manifest 序号。Contracts build/compatibility、共享替换向量、根及 Runtime typecheck、源码边界、diff 通过；Guardian/Runtime dry-run 分别 976.47/475.97 KiB。未跑无关平台／安装器／页面全量；没有部署、生产迁移、密钥配置、候选安装或启用。Matched＝云端调用链及集中契约；Deviated／Extra＝无；Missing＝两端消费者完成及真实联调、第二／第三批，不宣称完整 D-114 交付。

@@ -6,6 +6,8 @@
 
 第二批本机执行版本裁决：`basisRevision` 只标识云端依据，不能独立标识本机替换后的余额。执行许可、提醒轮次与 ACK 必须引用独立内部 `executionRevision`：SHA-256 对规范 JSON `{schemaVersion:1,policyIdentity,basisRevision,projection,replacementVersions}` 求摘要；对象键递归 ASCII 排序，替换版本按 date/source/sourceKey ASCII 排序且不得重复 scope，其他数组保持严格投影顺序。投影包括完整性、失败原因、日桶／借用及周结果；不含 computedAt、transportStatus 或原云端状态。旧序号不得覆盖新值，较新序号下降更正允许；相同身份也不能绕过连接代次、来源授权或配置完整性复核。准备响应不可用／不完整时不生成可执行身份。该身份只绑定执行读模型，不修改网页／应用原统计或公开云端 `sharedQuota`。
 
+云端阶段控制复用孩子唯一 config：可选 `sharedAccessRolloutV1={schemaVersion:1,stage:legacy|shadow|shared}`，不携带另一套配额。父端沿现有受鉴权 config PUT、expectedVersion、版本和操作审计写入；非法字段拒绝。shared 保存需 `SHARED_ACCESS_EXECUTION_ENABLED=true`、派生贡献能力和专用签名密钥配置；默认不具备。读取 shared 时部署开关关闭则降为 shadow，保持旧执行且使完整 policyIdentity 变化；同一受限读取函数用于家长、设备和机器内部绑定，不允许终端请求自选阶段。开关只是最终发布安全开关，不能代替来源完整性、配置一致性、执行能力和真实联调验收；第三批验收前不配置开关或 shared 元数据。
+
 按配置／贡献／余额、实际访问／提醒、最终集成／发布／真机验收三批收口。原网页与应用统计权威不变；新增共享派生来源不得混用网页本机统计摘要和 V2 manifest ordinal。集中契约候选统一为下一 Minor，在全部字段、失败语义与来源证明固定后只发布一次；原 1.29／1.28 准备层继续兼容，不逐字段发版。
 
 网页新贡献由扩展现行权威统计生成。每个已认证设备、孩子及日期拥有独立单调 `revisionOrdinal`、内容 SHA-256、统计／更正版本及 ACK 水位；新版本允许因批准更正减少用量。上传不能提供 Child 或来源键，云端从 DeviceBearer 派生来源。独立贡献包含三个实际扣费桶、其他用量和 ACTIVE 总量；桶总量须与有效总量精确一致，网页保持整数秒。完整策略身份、计算时间、已结算截止时间与完整性分开保存；不能伪造截止时间。完整性不足仍可存储诊断，但不能当作完整共享执行依据。

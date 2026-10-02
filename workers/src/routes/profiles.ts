@@ -306,16 +306,28 @@ function migrateLegacyTimeWindows(config: Record<string, unknown>): void {
   tw.daily = daily;
 }
 
+export function normalizeSharedAccessRolloutV1(value: unknown): {schemaVersion:1;stage:'legacy'|'shadow'|'shared'} | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string,unknown>;
+  if (Object.keys(record).length !== 2 || Object.keys(record).some(key=>!['schemaVersion','stage'].includes(key))
+    || record.schemaVersion !== 1 || typeof record.stage !== 'string'
+    || !['legacy','shadow','shared'].includes(record.stage)) return null;
+  return {schemaVersion:1,stage:record.stage as 'legacy'|'shadow'|'shared'};
+}
+
 /** The same owner-scoped Child projection serves the parent read and the bound Runtime capability. */
 export async function readSharedAccessPolicyForChild(db: D1Database, accountId: string,
-  childId: string): Promise<UnifiedChildAccessPolicyV1 | null> {
+  childId: string, executionEnabled = false): Promise<UnifiedChildAccessPolicyV1 | null> {
   const row = await db.prepare('SELECT config, version, updated_at FROM profiles WHERE id = ? AND account_id = ?')
     .bind(childId, accountId).first<{ config: string; version: number; updated_at: number }>();
   if (!row) return null;
   const config = row.config ? JSON.parse(row.config) as Record<string, unknown> : {};
   migrateLegacyTimeWindows(config);
   injectEffectiveTimeQuota(config);
-  return projectLegacySharedAccessPolicy(config, Number(row.version || 0), Number(row.updated_at || 0));
+  const policy = projectLegacySharedAccessPolicy(config, Number(row.version || 0), Number(row.updated_at || 0));
+  const rollout = normalizeSharedAccessRolloutV1(config.sharedAccessRolloutV1);
+  if (rollout) policy.stage = rollout.stage === 'shared' && !executionEnabled ? 'shadow' : rollout.stage;
+  return policy;
 }
 
 // 归一化空数组为 null（UI 清除所有窗口后应为 unrestricted）
@@ -750,13 +762,13 @@ export const profilesRouter = {
     // GET /profiles/:id/shared-access/v1 — read-only projection of the one Child config.
     // Stage stays legacy until both clients and the shared source are verified.
     if (request.method === 'GET' && sharedAccessMatch) {
-      const policy = await readSharedAccessPolicyForChild(env.DB, accountId, profileId);
+      const policy = await readSharedAccessPolicyForChild(env.DB, accountId, profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
       return policy ? json({ profileId, policy }) : json({ error: 'Profile not found' }, 404);
     }
 
     // GET /profiles/:id/shared-access-state/v1?date=YYYY-MM-DD — read-only shadow projection.
     if (request.method === 'GET' && sharedAccessStateMatch) {
-      const policy = await readSharedAccessPolicyForChild(env.DB, accountId, profileId);
+      const policy = await readSharedAccessPolicyForChild(env.DB, accountId, profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
       if (!policy) return json({ error: 'Profile not found' }, 404);
       const date = new URL(request.url).searchParams.get('date') || new Date(Date.now()+28_800_000).toISOString().slice(0,10);
       try {
@@ -856,10 +868,18 @@ export const profilesRouter = {
           'quotaState', 'schedule',
           'restConfig', 'autonomyConfig', 'autoStudyConfig', 'compositeReviewConfig',
           'clientLoggingPolicyV1',
-          'timeQuota', 'timeWindows',
+          'timeQuota', 'timeWindows', 'sharedAccessRolloutV1',
         ]);
 
         const incomingConfig = data as Record<string, unknown>;
+        if (Object.hasOwn(incomingConfig, 'sharedAccessRolloutV1')) {
+          const rollout = normalizeSharedAccessRolloutV1(incomingConfig.sharedAccessRolloutV1);
+          if (!rollout) return json({code:'INVALID_SHARED_ACCESS_ROLLOUT'},400);
+          if (rollout.stage === 'shared' && (env.SHARED_ACCESS_EXECUTION_ENABLED !== 'true'
+            || env.SHARED_WEB_CONTRIBUTIONS_ENABLED !== 'true' || !env.SHARED_WEB_SOURCE_BINDING_PRIVATE_JWK))
+            return json({code:'SHARED_ACCESS_EXECUTION_NOT_ENABLED'},409);
+          incomingConfig.sharedAccessRolloutV1 = rollout;
+        }
         if (Object.hasOwn(incomingConfig, 'siteUsageClassificationRulesV1')) {
           const usageRules = normalizeOtherUsageRules(incomingConfig.siteUsageClassificationRulesV1,
             existingConfig.siteUsageClassificationRulesV1, now);
