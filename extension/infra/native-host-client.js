@@ -5,7 +5,7 @@ import { readNativeHostDeploymentMarker, readNativeHostDevelopmentMarker } from 
 import { budgetedLocalSet } from './storage-budget.js';
 import { registerPersistedUsageSegmentObserver } from '../core/usage-segments.js';
 import { readCurrentWeekBrowserSnapshots } from './browser-bridge-v3-snapshot.js';
-import { validateSharedQuotaStateV1 } from '../core/shared-quota-state.js';
+import { validateSharedQuotaStateV1, validateSharedAccessPolicyIdentityV1 } from '../core/shared-quota-state.js';
 import { validateSharedReminderResultV1 } from '../core/shared-reminder-result.js';
 import { validateSharedReminderMessage, validateSharedReminderState } from '../core/shared-reminder-lifecycle.js';
 import { validateSharedBrowserActivity } from '../core/shared-browser-activity.js';
@@ -394,6 +394,7 @@ function ensureNativePort() {
       stale: response.stale === true,
       applicationUsage: response.applicationUsage,
       sharedQuota: response.sharedQuota,
+      sharedAccessPolicyIdentity: response.sharedAccessPolicyIdentity,
       sharedReminder: response.sharedReminder,
       browserActivityLeaseId: response.browserActivityLeaseId,
       browserActivityAck: response.browserActivityAck,
@@ -776,7 +777,17 @@ async function performSend(options) {
       const ack = await postToNativeHost(payload);
       if (ack.requestId !== payload.requestId) return { ok: false, errorCode: 'shared_quota_invalid_state' };
       if (ack.sharedQuota == null) return { ok: false, errorCode: 'shared_quota_unavailable' };
-      return validateSharedQuotaStateV1(ack.sharedQuota, options.expected);
+      const checked = validateSharedQuotaStateV1(ack.sharedQuota, options.expected);
+      if (!checked.ok) return checked;
+      const negotiated = nativePort !== null && sharedNativeV3
+        && sharedNativeCapabilities.has('shared-access-policy-identity-read')
+        && ack.capabilities.includes('shared-access-policy-identity-read');
+      if (!negotiated || ack.sharedAccessPolicyIdentity == null) {
+        return { ...checked, policyIdentityStatus: 'unverified', sharedAccessPolicyIdentity: null };
+      }
+      const identity = validateSharedAccessPolicyIdentityV1(ack.sharedAccessPolicyIdentity);
+      return identity.ok ? { ...checked, policyIdentityStatus: 'available', sharedAccessPolicyIdentity: identity.identity }
+        : identity;
     } catch (error) {
       return { ok: false, errorCode: normalizeErrorCode(error?.message) };
     }

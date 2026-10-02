@@ -2,6 +2,14 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+2026-10-03 当前整合批：控件来源7ad8f6d6e8b44a3117c76f2a05366bc2f03a1da1，六文件完整策略身份只读准备层。仅精确整合所属产品/测试字节及保留双方DESIGN记录；运行身份专项（含固定1.29包）、Native桥专项、状态专项、typecheck、边界与diff，不跑平台/安装器或原账全量。默认关闭，不更新候选、不安装部署；策略一致不代表来源授权或执行许可。
+
+本批提交前审计：固定1.29包身份专项、local-guardian、shared-quota-state、根typecheck、extension-root、源码边界、职责和diff均通过；五个产品/测试路径与7ad8f6d逐字节差异为空。一次边界命令误写不存在的.mjs后缀，纠正为现有.js入口后通过，未改检查代码。仅DESIGN冲突保留双方记录；既有任务板草稿保留，.wrangler未纳入。Matched＝完整身份准备层精确整合；Deviated/Extra＝无；Missing＝Native身份返回、可信跨端来源、本机增量替换及实际共享执行/提醒与真机验收，全目标仍进行中。
+
+Native协调状态已更新：真实turn已包含PO“开始”，main@4509b5295bb3e0bfbf508284c6d8181c38ff9c07完成1.28严格纯分页组装；当前/上一1.28/1.27聚焦测试各111/111，精确push CI37042753202全部成功。旧“尚未开始”记录仅为历史阶段，不再是协调阻塞。下一批已交接机器HTTP完整读取、原子LKG及1.29完整policy身份准备接入，尚未取得实现结果；纯组装不等于真实认证运输或跨端web替换授权，不代写Native源码。
+
+2026-10-03收口续进：PR210已合入d530aa2；PR211修正向量版本后在head8a0fd27通过App Runtime37042338011、Guardian37042337991及Task/Rest兼容检查，merge为3c6bafa57f12c6f034cb9c54f1bb038f40d159ea。当前/上一固定契约为1.29/1.28；1.29修正后候选在Temp/timeonchrome-contracts-1.29-8a0fd27，93321bytes，SHA2561338ab2b2621ed4c19b8208203fd77d8e648b4f20721529479fc73a947bbbaf4；旧Temp根同名1.29包不作交付证据。已通知控件所属任务继续完整配置身份默认关闭接入。Native1.28分页实现仍未开始，跨会话授权原文无法由其工具读取是当前协调障碍，不冒称正在开发；来源认证、两端本机增量替换、实际配额／提醒执行和实机原账对照仍未完成。不新建目录/分支，不改候选、安装、部署、迁移或R2；全目标保持进行中。
+
 2026-10-03下一契约批：architecture-integration，补完整配置身份而非仅revision比对。Contracts1.29新增严格policy规范化／SHA-256身份和匹配函数，BrowserBridge原getSharedQuotaState响应可选带身份，仅新能力协商后使用；包含effectiveAtMs/stage及全部配置摘要，不增加控制命令或来源授权。允许shared-access/native-host及现有schema/测试、包版本锁、DESIGN/任务板；验证顺序无关、同revision内容差异、阶段／生效时间差异、未知字段、旧消息兼容、实际控件规范化字节一致，运行契约编译／聚焦／兼容、根typecheck、边界/diff。不跑平台或安装器，不改消费者、候选或生产。PR210已合入d530aa2，CI37041204761的changes/职责/gate通过，无部署。
 
 1.29提交前审计：契约编译、shared-access（含实际控件规范字节和摘要异步输入隔离）、兼容schema、既有12执行向量及分页回归、根typecheck、边界/diff通过。首轮身份测试沿用了旧投影测试任意revision(policy-1)，已替换为实际Guardian profile-config:4；未放宽完整配置校验。仅新增只读能力常量／可选响应字段和纯内容核对函数，旧请求enum与消息未改。Matched＝完整配置身份契约；Deviated／Extra＝无；Missing＝两端接入、跨端来源认证及实机共享执行。Native内部缓存hash与跨端规范不同，消费者尚未使用1.29，不冒称一致性已实机验证。
