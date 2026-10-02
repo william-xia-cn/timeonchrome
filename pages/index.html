@@ -9527,14 +9527,17 @@ async function saveProfileConfig(data, sourceAction) {
       expectedVersion,
       sourceAction,
     });
-    if (profileId === currentProfileId && Number.isInteger(Number(result?.version))) {
+    if (profileId === currentProfileId && remoteConfigVersion === expectedVersion && Number.isInteger(Number(result?.version))) {
       remoteConfigVersion = Number(result.version);
     }
     return result;
   } catch (error) {
     if (error?.status === 409 && error?.code === 'PROFILE_CONFIG_VERSION_CONFLICT') {
-      if (profileId === currentProfileId) {
+      if (profileId === currentProfileId && remoteConfigVersion === expectedVersion) {
         const latest = await api(`/profiles/${profileId}/config`);
+        if (profileId !== currentProfileId || remoteConfigVersion !== expectedVersion) {
+          throw new Error('配置页面已切换或版本已更新，请重新预览后保存。');
+        }
         applyProfileConfigResponse(latest);
         renderPage(document.querySelector('.nav-item.active')?.dataset.page || 'stats');
       }
