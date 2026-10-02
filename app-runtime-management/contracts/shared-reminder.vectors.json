@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "description": "影子提醒结果校验：registration 必须来自 Service 已验证用户下的本地登记，不从请求读取。",
+  "registration": {"reminderId":"r1","policyRevision":"p1","stateRevision":"s1","kind":"daily","issuedAtMs":1000,"visibleAtMs":2000},
+  "result": {"schemaVersion":1,"reminderId":"r1","policyRevision":"p1","stateRevision":"s1","kind":"daily","delivery":"visible","visibleAtMs":2000,"action":"end_rest","resolvedAtMs":3000},
+  "cases": [
+    {"name":"主动结束仅为有效结果","resultPatch":{},"error":null},
+    {"name":"可见后完整60秒超时","resultPatch":{"action":"timeout_end","resolvedAtMs":62000},"error":null},
+    {"name":"59.999秒不能超时","resultPatch":{"action":"timeout_end","resolvedAtMs":61999},"error":"SHARED_REMINDER_TIMEOUT_EARLY"},
+    {"name":"未签发","registration":null,"resultPatch":{},"error":"SHARED_REMINDER_NOT_ISSUED"},
+    {"name":"旧策略","resultPatch":{"policyRevision":"old"},"error":"SHARED_REMINDER_VERSION_CHANGED"},
+    {"name":"旧状态","resultPatch":{"stateRevision":"old"},"error":"SHARED_REMINDER_VERSION_CHANGED"},
+    {"name":"未登记可见","registrationPatch":{"visibleAtMs":null},"resultPatch":{},"error":"INVALID_SHARED_REMINDER_DELIVERY"},
+    {"name":"未送达不能超时结束","registrationPatch":{"visibleAtMs":null},"resultPatch":{"delivery":"failed","visibleAtMs":null,"action":"timeout_end"},"error":"INVALID_SHARED_REMINDER_DELIVERY"},
+    {"name":"未送达继续仅记录失败","registrationPatch":{"visibleAtMs":null},"resultPatch":{"delivery":"failed","visibleAtMs":null,"action":"delivery_failed_continue"},"error":null},
+    {"name":"拒绝请求自选孩子","resultPatch":{"childId":"other"},"error":"INVALID_SHARED_REMINDER_RESULT"}
+  ]
+}
