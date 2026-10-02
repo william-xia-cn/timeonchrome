@@ -2,6 +2,14 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+接续云端小批：核实控件缺设备鉴权统一policy入口。先记录设计，再仅新增`GET /device/shared-access/v1`，复用认证设备绑定及既有Child投影，拒绝外部scope参数、不改旧config读取/原账。最小验证：真实路由transpile固定权限/解绑/缺档案/故障/响应及同投影回归、根typecheck、边界/diff；不跑浏览器/平台/安装器，不部署。此批公开只读接入不启用shared，仍须整体端到端验收。
+
+本入口固定回归已通过，设备解绑契约15/15及根tsc通过；为使真实CI覆盖新增接入，现有Guardian integration workflow只增加device/profiles与本测试的路径及一个测试命令，不引入平台job/全量回归。CI公共文件例外为本入口消费兼容性接入，不修改发布workflow或授权。
+
+本批审计：新增设备policy真实路由/真实Child投影固定回归、解绑15项、既有identity integration及management gateway10项、根tsc、源码边界/职责/diff通过。Wrangler4.127.1首次沙箱写日志/构建目录被拒，不计通过；获准本地dry-run后921.61KiB构建成功，没有实际部署。Matched=只读认证接入、scope与旧接口隔离；Deviated/Extra=无；Missing=尚未部署及两端实际读取缓存/完整共享执行，保留全目标未完成。
+
+2026-10-03续进：PR202精确head50ad030已通过CI37030702553的职责/changes及最终gate，无关云端/页面/release jobs跳过；插件合入`master@025a177856eeeec45d66c7626ffe60f81183fafd`，本现有云端分支已fast-forward。不改变候选或生产。两端已收到继续实现统一配置持久LKG的授权交接，分别检查认证scope、原子缓存、重启离线、身份切换/迟到响应，不自行启用shared；缺设备鉴权读取能力须返回接口缺口，不借用家长会话绕过。DESIGN新增逐来源替换/周账一致依据接入约束；该新增接入尚未实现，不能把总量减自身算法或仅配置缓存当成共享执行完成。完整剩余包括来源依据与认证绑定、实时替换/执行、实际提醒关闭及原账守恒验收、分阶段发布启用。
+
 本批合入前审计：10个控件实现/测试文件与来源05bcfa2逐件完全相同，DESIGN自动合并保留双方记录；提醒Content桥、生命周期、共享状态、共享影子、Native客户端五组通过，根typecheck、两项源码边界及diff通过。已读取所属树`output/playwright/d114/shared-content-evidence.json`并目视桌面/窄屏截图，无布局溢出；记录绑定content/lifecycle/bridge哈希分别为`aefaa71fca66ea1ac0db49b02fddbb272fbaf2926a2c5f50221dee9074b121f5`、`02938136415fb980bd5c9a25f710ff89389327afc8a62a355a6c10e2d959b7b6`、`3c14117118e1279a31e5c19b8bfe0280853a1c98bbe8d32f3bccd769f6a5732d`。实际Chromium DOM、模拟Native，不是实机联调。Matched=本批精确集成及最小验证；Deviated/Extra=无；Missing=完整D-114共享执行/实际提醒/关闭与原账对照，仍未完成。Native周期修复CI37027927923已独立核验current/previous Windows及gate成功，无关installer/mac跳过；新opaque修复CI尚待核验。
 
 本批精确集成：控件现有分支已推送 `05bcfa2d0217eab3026610c75284c7a5c92890ea`，包含默认关闭 Content 提醒桥及周账日期/完整性消费者校验。只合入所属任务提交，产品/测试文件保持源提交字节；DESIGN 冲突保留双方记录。最小验证为提醒桥/生命周期/共享状态/影子/Native 客户端单元、根 typecheck、源码边界与职责/diff；真实隔离 Chromium DOM 的相同源码哈希证据复用，不重跑，不作为实际 Native 联调。无关平台、安装器、账本全量不运行；不换候选、不启用、不部署。Native `a87295978b2c7ff67b8f0cf6e99c39e26bbea39c` 已修复真实43字符用户标识消费者，相关当前/上一契约各78项通过，远端 CI 仍需核验。共享配置 LKG、逐来源替换与执行接入仍为完整目标待办。
