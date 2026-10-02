@@ -1102,12 +1102,12 @@
         <div class="nav-item" data-page="sites">
           <span class="nav-icon"><img src="assets/icons/request.svg" alt=""></span><span>网站管理 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
-        <a class="nav-item runtime-launch" data-runtime-view="apps" href="?launch=app-runtime&amp;view=apps">
+        <div class="nav-item" data-page="apps">
           <span class="nav-icon"><img src="assets/icons/online-time.svg" alt=""></span><span>应用管理</span>
-        </a>
-        <a class="nav-item runtime-launch" data-runtime-view="devices" href="?launch=app-runtime&amp;view=devices">
+        </div>
+        <div class="nav-item" data-page="devices">
           <span class="nav-icon"><img src="assets/icons/devices.svg" alt=""></span><span>设备管理</span>
-        </a>
+        </div>
         <div class="nav-item" data-page="system-management">
           <span class="nav-icon"><img src="assets/icons/settings.svg" alt=""></span><span>系统管理</span>
         </div>
@@ -1454,6 +1454,8 @@
       </div>
 
       <!-- 使用统计 -->
+      <div class="page" id="page-apps"><div id="runtime-apps-host"></div><div id="runtime-apps-error" hidden role="alert"></div></div>
+      <div class="page" id="page-devices"><div id="runtime-devices-host"></div><div id="runtime-devices-error" hidden role="alert"></div></div>
       <div class="page active" id="page-stats">
         <div class="usage-analysis-shell">
           <div class="usage-analysis-topbar">
@@ -2049,12 +2051,48 @@
 <div class="toast" id="toast"></div>
 
 <script src="computer-usage-view.js"></script>
+<script src="runtime-management-loader.js"></script>
 <script>
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日','周一','周二','周三','周四','周五','周六'];
 
 let accountToken = null;
 let currentProfileId = null;
+let runtimeManagementController = null;
+let runtimeManagementEpoch = 0;
+function disposeRuntimeManagement() {
+  runtimeManagementEpoch++;
+  runtimeManagementController?.dispose();runtimeManagementController=null;
+  for(const view of ['apps','devices']) {
+    const host=document.getElementById(`runtime-${view}-host`);
+    host?.shadowRoot?.replaceChildren();
+    const error=document.getElementById(`runtime-${view}-error`);
+    if(error){error.hidden=true;error.replaceChildren();}
+  }
+}
+async function renderRuntimeManagement(view) {
+  disposeRuntimeManagement();
+  const epoch=runtimeManagementEpoch, childId=currentProfileId;
+  const isCurrent=()=>epoch===runtimeManagementEpoch&&currentProfileId===childId&&document.getElementById(`page-${view}`)?.classList.contains('active');
+  const host=document.getElementById(`runtime-${view}-host`);
+  if(!childId){host.textContent='请选择孩子后查看';return;}
+  host.textContent='正在加载…';
+  try {
+    const controller=await RuntimeManagementLoader.mount({host,view,children:profiles,childId,isCurrent,request:async(path,options={})=>{
+      if(!isCurrent())throw Object.assign(new Error('组件上下文已变化'),{code:'COMPONENT_CONTEXT_CHANGED'});
+      if(!path.startsWith('/v2/module/'))throw new Error('INVALID_MANAGEMENT_RESOURCE');
+      return api('/app-runtime/manage/v1/'+path.slice('/v2/module/'.length),options.method||'GET',options.body?JSON.parse(options.body):null,options.headers);
+    }});
+    if(!isCurrent()){controller.dispose();return;}
+    host.textContent='';runtimeManagementController=controller;
+    await controller.ready;
+  } catch(error) {
+    if(!isCurrent()||error?.code==='COMPONENT_CONTEXT_CHANGED')return;
+    host.textContent='';const box=document.getElementById(`runtime-${view}-error`);box.hidden=false;
+    const message=document.createElement('p');message.textContent=error.message||'管理页面暂不可用';
+    const retry=document.createElement('button');retry.textContent='重试';retry.onclick=()=>renderRuntimeManagement(view);box.replaceChildren(message,retry);
+  }
+}
 let profiles = [];
 let remoteConfig = null; // 当前 profile 的配置
 let remoteConfigVersion = null; // 与 remoteConfig 同次读取的云端版本，用于乐观并发
@@ -2230,6 +2268,7 @@ async function doRegister() {
 }
 
 function logout() {
+  disposeRuntimeManagement();
   cloudApplicationReadCache.clear();
   const saved = loadLocal('session');
   if (saved?.refreshToken) {
@@ -2346,6 +2385,7 @@ function renderProfileOptions() {
 }
 
 async function selectProfile(id) {
+  disposeRuntimeManagement();
   cloudStatsRequestVersion++;
   cloudComputerReader.invalidate();
   cloudApplicationReader.invalidate();
@@ -2546,6 +2586,8 @@ function setupNav() {
 }
 
 function renderPage(name) {
+  if(name==='apps'||name==='devices'){void renderRuntimeManagement(name);return;}
+  disposeRuntimeManagement();
   if (!remoteConfig) return;
   if (name === 'rules' || name === 'sites') renderRulesManagementPage();
   if (name === 'stats')     renderStatsPage();
@@ -9360,13 +9402,15 @@ async function saveConfig() {
 }
 
 // ── API helper ────────────────────────────────────────────────
-async function api(path, method='GET', body=null) {
+async function api(path, method='GET', body=null, conditionalHeaders=null) {
   const makeOptions = () => {
     const opts = {
       method,
       headers: { 'Content-Type': 'application/json' }
     };
     if (accountToken) opts.headers['Authorization'] = `Bearer ${accountToken}`;
+    const ifMatch=new Headers(conditionalHeaders||{}).get('If-Match');
+    if(ifMatch)opts.headers['If-Match']=ifMatch;
     if (body) opts.body = JSON.stringify(body);
     return opts;
   };

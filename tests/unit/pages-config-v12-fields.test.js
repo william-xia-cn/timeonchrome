@@ -97,7 +97,7 @@ function run() {
   expectTrue('Pages 日期应使用本地日期，不应使用 toISOString 作为显示/查询日期', !/function fmtDate\(d\)\s*\{\s*return d\.toISOString\(\)/.test(source));
   expectTrue('Pages 不应再包含总览一级入口', !source.includes('data-page="overview"') && !source.includes('id="page-overview"'));
   expectTrue('Pages 默认 active 导航应为使用统计', source.includes('<div class="nav-item active" data-page="stats">') && source.includes('<div class="page active" id="page-stats">'));
-  const navOrder = ['data-page="stats"', 'data-page="rules"', 'data-page="sites"', 'data-runtime-view="apps"', 'data-runtime-view="devices"', 'data-page="system-management"'].map(item => source.indexOf(item));
+  const navOrder = ['data-page="stats"', 'data-page="rules"', 'data-page="sites"', 'data-page="apps"', 'data-page="devices"', 'data-page="system-management"'].map(item => source.indexOf(item));
   expectTrue('Pages 主导航应为使用统计/访问管理/网站管理/应用管理/设备管理/系统管理', navOrder.every(i => i >= 0) && navOrder.every((value, index) => index === 0 || value > navOrder[index - 1]));
   expectTrue('网站归类记录应是网站管理的次级页面', !source.includes('data-page="review"') && source.includes('id="open-site-review-btn"') && source.includes('id="return-to-site-management"'));
   expectTrue('Pages 账户设置可见文案应改为子用户管理', source.includes('子用户管理') && !source.includes('<span>账户设置</span>') && !source.includes('<span>用户管理</span>'));
@@ -110,7 +110,7 @@ function run() {
   const accountPageStart = source.indexOf('<div class="page" id="page-account">');
   const systemPageSlice = source.slice(systemPageStart, accountPageStart);
   expectTrue('Pages 统计对账应移入系统管理子 Tab', systemPageStart >= 0 && reconciliationPageStart > systemPageStart && !source.includes('id="page-reconciliation"'));
-  expectTrue('Pages 设备管理不应保留顶层页面', !source.includes('id="page-devices"') && !systemPageSlice.includes('id="page-devices"'));
+  expectTrue('Pages Runtime 设备管理应独立挂载且不混入系统面板', source.includes('id="page-devices"') && source.includes('id="runtime-devices-host"') && !systemPageSlice.includes('id="page-devices"'));
   expectTrue('Pages 系统管理仍应包含全部内部面板', systemPageSlice.includes('data-system-management-panel="reconciliation"') && systemPageSlice.includes('data-system-management-panel="web-settlements"') && systemPageSlice.includes('data-system-management-panel="media-settlements"') && systemPageSlice.includes('data-system-management-panel="client-logs"') && systemPageSlice.includes('data-system-management-panel="backup-restore"') && systemPageSlice.includes('data-system-management-panel="account-management"'));
   const reviewPageStart = source.indexOf('<div class="page" id="page-review">');
   const accountPageSlice = source.slice(accountPageStart, reviewPageStart);

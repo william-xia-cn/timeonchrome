@@ -15,14 +15,14 @@ assert(/^1\.\d+\.\d+$/.test(contracts.version), 'Runtime contracts must remain a
 assert(bridge.includes("from '@timeonchrome/app-runtime-contracts'"));
 assert(!bridge.includes('../../../app-runtime-management/'));
 assert(worker.includes("path === '/app-runtime/sso/tickets'"));
-assert(page.includes('class="nav-item runtime-launch" data-runtime-view="apps"'));
-assert(page.includes('class="nav-item runtime-launch" data-runtime-view="devices"'));
+assert(page.includes('class="nav-item" data-page="apps"'));
+assert(page.includes('class="nav-item" data-page="devices"'));
 assert(page.includes("api('/app-runtime/sso/tickets', 'POST', { childId: currentProfileId })"));
 assert(page.includes("parsedLaunchUrl.searchParams.set('view', view)"));
 assert(bridge.includes('selected_child_id'));
 assert(bridge.includes("!children.some((child) => child.id === requestedChildId)"));
 assert(runtimeConsole.includes('if (window.__runtimeLaunchTicket)'));
-assert(runtimeConsole.includes("const initialView = ['apps', 'devices'].includes(requestedLaunchView) ? requestedLaunchView : 'usage'"));
+assert(runtimeConsole.includes("['apps', 'devices'].includes(requestedLaunchView) ? requestedLaunchView : 'usage'"));
 assert(runtimeConsole.includes('child(state.session.selectedChildId)'));
 assert(redirects.includes('/app-runtime/* /?launch=app-runtime 302'));
 assert(!fs.existsSync(path.join(root, 'pages/app-runtime')));

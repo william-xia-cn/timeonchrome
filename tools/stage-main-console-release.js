@@ -1,8 +1,9 @@
 // Release-only projection: Task remains in source but is not published this cycle.
 const fs = require('node:fs');
 const path = require('node:path');
+const {stageRuntimeManagementComponent} = require('../app-runtime-management/console/stage-management-component.cjs');
 
-function stageMainConsole(source, destination) {
+function stageMainConsole(source, destination, options = {}) {
   source = fs.realpathSync(source);
   destination = path.resolve(destination);
   const relative = path.relative(source, destination);
@@ -22,6 +23,7 @@ function stageMainConsole(source, destination) {
   const redirects = fs.readFileSync(path.join(source, '_redirects'), 'utf8');
   fs.writeFileSync(path.join(destination, '_redirects'), '/task / 302\n/task/* / 302\n' + redirects);
   if (fs.existsSync(path.join(destination, 'task'))) throw new Error('Task assets leaked');
+  stageRuntimeManagementComponent(options.runtimeSource || path.join(source, '..', 'app-runtime-management', 'console'), path.join(destination, 'runtime-management-component'));
   return destination;
 }
 if (require.main === module) {
