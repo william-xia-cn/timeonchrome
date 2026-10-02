@@ -2,6 +2,10 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+本轮标准云端接入清单：①设备Bearer绑定Child/真实deviceId，无外部scope；②逐页最大100、非首page需basis revision、错版409；③返回完整日期覆盖/计数和仅自身web授权scope；④读取结束复核解绑/改绑/policy变化；⑤真实路由与分页固定回归、旧policy/state兼容、根typecheck/边界/diff及Guardian精确CI。允许device.ts/sharedAccessState.ts、两个对应根测试、现有DESIGN/任务板；CI仅接入这两个固定测试。无关平台/UI/安装器不跑，不部署。Native授权读取和跨端web证明尚未完成，不能把设备API视为整条执行链完成。
+
+本接入批本地审计：设备真实路由权限/参数/分页错版/读取中改绑与配置变化/故障脱敏/无写入口、真实分页helper完整重组/自身scope/覆盖计数、旧共享state及owner路由、根typecheck、源码边界/职责/diff通过。首轮VM数组原型跨realm导致deepStrictEqual失败，改为JSON传输内容精确比较后通过，产品代码未为测试修改。CI精确例外仅现有Guardian workflow接入两项实际受影响固定回归，不新增重型流程。Matched=云端设备只读接入；Deviated/Extra=无；Missing=版本化运输契约交接、两端真实读取/执行/验收，未启用/部署。控件d40a0bc+5a22ccd已返回并推送，审查补齐policy生效时间不倒退及流式64KiB限制；尚未集成本轮云端提交，不混作已验收。
+
 云端接续小批（standard-cloud）：在现有sharedAccessState读取器旁补独立执行依据组装，保留网页原manifest ordinal和应用原共享贡献revision、外层发布revision；旧shared state响应和计算不变。读取仅已持久化统计，不读Segment。来源没有可信ordinal/覆盖缺口时保留原因，不补造来源；全周按当前Child读取。最小测试为真实读取器聚焦fixture、旧共享state回归、根typecheck/职责/diff；认证公开接入与分页运输尚待下一步，不把内部组装函数当权限接口或启用证据。PR204已合入2418714，全部相关CI通过；1.27固定包88646bytes/SHA256 c277f13547f28d0c619c036f1b0ef9cee8a053fa0384647fd3b3d30c5485c41d已通知两端。
 
 本接续批审计：实际sharedAccessState读取器聚焦测试、旧共享路由、根typecheck、源码与职责/diff通过。新增依据只顺序读取最多七个已结算统计日，无原Segment重算/写入；保留原应用贡献版本与外层发布版本及可信ordinal，旧接口计算不变。历史缺ordinal和来源失败保留原因，有效来源继续保留；revision绑定account/Child/policy/stage及全部来源。首次隐私断言误检查夹具非真实statsHash内的设备标签，改为明确检查sourceKey后通过，不将第一次失败称通过。Matched=内部读取与原响应兼容；Deviated/Extra=无；Missing=公开设备/机器授权、分页与两端实际消费及执行，未部署/启用。Native已获内部local-only候选及原gate通过后同body promotion具体交接，不允许改变上传事实或先发送未认可清单。
