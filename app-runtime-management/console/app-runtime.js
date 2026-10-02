@@ -1,12 +1,23 @@
 (() => {
+  const componentOnly=document.currentScript?.dataset.runtimeComponent==='true';
+  function mount(config={}) {
+  const root=config.root||document;
+  const embedded=typeof config.request==='function';
+  const ownerDocument=root.ownerDocument||document;
+  let disposed=false;
+  const listeners=[];
+  const listen=(target,type,handler)=>{target.addEventListener(type,handler);listeners.push([target,type,handler]);};
+  const live=()=>!disposed&&(!config.isCurrent||config.isCurrent());
+  const assertLive=()=>{if(!live())throw Object.assign(new Error('组件上下文已变化'),{code:'COMPONENT_CONTEXT_CHANGED'});};
   const RUNTIME_API = 'https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev';
-  const requestedLaunchView = new URLSearchParams(location.search).get('view');
-  const initialView = ['apps', 'devices'].includes(requestedLaunchView) ? requestedLaunchView : 'usage';
+  const requestedLaunchView = embedded?config.view:new URLSearchParams(location.search).get('view');
+  if(embedded&&!['apps','devices','access','system'].includes(requestedLaunchView))throw new Error('INVALID_RUNTIME_MANAGEMENT_VIEW');
+  const initialView = embedded?requestedLaunchView:['apps', 'devices'].includes(requestedLaunchView) ? requestedLaunchView : 'usage';
   const mainConsoleUrl = new URL('https://timeonchrome-console.pages.dev/?launch=app-runtime');
   if (['apps', 'devices'].includes(initialView)) mainConsoleUrl.searchParams.set('view', initialView);
   const MAIN_CONSOLE = mainConsoleUrl.toString();
-  const authRecovery = AppRuntimeSession.createRecovery(sessionStorage, () => location.assign(MAIN_CONSOLE));
-  const mock = new URLSearchParams(location.search).has('mock');
+  const authRecovery = embedded?null:AppRuntimeSession.createRecovery(sessionStorage, () => location.assign(MAIN_CONSOLE));
+  const mock = !embedded&&new URLSearchParams(location.search).has('mock');
   const categoryLabels = { study: '学习', composite: '复合', restrictedEntertainment: '受限娱乐', unclassified: '未归类', other: '其他时间', blocked: '黑名单' };
   const categoryColors = { study: '#178f6a', composite: '#4d9fd8', restrictedEntertainment: '#ed9f38', unclassified: '#9aa6a0', other: '#7b8f9c', blocked: '#d64545' };
   const projectionReasonLabels = {
@@ -27,8 +38,9 @@
     system: ['系统管理', '查看系统日志、技术进程、主账本、辅助媒体和运行健康'],
   };
   const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', sharedAccess: null, sharedAccessError: null, loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: initialView, appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
-  const $ = (selector) => document.querySelector(selector);
-  const $$ = (selector) => [...document.querySelectorAll(selector)];
+  const $ = (selector) => root.querySelector(selector);
+  const $$ = (selector) => [...root.querySelectorAll(selector)];
+  if(embedded){state.children=config.children.map(item=>({...item}));state.childId=config.childId;if(!state.children.some(item=>item.id===state.childId))throw new Error('INVALID_RUNTIME_CHILD_CONTEXT');}
   const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const duration = (ms = 0) => ms < 60000 ? (ms ? '少于 1 分钟' : '0 分钟') : `${Math.floor(ms / 3600000) ? `${Math.floor(ms / 3600000)} 小时 ` : ''}${Math.round(ms % 3600000 / 60000)} 分钟`;
   const time = (ms) => ms ? new Date(ms).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '尚未同步';
@@ -59,11 +71,12 @@
   const statusLabel = (value) => ({ online: '在线', recentlyOnline: '最近在线', offline: '离线', revoked: '已吊销' })[value] || value;
 
   function showError(error) {
+    if(!live()||error?.code==='COMPONENT_CONTEXT_CHANGED')return;
     const message = AppRuntimeNetwork.friendlyError(error).message;
     $('#status-strip').className = 'error';
     if (!state.loaded || error?.code === 'AUTH_RECOVERY_FAILED') {
-      document.querySelector('main').classList.remove('initial-load-pending');
-      document.querySelector('main').classList.add('initial-load-failed');
+      $('main').classList.remove('initial-load-pending');
+      $('main').classList.add('initial-load-failed');
       $('#status-strip').hidden = true;
       $('#load-empty-message').textContent = message;
       $('#load-preview-hint').hidden = !(location.protocol === 'file:' || ['localhost', '127.0.0.1'].includes(location.hostname));
@@ -72,11 +85,12 @@
     }
     $('#status-message').textContent = message; $('#retry').hidden = false; $('#status-strip').hidden = false;
   }
-  function showSuccess(message) { $('#status-strip').className = 'success'; $('#status-message').textContent = message; $('#retry').hidden = true; $('#status-strip').hidden = false; setTimeout(() => { if ($('#status-strip').className === 'success' && $('#status-message').textContent === message) clearError(); }, 3500); }
+  function showSuccess(message) { if(!live())return;$('#status-strip').className = 'success'; $('#status-message').textContent = message; $('#retry').hidden = true; $('#status-strip').hidden = false; setTimeout(() => { if (live()&&$('#status-strip').className === 'success' && $('#status-message').textContent === message) clearError(); }, 3500); }
   function clearError() { $('#status-strip').hidden = true; }
-  function setLoading(active) { const main = document.querySelector('main'); main.setAttribute('aria-busy', String(active)); $('#refresh').disabled = active; if (active) { if (!state.loaded) { main.classList.add('initial-load-pending'); main.classList.remove('initial-load-failed'); $('#load-empty-state').hidden = true; } $('#status-strip').className = 'loading'; $('#status-message').textContent = '正在加载 Runtime 数据…'; $('#retry').hidden = true; $('#status-strip').hidden = false; } else if ($('#status-strip').className === 'loading') clearError(); }
-  function markLoaded() { if (!mock) authRecovery.protectedLoadSucceeded(); state.loaded = true; const main = document.querySelector('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
+  function setLoading(active) { if(!live())return;const main = $('main'); main.setAttribute('aria-busy', String(active)); $('#refresh').disabled = active; if (active) { if (!state.loaded) { main.classList.add('initial-load-pending'); main.classList.remove('initial-load-failed'); $('#load-empty-state').hidden = true; } $('#status-strip').className = 'loading'; $('#status-message').textContent = '正在加载 Runtime 数据…'; $('#retry').hidden = true; $('#status-strip').hidden = false; } else if ($('#status-strip').className === 'loading') clearError(); }
+  function markLoaded() { assertLive();if (!mock&&!embedded) authRecovery.protectedLoadSucceeded(); state.loaded = true; const main = $('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
   async function issue() {
+    if(embedded){assertLive();renderChildPicker();return;}
     state.session = AppRuntimeSession.load(sessionStorage);
     if (window.__runtimeLaunchTicket) {
       const ticket = window.__runtimeLaunchTicket;
@@ -103,13 +117,14 @@
     renderChildPicker();
   }
   async function moduleToken(renew = false) {
+    if(embedded){await issue();return null;}
     if (renew) {
       authRecovery.recover();
     }
     if (!state.session) await issue();
     return state.session.token;
   }
-  async function runtime(path, options = {}) { if(options.method&&options.method!=='GET')applicationReadCache.clear();return AppRuntimeNetwork.requestJson({ url: `${RUNTIME_API}${path}`, options, getToken: moduleToken, authorizationScheme: 'RuntimeSession' }); }
+  async function runtime(path, options = {}) { assertLive();const key=state.childId+'|'+state.view;if(options.method&&options.method!=='GET')applicationReadCache.clear();let result;try{result=await (embedded?config.request(path,options):AppRuntimeNetwork.requestJson({ url: `${RUNTIME_API}${path}`, options, getToken: moduleToken, authorizationScheme: 'RuntimeSession' }));}catch(error){assertLive();if(key!==state.childId+'|'+state.view)throw Object.assign(new Error('组件上下文已变化'),{code:'COMPONENT_CONTEXT_CHANGED'});throw error;}assertLive();if(key!==state.childId+'|'+state.view)throw Object.assign(new Error('组件上下文已变化'),{code:'COMPONENT_CONTEXT_CHANGED'});return result; }
 
   function mockData() {
     const dayStart = AppRuntimeTime.beijingRange('day').from;
@@ -400,12 +415,12 @@
       state.sharedAccess = result.policy || null;
       state.sharedAccessError = null;
     }).catch((error) => {
+      if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;
       state.sharedAccess = null;
       state.sharedAccessError = error?.code || 'SHARED_ACCESS_POLICY_UNAVAILABLE';
     });
     const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`)));
-    const [policy, catalog, records] = await Promise.all([policyPromise, catalogPromise, recordsPromise]);
-    await sharedAccessPromise;
+    const [policy, catalog, records] = await Promise.all([policyPromise, catalogPromise, recordsPromise, sharedAccessPromise]);
     state.policy = AppRuntimePolicy.normalize(policy);
     state.policyEtag = `"app-policy-v${state.policy.version}"`;
     state.catalog = catalog;
@@ -582,10 +597,10 @@
   function switchView(view) { state.view = view; $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view)); $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view)); [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[view]; renderAll(); clearError(); if (!mock && ['access', 'apps', 'system'].includes(view) && !state.managementLoaded) void load(); $('#sidebar').classList.remove('open'); $('#mobile-backdrop').hidden = true; }
   function switchTab(type, name) { $$(`[data-${type}-tab]`).forEach((button) => button.classList.toggle('active', button.dataset[`${type}Tab`] === name)); $$(`[data-${type}-panel]`).forEach((panel) => { panel.hidden = panel.dataset[`${type}Panel`] !== name; }); }
   async function loadLedger(kind) { const period = range(); const result = mock ? { items: kind === 'usage' ? [{ startAtMs: Date.now() - 60000, displayName: 'Visual Studio Code', durationMs: 60000, applicationClassification: 'study', estimated: false }] : [{ startAtMs: Date.now() - 120000, displayName: 'Microsoft Edge', durationMs: 120000, mediaKind: 'video', presentation: 'background', estimated: false }] } : await runtime(`/v2/module/${kind === 'usage' ? 'usage-segments' : 'media-segments'}?childId=${encodeURIComponent(state.childId)}&fromMs=${period.from}&toMs=${period.to}&limit=50`); const target = kind === 'usage' ? $('#ledger-list') : $('#media-list'); target.className = 'table-list'; target.innerHTML = result.items.length ? result.items.map((item) => `<div class="table-row"><time>${time(item.startAtMs)}</time><strong>${escape(item.displayName || '未知应用')}</strong><span>${duration(item.durationMs)}</span><span>${kind === 'usage' ? categoryLabels[item.applicationClassification] || '未归类' : `${item.mediaKind}/${item.presentation}`}</span></div>`).join('') : '<p>暂无明细</p>'; }
-  function exportConfig() { const blob = new Blob([JSON.stringify(AppRuntimePolicy.exportPayload(state.policy), null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'timeonchrome-app-runtime-config.json'; link.click(); URL.revokeObjectURL(link.href); }
+  function exportConfig() { const blob = new Blob([JSON.stringify(AppRuntimePolicy.exportPayload(state.policy), null, 2)], { type: 'application/json' }); const link = ownerDocument.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'timeonchrome-app-runtime-config.json'; link.click(); URL.revokeObjectURL(link.href); }
   async function reviewImport(file) { const incoming = JSON.parse(await file.text()); const diff = AppRuntimePolicy.importDiff(state.policy, incoming); const box = $('#import-diff'); box.hidden = false; box.dataset.payload = JSON.stringify(diff.policy); const legacySharedFields = incoming.schemaVersion < 3 && (incoming.timeWindows !== undefined || incoming.quotas?.dailyCategoryMinutes !== undefined || incoming.quotas?.weeklyRestrictedEntertainmentMinutes !== undefined); box.innerHTML = `<div class="import-review"><h3>导入差异</h3><label><input type="checkbox" id="import-classifications" checked> 应用分类：新增 ${diff.added}、修改 ${diff.changed}、移除 ${diff.removed}</label><br><label><input type="checkbox" id="import-quotas" checked> 单应用限制：${diff.quotasChanged ? '有变化' : '无变化'}</label><p>${legacySharedFields ? '此旧版文件含孩子级公共配额或时间段；为保持单一配置来源，这些字段将忽略。' : '孩子级公共配额和时间段由主控制台统一管理，不从此文件写入。'}</p><p><button id="confirm-import" class="primary">确认导入所选内容</button></p></div>`; }
 
-  document.addEventListener('click', async (event) => { const groupToggle = event.target.closest('summary[data-app-group-toggle]'); if (groupToggle) { event.preventDefault(); if (!($('#app-search').value || '').trim()) { const key = groupToggle.dataset.appGroupToggle; state.appGroups[key] = !state.appGroups[key]; renderAppDirectory(); } return; } const button = event.target.closest('button'); if (!button) return; try {
+  listen(root,'click', async (event) => { if(!live())return;const groupToggle = event.target.closest('summary[data-app-group-toggle]'); if (groupToggle) { event.preventDefault(); if (!($('#app-search').value || '').trim()) { const key = groupToggle.dataset.appGroupToggle; state.appGroups[key] = !state.appGroups[key]; renderAppDirectory(); } return; } const button = event.target.closest('button'); if (!button) return; try {
     if (button.dataset.view) { switchView(button.dataset.view); if (button.dataset.view === 'system') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
     if (button.dataset.accessTab) switchTab('access', button.dataset.accessTab);
     if (button.dataset.systemTab) { switchTab('system', button.dataset.systemTab); if (button.dataset.systemTab === 'logs') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
@@ -622,10 +637,10 @@
     if (button.id === 'export-config') exportConfig();
     if (button.id === 'confirm-import') { const incoming = JSON.parse($('#import-diff').dataset.payload); const next = AppRuntimePolicy.normalize({ ...state.policy, classifications: $('#import-classifications').checked ? incoming.classifications : state.policy.classifications, quotas: $('#import-quotas').checked ? { ...state.policy.quotas, perApplicationDailyMinutes: incoming.quotas.perApplicationDailyMinutes } : state.policy.quotas, timeWindows: state.policy.timeWindows }); await savePolicy(next); $('#import-diff').hidden = true; }
   } catch (error) { showError(error); } });
-  document.addEventListener('change', async (event) => { const control = event.target; try {
+  listen(root,'change', async (event) => { if(!live())return;const control = event.target; try {
     if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
     if (['directory-scope','management-platform'].includes(control.id)) { renderAppDirectory(); return; }
-    if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { usageRequestVersion++;computerReader.invalidate();independentReader.invalidate();state.usage={};renderUsage();state.childId = selected.id; mountKnowledgeManager(); state.managementLoaded = false; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
+    if (control.id === 'child-select') { if(embedded)return;const selected = childFromIndex(control.value); if (selected) { usageRequestVersion++;computerReader.invalidate();independentReader.invalidate();state.usage={};renderUsage();state.childId = selected.id; mountKnowledgeManager(); state.managementLoaded = false; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
     else if (control.id === 'machine-filter') { renderFilters(); if (!mock) await loadUsage(); renderUsage(); }
     else if (['user-filter','platform-filter'].includes(control.id)) { if (!mock) await loadUsage(); renderUsage(); }
     else if (control.id === 'media-toggle') renderUsage();
@@ -634,9 +649,9 @@
     else if (control.dataset.user) { const selected = control.value === 'u' ? null : childFromIndex(control.value); if (!mock) { await runtime(`/v2/module/machines/${encodeURIComponent(control.dataset.machine)}/users/${encodeURIComponent(control.dataset.user)}`, { method: 'PATCH', body: JSON.stringify({ protected: Boolean(selected), childId: selected?.id || null }) }); await load(); } }
     else if (control.id === 'import-config' && control.files[0]) await reviewImport(control.files[0]);
   } catch (error) { showError(error); } });
-  document.addEventListener('input', (event) => { if (event.target.id === 'app-search') { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(renderAppDirectory, 120); } });
-  $('#mobile-backdrop').addEventListener('click', () => { $('#sidebar').classList.remove('open'); closeDrawer(); });
-  $('#runtime-logout').addEventListener('click', async () => {
+  listen(root,'input', (event) => { if(!live())return;if (event.target.id === 'app-search') { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(()=>{if(live())renderAppDirectory();}, 120); } });
+  listen($('#mobile-backdrop'),'click', () => { $('#sidebar').classList.remove('open'); closeDrawer(); });
+  if(!embedded)listen($('#runtime-logout'),'click', async () => {
     applicationReadCache.clear();
     const active = AppRuntimeSession.load(sessionStorage);
     if (active) await fetch(`${RUNTIME_API}/v2/auth/browser-sessions/current`, { method: 'DELETE', headers: { Authorization: `RuntimeSession ${active.token}` } }).catch(() => {});
@@ -646,7 +661,7 @@
   let knowledgeManager;
   function mountKnowledgeManager(){
     knowledgeManager?.dispose();
-    knowledgeManager = AppRuntimeKnowledge.mount({request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onSaved:async knowledge=>{
+    knowledgeManager = AppRuntimeKnowledge.mount({root,request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onSaved:async knowledge=>{
     if(!mock){await load();return;}
     state.mockKnowledge=knowledge;
     const binding=knowledge.bindings.find(item=>item.childId===state.childId);
@@ -658,5 +673,10 @@
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === state.view));
   $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === state.view));
   [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[state.view];
-  load();
+  const ready=load();
+  function dispose(){if(disposed)return;disposed=true;usageRequestVersion++;pairingGeneration++;clearInterval(state.timer);clearTimeout(state.searchTimer);applicationReadCache.clear();computerReader.invalidate();independentReader.invalidate();knowledgeManager.dispose();for(const [target,type,handler]of listeners)target.removeEventListener(type,handler);for(const dialog of $$('dialog[open]'))dialog.close();}
+  return {ready,refresh:()=>{assertLive();return load();},dispose};
+  }
+  globalThis.AppRuntimeManagement={mount};
+  if(!componentOnly)mount();
 })();

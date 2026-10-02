@@ -16,6 +16,8 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### 主控制台 Runtime 管理通道
 
+Runtime canonical 控制器提供 `AppRuntimeManagement.mount`：注入 DOM root、Guardian 管理网关 request、当前家庭 children/Child、管理 view 和宿主 isCurrent 检查。嵌入实例只服务管理视图，不取得 Runtime 浏览器会话、不执行票据交换/登录跳转；宿主统一管理选择和退出。销毁释放监听器、定时器和知识组件，未完成请求只能被丢弃，不能声称服务端已取消写入。独立 Runtime 页面继续自动创建默认实例直到主控制台实际整合验收。模板和静态依赖由 canonical source 生成同源组件资产，不恢复 pages/app-runtime 副本或 iframe 子站。
+
 canonical 产品知识组件接入主控制台前，DOM 查询与事件绑定须限定在调用者提供的 root（可为 ShadowRoot）；未提供时保持独立页面 document 兼容。调用者在切换孩子/会话时更新 contextRevision 并使旧组件失效；组件请求按开始时 Child/contextRevision 检查返回，不让旧响应更新新孩子的配置界面，销毁移除监听器并关闭自身对话框。组件失效不撤销已经送达服务端的写入，也不自动重试写入。该生命周期只作用于展示/管理适配，不产生第二套知识或统计权威。
 
 主控制台以原 Guardian 家长 session 调用 `/app-runtime/manage/v1/{resource}`。Guardian 仅代理固定 Runtime 管理资源到既有 `APP_RUNTIME_SERVICE`：应用目录／产品知识／对象策略、电脑／账户分配、配对和诊断；不代理机器上传、机器令牌、身份生命周期或请求提供的目的地址。内部短期 account-module JWT 从现有家庭 Child 投影签发，永不返回给主页面，Runtime 继续逐资源核对 account／Child／machine ownership。传入 Authorization、Cookie、账户头和目标地址不转发；仅保留 Content-Type、If-Match 以及服务端内部认证。响应保留状态、JSON body 和 ETag，禁止重定向或 Set-Cookie；全部管理响应 no-store。请求／响应体流式透传，不为整合重新解析或结算原账。现有 SSO 独立页面暂留兼容，主控制台完成真实验收后才转旧地址。此网关不构成新配置权威，公共时间配置仍只写 Guardian。
