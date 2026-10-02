@@ -4,6 +4,7 @@ import { initSignal } from './core/signal.js';
 import { initCompositePageObserver } from './infra/composite-page-observer.js';
 import { initSharedReminderContentBridge } from './product/shared-reminder-content-bridge.js';
 import { initSharedAccessPolicyReader } from './infra/shared-access-policy-reader.js';
+import { initSharedQuotaExecutionReader } from './infra/shared-quota-execution-reader.js';
 import { initSharedBrowserActivity } from './product/shared-browser-activity.js';
 import { dispatchTimingSignal, drainPendingModeBoundaries } from './core/timing-dispatcher.js';
 import { confirmForegroundPageCheckpoint, resolveUnknownDomainForSettlement } from './core/foreground-timing.js';
@@ -44,6 +45,7 @@ registerStoragePressureHandler((options) => runV1StorageMaintenance(options));
 initCompositePageObserver();
 initSharedReminderContentBridge();
 initSharedAccessPolicyReader();
+initSharedQuotaExecutionReader();
 initSharedBrowserActivity();
 
 let badgeUpdateQueue = Promise.resolve();
