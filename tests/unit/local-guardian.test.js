@@ -51,7 +51,11 @@ function moduleSource(instance) {
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-browser-activity.js'), 'utf8').replace(/export function /g, 'function '))
     .replace(/import \{ validateSharedBrowserExecution \} from '\.\.\/core\/shared-browser-execution\.js';/,
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-browser-execution.js'), 'utf8').replace(/export function /g, 'function '))
-    + `\n// test-instance-${instance}`;
+    .replace(/import \{ browserExecutionFence, browserExecutionIdentityHash \} from '\.\/shared-browser-execution-fence\.js';/,
+      fs.readFileSync(path.join(root, 'extension', 'infra', 'shared-browser-execution-fence.js'), 'utf8').replace(/export (function|const) /g, '$1 '))
+    .replace(/import \{ sharedBrowserExecutionAttempts \} from '\.\/shared-browser-execution-attempts\.js';/,
+      'const retirementEvidence = []; const sharedBrowserExecutionAttempts = {retireAttempt:async proof=>{const evidence=browserExecutionFence.evidence(proof);retirementEvidence.push(evidence);return {ok:!!evidence,retired:true};}};')
+    + `\nexport const executionFenceForTest = browserExecutionFence; export const retirementEvidenceForTest = retirementEvidence;\n// test-instance-${instance}`;
 }
 
 async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [] } = {}) {
@@ -766,6 +770,7 @@ async function run() {
   let releaseLifecycle;
   let lifecycleExecution = null;
   let wrongExecutionReceipt = false;
+  let duplicateExecutionReceipt = false;
   const lifecycle = await loadGuardian({ storage: {}, policy,
     connectNative: () => createPort((payload, onMessage) => {
       lifecycleRequests.push(payload);
@@ -781,7 +786,7 @@ async function run() {
           ...(lifecycleExecution ? { stage: 'shared', status: 'resolved', visibleAtMs: 2500, resolution: 'end_rest' } : {}) },
           browserExecution: lifecycleExecution,
           ...(payload.messageType === 'acknowledgeBrowserExecution' ? { browserExecutionAck: {
-            executionId: wrongExecutionReceipt ? 'old-execution' : payload.payload.executionId, duplicate: false } } : {}) } : {}) }));
+            executionId: wrongExecutionReceipt ? 'old-execution' : payload.payload.executionId, duplicate: duplicateExecutionReceipt } } : {}) } : {}) }));
       if (isLifecycle && holdLifecycle) releaseLifecycle = reply;
       else queueMicrotask(reply);
     }) });
@@ -825,11 +830,30 @@ async function run() {
   assert(executionRead.requestStartedMonotonicMs >= executionRequestStarted
     && executionRead.requestStartedMonotonicMs <= Math.floor(performance.now()));
   const executionAck = { ...lifeIdentity, executionId: 'execution-1', leaseId: 'fixture-lease', activityId: 'fixture-activity', outcome: 'stale' };
+  const beforeExecutionAck = lifecycle.module.executionFenceForTest.capture();
   assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeBrowserExecution', executionAck)).receipt.executionId, 'execution-1');
+  assert.strictEqual(lifecycle.module.executionFenceForTest.current(beforeExecutionAck), false, 'durable ACK fences older requests');
+  assert.strictEqual(lifecycle.module.retirementEvidenceForTest.at(-1).outcome, 'stale');
+  assert.strictEqual(lifecycle.module.retirementEvidenceForTest.at(-1).executionId, 'execution-1');
+  assert.match(lifecycle.module.retirementEvidenceForTest.at(-1).identityHash, /^[a-f0-9]{64}$/);
   assert.deepStrictEqual(lifecycleRequests.at(-1).payload, executionAck);
   wrongExecutionReceipt = true;
+  const beforeInvalidAck = lifecycle.module.executionFenceForTest.capture();
+  const retirementCount = lifecycle.module.retirementEvidenceForTest.length;
   assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeBrowserExecution', executionAck)).ok, false);
+  assert.strictEqual(lifecycle.module.executionFenceForTest.current(beforeInvalidAck), true, 'invalid ACK does not authorize retirement');
+  assert.strictEqual(lifecycle.module.retirementEvidenceForTest.length, retirementCount);
   wrongExecutionReceipt = false;
+  duplicateExecutionReceipt = true;
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeBrowserExecution', executionAck)).receipt.duplicate, true);
+  duplicateExecutionReceipt = false;
+  lifecycleError = 'SHARED_BROWSER_EXECUTION_ACK_CONFLICT';
+  const beforeConflict = lifecycle.module.executionFenceForTest.capture();
+  const beforeConflictCount = lifecycle.module.retirementEvidenceForTest.length;
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeBrowserExecution', { ...executionAck, outcome: 'failed' })).ok, false);
+  assert.strictEqual(lifecycle.module.executionFenceForTest.current(beforeConflict), true);
+  assert.strictEqual(lifecycle.module.retirementEvidenceForTest.length, beforeConflictCount);
+  lifecycleError = null;
   const executionCount = lifecycleRequests.length;
   assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeBrowserExecution', { ...executionAck, url: 'private' })).ok, false);
   assert.strictEqual(lifecycleRequests.length, executionCount);

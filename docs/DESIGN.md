@@ -16,20 +16,26 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 2026-10-02 执行许可持久登记准备层：新增独立 IndexedDB `shared-browser-execution-attempts-v1`，仅显式启用准备层时打开，不在 bootstrap 运行；inspect 只读登记（首次打开创建独立数据库），claim 才登记尝试。唯一 executionId 在 strict readwrite 事务中先检查、再登记，事务提交后才返回成功；最多20条且逻辑记录总量不超过8KB，容量满、损坏、读取或提交失败均拒绝。记录仅含 executionId、leaseId、时间，不包含网页内容；不自动淘汰已登记 ID，不因断线或重启重新授予同一 ID。此存储不属于网页账本，不改变 storage.local 预算或落账。登记后再次检查当前许可和租约，失效仍保留登记并拒绝；执行效果始终关闭。专项只用隔离事务故障夹具验证，真实 IndexedDB／重启验收仍未通过，不新增浏览器运行。
 
-边界补充：8KB 是记录逻辑载荷上限，不是 IndexedDB 文件的物理大小保证。20条满后停止接收新 claim，不自动清除 tombstone；长期保留及安全回收未定。普通与 split-incognito 存储分区不假定共享，隐身上下文拒绝此准备登记；启用跨上下文效果前需另行验证全局去重与持久性。登记后的故障只消耗该 ID，不可通过重新执行弥补。
+边界补充：8KB 是记录逻辑载荷上限，不是 IndexedDB 文件的物理大小保证。20条未确认登记满后停止接收新 claim，仅允许下述持久 ACK 证明的安全退休，不按时间清除 tombstone。普通与 split-incognito 存储分区不假定共享，隐身上下文拒绝此准备登记；启用跨上下文效果前需另行验证全局去重与持久性。登记后的故障只消耗该 ID，不可通过重新执行弥补。
 
-后续隔离验收只生成临时最小 MV3 测试扩展，复制原登记模块而不加载正式 background 或任何家庭认证；通过 Chrome for Testing、真实扩展 Service Worker 和同一隔离 Profile 重启核对登记。事务失败以真实 IndexedDB abort 注入，许可过期使用明确隔离上下文；不会把这些夹具称为真实共享 Service 授权、计时或效果验收。容量满目前没有产品级自动恢复入口，保持拒绝；缺少经批准的 ID 退役／回收规则，不能启用长期执行，也不在测试中清库绕过。
+后续隔离验收只生成临时最小 MV3 测试扩展，复制登记模块而不加载正式 background 或任何家庭认证；通过 Chrome for Testing、真实扩展 Service Worker 和同一隔离 Profile 重启核对登记。事务失败以真实 IndexedDB abort 注入，许可过期使用明确隔离上下文；不会把这些夹具称为真实共享 Service 授权、计时或效果验收。未确认项满额保持拒绝；安全退休实现不替代真实持久性验收，不在测试中清库绕过。
 
 2026-10-02 真实持久性验收阻塞：首次隔离 agent-browser 启动命令失败；非破坏性 doctor 的本地环境／浏览器检查通过。第二次使用空配置及显式隔离 Profile，Chrome for Testing 返回 about:blank 成功，但 agent-browser 子命令超过60秒未结束（ETIMEDOUT），未取得 IndexedDB、扩展 SW 或浏览器重启结论。同一命令两次失败后停止，不创建第三份 Profile 重试；临时测试扩展和 Profile 留存，不清库，正式候选未改。新验收脚本未提交，不用夹具证据覆盖该缺项。替代入口建议：经批准后改用现有 Playwright persistent-context 直接驱动同一隔离 Chrome；保持相同临时扩展和 Profile，只复验本登记库，不用家庭 Profile、不新增关页权限。
 
-### 执行登记安全回收分析（只读建议，未实施）
+### 执行登记安全退休（默认关闭的准备层）
 
-20条满后永久拒绝属于完整执行可靠性的 Missing，不是长期交付。回收是独立桥传输／幂等设计，需要架构核验权威撤销证据，不以网页产品语义批准替代，也不实施自动清库。
+2026-10-02 架构提供 Native `main@2436a8f` 的实际持久性依据：`AcknowledgeBrowserExecutionAsync` 在同一 SQLite 事务写入 ACK 与 `Target.Consumed=true`，等待 CommitAsync 后 Coordinator 才回成功；读取和授权均拒绝已消费目标。因此不新增 wire 字段。终端仅在现有严格 requestId、executionId、lease 及成功响应校验后生成内部不可伪造的退休凭据，绑定完整执行身份与 outcome。成功 ACK 推进本 SW 请求代次；所有旧请求、旧准备候选及旧代次 claim 被永久隔离后，strict IDB 事务才删除对应登记。断连同样推进代次，但不生成退休凭据。
+
+登记新增固定 SHA-256 身份摘要，不存网页内容；旧无摘要登记不自动退休。未知、失败、丢失或冲突 ACK 保留 tombstone；删除失败也保留且允许相同结果重新 ACK，不重新执行。容量仍为20条／8KB，不因墙钟或配置清库；已 ACK 项安全退休使长期连续尝试可超过20次。验证覆盖连续超过20次、丢 ACK 满额、迟到回复／旧候选、SW 重建、删除失败及重复 ACK；事务夹具不替代仍缺失的真实浏览器持久性验收。执行、计时、关页及候选目录均不改。
+
+实施证据：登记事务夹具连续45次成功退休；丢 ACK／满额拒绝、旧候选与排队事务的代次拒绝、SW 重建、删除失败、重复 ACK、身份冲突通过。Native 专项验证严格 ACK 才退休、重复 ACK 可恢复、无效回执与结果冲突不生成证明；执行准备层43项执行／28项生命周期／24项活动向量通过，typecheck 与扩展根目录检查通过。上文最初仅三字段且无退休的描述作为实施顺序保留，由本节身份摘要及安全退休规则取代；真实 IDB／浏览器重启仍为 Missing，未实施执行效果或修改原候选。此安全批排除未验收 Content/UI 草稿与浏览器脚本。
+
+20条满后永久拒绝不是长期交付；已确认项使用安全退休，未知项保持拒绝。退休属于独立桥传输／幂等设计，不以网页产品语义批准替代，也不实施自动清库。
 
 - 1.26 的 Service authorize 在原始 issuedMonotonicMs 后5秒到期，且要求 target 未 consumed、同 Service boot／lease／activity；消费方以原请求起点量剩余 maxAge，排队不能刷新期限。这里的5秒不是“本机 registeredAt 超过5秒便可删除”：登记仅保存墙钟时间，重启或调时不能由它证明 Service 永久撤销。
-- 最小回收候选：验证现有 acknowledgeBrowserExecution 的严格实例回执确实意味着 Service 已**持久 consumed**，重启后不再次签发同 executionId。先保存该权威终态，再在同一消费者单调时钟中等待最长5秒、排空所有旧请求／候选；确认旧在途回复不可再进入 claim 后才事务删除对应登记。取消、失败或过期不重做；ACK丢失时保留并查询／重发相同结果，不伪造 completed。
+- 实施使用请求代次隔离代替墙钟等待：严格 ACK 后旧请求／候选不可再进入 claim，才事务删除对应登记。取消、失败或过期不重做；ACK丢失时保留并重发相同结果，不伪造 completed。
 - SW／浏览器重启后旧单调时间不可比较。需要旧通道彻底失效、候选为空、全新协商和 Service 对该 ID 的持久终态证明；缺少任何条件保留 tombstone。配置或共享状态不同、activity 改变只证明当前不合格，不证明以后不能恢复；不能据此删除。断线、离线或墙钟变化也不构成回收依据。
-- 当前 wire 回执只有 executionId＋duplicate，authorize 的 consumed 是调用者传入状态；仅契约纯函数不足以证明 Service 实际持久化、ID不复用及旧租约不可复活。先由架构核对 Service 实现和已有 ACK 的保证，**不能断言必须新增字段，也不能断言现有字段已足够**。若现有路径不能证明，最小契约补充应是按 ID 的权威退役证明／查询，绑定 Service 代次和旧租约，重启后仍拒绝；不能靠本地日期、任意计数水位或不断增大容量解决。
+- wire 回执仍为 executionId＋duplicate；采用上文架构核验的实际 Native 持久事务保证，而不是仅凭 authorize 纯函数推断。终端保存完整九字段身份的摘要；Service 拒绝冲突 outcome，终端不会从普通 success、墙钟、配置变化或越来越大的容量推导退休许可。
 - 实施回收前固定回归：ACK前后迟到回复、ACK丢失、清理与claim并发、Service/SW重启、旧lease重现、墙钟回拨、同ID新许可冲突；全部证明退役ID不再执行，当前准备层继续关闭，不提前删除登记。
 
 1.26 无效果准备层：固定源 `7ceab64bbe1f5c5e997edbd872c705d03cd5fb56`，82747 字节验真包 SHA-256 `a53d765f239d2f04d7c172c109f49ea2ae0db73689cbcea6d588da81074722c5`。校验独立 `browserExecution`，严格绑定提醒 identity、lease、activity、版本及当前 Rest 页面；有效期从 Native 请求入口的单调时间计入排队和传输延迟。不从 resolution/stage 推断许可。默认关闭的准备调用者 `inspectSharedBrowserExecution(date, { enabled })` 经 Native 读取、实时活动复核、许可资格检查返回无效果结果，不调用网页关闭、模式切换、结算或存储写入；一次尝试登记通过显式注入接口准备，claim 前再次核对身份、时间及已有尝试，真实持久登记及效果调用仍待单项批准。`acknowledgeBrowserExecution` 使用既有串行 Port，发送及回执时复核当前 lease，严格确认 executionId/requestId；准备检查本身不发送 completed，不把 canceled 升级。43 项执行、28 项生命周期、24 项活动共同向量及 Native 回执、实例、未知字段专项通过，真实扩展／Service／效果执行未验收。

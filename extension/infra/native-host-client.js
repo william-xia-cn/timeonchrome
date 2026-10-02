@@ -10,6 +10,8 @@ import { validateSharedReminderResultV1 } from '../core/shared-reminder-result.j
 import { validateSharedReminderMessage, validateSharedReminderState } from '../core/shared-reminder-lifecycle.js';
 import { validateSharedBrowserActivity } from '../core/shared-browser-activity.js';
 import { validateSharedBrowserExecution } from '../core/shared-browser-execution.js';
+import { browserExecutionFence, browserExecutionIdentityHash } from './shared-browser-execution-fence.js';
+import { sharedBrowserExecutionAttempts } from './shared-browser-execution-attempts.js';
 
 export const TIMEONCHROME_NATIVE_HOST = 'com.timeonchrome.nativehost';
 export const LEGACY_LOCAL_GUARDIAN_HOST = 'com.timeonchrome.guardian';
@@ -314,6 +316,7 @@ function rejectPendingAck(errorCode) {
 }
 
 function disconnectPort() {
+  browserExecutionFence.invalidate();
   const port = nativePort;
   nativePort = null;
   v2Supported = false;
@@ -400,6 +403,7 @@ function ensureNativePort() {
   });
   port.onDisconnect.addListener(() => {
     if (nativePort === port) {
+      browserExecutionFence.invalidate();
       nativePort = null;
       sharedNativeV3 = false;
       sharedNativeCapabilities.clear();
@@ -739,7 +743,13 @@ async function performSend(options) {
         const receipt = ack.browserExecutionAck;
         if (getSharedBrowserActivityLease() !== options.payload.leaseId || !receipt || Object.keys(receipt).length !== 2 || receipt.executionId !== options.payload.executionId
           || typeof receipt.duplicate !== 'boolean') return { ok: false, errorCode: 'shared_reminder_invalid_ack' };
-        return { ok: true, receipt: { executionId: receipt.executionId, duplicate: receipt.duplicate } };
+        const proof = browserExecutionFence.acknowledge(options.identityHash, options.payload.executionId,
+          options.payload.leaseId, options.payload.outcome);
+        const retirement = await sharedBrowserExecutionAttempts.retireAttempt(proof);
+        return { ok: true, receipt: { executionId: receipt.executionId, duplicate: receipt.duplicate }, retirement };
+      }
+      if (options.method === 'getSharedReminderState' && !browserExecutionFence.current(options.executionGeneration)) {
+        return { ok: false, errorCode: 'browser_execution_generation_changed' };
       }
       const state = validateSharedReminderState(ack.sharedReminder, options.expected);
       if (!state.ok) return state;
@@ -1141,6 +1151,7 @@ export async function reportSharedReminderResult(result) {
 
 export async function requestSharedReminderLifecycle(method, value) {
   const requestStartedMonotonicMs = Math.floor(performance.now());
+  const executionGeneration = browserExecutionFence.capture();
   let checked;
   if (method === 'getSharedReminderState') {
     const validDate = typeof value?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.date);
@@ -1153,12 +1164,16 @@ export async function requestSharedReminderLifecycle(method, value) {
   } else checked = method === 'acknowledgeBrowserExecution'
     ? validateSharedBrowserExecution(value, true) : validateSharedReminderMessage(value, method);
   if (!checked.ok) return checked;
+  let identityHash = null;
+  try {
+    if (method === 'acknowledgeBrowserExecution') identityHash = await browserExecutionIdentityHash(checked.payload);
+  } catch (_) { return { ok: false, errorCode: 'browser_execution_identity_unavailable' }; }
   if (!await readNativeHostDeploymentMarker().catch(() => false)) return { ok: false, errorCode: 'managed_marker_unavailable' };
   const negotiated = await negotiateSharedCapability(method, 'shared_reminder');
   if (!negotiated.ok) return negotiated;
   const { delivery, action, ...identity } = checked.payload;
   const options = { type: 'sharedLifecycle', method, payload: checked.payload,
-    requestStartedMonotonicMs,
+    requestStartedMonotonicMs, executionGeneration, identityHash,
     expected: method === 'getSharedReminderState' ? { date: value.date } : identity };
   if (!activeSendPromise) return startSend(options);
   if (queuedSharedLifecycle) return { ok: false, errorCode: 'shared_reminder_busy' };

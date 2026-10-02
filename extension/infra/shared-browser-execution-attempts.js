@@ -1,9 +1,12 @@
+import { browserExecutionFence, browserExecutionIdentityHash } from './shared-browser-execution-fence.js';
+
 const DATABASE = 'shared-browser-execution-attempts-v1';
 const STORE = 'attempts';
 const MAX_RECORDS = 20;
 const MAX_BYTES = 8192;
 const validId = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 128;
-const validRecord = value => value && Object.keys(value).sort().join(',') === 'executionId,leaseId,registeredAt'
+const validRecord = value => value && ['executionId,leaseId,registeredAt', 'executionId,identityHash,leaseId,registeredAt'].includes(Object.keys(value).sort().join(','))
+  && (value.identityHash == null || /^[a-f0-9]{64}$/.test(value.identityHash))
   && validId(value.executionId) && validId(value.leaseId) && Number.isSafeInteger(value.registeredAt) && value.registeredAt >= 0;
 
 function openDatabase() {
@@ -34,13 +37,15 @@ async function transact(mode, decide) {
           const decision = decide(request.result);
           result = decision.result;
           if (decision.record) store.add(decision.record);
+          if (decision.deleteId) store.delete(decision.deleteId);
         } catch (_) { tx.abort(); }
       };
     });
   } finally { db.close(); }
 }
 
-export function createSharedBrowserExecutionAttemptStore({ transaction = transact, now = Date.now } = {}) {
+export function createSharedBrowserExecutionAttemptStore({ transaction = transact, now = Date.now,
+  fence = browserExecutionFence } = {}) {
   function check(records) {
     if (!Array.isArray(records) || records.length > MAX_RECORDS || records.some(record => !validRecord(record))
       || new Set(records.map(record => record.executionId)).size !== records.length
@@ -50,13 +55,18 @@ export function createSharedBrowserExecutionAttemptStore({ transaction = transac
     async readAttemptedIds() {
       return transaction('readonly', records => { check(records); return { result: new Set(records.map(record => record.executionId)) }; });
     },
-    async claimAttempt(executionId, leaseId) {
+    async claimAttempt(executionId, leaseId, identity = null, generation = fence.capture()) {
       if (!validId(executionId) || !validId(leaseId)) return { ok: false, errorCode: 'browser_execution_claim_invalid' };
       try {
+        if (identity && (identity.executionId !== executionId || identity.leaseId !== leaseId)) {
+          return { ok: false, errorCode: 'browser_execution_claim_invalid' };
+        }
+        const identityHash = identity ? await browserExecutionIdentityHash(identity) : null;
         return await transaction('readwrite', records => {
           check(records);
+          if (!fence.current(generation)) return { result: { ok: false, errorCode: 'browser_execution_generation_changed' } };
           if (records.some(record => record.executionId === executionId)) return { result: { ok: false, errorCode: 'browser_execution_already_attempted' } };
-          const record = { executionId, leaseId, registeredAt: now() };
+          const record = { executionId, leaseId, registeredAt: now(), ...(identityHash ? { identityHash } : {}) };
           if (!validRecord(record)) throw new Error('attempt_store_invalid_clock');
           if (records.length >= MAX_RECORDS || new TextEncoder().encode(JSON.stringify([...records, record])).length > MAX_BYTES) {
             return { result: { ok: false, errorCode: 'browser_execution_attempt_store_full' } };
@@ -64,6 +74,21 @@ export function createSharedBrowserExecutionAttemptStore({ transaction = transac
           return { record, result: { ok: true, effectsEnabled: false } };
         });
       } catch (_) { return { ok: false, errorCode: 'browser_execution_claim_failed' }; }
+    },
+    async retireAttempt(proof) {
+      try {
+        return await transaction('readwrite', records => {
+          check(records);
+          const evidence = fence.evidence(proof);
+          if (!evidence) return { result: { ok: false, errorCode: 'browser_execution_retirement_unproven' } };
+          const record = records.find(value => value.executionId === evidence.executionId);
+          if (!record) return { result: { ok: true, retired: false, effectsEnabled: false } };
+          if (!record.identityHash || record.identityHash !== evidence.identityHash || record.leaseId !== evidence.leaseId) {
+            return { result: { ok: false, errorCode: 'browser_execution_retirement_identity_mismatch' } };
+          }
+          return { deleteId: record.executionId, result: { ok: true, retired: true, effectsEnabled: false } };
+        });
+      } catch (_) { return { ok: false, errorCode: 'browser_execution_retirement_failed' }; }
     },
   };
 }

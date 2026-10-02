@@ -89,7 +89,8 @@ async function run() {
     assert.equal(core.validateSharedBrowserExecution(bad).ok, false);
   }
   const preparationSource = fs.readFileSync(path.join(root, 'extension/product/shared-browser-execution-preparation.js'), 'utf8');
-  const preparation = await load(coreSource + '\nconst requestSharedReminderLifecycle = async () => ({ok:false});\n'
+  const fenceSource = fs.readFileSync(path.join(root, 'extension/infra/shared-browser-execution-fence.js'), 'utf8');
+  const preparation = await load(coreSource + '\n' + fenceSource + '\nconst requestSharedReminderLifecycle = async () => ({ok:false});\n'
     + 'const sharedBrowserExecutionAttempts = {readAttemptedIds:async()=>new Set(),claimAttempt:async()=>({ok:false})};\n'
     + 'const sharedReminderIdentity = value => Object.fromEntries(["schemaVersion","roundId","reminderId","deliveryId","policyRevision","stateRevision"].map(key=>[key,value[key]]));\n'
     + preparationSource.replace(/^import .*;\r?\n/gm, ''));
@@ -122,6 +123,18 @@ async function run() {
   assert.equal(expiredAfterCommit.registered, true);
   assert.equal(expiredAfterCommit.effectsEnabled, false);
   assert.equal(expiredAfterCommit.errorCode, 'SHARED_BROWSER_EXECUTION_EXPIRED');
+  clock = 1000;
+  await candidate.inspect(vectors.state.date);
+  preparation.browserExecutionFence.invalidate();
+  assert.equal((await candidate.claim(basePermit)).errorCode, 'browser_execution_generation_changed');
+  let reply;
+  const late = preparation.createSharedBrowserExecutionPreparation({ enabled: true, now: () => clock,
+    request: () => new Promise(resolve => { reply = resolve; }), readContext: async () => current,
+    readAttemptedIds: async () => new Set(), claimAttempt: async () => { throw Error('old reply cannot claim'); } });
+  const inFlight = late.inspect(vectors.state.date);
+  preparation.browserExecutionFence.invalidate();
+  reply({ ok: true, state: vectors.state, browserExecution: basePermit, requestStartedMonotonicMs: 1000 });
+  assert.equal((await inFlight).errorCode, 'browser_execution_generation_changed');
   assert(!/tabs\.(remove|update)|closeCurrentSession|dispatchModeEvent|budgetedLocalSet|storage\.(local|session)\.set/.test(preparationSource));
   console.log(`[Browser Execution Preparation] ${vectors.browserExecution.cases.length} execution / ${vectors.cases.length} lifecycle / ${vectors.browserActivity.cases.length} activity vectors and no-effect caller checks passed`);
 }
