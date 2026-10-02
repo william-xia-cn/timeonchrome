@@ -1,6 +1,6 @@
 import { requireAccountModule, requireMachine } from './auth';
 import { routeApplicationAccounts } from './applicationAccounts';
-import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota } from './applicationSharedQuota';
+import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota, applicationSharedQuotaSourceKey } from './applicationSharedQuota';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import type { SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
@@ -513,7 +513,69 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     return routeApplicationAccounts(request, env.RUNTIME_DB, await requireMachine(request, env.RUNTIME_DB, nowMs, false), nowMs);
   }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
-    url.pathname !== '/v2/machines/heartbeat');
+    url.pathname !== '/v2/machines/heartbeat' && url.pathname !== '/v2/machines/shared-quota/execution-basis');
+  if (url.pathname === '/v2/machines/shared-quota/execution-basis') {
+    if(request.method!=='GET')return methodNotAllowed('GET');
+    const allowed=['localUserId','assignmentVersion','date','offset','limit','revision'];
+    const seen=new Set<string>();
+    for(const key of url.searchParams.keys()){
+      if(!allowed.includes(key)||seen.has(key))throw new HttpError(400,'INVALID_REQUEST','Execution scope is invalid.');
+      seen.add(key);
+    }
+    const localUserId=url.searchParams.get('localUserId')??'',assignmentText=url.searchParams.get('assignmentVersion')??'';
+    const assignmentVersion=Number(assignmentText),date=url.searchParams.get('date')??'';
+    const offsetText=url.searchParams.get('offset')??'0',limitText=url.searchParams.get('limit')??'50';
+    const offset=Number(offsetText),limit=Number(limitText),expectedRevision=url.searchParams.get('revision');
+    const start=Date.parse(date+'T00:00:00Z');
+    if(!/^[A-Za-z0-9_-]{32,128}$/.test(localUserId)||!/^[1-9][0-9]*$/.test(assignmentText)
+      ||!Number.isSafeInteger(assignmentVersion)||!/^(0|[1-9][0-9]*)$/.test(offsetText)
+      ||!Number.isSafeInteger(offset)||offset>1400||!/^[1-9][0-9]*$/.test(limitText)||limit>100
+      ||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||!Number.isFinite(start)||new Date(start).toISOString().slice(0,10)!==date
+      ||(expectedRevision!==null&&!/^[a-f0-9]{64}$/.test(expectedRevision))||(offset>0&&expectedRevision===null))
+      throw new HttpError(400,'INVALID_REQUEST','Execution scope is invalid.');
+    const readAssignment=()=>env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
+      WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3 AND a.protected=1 AND a.child_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer WHERE newer.machine_id=a.machine_id
+          AND newer.local_user_id=a.local_user_id AND newer.assignment_version>a.assignment_version)`)
+      .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
+    const assignment=await readAssignment();
+    if(!assignment)throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
+    if(!env.GUARDIAN_COMPUTER_USAGE)throw new HttpError(503,'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis is unavailable.');
+    const ownSourceKey=await applicationSharedQuotaSourceKey(machine.machineId,localUserId,assignmentVersion);
+    let result:unknown;
+    try{
+      const response=await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedQuotaExecutionBasis',{
+        method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:machine.accountId,
+          childId:assignment.child_id,date,ownSourceKey,offset,limit,expectedRevision})}));
+      if(!response.ok)throw new HttpError(response.status===409?409:response.status===400?400:response.status===404?403:503,
+        response.status===409?'EXECUTION_BASIS_VERSION_CHANGED':response.status===400?'INVALID_EXECUTION_CURSOR'
+          :response.status===404?'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE':'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis is unavailable.');
+      const reader=response.body?.getReader();
+      if(!reader)throw Error('empty');
+      const chunks:Uint8Array[]=[];let size=0;
+      try{while(true){const chunk=await reader.read();if(chunk.done)break;size+=chunk.value.byteLength;
+        if(size>262144){await reader.cancel();throw Error('oversize');}chunks.push(chunk.value);}}
+      finally{reader.releaseLock();}
+      const bytes=new Uint8Array(size);let position=0;for(const chunk of chunks){bytes.set(chunk,position);position+=chunk.length;}
+      result=JSON.parse(new TextDecoder().decode(bytes));
+    }catch(error){if(error instanceof HttpError)throw error;
+      throw new HttpError(503,'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis is unavailable.');}
+    const fields=['schemaVersion','profileId','basisRevision','policyRevision','fromDate','toDate','days','authorizedScopes','page'];
+    if(!isRecord(result)||Object.keys(result).length!==fields.length||Object.keys(result).some(key=>!fields.includes(key))
+      ||result.schemaVersion!==1||result.profileId!==assignment.child_id||result.toDate!==date
+      ||typeof result.basisRevision!=='string'||!/^[a-f0-9]{64}$/.test(result.basisRevision)
+      ||(expectedRevision!==null&&result.basisRevision!==expectedRevision)
+      ||!isRecord(result.page)||result.page.offset!==offset||result.page.limit!==limit
+      ||!Array.isArray(result.authorizedScopes)||result.authorizedScopes.length>7
+      ||result.authorizedScopes.some(scope=>!isRecord(scope)||Object.keys(scope).length!==3||scope.source!=='application'
+        ||scope.sourceKey!==ownSourceKey||typeof scope.date!=='string'))
+      throw new HttpError(503,'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis response is invalid.');
+    const currentMachine=await requireMachine(request,env.RUNTIME_DB,nowMs,false),currentAssignment=await readAssignment();
+    if(currentMachine.machineId!==machine.machineId||currentMachine.accountId!==machine.accountId
+      ||currentAssignment?.child_id!==assignment.child_id)
+      throw new HttpError(409,'SHARED_ACCESS_BINDING_CHANGED','Execution binding changed.');
+    return jsonResponse(result);
+  }
   if (url.pathname === '/v2/machines/shared-access-policy') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
     const localUserId=url.searchParams.get('localUserId');

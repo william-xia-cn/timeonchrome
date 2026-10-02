@@ -2,6 +2,10 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+下一标准云端批：补机器授权的1.28分页依据读取，复用Machine Bearer、当前protected assignment及既有Guardian内部绑定；自身application sourceKey由服务端按已用算法派生，不接收caller Child/sourceKey。Guardian先验证owner Child，再分页，只允许该机器来源scope；读取完成复核assignment/机器撤销及policy变化。新增接口不写activity或账本、不授予网页scope。允许v2Routes/applicationSharedQuota、Guardian computerUsage/sharedAccessState及对应现有聚焦测试、DESIGN/任务板；最小验证权限/参数/绑定并发/错版/内部故障/应用scope隔离、根和Runtime typecheck、边界/diff。无关平台/页面/安装器不跑，不部署。PR208已合入507d010，精确CI37037200688通过，控件源码来源字节未改。
+
+本批本地审计：机器GET与Guardian受限内部分页读取已实现；来源键复用原上传算法，逐项拒绝caller Child/source、重复参数、旧assignment、非应用scope和错Child，读取后重新校验撤销/改绑。响应流限制256KiB、超限取消；读取不更新机器activity。computer-usage-cloud/shared-access-state-cloud聚焦通过；真实本地D1机器读取、改绑/撤销及现有配置读取3项通过（19项无关跳过），根/Runtime typecheck、源码与standard-cloud九路径检查、diff通过，Runtime dry-run465.75KiB。首轮失败来自VM Error跨realm及测试使用不存在的revoked列/非法manual枚举，已按真实schema修正并复验，不放宽产品校验。Matched=本批机器分页授权读取；Deviated/Extra=无；Missing=跨端网页来源可信证明、完整配置身份、两端实际消费与共享执行/提醒实机验收，保持全目标未完成。没有部署、安装、迁移或候选替换。
+
 本轮技术集成清单：精确merge控件来源5a22ccd954e7c28e980122ba1794ddf3ef9cf1cf（含d40a0bc设备配置读取与LKG及流式边界修复），保持其产品/测试字节不变，只合并双方现有设计记录；不操作控件工作树未提交任务板。聚焦复验shared-access-policy-reader/local-guardian、根typecheck/源码边界/diff及Integration-Source范围证明；不生成候选包、不改加载目录、不启用执行或部署。1.28 PR207已合入85826e4，所有相关CI通过，固定候选90991bytes/SHA25672dbd1f611c0471913f07a72b23be519ad0066eb1c5d29f5433c7655b4b59c04已通知两端开展只读分页消费，机器来源授权/完整policy一致性等仍未完成。
 
 集成审计：配置读取/LKG及local-guardian聚焦测试、根typecheck/源码边界/diff通过；只有DESIGN插入位置冲突，双方完整记录保留。产品与测试逐路径对照来源5a22ccd无差异，所属控件TASK_BOARD草稿未动。Matched=所属实现精确集成与当前1.28兼容；Deviated/Extra=无；Missing=真实设备API/Host及共享执行验收，默认关闭。未部署/安装/替换候选。

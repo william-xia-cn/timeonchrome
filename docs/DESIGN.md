@@ -24,6 +24,8 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 共享访问终端契约边界（2026-10-02）
 
+Native机器只读运输使用`GET /v2/machines/shared-quota/execution-basis?localUserId=opaque&assignmentVersion=N&date=YYYY-MM-DD&offset=0&limit=50[&revision=64hex]`，返回同1.28页结构。机器认证禁止写last_seen；Child由当前受保护assignment决定，拒绝其他query/重复key/外部Child或sourceKey。Runtime沿既有source算法派生application sourceKey，经GUARDIAN_COMPUTER_USAGE内部`/readSharedQuotaExecutionBasis`传递owner/Child/date/分页及opaque自身key；不传机器token、localUserId或SID。Guardian复核Child ownership和policy版本、只授予basis中已有自身application来源；非自身web来源仍完整保留但不授予替换权。Runtime读取后再次验证机器未撤销及同assignment，内部响应有界读取、错版409/参数400/故障503/no-store。此接口没有跨端web授权，也不启用shared；Native必须全页严格组装并按当前身份原子缓存，不能把ACK或单页当完整执行依据。
+
 Contracts1.28固定`SharedQuotaExecutionPageV1`和`assembleSharedQuotaExecutionPages(policy, expectedProfileId, pages)`：transport携带profileId、basis/policy revision、日期覆盖及sourceCount、授权scope和分页游标。认证调用方完整收齐同一次读取所有页后调用组装；函数拒绝未知字段、跨Child/版本/配置混页、缺页/重页、非法游标、总计与逐日来源数不符、范围外或不存在的授权scope。首offset=0，连续递进，末nextOffset=null；limit1–100，总计0–1400，每日最多200，最多七天。零来源需要明确完整空页及各日原因，不把缺页当零。输入保持不可变，输出组装依据与授权scope，随后交既有1.27投影核验；该函数不认证服务器或授予执行能力，只接受调用方通过既定鉴权取得的响应。不增加双向控制或改变原来源统计；Native机器读取和可信跨端来源仍未完成。
 
 #### 共享执行来源替换接入（2026-10-03，待实现）
