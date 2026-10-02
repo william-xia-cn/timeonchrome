@@ -4,6 +4,23 @@ const BUCKETS = ['study', 'composite', 'rest'];
 const SOURCES = new Set(['web', 'application']);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+function validDate(value) {
+  if (typeof value !== 'string' || !DATE_PATTERN.test(value)) return false;
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === value;
+}
+
+function mondayOf(date) {
+  const day = new Date(`${date}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - (day.getUTCDay() + 6) % 7);
+  return day.toISOString().slice(0, 10);
+}
+
+function validReasons(value) {
+  return Array.isArray(value) && value.length <= 32
+    && value.every(code => typeof code === 'string' && code.length > 0 && code.length <= 64);
+}
+
 function nonnegativeInteger(value) {
   return Number.isSafeInteger(value) && value >= 0;
 }
@@ -19,7 +36,7 @@ function validSourceVector(sources) {
   const seen = new Set();
   for (const source of sources) {
     if (!source || !SOURCES.has(source.source) || typeof source.sourceKey !== 'string' || !source.sourceKey
-      || !DATE_PATTERN.test(source.date) || typeof source.revision !== 'string' || !source.revision) return false;
+      || !validDate(source.date) || typeof source.revision !== 'string' || !source.revision) return false;
     const key = `${source.source}\0${source.sourceKey}\0${source.date}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -34,20 +51,24 @@ export function validateSharedQuotaStateV1(value, { date, weekStart, policyRevis
     || !nonnegativeInteger(value.computedAtMs)
     || !(value.settledAtMs === null || nonnegativeInteger(value.settledAtMs))
     || typeof value.complete !== 'boolean' || typeof value.offline !== 'boolean'
-    || !Array.isArray(value.reasonCodes) || !value.reasonCodes.every((code) => typeof code === 'string')
+    || !validReasons(value.reasonCodes)
     || !validSourceVector(value.sources)) return { ok: false, errorCode: 'shared_quota_invalid_state' };
 
-  if (!value.day || !DATE_PATTERN.test(value.day.date)
+  if (!value.day || !validDate(value.day.date)
     || !quotaBuckets(value.day.usedMs) || !quotaBuckets(value.day.remainingMs, { nullable: true })
     || !nonnegativeInteger(value.day.borrowedRestMs)
     || value.day.borrowedRestMs > value.day.usedMs.rest
-    || !value.week || !DATE_PATTERN.test(value.week.fromDate)
+    || !value.week || !validDate(value.week.fromDate) || !validDate(value.week.toDate)
+    || typeof value.week.complete !== 'boolean' || !validReasons(value.week.reasonCodes)
+    || (value.complete && (!value.week.complete || value.reasonCodes.length > 0))
+    || (value.week.complete && value.week.reasonCodes.length > 0)
     || !nonnegativeInteger(value.week.restUsedMs)
     || !(value.week.restRemainingMs === null || nonnegativeInteger(value.week.restRemainingMs))) {
     return { ok: false, errorCode: 'shared_quota_invalid_state' };
   }
 
-  if (date && value.day.date !== date || weekStart && value.week.fromDate !== weekStart
+  if (value.week.fromDate !== mondayOf(value.day.date) || value.week.toDate !== value.day.date
+    || date && value.day.date !== date || weekStart && value.week.fromDate !== weekStart
     || policyRevision && value.policyRevision !== policyRevision) {
     return { ok: false, errorCode: 'shared_quota_stale_state' };
   }
@@ -65,7 +86,7 @@ export function inspectWebContributionInSharedStateV1(state, contribution, { wee
     date: contribution.date, weekStart, policyRevision: contribution.policyRevision,
   });
   if (!checked.ok) return { ok: false, reasonCode: checked.errorCode };
-  if (state.complete !== true) return { ok: false, reasonCode: 'SHARED_STATE_INCOMPLETE' };
+  if (state.complete !== true || state.week.complete !== true) return { ok: false, reasonCode: 'SHARED_STATE_INCOMPLETE' };
   const source = state.sources.find((item) => item.source === 'web'
     && item.sourceKey === contribution.sourceKey && item.date === contribution.date);
   if (!source) return { ok: false, reasonCode: 'WEB_SOURCE_MISSING' };

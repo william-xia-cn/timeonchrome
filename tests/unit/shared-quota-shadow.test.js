@@ -34,7 +34,7 @@ const state = {
   sources: [{ source: 'web', sourceKey: 'opaque-device', date: '2026-10-02', revision: 'web-rev-2' }],
   day: { date: '2026-10-02', usedMs: { study: 0, composite: 0, rest: 60000 },
     remainingMs: { study: null, composite: null, rest: null }, borrowedRestMs: 0 },
-  week: { fromDate: '2026-09-28', restUsedMs: 60000, restRemainingMs: null },
+  week: { fromDate: '2026-09-28', toDate: '2026-10-02', complete: true, reasonCodes: [], restUsedMs: 60000, restRemainingMs: null },
 };
 
 async function run() {
@@ -69,6 +69,11 @@ async function run() {
     state: { ...state, complete: false, reasonCodes: ['APP_OFFLINE'] } }) })).status, 'incomplete');
   assert.equal((await context.inspect({ ...options, readState: async () => ({ ok: true,
     state: { ...state, policyRevision: 'old-policy' } }) })).status, 'stale');
+  assert.equal((await context.inspect({ ...options, readState: async () => ({ ok: true,
+    state: { ...state, week: { ...state.week, toDate: '2026-10-04' } } }) })).status, 'stale');
+  assert.equal((await context.inspect({ ...options, readState: async () => ({ ok: true,
+    state: { ...state, complete: false, reasonCodes: ['WEEK_PENDING'],
+      week: { ...state.week, complete: false, reasonCodes: ['WEB_COVERAGE_MISSING'] } } }) })).status, 'incomplete');
   assert.equal((await context.inspect({ ...options, weekStart: 'bad' })).status, 'invalid_input');
   console.log('[Shared quota shadow] passed');
 }
