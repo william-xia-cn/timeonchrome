@@ -4,6 +4,10 @@
 
 ### 提醒生命周期补齐（1.24.0 实施设计）
 
+签发器补充（Service 本地持久状态，不增加客户端可写字段）：`delivery_failed` 是一次投递的终态；失败实例保持不可变审计，重试通过同一 round 新建 reminderId／deliveryId 的 offered 实例，旧实例及迟到 ACK 不得重新激活。按原网页检查点规则在约10秒后或已验证呈现方就绪时重试一次，重复就绪／轮询不能叠加重试；再次失败、配置为继续时完成未送达轮并安排下一阈值，配置为结束时改由原生兜底窗口新实例呈现，仍须 visible ACK 才开始60秒。兜底失败只报告故障，不能终止对象。上述次数／due／presenter lease 在 Service 本地原子保存，不让客户端指定。
+
+日／周软阈值分别消费统一配置 `dailyFirstReminderMinutes`／`weeklyFirstReminderMinutes` 与共享 Rest 用量；null关闭，达到首次阈值后等待真实前台有效娱乐对象再签发。两周期同时 due 合并一个 round，kinds 保留两项原因；去重键由认证的机器／用户／Child／策略周期及被满足的日／周阈值进度组成，不采用请求次数。完成 continue、timeout_continue 或正常 end_rest 时，以完成操作时的已结算日／周 Rest 用量分别保存下一阈值＝该用量＋repeatReminderMinutes；提醒等待的用量仍留原账，但不缩短下一轮间隔。正常结束被用户取消不撤回已完成的提醒、不升级强制；对象继续计时并在下一阈值重新提醒。跨日重置日进度，跨周重置周进度。entry 仅由真实新娱乐进入检查签发，不因轮询、重连或仍在原娱乐对象而反复签发；结束后再次进入走新的访问检查。旧网页检查点与新共享模式分别使用自己的进度，默认关闭时绝不接管旧执行路径。既有网页行为依据为根 docs/DESIGN.md 的“自主度配置与 Rest 使用检查点提醒”，共享生命周期严格使用1.24.0的版本／单调时钟规则。
+
 提醒由 Service 签发，认证上下文绑定受保护用户及 assignment；客户端不能指定孩子、用户、关闭目标或注册记录。每一机器／受保护用户／孩子／策略周期只保留一个活动 round；日、周提醒可合并呈现，独立 kind 仍保留原因。`getSharedReminderState` 只轮询已签发状态，不通过查询创建或抢占提醒。Service 在本机前台证据确定呈现方 browser/native，提供不透明 roundId、reminderId、deliveryId 与版本；连接重建不能让另一呈现方同时领取。配额不完整或未启用时不签发可执行提醒。
 
 `acknowledgeSharedReminderDelivery` 只报告 visible/failed，不接受客户端时间。Service 在验证签发实例与当前身份后记录本机单调时钟；visible ACK 返回规范 visibleAtMs 供展示／审计，从此开始60秒。相同 deliveryId 重复 ACK 返回同一记录，不重启倒计时；冲突 ACK 拒绝。无 ACK、未送达、旧版本均不构成超时授权。浏览器睡眠或重启后单调锚点无法验证时撤回旧轮并重新显示，不能按墙钟补算超时。显示失败最多按原规则重试一次，再按配置升级提醒界面；仍未显示只报告故障。
