@@ -2,9 +2,33 @@
 
 ## D-114：共享访问契约与电脑展示（1.21.0 本地草稿）
 
-`shared-access.ts` 规范 Guardian 唯一 Child 公共配置、网页／应用各自的已结算配额贡献、共享状态与提醒结果；来源按 `(source,sourceKey,date,revision)` 版本替换，不按重传次数累加。网页贡献沿用其有效配额桶整数秒和既有借用结果；应用贡献以毫秒报告原分类（复合／未归类尚未借用），明确排除可信 Chrome 与 `other`，再由共享层按现有复合余额借用娱乐。缺任一来源、版本冲突或 Chrome 扣除无证据时不得标记完整。新增的 Guardian `GET /profiles/:id/shared-access/v1` 仅对所属家长返回现有 Profile 配置的只读 `legacy` 投影，既不新建可写配置源，也不启用共享执行。
+### 提醒生命周期补齐（1.24.0 实施设计）
 
-2026-10-02 云端影子状态读取补充：Runtime 机器鉴权 `GET /v2/machines/shared-quota/state` 按当前受保护的本机账户分配推导 Child，不接受调用方指定 Child；通过现有受限 Guardian `ComputerUsageService` binding 读取同 Child 的共享策略和网页来源。Guardian 网页侧只复用已发布的 V2 日统计配额桶及现有批准更正，不从 Segment 重算；`other` 不贡献学习／复合／娱乐额度。Runtime 侧仅使用与当前统计 manifest、收据哈希和后台核验头完全一致的应用贡献。查询覆盖不完整、策略版本不一致、账本表未就绪或来源修订期间变化时，返回稳定不可用原因，不能以零值冒充完整。该端点仅供影子展示和兼容性验证，不授权本地共享配额执行；新增能力不改变原账、旧配额或网页计时。
+签发器补充（Service 本地持久状态，不增加客户端可写字段）：`delivery_failed` 是一次投递的终态；失败实例保持不可变审计，重试通过同一 round 新建 reminderId／deliveryId 的 offered 实例，旧实例及迟到 ACK 不得重新激活。按原网页检查点规则在约10秒后或已验证呈现方就绪时重试一次，重复就绪／轮询不能叠加重试；再次失败、配置为继续时完成未送达轮并安排下一阈值，配置为结束时改由原生兜底窗口新实例呈现，仍须 visible ACK 才开始60秒。兜底失败只报告故障，不能终止对象。上述次数／due／presenter lease 在 Service 本地原子保存，不让客户端指定。
+
+日／周软阈值分别消费统一配置 `dailyFirstReminderMinutes`／`weeklyFirstReminderMinutes` 与共享 Rest 用量；null关闭，达到首次阈值后等待真实前台有效娱乐对象再签发。两周期同时 due 合并一个 round，kinds 保留两项原因；去重键由认证的机器／用户／Child／策略周期及被满足的日／周阈值进度组成，不采用请求次数。完成 continue、timeout_continue 或正常 end_rest 时，以完成操作时的已结算日／周 Rest 用量分别保存下一阈值＝该用量＋repeatReminderMinutes；提醒等待的用量仍留原账，但不缩短下一轮间隔。正常结束被用户取消不撤回已完成的提醒、不升级强制；对象继续计时并在下一阈值重新提醒。跨日重置日进度，跨周重置周进度。entry 仅由真实新娱乐进入检查签发，不因轮询、重连或仍在原娱乐对象而反复签发；结束后再次进入走新的访问检查。旧网页检查点与新共享模式分别使用自己的进度，默认关闭时绝不接管旧执行路径。既有网页行为依据为根 docs/DESIGN.md 的“自主度配置与 Rest 使用检查点提醒”，共享生命周期严格使用1.24.0的版本／单调时钟规则。
+
+提醒由 Service 签发，认证上下文绑定受保护用户及 assignment；客户端不能指定孩子、用户、关闭目标或注册记录。每一机器／受保护用户／孩子／策略周期只保留一个活动 round；日、周提醒可合并呈现，独立 kind 仍保留原因。`getSharedReminderState` 只轮询已签发状态，不通过查询创建或抢占提醒。Service 在本机前台证据确定呈现方 browser/native，提供不透明 roundId、reminderId、deliveryId 与版本；连接重建不能让另一呈现方同时领取。配额不完整或未启用时不签发可执行提醒。
+
+`acknowledgeSharedReminderDelivery` 只报告 visible/failed，不接受客户端时间。Service 在验证签发实例与当前身份后记录本机单调时钟；visible ACK 返回规范 visibleAtMs 供展示／审计，从此开始60秒。相同 deliveryId 重复 ACK 返回同一记录，不重启倒计时；冲突 ACK 拒绝。无 ACK、未送达、旧版本均不构成超时授权。浏览器睡眠或重启后单调锚点无法验证时撤回旧轮并重新显示，不能按墙钟补算超时。显示失败最多按原规则重试一次，再按配置升级提醒界面；仍未显示只报告故障。
+
+`resolveSharedReminder` 仅允许主动 continue/end_rest，Service 自行计算 timeout，客户端不能申报 timeout 来触发结束。主动 end_rest 的效果仅 request-normal-close，可保存或取消，取消不升级强制；timeout_end 仅在Service证明可见满60秒、当前版本与执行阶段允许时产生 force-close。失败送达不能产生结束效果。旧 `reportReminderResult` 继续只读影子审计，不能成为执行命令。所有结束目标由执行方重新确认当前实际娱乐贡献对象；Chrome 网页由扩展处理，不结束浏览器，不关闭不产生有效用量的后台进程。
+
+1.24.0 增量增加生命周期类型、严格校验、状态转换共同向量和能力标识，1.23.1 保持上一兼容版。新能力不启用共享执行；shadow 转换只能产生 none 效果。验证重复／冲突、用户与版本隔离、60秒边界、重启失锚、主动正常关闭与超时强制、送达失败；只运行受影响契约检查。Native／扩展按共同向量实施，当前批不安装、部署或改原账。
+
+契约补齐批次：1.23.0 增量固定两项共享 Bridge payload、能力常量及请求／提醒结果校验。仅校验读取和影子结果，不新增执行开关。聚焦验证合法日期、禁止请求自选身份、未签发／旧版本／未可见／提前超时、重复与冲突处理边界；只运行 Contracts 兼容、共享访问测试、typecheck 和 diff，不运行平台／安装器测试。旧 1.22.0 包不覆盖重发，新包尚未发布／消费，不能宣称端到端完成。
+
+只读响应的 `ok` 表示请求和校验成功，不表示可以执行配额。合法云端状态（完整或部分）原样返回 `ok=true`、`sharedQuota`、`sharedQuotaStage=shadow`；缺失来源仍由状态自己的完整性与原因说明。连接／鉴权／日期／schema／版本错误才返回 `ok=false` 和稳定错误码。不能因仍为影子就拒绝合法读取，也不能在完整云端原值中伪造错误。消费端不得把读取成功或完整性当作共享执行许可。
+
+PR #182 初次 CI 发现机器控制黄金向量的 `contractVersion` 仍为 1.22.0；本批只同步该元数据为 1.23.0，机器控制 schema／行为不变。补验整个契约包测试（不扩大到产品全平台），失败记录保留，不把旧运行记为通过。
+
+Native 消费验真发现 1.23.0 的 state.week JSON schema 未包含 TS／云端已实现的 `toDate`、`complete`、`reasonCodes`。采用真实云端／TS结构为准，在补丁版 1.23.1 修正 schema，并核对周状态完整／部分输入的字段与必需性；保留已交付 1.23.0 文件不覆盖，消费者固定新哈希后再升级。不修改共享状态算法或 Worker 响应，不将缺失周完整性默认为完整。
+
+2026-10-02 通道语义补齐（实现设计，包消费以正式固定版本为准）：`sharedQuota/getSharedQuotaState` 的 payload 仅为 `{date: "YYYY-MM-DD"}`，使用北京时间日期；不接受 Child、本机用户、assignment 或 expectedRevision。Service 从已验证连接及当前受保护分配生成机器鉴权 `GET /v2/machines/shared-quota/state?localUserId=...&assignmentVersion=...&date=...`，返回的 `{sharedQuota}` 是云端只读影子，不能以本机部分统计伪造余额。能力名固定为 `shared-quota-state-read`；完整性、日期和策略版本不足时不可用于执行。
+
+`reportReminderResult` 直接携带 `SharedReminderResultV1`，影子能力名为 `shared-reminder-result-shadow`，只校验／记录，不触发结束或扣费。Native 必须在已验证用户范围校验 policyRevision、stateRevision 和 Service 已签发的 reminderId；未签发返回 `SHARED_REMINDER_NOT_ISSUED`。重复同 ID／双版本且内容相同只 ACK，冲突拒绝；可见事件和时间关系必须有记录，未送达不能当作超时。当前 Service 尚无完整提醒签发／可见生命周期，两端测试可注入登记，但真实统一提醒仍保持未完成／关闭；不能靠接收任意扩展结果宣称完成。后续执行阶段须补齐可恢复签发、单电脑唯一投递、可见确认与截止状态，未实现前不得声明执行能力。
+
+`shared-access.ts` 规范 Guardian 唯一 Child 公共配置、网页／应用各自的已结算配额贡献、共享状态与提醒结果；来源按 `(source,sourceKey,date,revision)` 版本替换，不按重传次数累加。网页贡献沿用其有效配额桶整数秒和既有借用结果；应用贡献以毫秒报告原分类（复合／未归类尚未借用），明确排除可信 Chrome 与 `other`，再由共享层按现有复合余额借用娱乐。缺任一来源、版本冲突或 Chrome 扣除无证据时不得标记完整。新增的 Guardian `GET /profiles/:id/shared-access/v1` 仅对所属家长返回现有 Profile 配置的只读 `legacy` 投影，既不新建可写配置源，也不启用共享执行。
 
 机器心跳只有声明 `application-other-v1` 后，机器策略才下发 `other` 分类；未声明的旧终端收到 `unclassified` 兼容投影，云端家长配置和历史事实不改写。能力变化须改变策略 ETag，避免缓存旧投影；策略 ACK 不代表共享配额或提醒能力完成验收。
 
@@ -33,6 +57,8 @@ Native 对照指出 `chromeExcludedMs` 是 Chrome 自身被排除的区间并集
 产品关联投影新增云端权威的可选 `isChromeContainer`：仅审核的 Chrome productId、可信身份依据且已确认/关联状态为 true，并纳入投影版本哈希。旧投影无此字段视为未知，不按显示名称识别 Chrome；终端据此输出 Chrome 扣除，无法证明时将边际值标为 `null`。
 
 电脑展示继续独立于配额：同范围 `webMs + applicationMs - chromeIncludedMs`，其中 Chrome 扣除是应用总量减去非 Chrome 区间并集后的边际值。来源异常保留有效独立分量；历史区间不足不得填平。新增 `other` 只影响后续经能力门控的分类和展示，不追溯原应用账。旧 1.20.0 实机契约与当前已安装终端不因此自动改变；新能力需端到端兼容与启用验收。
+
+共享配额日状态是 Guardian 按 Child 汇总网页和 Runtime 已核验应用贡献的云端只读投影，不由浏览器或 Service 二次结算来源。网页源只读取已持久化的 `target_stats_v1`／兼容 `stats_v1`，叠加已批准修正后按有效 `quota_bucket` 汇总；应用源必须来自 Runtime 当前 receipt、已核验头、已发布统计 manifest 与当日生效 assignment 完全一致的快照。任一设备／账户覆盖未知、历史聚合只能尽力还原、修正无法匹配、来源版本变化或任一源缺失，都返回可用的独立来源值与稳定原因码，但 `complete=false`，不得将部分量冒充可执行的共享余额。状态 revision 覆盖 Child 配置版本与阶段、成功来源／更正版本、预期与可用覆盖数及稳定原因码；即使错误码相同，覆盖集合改变也产生新 revision。日接口同时按北京时间周一至所选日期读取已持久化日投影，得出周至今 Rest 使用／剩余；任一天不完整则周状态不完整，并保留可诊断值，不查询所选日期之后的未来日，也不扫描原始 Segment。缓存只能是以 Child、日期、配置版本和两端来源／修正版本为键的可重建加速层，不能成为权威，也不能跨版本复用。该只读影子结果先服务于云端解释和核对；只有扩展与 Native 均消费同一版本并通过实机验收后，才另行启用共享执行。
 
 ## D-113：应用补齐与网页同构的持久化统计链路（本地实现，未发布）
 
@@ -103,11 +129,11 @@ Native 首次核对的兼容裁决（不改旧统计）：缺失事实 policyVer
 
 2026-10-01性能与范围补正：电脑使用固定为孩子/日期汇总，界面不提供电脑/账户/平台筛选；既有只读筛选协议保留兼容，独立统计不改变。应用原查询函数不改，新增鉴权后的内部版本缓存，使用已授权家庭/孩子、查询范围/筛选、涵盖所选范围和当前配额周的v1/v2账本计数/上传摘要、媒体摘要及App Policy最新版本构成不透明键。策略版本覆盖更正与产品投影；迟到上传和政策变化使旧缓存不可命中。计算期间版本变化不写缓存，异常不缓存，缓存失败回退权威读取。内部结果不超过2MB、最多保存5分钟，HTTP响应继续no-store，不向共享公开URL缓存用户数据。前端仅内存保存最多16项30秒，按完整孩子/日期/筛选请求键隔离，合并并发，刷新绕过内存；清除或过期的请求不得重新写回缓存。命中展示原读取时间，不伪装为实时数据。
 
-收尾修订覆盖下文阻塞说明：设备对应及Mac Chrome自动规则不作为读取前提。sourceStatus、historyStatus、overlapStatus分别表示统计来源、历史尽力还原和精确去重；原complete只控制去重总量。Runtime读取旧runtime_devices/runtime_usage_segments的现有统计口径及可恢复明细，返回historyQuality=bestEffort，不将旧设备占位当成所有应用失败。来源完整性与区间守恒分开；独立原总量/分类在区间证据不足时仍保留，展示分类在未确认重叠时标明来源累计。Chrome未确认归属时展示child级网页内容，不计算容器解释量或未知余量；仅可信同电脑证据允许容器内外解释。原app usage、更正、账本和配额函数不改。
+收尾修订：Child ID 是汇总边界；设备对应及 Mac Chrome 自动规则不作为读取或汇总前提。电脑使用按 Child 累计网页主用量＋应用主用量－应用统计已提供且核验通过的 Chrome 边际贡献，不要求跨来源物理电脑关联，不对跨设备并行用量做时间并集。来源缺失、来源版本冲突或 Chrome 扣除证据缺失仍阻止完整合计，但保留可读来源小计。`sourceStatus`、`historyStatus`、`overlapStatus` 分别描述来源完整性、历史尽力还原及该口径下 Chrome 扣除是否有依据；物理设备关联不进入诊断。应用统计归集按 Child 合并产品，稳定产品只显示一行，时长跨来源累计。Chrome 展开显示该孩子网页原始内容，不声称内容发生在某个 Chrome 容器内；该内容不作为第二份用量进入总量。原 app usage、更正、账本和配额函数不改。
 
 共享 Contracts `computer-usage` 定义只读来源、统一结果、完整性和版本分页。Guardian 持有唯一合并入口；Runtime 通过受限具名 Service Binding 提供已授权的应用权威用量与必要区间证据，Runtime 浏览器入口只代理同一 Guardian 结果。既有生命周期 Service Binding 不替换；新绑定是该展示的上线配置依赖，不是重新配对或迁移需求。内部证据不作为公开 HTTP 原始账本接口。
 
-Chrome 特殊属性由可信产品／具体应用关联产生，不依赖显示名称，也不改应用策略。云端读模型验证来源原统计与证据一致后，用明确重叠调整生成展示总量；分类排除 Chrome 容器贡献，保留网页内容及其他应用贡献。原 app usage 的会话／clock epoch 统计语义不改写；如果来源合计与电脑级区间证据无法一致，报告不可用而非重算补齐。没有可信网页设备与 Runtime 电脑对应时返回 `DEVICE_MAPPING_INCOMPLETE`，Child ID、名称与时间巧合不能替代设备证明。
+Chrome 特殊属性由可信产品／具体应用关联产生，不依赖显示名称，也不改应用策略。云端读模型按已核验来源原统计和 Runtime 提供的 Chrome 边际值生成 Child 展示总量；不以网页／应用的物理设备匹配或区间重叠重算总量。分类排除 Chrome 容器贡献，保留网页内容及其他应用贡献。原 app usage 的会话／clock epoch 统计语义不改写。时间线保留来源事实，但网页与其他应用按各自来源累计，不输出虚构的跨设备重叠值。
 
 Windows Chrome 的受控展示身份采用经本地只读核验的公开软件签名系列：2026-10-01 核验 Google Chrome 154.0.8037.59 的 Authenticode 有效、Google LLC 证书、`chrome.exe` 原文件名及 `Google Chrome` 产品元数据。复用既有 Native 文件系列算法（已验证签名公钥摘要＋原文件名＋产品元数据，不含路径/版本），云端只接受盘点中已验证的精确 signer/file-series 组合；规则包记录版本与来源，不上传证书正文或任何家庭原始设备信息。同名、签名无效、系列不同均不命中；证书轮换需重新审核。已有家长批准的 Chrome 产品及真实强 selector 匹配可作为另一条可信依据。未上传可核验依据的旧观察继续标标准对象，不能把“规则可识别”记为实机覆盖完成。
 

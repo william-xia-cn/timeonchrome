@@ -58,6 +58,10 @@ export function parseApplicationSharedQuotaUpload(value: unknown): ApplicationSh
 
 interface Receipt { revision_ordinal: number; payload_hash: string; source_key: string; received_at_ms: number }
 
+/** Only authenticated machine/assignment facts may supply these arguments. */
+export const applicationSharedQuotaSourceKey=(machineId:string,localUserId:string,assignmentVersion:number)=>
+  sha256Hex(`application\n${machineId}\n${localUserId}\n${assignmentVersion}`);
+
 /** Durable receipt only. A separate source validator must publish a usable shared state. */
 export async function receiveApplicationSharedQuota(db: D1Database, machine: MachineSelfResponse,
   value: unknown, nowMs: number) {
@@ -69,7 +73,7 @@ export async function receiveApplicationSharedQuota(db: D1Database, machine: Mac
     .bind(machine.machineId,upload.localUserId,upload.assignmentVersion,machine.accountId)
     .first<{child_id:string}>();
   if (!assignment) throw new HttpError(403,'SHARED_QUOTA_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
-  const sourceKey=await sha256Hex(`application\n${machine.machineId}\n${upload.localUserId}\n${upload.assignmentVersion}`);
+  const sourceKey=await applicationSharedQuotaSourceKey(machine.machineId,upload.localUserId,upload.assignmentVersion);
   const contribution:SharedQuotaContributionV1={...upload.contribution,sourceKey};
   const payloadJson=canonicalUsageAccountJson(contribution), payloadHash=await sha256Hex(payloadJson);
   await db.prepare(`INSERT INTO runtime_application_shared_quota_receipts_v1
@@ -106,6 +110,8 @@ export type ApplicationSharedQuotaSourceCheck = {
   policyVerified: false;
   reasonCode: string;
   contribution: SharedQuotaContributionV1 | null;
+  sourceKey?: string;
+  sourceRevision?: string;
 };
 
 /** Background/read-side check. Never run raw-account publication work on the machine upload hot path. */
@@ -114,7 +120,7 @@ export async function checkApplicationSharedQuotaSource(db:D1Database,machineId:
   const unavailable=(reasonCode:string):ApplicationSharedQuotaSourceCheck=>
     ({sourceVerified:false,policyVerified:false,reasonCode,contribution:null});
   const row=await db.prepare(`SELECT r.payload_json,r.payload_hash,r.account_id,r.child_id,
-      m.manifest_hash,m.manifest_json,m.id AS manifest_id
+      r.source_key,r.revision_ordinal,m.manifest_hash,m.manifest_json,m.id AS manifest_id
     FROM runtime_application_shared_quota_receipts_v1 r
     LEFT JOIN runtime_application_account_publications_v1 p
       ON p.machine_id=r.machine_id AND p.local_user_id=r.local_user_id
@@ -124,7 +130,7 @@ export async function checkApplicationSharedQuotaSource(db:D1Database,machineId:
     WHERE r.machine_id=?1 AND r.local_user_id=?2 AND r.assignment_version=?3 AND r.date=?4`)
     .bind(machineId,localUserId,assignmentVersion,date)
     .first<{payload_json:string;payload_hash:string;account_id:string;child_id:string;
-      manifest_hash:string|null;manifest_json:string|null;manifest_id:string|null}>();
+      source_key:string;revision_ordinal:number;manifest_hash:string|null;manifest_json:string|null;manifest_id:string|null}>();
   if(!row)return unavailable('SHARED_QUOTA_RECEIPT_MISSING');
   if(!row.manifest_id||!row.manifest_json||!row.manifest_hash)return unavailable('APPLICATION_ACCOUNT_NOT_PUBLISHED');
   let contribution:SharedQuotaContributionV1;
@@ -150,7 +156,89 @@ export async function checkApplicationSharedQuotaSource(db:D1Database,machineId:
       contribution.chromeIncludedInApplicationMs].filter((item):item is number=>item!==null&&item!==undefined);
     if(!bounded.every(item=>validInteger(item)&&item<=total))return unavailable('SHARED_QUOTA_CONTRIBUTION_OUT_OF_RANGE');
   } catch { return unavailable('SHARED_QUOTA_SOURCE_INVALID'); }
-  return {sourceVerified:true,policyVerified:false,reasonCode:'SHARED_POLICY_NOT_VERIFIED',contribution};
+  return {sourceVerified:true,policyVerified:false,reasonCode:'SHARED_POLICY_NOT_VERIFIED',contribution,
+    sourceKey:row.source_key,sourceRevision:`${row.revision_ordinal}:${row.payload_hash}`};
+}
+
+/**
+ * Child-scoped read capability for Guardian. Coverage is derived from every protected
+ * Runtime user assignment that was effective at any point in the Beijing day. The
+ * response deliberately omits machine and local-user identifiers.
+ */
+export async function readApplicationSharedQuotaContributions(db:D1Database,accountId:string,childId:string,date:string) {
+  parseDate(date);
+  const dayStart=Date.parse(`${date}T00:00:00+08:00`),dayEnd=dayStart+86_400_000;
+  const unavailable=(reasonCode:string)=>({date,complete:false,expectedScopeCount:0,verifiedScopeCount:0,
+    reasonCodes:[reasonCode],contributions:[] as Array<{sourceKey:string;revision:string;contribution:SharedQuotaContributionV1}>});
+  try {
+    if(!await applicationSharedQuotaUploadReady(db))return unavailable('APPLICATION_SHARED_QUOTA_SCHEMA_UNAVAILABLE');
+    const expected=await db.prepare(`SELECT a.machine_id,a.local_user_id,a.assignment_version,
+        r.source_key,r.revision_ordinal,r.payload_hash,r.payload_json,r.account_id AS receipt_account_id,r.child_id AS receipt_child_id,
+        v.revision_ordinal AS verified_ordinal,v.payload_hash AS verified_payload_hash,v.statistics_manifest_hash,
+        v.source_verified,v.reason_code,p.manifest_id,manifest.manifest_hash,manifest.manifest_json
+      FROM runtime_user_assignments_v2 a JOIN runtime_machines_v2 machine ON machine.id=a.machine_id
+      LEFT JOIN runtime_application_shared_quota_receipts_v1 r
+        ON r.machine_id=a.machine_id AND r.local_user_id=a.local_user_id AND r.assignment_version=a.assignment_version AND r.date=?5
+      LEFT JOIN runtime_application_shared_quota_verified_v1 v
+        ON v.machine_id=r.machine_id AND v.local_user_id=r.local_user_id AND v.assignment_version=r.assignment_version AND v.date=r.date
+      LEFT JOIN runtime_application_account_publications_v1 p
+        ON p.machine_id=r.machine_id AND p.local_user_id=r.local_user_id AND p.assignment_version=r.assignment_version AND p.date=r.date
+          AND p.account_id=r.account_id AND p.child_id=r.child_id
+      LEFT JOIN runtime_application_account_manifests_v1 manifest ON manifest.id=p.manifest_id
+      WHERE machine.account_id=?1 AND (machine.revoked_at_ms IS NULL OR machine.revoked_at_ms>=?2)
+        AND a.child_id=?3 AND a.protected=1 AND a.effective_at_ms<?4
+        AND NOT EXISTS(SELECT 1 FROM runtime_user_assignments_v2 same_time
+          WHERE same_time.machine_id=a.machine_id AND same_time.local_user_id=a.local_user_id
+            AND same_time.effective_at_ms=a.effective_at_ms AND same_time.assignment_version>a.assignment_version)
+        AND COALESCE((SELECT MIN(next.effective_at_ms) FROM runtime_user_assignments_v2 next
+          WHERE next.machine_id=a.machine_id AND next.local_user_id=a.local_user_id
+            AND next.effective_at_ms>a.effective_at_ms),9223372036854775807)>?2
+      ORDER BY a.machine_id,a.local_user_id,a.assignment_version LIMIT 513`)
+      .bind(accountId,dayStart,childId,dayEnd,date)
+      .all<{machine_id:string;local_user_id:string;assignment_version:number;source_key:string|null;revision_ordinal:number|null;
+        payload_hash:string|null;payload_json:string|null;receipt_account_id:string|null;receipt_child_id:string|null;
+        verified_ordinal:number|null;verified_payload_hash:string|null;statistics_manifest_hash:string|null;source_verified:number|null;
+        reason_code:string|null;manifest_id:string|null;manifest_hash:string|null;manifest_json:string|null}>();
+    if(expected.results.length>512)return unavailable('APPLICATION_SHARED_QUOTA_SCOPE_LIMIT');
+    if(!expected.results.length)return unavailable('APPLICATION_ASSIGNMENT_COVERAGE_UNKNOWN');
+    const contributions:Array<{sourceKey:string;revision:string;contribution:SharedQuotaContributionV1}>=[];
+    const reasons=new Set<string>();
+    for(const scope of expected.results) {
+      if(!scope.source_key||scope.revision_ordinal===null||!scope.payload_hash||!scope.payload_json) {
+        reasons.add('SHARED_QUOTA_RECEIPT_MISSING');continue;
+      }
+      if(scope.receipt_account_id!==accountId||scope.receipt_child_id!==childId) {
+        reasons.add('SHARED_QUOTA_SCOPE_CONFLICT');continue;
+      }
+      if(scope.source_verified!==1||scope.verified_ordinal!==scope.revision_ordinal||scope.verified_payload_hash!==scope.payload_hash) {
+        reasons.add(scope.reason_code||'SHARED_QUOTA_SOURCE_NOT_VERIFIED');continue;
+      }
+      if(!scope.manifest_id||!scope.manifest_json||!scope.manifest_hash
+        ||scope.statistics_manifest_hash!==scope.manifest_hash) {
+        reasons.add('APPLICATION_ACCOUNT_NOT_PUBLISHED');continue;
+      }
+      try {
+        const contribution=JSON.parse(scope.payload_json) as SharedQuotaContributionV1;
+        if(await sha256Hex(canonicalUsageAccountJson(contribution))!==scope.payload_hash) {
+          reasons.add('SHARED_QUOTA_RECEIPT_INTEGRITY_FAILED');continue;
+        }
+        const manifest=await verifyUsageAccountManifest(JSON.parse(scope.manifest_json));
+        if(manifest.manifestHash!==scope.manifest_hash||manifest.sourceKind!=='application'||manifest.date!==date||!manifest.complete
+          ||contribution.source!=='application'||contribution.sourceKey!==scope.source_key||contribution.date!==date
+          ||contribution.statisticsRevision!==manifest.manifestHash||contribution.productAssociationVersion!==manifest.associationVersion
+          ||contribution.correctionRevision!==String(manifest.correctionVersion)||contribution.settledAtMs!==manifest.settledThroughMs
+          ||!contribution.complete) {
+          reasons.add('SHARED_QUOTA_SOURCE_VERSION_MISMATCH');continue;
+        }
+        contributions.push({sourceKey:scope.source_key,revision:`${scope.revision_ordinal}:${scope.payload_hash}`,contribution});
+      } catch { reasons.add('SHARED_QUOTA_SOURCE_INVALID'); }
+    }
+    return {date,complete:reasons.size===0&&contributions.length===expected.results.length,
+      expectedScopeCount:expected.results.length,verifiedScopeCount:contributions.length,
+      reasonCodes:[...reasons].sort(),contributions};
+  } catch {
+    return unavailable('APPLICATION_SHARED_QUOTA_SOURCE_UNAVAILABLE');
+  }
 }
 
 
@@ -224,91 +312,6 @@ export async function readVerifiedChromeMarginals(db:D1Database,accountId:string
       chrome_included_ms:number|null;statistics_manifest_hash:string}>();
   if(result.results.length>1000)throw new HttpError(422,'SHARED_QUOTA_SOURCE_LIMIT','Too many application scopes.');
   return result.results;
-}
-
-export type SharedQuotaApplicationInputs={
-  contributions:SharedQuotaContributionV1[];
-  expectedSourceKeys:string[];
-  reasonCodes:string[];
-};
-
-/** Reads only source-verified replacement receipts for the requested Child/date range. */
-export async function readSharedQuotaApplicationInputs(db:D1Database,accountId:string,childId:string,
-  fromDate:string,toDate:string,policyRevision:string,nowMs=Date.now()):Promise<Record<string,SharedQuotaApplicationInputs>> {
-  parseDate(fromDate);parseDate(toDate);
-  if(toDate<fromDate||Date.parse(`${toDate}T00:00:00+08:00`)-Date.parse(`${fromDate}T00:00:00+08:00`)>6*86_400_000||!policyRevision)
-    fail('SHARED_QUOTA_INVALID_RANGE');
-  const byDate:Record<string,SharedQuotaApplicationInputs>={};
-  const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`);
-  for(let day=from;day<=to;day+=86_400_000) {
-    const date=new Date(day+28_800_000).toISOString().slice(0,10),end=day+86_400_000;
-    const expected=await db.prepare(`WITH expected AS (
-        SELECT a.machine_id,a.local_user_id,a.assignment_version FROM runtime_user_assignments_v2 a
-        JOIN runtime_machines_v2 machine ON machine.id=a.machine_id
-        WHERE machine.account_id=?1 AND a.child_id=?2 AND a.protected=1 AND a.effective_at_ms<?3
-          AND (machine.revoked_at_ms IS NULL OR EXISTS (SELECT 1 FROM runtime_application_shared_quota_receipts_v1 old_receipt
-            WHERE old_receipt.machine_id=a.machine_id AND old_receipt.local_user_id=a.local_user_id
-              AND old_receipt.assignment_version=a.assignment_version AND old_receipt.date=?4))
-          AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer
-            WHERE newer.machine_id=a.machine_id AND newer.local_user_id=a.local_user_id
-              AND newer.effective_at_ms<=?3 AND (newer.effective_at_ms>a.effective_at_ms
-                OR (newer.effective_at_ms=a.effective_at_ms AND newer.assignment_version>a.assignment_version)))
-        ORDER BY a.machine_id,a.local_user_id LIMIT 101
-      )
-      SELECT e.machine_id,e.local_user_id,e.assignment_version,r.payload_json,r.payload_hash,r.source_key,
-        v.revision_ordinal AS verified_ordinal,v.payload_hash AS verified_payload_hash,
-        v.statistics_manifest_hash,v.source_verified,v.reason_code,r.revision_ordinal,manifest.manifest_hash
-      FROM expected e
-      LEFT JOIN runtime_application_shared_quota_receipts_v1 r ON r.machine_id=e.machine_id
-        AND r.local_user_id=e.local_user_id AND r.assignment_version=e.assignment_version
-        AND r.account_id=?1 AND r.child_id=?2 AND r.date=?4
-      LEFT JOIN runtime_application_shared_quota_verified_v1 v ON v.machine_id=r.machine_id
-        AND v.local_user_id=r.local_user_id AND v.assignment_version=r.assignment_version AND v.date=r.date
-      LEFT JOIN runtime_application_account_publications_v1 p ON p.machine_id=r.machine_id
-        AND p.local_user_id=r.local_user_id AND p.assignment_version=r.assignment_version AND p.date=r.date
-        AND p.account_id=r.account_id AND p.child_id=r.child_id
-      LEFT JOIN runtime_application_account_manifests_v1 manifest ON manifest.id=p.manifest_id
-      ORDER BY e.machine_id,e.local_user_id`)
-      .bind(accountId,childId,end,date).all<{machine_id:string;local_user_id:string;assignment_version:number;
-        payload_json:string|null;payload_hash:string|null;source_key:string|null;verified_ordinal:number|null;
-        verified_payload_hash:string|null;statistics_manifest_hash:string|null;source_verified:number|null;
-        reason_code:string|null;revision_ordinal:number|null;manifest_hash:string|null}>();
-    if(expected.results.length>100)throw new HttpError(422,'SHARED_QUOTA_SOURCE_LIMIT','Too many application scopes.');
-    const expectedSourceKeys:string[]=[],contributions:SharedQuotaContributionV1[]=[],reasons=new Set<string>();
-    for(const scope of expected.results) {
-      const sourceKey=await sha256Hex(`application\n${scope.machine_id}\n${scope.local_user_id}\n${scope.assignment_version}`);
-      expectedSourceKeys.push(sourceKey);
-      if(date>new Date(nowMs+28_800_000).toISOString().slice(0,10)) {
-        contributions.push({schemaVersion:1,source:'application',sourceKey,date,revision:`future:${date}:${policyRevision}`,
-          statisticsRevision:`future:${date}`,correctionRevision:'none',productAssociationVersion:'future',policyRevision,
-          settledAtMs:day,complete:true,reasonCodes:[],bucketsMs:{study:0,composite:0,rest:0},
-          applicationClassesMs:{study:0,composite:0,restrictedEntertainment:0,unclassified:0,other:0},chromeExcludedMs:0,
-          chromeIncludedInApplicationMs:0});
-        continue;
-      }
-      const row=scope;
-      if(!row.payload_json||!row.payload_hash||!row.source_key||row.revision_ordinal===null) {
-        reasons.add('APPLICATION_SOURCE_SNAPSHOT_MISSING'); continue;
-      }
-      if(row.source_verified!==1||row.verified_ordinal!==row.revision_ordinal||row.verified_payload_hash!==row.payload_hash
-        ||!row.manifest_hash||row.statistics_manifest_hash!==row.manifest_hash) {
-        reasons.add(row.reason_code||'APPLICATION_SOURCE_NOT_VERIFIED');continue;
-      }
-      try {
-        const contribution=JSON.parse(row.payload_json) as SharedQuotaContributionV1;
-        if(await sha256Hex(canonicalUsageAccountJson(contribution))!==row.payload_hash||contribution.schemaVersion!==1
-          ||contribution.source!=='application'||contribution.sourceKey!==row.source_key||contribution.date!==date
-          ||contribution.policyRevision!==policyRevision||contribution.statisticsRevision!==row.manifest_hash
-          ||!contribution.complete||contribution.reasonCodes.length!==0) {
-          reasons.add(contribution.policyRevision!==policyRevision?'SHARED_POLICY_REVISION_MISMATCH':'APPLICATION_SOURCE_VERSION_MISMATCH');continue;
-        }
-        contributions.push(contribution);
-      } catch { reasons.add('APPLICATION_RECEIPT_INTEGRITY_FAILED'); }
-    }
-    if(!expectedSourceKeys.length)reasons.add('APPLICATION_COVERAGE_MISSING');
-    byDate[date]={contributions,expectedSourceKeys,reasonCodes:[...reasons].sort()};
-  }
-  return byDate;
 }
 
 /** Exact native-account coverage check for one machine and at most seven Beijing dates. */

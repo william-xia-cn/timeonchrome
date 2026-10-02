@@ -4,6 +4,11 @@ import { applySystemAccessDefaultsToProfileConfig, composeDeviceConfigVersion, g
 import { compactUsageAccountingCorrectionDeltas, getBeijingWeekForTimestamp, listDeviceCorrectionEvidencePage, listDeviceIntervalEvidencePage, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
+import { readSharedAccessPolicyForChild } from './profiles';
+import { pageSharedQuotaExecutionBasis, readSharedQuotaExecutionBasis, sharedWebSourceKey, type SharedAccessStateEnv } from '../services/sharedAccessState';
+import { publishSharedWebContribution, readSharedWebWatermark, readSharedWebJson } from '../services/sharedWebContributions';
+import { issueSharedWebSourceBinding } from '../services/sharedWebSourceBinding';
+import { createSharedAccessPolicyIdentityV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 
 type DeviceIdentityLinkBody = {
   chromeIdentityId?: string;
@@ -370,6 +375,123 @@ export const deviceRouter = {
         return response;
       } catch {
         return json({ error: 'INTERVAL_EVIDENCE_UNAVAILABLE' }, 503);
+      }
+    }
+
+    // Independent derived contribution queue; never touches the original web upload/ledger.
+    if(path==='/device/shared-web-capabilities/v1'){
+      const identity=await verifyDeviceTokenFromRequest(request,env);
+      if(!identity)return json({code:'INVALID_DEVICE_TOKEN'},401);
+      if(identity.unbound)return deviceUnboundResponse(identity.deviceId);
+      if(request.method!=='GET')return json({code:'METHOD_NOT_ALLOWED'},405);
+      if([...url.searchParams].length)return json({code:'INVALID_WEB_CONTRIBUTION'},400);
+      let enabled=false;
+      if(env.SHARED_WEB_CONTRIBUTIONS_ENABLED==='true'){
+        try{await env.DB.prepare('SELECT revision_ordinal FROM shared_web_contribution_heads_v1 LIMIT 0').all();enabled=true;}catch{ /* Migration is a release dependency, never silently execute it. */ }
+      }
+      const response=json({schemaVersion:1,protocol:'shared-web-sync-v1',enabled});response.headers.set('Cache-Control','no-store');return response;
+    }
+    if (path === '/device/shared-web-contributions/v1' || path === '/device/shared-web-watermark/v1'
+      || path === '/device/shared-web-source-binding/v1') {
+      try {
+        const identity = await verifyDeviceTokenFromRequest(request,env);
+        if (!identity) return json({code:'INVALID_DEVICE_TOKEN'},401);
+        if (identity.unbound) return deviceUnboundResponse(identity.deviceId);
+        if (!identity.deviceId) return json({code:'SHARED_SOURCE_BINDING_UNAVAILABLE'},403);
+        if (env.SHARED_WEB_CONTRIBUTIONS_ENABLED !== 'true') return json({code:'SHARED_WEB_SYNC_UNAVAILABLE'},503);
+        const isUpload = path === '/device/shared-web-contributions/v1', isBinding = path === '/device/shared-web-source-binding/v1';
+        if (request.method !== (isUpload || isBinding ? 'POST' : 'GET')) return json({code:'METHOD_NOT_ALLOWED'},405);
+        if ([...url.searchParams.keys()].some(key => key !== 'date' || isUpload || isBinding || url.searchParams.getAll(key).length !== 1))
+          return json({code:'INVALID_WEB_CONTRIBUTION'},400);
+        const owner = await env.DB.prepare('SELECT account_id FROM profiles WHERE id = ?')
+          .bind(identity.profileId).first<{account_id:string}>();
+        if (!owner) return json({code:'CHILD_NOT_FOUND'},404);
+        const scope = {accountId:owner.account_id,childId:identity.profileId,deviceId:identity.deviceId,
+          deviceToken:request.headers.get('Authorization')!.slice(7)};
+        const policy = await readSharedAccessPolicyForChild(env.DB,scope.accountId,scope.childId,env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
+        if (!policy) return json({code:'CHILD_NOT_FOUND'},404);
+        const capturedPolicyIdentity=await createSharedAccessPolicyIdentityV1(policy);
+        let result:unknown;
+        if(isBinding) {
+          const body=await readSharedWebJson(request,2048);
+          if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||!Object.hasOwn(body,'challengeId'))
+            return json({code:'INVALID_WEB_SOURCE_CHALLENGE'},400);
+          result=await issueSharedWebSourceBinding(env,scope,(body as {challengeId:unknown}).challengeId);
+        } else result = isUpload ? await publishSharedWebContribution(env,scope,await readSharedWebJson(request),policy)
+          : await readSharedWebWatermark(env,scope,url.searchParams.get('date') || '');
+        const current = await verifyDeviceTokenFromRequest(request,env);
+        if (!current || current.unbound || current.profileId !== identity.profileId || current.deviceId !== identity.deviceId)
+          return json({code:'SHARED_ACCESS_BINDING_CHANGED'},409);
+        const currentPolicy=await readSharedAccessPolicyForChild(env.DB,scope.accountId,scope.childId,env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
+        if(!currentPolicy||JSON.stringify(await createSharedAccessPolicyIdentityV1(currentPolicy))!==JSON.stringify(capturedPolicyIdentity))
+          return json({code:'SHARED_ACCESS_POLICY_CHANGED'},409);
+        const response = json(result); response.headers.set('Cache-Control','no-store'); return response;
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        const invalid = /^(INVALID_WEB_SOURCE_CHALLENGE|INVALID_WEB_CONTRIBUTION(_DATE)?|INVALID_SHARED_ACCESS_POLICY_IDENTITY|WEB_CONTRIBUTION_(TOTAL_MISMATCH|HASH_MISMATCH|FROM_FUTURE))$/.test(code);
+        const conflict = /^(WEB_SOURCE_(CHALLENGE_EXPIRED|ASSIGNMENT_CHANGED|BINDING_CONFLICT)|WEB_CONTRIBUTION_REVISION_CONFLICT|SHARED_ACCESS_(POLICY_CHANGED|BINDING_CHANGED))$/.test(code);
+        return json({code:invalid || conflict || code === 'WEB_CONTRIBUTION_BODY_TOO_LARGE' ? code : 'SHARED_WEB_SYNC_UNAVAILABLE'},
+          invalid ? 400 : conflict ? 409 : code === 'WEB_CONTRIBUTION_BODY_TOO_LARGE' ? 413 : 503);
+      }
+    }
+
+    // Bounded read-only execution basis. Device identity is the only source of Child and own web scope.
+    if (request.method === 'GET' && path === '/device/shared-quota-execution/v1') {
+      try {
+        const identity = await verifyDeviceTokenFromRequest(request, env);
+        if (!identity) return json({ code: 'INVALID_DEVICE_TOKEN' }, 401);
+        if (identity.unbound) return deviceUnboundResponse(identity.deviceId);
+        if (!identity.deviceId) return json({ code: 'SHARED_SOURCE_BINDING_UNAVAILABLE' }, 403);
+        const params = url.searchParams;
+        if ([...params.keys()].some(key => !['date', 'offset', 'limit', 'revision'].includes(key) || params.getAll(key).length !== 1))
+          return json({ code: 'INVALID_EXECUTION_CURSOR' }, 400);
+        const date = params.get('date') || '';
+        const dateMs = Date.parse(`${date}T00:00:00Z`);
+        const offsetRaw = params.get('offset') ?? '0', limitRaw = params.get('limit') ?? '50';
+        const offset = Number(offsetRaw), limit = Number(limitRaw), revision = params.get('revision');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(dateMs) || new Date(dateMs).toISOString().slice(0,10) !== date
+          || !/^(0|[1-9][0-9]*)$/.test(offsetRaw) || !/^[1-9][0-9]*$/.test(limitRaw)
+          || !Number.isSafeInteger(offset) || offset > 1400 || !Number.isSafeInteger(limit) || limit > 100
+          || (offset > 0 && revision === null) || (revision !== null && !/^[a-f0-9]{64}$/.test(revision)))
+          return json({ code: 'INVALID_EXECUTION_CURSOR' }, 400);
+        const owner = await env.DB.prepare('SELECT account_id FROM profiles WHERE id = ?')
+          .bind(identity.profileId).first<{ account_id: string }>();
+        if (!owner) return json({ code: 'CHILD_NOT_FOUND' }, 404);
+        const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
+        if (!policy) return json({ code: 'CHILD_NOT_FOUND' }, 404);
+        const basis = await readSharedQuotaExecutionBasis(env as SharedAccessStateEnv, owner.account_id, identity.profileId, date, policy);
+        const page = pageSharedQuotaExecutionBasis(basis, await sharedWebSourceKey(owner.account_id, identity.deviceId), offset, limit, revision);
+        const current = await verifyDeviceTokenFromRequest(request, env);
+        if (!current || current.unbound || current.profileId !== identity.profileId || current.deviceId !== identity.deviceId)
+          return json({ code: 'SHARED_ACCESS_BINDING_CHANGED' }, 409);
+        const currentPolicy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
+        if (!currentPolicy || currentPolicy.revision !== policy.revision || currentPolicy.stage !== policy.stage)
+          return json({ code: 'EXECUTION_BASIS_VERSION_CHANGED' }, 409);
+        const response = json({ profileId: identity.profileId, ...page });
+        response.headers.set('Cache-Control', 'no-store');
+        return response;
+      } catch (error) {
+        if (error instanceof Error && error.message === 'INVALID_EXECUTION_CURSOR') return json({ code: error.message }, 400);
+        if (error instanceof Error && error.message === 'EXECUTION_BASIS_VERSION_CHANGED') return json({ code: error.message }, 409);
+        return json({ code: 'SHARED_EXECUTION_BASIS_UNAVAILABLE' }, 503);
+      }
+    }
+
+    // Read only the authenticated device's Child policy, never a caller-selected scope.
+    if (request.method === 'GET' && path === '/device/shared-access/v1') {
+      try {
+        const identity = await verifyDeviceTokenFromRequest(request, env);
+        if (!identity) return json({ code: 'INVALID_DEVICE_TOKEN' }, 401);
+        if (identity.unbound) return deviceUnboundResponse(identity.deviceId);
+        if ([...url.searchParams].length) return json({ code: 'INVALID_SHARED_ACCESS_QUERY' }, 400);
+        const owner = await env.DB.prepare('SELECT account_id FROM profiles WHERE id = ?')
+          .bind(identity.profileId).first<{ account_id: string }>();
+        if (!owner) return json({ code: 'CHILD_NOT_FOUND' }, 404);
+        const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
+        if (!policy) return json({ code: 'CHILD_NOT_FOUND' }, 404);
+        return json({ schemaVersion: 1, profileId: identity.profileId, policy }, 200);
+      } catch {
+        return json({ code: 'SHARED_ACCESS_POLICY_UNAVAILABLE' }, 503);
       }
     }
 

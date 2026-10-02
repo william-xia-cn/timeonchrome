@@ -198,12 +198,15 @@
     .page-header h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
     .page-header p  { font-size: 13px; color: var(--muted); }
     .system-management-tabs { margin-bottom: 16px; }
+    .system-management-shortcuts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
     .system-management-panel { display: none; }
     .system-management-panel.active { display: block; }
     #quota-audit-panel label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; }
     #quota-audit-panel select, #quota-audit-panel input { max-width: 100%; min-height: 38px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); font: inherit; }
     .rules-management-panel { display: none; }
     .rules-management-panel.active { display: block; }
+    #access-management-tabs[hidden] { display: none !important; }
+    #access-config-files-host [hidden] { display: none !important; }
 
     /* Cards */
     .card {
@@ -461,6 +464,7 @@
     .rules-policy-nav-counts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; font-size: 11px; color: var(--muted); }
     .rules-policy-main { min-width: 0; }
     .rules-policy-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) 150px minmax(210px, 1fr) auto; gap: 8px; margin-bottom: 12px; }
+    .rules-policy-actions { display: flex; justify-content: flex-end; margin: 0 0 12px; }
     .rules-policy-toolbar input, .rules-policy-toolbar select { background: rgba(0,184,148,0.04); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; color: var(--text); font-size: 13px; outline: none; min-width: 0; }
     .rules-policy-toolbar input:focus, .rules-policy-toolbar select:focus { border-color: var(--accent); }
     .rules-site-group { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
@@ -761,7 +765,7 @@
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 125;
         height: calc(66px + env(safe-area-inset-bottom));
         padding: 5px 6px env(safe-area-inset-bottom);
-        display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: visible;
+        display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: visible;
         background: rgba(255,255,255,.98); border-top: 1px solid var(--border);
         box-shadow: 0 -8px 24px rgba(26,46,37,.06); backdrop-filter: blur(16px);
       }
@@ -1096,24 +1100,18 @@
         <div class="nav-item" data-page="rules">
           <span class="nav-icon"><img src="assets/icons/rules.svg" alt=""></span><span>访问管理</span>
         </div>
-        <div class="nav-item" data-page="review">
-          <span class="nav-icon"><img src="assets/icons/request.svg" alt=""></span><span>网站归类记录 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
+        <div class="nav-item" data-page="sites">
+          <span class="nav-icon"><img src="assets/icons/request.svg" alt=""></span><span>网站管理 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
-        <a class="nav-item mobile-secondary-nav" href="native-apps/">
-          <span class="nav-icon"><img src="assets/icons/devices.svg" alt=""></span><span>Native Apps</span>
-        </a>
-        <a class="nav-item mobile-secondary-nav runtime-launch" href="?launch=app-runtime">
-          <span class="nav-icon"><img src="assets/icons/online-time.svg" alt=""></span><span>电脑应用使用</span>
-        </a>
-        <div class="nav-item" data-page="account">
-          <span class="nav-icon"><img src="assets/icons/user.svg" alt=""></span><span>子用户管理</span>
+        <div class="nav-item" data-page="apps">
+          <span class="nav-icon"><img src="assets/icons/online-time.svg" alt=""></span><span>应用管理</span>
         </div>
-        <div class="nav-item mobile-secondary-nav" data-page="system-management">
+        <div class="nav-item" data-page="devices">
+          <span class="nav-icon"><img src="assets/icons/devices.svg" alt=""></span><span>设备管理</span>
+        </div>
+        <div class="nav-item" data-page="system-management">
           <span class="nav-icon"><img src="assets/icons/settings.svg" alt=""></span><span>系统管理</span>
         </div>
-        <a class="nav-item mobile-secondary-nav" href="/modules/">
-          <span class="nav-icon"><img src="assets/icons/settings.svg" alt=""></span><span>扩展模块</span>
-        </a>
         <button class="nav-item mobile-more-nav" id="mobile-more-btn" type="button" aria-expanded="false" aria-controls="mobile-more-overlay">
           <span class="nav-icon"><img src="assets/icons/settings.svg" alt=""></span><span>更多</span>
         </button>
@@ -1134,9 +1132,9 @@
         <a class="mobile-more-action" href="native-apps/">
           <img class="toc-ui-icon" src="assets/icons/devices.svg" alt="">Native Apps
         </a>
-        <a class="mobile-more-action runtime-launch" href="?launch=app-runtime">
-          <img class="toc-ui-icon" src="assets/icons/online-time.svg" alt="">电脑应用使用
-        </a>
+        <button class="mobile-more-action" id="mobile-child-account-btn" type="button">
+          <img class="toc-ui-icon" src="assets/icons/user.svg" alt="">子用户管理
+        </button>
         <button class="mobile-more-action" id="mobile-system-management-btn" type="button">
           <img class="toc-ui-icon" src="assets/icons/settings.svg" alt="">系统管理
         </button>
@@ -1153,18 +1151,17 @@
       <!-- 访问管理 -->
       <div class="page" id="page-rules">
         <div class="page-header">
-          <h2>访问管理</h2>
-          <p>管理网站分类、时间配额和时间段规则，修改后点击保存同步到孩子设备</p>
+          <h2 id="rules-management-heading">访问管理</h2>
+          <p id="rules-management-subtitle">管理网页与应用共用的时间配额、自主度与时间段配置。</p>
         </div>
-        <div class="tabs" aria-label="访问管理功能" style="margin-bottom:16px;">
-          <button class="tab-btn active" data-rules-management-tab="site-management">网站管理</button>
-          <button class="tab-btn" data-rules-management-tab="quota">时间配额</button>
+        <div class="tabs" id="access-management-tabs" aria-label="访问管理功能" style="margin-bottom:16px;">
+          <button class="tab-btn active" data-rules-management-tab="quota">时间配额</button>
           <button class="tab-btn" data-rules-management-tab="autonomy">自主度配置</button>
           <button class="tab-btn" data-rules-management-tab="schedule">时间段管理</button>
           <button class="tab-btn" data-rules-management-tab="config-files">配置文件</button>
         </div>
 
-        <section class="rules-management-panel active" data-rules-management-panel="site-management">
+        <section class="rules-management-panel" data-rules-management-panel="site-management">
           <div class="rules-policy-shell" id="rules-policy-shell">
             <aside class="rules-policy-nav" id="rules-policy-nav" aria-label="网站管理策略目录">
               <!-- policy navigation rendered by JS -->
@@ -1177,12 +1174,14 @@
                   <option value="system">系统网站配置-分类管理</option>
                   <option value="custom">用户自定义配置</option>
                   <option value="rule">已批准精确规则</option>
+                  <option value="usage">其他时间用途规则</option>
                   <option value="used-unclassified">已使用未归类网站</option>
                   <option value="unmarked">未标注</option>
                 </select>
                 <input type="text" id="rules-site-add-input" placeholder="添加到当前策略，如 example.com">
                 <button class="btn-add" id="rules-site-add-btn">+ 添加</button>
               </div>
+              <div class="rules-policy-actions"><button class="btn-save" id="open-site-review-btn" type="button">网站归类记录 <span id="review-badge-inline"></span></button></div>
               <div id="rules-site-directory" class="rules-site-directory">
                 <!-- site directory rendered by JS -->
               </div>
@@ -1247,7 +1246,7 @@
           </div>
         </section>
       <!-- 时间配额 -->
-      <section class="rules-management-panel" data-rules-management-panel="quota">
+        <section class="rules-management-panel active" data-rules-management-panel="quota">
         <div class="card">
           <div class="card-header">
             <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">配额记账来源</div><div class="card-subtitle">V2 由孩子设备使用本机完整账与云端其他设备已确认账实时计算；云端不下发锁状态</div></div>
@@ -1431,13 +1430,15 @@
           <div class="card-header">
             <div>
               <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rules.svg" alt="">访问管理配置文件</div>
-              <div class="card-subtitle">默认导入导出全部访问管理配置，可选择用户配置或系统配置；不包含登录凭证、device token、统计落账或诊断文件。</div>
+              <div class="card-subtitle">综合访问、网站、应用分别预览和应用；不包含登录凭证、device token、统计落账或诊断文件。</div>
             </div>
           </div>
+          <label>配置域 <select id="access-config-domain"><option value="publicAccess">综合访问</option><option value="websites">网站</option><option value="applications">应用</option></select></label>
+          <div id="access-config-profile-controls">
           <div style="display:grid;gap:10px;margin-bottom:12px;">
             <label style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:10px;padding:10px;background:#fff;">
               <input type="checkbox" id="rules-config-scope-user" checked style="margin-top:3px;">
-              <span><strong>用户配置</strong><br><span style="font-size:13px;color:var(--muted);">当前档案的网站自定义、精确规则、审核记录、配额和时间段。</span></span>
+              <span><strong>用户配置</strong><br><span style="font-size:13px;color:var(--muted);">仅当前孩子及所选配置域；其他域的配置保持不变。</span></span>
             </label>
             <label style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:10px;padding:10px;background:#fff;">
               <input type="checkbox" id="rules-config-scope-system" checked style="margin-top:3px;">
@@ -1452,11 +1453,15 @@
           </div>
           <div id="rules-access-config-io-msg" style="font-size:13px;margin-top:12px;display:none;"></div>
           <div id="rules-access-config-import-result" style="display:none;margin-top:12px;"></div>
+          </div>
+          <div id="runtime-configuration-host" hidden></div><div id="runtime-configuration-error" hidden role="alert"></div>
         </div>
       </section>
       </div>
 
       <!-- 使用统计 -->
+      <div class="page" id="page-apps"><div id="runtime-apps-host"></div><div id="runtime-apps-error" hidden role="alert"></div></div>
+      <div class="page" id="page-devices"><div id="runtime-devices-host"></div><div id="runtime-devices-error" hidden role="alert"></div></div>
       <div class="page active" id="page-stats">
         <div class="usage-analysis-shell">
           <div class="usage-analysis-topbar">
@@ -1526,17 +1531,28 @@
         <div class="page-header">
           <h2>系统管理</h2>
           <p>集中查看统计对账、网页落账、媒体落账和系统日志；落账记录最新记录显示在最上方</p>
+          <div class="system-management-shortcuts">
+            <button class="btn-save" id="open-child-account-management" type="button">子用户管理</button>
+            <a class="btn-save" href="native-apps/">Native Apps</a>
+            <a class="btn-save" href="/modules/">扩展模块</a>
+          </div>
         </div>
         <div class="tabs system-management-tabs" aria-label="系统管理功能">
           <button class="tab-btn active" data-system-management-tab="reconciliation">统计对账</button>
           <button class="tab-btn" data-system-management-tab="web-settlements">网页落账</button>
           <button class="tab-btn" data-system-management-tab="media-settlements">媒体落账</button>
           <button class="tab-btn" data-system-management-tab="client-logs">系统日志</button>
+          <button class="tab-btn" data-system-management-tab="runtime-diagnostics">应用运行诊断</button>
+          <button class="tab-btn" data-system-management-tab="config-files">配置文件</button>
           <button class="tab-btn" data-system-management-tab="notifications">消息通知</button>
           <button class="tab-btn" data-system-management-tab="backup-restore">数据备份与恢复</button>
           <button class="tab-btn" data-system-management-tab="account-management">账户管理</button>
         </div>
 
+        <section class="system-management-panel" data-system-management-panel="runtime-diagnostics">
+          <div id="runtime-system-host"></div><div id="runtime-system-error" hidden role="alert"></div>
+        </section>
+        <section class="system-management-panel" data-system-management-panel="config-files"><div id="access-config-files-host"></div></section>
         <section class="system-management-panel active" data-system-management-panel="reconciliation">
         <div class="card">
           <div class="card-header">
@@ -1988,7 +2004,8 @@
       <div class="page" id="page-review">
         <div class="page-header">
           <h2>网站归类记录</h2>
-          <p>记录孩子申请和系统记录的待归类网站；内容分类 / Qustodio 分类请在访问管理的系统网站配置中维护。</p>
+          <p>记录孩子申请和系统记录的待归类网站；网站分类和规则请在“网站管理”维护。</p>
+          <button class="btn-save" id="return-to-site-management" type="button">返回网站管理</button>
         </div>
 
         <div class="card" id="site-classification-review-card" style="margin-bottom:16px;">
@@ -2046,12 +2063,52 @@
 <div class="toast" id="toast"></div>
 
 <script src="computer-usage-view.js"></script>
+<script src="runtime-management-loader.js"></script>
+<script src="access-config-domains.js"></script>
 <script>
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日','周一','周二','周三','周四','周五','周六'];
 
 let accountToken = null;
 let currentProfileId = null;
+let runtimeManagementController = null;
+let runtimeManagementEpoch = 0;
+function disposeRuntimeManagement() {
+  runtimeManagementEpoch++;
+  runtimeManagementController?.dispose();runtimeManagementController=null;
+  for(const view of ['apps','devices','system','configuration']) {
+    const host=document.getElementById(`runtime-${view}-host`);
+    host?.shadowRoot?.replaceChildren();
+    const error=document.getElementById(`runtime-${view}-error`);
+    if(error){error.hidden=true;error.replaceChildren();}
+  }
+}
+async function renderRuntimeManagement(view) {
+  disposeRuntimeManagement();
+  const epoch=runtimeManagementEpoch, childId=currentProfileId;
+  const isCurrent=()=>epoch===runtimeManagementEpoch&&currentProfileId===childId
+    &&document.getElementById(`page-${['system','configuration'].includes(view)?'system-management':view}`)?.classList.contains('active')
+    &&(view!=='system'||cloudSystemManagementActiveTab==='runtime-diagnostics')
+    &&(view!=='configuration'||(cloudSystemManagementActiveTab==='config-files'&&readAccessConfigDomain()==='applications'));
+  const host=document.getElementById(`runtime-${view}-host`);
+  if(!childId){host.textContent='请选择孩子后查看';return;}
+  host.textContent='正在加载…';
+  try {
+    const controller=await RuntimeManagementLoader.mount({host,view,children:profiles,childId,isCurrent,request:async(path,options={})=>{
+      if(!isCurrent())throw Object.assign(new Error('组件上下文已变化'),{code:'COMPONENT_CONTEXT_CHANGED'});
+      if(!path.startsWith('/v2/module/'))throw new Error('INVALID_MANAGEMENT_RESOURCE');
+      return api('/app-runtime/manage/v1/'+path.slice('/v2/module/'.length),options.method||'GET',options.body?JSON.parse(options.body):null,options.headers);
+    }});
+    if(!isCurrent()){controller.dispose();return;}
+    host.textContent='';runtimeManagementController=controller;
+    await controller.ready;
+  } catch(error) {
+    if(!isCurrent()||error?.code==='COMPONENT_CONTEXT_CHANGED')return;
+    host.textContent='';const box=document.getElementById(`runtime-${view}-error`);box.hidden=false;
+    const message=document.createElement('p');message.textContent=error.message||'管理页面暂不可用';
+    const retry=document.createElement('button');retry.textContent='重试';retry.onclick=()=>renderRuntimeManagement(view);box.replaceChildren(message,retry);
+  }
+}
 let profiles = [];
 let remoteConfig = null; // 当前 profile 的配置
 let remoteConfigVersion = null; // 与 remoteConfig 同次读取的云端版本，用于乐观并发
@@ -2064,7 +2121,7 @@ let cloudMediaSettlementState = { range: 'today', rows: [], nextCursor: null, ha
 let cloudReconciliationState = { range: 'today', rows: [], summary: null };
 let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudSystemManagementActiveTab = 'reconciliation';
-let cloudRulesManagementActiveTab = 'site-management';
+let cloudRulesManagementActiveTab = 'quota';
 let cloudDevicesCache = { profileId: null, devices: [] };
 let cloudUsageState = { ledger: 'computer', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
 let cloudUsageLastView = null;
@@ -2125,8 +2182,31 @@ window.addEventListener('DOMContentLoaded', () => {
   setupProfileModal();
   document.querySelectorAll('.runtime-launch').forEach((link) => link.addEventListener('click', (event) => {
     event.preventDefault();
-    launchAppRuntime();
+    launchAppRuntime(link.dataset.runtimeView || 'usage');
   }));
+  document.getElementById('open-site-review-btn')?.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+    document.querySelector('.nav-item[data-page="sites"]')?.classList.add('active');
+    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    document.getElementById('page-review')?.classList.add('active');
+    renderReviewPage();
+  });
+  document.getElementById('return-to-site-management')?.addEventListener('click', () => {
+    document.querySelector('.nav-item[data-page="sites"]')?.click();
+  });
+  document.getElementById('open-child-account-management')?.addEventListener('click', () => {
+    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    document.getElementById('page-account')?.classList.add('active');
+    renderPage('account');
+  });
+  document.getElementById('mobile-child-account-btn')?.addEventListener('click', () => {
+    setMobileMoreOpen(false);
+    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    document.getElementById('page-account')?.classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+    document.querySelector('.nav-item[data-page="system-management"]')?.classList.add('active');
+    renderPage('account');
+  });
   document.getElementById('logout-btn').addEventListener('click', logout);
 });
 
@@ -2204,6 +2284,7 @@ async function doRegister() {
 }
 
 function logout() {
+  disposeRuntimeManagement();
   cloudApplicationReadCache.clear();
   const saved = loadLocal('session');
   if (saved?.refreshToken) {
@@ -2263,11 +2344,12 @@ async function enterMain(email) {
     toast('加载档案失败: ' + e.message, false);
   }
   if (new URLSearchParams(location.search).get('launch') === 'app-runtime') {
-    await launchAppRuntime();
+    const requestedView = new URLSearchParams(location.search).get('view');
+    await launchAppRuntime(['apps', 'devices'].includes(requestedView) ? requestedView : 'usage');
   }
 }
 
-async function launchAppRuntime() {
+async function launchAppRuntime(view = 'usage') {
   if (runtimeLaunchInFlight) return;
   if (!accountToken) {
     showScreen('login');
@@ -2277,10 +2359,12 @@ async function launchAppRuntime() {
   try {
     const result = await api('/app-runtime/sso/tickets', 'POST', { childId: currentProfileId });
     const launchUrl = String(result?.launchUrl || '');
-    if (!launchUrl.startsWith('https://timeonchrome-app-runtime-console.pages.dev/#ticket=')) {
+    const parsedLaunchUrl = new URL(launchUrl);
+    if (parsedLaunchUrl.origin !== 'https://timeonchrome-app-runtime-console.pages.dev' || parsedLaunchUrl.pathname !== '/' || !parsedLaunchUrl.hash.startsWith('#ticket=')) {
       throw new Error('Runtime launch 地址无效');
     }
-    window.location.assign(launchUrl);
+    if (['apps', 'devices'].includes(view)) parsedLaunchUrl.searchParams.set('view', view);
+    window.location.assign(parsedLaunchUrl.toString());
   } catch (error) {
     toast('无法打开电脑应用管理: ' + (error.message || ''), false);
   } finally {
@@ -2317,6 +2401,7 @@ function renderProfileOptions() {
 }
 
 async function selectProfile(id) {
+  disposeRuntimeManagement();
   cloudStatsRequestVersion++;
   cloudComputerReader.invalidate();
   cloudApplicationReader.invalidate();
@@ -2364,7 +2449,7 @@ async function selectProfile(id) {
   updateReviewBadge(id);
 
   // 渲染当前页
-  const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'stats';
+  const activePage = document.querySelector('.page.active')?.id?.replace(/^page-/, '') || 'stats';
   renderPage(activePage);
 }
 
@@ -2390,11 +2475,12 @@ async function updateReviewBadge(profileId) {
       .map((site) => canonicalBadgeKey(site.domain))
       .filter((key) => key && !pendingRequestKeys.has(key));
     const count = pendingRequestKeys.size + new Set(usedOnlyKeys).size;
-    const badge = document.getElementById('review-badge');
-    if (badge) {
+    ['review-badge', 'review-badge-inline'].forEach((id) => {
+      const badge = document.getElementById(id);
+      if (!badge) return;
       badge.textContent = count > 0 ? count : '';
       badge.style.display = count > 0 ? 'inline-block' : 'none';
-    }
+    });
   } catch(e) {
     // 静默失败
   }
@@ -2455,15 +2541,21 @@ function setMobileMoreOpen(open) {
 }
 
 function setupNav() {
+  const configPanel=document.querySelector('[data-rules-management-panel="config-files"]');
+  if(configPanel){configPanel.classList.remove('rules-management-panel');configPanel.removeAttribute('data-rules-management-panel');document.getElementById('access-config-files-host').append(configPanel);}
+  document.getElementById('access-config-domain').addEventListener('change',()=>renderRulesConfigFilesPage());
   document.querySelectorAll('.nav-item[data-page]').forEach(item => {
     item.addEventListener('click', () => {
+      const requestedPage = item.dataset.page;
+      if (requestedPage === 'rules') cloudRulesManagementActiveTab = 'quota';
+      if (requestedPage === 'sites') cloudRulesManagementActiveTab = 'site-management';
       document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
       item.classList.add('active');
       document.getElementById('mobile-more-btn')?.classList.toggle('active', item.dataset.page === 'system-management');
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-      document.getElementById('page-' + item.dataset.page)?.classList.add('active');
+      document.getElementById('page-' + (['rules', 'sites'].includes(requestedPage) ? 'rules' : requestedPage))?.classList.add('active');
       setMobileMoreOpen(false);
-      renderPage(item.dataset.page);
+      renderPage(requestedPage);
     });
   });
   document.getElementById('mobile-more-btn')?.addEventListener('click', () => {
@@ -2499,7 +2591,8 @@ function setupNav() {
   });
   document.querySelectorAll('[data-rules-management-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
-      cloudRulesManagementActiveTab = btn.dataset.rulesManagementTab || 'site-management';
+      if(btn.dataset.rulesManagementTab==='config-files'){document.querySelector('[data-system-management-tab="config-files"]').click();return;}
+      cloudRulesManagementActiveTab = btn.dataset.rulesManagementTab || 'quota';
       const navItem = document.querySelector('.nav-item[data-page="rules"]');
       if (navItem && !navItem.classList.contains('active')) {
         document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
@@ -2513,8 +2606,10 @@ function setupNav() {
 }
 
 function renderPage(name) {
+  if(name==='apps'||name==='devices'){void renderRuntimeManagement(name);return;}
+  disposeRuntimeManagement();
   if (!remoteConfig) return;
-  if (name === 'rules')     renderRulesManagementPage();
+  if (name === 'rules' || name === 'sites') renderRulesManagementPage();
   if (name === 'stats')     renderStatsPage();
   if (name === 'system-management') renderSystemManagementPage();
   if (name === 'account')   renderAccountPage();
@@ -2532,6 +2627,12 @@ function syncRulesManagementTabs() {
 
 function renderRulesManagementPage() {
   syncRulesManagementTabs();
+  const siteMode = cloudRulesManagementActiveTab === 'site-management';
+  document.getElementById('access-management-tabs').hidden = siteMode;
+  document.getElementById('rules-management-heading').textContent = siteMode ? '网站管理' : '访问管理';
+  document.getElementById('rules-management-subtitle').textContent = siteMode
+    ? '管理网站分类、黑名单、单网站限制和网站例外。'
+    : '管理网页与应用共用的时间配额、自主度与时间段配置。';
   if (cloudRulesManagementActiveTab === 'site-management') void window.loadCompositeReviews?.();
   if (cloudRulesManagementActiveTab === 'site-management') renderRulesPage();
   if (cloudRulesManagementActiveTab === 'quota') renderQuotaPage();
@@ -2551,6 +2652,9 @@ function syncSystemManagementTabs() {
 
 function renderSystemManagementPage() {
   syncSystemManagementTabs();
+  if(cloudSystemManagementActiveTab==='config-files'){void renderRulesConfigFilesPage();return;}
+  if(cloudSystemManagementActiveTab==='runtime-diagnostics'){void renderRuntimeManagement('system');return;}
+  disposeRuntimeManagement();
   if (cloudSystemManagementActiveTab === 'reconciliation') renderReconciliationPage();
   if (cloudSystemManagementActiveTab === 'web-settlements') renderCloudSettlementsPage({ reset: true });
   if (cloudSystemManagementActiveTab === 'media-settlements') renderCloudMediaSettlementsPage({ reset: true });
@@ -2869,9 +2973,11 @@ const RULES_POLICY_DEFS = [
   { key: 'restricted', label: '受限娱乐网站', icon: 'assets/icons/restricted.svg', customKey: 'customRestrictedEntertainmentList', effectiveKey: 'restrictedEntertainmentList', defaultKey: 'defaultRestrictedEntertainmentSites', addPlaceholder: '添加受限娱乐网站，如 example-game.com' },
   { key: 'blocked', label: '黑名单网站', icon: 'assets/icons/blocked.svg', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites', addPlaceholder: '添加黑名单网站，如 example-blocked.com' },
   { key: 'special', label: '特殊网站', icon: 'assets/icons/rules.svg', isSpecial: true, addPlaceholder: '特殊对象规则通过 Popup 申请或云端审批生成' },
+  { key: 'other', label: '其他时间网站', icon: 'assets/icons/rules.svg', isUsage: true, addPlaceholder: '添加其他时间域名或完整 https:// 页面网址' },
   { key: 'used-unclassified', label: '已使用未归类网站', icon: 'assets/icons/composite.svg', isUsedUnclassified: true, addPlaceholder: '已使用未归类网站从最近 30 天使用历史自动生成' },
 ];
 const RULES_SOURCE_LABELS = {
+  usage: '其他时间用途规则（不改变访问权限）',
   system: '系统网站配置-分类管理',
   custom: '用户自定义配置',
   rule: '已批准精确规则',
@@ -2943,6 +3049,7 @@ function getPolicyCustomList(def, config = remoteConfig, defaults = siteAccessDe
 
 function getRulesPolicyModel() {
   return RULES_POLICY_DEFS.map(def => {
+    if (def.isUsage) return { ...def, system: [], custom: [], rules: remoteConfig?.siteUsageClassificationRulesV1 || [], usedUnclassified: [] };
     if (def.isSpecial) {
       const specialRows = youtubeSpecialRuleRows();
       return { ...def, system: [], custom: [], rules: specialRows, usedUnclassified: [], specialRows };
@@ -2964,6 +3071,7 @@ function renderRulesPolicyNav() {
   nav.innerHTML = getRulesPolicyModel().map(def => {
     const counts = def.isSpecial
       ? '<span>对象 ' + def.rules.length + '</span><span>YouTube</span>'
+      : def.isUsage ? '<span>用途规则 ' + def.rules.length + '</span><span>权限不变</span>'
       : def.isUsedUnclassified
         ? '<span>待处理 ' + def.usedUnclassified.length + '</span><span>最近 30 天</span>'
         : '<span>系统 ' + def.system.length + '</span><span>自定义 ' + def.custom.length + '</span><span>规则 ' + def.rules.length + '</span>';
@@ -3021,6 +3129,12 @@ function buildCustomSiteAccessPayload(config = remoteConfig || {}) {
     customCompositeList: config.customCompositeList || [],
     customRestrictedEntertainmentList: config.customRestrictedEntertainmentList || [],
     customBlockedSites: config.customBlockedSites || [],
+    ...(Array.isArray(config.siteUsageClassificationRulesV1) ? {
+      siteUsageClassificationRulesV1: config.siteUsageClassificationRulesV1.map(rule => ({
+        classification: 'other', targetType: rule.targetType,
+        normalizedValue: rule.normalizedValue || rule.targetValue,
+      })),
+    } : {}),
   };
 }
 
@@ -3058,6 +3172,7 @@ function isYouTubeSpecialRuleValue(value = '') {
 
 function rulesDirectoryEntriesForPolicy(def) {
   const entries = [];
+  if (def.isUsage) return (def.rules || []).map(rule => ({ source: 'usage', classification: 'other', value: rule.normalizedValue || rule.targetValue, title: rule.normalizedValue || rule.targetValue, rule }));
   for (const value of def.system || []) {
     const catalog = systemSiteCatalogEntryForValue(value);
     entries.push({ source: 'system', classification: def.key, value, title: value, catalog, contentCategory: String(catalog?.contentCategory || '').trim() });
@@ -3084,6 +3199,7 @@ function filterRulesDirectoryEntries(entries) {
 }
 
 function rulesSiteMeta(entry) {
+  if (entry.source === 'usage') return '计入其他时间；原访问权限与对象限制保留。删除后恢复原用途归属，不改历史账。';
   if (entry.source === 'used-unclassified') {
     const site = entry.site || {};
     const prefix = site.historicalPending ? `历史待归类落账 · 当前已归类为${sitePolicyLabel(site.currentClassification)}` : '当前仍未归类';
@@ -3133,6 +3249,8 @@ function renderRulesSiteRow(entry, idx) {
   const unknown = unknownUsageIdentifier(entry);
   if (unknown) {
     actionHtml = '<div class="rules-site-actions"><span class="rules-site-badge">未识别页面，不适用网站归类</span></div>';
+  } else if (entry.source === 'usage') {
+    actionHtml = '<div class="rules-site-actions"><span class="rules-site-badge">其他时间；访问权限独立</span></div>';
   } else if (entry.source === 'rule') {
     const specialRule = isYouTubeSpecialRuleValue(entry.value);
     const options = specialRule
@@ -3171,6 +3289,8 @@ function renderRulesSiteRow(entry, idx) {
         </div>
         ${actionHtml}
       </div>
+      ${!unknown && entry.source !== 'usage' ? `<div class="rules-site-actions"><button class="rules-site-action-btn" onclick="setRulesOtherUsage(${idx})">归为其他时间</button></div>` : ''}
+      ${!unknown && entry.source === 'usage' ? `<div class="rules-site-actions"><button class="rules-site-action-btn danger" onclick="deleteRulesOtherUsage(${idx})">解除其他时间</button></div>` : ''}
       ${unknown ? '' : renderSystemSiteCategoryEditor(entry, idx)}
     </div>`;
 }
@@ -3582,7 +3702,7 @@ function renderRulesSiteDirectory() {
   const filtered = filterRulesDirectoryEntries(all);
   window._rulesSiteDirectoryEntries = filtered;
   filtered.forEach((entry, idx) => { entry._directoryIndex = idx; });
-  const grouped = ['used-unclassified', 'custom', 'system', 'rule', 'unmarked']
+  const grouped = ['used-unclassified', 'usage', 'custom', 'system', 'rule', 'unmarked']
     .map(source => [source, filtered.filter(entry => entry.source === source)])
     .filter(([, list]) => list.length > 0);
   const emptyText = def.isUsedUnclassified ? '当前没有已使用但仍未归类的网站。' : '当前筛选下没有网站。可以用上方输入框添加到' + htmlEscape(def.label) + '。';
@@ -3658,6 +3778,7 @@ async function loadUsedUnclassifiedSitesForRules(forceRefresh = false) {
 
 function addSiteToCurrentPolicy() {
   const def = currentRulesPolicyDef();
+  if (def.isUsage) { void saveOtherUsageTarget(document.getElementById('rules-site-add-input')?.value || ''); return; }
   if (def.isSpecial || def.isUsedUnclassified) { toast(def.isUsedUnclassified ? '已使用未归类网站来自最近使用历史，不能手动添加。' : '特殊对象规则通过孩子端 Popup 申请，或在已有 YouTube 规则行中调整分类。', false); return; }
   const input = document.getElementById('rules-site-add-input');
   const validation = validateRulesSiteAdd(input?.value || '', def.key);
@@ -3669,6 +3790,40 @@ function addSiteToCurrentPolicy() {
     if (input) input.value = '';
   }
 }
+
+let otherUsageSavePending = false;
+async function saveOtherUsageTarget(value, remove = false) {
+  if (otherUsageSavePending || !currentProfileId || !Number.isInteger(remoteConfigVersion)) return;
+  const raw = String(value || '').trim();
+  if (!raw) { toast('请输入域名或完整页面网址', false); return; }
+  const targetType = /^https?:\/\//i.test(raw) ? 'url' : 'host';
+  // 最终目标校验和规范化由Profile路由的共享匹配核心执行，不建立第二套识别规则。
+  const publicRule = rule => ({ classification: 'other', targetType: rule.targetType, normalizedValue: rule.normalizedValue || rule.targetValue });
+  const rules = (remoteConfig?.siteUsageClassificationRulesV1 || []).map(publicRule)
+    .filter(rule => !(rule.targetType === targetType && rule.normalizedValue === raw));
+  if (!remove) rules.push({ classification: 'other', targetType, normalizedValue: raw });
+  const child = currentProfileId;
+  otherUsageSavePending = true;
+  try {
+    const saved = await saveProfileConfig({ siteUsageClassificationRulesV1: rules }, 'site_access_save');
+    if (currentProfileId !== child || remoteConfigVersion !== Number(saved.version)) return;
+    const latest = await api(`/profiles/${child}/config`);
+    if (currentProfileId !== child || remoteConfigVersion !== Number(saved.version) || Number(latest.version) !== Number(saved.version)) return;
+    // 只替换服务器已保存的用途规则，保留页面尚未保存的访问配置草稿。
+    remoteConfig.siteUsageClassificationRulesV1 = latest.config?.siteUsageClassificationRulesV1 || [];
+    renderRulesPolicyNav(); renderRulesSiteDirectory();
+    toast(remove ? '其他时间已解除，原访问权限不变' : '已归为其他时间，原访问权限不变');
+  } catch (error) { toast('用途配置保存失败：' + (error.message || error), false); }
+  finally { otherUsageSavePending = false; }
+}
+window.setRulesOtherUsage = idx => {
+  const entry = window._rulesSiteDirectoryEntries?.[idx];
+  if (entry && !unknownUsageIdentifier(entry)) return saveOtherUsageTarget(entry.value);
+};
+window.deleteRulesOtherUsage = idx => {
+  const entry = window._rulesSiteDirectoryEntries?.[idx];
+  if (entry?.source === 'usage') return saveOtherUsageTarget(entry.value, true);
+};
 
 function moveCustomSiteToPolicy(value, policy) {
   const normalized = normalizeSiteAccessInput(value);
@@ -3683,6 +3838,11 @@ function moveCustomSiteToPolicy(value, policy) {
   if (conflicts.length > 0) {
     toast(formatSiteAccessConflict(conflicts[0]), false);
     return false;
+  }
+  if (Array.isArray(nextConfig.siteUsageClassificationRulesV1)) {
+    const target = normalizeSiteAccessHostKey(normalized);
+    nextConfig.siteUsageClassificationRulesV1 = nextConfig.siteUsageClassificationRulesV1.filter(rule =>
+      rule.targetType !== 'host' || normalizeSiteAccessHostKey(rule.normalizedValue || rule.targetValue) !== target);
   }
   remoteConfig = nextConfig;
   renderRulesPage();
@@ -4174,6 +4334,7 @@ function buildProfileConfigExportData(classificationRequests = [], notificationS
         rawRule: rule,
       })),
       classificationRequests,
+      usageClassificationRules: (cfg.siteUsageClassificationRulesV1 || []).map(rule => ({ classification: rule.classification, targetType: rule.targetType, normalizedValue: rule.normalizedValue || rule.targetValue })),
     },
     notifications: {
       unclassifiedUsage: profileNotificationSettingsView(notificationSettings),
@@ -4278,6 +4439,14 @@ async function exportProfileConfig() {
 
 
 const ACCESS_MANAGEMENT_BUNDLE_TYPE = 'access-management-config-bundle';
+let accessConfigGeneration=0;
+let accessConfigImportGeneration=0;
+function readAccessConfigDomain(){return document.getElementById('access-config-domain')?.value||'publicAccess';}
+function accessConfigContext(){return{childId:currentProfileId,version:remoteConfigVersion,domain:readAccessConfigDomain(),instance:String(accessConfigGeneration)};}
+function assertAccessConfigContext(context){
+  AccessConfigDomains.assertContext(context,accessConfigContext());
+  if(!document.getElementById('page-system-management').classList.contains('active')||cloudSystemManagementActiveTab!=='config-files')throw new Error('配置页面已关闭，请重新预览');
+}
 const ACCESS_MANAGEMENT_SCOPE_FIELDS = [
   { key: 'userConfig', label: '用户配置', checkboxId: 'rules-config-scope-user' },
   { key: 'systemConfig', label: '系统配置', checkboxId: 'rules-config-scope-system' },
@@ -4289,6 +4458,7 @@ function readRulesAccessConfigScopes() {
     const input = document.getElementById(field.checkboxId);
     scopes[field.key] = input ? Boolean(input.checked) : true;
   }
+  if(readAccessConfigDomain()!=='websites')scopes.systemConfig=false;
   return scopes;
 }
 
@@ -4306,41 +4476,22 @@ function showRulesAccessConfigMsg(message, ok = true) {
 }
 
 async function buildAccessManagementConfigBundle(scopes = readRulesAccessConfigScopes()) {
-  if (accessConfigSelectedScopeCount(scopes) === 0) throw new Error('请至少选择用户配置或系统配置');
-  const bundle = {
-    app: 'TimeOnChrome',
-    configType: ACCESS_MANAGEMENT_BUNDLE_TYPE,
-    schemaVersion: 1,
-    exportedAt: new Date().toISOString(),
-    profile: {
-      id: currentProfileId || '',
-      name: profiles.find(p => p.id === currentProfileId)?.name || '',
-    },
-    scopes: {
-      userConfig: Boolean(scopes.userConfig),
-      systemConfig: Boolean(scopes.systemConfig),
-    },
-  };
-  if (scopes.userConfig) {
-    const [requests, notificationSettings] = await Promise.all([
-      fetchAllSiteClassificationRequestsForExport(),
-      fetchProfileNotificationSettingsForExport(),
-    ]);
-    bundle.userConfig = buildProfileConfigExportData(requests, notificationSettings);
+  const context=accessConfigContext();assertAccessConfigContext(context);
+  const domain=context.domain;
+  if(domain==='applications')throw new Error('请使用应用配置面板');
+  let profile=null,system=null;
+  if(scopes.userConfig){
+    const [requests,notifications]=domain==='websites'?await Promise.all([fetchAllSiteClassificationRequestsForExport(),fetchProfileNotificationSettingsForExport()]):[[],null];
+    assertAccessConfigContext(context);profile=buildProfileConfigExportData(requests,notifications);
   }
-  if (scopes.systemConfig) {
-    const record = await api('/system/access-management-config/v1');
-    systemAccessCanWrite = Boolean(record.canWrite);
-    bundle.systemConfig = record.config || {};
-  }
-  return bundle;
+  if(scopes.systemConfig&&domain==='websites'){const record=await api('/system/access-management-config/v1');assertAccessConfigContext(context);systemAccessCanWrite=Boolean(record.canWrite);system=record.config;}
+  return AccessConfigDomains.createFile(domain,profile,system);
 }
-
 async function exportAccessManagementConfigBundle() {
   try {
     const scopes = readRulesAccessConfigScopes();
     const bundle = await buildAccessManagementConfigBundle(scopes);
-    downloadJsonFile(bundle, `timeonchrome-access-management-config-v1-${new Date().toISOString().slice(0,10)}.json`);
+    downloadJsonFile(bundle, `timeonchrome-${bundle.domain}-config-v2-${new Date().toISOString().slice(0,10)}.json`);
     toast('访问管理配置文件已导出');
   } catch (e) {
     toast('访问管理配置导出失败：' + (e.message || e), false);
@@ -4373,18 +4524,23 @@ function normalizeAccessManagementConfigBundleFile(data) {
 }
 
 async function prepareAccessManagementConfigImport(fileName, data) {
-  const parsed = normalizeAccessManagementConfigBundleFile(data);
-  await ensureProfileNotificationSettingsLoaded();
+  const context=accessConfigContext();assertAccessConfigContext(context);
+  const file=AccessConfigDomains.readFile(context.domain,data);
+  const parsed={scopes:{userConfig:Boolean(file.profileConfig),systemConfig:Boolean(file.systemConfig)},userConfig:file.profileConfig?normalizeProfileConfigImportData(file.profileConfig):null,systemConfig:file.systemConfig?normalizeSystemAccessConfigFile(file.systemConfig):null};
+  if(context.domain==='websites')await ensureProfileNotificationSettingsLoaded();
+  assertAccessConfigContext(context);
   const selectedScopes = readRulesAccessConfigScopes();
   const diffs = [];
   if (parsed.scopes.userConfig && selectedScopes.userConfig && parsed.userConfig) {
-    diffs.push(...buildProfileConfigImportDiffs(parsed.userConfig).map(diff => ({ ...diff, scope: 'userConfig', groupLabel: '用户配置' })));
+    diffs.push(...AccessConfigDomains.filterDiffs(context.domain,[...buildProfileConfigImportDiffs(parsed.userConfig),...buildUsageClassificationImportDiffs(parsed.userConfig)]).map(diff => ({ ...diff, scope: 'userConfig', groupLabel: context.domain==='publicAccess'?'综合访问':'网站配置' })));
   }
   if (parsed.scopes.systemConfig && selectedScopes.systemConfig && parsed.systemConfig) {
     const currentRecord = await api('/system/access-management-config/v1');
+    assertAccessConfigContext(context);
     systemAccessCanWrite = Boolean(currentRecord.canWrite);
     const currentConfig = cloneSystemAccessConfig(currentRecord.config || siteAccessDefaults || {});
     const preflight = await api('/system/access-management-config/v1/preflight', 'POST', { data: parsed.systemConfig });
+    assertAccessConfigContext(context);
     const errors = Array.isArray(preflight?.errors) ? preflight.errors : [];
     if (errors.length > 0) throw new Error('系统配置预检失败：' + errors.join('；'));
     systemAccessConfigImportState = { fileName, config: parsed.systemConfig, currentConfig, currentVersion: currentRecord.version, preflight };
@@ -4393,10 +4549,12 @@ async function prepareAccessManagementConfigImport(fileName, data) {
     systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, currentVersion: null, preflight: null };
   }
   if (!diffs.length) throw new Error('当前选择范围内没有可导入的配置');
-  return { parsed, diffs };
+  return { parsed, diffs, context };
 }
 
 async function importAccessManagementConfigBundle() {
+  const context=accessConfigContext();assertAccessConfigContext(context);
+  const generation=++accessConfigImportGeneration;
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/json';
@@ -4404,8 +4562,13 @@ async function importAccessManagementConfigBundle() {
     const file = e.target.files[0];
     if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
+      const text = await file.text();
+      assertAccessConfigContext(context);
+      if(generation!==accessConfigImportGeneration)return;
+      const data = JSON.parse(text);
       const prepared = await prepareAccessManagementConfigImport(file.name, data);
+      assertAccessConfigContext(context);
+      if(generation!==accessConfigImportGeneration)return;
       configImportDiffState = {
         fileName: file.name,
         importedConfig: prepared.parsed,
@@ -4415,12 +4578,15 @@ async function importAccessManagementConfigBundle() {
         targetContainerId: 'rules-access-config-import-result',
         messageId: 'rules-access-config-io-msg',
         applyHandler: applyAccessManagementConfigImport,
-        scopeNote: `访问管理配置文件：默认导入用户配置和系统配置；系统配置应用后全局生效${systemAccessCanWrite ? '' : '，当前账号只能查看不能应用系统配置差异'}。`,
+        context:prepared.context,
+        scopeNote: `仅应用所选${context.domain==='publicAccess'?'综合访问':'网站'}域；其他域不变。系统配置应用后全局生效${systemAccessCanWrite ? '' : '，当前账号只能查看不能应用系统配置差异'}。`,
       };
       renderConfigImportDiffPanel();
       toast('已生成访问管理配置导入差异，请确认后应用');
       showRulesAccessConfigMsg('已生成导入差异，请选择需要应用的项目。', true);
     } catch (err) {
+      try{assertAccessConfigContext(context);}catch{return;}
+      if(generation!==accessConfigImportGeneration)return;
       configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'rules-access-config-import-result', messageId: 'rules-access-config-io-msg' };
       renderConfigImportDiffPanel();
       toast('访问管理配置导入失败：' + (err.message || err), false);
@@ -4431,6 +4597,9 @@ async function importAccessManagementConfigBundle() {
 }
 
 async function applyAccessManagementConfigImport() {
+  const draft=configImportDiffState,context=draft.context;
+  try{assertAccessConfigContext(context);}catch(error){showRulesAccessConfigMsg(error.message,false);return;}
+  if(draft.applying)return;
   const selectedDiffs = configImportDiffState.diffs.filter(diff => configImportDiffState.selectedIds.has(diff.id));
   const userDiffs = selectedDiffs.filter(diff => diff.scope === 'userConfig');
   const systemDiffs = selectedDiffs.filter(diff => diff.scope === 'systemConfig');
@@ -4445,16 +4614,20 @@ async function applyAccessManagementConfigImport() {
   if (systemDiffs.length > 0 && systemAccessCanWrite && !confirm('系统配置导入后会全局生效，影响所有孩子档案。确认应用选中的系统配置差异？')) return;
 
   const results = [];
+  draft.applying=true;
   try {
     if (userDiffs.length > 0) {
       const configDiffs = userDiffs.filter(diff => diff.area !== 'unclassified-notification');
       if (configDiffs.length > 0) {
-        const payload = buildProfileConfigImportPayload(configDiffs);
-        await saveProfileConfig(payload, 'access_config_import');
-        const refreshed = await api('/profiles/' + currentProfileId + '/config');
+        const payload = AccessConfigDomains.buildPatch(context.domain,buildProfileConfigImportPayload(configDiffs),remoteConfig,configDiffs);
+        const saved=await saveProfileConfig(payload, 'access_config_import');
+        context.version=Number(saved.version);assertAccessConfigContext(context);
+        const refreshed = await api('/profiles/' + context.childId + '/config');
+        assertAccessConfigContext(context);
         applyProfileConfigResponse(refreshed);
       }
-      await applyProfileNotificationImport(userDiffs);
+      await applyProfileNotificationImport(userDiffs,context);
+      assertAccessConfigContext(context);
       results.push('用户配置已应用');
     }
     if (systemDiffs.length > 0) {
@@ -4464,6 +4637,7 @@ async function applyAccessManagementConfigImport() {
         if (!systemAccessConfigImportState.config || !systemAccessConfigImportState.currentConfig) throw new Error('请先选择系统配置并完成预检');
         const payload = buildSystemAccessConfigImportPayload(systemAccessConfigImportState.currentConfig, systemDiffs);
         const preflight = await api('/system/access-management-config/v1/preflight', 'POST', { data: payload });
+        assertAccessConfigContext(context);
         const errors = Array.isArray(preflight?.errors) ? preflight.errors : [];
         if (errors.length > 0) throw new Error(errors.join('；'));
         const saved = await api('/system/access-management-config/v1', 'PUT', {
@@ -4471,6 +4645,7 @@ async function applyAccessManagementConfigImport() {
           expectedVersion: systemAccessConfigImportState.currentVersion,
           note: `Imported selected diffs from ${systemAccessConfigImportState.fileName || 'access-management-config-bundle.json'}`,
         });
+        assertAccessConfigContext(context);
         siteAccessDefaults = saved.config || payload;
         systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
         renderSystemConfigSummary(saved);
@@ -4486,9 +4661,16 @@ async function applyAccessManagementConfigImport() {
     toast(results.join('；'));
     showRulesAccessConfigMsg(results.join('；'), true);
   } catch (err) {
+    try{assertAccessConfigContext(context);}catch{return;}
     toast('应用导入失败：' + (err.message || err), false);
     showRulesAccessConfigMsg('应用导入失败：' + (err.message || err), false);
-  }
+  } finally {draft.applying=false;}
+}
+function buildUsageClassificationImportDiffs(imported){
+  if(!imported.usageRulesPresent)return[];
+  const before=new Map((remoteConfig?.siteUsageClassificationRulesV1||[]).map(rule=>[configImportRuleKey(rule),rule]));
+  const after=new Map((imported.siteUsageClassificationRulesV1||[]).map(rule=>[configImportRuleKey(rule),rule]));
+  return [...new Set([...before.keys(),...after.keys()])].map(key=>({id:'usage-rule:'+key,area:'usage-rule',key,type:before.has(key)&&after.has(key)?'same':after.has(key)?'add':'delete',label:'其他用途规则：'+key,currentValue:before.has(key)?'其他':'无',importedValue:after.has(key)?'其他':'无',importedRule:after.get(key)}));
 }
 function assertStringArrayField(obj, field, label) {
   if (obj[field] === undefined) return undefined;
@@ -4573,6 +4755,11 @@ function normalizeProfileConfigImportData(data) {
     customRestrictedEntertainmentList: lists.customRestrictedEntertainmentList || [],
     customBlockedSites: lists.customBlockedSites || [],
     siteClassificationRulesV1: uniqueSiteRules(importedRules),
+    usageRulesPresent:Object.prototype.hasOwnProperty.call(data.siteAccess||{},'usageClassificationRules'),
+    siteUsageClassificationRulesV1:(data.siteAccess?.usageClassificationRules||[]).map(rule=>{
+      if(rule.classification!=='other'||!['url','host'].includes(rule.targetType)||typeof rule.normalizedValue!=='string'||!rule.normalizedValue)throw new Error('无效的其他用途规则');
+      return{classification:'other',targetType:rule.targetType,normalizedValue:rule.normalizedValue};
+    }),
     timeQuota: {
       accountingVersion: Number(data.quota?.timeQuota?.accountingVersion) === 2 ? 2 : 1,
       daily: data.quota?.timeQuota?.daily && typeof data.quota.timeQuota.daily === 'object' ? data.quota.timeQuota.daily : {},
@@ -4837,6 +5024,12 @@ function buildProfileConfigImportPayload(selectedDiffs) {
     timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(remoteConfig?.timeWindows?.daily || {}) },
   };
 
+  const publicUsageRule = rule => ({ classification: 'other', targetType: rule.targetType,
+    normalizedValue: rule.normalizedValue || rule.targetValue });
+  if (selectedDiffs.some(diff => diff.area === 'usage-rule')) {
+    payload.siteUsageClassificationRulesV1 = (remoteConfig?.siteUsageClassificationRulesV1 || []).map(publicUsageRule);
+  }
+
   for (const diff of selectedDiffs) {
     if (diff.area === 'site-list') {
       removeHostFromAllImportLists(payload, diff.key);
@@ -4845,6 +5038,9 @@ function buildProfileConfigImportPayload(selectedDiffs) {
       payload.siteClassificationRulesV1 = payload.siteClassificationRulesV1.filter(rule => configImportRuleKey(rule) !== diff.key);
       if (diff.type !== 'delete' && diff.importedRule) payload.siteClassificationRulesV1.push(diff.importedRule);
       payload.siteClassificationRulesV1 = uniqueSiteRules(payload.siteClassificationRulesV1);
+    } else if (diff.area === 'usage-rule') {
+      payload.siteUsageClassificationRulesV1 = payload.siteUsageClassificationRulesV1.filter(rule => configImportRuleKey(rule) !== diff.key);
+      if (diff.type !== 'delete' && diff.importedRule) payload.siteUsageClassificationRulesV1.push(publicUsageRule(diff.importedRule));
     } else if (diff.area === 'quota') {
       payload.timeQuota.daily[diff.day] = payload.timeQuota.daily[diff.day] || {};
       if (diff.type === 'delete') delete payload.timeQuota.daily[diff.day][diff.field];
@@ -4879,12 +5075,16 @@ function buildProfileNotificationImportPayload(selectedDiffs) {
   return profileNotificationSettingsView(payload);
 }
 
-async function applyProfileNotificationImport(selectedDiffs) {
+async function applyProfileNotificationImport(selectedDiffs, context = null) {
   const payload = buildProfileNotificationImportPayload(selectedDiffs);
   if (!payload) return false;
-  const result = await api('/profiles/' + currentProfileId + '/unclassified-usage-notification/v1', 'PUT', { data: payload });
+  if(context)assertAccessConfigContext(context);
+  const profileId=context?context.childId:currentProfileId;
+  const result = await api('/profiles/' + profileId + '/unclassified-usage-notification/v1', 'PUT', { data: payload });
+  if(context)assertAccessConfigContext(context);
+  else if(currentProfileId!==profileId)return true;
   profileNotificationSettingsState = {
-    profileId: currentProfileId,
+    profileId,
     loading: false,
     settings: profileNotificationSettingsView(result.settings || payload),
   };
@@ -5098,14 +5298,29 @@ function renderSystemConfigSummary(record = null) {
 }
 
 async function renderRulesConfigFilesPage() {
+  accessConfigGeneration++;
+  const domain=readAccessConfigDomain();
+  configImportDiffState={fileName:'',importedConfig:null,diffs:[],selectedIds:new Set(),filter:'all',targetContainerId:'rules-access-config-import-result',messageId:'rules-access-config-io-msg'};
+  renderConfigImportDiffPanel();
+  document.getElementById('access-config-profile-controls').hidden=domain==='applications';
+  document.getElementById('runtime-configuration-host').hidden=domain!=='applications';
+  document.getElementById('rules-config-scope-system').closest('label').hidden=domain!=='websites';
+  document.getElementById('rules-system-config-summary').hidden=domain!=='websites';
+  document.getElementById('rules-profile-custom-summary').hidden=domain!=='websites';
+  if(domain==='applications'){await renderRuntimeManagement('configuration');return;}
+  disposeRuntimeManagement();
+  if(domain!=='websites')return;
+  const context=accessConfigContext();
   renderSystemConfigSummary();
   renderProfileCustomConfigSummary();
   try {
     const record = await api('/system/access-management-config/v1');
+    assertAccessConfigContext(context);
     systemAccessCanWrite = Boolean(record.canWrite);
     renderSystemConfigSummary(record);
     renderProfileCustomConfigSummary();
   } catch (e) {
+    try{assertAccessConfigContext(context);}catch{return;}
     const el = document.getElementById('rules-system-config-summary');
     if (el) el.innerHTML = `系统配置读取失败：${htmlEscape(e.message || e)}`;
   }
@@ -5398,6 +5613,7 @@ async function applySystemAccessConfigImport() {
 // 保存网站访问配置（只提交 custom 字段，后端自动合并缺省值）
 async function saveSiteAccessConfig() {
   if (!currentProfileId || !remoteConfig) return;
+  const profileId = currentProfileId;
 
   const payload = buildCustomSiteAccessPayload(remoteConfig);
   const conflicts = findSiteAccessExactConflicts({ ...remoteConfig, ...payload });
@@ -5407,12 +5623,14 @@ async function saveSiteAccessConfig() {
   }
 
   try {
-    await saveProfileConfig(payload, 'site_access_save');
-    toast('保存成功');
+    const saved = await saveProfileConfig(payload, 'site_access_save');
+    if (currentProfileId !== profileId || remoteConfigVersion !== Number(saved.version)) return;
     // 重新加载以获取后端合并后的 effective 字段
-    const r = await api(`/profiles/${currentProfileId}/config`);
+    const r = await api(`/profiles/${profileId}/config`);
+    if (currentProfileId !== profileId || remoteConfigVersion !== Number(saved.version) || Number(r.version) !== Number(saved.version)) return;
     applyProfileConfigResponse(r);
     renderRulesPage();
+    toast('保存成功');
   } catch (e) {
     toast('保存失败: ' + (e.message || ''), false);
   }
@@ -9321,13 +9539,15 @@ async function saveConfig() {
 }
 
 // ── API helper ────────────────────────────────────────────────
-async function api(path, method='GET', body=null) {
+async function api(path, method='GET', body=null, conditionalHeaders=null) {
   const makeOptions = () => {
     const opts = {
       method,
       headers: { 'Content-Type': 'application/json' }
     };
     if (accountToken) opts.headers['Authorization'] = `Bearer ${accountToken}`;
+    const ifMatch=new Headers(conditionalHeaders||{}).get('If-Match');
+    if(ifMatch)opts.headers['If-Match']=ifMatch;
     if (body) opts.body = JSON.stringify(body);
     return opts;
   };
@@ -9367,14 +9587,17 @@ async function saveProfileConfig(data, sourceAction) {
       expectedVersion,
       sourceAction,
     });
-    if (profileId === currentProfileId && Number.isInteger(Number(result?.version))) {
+    if (profileId === currentProfileId && remoteConfigVersion === expectedVersion && Number.isInteger(Number(result?.version))) {
       remoteConfigVersion = Number(result.version);
     }
     return result;
   } catch (error) {
     if (error?.status === 409 && error?.code === 'PROFILE_CONFIG_VERSION_CONFLICT') {
-      if (profileId === currentProfileId) {
+      if (profileId === currentProfileId && remoteConfigVersion === expectedVersion) {
         const latest = await api(`/profiles/${profileId}/config`);
+        if (profileId !== currentProfileId || remoteConfigVersion !== expectedVersion) {
+          throw new Error('配置页面已切换或版本已更新，请重新预览后保存。');
+        }
         applyProfileConfigResponse(latest);
         renderPage(document.querySelector('.nav-item.active')?.dataset.page || 'stats');
       }

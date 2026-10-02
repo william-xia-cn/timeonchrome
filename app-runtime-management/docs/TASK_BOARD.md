@@ -2,11 +2,23 @@
 
 ## NOW：D-114 统一访问管理适配（2026-10-02）
 
-本模块负责 `other` 应用分类兼容、Chrome 特殊容器扣除、共享配置／贡献契约及云端只读消费；网页原账与应用原账不修改。现有云端分支已提交契约 1.21.0 `60da475` 与只读投影 `91c8779`；聚焦契约、Worker、Console、typecheck、dry-run 和桌面／移动 mock 通过，均未合并或发布。Native／扩展分别在所属会话适配，本轮仍为 `legacy`，不能声称共享配额已执行。
+最新纠错：1.23.0 固定包被 Native 的严格消费检查发现 week schema 与实际类型不一致，尚未消费；改为 1.23.1 补齐 `toDate/complete/reasonCodes`，旧包保留不覆盖。契约全组测试、build、typecheck 通过；新包交付及两端回归仍待完成。下文交付不等于已消费。
 
-阶段进度：Contracts 已到 1.22.0；`other` 使用 additive `0014` 保存历史，旧机器按能力接收兼容投影；可信 Chrome 产品关联增加云端角色。下一步是机器鉴权接收应用共享贡献的 additive `0015` 与 receipt（不发布余额），然后才进行来源核对、网页贡献、Child 共享状态和两端执行验收。0014/0015 均未在生产执行。
+最新源码状态：PR #180/#181/#182 已合入 `master@2e55fe0`；当前契约为 1.23.0。固定包 SHA-256 `783b2c2cc07b992178a9286a81fdb3d4ab2809182dd3916bb95be25ad7f10340` 已交付两端验真消费。只读影子 payload／能力／成功响应与已签发提醒结果校验已固化，10 项共同向量通过。扩展、Windows Native 的实际适配与正式包消费仍在继续；真实提醒签发、可见生命周期和共享执行仍未完成。未生产部署、迁移、安装或启用执行；下文 1.22.0／未提交是前一阶段记录，完整状态以根任务板顶部为准。
 
-未完成／阻断：旧 Service 收到 `other` 的能力门控尚未验证；新增集成夹具两次收到 412 后依项目重试上限暂停，该尝试未提交。电脑汇总若应用权威毫秒总量与墙钟证据不一致，须由 Service 提供同口径 Chrome 边际扣除，不能近似填平。统一主控制台、唯一配置的条件写入／域别导入导出、共享贡献持久化、按孩子影子核对与启用、真实提醒和 Windows/macOS 验收均未完成。具体进度与 P1 故障以根 TASK_BOARD 为准。
+当前集成状态（2026-10-02）：云端共享策略读取、按孩子影子状态读取已通过 PR #179 合入 `master`；扩展影子贡献客户端通过 PR #175 合入。均未生产部署，0014/0015 未执行，影子状态仍不可用于执行。Runtime 应用贡献收据、来源核验及 Guardian 网页来源投影已在代码中，但需要以迁移启用和真实终端贡献验收证明端到端有效。当前云端修正等级：Worker 共享配额来源覆盖；影响 `readWebContributions` 的设备范围；本地验证为 `shared-access-state-cloud.test.js`、TypeScript、Wrangler dry-run 与 `git diff --check`；排除账本、页面、Native、扩展、migration 和部署。
+
+本模块负责 `other` 应用分类兼容、Chrome 特殊容器扣除、共享配置／贡献契约及云端只读消费；网页原账与应用原账不修改。Contracts 已到 1.22.0；PR #175 的扩展影子贡献客户端和 PR #179 的共享策略／Child 影子状态读取已合入 `master`（当前集成 SHA `a1212ec`）。这些改动未生产部署，不能声称共享配额已执行。
+
+阶段进度：Runtime 已有机器鉴权的应用贡献收据、统计来源核验与 Child 读取接口；Guardian 已有网页账本贡献及按孩子影子投影；Runtime 定时核验仅在 0015 生产迁移后可用。0014/0015 均未在生产执行，不能启用共享执行。当前修复同时确保当天已经产生统计、随后解除绑定的网页设备仍参与孩子当天累计。
+
+当前云端修正：Child 级电脑使用只按网页总量＋应用总量－应用中已确认的 Chrome 边际贡献汇总；不得要求网页设备与 Runtime 电脑做物理关联，也不得用该关联状态否定有效统计。来源完整性与 Chrome 扣除依据仍分别校验，历史数据按 best-effort 标注。移除旧 `DEVICE_MAPPING_INCOMPLETE` 作为电脑汇总阻断/告警原因，保留来源缺失、版本变化和 Chrome 扣除不可验证等真实原因。最小验证：Contracts merge 向量、Worker 投影、Console 状态文案/视图测试、Worker/Contracts/Console typecheck、Wrangler dry-run、`git diff --check`；不运行 Windows、macOS、WiX，不部署或执行 migration。
+
+本地验证记录：Contracts 8 组黄金向量、Worker 聚焦测试、Console 视图/缓存测试、根与 Contracts TypeScript 检查、Worker dry-run、渲染器一致性和 `git diff --check` 均通过。复用本机已缓存 Playwright CLI，完成两套页面 1440px／390px 隔离 mock 截图目视：Child 汇总无需电脑选择，网页 60000ms＋应用 121501ms－Chrome 60000ms＝121501ms；历史 1501ms 保留，Chrome 展开明确为该孩子网页内容，不宣称容器重叠。截图仅为本地布局证据，不代表真实终端或生产验收；mock 主页面图标／favicon 路径未提供，不作为生产缺陷处理。未部署、未执行 migration。
+
+Windows 通道缺口核对（2026-10-02）：Native 的 BrowserBridgeProtocol／Dispatcher 当前未接受 `sharedQuota/getSharedQuotaState` 或 `reportReminderResult`，能力仅包含健康、网页快照和应用读取；不能把契约定义当作运行能力。已向现有 Windows Native 会话交接只读影子读取与提醒结果校验／幂等记录，不发 Mac 任务，不启用执行、不安装或部署。两端接通、真实提醒与共享执行仍未完成。
+
+未完成：来源覆盖与应用真实贡献的端到端核验；主控制台统一访问配置的最终写入／导入导出体验；共享来源对照与阶段启用；提醒结果通道及 Windows 实机验收。Mac 开发验收按用户决定延后。`COMPUTER_USAGE_UNAVAILABLE` P1 单独追踪。生产迁移、部署及共享执行均未批准／未执行；具体跨工作线状态以根 TASK_BOARD 为准。
 
 ## NOW：应用持久化统计结构补齐（D-113，2026-10-01）
 

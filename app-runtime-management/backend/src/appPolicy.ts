@@ -390,6 +390,12 @@ export async function putAppPolicy(
   if (expectedEtag !== appPolicyEtag(current.version)) {
     throw new HttpError(412, 'APP_POLICY_CONFLICT', 'App policy has changed. Reload before saving.');
   }
+  if (quotaCategories.some((category) => update.quotas.dailyCategoryMinutes[category] !== current.quotas.dailyCategoryMinutes[category])
+    || update.quotas.weeklyRestrictedEntertainmentMinutes !== current.quotas.weeklyRestrictedEntertainmentMinutes
+    || (update.timeWindows !== undefined && JSON.stringify(update.timeWindows) !== JSON.stringify(current.timeWindows))) {
+    throw new HttpError(409, 'SHARED_ACCESS_CONFIG_OWNED_BY_GUARDIAN',
+      '公共时间配额和时间段由主控制台统一管理，请从访问管理修改。');
+  }
   const inventory = await listApplicationInventory(database, accountId);
   const knowledge = effectiveApplicationKnowledge(current.applicationKnowledge ?? {
     schemaVersion: 2, version: 0, products: [], rules: [], bindings: [],

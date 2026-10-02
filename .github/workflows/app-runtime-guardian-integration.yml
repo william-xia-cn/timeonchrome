@@ -5,16 +5,44 @@ on:
   pull_request:
     paths:
       - 'workers/src/services/appRuntimeIdentityBridge.ts'
+      - 'workers/src/services/appRuntimeManagementGateway.ts'
       - 'workers/src/index.ts'
+      - 'workers/src/routes/device.ts'
+      - 'workers/src/routes/profiles.ts'
+      - 'workers/src/services/sharedAccessState.ts'
+      - 'workers/src/services/sharedWebContributions.ts'
+      - 'workers/src/services/sharedWebSourceBinding.ts'
+      - 'workers/src/services/computerUsage.ts'
+      - 'workers/migrations/033_shared_web_contributions_v1.sql'
       - 'workers/wrangler.toml'
       - 'app-runtime-management/contracts/**'
       - 'tests/unit/app-runtime-integration.test.js'
+      - 'tests/unit/app-runtime-management-gateway.test.js'
+      - 'tests/unit/device-shared-access-policy.test.js'
+      - 'tests/unit/shared-access-state-cloud.test.js'
+      - 'tests/unit/shared-web-contributions-cloud.test.js'
+      - 'tests/unit/computer-usage-cloud.test.js'
+      - '.github/workflows/app-runtime-guardian-integration.yml'
   push:
     branches: [master]
     paths:
       - 'workers/src/services/appRuntimeIdentityBridge.ts'
+      - 'workers/src/services/appRuntimeManagementGateway.ts'
       - 'workers/src/index.ts'
+      - 'workers/src/routes/device.ts'
+      - 'workers/src/routes/profiles.ts'
+      - 'workers/src/services/sharedAccessState.ts'
+      - 'workers/src/services/sharedWebContributions.ts'
+      - 'workers/src/services/sharedWebSourceBinding.ts'
+      - 'workers/src/services/computerUsage.ts'
+      - 'workers/migrations/033_shared_web_contributions_v1.sql'
       - 'app-runtime-management/contracts/**'
+      - 'tests/unit/app-runtime-management-gateway.test.js'
+      - 'tests/unit/device-shared-access-policy.test.js'
+      - 'tests/unit/shared-access-state-cloud.test.js'
+      - 'tests/unit/shared-web-contributions-cloud.test.js'
+      - 'tests/unit/computer-usage-cloud.test.js'
+      - '.github/workflows/app-runtime-guardian-integration.yml'
 
 jobs:
   compatibility:
@@ -27,3 +55,8 @@ jobs:
       - run: npm run build:app-runtime-contracts
       - run: npx tsc --noEmit
       - run: node tests/unit/app-runtime-integration.test.js
+      - run: node tests/unit/app-runtime-management-gateway.test.js
+      - run: node tests/unit/device-shared-access-policy.test.js
+      - run: node tests/unit/shared-access-state-cloud.test.js
+      - run: node tests/unit/shared-web-contributions-cloud.test.js
+      - run: node tests/unit/computer-usage-cloud.test.js

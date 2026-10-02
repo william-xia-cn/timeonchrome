@@ -19,6 +19,8 @@ const stubs = {
     ({stage:'legacy',revision:`profile-config:${version}`,effectiveAtMs:updatedAtMs,dailyMinutes:config.timeQuota.daily})},
   '../services/nativeAppIdentityBridge': {},
   '../services/appRuntimeIdentityBridge': {},
+  '../services/sharedAccessState': {readSharedAccessDayState:async(env,account,child,date,policy)=>({schemaVersion:1,date,policyRevision:policy.revision,
+    revision:'state-v1',complete:false,reasonCodes:['APPLICATION_SERVICE_UNAVAILABLE']})},
 };
 vm.runInNewContext(compiled, {module:moduleObject,exports:moduleObject.exports,require:name=>{
   assert.ok(name in stubs, `unexpected dependency ${name}`); return stubs[name];
@@ -47,5 +49,14 @@ const env = {JWT_SECRET:'unused',DB:{prepare(sql){
   assert.deepEqual(JSON.parse(await response.text()),{profileId:'child-a',policy:{stage:'legacy',
     revision:'profile-config:7',effectiveAtMs:123,dailyMinutes:{friday:{studyMinutes:20,restMinutes:40,compositeMinutes:30}}}});
   assert.equal(configReads,1);
+  const stateEndpoint='https://example.invalid/profiles/child-a/shared-access-state/v1?date=2026-10-02';
+  assert.equal((await router.handle(new Request(stateEndpoint),env)).status,401);
+  assert.equal((await router.handle(new Request(stateEndpoint.replace('child-a','child-b'),
+    {headers:{Authorization:'Bearer parent'}}),env)).status,404);
+  const stateResponse=await router.handle(new Request(stateEndpoint,{headers:{Authorization:'Bearer parent'}}),env);
+  assert.equal(stateResponse.status,200);
+  assert.deepEqual(JSON.parse(await stateResponse.text()),{profileId:'child-a',schemaVersion:1,date:'2026-10-02',
+    policyRevision:'profile-config:7',revision:'state-v1',complete:false,reasonCodes:['APPLICATION_SERVICE_UNAVAILABLE']});
+  assert.equal(configReads,2,'state requests use the owner-scoped child policy');
   console.log('shared access route: owner-only read-only legacy projection PASS');
 })().catch(error=>{console.error(error);process.exitCode=1;});

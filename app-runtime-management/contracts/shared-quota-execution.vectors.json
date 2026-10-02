@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "admissionCases": [
+    {"name":"composite-borrows-rest-with-composite-window","category":"composite","composite":0,"rest":1,"weekRest":1,"minute":720,"windows":[{"start":"12:00","end":"13:00"}],"decision":"allow","bucket":"rest","reason":null},
+    {"name":"unclassified-borrows-rest","category":"unclassified","composite":0,"rest":1,"weekRest":1,"minute":720,"windows":null,"decision":"allow","bucket":"rest","reason":null},
+    {"name":"empty-window-all-day","category":"study","minute":0,"windows":[],"decision":"allow","bucket":"study","reason":null},
+    {"name":"end-exclusive","category":"study","minute":780,"windows":[{"start":"12:00","end":"13:00"}],"decision":"deny","bucket":"study","reason":"WINDOW_STUDY"},
+    {"name":"equal-endpoints-not-full-day","category":"study","minute":720,"windows":[{"start":"12:00","end":"12:00"}],"decision":"deny","bucket":"study","reason":"WINDOW_STUDY"},
+    {"name":"overnight-needs-two-windows","category":"study","minute":1380,"windows":[{"start":"22:00","end":"06:00"}],"decision":"deny","bucket":"study","reason":"WINDOW_STUDY"},
+    {"name":"midnight-split","category":"study","minute":1439,"windows":[{"start":"22:00","end":"24:00"},{"start":"00:00","end":"06:00"}],"decision":"allow","bucket":"study","reason":null},
+    {"name":"quota-before-window","category":"study","study":0,"minute":720,"windows":[{"start":"13:00","end":"14:00"}],"decision":"deny","bucket":"study","reason":"QUOTA_STUDY"},
+    {"name":"composite-does-not-need-rest-when-composite-remains","category":"composite","composite":1,"rest":0,"weekRest":0,"minute":720,"windows":null,"decision":"allow","bucket":"composite","reason":null},
+    {"name":"borrow-needs-weekly-rest","category":"composite","composite":0,"rest":1,"weekRest":0,"minute":720,"windows":null,"decision":"deny","bucket":"rest","reason":"QUOTA_WEEKLY_REST"},
+    {"name":"other-no-three-buckets","category":"other","complete":false,"minute":720,"windows":null,"decision":"allow","bucket":null,"reason":null},
+    {"name":"other-still-object-blocked","category":"other","objectAllowed":false,"minute":720,"windows":null,"decision":"deny","bucket":null,"reason":"OBJECT_BLOCKED"},
+    {"name":"unknown-usage-not-zero","category":"study","complete":false,"minute":720,"windows":null,"decision":"unavailable","bucket":null,"reason":"SHARED_USAGE_INCOMPLETE"}
+  ],
+  "continuityCases": [
+    {"name":"ordinary-growth","change":"growth","expected":true},
+    {"name":"same-sources-reordered","change":"reorder","expected":true},
+    {"name":"lowering-correction","change":"lower","expected":false},
+    {"name":"new-correction-version","change":"correction","expected":false},
+    {"name":"new-product-association","change":"association","expected":false},
+    {"name":"source-disappears","change":"missing","expected":false},
+    {"name":"assignment-or-target-changes","change":"scope","expected":false},
+    {"name":"policy-content-changes","change":"policy","expected":false},
+    {"name":"incomplete-source","change":"incomplete","expected":false},
+    {"name":"ordinal-rewinds","change":"ordinal","expected":false},
+    {"name":"same-ordinal-content-conflict","change":"conflict","expected":false},
+    {"name":"settlement-rewinds","change":"settlement","expected":false}
+  ],
+  "description": "Two consecutive Beijing days. Repeat base sources on each date; patch only the selected replacement source. No original ledger input.",
+  "dates": ["2026-09-28", "2026-09-29"],
+  "dailyLimitsMinutes": {"study":60,"composite":1,"rest":60},
+  "weeklyRestMinutes": 240,
+  "policyRevision": "policy-1",
+  "basisRevision": "basis-1",
+  "sourceEntries": [
+    {"publicationRevision":"published-web-1","revisionOrdinal":1,"contribution":{
+      "schemaVersion":1,"source":"web","sourceKey":"web-source","revision":"web-1","statisticsRevision":"web-stats-1",
+      "correctionRevision":"correction-1","policyRevision":"policy-1","settledAtMs":1000,"complete":true,"reasonCodes":[],
+      "bucketsMs":{"study":1000,"composite":50000,"rest":5000}
+    }},
+    {"publicationRevision":"published-app-1","revisionOrdinal":1,"contribution":{
+      "schemaVersion":1,"source":"application","sourceKey":"app-source","revision":"app-1","statisticsRevision":"app-stats-1",
+      "correctionRevision":"correction-1","productAssociationVersion":"products-1","policyRevision":"policy-1",
+      "settledAtMs":1000,"complete":true,"reasonCodes":[],"bucketsMs":{"study":1501,"composite":30000,"rest":1001},
+      "applicationClassesMs":{"study":1501,"composite":30000,"restrictedEntertainment":1001,"unclassified":0,"other":6000},
+      "chromeExcludedMs":10000,"chromeIncludedInApplicationMs":10000
+    }}
+  ],
+  "cases": [
+    {"name":"unchanged","expectedStudyMs":2501,"expectedCompositeMs":60000,"expectedRestMs":26001,"expectedWeekRestMs":52002},
+    {"name":"application-newer-replaces-not-adds","source":"application","ordinal":2,"patch":{"revision":"app-2","statisticsRevision":"app-stats-2","settledAtMs":2000,"applicationClassesMs":{"study":1501,"composite":60000,"restrictedEntertainment":1001,"unclassified":0,"other":6000}},"expectedStudyMs":2501,"expectedCompositeMs":60000,"expectedRestMs":56001,"expectedWeekRestMs":82002},
+    {"name":"web-borrow-is-not-borrowed-again","source":"web","ordinal":2,"patch":{"revision":"web-2","statisticsRevision":"web-stats-2","settledAtMs":2000,"bucketsMs":{"study":1000,"composite":60000,"rest":15000}},"expectedStudyMs":2501,"expectedCompositeMs":60000,"expectedRestMs":46001,"expectedWeekRestMs":72002},
+    {"name":"same-version-identical-idempotent","source":"application","ordinal":1,"patch":{},"expectedStudyMs":2501,"expectedCompositeMs":60000,"expectedRestMs":26001,"expectedWeekRestMs":52002},
+    {"name":"newer-correction-may-reduce-usage","source":"application","ordinal":2,"patch":{"revision":"app-2","statisticsRevision":"app-stats-2","applicationClassesMs":{"study":501,"composite":5000,"restrictedEntertainment":1001,"unclassified":0,"other":6000}},"expectedStudyMs":1501,"expectedCompositeMs":55000,"expectedRestMs":6001,"expectedWeekRestMs":32002},
+    {"name":"wrong-basis","source":"application","ordinal":2,"basisRevision":"old","error":"INVALID_EXECUTION_REPLACEMENT"},
+    {"name":"wrong-published-version","source":"application","ordinal":2,"expectedPublicationRevision":"old","error":"EXECUTION_SOURCE_VERSION_CHANGED"},
+    {"name":"no-authorized-scope","source":"application","ordinal":2,"unauthorized":true,"error":"UNAUTHORIZED_EXECUTION_SOURCE"},
+    {"name":"same-version-different-content","source":"application","ordinal":1,"patch":{"statisticsRevision":"different"},"error":"EXECUTION_SOURCE_REVISION_CONFLICT"},
+    {"name":"different-correction-context","source":"application","ordinal":2,"patch":{"correctionRevision":"other"},"error":"EXECUTION_SOURCE_CONTEXT_CHANGED"},
+    {"name":"different-product-context","source":"application","ordinal":2,"patch":{"productAssociationVersion":"other"},"error":"EXECUTION_SOURCE_CONTEXT_CHANGED"},
+    {"name":"partial-local-source","source":"application","ordinal":2,"patch":{"complete":false,"reasonCodes":["LOCAL_SOURCE_INCOMPLETE"]},"error":"EXECUTION_SOURCE_CONTEXT_CHANGED"}
+  ]
+}

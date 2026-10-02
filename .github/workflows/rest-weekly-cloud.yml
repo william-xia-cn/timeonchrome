@@ -5,6 +5,7 @@ on:
       - 'pages/index.html'
       - 'workers/src/routes/profiles.ts'
       - 'tests/unit/rest-weekly-cloud.test.js'
+      - 'tests/unit/profile-config-concurrency.test.js'
       - 'tests/manual/rest-weekly-cloud-ui-smoke.mjs'
       - 'package-lock.json'
       - '.github/workflows/rest-weekly-cloud.yml'
@@ -24,6 +25,7 @@ jobs:
       - run: npm run typecheck
       - run: node tests/unit/rest-weekly-cloud.test.js
       - run: node tests/unit/worker-rest-weekly-config.test.js
+      - run: node tests/unit/profile-config-concurrency.test.js
       - run: npx playwright install --with-deps chromium
       - run: node tests/manual/rest-weekly-cloud-ui-smoke.mjs
       - uses: actions/upload-artifact@v4

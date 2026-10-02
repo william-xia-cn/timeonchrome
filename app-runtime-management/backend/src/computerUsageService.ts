@@ -6,6 +6,8 @@ import { getAppPolicy } from './appPolicy';
 import { readPersistentApplicationUsage } from './applicationStatistics';
 import { loadUsageCorrections } from './applicationUsageCorrections';
 import { CHROME_DISPLAY_RULES } from './specialApplications';
+import { readApplicationSharedQuotaContributions } from './applicationSharedQuota';
+import { verifySharedWebSourceAssignment } from './sharedWebSourceBinding';
 
 /** Capability-bound entrypoint; this is never exposed by the public fetch router. */
 export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
@@ -26,15 +28,19 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
   // default fetch router. A bounded JSON response owns its request lifetime.
   async fetch(request:Request):Promise<Response> {
     const operation=new URL(request.url).pathname.slice(1);
-    if(request.method!=='POST'||!['applicationEvidenceRevision','readApplicationEvidence','getApplicationUsage'].includes(operation))
+    if(request.method!=='POST'||!['applicationEvidenceRevision','readApplicationEvidence','getApplicationUsage',
+      'readApplicationSharedQuotaContributions','verifySharedWebSourceAssignment'].includes(operation))
       return jsonResponse({code:'METHOD_NOT_ALLOWED'},{status:405});
     try {
       const input=await readJsonBody(request,2048) as Record<string,unknown>;
+      if(operation==='verifySharedWebSourceAssignment')return jsonResponse({owned:await verifySharedWebSourceAssignment(this.env.RUNTIME_DB,input)});
       if(!input||['accountId','childId','fromDate','toDate'].some(key=>typeof input[key]!=='string'||String(input[key]).length>200))
         throw new HttpError(400,'INVALID_SCOPE','Read scope is invalid.');
       const args=[input.accountId,input.childId,input.fromDate,input.toDate] as [string,string,string,string];
       const value=operation==='applicationEvidenceRevision'?await this.applicationEvidenceRevision(...args)
-        :operation==='readApplicationEvidence'?await this.readApplicationEvidence(...args):await this.getApplicationUsage(...args);
+        :operation==='readApplicationEvidence'?await this.readApplicationEvidence(...args)
+          :operation==='readApplicationSharedQuotaContributions'?await this.readSharedQuotaApplicationContributions(...args)
+            :await this.getApplicationUsage(...args);
       return jsonResponse(value);
     }catch(error){
       const message=error instanceof Error?error.message:'';
@@ -101,5 +107,10 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to+8*3600000).toISOString().slice(0,10)!==toDate)
       throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
     return readComputerApplicationEvidence(this.env.RUNTIME_DB,accountId,childId,fromDate,toDate,work=>this.ctx.waitUntil(work));
+  }
+  async readSharedQuotaApplicationContributions(accountId:string,childId:string,fromDate:string,toDate:string) {
+    await this.requireChildScope(accountId,childId);
+    if(fromDate!==toDate)throw new HttpError(400,'INVALID_RANGE','共享配额来源只读单日。');
+    return readApplicationSharedQuotaContributions(this.env.RUNTIME_DB,accountId,childId,fromDate);
   }
 }

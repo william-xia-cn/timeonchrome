@@ -6,7 +6,7 @@ const { chromium } = require('playwright');
 
 (async () => {
   const browser = await chromium.launch({ headless: true });
-  const output = path.resolve('test-results', 'app-runtime-d087');
+  const output = process.env.PLAYWRIGHT_ARTIFACT_DIR || path.resolve('output', 'playwright', 'app-runtime-d087');
   await fs.mkdir(output, { recursive: true });
   const unauthenticated = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
   await unauthenticated.goto(pathToFileURL(path.resolve(__dirname, 'index.html')).href);
@@ -55,8 +55,8 @@ const { chromium } = require('playwright');
   assert.equal(await page.locator('#page-title').textContent(), '应用管理');
   assert.equal(await page.locator('[data-view-panel="apps"] .tabbar').count(), 0);
   assert.deepEqual(await page.locator('.app-category-item strong').allTextContents(),
-    ['学习应用', '复合应用', '受限娱乐应用', '黑名单应用', '已使用未归类应用']);
-  assert.equal(await page.locator('.app-category-item').count(), 5);
+    ['学习应用', '复合应用', '受限娱乐应用', '其他时间应用', '黑名单应用', '已使用未归类应用', '特殊应用']);
+  assert.equal(await page.locator('.app-category-item').count(), 7);
   assert.deepEqual(await page.locator('[data-app-category="study"] .app-category-stat').allTextContents(),
     ['应用1', 'Windows1', 'macOS0']);
   assert.deepEqual(await page.locator('[data-app-category="unclassified"] .app-category-stat').allTextContents(),
@@ -64,7 +64,7 @@ const { chromium } = require('playwright');
   assert.equal(await page.locator('[data-app-category="study"] .app-category-stat').count(), 3);
   assert.equal(await page.locator('[data-app-category="unclassified"] .app-category-stat').count(), 2);
   assert.match(await page.locator('#managed-app-list').textContent(), /OBS Studio/);
-  assert.equal(await page.locator('#managed-app-list .record-actions button').count(), 5);
+  assert.equal(await page.locator('#managed-app-list .record-actions button').count(), 6);
   assert.match(await page.locator('#managed-app-list').textContent(), /1 台电脑.*1 个本机账户/);
   assert.equal(await page.locator('#ordinary-app-count').textContent(), '1 个');
   await page.locator('[data-app-category="restrictedEntertainment"]').click();
@@ -91,7 +91,7 @@ const { chromium } = require('playwright');
   await page.locator('#app-search').fill('');
   await page.waitForTimeout(150);
   assert.doesNotMatch(await page.locator('body').innerText(), /runtimeIdentity|app:vscode|opaque-a/);
-  assert.equal(await page.locator('#processed-history').isHidden(), false);
+  assert.equal(await page.locator('#processed-history').isHidden(), true, 'processed history is only shown in the unclassified directory');
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: path.join(output, 'desktop-app-management.png'), fullPage: true });
   await page.locator('[data-app-category="study"]').click();
@@ -114,15 +114,16 @@ const { chromium } = require('playwright');
 
   await page.locator('[data-view="access"]').click();
   assert.equal(await page.locator('#page-title').textContent(), '应用访问管理');
-  assert.deepEqual(await page.locator('[data-access-tab]').allTextContents(), ['时间配额', '时间段管理', '配置文件']);
+  assert.deepEqual(await page.locator('[data-access-tab]').allTextContents(), ['统一时间配置', '单应用限制', '应用配置文件']);
+  assert.match(await page.locator('#quota-form').innerText(), /配置版本.*影子核对中/s);
+  assert.equal(await page.locator('#quota-form input').count(), 0, 'shared policy is read-only in the Runtime page');
+  await page.screenshot({ path: path.join(output, 'desktop-unified-access-policy.png'), fullPage: true });
   await page.locator('[data-access-tab="schedule"]').click();
   assert.equal(await page.locator('.schedule-day').count(), 7);
-  assert.equal(await page.locator('.schedule-cell').count(), 28);
-  assert.match(await page.locator('#outside-window-summary').textContent(), /13 分钟/);
-  await page.locator('[data-schedule-start="monday|study|0"]').fill('08:00');
-  await page.locator('[data-schedule-end="monday|study|0"]').fill('20:00');
-  await page.locator('#save-schedule').click();
-  assert.equal(await page.locator('[data-schedule-start="monday|study|0"]').inputValue(), '08:00');
+  assert.equal(await page.locator('.schedule-cell').count(), 21);
+  assert.equal(await page.locator('#schedule-editor input').count(), 0, 'shared time windows are read-only in the Runtime page');
+  assert.equal(await page.locator('#save-schedule').count(), 0);
+  assert.match(await page.locator('#schedule-editor').innerText(), /学习.*全天开放/s);
   await page.screenshot({ path: path.join(output, 'desktop-access-schedule.png'), fullPage: true });
 
   await page.locator('[data-view="system"]').click();
@@ -177,6 +178,8 @@ const { chromium } = require('playwright');
   assert.equal(await page.locator('.runtime-log-row').first().evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length), 2);
   await page.screenshot({ path: path.join(output, 'mobile-system-logs.png'), fullPage: true });
   await page.evaluate(() => document.querySelector('[data-view="access"]').click());
+  await page.locator('[data-access-tab="quotas"]').click();
+  await page.screenshot({ path: path.join(output, 'mobile-unified-access-policy.png'), fullPage: true });
   await page.locator('[data-access-tab="schedule"]').click();
   assert.equal(await page.locator('.schedule-categories').first().evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length), 1);
   await page.screenshot({ path: path.join(output, 'mobile-access-schedule.png'), fullPage: true });

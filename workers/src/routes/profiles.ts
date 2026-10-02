@@ -2,11 +2,12 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { validateQuotaAuditRequest } from '../../../extension/core/quota-audit.js';
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeWithDefaults, stripDerivedSiteAccessFields, systemAccessDefaultsResponse, type SystemAccessConfig } from '../config/system-access-config';
-import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
+import { normalizeSiteClassificationTarget, validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
 import { projectLegacySharedAccessPolicy, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { nativeChildDeletedOutboxStatement } from '../services/nativeAppIdentityBridge';
 import { appRuntimeChildDeletedOutboxStatement } from '../services/appRuntimeIdentityBridge';
+import { readSharedAccessDayState, type SharedAccessStateEnv } from '../services/sharedAccessState';
 
 type DeviceRecoveryActionBody = {
   action?: string;
@@ -32,6 +33,38 @@ type ProfileConfigUpdateBody = {
   expectedVersion?: unknown;
   sourceAction?: unknown;
 };
+
+function normalizeOtherUsageRules(input: unknown, previous: unknown, now: number):
+  { ok: true; rules: Record<string, unknown>[] } | { ok: false } {
+  if (!Array.isArray(input)) return { ok: false };
+  const existing = Array.isArray(previous) ? previous : [];
+  const seen = new Set<string>();
+  const rules: Record<string, unknown>[] = [];
+  for (const value of input) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false };
+    const rule = value as Record<string, unknown>;
+    if (Object.keys(rule).some(key => !['classification', 'targetType', 'normalizedValue'].includes(key)) ||
+        rule.classification !== 'other' || !['host', 'url'].includes(String(rule.targetType)) ||
+        typeof rule.normalizedValue !== 'string') return { ok: false };
+    const target = normalizeSiteClassificationTarget(rule.normalizedValue);
+    if (!target.ok || target.targetType !== rule.targetType) return { ok: false };
+    const key = `${target.targetType}:${target.normalizedValue}`;
+    if (seen.has(key)) return { ok: false };
+    seen.add(key);
+    const old = existing.find(item => item && item.classification === 'other' &&
+      item.targetType === target.targetType &&
+      (item.normalizedValue || item.targetValue) === target.normalizedValue);
+    rules.push({
+      id: typeof old?.id === 'string' ? old.id : `usage_rule_${crypto.randomUUID()}`,
+      ...(typeof old?.requestId === 'string' ? { requestId: old.requestId } : {}),
+      classification: 'other', targetType: target.targetType,
+      targetValue: target.normalizedValue, normalizedValue: target.normalizedValue,
+      createdAt: Number.isFinite(old?.createdAt) ? old.createdAt : now,
+      updatedAt: Number.isFinite(old?.updatedAt) ? old.updatedAt : now,
+    });
+  }
+  return { ok: true, rules };
+}
 
 function normalizeManagedPolicyId(value: unknown, max = 128): string | null {
   if (typeof value !== 'string') return null;
@@ -273,16 +306,28 @@ function migrateLegacyTimeWindows(config: Record<string, unknown>): void {
   tw.daily = daily;
 }
 
+export function normalizeSharedAccessRolloutV1(value: unknown): {schemaVersion:1;stage:'legacy'|'shadow'|'shared'} | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string,unknown>;
+  if (Object.keys(record).length !== 2 || Object.keys(record).some(key=>!['schemaVersion','stage'].includes(key))
+    || record.schemaVersion !== 1 || typeof record.stage !== 'string'
+    || !['legacy','shadow','shared'].includes(record.stage)) return null;
+  return {schemaVersion:1,stage:record.stage as 'legacy'|'shadow'|'shared'};
+}
+
 /** The same owner-scoped Child projection serves the parent read and the bound Runtime capability. */
 export async function readSharedAccessPolicyForChild(db: D1Database, accountId: string,
-  childId: string): Promise<UnifiedChildAccessPolicyV1 | null> {
+  childId: string, executionEnabled = false): Promise<UnifiedChildAccessPolicyV1 | null> {
   const row = await db.prepare('SELECT config, version, updated_at FROM profiles WHERE id = ? AND account_id = ?')
     .bind(childId, accountId).first<{ config: string; version: number; updated_at: number }>();
   if (!row) return null;
   const config = row.config ? JSON.parse(row.config) as Record<string, unknown> : {};
   migrateLegacyTimeWindows(config);
   injectEffectiveTimeQuota(config);
-  return projectLegacySharedAccessPolicy(config, Number(row.version || 0), Number(row.updated_at || 0));
+  const policy = projectLegacySharedAccessPolicy(config, Number(row.version || 0), Number(row.updated_at || 0));
+  const rollout = normalizeSharedAccessRolloutV1(config.sharedAccessRolloutV1);
+  if (rollout) policy.stage = rollout.stage === 'shared' && !executionEnabled ? 'shadow' : rollout.stage;
+  return policy;
 }
 
 // 归一化空数组为 null（UI 清除所有窗口后应为 unrestricted）
@@ -544,6 +589,7 @@ export const profilesRouter = {
 
     const configMatch      = path.match(/^\/profiles\/([^/]+)\/config$/);
     const sharedAccessMatch = path.match(/^\/profiles\/([^/]+)\/shared-access\/v1$/);
+    const sharedAccessStateMatch = path.match(/^\/profiles\/([^/]+)\/shared-access-state\/v1$/);
     const configHistoryMatch = path.match(/^\/profiles\/([^/]+)\/config-history\/v1$/);
     const defaultsMatch    = path.match(/^\/profiles\/([^/]+)\/defaults$/);
     const devicesMatch     = path.match(/^\/profiles\/([^/]+)\/devices$/);
@@ -556,7 +602,7 @@ export const profilesRouter = {
 
     // 抽取 profileId 并验证归属
     const profileId =
-      configMatch?.[1] ?? sharedAccessMatch?.[1] ?? configHistoryMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? deviceTokenActionMatch?.[1] ??
+      configMatch?.[1] ?? sharedAccessMatch?.[1] ?? sharedAccessStateMatch?.[1] ?? configHistoryMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? deviceTokenActionMatch?.[1] ??
       recoveryRequestsMatch?.[1] ?? recoveryRequestIdMatch?.[1] ?? managedMappingsMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
 
     if (!profileId) return json({ error: 'Not found' }, 404);
@@ -716,8 +762,22 @@ export const profilesRouter = {
     // GET /profiles/:id/shared-access/v1 — read-only projection of the one Child config.
     // Stage stays legacy until both clients and the shared source are verified.
     if (request.method === 'GET' && sharedAccessMatch) {
-      const policy = await readSharedAccessPolicyForChild(env.DB, accountId, profileId);
+      const policy = await readSharedAccessPolicyForChild(env.DB, accountId, profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
       return policy ? json({ profileId, policy }) : json({ error: 'Profile not found' }, 404);
+    }
+
+    // GET /profiles/:id/shared-access-state/v1?date=YYYY-MM-DD — read-only shadow projection.
+    if (request.method === 'GET' && sharedAccessStateMatch) {
+      const policy = await readSharedAccessPolicyForChild(env.DB, accountId, profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
+      if (!policy) return json({ error: 'Profile not found' }, 404);
+      const date = new URL(request.url).searchParams.get('date') || new Date(Date.now()+28_800_000).toISOString().slice(0,10);
+      try {
+        return json({profileId,...await readSharedAccessDayState(env as SharedAccessStateEnv,accountId,profileId,date,policy)});
+      } catch (error) {
+        const code=error instanceof Error&&['INVALID_DATE','CHILD_NOT_FOUND','SHARED_ACCESS_SOURCE_LIMIT'].includes(error.message)
+          ?error.message:'SHARED_ACCESS_STATE_UNAVAILABLE';
+        return json({code},code==='INVALID_DATE'?400:code==='CHILD_NOT_FOUND'?404:503);
+      }
     }
 
     // GET /profiles/:id/config
@@ -804,14 +864,28 @@ export const profilesRouter = {
           'customStudyList', 'customCompositeList', 'customRestrictedEntertainmentList', 'customBlockedSites',
           'dailyOnlineQuota', 'dailyStudyQuota', 'dailyRestQuota',
           'dailyUndeterminedQuota', 'weeklyRestQuota',
-          'domainQuotas', 'classificationRules', 'siteClassificationRulesV1',
+          'domainQuotas', 'classificationRules', 'siteClassificationRulesV1', 'siteUsageClassificationRulesV1',
           'quotaState', 'schedule',
           'restConfig', 'autonomyConfig', 'autoStudyConfig', 'compositeReviewConfig',
           'clientLoggingPolicyV1',
-          'timeQuota', 'timeWindows',
+          'timeQuota', 'timeWindows', 'sharedAccessRolloutV1',
         ]);
 
         const incomingConfig = data as Record<string, unknown>;
+        if (Object.hasOwn(incomingConfig, 'sharedAccessRolloutV1')) {
+          const rollout = normalizeSharedAccessRolloutV1(incomingConfig.sharedAccessRolloutV1);
+          if (!rollout) return json({code:'INVALID_SHARED_ACCESS_ROLLOUT'},400);
+          if (rollout.stage === 'shared' && (env.SHARED_ACCESS_EXECUTION_ENABLED !== 'true'
+            || env.SHARED_WEB_CONTRIBUTIONS_ENABLED !== 'true' || !env.SHARED_WEB_SOURCE_BINDING_PRIVATE_JWK))
+            return json({code:'SHARED_ACCESS_EXECUTION_NOT_ENABLED'},409);
+          incomingConfig.sharedAccessRolloutV1 = rollout;
+        }
+        if (Object.hasOwn(incomingConfig, 'siteUsageClassificationRulesV1')) {
+          const usageRules = normalizeOtherUsageRules(incomingConfig.siteUsageClassificationRulesV1,
+            existingConfig.siteUsageClassificationRulesV1, now);
+          if (!usageRules.ok) return json({ error: 'Invalid other usage rules', code: 'INVALID_OTHER_USAGE_RULES' }, 400);
+          incomingConfig.siteUsageClassificationRulesV1 = usageRules.rules;
+        }
         const reviewError = validateCompositeReviewConfig(incomingConfig);
         if (reviewError) return json({ error: reviewError, code: 'INVALID_COMPOSITE_REVIEW_CONFIG' }, 400);
         const loggingPolicy = incomingConfig.clientLoggingPolicyV1 as any;

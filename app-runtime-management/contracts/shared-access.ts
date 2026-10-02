@@ -187,8 +187,49 @@ export interface SharedQuotaStateV1 {
   sources: readonly { source: 'web' | 'application'; sourceKey: string; date: string; revision: string }[];
   day: { date: string; usedMs: Readonly<Record<SharedQuotaBucket, number>>;
     remainingMs: Readonly<Record<SharedQuotaBucket, number | null>>; borrowedRestMs: number };
-  week: { fromDate: string; restUsedMs: number; restRemainingMs: number | null };
+  week: { fromDate: string; toDate: string; complete: boolean; reasonCodes: readonly string[];
+    restUsedMs: number; restRemainingMs: number | null };
   offline: boolean;
+}
+
+/** Admission only: never starts/stops accounting or authorizes a process action. */
+export function sharedAccessAdmissionV1(policy: UnifiedChildAccessPolicyV1,
+  day: SharedQuotaDayProjectionV1, week: {complete: boolean; restRemainingMs: number | null},
+  category: SharedAccessCategory, minuteOfDay: number, objectAllowed = true): {
+    decision: 'allow' | 'deny' | 'unavailable'; reasonCode: string | null; quotaBucket: SharedQuotaBucket | null;
+  } {
+  canonicalSharedAccessPolicyV1(policy);
+  if (!['study','composite','restrictedEntertainment','unclassified','other','blocked'].includes(category)
+    || !Number.isInteger(minuteOfDay) || minuteOfDay < 0 || minuteOfDay >= 1440
+    || typeof objectAllowed !== 'boolean') throw new Error('INVALID_SHARED_ACCESS_ADMISSION');
+  const result = (decision: 'allow' | 'deny' | 'unavailable', reasonCode: string | null,
+    quotaBucket: SharedQuotaBucket | null = null) => ({decision,reasonCode,quotaBucket});
+  if (!objectAllowed || category === 'blocked') return result('deny','OBJECT_BLOCKED');
+  if (category === 'other') return result('allow',null);
+  if (!day.complete || !week.complete) return result('unavailable','SHARED_USAGE_INCOMPLETE');
+  const start = Date.parse(day.date + 'T00:00:00Z');
+  if (!Number.isFinite(start) || new Date(start).toISOString().slice(0,10) !== day.date
+    || !buckets.every(bucket => day.remainingMs[bucket] === null || validMs(day.remainingMs[bucket]))
+    || !(week.restRemainingMs === null || validMs(week.restRemainingMs)))
+    throw new Error('INVALID_SHARED_ACCESS_ADMISSION');
+  const available = (value: number | null) => value === null || value > 0;
+  const nature: SharedQuotaBucket = category === 'study' ? 'study'
+    : category === 'restrictedEntertainment' ? 'rest' : 'composite';
+  let quotaBucket = nature;
+  if (nature === 'composite' && !available(day.remainingMs.composite)) quotaBucket = 'rest';
+  if (!available(day.remainingMs[quotaBucket])) return result('deny',
+    nature === 'composite' ? 'QUOTA_COMPOSITE_AND_REST' : `QUOTA_${quotaBucket.toUpperCase()}`,quotaBucket);
+  if (quotaBucket === 'rest' && !available(week.restRemainingMs))
+    return result('deny','QUOTA_WEEKLY_REST',quotaBucket);
+  const weekday = (['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const)
+    [new Date(start).getUTCDay()];
+  const windows = policy.timeWindows[weekday][nature];
+  const minute = (time: string) => Number(time.slice(0,2)) * 60 + Number(time.slice(3));
+  const inWindow = !windows?.length || windows.some(window => {
+    const from = minute(window.start), to = minute(window.end);
+    return from < to && minuteOfDay >= from && minuteOfDay < to;
+  });
+  return inWindow ? result('allow',null,quotaBucket) : result('deny',`WINDOW_${nature.toUpperCase()}`,quotaBucket);
 }
 
 export interface SharedReminderResultV1 {
@@ -201,4 +242,125 @@ export interface SharedReminderResultV1 {
   visibleAtMs: number | null;
   action: 'continue' | 'end_rest' | 'timeout_continue' | 'timeout_end' | 'delivery_failed_continue' | 'delivery_failed_end';
   resolvedAtMs: number;
+}
+
+/** Content equality only; neither authentication nor permission to enforce. */
+export interface SharedAccessPolicyIdentityV1 {
+  schemaVersion: 1;
+  revision: string;
+  effectiveAtMs: number;
+  stage: SharedAccessStage;
+  policyHash: string;
+}
+const policyExact = (value: unknown, fields: readonly string[]): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value)
+  && Object.keys(value).length === fields.length && fields.every(field => Object.hasOwn(value, field));
+const policyCanonical = (value: unknown): string => Array.isArray(value)
+  ? `[${value.map(policyCanonical).join(',')}]`
+  : value && typeof value === 'object'
+    ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${policyCanonical((value as Record<string, unknown>)[key])}`).join(',')}}`
+    : JSON.stringify(value);
+
+/** Same strict policy shape as the device consumer; no defaults or normalization of windows. */
+export function canonicalSharedAccessPolicyV1(value: unknown): string {
+  const invalid = () => { throw new Error('INVALID_SHARED_ACCESS_POLICY'); };
+  const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+  const buckets = ['study', 'composite', 'rest'];
+  const minutes = (v: unknown) => v === null || validMs(v) && v <= 10080;
+  const time = (v: unknown) => typeof v === 'string' && /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(v);
+  const windows = (v: unknown) => v === null || Array.isArray(v) && v.every(item =>
+    policyExact(item, ['start', 'end']) && time(item.start) && (time(item.end) || item.end === '24:00'));
+  if (!policyExact(value, ['schemaVersion', 'revision', 'effectiveAtMs', 'stage', 'dailyMinutes', 'weeklyRestMinutes', 'timeWindows', 'autonomy'])
+    || value.schemaVersion !== 1 || typeof value.revision !== 'string'
+    || !/^profile-config:(?:0|[1-9][0-9]*)$/.test(value.revision)
+    || !Number.isSafeInteger(Number(value.revision.slice(15)))
+    || !validMs(value.effectiveAtMs) || typeof value.stage !== 'string' || !['legacy', 'shadow', 'shared'].includes(value.stage)
+    || !minutes(value.weeklyRestMinutes) || !policyExact(value.dailyMinutes, days) || !policyExact(value.timeWindows, days)) return invalid();
+  for (const day of days) {
+    const daily = value.dailyMinutes[day], dailyWindows = value.timeWindows[day];
+    if (!policyExact(daily, buckets) || !policyExact(dailyWindows, buckets)
+      || !buckets.every(bucket => minutes(daily[bucket]) && windows(dailyWindows[bucket]))) return invalid();
+  }
+  const autonomy = value.autonomy;
+  if (!policyExact(autonomy, ['restrictedEntryConfirmationRequired', 'dailyFirstReminderMinutes', 'weeklyFirstReminderMinutes',
+    'repeatReminderMinutes', 'softReminderTimeoutAction', 'visibleResponseDeadlineSeconds'])
+    || typeof autonomy.restrictedEntryConfirmationRequired !== 'boolean'
+    || !minutes(autonomy.dailyFirstReminderMinutes) || !minutes(autonomy.weeklyFirstReminderMinutes)
+    || !validMs(autonomy.repeatReminderMinutes) || autonomy.repeatReminderMinutes < 1 || autonomy.repeatReminderMinutes > 1440
+    || typeof autonomy.softReminderTimeoutAction !== 'string'
+    || !['continue', 'end_rest'].includes(autonomy.softReminderTimeoutAction) || autonomy.visibleResponseDeadlineSeconds !== 60) return invalid();
+  const canonical = policyCanonical(value);
+  if (new TextEncoder().encode(canonical).length > 30 * 1024) return invalid();
+  return canonical;
+}
+
+export async function createSharedAccessPolicyIdentityV1(policy: UnifiedChildAccessPolicyV1): Promise<SharedAccessPolicyIdentityV1> {
+  const canonical = canonicalSharedAccessPolicyV1(policy);
+  const captured = JSON.parse(canonical) as UnifiedChildAccessPolicyV1;
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical)));
+  return {schemaVersion: 1, revision: captured.revision, effectiveAtMs: captured.effectiveAtMs, stage: captured.stage,
+    policyHash: [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('')};
+}
+
+export function validateSharedAccessPolicyIdentityV1(value: unknown): asserts value is SharedAccessPolicyIdentityV1 {
+  if (!policyExact(value, ['schemaVersion', 'revision', 'effectiveAtMs', 'stage', 'policyHash'])
+    || value.schemaVersion !== 1 || typeof value.revision !== 'string' || !/^profile-config:(?:0|[1-9][0-9]*)$/.test(value.revision)
+    || !Number.isSafeInteger(Number(value.revision.slice(15))) || !validMs(value.effectiveAtMs)
+    || typeof value.stage !== 'string' || !['legacy', 'shadow', 'shared'].includes(value.stage) || typeof value.policyHash !== 'string'
+    || !/^[a-f0-9]{64}$/.test(value.policyHash)) throw new Error('INVALID_SHARED_ACCESS_POLICY_IDENTITY');
+}
+
+export async function matchesSharedAccessPolicyIdentityV1(policy: UnifiedChildAccessPolicyV1, identity: unknown): Promise<boolean> {
+  validateSharedAccessPolicyIdentityV1(identity);
+  const captured = {...identity};
+  const expected = await createSharedAccessPolicyIdentityV1(policy);
+  return expected.revision === captured.revision && expected.effectiveAtMs === captured.effectiveAtMs
+    && expected.stage === captured.stage && expected.policyHash === captured.policyHash;
+}
+
+/** Service-local registration, never accepted from an extension request. */
+export interface SharedReminderRegistration {
+  reminderId: string;
+  policyRevision: string;
+  stateRevision: string;
+  kind: SharedReminderResultV1['kind'];
+  issuedAtMs: number;
+  visibleAtMs: number | null;
+}
+
+/** Validate a shadow receipt, not an instruction to close an application. */
+export function validateSharedReminderResult(value: unknown,
+  registration: SharedReminderRegistration | null): SharedReminderResultV1 {
+  const fields = ['schemaVersion','reminderId','policyRevision','stateRevision','kind',
+    'delivery','visibleAtMs','action','resolvedAtMs'];
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).length !== fields.length || fields.some(field => !Object.hasOwn(value, field)))
+    throw new Error('INVALID_SHARED_REMINDER_RESULT');
+  const result = value as SharedReminderResultV1;
+  const ms = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+  const revision = (n: unknown) => typeof n === 'string' && n.length > 0 && n.length <= 128;
+  if (result.schemaVersion !== 1 || !revision(result.reminderId) || !revision(result.policyRevision)
+    || !revision(result.stateRevision) || !['entry','daily','weekly'].includes(result.kind)
+    || !['visible','failed'].includes(result.delivery) || !ms(result.resolvedAtMs)
+    || !(result.visibleAtMs === null || ms(result.visibleAtMs))
+    || !['continue','end_rest','timeout_continue','timeout_end','delivery_failed_continue',
+      'delivery_failed_end'].includes(result.action)) throw new Error('INVALID_SHARED_REMINDER_RESULT');
+  if (!registration || registration.reminderId !== result.reminderId)
+    throw new Error('SHARED_REMINDER_NOT_ISSUED');
+  if (registration.policyRevision !== result.policyRevision || registration.stateRevision !== result.stateRevision
+    || registration.kind !== result.kind) throw new Error('SHARED_REMINDER_VERSION_CHANGED');
+  if (!ms(registration.issuedAtMs) || result.resolvedAtMs < registration.issuedAtMs)
+    throw new Error('INVALID_SHARED_REMINDER_TIME');
+  const failedAction = result.action.startsWith('delivery_failed_');
+  if (result.delivery === 'failed') {
+    if (!failedAction || result.visibleAtMs !== null || registration.visibleAtMs !== null)
+      throw new Error('INVALID_SHARED_REMINDER_DELIVERY');
+  } else {
+    if (failedAction || result.visibleAtMs === null || registration.visibleAtMs !== result.visibleAtMs
+      || result.visibleAtMs < registration.issuedAtMs || result.resolvedAtMs < result.visibleAtMs)
+      throw new Error('INVALID_SHARED_REMINDER_DELIVERY');
+    if (result.action.startsWith('timeout_') && result.resolvedAtMs - result.visibleAtMs < 60_000)
+      throw new Error('SHARED_REMINDER_TIMEOUT_EARLY');
+  }
+  return {...result};
 }

@@ -5,13 +5,14 @@ const cache=new Map();
 return function load(file){if(cache.has(file))return cache.get(file).exports;
 const module={exports:{}};cache.set(file,module);
 const source=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,URLSearchParams,Date,Map,Set,Request,Response,console,require:name=>{
+vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,URLSearchParams,Date,Map,Set,Error,Request,Response,console,require:name=>{
 if(name==='cloudflare:workers')return {WorkerEntrypoint:class{constructor(_,env){this.env=env;}}};
-if(name==='postal-mime')return {default:class PostalMime{async parse(){return {};}}};
 if(name in overrides)return overrides[name];
 if(name==='@timeonchrome/app-runtime-contracts/computer-usage')return load('app-runtime-management/contracts/computer-usage.ts');
+if(name==='@timeonchrome/app-runtime-contracts/shared-access')return load('app-runtime-management/contracts/shared-access.ts');
+if(name==='@timeonchrome/app-runtime-contracts/shared-web-sync')return load('app-runtime-management/contracts/shared-web-sync.ts');
+if(name==='./shared-access.js')return load('app-runtime-management/contracts/shared-access.ts');
 const next=path.posix.normalize(path.posix.join(path.posix.dirname(file),name));
-if(next.endsWith('.json'))return JSON.parse(fs.readFileSync(path.join(root,next),'utf8'));
 return load(next.endsWith('.js')||next.endsWith('.ts')?next:next+'.ts');
 }});
 return module.exports;};}
@@ -21,8 +22,11 @@ const authorityRows=['daily_domain','hourly_domain','daily_target','hourly_targe
 assert.equal(schema.validateDeviceAccountRows(authorityRows,date).ok,true,'fixture must match the real authoritative schema');
 assert.equal(schema.validateDeviceAccountRows([{kind:'daily_total'}],date).code,'DEVICE_ACCOUNT_INVALID_KIND');
 const app={key:'app:opaque',computerKey:'opaque-computer',computerName:'电脑',revision:'a1',associationVersion:'association1',correctionRevision:'ac1',settledAtMs:start+4000,complete:true,reasons:[],totalMs:2000,categoriesMs:{composite:2000},intervals:[{startMs:start+1500,endMs:start+3500,classification:'composite',subjectKey:'opaque-product',label:'办公应用',special:false}]};
-function fixture({owned=true,appFailure=false,webFailure=false,failedDate,legacy=false,appError='private runtime failure',publicStats=[]}={}){
+const fullPolicy=JSON.parse(JSON.stringify(loader()('app-runtime-management/contracts/shared-access.ts').projectLegacySharedAccessPolicy(
+ {timeQuota:{daily:{friday:{studyMinutes:60,compositeMinutes:30,restMinutes:60}}}},7,0)));
+function fixture({owned=true,appFailure=false,webFailure=false,sharedStateFailure=false,policyChanges=false,policyContentChanges=false,failedDate,legacy=false,appError='private runtime failure',publicStats=[]}={}){
 let reads=0,heads=1,appReads=0;const store=new Map();
+let policyReads=0;
 const account={profileId:'child',deviceId:'browser',date,revision:1,statsHash:'hash',generatedAt:start+4000,committedAt:start+5000,complete:true,lossCount:0,rows:authorityRows};
 const db={
   prepare(sql){return {bind(...params){return {
@@ -34,8 +38,31 @@ const load=loader({'./profileAccountsV2':{readManifestAccountV2:async(_db,manife
 './compositePageCorrections':{readCompositeCorrections:async()=>({revision:'c1',items:[]}),projectCompositeDailyRows:()=>account.rows.filter(row=>row.kind==='daily_target')},
 './usageAccountingCorrections':{listUsageAccountingCorrections:async()=>[],applyCorrectionsToV1StatsRows:rows=>rows},
 '../db/middleware':{generateToken:async()=> 'test-internal'},'../routes/stats':{statsRouter:{handle:async request=>Response.json({stats:new URL(request.url).pathname.includes('hourly')?publicStats.map(row=>({...row,hour:0})):publicStats})}},
-'../routes/profiles':{readSharedAccessPolicyForChild:async(_db,accountId,childId)=>accountId==='current-account'&&childId==='current-child'
-  ?{schemaVersion:1,revision:'profile-config:7',stage:'legacy'}:null}});
+'../routes/profiles':{readSharedAccessPolicyForChild:async(_db,accountId,childId)=>{
+  if(accountId!=='current-account'||childId!=='current-child')return null;
+  const value=structuredClone(fullPolicy);policyReads++;
+  if(policyReads>1&&policyChanges)value.revision='profile-config:8';
+  if(policyReads>1&&policyContentChanges)value.dailyMinutes.friday.study=61;
+  return value;
+}},
+'./sharedAccessState':{readSharedQuotaExecutionBasis:async(_env,accountId,childId,selectedDate,policy)=>{
+  assert.equal(accountId,'current-account');assert.equal(childId,'current-child');
+  if(sharedStateFailure)throw Error('private database failure');
+  return {revision:'a'.repeat(64),policyRevision:policy.revision,toDate:selectedDate};
+},pageSharedQuotaExecutionBasis:(basis,key,offset,limit,revision,source)=>{
+  assert.equal(source,'application');
+  if(revision!==null&&revision!==basis.revision)throw Error('EXECUTION_BASIS_VERSION_CHANGED');
+  if(offset>1)throw Error('INVALID_EXECUTION_CURSOR');
+  return {schemaVersion:1,basisRevision:basis.revision,policyRevision:basis.policyRevision,fromDate:'2026-09-28',toDate:basis.toDate,
+    days:[],authorizedScopes:[{source,sourceKey:key,date:basis.toDate}],page:{offset,limit,total:1,nextOffset:null,items:[]}};
+},readSharedAccessDayState:async(_env,accountId,childId,selectedDate,policy)=>{
+  assert.equal(accountId,'current-account');assert.equal(childId,'current-child');
+  if(sharedStateFailure)throw Error('private state failure');
+  return {schemaVersion:1,policyRevision:policy.revision,revision:'state-r1',computedAtMs:1234,settledAtMs:null,
+    complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],sources:[{source:'web',sourceKey:'opaque-source',date:selectedDate,revision:'web-r1'}],
+    day:{date:selectedDate,usedMs:{study:1000,composite:2000,rest:0},remainingMs:{study:5000,composite:4000,rest:3000},borrowedRestMs:0},
+    week:{fromDate:'2026-09-28',toDate:selectedDate,complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],restUsedMs:0,restRemainingMs:3000}};
+}}});
 return {load,env:{DB:db,CONFIG_CACHE:{get:async key=>store.has(key)?JSON.parse(store.get(key)):null,put:async(key,value)=>store.set(key,value)},RUNTIME_COMPUTER_USAGE:{applicationEvidenceRevision:async()=>{if(appFailure)throw Error(appError);return 'a1';},readApplicationEvidence:async()=>{appReads++;if(appFailure)throw Error(appError);return [app];}}},store,reads:()=>reads,appReads:()=>appReads,change(){heads++;}};
 }
 (async()=>{
@@ -47,49 +74,52 @@ assert.deepEqual(await (await scoped.fetch(scopeRequest('foreign-account','curre
 const policyRequest=(accountId,childId)=>new Request('https://private-capability/readSharedAccessPolicy',
   {method:'POST',body:JSON.stringify({accountId,childId})});
 assert.deepEqual(await (await scoped.fetch(policyRequest('current-account','current-child'))).json(),
-  {policy:{schemaVersion:1,revision:'profile-config:7',stage:'legacy'}});
+  {policy:fullPolicy});
 assert.equal((await scoped.fetch(policyRequest('foreign-account','current-child'))).status,404);
-const quotaDate='2026-10-01',quotaDay=Date.parse(quotaDate+'T00:00:00+08:00');
-const quotaDb={prepare(sql){return {bind(...params){return {
-  async first(){if(sql.includes('FROM devices'))return null;if(sql.includes('SELECT manifest_id'))return {manifest_id:'quota-head'};return null;},
-  async all(){if(sql.includes('FROM devices'))return {results:[{id:'browser'}]};return {results:[]};}
-};}};},withSession(){return this;}};
-const quotaAccount={profileId:'current-child',deviceId:'browser',date:quotaDate,revision:1,statsHash:'web-hash',manifestId:'manifest-1',
-  generatedAt:quotaDay+5000,committedAt:quotaDay+6000,complete:true,lossCount:0,rows:[]};
-const quotaModule=loader({'./profileAccountsV2':{readManifestAccountV2:async()=>quotaAccount},
-  './compositePageCorrections':{readCompositeCorrections:async()=>({revision:'correction-r1',items:[]}),
-    projectCompositeDailyRows:()=>[{channel:'active',quotaBucket:'study',durationSeconds:3},
-      {channel:'active',quotaBucket:'other',durationSeconds:7}]},
-  '../routes/profiles':{readSharedAccessPolicyForChild:async()=>({schemaVersion:1,revision:'profile-config:7',stage:'legacy'})}
-})('workers/src/services/computerUsage.ts');
-const quotaResponse=await new quotaModule.ComputerUsageService({}, {DB:quotaDb}).fetch(new Request('https://private-capability/readSharedQuotaInputs',
-  {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'account-a',childId:'current-child',
-    fromDate:quotaDate,toDate:quotaDate})}));
-assert.equal(quotaResponse.status,200);const quotaBody=await quotaResponse.json();
-assert.equal(quotaBody.web.contributions.length,1);assert.equal(quotaBody.web.contributions[0].complete,true);
-assert.deepEqual(JSON.parse(JSON.stringify(quotaBody.web.contributions[0].bucketsMs)),{study:3000,composite:0,rest:0},
-  'Guardian shared contribution reuses published effective quota buckets and excludes other');
-let correctionReads=0;
-const unstableQuotaModule=loader({'./profileAccountsV2':{readManifestAccountV2:async()=>quotaAccount},
-  './compositePageCorrections':{readCompositeCorrections:async()=>({revision:`correction-r${++correctionReads}`,items:[]}),
-    projectCompositeDailyRows:()=>[{channel:'active',quotaBucket:'study',durationSeconds:3}]},
-  '../routes/profiles':{readSharedAccessPolicyForChild:async()=>({schemaVersion:1,revision:'profile-config:7',stage:'legacy'})}
-})('workers/src/services/computerUsage.ts');
-const unstableWeb=await unstableQuotaModule.readSharedQuotaWebInputs({DB:quotaDb},'account-a','current-child',
-  quotaDate,quotaDate,'profile-config:7',quotaDay+7000);
-assert.equal(unstableWeb.contributions[0].complete,false,'correction revision changing during read cannot be published complete');
-assert.ok(unstableWeb.contributions[0].reasonCodes.includes('WEB_SOURCE_VERSION_CHANGED'));
-const badQuota=await new quotaModule.ComputerUsageService({}, {DB:quotaDb}).fetch(new Request('https://private-capability/readSharedQuotaInputs',
-  {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'account-a',childId:'current-child',
-    fromDate:'not-a-date',toDate:quotaDate})}));
-assert.equal(badQuota.status,400);
 assert.equal((await scoped.fetch(new Request('https://private-capability/getUsage',{method:'POST'}))).status,405);
 assert.equal((await scoped.fetch(scopeRequest('x'.repeat(3000),'current-child'))).status,400);
+const quotaStateRequest=(accountId,childId,date='2026-10-02',extra={})=>new Request('https://private-capability/readSharedQuotaState',
+  {method:'POST',body:JSON.stringify({accountId,childId,date,...extra})});
+const quotaStateResponse=await scoped.fetch(quotaStateRequest('current-account','current-child'));
+assert.equal(quotaStateResponse.status,200);
+const quotaStateBody=await quotaStateResponse.json();
+assert.deepEqual(quotaStateBody.state,{schemaVersion:1,policyRevision:'profile-config:7',revision:'state-r1',computedAtMs:1234,
+  settledAtMs:null,complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],
+  sources:[{source:'web',sourceKey:'opaque-source',date:'2026-10-02',revision:'web-r1'}],
+  day:{date:'2026-10-02',usedMs:{study:1000,composite:2000,rest:0},remainingMs:{study:5000,composite:4000,rest:3000},borrowedRestMs:0},
+  week:{fromDate:'2026-09-28',toDate:'2026-10-02',complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],restUsedMs:0,restRemainingMs:3000},offline:false});
+assert.equal('stage' in quotaStateBody.state,false,'wire state contains only the published contract fields');
+assert.equal((await scoped.fetch(quotaStateRequest('current-account','current-child','2026-02-30'))).status,400);
+assert.equal((await scoped.fetch(quotaStateRequest('foreign-account','current-child'))).status,404);
+assert.equal((await scoped.fetch(quotaStateRequest('current-account','current-child','2026-10-02',{childId:'foreign-child'}))).status,404);
+const basisRequest=(extra={})=>new Request('https://private-capability/readSharedQuotaExecutionBasis',
+ {method:'POST',body:JSON.stringify({accountId:'current-account',childId:'current-child',date:'2026-10-02',
+ ownSourceKey:'b'.repeat(64),offset:0,limit:50,expectedRevision:null,...extra})});
+const basisResponse=await scoped.fetch(basisRequest());
+assert.equal(basisResponse.status,200);assert.equal(basisResponse.headers.get('cache-control'),'no-store');
+assert.equal((await basisResponse.json()).authorizedScopes[0].source,'application');
+for(const extra of [{source:'web'},{token:'private'},{date:'2026-02-30'},{offset:1},{limit:101},{ownSourceKey:'display-name'}])
+ assert.equal((await scoped.fetch(basisRequest(extra))).status,400);
+assert.equal((await scoped.fetch(basisRequest({accountId:'foreign-account'}))).status,404);
+assert.equal((await scoped.fetch(basisRequest({expectedRevision:'c'.repeat(64)}))).status,409);
+const changingFixture=fixture({policyChanges:true});
+const changingService=new (changingFixture.load('workers/src/services/computerUsage.ts').ComputerUsageService)({},f.env);
+assert.equal((await changingService.fetch(basisRequest())).status,409,'a policy change during basis loading cannot publish a mixed page');
+const contentFixture=fixture({policyContentChanges:true});
+const contentService=new (contentFixture.load('workers/src/services/computerUsage.ts').ComputerUsageService)({},f.env);
+assert.equal((await contentService.fetch(basisRequest())).status,409,'a full policy content change with the same ordinal invalidates an in-flight page');
+const stateFailureFixture=fixture({sharedStateFailure:true});const stateFailureService=new (stateFailureFixture.load('workers/src/services/computerUsage.ts').ComputerUsageService)({}, {DB:{
+  prepare(){return {bind(){return {first:async()=>({id:'current-child'})};}};}}});
+const stateFailure=await stateFailureService.fetch(quotaStateRequest('current-account','current-child'));
+assert.equal(stateFailure.status,503);assert.deepEqual(await stateFailure.json(),{code:'SHARED_QUOTA_STATE_UNAVAILABLE'});
+const basisFailure=await stateFailureService.fetch(basisRequest());
+assert.equal(basisFailure.status,503);assert.deepEqual(await basisFailure.json(),{code:'SHARED_EXECUTION_BASIS_UNAVAILABLE'});
 const failedScope=new service.ComputerUsageService({}, {DB:{prepare(){throw Error('private DB failure');}}});
 assert.deepEqual(await (await failedScope.fetch(scopeRequest('current-account','current-child'))).json(),{code:'APPLICATION_SCOPE_UNAVAILABLE'});
 let result=await service.readComputerUsage(f.env,'account','child',date,date);
 assert.equal(result.totals.webMs,3000);assert.equal(result.totals.applicationMs,2000);assert.equal(result.totals.computerMs,5000);
-assert.ok(result.reasons.includes('DEVICE_MAPPING_INCOMPLETE'));assert.equal(result.timeline.some(row=>row.key.includes('private-segment')),false);
+assert.ok(!result.reasons.includes('DEVICE_MAPPING_INCOMPLETE'));assert.equal(result.timeline.some(row=>row.key.includes('private-segment')),false);
+assert.equal(result.devices.length,1);assert.equal(result.devices[0].key,'child','projection is Child-level, not split by physical computer');
 assert.equal(result.sourceStatus.web,'complete','missing computer mapping does not invalidate authoritative web statistics');assert.equal(result.sourceStatus.application,'complete');
 const firstReads=f.reads();await service.readComputerUsage(f.env,'account','child',date,date);assert.equal(f.reads(),firstReads,'same source versions reuse interval cache');
 const cachedSummary=await service.readComputerUsage(f.env,'account','child',date,date,undefined,true);
@@ -97,11 +127,12 @@ assert.deepEqual(JSON.parse(JSON.stringify(cachedSummary.totals)),JSON.parse(JSO
 assert.equal(cachedSummary.revision,result.revision);assert.equal(cachedSummary.timeline.length,0);assert.equal(cachedSummary.products.length,0);
 assert.equal(f.reads(),firstReads);assert.equal(f.appReads(),1,'summary/details cache hits never reload application evidence');
 const summaryKeys=[...f.store.keys()].filter(key=>key.endsWith(':summary'));assert.equal(summaryKeys.length,1);
+assert.ok(summaryKeys[0].startsWith('computer-projection-v5:'),'the Child projection invalidates cached physical-computer generations');
 assert.equal(JSON.parse(f.store.get(summaryKeys[0])).timeline.length,0,'summary KV generation is small and separate from details');
 f.change();const updated=await service.readComputerUsage(f.env,'account','child',date,date);assert.notEqual(updated.revision,result.revision);assert.ok(f.reads()>firstReads);
 const selected=await service.readComputerUsage(f.env,'account','child',date,date,'opaque-computer');assert.equal(selected.totals.applicationMs,2000);assert.equal(selected.devices.length,1);
-const week=await service.readComputerUsage(f.env,'account','child',date,'2026-10-02');const webGroup=week.devices.find(device=>device.key.startsWith('unmapped:web:'));assert.ok(webGroup,'unmapped browser source is selectable');
-const weekSelected=await service.readComputerUsage(f.env,'account','child',date,'2026-10-02',webGroup.key);assert.equal(weekSelected.sourceVersions.filter(source=>source.kind==='web').length,2,'one stable browser source selects both dates');assert.equal(weekSelected.totals.webMs,6000);assert.equal(weekSelected.devices.length,1);
+const week=await service.readComputerUsage(f.env,'account','child',date,'2026-10-02');const webGroup=week.devices.find(device=>device.key==='child');assert.ok(webGroup,'week view exposes a single Child aggregate');
+const weekSelected=await service.readComputerUsage(f.env,'account','child',date,'2026-10-02',webGroup.key);assert.equal(weekSelected.sourceVersions.length,week.sourceVersions.length,'legacy computer query is ignored, not used as an aggregation boundary');assert.equal(weekSelected.totals.webMs,week.totals.webMs);assert.equal(weekSelected.devices.length,1);
 f=fixture({appFailure:true});result=await f.load('workers/src/services/computerUsage.ts').readComputerUsage(f.env,'account','child',date,date);assert.equal(result.totals.webMs,3000);assert.equal(result.totals.applicationMs,null);assert.ok(result.reasons.includes('APPLICATION_SOURCE_UNAVAILABLE'));
 assert.equal(f.store.size,0,'source failures are not retained as successful generations');
 f=fixture({webFailure:true});result=await f.load('workers/src/services/computerUsage.ts').readComputerUsage(f.env,'account','child',date,date);assert.equal(result.totals.applicationMs,2000);assert.equal(result.totals.webMs,null);
@@ -129,5 +160,5 @@ await assert.rejects(()=>service.readIndependentUsage(f.env,'account','child',da
 f=fixture();f.env.RUNTIME_COMPUTER_USAGE.fetch=async request=>{const scope=await request.json();assert.equal(scope.childId,'child');return Response.json(new URL(request.url).pathname.includes('Revision')?'cap-r1':[app]);};
 result=await f.load('workers/src/services/computerUsage.ts').readComputerUsage(f.env,'account','child',date,date);assert.equal(result.totals.applicationMs,2000,'bounded capability HTTP transport preserves app authority');
 for(const [a,b] of [['2026-02-30','2026-02-30'],['2026-10-01','2026-10-08'],['2026-10-02','2026-10-01']])assert.throws(()=>service.validateComputerUsageRange(a,b),/INVALID_RANGE/);
-console.log('PASS cloud computer usage: original authority, ownership, failure isolation, mapping, version cache, filtering, privacy, range');
+console.log('PASS cloud computer usage: original authority, Child aggregation, failure isolation, versioned cache, legacy-filter compatibility, privacy, range');
 })().catch(error=>{console.error(error);process.exitCode=1;});

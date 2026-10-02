@@ -1,12 +1,10 @@
 import { requireAccountModule, requireMachine } from './auth';
 import { routeApplicationAccounts } from './applicationAccounts';
-import { applicationSharedQuotaUploadReady, readSharedQuotaApplicationInputs, receiveApplicationSharedQuota } from './applicationSharedQuota';
-import { projectSharedQuotaDay, type SharedQuotaStateV1, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
-import type { SharedQuotaContributionV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
-import type { MachineSelfResponse } from './contracts';
-import { sha256Hex } from './crypto';
+import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota, applicationSharedQuotaSourceKey } from './applicationSharedQuota';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
+import type { SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
+import { routeSharedWebSourceBinding, parseMachineWebSourceProof } from './sharedWebSourceBinding';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
 import { machineUsageCorrections } from './applicationUsageCorrections';
 import { readPersistentApplicationUsage } from './applicationStatistics';
@@ -66,118 +64,100 @@ import {
 
 const policyStates = new Set(['pending', 'cached', 'applied', 'failed', 'offline']);
 
-const sharedQuotaDate=(date:string)=>{const value=Date.parse(`${date}T00:00:00+08:00`);return /^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(value)&&new Date(value+28_800_000).toISOString().slice(0,10)===date?value:null;};
-const sharedQuotaDateString=(ms:number)=>new Date(ms+28_800_000).toISOString().slice(0,10);
-const sharedQuotaKeys=['study','composite','rest'] as const;
-function isSharedQuotaInput(value:unknown,expectedSource:'web'|'application',date:string,policyRevision:string):value is SharedQuotaStateInputSource {
-  if(!isRecord(value)||!Array.isArray(value.contributions)||value.contributions.length>100
-    ||!Array.isArray(value.expectedSourceKeys)||value.expectedSourceKeys.length>100
-    ||value.expectedSourceKeys.some(key=>typeof key!=='string'||!/^[a-f0-9]{64}$/.test(key))
-    ||!Array.isArray(value.reasonCodes)||value.reasonCodes.some(code=>typeof code!=='string'||code.length>128))return false;
-  return value.contributions.every(item=>{
-    if(!isRecord(item))return false;
-    const buckets=item.bucketsMs;
-    if(!isRecord(item)||item.schemaVersion!==1||item.source!==expectedSource||item.date!==date
-      ||typeof item.sourceKey!=='string'||!/^[a-f0-9]{64}$/.test(item.sourceKey)
-      ||typeof item.policyRevision!=='string'||item.policyRevision!==policyRevision
-      ||typeof item.revision!=='string'||!item.revision||typeof item.statisticsRevision!=='string'
-      ||typeof item.correctionRevision!=='string'||typeof item.complete!=='boolean'
-      ||!Array.isArray(item.reasonCodes)||item.reasonCodes.length>16||item.reasonCodes.some(code=>typeof code!=='string')
-      ||(item.complete&&item.reasonCodes.length!==0)||(!item.complete&&item.reasonCodes.length===0)
-      ||(item.settledAtMs!==null&&(!Number.isSafeInteger(item.settledAtMs)||Number(item.settledAtMs)<0))
-      ||!isRecord(buckets)||!sharedQuotaKeys.every(key=>Number.isSafeInteger(buckets[key])&&Number(buckets[key])>=0))return false;
-    if(expectedSource==='web')return sharedQuotaKeys.every(key=>Number(buckets[key])%1000===0);
-    const classes=item.applicationClassesMs;
-    return isRecord(classes)&&['study','composite','restrictedEntertainment','unclassified','other']
-      .every(key=>Number.isSafeInteger(classes[key])&&Number(classes[key])>=0)
-      &&Number.isSafeInteger(item.chromeExcludedMs)&&Number(item.chromeExcludedMs)>=0
-      &&(item.chromeIncludedInApplicationMs===undefined||item.chromeIncludedInApplicationMs===null
-        ||(Number.isSafeInteger(item.chromeIncludedInApplicationMs)&&Number(item.chromeIncludedInApplicationMs)>=0));
-  });
+async function readSharedAccessPolicy(env: Env, accountId: string, childId: string): Promise<Record<string, unknown>> {
+  if (!env.GUARDIAN_COMPUTER_USAGE) {
+    throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置服务暂不可用。');
+  }
+  let response: Response;
+  try {
+    response = await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedAccessPolicy', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId, childId }),
+    }));
+  } catch {
+    throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置服务暂不可用。');
+  }
+  if (!response.ok) throw new HttpError(response.status === 404 ? 404 : 503,
+    response.status === 404 ? 'CHILD_NOT_FOUND' : 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置服务暂不可用。');
+  let result: { policy?: Record<string, unknown> };
+  try { result = await response.json() as typeof result; }
+  catch { throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置响应无效。'); }
+  const policy = result.policy;
+  if (!policy || policy.schemaVersion !== 1 || typeof policy.revision !== 'string'
+    || !Number.isSafeInteger(policy.effectiveAtMs)
+    || !['legacy', 'shadow', 'shared'].includes(String(policy.stage))
+    || !isRecord(policy.dailyMinutes) || !isRecord(policy.timeWindows) || !isRecord(policy.autonomy)) {
+    throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置响应无效。');
+  }
+  return policy;
 }
 
-async function readSharedQuotaStateForMachine(request:Request,env:Env,machine:MachineSelfResponse,nowMs:number):Promise<SharedQuotaStateV1> {
-  const url=new URL(request.url),localUserId=url.searchParams.get('localUserId')??'',assignmentVersion=Number(url.searchParams.get('assignmentVersion'));
-  const date=url.searchParams.get('date')??'',weekStart=url.searchParams.get('weekStart')??'';
-  const dateMs=sharedQuotaDate(date),weekMs=sharedQuotaDate(weekStart);
-  if(!/^[A-Za-z0-9_-]{32,128}$/.test(localUserId)||!Number.isSafeInteger(assignmentVersion)||assignmentVersion<1
-    ||dateMs===null||weekMs===null||new Date(weekMs+8*3_600_000).getUTCDay()!==1
-    ||dateMs<weekMs||dateMs>=weekMs+7*86_400_000)
-    throw new HttpError(400,'INVALID_REQUEST','Shared quota date or assignment is invalid.');
-  const assignment=await env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
-    WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3 AND a.protected=1 AND a.child_id IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer WHERE newer.machine_id=a.machine_id
-        AND newer.local_user_id=a.local_user_id AND newer.assignment_version>a.assignment_version)`)
-    .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
-  if(!assignment)throw new HttpError(403,'SHARED_QUOTA_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
-  if(!env.GUARDIAN_COMPUTER_USAGE)throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source is unavailable.');
-  let guardian:Response;
-  try {guardian=await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedQuotaInputs',{
-    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:machine.accountId,
-      childId:assignment.child_id,fromDate:weekStart,toDate:sharedQuotaDateString(weekMs+6*86_400_000)})}));}
-  catch {throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source is unavailable.');}
-  let guardianValue:{policy?:UnifiedChildAccessPolicyV1;web?:Record<string,{contributions:SharedQuotaContributionV1[];expectedSourceKeys:string[];reasonCodes:string[]}>};
-  try {guardianValue=await guardian.json() as typeof guardianValue;}
-  catch {throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source is unavailable.');}
-  if(!guardian.ok||guardianValue.policy?.schemaVersion!==1||typeof guardianValue.policy.revision!=='string'
-    ||!guardianValue.web||typeof guardianValue.web!=='object')
-    throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source is unavailable.');
-  const policy=guardianValue.policy;
-  for(let day=weekMs;day<weekMs+7*86_400_000;day+=86_400_000) {
-    const source=guardianValue.web[sharedQuotaDateString(day)];
-    if(source!==undefined&&!isSharedQuotaInput(source,'web',sharedQuotaDateString(day),policy.revision))
-      throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source snapshot is invalid.');
-  }
-  if(!await applicationSharedQuotaUploadReady(env.RUNTIME_DB))
-    throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota source snapshots are not ready.');
-  const applications=await readSharedQuotaApplicationInputs(env.RUNTIME_DB,machine.accountId,assignment.child_id,
-    weekStart,sharedQuotaDateString(weekMs+6*86_400_000),policy.revision,nowMs);
-  const reasonCodes=new Set<string>(),sources:SharedQuotaStateV1['sources'][number][]=[];
-  const daily=new Map<string,ReturnType<typeof projectSharedQuotaDay>>();
-  let weekRestUsedMs=0,weekComplete=true;
-  for(let day=weekMs;day<weekMs+7*86_400_000;day+=86_400_000) {
-    const currentDate=sharedQuotaDateString(day),web=guardianValue.web[currentDate],app=applications[currentDate];
-    if(app&&!isSharedQuotaInput(app,'application',currentDate,policy.revision))
-      throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Application quota source snapshot is invalid.');
-    const webContributions=web?.contributions??[],appContributions=app?.contributions??[];
-    const webKeys=new Set(webContributions.map(item=>item.sourceKey)),appKeys=new Set(appContributions.map(item=>item.sourceKey));
-    if(!web||web.expectedSourceKeys.length===0||web.expectedSourceKeys.some(key=>!webKeys.has(key)))reasonCodes.add('WEB_SOURCE_COVERAGE_INCOMPLETE');
-    if(!app||app.expectedSourceKeys.length===0||app.expectedSourceKeys.some(key=>!appKeys.has(key)))reasonCodes.add('APPLICATION_SOURCE_COVERAGE_INCOMPLETE');
-    for(const code of web?.reasonCodes??[])reasonCodes.add(code);
-    for(const code of app?.reasonCodes??[])reasonCodes.add(code);
-    const daySources=[...webContributions,...appContributions];
-    for(const source of daySources) {
-      if(source.date!==currentDate||source.policyRevision!==policy.revision||!source.complete) {
-        reasonCodes.add(source.policyRevision!==policy.revision?'SHARED_POLICY_REVISION_MISMATCH':'SHARED_SOURCE_INCOMPLETE');
-      }
-      sources.push({source:source.source,sourceKey:source.sourceKey,date:source.date,revision:source.revision});
-    }
-    const projected=projectSharedQuotaDay(policy,currentDate,daySources);
-    daily.set(currentDate,projected);weekRestUsedMs+=projected.usedMs.rest;
-    if(!projected.complete)weekComplete=false;
-    for(const code of projected.reasonCodes)reasonCodes.add(code);
-    if(!Number.isSafeInteger(weekRestUsedMs))reasonCodes.add('CONTRIBUTION_OVERFLOW');
-  }
-  const selected=daily.get(date);
-  if(!selected)throw new HttpError(503,'SHARED_QUOTA_STATE_UNAVAILABLE','Shared quota date is unavailable.');
-  const weeklyLimit=policy.weeklyRestMinutes===null?null:Math.max(0,policy.weeklyRestMinutes*60_000);
-  const orderedSources=sources.sort((a,b)=>`${a.date}:${a.source}:${a.sourceKey}`.localeCompare(`${b.date}:${b.source}:${b.sourceKey}`));
-  const settledValues=[...webContributionsForDate(guardianValue.web[date]),...appContributionsForDate(applications[date])]
-    .map(source=>source.settledAtMs);
-  const settledAtMs=settledValues.length&&settledValues.every(value=>value!==null)
-    ?Math.min(...settledValues as number[]):null;
-  const reasons=[...reasonCodes].sort();
-  const stateBase={schemaVersion:1 as const,policyRevision:policy.revision,computedAtMs:nowMs,settledAtMs,
-    complete:reasons.length===0&&weekComplete,reasonCodes:reasons,sources:orderedSources,
-    day:{date,usedMs:selected.usedMs,remainingMs:selected.remainingMs,borrowedRestMs:selected.borrowedRestMs},
-    week:{fromDate:weekStart,restUsedMs:weekRestUsedMs,restRemainingMs:weeklyLimit===null?null:Math.max(0,weeklyLimit-weekRestUsedMs)},offline:false};
-  const revision=await sha256Hex(JSON.stringify(stateBase));
-  return {...stateBase,revision};
+function isSharedQuotaState(value: unknown): value is SharedQuotaStateV1 {
+  const exactKeys=(record:Record<string,unknown>,keys:readonly string[])=>
+    Object.keys(record).length===keys.length&&keys.every(key=>Object.hasOwn(record,key));
+  if (!isRecord(value) || !exactKeys(value,['schemaVersion','policyRevision','revision','computedAtMs','settledAtMs',
+    'complete','reasonCodes','sources','day','week','offline']) || value.schemaVersion !== 1
+    || typeof value.policyRevision !== 'string' || !value.policyRevision
+    || typeof value.revision !== 'string' || !value.revision || !Number.isSafeInteger(value.computedAtMs)
+    || Number(value.computedAtMs) < 0
+    || !(value.settledAtMs === null || (Number.isSafeInteger(value.settledAtMs) && Number(value.settledAtMs) >= 0))
+    || typeof value.complete !== 'boolean' || !Array.isArray(value.reasonCodes)
+    || !value.reasonCodes.every(code => typeof code === 'string') || !Array.isArray(value.sources)
+    || typeof value.offline !== 'boolean' || !isRecord(value.day) || !isRecord(value.week)) return false;
+  const buckets = ['study', 'composite', 'rest'] as const;
+  const used = value.day.usedMs, remaining = value.day.remainingMs;
+  if (!exactKeys(value.day,['date','usedMs','remainingMs','borrowedRestMs'])
+    || !exactKeys(value.week,['fromDate','toDate','complete','reasonCodes','restUsedMs','restRemainingMs'])
+    || typeof value.day.date !== 'string' || !isRecord(used) || !exactKeys(used,buckets) || !isRecord(remaining)
+    || !exactKeys(remaining,buckets)
+    || !buckets.every(bucket => Number.isSafeInteger(used[bucket]) && Number(used[bucket]) >= 0
+      && (remaining[bucket] === null || (Number.isSafeInteger(remaining[bucket]) && Number(remaining[bucket]) >= 0)))
+    || !Number.isSafeInteger(value.day.borrowedRestMs) || Number(value.day.borrowedRestMs) < 0
+    || typeof value.week.fromDate !== 'string' || typeof value.week.toDate !== 'string'
+    || typeof value.week.complete !== 'boolean' || !Array.isArray(value.week.reasonCodes)
+    || !value.week.reasonCodes.every(code => typeof code === 'string')
+    || !Number.isSafeInteger(value.week.restUsedMs) || Number(value.week.restUsedMs) < 0
+    || !(value.week.restRemainingMs === null || (Number.isSafeInteger(value.week.restRemainingMs)
+      && Number(value.week.restRemainingMs) >= 0))) return false;
+  const dayDate=value.day.date as string;
+  return value.sources.every(source => isRecord(source) && exactKeys(source,['source','sourceKey','date','revision'])
+    && (source.source === 'web' || source.source === 'application') && typeof source.sourceKey === 'string' && !!source.sourceKey
+    && source.date === dayDate && typeof source.revision === 'string' && !!source.revision);
 }
 
-function webContributionsForDate(value:SharedQuotaStateInputSource|undefined):SharedQuotaContributionV1[]{return value?.contributions??[];}
-function appContributionsForDate(value:SharedQuotaStateInputSource|undefined):SharedQuotaContributionV1[]{return value?.contributions??[];}
-type SharedQuotaStateInputSource={contributions:SharedQuotaContributionV1[];expectedSourceKeys:string[];reasonCodes:string[]};
+async function readSharedQuotaState(env: Env, accountId: string, childId: string, date: string): Promise<SharedQuotaStateV1> {
+  if (!env.GUARDIAN_COMPUTER_USAGE) {
+    throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态服务暂不可用。');
+  }
+  let response: Response;
+  try {
+    response = await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedQuotaState', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId, childId, date }),
+    }));
+  } catch {
+    throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态服务暂不可用。');
+  }
+  if (!response.ok) {
+    let code = 'SHARED_QUOTA_STATE_UNAVAILABLE';
+    try { code = String((await response.json() as { code?: unknown }).code || code); } catch { /* Stable fallback below. */ }
+    throw new HttpError(response.status === 400 && code === 'INVALID_DATE' ? 400
+      : response.status === 404 ? 403 : 503,
+    response.status === 400 && code === 'INVALID_DATE' ? 'INVALID_DATE'
+      : response.status === 404 ? 'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE' : 'SHARED_QUOTA_STATE_UNAVAILABLE',
+    '共享用量状态暂不可用。');
+  }
+  let body: { state?: unknown };
+  try { body = await response.json() as typeof body; }
+  catch { throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态响应无效。'); }
+  if (!isSharedQuotaState(body.state)) throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态响应无效。');
+  // Bind both periods to this read; a well-shaped reply for another date is not usable.
+  const dayStart = Date.parse(`${date}T00:00:00+08:00`);
+  const weekday = new Date(dayStart + 28_800_000).getUTCDay();
+  const monday = new Date(dayStart - ((weekday + 6) % 7) * 86_400_000 + 28_800_000).toISOString().slice(0, 10);
+  if (body.state.day.date !== date || body.state.week.toDate !== date || body.state.week.fromDate !== monday) {
+    throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态范围无效。');
+  }
+  return body.state;
+}
 
 export async function routeV2(request: Request, env: Env, nowMs: number, defer?:(work:Promise<unknown>)=>void): Promise<Response | null> {
   const url = new URL(request.url);
@@ -233,6 +213,11 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       }
       return childId;
     };
+    if (url.pathname === '/v2/module/shared-access-policy') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild();
+      return jsonResponse({ policy: await readSharedAccessPolicy(env, claims.account_id, childId) });
+    }
     const requireRange = (maximumDays = 31): { fromMs: number; toMs: number } => {
       const fromMs = Number(url.searchParams.get('fromMs'));
       const toMs = Number(url.searchParams.get('toMs'));
@@ -338,6 +323,39 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
           platform: platform || undefined,
         },defer,nowMs);
       return jsonResponse({...result.value,statistics:result.statistics},{headers:{'x-application-usage-cache':result.cacheStatus}});
+    }
+    if (url.pathname === '/v2/module/segment-diagnostics') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild();
+      const range = requireRange();
+      const kind = url.searchParams.get('kind');
+      if (kind !== 'usage' && kind !== 'media') {
+        throw new HttpError(400, 'INVALID_DIAGNOSTIC_KIND', 'Diagnostic kind is invalid.');
+      }
+      const limit = Number(url.searchParams.get('limit') || 50);
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+        throw new HttpError(400, 'INVALID_LIMIT', 'Limit must be between 1 and 100.');
+      }
+      if ([...url.searchParams.keys()].some(key => !['childId', 'kind', 'fromMs', 'toMs', 'limit'].includes(key)
+          || url.searchParams.getAll(key).length !== 1)) {
+        throw new HttpError(400, 'INVALID_DIAGNOSTIC_QUERY', 'Diagnostic query is invalid.');
+      }
+      const result = await querySegmentDetails(env.RUNTIME_DB, claims.account_id, childId,
+        kind, range.fromMs, range.toMs, limit, null);
+      const items = result.items.map(item => {
+        if (!isRecord(item)) throw new HttpError(500, 'INVALID_DIAGNOSTIC_RESULT', 'Diagnostic data is invalid.');
+        // Do not spread records: raw identities and cursor must never reach the management component.
+        return {
+          startAtMs: item.startAtMs, endAtMs: item.endAtMs, durationMs: item.durationMs,
+          displayName: typeof item.displayName === 'string'
+            && ![item.runtimeIdentity, item.id, item.machineId, item.localUserId].includes(item.displayName)
+            && !/[\\/]/.test(item.displayName) ? item.displayName : null,
+          estimated: item.estimated,
+          ...(kind === 'usage' ? { applicationClassification: item.applicationClassification }
+            : { mediaKind: item.mediaKind, presentation: item.presentation }),
+        };
+      });
+      return jsonResponse({ items, hasMore: result.nextCursor !== null }, { headers: { 'Cache-Control': 'no-store' } });
     }
     if (url.pathname === '/v2/module/usage-segments' || url.pathname === '/v2/module/media-segments') {
       if (request.method !== 'GET') return methodNotAllowed('GET');
@@ -496,7 +514,74 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     return routeApplicationAccounts(request, env.RUNTIME_DB, await requireMachine(request, env.RUNTIME_DB, nowMs, false), nowMs);
   }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
-    url.pathname !== '/v2/machines/heartbeat');
+    url.pathname !== '/v2/machines/heartbeat' && url.pathname !== '/v2/machines/shared-quota/execution-basis'
+      && !url.pathname.startsWith('/v2/machines/shared-web-source/'));
+  if(url.pathname==='/v2/machines/shared-web-source/challenge'||url.pathname==='/v2/machines/shared-web-source/verification-key')
+    return routeSharedWebSourceBinding(request,env,machine,nowMs);
+  if (url.pathname === '/v2/machines/shared-quota/execution-basis') {
+    if(request.method!=='GET')return methodNotAllowed('GET');
+    const allowed=['localUserId','assignmentVersion','date','offset','limit','revision'];
+    const seen=new Set<string>();
+    for(const key of url.searchParams.keys()){
+      if(!allowed.includes(key)||seen.has(key))throw new HttpError(400,'INVALID_REQUEST','Execution scope is invalid.');
+      seen.add(key);
+    }
+    const localUserId=url.searchParams.get('localUserId')??'',assignmentText=url.searchParams.get('assignmentVersion')??'';
+    const assignmentVersion=Number(assignmentText),date=url.searchParams.get('date')??'';
+    const offsetText=url.searchParams.get('offset')??'0',limitText=url.searchParams.get('limit')??'50';
+    const offset=Number(offsetText),limit=Number(limitText),expectedRevision=url.searchParams.get('revision');
+    const start=Date.parse(date+'T00:00:00Z');
+    if(!/^[A-Za-z0-9_-]{32,128}$/.test(localUserId)||!/^[1-9][0-9]*$/.test(assignmentText)
+      ||!Number.isSafeInteger(assignmentVersion)||!/^(0|[1-9][0-9]*)$/.test(offsetText)
+      ||!Number.isSafeInteger(offset)||offset>1400||!/^[1-9][0-9]*$/.test(limitText)||limit>100
+      ||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||!Number.isFinite(start)||new Date(start).toISOString().slice(0,10)!==date
+      ||(expectedRevision!==null&&!/^[a-f0-9]{64}$/.test(expectedRevision))||(offset>0&&expectedRevision===null))
+      throw new HttpError(400,'INVALID_REQUEST','Execution scope is invalid.');
+    const readAssignment=()=>env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
+      WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3 AND a.protected=1 AND a.child_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer WHERE newer.machine_id=a.machine_id
+          AND newer.local_user_id=a.local_user_id AND newer.assignment_version>a.assignment_version)`)
+      .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
+    const assignment=await readAssignment();
+    if(!assignment)throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
+    if(!env.GUARDIAN_COMPUTER_USAGE)throw new HttpError(503,'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis is unavailable.');
+    const ownSourceKey=await applicationSharedQuotaSourceKey(machine.machineId,localUserId,assignmentVersion);
+    const webSourceProof=await parseMachineWebSourceProof(request,machine,assignment.child_id,assignmentVersion,ownSourceKey);
+    let result:unknown;
+    try{
+      const response=await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedQuotaExecutionBasis',{
+        method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:machine.accountId,
+          childId:assignment.child_id,date,ownSourceKey,offset,limit,expectedRevision,...(webSourceProof?{webSourceProof}:{})})}));
+      if(!response.ok)throw new HttpError(response.status===409?409:response.status===400?400:response.status===404?403:503,
+        response.status===409?'EXECUTION_BASIS_VERSION_CHANGED':response.status===400?'INVALID_EXECUTION_CURSOR'
+          :response.status===404?'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE':'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis is unavailable.');
+      const reader=response.body?.getReader();
+      if(!reader)throw Error('empty');
+      const chunks:Uint8Array[]=[];let size=0;
+      try{while(true){const chunk=await reader.read();if(chunk.done)break;size+=chunk.value.byteLength;
+        if(size>262144){await reader.cancel();throw Error('oversize');}chunks.push(chunk.value);}}
+      finally{reader.releaseLock();}
+      const bytes=new Uint8Array(size);let position=0;for(const chunk of chunks){bytes.set(chunk,position);position+=chunk.length;}
+      result=JSON.parse(new TextDecoder().decode(bytes));
+    }catch(error){if(error instanceof HttpError)throw error;
+      throw new HttpError(503,'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis is unavailable.');}
+    const fields=['schemaVersion','profileId','basisRevision','policyRevision','fromDate','toDate','days','authorizedScopes','page'];
+    if(!isRecord(result)||Object.keys(result).length!==fields.length||Object.keys(result).some(key=>!fields.includes(key))
+      ||result.schemaVersion!==1||result.profileId!==assignment.child_id||result.toDate!==date
+      ||typeof result.basisRevision!=='string'||!/^[a-f0-9]{64}$/.test(result.basisRevision)
+      ||(expectedRevision!==null&&result.basisRevision!==expectedRevision)
+      ||!isRecord(result.page)||result.page.offset!==offset||result.page.limit!==limit
+      ||!Array.isArray(result.authorizedScopes)||result.authorizedScopes.length>(webSourceProof?14:7)
+      ||result.authorizedScopes.some(scope=>!isRecord(scope)||Object.keys(scope).length!==3
+        ||!(scope.source==='application'&&scope.sourceKey===ownSourceKey
+          ||webSourceProof&&scope.source==='web'&&scope.sourceKey===webSourceProof.claims.webSourceKey)||typeof scope.date!=='string'))
+      throw new HttpError(503,'SHARED_EXECUTION_BASIS_UNAVAILABLE','Execution basis response is invalid.');
+    const currentMachine=await requireMachine(request,env.RUNTIME_DB,nowMs,false),currentAssignment=await readAssignment();
+    if(currentMachine.machineId!==machine.machineId||currentMachine.accountId!==machine.accountId
+      ||currentAssignment?.child_id!==assignment.child_id)
+      throw new HttpError(409,'SHARED_ACCESS_BINDING_CHANGED','Execution binding changed.');
+    return jsonResponse(result);
+  }
   if (url.pathname === '/v2/machines/shared-access-policy') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
     const localUserId=url.searchParams.get('localUserId');
@@ -512,24 +597,28 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
             AND newer.assignment_version>a.assignment_version)`)
       .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
     if (!assignment) throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
-    let response:Response;
-    try {response=await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedAccessPolicy',{
-      method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({accountId:machine.accountId,childId:assignment.child_id})}));}
-    catch {throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');}
-    if (!response.ok) throw new HttpError(response.status===404?404:503,
-      response.status===404?'CHILD_NOT_FOUND':'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');
-    let result:{policy?:{schemaVersion?:unknown;revision?:unknown;stage?:unknown}};
-    try {result=await response.json() as typeof result;}
-    catch {throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');}
-    if (result.policy?.schemaVersion!==1||typeof result.policy.revision!=='string'
-      ||!['legacy','shadow','shared'].includes(String(result.policy.stage)))
-      throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');
-    return jsonResponse({policy:result.policy});
+    return jsonResponse({ policy: await readSharedAccessPolicy(env, machine.accountId, assignment.child_id) });
   }
   if (url.pathname === '/v2/machines/shared-quota/state') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
-    return jsonResponse(await readSharedQuotaStateForMachine(request,env,machine,nowMs));
+    const localUserId=url.searchParams.get('localUserId');
+    const assignmentVersion=Number(url.searchParams.get('assignmentVersion'));
+    const date=url.searchParams.get('date')||new Date(Date.now()+28_800_000).toISOString().slice(0,10);
+    const dayStart=Date.parse(`${date}T00:00:00+08:00`);
+    if (!localUserId || localUserId.length<32 || localUserId.length>128 || !/^[A-Za-z0-9_-]+$/u.test(localUserId)
+      || !Number.isSafeInteger(assignmentVersion) || assignmentVersion<1
+      || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date) || !Number.isFinite(dayStart)
+      || new Date(dayStart+28_800_000).toISOString().slice(0,10)!==date)
+      throw new HttpError(400,'INVALID_REQUEST','Shared quota scope is invalid.');
+    const assignment=await env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
+      WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3
+        AND a.protected=1 AND a.child_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer
+          WHERE newer.machine_id=a.machine_id AND newer.local_user_id=a.local_user_id
+            AND newer.assignment_version>a.assignment_version)`)
+      .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
+    if (!assignment) throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
+    return jsonResponse({sharedQuota:await readSharedQuotaState(env,machine.accountId,assignment.child_id,date)});
   }
   if (url.pathname === '/v2/machines/shared-quota/capabilities') {
     if (request.method !== 'GET') return methodNotAllowed('GET');

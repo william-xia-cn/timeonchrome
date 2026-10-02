@@ -6,6 +6,31 @@ export const LEGACY_NATIVE_HOST_ID = 'com.timeonchrome.guardian' as const;
 export const BROWSER_BRIDGE_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v1' as const;
 export const BROWSER_BRIDGE_V2_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v2' as const;
 export const BROWSER_BRIDGE_V3_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v3' as const;
+/** These capabilities never imply shared enforcement is enabled. */
+export const SHARED_QUOTA_STATE_READ_CAPABILITY = 'shared-quota-state-read' as const;
+export const SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY = 'shared-access-policy-identity-read' as const;
+export const SHARED_WEB_CONTRIBUTION_SYNC_CAPABILITY = 'shared-web-contribution-sync-v1' as const;
+export const SHARED_WEB_LOCAL_LEASE_CAPABILITY = 'shared-web-local-lease-v1' as const;
+export const SHARED_QUOTA_EXECUTION_PREPARATION_CAPABILITY = 'shared-quota-execution-preparation-read-v1' as const;
+export const SHARED_REMINDER_RESULT_SHADOW_CAPABILITY = 'shared-reminder-result-shadow' as const;
+export { SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_REMINDER_CONTINUITY_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY,
+  SHARED_BROWSER_EXECUTION_CAPABILITY } from './shared-reminder-lifecycle.js';
+
+export interface SharedQuotaStateQuery { date: string }
+
+/** Identity and assignment are resolved by the authenticated Service connection. */
+export function validateSharedQuotaStateQuery(value: unknown): SharedQuotaStateQuery {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).length !== 1 || !Object.hasOwn(value, 'date'))
+    throw new Error('INVALID_SHARED_QUOTA_QUERY');
+  const date = (value as {date?: unknown}).date;
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date))
+    throw new Error('INVALID_SHARED_QUOTA_QUERY');
+  const start = Date.parse(`${date}T00:00:00+08:00`);
+  if (!Number.isFinite(start) || new Date(start + 28_800_000).toISOString().slice(0, 10) !== date)
+    throw new Error('INVALID_SHARED_QUOTA_QUERY');
+  return {date};
+}
 
 export type NativeHostMessageType = 'heartbeat' | 'probe' | 'settledUsageSegments';
 
@@ -53,6 +78,22 @@ export interface NativeHostResponse {
   stale?: boolean;
   applicationUsage?: ApplicationUsageSnapshot;
   sharedQuota?: import('./shared-access.js').SharedQuotaStateV1;
+  /** Optional only after capability negotiation; equality is not execution authorization. */
+  sharedAccessPolicyIdentity?: import('./shared-access.js').SharedAccessPolicyIdentityV1;
+  sharedQuotaPreparation?: import('./shared-web-sync.js').SharedQuotaExecutionPreparationV1;
+  /** Returned only to the verified BrowserBridge connection that created this challenge. */
+  sharedWebSourceChallenge?: import('./shared-web-sync.js').SharedWebSourceChallengeV1;
+  sharedWebSourceBound?: { challengeId:string;webSourceKey:string;expiresAtMs:number };
+  sharedWebContributionAccepted?: { date:string;revisionOrdinal:number;contentHash:string;duplicate:boolean };
+  /** Read success is not permission to enforce quota or end an application. */
+  sharedQuotaStage?: 'shadow';
+  sharedReminder?: import('./shared-reminder-lifecycle.js').SharedReminderState | null;
+  /** Service-issued scope-bound lease, returned only when its capability is supported. */
+  browserActivityLeaseId?: string;
+  browserActivityAck?: { leaseId: string; acceptedSequence: number; duplicate: boolean; stale: boolean };
+  /** Only an explicit, freshly revalidated permit authorizes the bound webpage. */
+  browserExecution?: import('./shared-reminder-lifecycle.js').SharedBrowserExecution | null;
+  browserExecutionAck?: { executionId:string;duplicate:boolean };
 }
 
 export type BrowserBridgeChannel = 'health' | 'ledger';
@@ -102,7 +143,9 @@ export interface BrowserBridgeV3Envelope<TPayload = unknown> {
   protocolVersion: typeof BROWSER_BRIDGE_V3_PROTOCOL_VERSION;
   channel: 'health' | 'statistics' | 'application' | 'sharedQuota';
   requestId: string;
-  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getSharedQuotaState' | 'reportReminderResult';
+  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getSharedQuotaState' | 'reportReminderResult'
+    | 'getSharedReminderState' | 'acknowledgeSharedReminderDelivery' | 'resolveSharedReminder' | 'reportBrowserActivity'
+    | 'acknowledgeBrowserExecution' | 'getSharedWebSourceChallenge' | 'bindSharedWebSource' | 'replaceSharedWebContribution';
   extensionId: string;
   profileId: string;
   sentAtMs: number;

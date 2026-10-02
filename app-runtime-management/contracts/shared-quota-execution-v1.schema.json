@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://timeonchrome.app/contracts/shared-quota-execution-v1.schema.json",
+  "title": "已完整接收并验证的共享配额执行依据；不授予来源权限",
+  "$ref": "#/$defs/basis",
+  "$defs": {
+    "revision": {"type":"string","minLength":1,"maxLength":128},
+    "date": {"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "ordinal": {"type":"integer","minimum":1,"maximum":9007199254740991},
+    "reasons": {"type":"array","maxItems":32,"items":{"type":"string","pattern":"^[A-Z0-9_]{1,64}$"}},
+    "source": {
+      "type":"object","additionalProperties":false,
+      "required":["publicationRevision","revisionOrdinal","contribution"],
+      "properties": {
+        "publicationRevision":{"$ref":"#/$defs/revision"},
+        "revisionOrdinal":{"$ref":"#/$defs/ordinal"},
+        "contribution":{"$ref":"shared-access-v1.schema.json#/$defs/contribution"}
+      }
+    },
+    "day": {
+      "type":"object","additionalProperties":false,"required":["date","reasonCodes","sources"],
+      "properties": {
+        "date":{"$ref":"#/$defs/date"},"reasonCodes":{"$ref":"#/$defs/reasons"},
+        "sources":{"type":"array","maxItems":200,"items":{"$ref":"#/$defs/source"}}
+      }
+    },
+    "basis": {
+      "type":"object","additionalProperties":false,
+      "required":["schemaVersion","revision","policyRevision","fromDate","toDate","days"],
+      "properties": {
+        "schemaVersion":{"const":1},"revision":{"$ref":"#/$defs/revision"},
+        "policyRevision":{"$ref":"#/$defs/revision"},"fromDate":{"$ref":"#/$defs/date"},
+        "toDate":{"$ref":"#/$defs/date"},
+        "days":{"type":"array","minItems":1,"maxItems":7,"items":{"$ref":"#/$defs/day"}}
+      }
+    },
+    "authenticatedScope": {
+      "type":"object","additionalProperties":false,"required":["source","sourceKey","date"],
+      "properties":{"source":{"enum":["web","application"]},"sourceKey":{"$ref":"#/$defs/revision"},"date":{"$ref":"#/$defs/date"}}
+    },
+    "transportPage": {
+      "type":"object","additionalProperties":false,
+      "required":["schemaVersion","profileId","basisRevision","policyRevision","fromDate","toDate","days","authorizedScopes","page"],
+      "properties": {
+        "schemaVersion":{"const":1},"profileId":{"$ref":"#/$defs/revision"},
+        "basisRevision":{"type":"string","pattern":"^[a-f0-9]{64}$"},"policyRevision":{"$ref":"#/$defs/revision"},
+        "fromDate":{"$ref":"#/$defs/date"},"toDate":{"$ref":"#/$defs/date"},
+        "days":{"type":"array","minItems":1,"maxItems":7,"items":{
+          "type":"object","additionalProperties":false,"required":["date","reasonCodes","sourceCount"],
+          "properties":{"date":{"$ref":"#/$defs/date"},"reasonCodes":{"$ref":"#/$defs/reasons"},"sourceCount":{"type":"integer","minimum":0,"maximum":200}}
+        }},
+        "authorizedScopes":{"type":"array","maxItems":1400,"items":{"$ref":"#/$defs/authenticatedScope"}},
+        "page":{"type":"object","additionalProperties":false,"required":["offset","limit","total","nextOffset","items"],
+          "properties":{"offset":{"type":"integer","minimum":0,"maximum":1400},"limit":{"type":"integer","minimum":1,"maximum":100},
+            "total":{"type":"integer","minimum":0,"maximum":1400},"nextOffset":{"type":["integer","null"],"minimum":0,"maximum":1400},
+            "items":{"type":"array","maxItems":100,"items":{"$ref":"#/$defs/source"}}}
+        }
+      }
+    },
+    "replacement": {
+      "type":"object","additionalProperties":false,
+      "required":["basisRevision","expectedPublicationRevision","revisionOrdinal","contribution"],
+      "properties": {
+        "basisRevision":{"$ref":"#/$defs/revision"},
+        "expectedPublicationRevision":{"$ref":"#/$defs/revision"},
+        "revisionOrdinal":{"$ref":"#/$defs/ordinal"},
+        "contribution":{"$ref":"shared-access-v1.schema.json#/$defs/contribution"}
+      }
+    }
+  }
+}

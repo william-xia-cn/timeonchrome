@@ -3,6 +3,7 @@
 
 import { authRouter } from './routes/auth';
 import { handleComputerUsage } from './routes/computerUsage';
+import { handleAppRuntimeManagement } from './services/appRuntimeManagementGateway';
 export { ComputerUsageService } from './services/computerUsage';
 import { profilesRouter } from './routes/profiles';
 import { deviceRouter } from './routes/device';
@@ -156,6 +157,8 @@ const DEVICE_STATS_ROUTES = new Set([
 async function routeRequest(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
+
+  if (path.startsWith('/app-runtime/manage/v1/')) return handleAppRuntimeManagement(request, env);
 
   // 路由分发
   const computerUsage = path.match(/^\/profiles\/([^/]+)\/computer-usage\/v1$/);

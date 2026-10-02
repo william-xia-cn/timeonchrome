@@ -6,7 +6,8 @@ import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationA
 import { routeV2 } from '../src/v2Routes';
 import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota,
   reconcileApplicationSharedQuotaEvidence, readVerifiedChromeMarginals,
-  readCoveredChromeDeduction, applicationSharedQuotaUploadReady, readSharedQuotaApplicationInputs } from '../src/applicationSharedQuota';
+  readCoveredChromeDeduction, applicationSharedQuotaUploadReady,
+  readApplicationSharedQuotaContributions, applicationSharedQuotaSourceKey } from '../src/applicationSharedQuota';
 import type { MachineSelfResponse } from '../src/contracts';
 
 const start = usageAccountDayStart('2026-09-27');
@@ -14,7 +15,7 @@ const now = start + 86400000;
 const localUserId = 'u'.repeat(64);
 const row = (kind: UsageAccountRow['kind'], hour: number | null, duration: number,
   category: string | null = null): UsageAccountRow => ({ kind, hour, duration, category, subjectKey: null, displayName: null });
-async function account(revision = 1, duration = 1501, extra = false, date = '2026-09-27') {
+async function account(revision = 1, duration = 1501, extra = false) {
   const rows = [row('total', null, duration), ...Array.from({ length: 24 }, (_, h) => row('total', h, h === 3 ? duration : 0)),
     row('category', null, duration, 'study'), row('category', 3, duration, 'study'),
     row('category', null, duration, 'composite'), row('category', 3, duration, 'composite')];
@@ -22,7 +23,7 @@ async function account(revision = 1, duration = 1501, extra = false, date = '202
     duration: 0, category: null, subjectKey: `p-${n}`, displayName: `Product ${n}` }, { kind: 'subject' as const,
     hour: 0, duration: 0, category: null, subjectKey: `p-${n}`, displayName: `Product ${n}` }]).flat());
   return createUsageAccount({ schemaVersion: 1, sourceKind: 'application', durationUnit: 'milliseconds', timezone: 'Asia/Shanghai',
-    date, revision, generatedAtMs: now, settledThroughMs: now, algorithmVersion: 'app-union-v1',
+    date: '2026-09-27', revision, generatedAtMs: now, settledThroughMs: now, algorithmVersion: 'app-union-v1',
     policyVersions: [0], associationVersion: null, correctionVersion: 0, rawFactCount: 1, rawFactHash: 'a'.repeat(64), complete: true, reasonCodes: [] }, rows);
 }
 async function fixture() {
@@ -62,7 +63,8 @@ it('advertises shared contribution upload only to an authenticated machine with 
 });
 it('reads only the current protected assignment shared policy from the bound Guardian source', async () => {
   const f=await fixture();
-  const policy={schemaVersion:1,revision:'profile-config:7',stage:'legacy'};
+  const policy={schemaVersion:1,revision:'profile-config:7',stage:'legacy',effectiveAtMs:0,
+    dailyMinutes:{study:null,composite:null,restrictedEntertainment:null},timeWindows:{},autonomy:{}};
   let guardianCalls=0;
   const guardian={fetch:async(request:Request)=>{guardianCalls++;
     expect(new URL(request.url).pathname).toBe('/readSharedAccessPolicy');
@@ -79,73 +81,93 @@ it('reads only the current protected assignment shared policy from the bound Gua
     {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:malformed},now))
     .rejects.toMatchObject({status:503,code:'SHARED_ACCESS_POLICY_UNAVAILABLE'});
 });
-it('serves an incomplete shared quota shadow state only for the authenticated current assignment', async () => {
-  const f=await fixture(),policy={schemaVersion:1,revision:'profile-config:7',stage:'legacy',effectiveAtMs:start,
-    dailyMinutes:Object.fromEntries(['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
-      .map(day=>[day,{study:null,composite:null,rest:null}])),weeklyRestMinutes:null,
-    timeWindows:Object.fromEntries(['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
-      .map(day=>[day,{study:null,composite:null,rest:null}])),
-    autonomy:{restrictedEntryConfirmationRequired:true,dailyFirstReminderMinutes:null,weeklyFirstReminderMinutes:null,
-      repeatReminderMinutes:60,softReminderTimeoutAction:'continue',visibleResponseDeadlineSeconds:60}};
-  const days=Array.from({length:7},(_,index)=>new Date(start+86_400_000+index*86_400_000+28_800_000).toISOString().slice(0,10));
-  let guardianCalls=0;
-  const guardian={fetch:async(request:Request)=>{guardianCalls++;
-    expect(new URL(request.url).pathname).toBe('/readSharedQuotaInputs');
-    const scope=await request.json() as {accountId:string;childId:string;fromDate:string;toDate:string};
-    expect(scope).toEqual({accountId:f.machine.accountId,childId:f.childId,fromDate:'2026-09-28',toDate:'2026-10-04'});
-    return Response.json({policy,web:Object.fromEntries(days.map(date=>[date,{contributions:[],expectedSourceKeys:[],reasonCodes:['WEB_COVERAGE_MISSING']}]))});
-  }} as unknown as typeof env.GUARDIAN_COMPUTER_USAGE;
-  const request=(weekStart='2026-09-28')=>routeV2(new Request(`http://runtime.test/v2/machines/shared-quota/state?localUserId=${localUserId}&assignmentVersion=1&date=2026-09-28&weekStart=${weekStart}`,
-    {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now);
-  const state=await request();
-  expect(state?.status).toBe(200);
-  const result=await state?.json() as {complete:boolean;reasonCodes:string[];day:{date:string};revision:string};
-  expect(result).toMatchObject({complete:false,day:{date:'2026-09-28'}});
-  expect(result.reasonCodes).toContain('WEB_SOURCE_COVERAGE_INCOMPLETE');
-  expect(result.revision).toMatch(/^[a-f0-9]{64}$/);
-  await expect(request('2026-09-29')).rejects.toMatchObject({status:400,code:'INVALID_REQUEST'});
-  const malformedGuardian={fetch:async()=>Response.json({policy,web:{'2026-09-28':{contributions:[{}],expectedSourceKeys:[],reasonCodes:[]}}})} as unknown as typeof env.GUARDIAN_COMPUTER_USAGE;
-  await expect(routeV2(new Request(`http://runtime.test/v2/machines/shared-quota/state?localUserId=${localUserId}&assignmentVersion=1&date=2026-09-28&weekStart=2026-09-28`,
-    {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:malformedGuardian},now))
-    .rejects.toMatchObject({status:503,code:'SHARED_QUOTA_STATE_UNAVAILABLE'});
-  expect(guardianCalls).toBe(1);
+it('shared web source challenge authenticates machine context without caller Child or activity writes', async()=>{
+  const f=await fixture(), own=await applicationSharedQuotaSourceKey(f.machine.machineId,localUserId,1);
+  let calls=0, rebind=false;
+  const guardian={fetch:async(request:Request)=>{
+    calls++;expect(new URL(request.url).pathname).toBe('/createSharedWebSourceChallenge');
+    expect(await request.json()).toEqual({accountId:f.machine.accountId,childId:f.childId,machineId:f.machine.machineId,
+      localUserId,assignmentVersion:1,connectionHash:'d'.repeat(64),applicationSourceKey:own});
+    if(rebind)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+      VALUES (?1,?2,2,?3,1,'override',?4,?4)`).bind(f.machine.machineId,localUserId,f.childId,now).run();
+    return Response.json({schemaVersion:1,challengeId:'c'.repeat(64),connectionHash:'d'.repeat(64),expiresAtMs:Date.now()+90000});
+  }} as typeof env.GUARDIAN_COMPUTER_USAGE;
+  const read=(patch:Record<string,unknown>={},token=f.token)=>routeV2(new Request('http://runtime.test/v2/machines/shared-web-source/challenge',{
+    method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
+    body:JSON.stringify({localUserId,assignmentVersion:1,connectionHash:'d'.repeat(64),...patch})}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now);
+  await expect(read({},randomToken(''))).rejects.toMatchObject({status:401});
+  await expect(read({childId:'caller-child'})).rejects.toMatchObject({status:400,code:'INVALID_WEB_SOURCE_CHALLENGE'});
+  expect(calls).toBe(0);
+  const response=await read();expect(response?.status).toBe(200);
+  const body=await response?.json() as Record<string,unknown>;
+  expect(Object.keys(body)).toHaveLength(6);expect(body.applicationSourceKey).toBe(own);
+  expect(body.childScopeHash).toBe(await sha256Hex(`shared-web-child\n${f.machine.accountId}\n${f.childId}`));
+  expect(body.connectionHash).toBe('d'.repeat(64));
+  const activity=await env.RUNTIME_DB.prepare('SELECT last_seen_at_ms FROM runtime_machines_v2 WHERE id=?1')
+    .bind(f.machine.machineId).first<{last_seen_at_ms:number}>();expect(activity?.last_seen_at_ms).toBe(start);
+  rebind=true;await expect(read()).rejects.toMatchObject({status:409,code:'SHARED_ACCESS_BINDING_CHANGED'});
+  await expect(read()).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});
 });
-it('projects a complete shared quota state from verified application and published web replacements', async () => {
-  const f=await fixture(),snapshot=await account(1,1501,false,'2026-09-28');
-  const {manifestHash:ignored,rowCount:oldRows,chunkCount:oldChunks,rowsHash:oldRowsHash,...header}=snapshot.manifest;
-  const associated=await createUsageAccount({...header,associationVersion:'association-v1'},snapshot.chunks.flatMap(chunk=>chunk.rows));
-  const pending=await upload(f,associated);await commitApplicationAccount(env.RUNTIME_DB,f.machine,pending.manifestId,now);
-  const contribution={schemaVersion:1,source:'application',date:associated.manifest.date,revision:'app-r1',
-    statisticsRevision:associated.manifest.manifestHash,correctionRevision:'0',productAssociationVersion:'association-v1',
-    policyRevision:'profile-config:7',settledAtMs:now,complete:true,reasonCodes:[],bucketsMs:{study:1000,composite:0,rest:0},
-    applicationClassesMs:{study:1000,composite:0,restrictedEntertainment:0,unclassified:0,other:0},
-    chromeExcludedMs:0,chromeIncludedInApplicationMs:0};
-  await receiveApplicationSharedQuota(env.RUNTIME_DB,f.machine,{schemaVersion:1,localUserId,assignmentVersion:1,
-    revisionOrdinal:1,contribution},now);
-  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_publications_v1
-    (machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_id,source_revision,published_at_ms)
-    SELECT machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,id,'source-v1',?2
-    FROM runtime_application_account_manifests_v1 WHERE id=?1`).bind(pending.manifestId,now).run();
-  await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB,now+301_000,f.machine.machineId);
-  const policy={schemaVersion:1,revision:'profile-config:7',stage:'legacy',effectiveAtMs:start,
-    dailyMinutes:Object.fromEntries(['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
-      .map(day=>[day,{study:null,composite:null,rest:null}])),weeklyRestMinutes:null,
-    timeWindows:Object.fromEntries(['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
-      .map(day=>[day,{study:null,composite:null,rest:null}])),
-    autonomy:{restrictedEntryConfirmationRequired:true,dailyFirstReminderMinutes:null,weeklyFirstReminderMinutes:null,
-      repeatReminderMinutes:60,softReminderTimeoutAction:'continue',visibleResponseDeadlineSeconds:60}};
-  const dates=Array.from({length:7},(_,index)=>new Date(start+86_400_000+index*86_400_000+28_800_000).toISOString().slice(0,10));
-  const webKey='b'.repeat(64),web=Object.fromEntries(dates.map(date=>[date,{expectedSourceKeys:[webKey],reasonCodes:[],contributions:[{
-    schemaVersion:1,source:'web',sourceKey:webKey,date,revision:`web:${date}`,statisticsRevision:`stats:${date}`,
-    correctionRevision:'correction:0',policyRevision:policy.revision,settledAtMs:now,complete:true,reasonCodes:[],
-    bucketsMs:{study:2000,composite:0,rest:0}}]}]));
-  const guardian={fetch:async()=>Response.json({policy,web})} as unknown as typeof env.GUARDIAN_COMPUTER_USAGE;
-  const response=await routeV2(new Request(`http://runtime.test/v2/machines/shared-quota/state?localUserId=${localUserId}&assignmentVersion=1&date=2026-09-28&weekStart=2026-09-28`,
-    {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now);
-  expect(response?.status).toBe(200);
-  const state=await response?.json() as {complete:boolean;day:{usedMs:{study:number}};week:{restUsedMs:number};sources:unknown[]};
-  expect(state.complete).toBe(true);expect(state.day.usedMs.study).toBe(3000);expect(state.week.restUsedMs).toBe(0);
-  expect(state.sources).toHaveLength(14);
+it('execution basis authenticates machine scope and rejects untrusted page or concurrent assignment changes', async () => {
+  const f=await fixture(), ownSourceKey=await applicationSharedQuotaSourceKey(f.machine.machineId,localUserId,1);
+  expect(ownSourceKey).toBe(await sha256Hex(`application\n${f.machine.machineId}\n${localUserId}\n1`));
+  let calls=0, mode='valid', cancelled=false;
+  const page=()=>({schemaVersion:1,profileId:String(f.childId),basisRevision:'a'.repeat(64),policyRevision:'profile-config:7',
+    fromDate:'2026-09-21',toDate:'2026-09-27',days:Array.from({length:7},(_,index)=>({date:`2026-09-${21+index}`,
+      reasonCodes:['APPLICATION_COVERAGE_MISSING'],sourceCount:index===6?1:0})),
+    authorizedScopes:[{source:'application',sourceKey:ownSourceKey,date:'2026-09-27'}],
+    page:{offset:0,limit:50,total:1,nextOffset:null,items:[{publicationRevision:'1:2026-09-27',revisionOrdinal:1,
+      contribution:{schemaVersion:1,source:'application',sourceKey:ownSourceKey,date:'2026-09-27',revision:'app-1',
+        statisticsRevision:'stats-1',correctionRevision:'correction-0',productAssociationVersion:'association-1',
+        policyRevision:'profile-config:7',settledAtMs:now,complete:true,reasonCodes:[],bucketsMs:{study:1501,composite:0,rest:0},
+        applicationClassesMs:{study:1501,composite:0,restrictedEntertainment:0,unclassified:0,other:0},chromeExcludedMs:0}}]}});
+  const guardian={fetch:async(request:Request)=>{
+    calls++;expect(new URL(request.url).pathname).toBe('/readSharedQuotaExecutionBasis');
+    expect(await request.json()).toEqual({accountId:f.machine.accountId,childId:f.childId,date:'2026-09-27',
+      ownSourceKey,offset:0,limit:50,expectedRevision:null});
+    if(mode==='version')return Response.json({privateDetail:'not forwarded'},{status:409});
+    if(mode==='failure')throw Error('private database detail');
+    if(mode==='oversize')return new Response(new ReadableStream({
+      start(controller){controller.enqueue(new Uint8Array(262145));},cancel(){cancelled=true;}}));
+    if(mode==='json')return new Response('not JSON');
+    if(mode==='rebind')await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+      VALUES (?1,?2,2,?3,1,'override',?4,?4)`).bind(f.machine.machineId,localUserId,f.childId,now).run();
+    const result=page();
+    if(mode==='child')result.profileId='other-child';
+    if(mode==='scope')return Response.json({...result,authorizedScopes:[{source:'web',sourceKey:ownSourceKey,date:'2026-09-27'}]});
+    if(mode==='foreign-scope')return Response.json({...result,authorizedScopes:[{source:'application',sourceKey:'b'.repeat(64),date:'2026-09-27'}]});
+    return Response.json(result);
+  }} as typeof env.GUARDIAN_COMPUTER_USAGE;
+  const read=(suffix='',token=f.token,method='GET')=>routeV2(new Request(
+    `http://runtime.test/v2/machines/shared-quota/execution-basis?localUserId=${localUserId}&assignmentVersion=1&date=2026-09-27${suffix}`,
+    {method,headers:{authorization:`Bearer ${token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now);
+  const response=await read();expect(response?.status).toBe(200);expect(await response?.json()).toEqual(page());
+  expect(response?.headers.get('cache-control')).toBe('no-store');
+  const activity=await env.RUNTIME_DB.prepare('SELECT last_seen_at_ms FROM runtime_machines_v2 WHERE id=?1').bind(f.machine.machineId).first<{last_seen_at_ms:number}>();
+  expect(activity?.last_seen_at_ms).toBe(start);
+  for(const suffix of ['&childId=other','&sourceKey=other','&date=2026-09-26','&offset=1','&limit=101','&revision=bad'])
+    await expect(read(suffix)).rejects.toMatchObject({status:400,code:'INVALID_REQUEST'});
+  await expect(read('',randomToken(''))).rejects.toMatchObject({status:401});
+  expect((await read('',f.token,'POST'))?.status).toBe(405);expect(calls).toBe(1);
+  for(const invalid of ['child','scope','foreign-scope','oversize','json','failure']){
+    mode=invalid;await expect(read()).rejects.toMatchObject({status:503,code:'SHARED_EXECUTION_BASIS_UNAVAILABLE'});
+  }
+  expect(cancelled).toBe(true);
+  mode='version';await expect(read()).rejects.toMatchObject({status:409,code:'EXECUTION_BASIS_VERSION_CHANGED'});
+  mode='rebind';await expect(read()).rejects.toMatchObject({status:409,code:'SHARED_ACCESS_BINDING_CHANGED'});
+  const before=calls;await expect(read()).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});expect(calls).toBe(before);
+});
+it('execution basis rejects a revoked machine after the internal read', async()=>{
+  const f=await fixture();
+  const guardian={fetch:async()=>{
+    await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET revoked_at_ms=?1 WHERE id=?2').bind(now,f.machine.machineId).run();
+    return Response.json({schemaVersion:1,profileId:f.childId,basisRevision:'a'.repeat(64),policyRevision:'profile-config:7',
+      fromDate:'2026-09-21',toDate:'2026-09-27',days:[],authorizedScopes:[],page:{offset:0,limit:50,total:0,nextOffset:null,items:[]}});
+  },connect:env.GUARDIAN_COMPUTER_USAGE.connect} satisfies typeof env.GUARDIAN_COMPUTER_USAGE;
+  await expect(routeV2(new Request(`http://runtime.test/v2/machines/shared-quota/execution-basis?localUserId=${localUserId}&assignmentVersion=1&date=2026-09-27`,
+    {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now)).rejects.toMatchObject({status:401});
 });
 it('immutable staged manifest, chunks and receipt are idempotent but never published', async () => {
   const f = await fixture(), a = await account(), pending = await upload(f, a);
@@ -188,14 +210,13 @@ it('checks shared contribution against the published immutable account before an
       reasonCode:'SHARED_POLICY_NOT_VERIFIED'});
   expect(await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB,now+301_000,f.machine.machineId))
     .toEqual({processed:1,verified:1});
-  const projected=await readSharedQuotaApplicationInputs(env.RUNTIME_DB,f.machine.accountId,f.childId,
-    snapshot.manifest.date,snapshot.manifest.date,'profile-config:1',now);
-  expect(projected[snapshot.manifest.date].reasonCodes).toEqual([]);
-  expect(projected[snapshot.manifest.date].expectedSourceKeys).toEqual([expect.stringMatching(/^[a-f0-9]{64}$/)]);
-  expect(projected[snapshot.manifest.date].contributions).toMatchObject([{source:'application',complete:true,
-    policyRevision:'profile-config:1',bucketsMs:{study:1000,composite:0,rest:0},
-    applicationClassesMs:{study:1000,composite:0,restrictedEntertainment:0,unclassified:0,other:0},
-    chromeIncludedInApplicationMs:0}]);
+  const shared=await readApplicationSharedQuotaContributions(env.RUNTIME_DB,f.machine.accountId,f.childId,snapshot.manifest.date);
+  expect(shared).toMatchObject({complete:true,expectedScopeCount:1,verifiedScopeCount:1,reasonCodes:[]});
+  expect(shared.contributions).toHaveLength(1);
+  expect(shared.contributions[0].contribution).toMatchObject({source:'application',sourceKey:expect.any(String),
+    policyRevision:'profile-config:1',complete:true});
+  expect(JSON.stringify(shared)).not.toContain(localUserId);
+  expect(JSON.stringify(shared)).not.toContain(f.machine.machineId);
   expect(await env.RUNTIME_DB.prepare(`SELECT source_verified,chrome_included_ms,statistics_manifest_hash
     FROM runtime_application_shared_quota_verified_v1 WHERE machine_id=?1`).bind(f.machine.machineId).first())
     .toEqual({source_verified:1,chrome_included_ms:0,statistics_manifest_hash:snapshot.manifest.manifestHash});
@@ -204,6 +225,8 @@ it('checks shared contribution against the published immutable account before an
   expect(await readCoveredChromeDeduction(env.RUNTIME_DB,f.machine.accountId,f.childId,f.machine.machineId,
     snapshot.manifest.date,snapshot.manifest.date,1501)).toBe(0);
   await send(2,{statisticsRevision:'wrong-statistics'});
+  expect(await readApplicationSharedQuotaContributions(env.RUNTIME_DB,f.machine.accountId,f.childId,snapshot.manifest.date))
+    .toMatchObject({complete:false,expectedScopeCount:1,verifiedScopeCount:0});
   expect(await readVerifiedChromeMarginals(env.RUNTIME_DB,f.machine.accountId,f.childId,
     snapshot.manifest.date,snapshot.manifest.date)).toEqual([]);
   expect(await readCoveredChromeDeduction(env.RUNTIME_DB,f.machine.accountId,f.childId,f.machine.machineId,

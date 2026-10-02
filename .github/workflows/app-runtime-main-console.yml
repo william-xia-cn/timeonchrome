@@ -5,6 +5,9 @@ on:
   pull_request:
     paths:
       - 'pages/index.html'
+      - 'pages/access-config-domains.js'
+      - 'tests/unit/access-config-domains.test.js'
+      - 'tests/unit/runtime-management-loader.test.js'
       - 'pages/composite-review.js'
       - 'tests/unit/composite-parent-console.test.js'
       - '.github/workflows/app-runtime-main-console.yml'
@@ -16,6 +19,8 @@ on:
     branches: [master]
     paths:
       - 'pages/index.html'
+      - 'pages/access-config-domains.js'
+      - 'tests/unit/access-config-domains.test.js'
       - 'pages/_redirects'
 
 jobs:
@@ -28,3 +33,5 @@ jobs:
       - run: node tests/unit/app-runtime-integration.test.js
       - run: node tests/unit/composite-parent-console.test.js
       - run: node tests/unit/main-console-release-stage.test.js
+      - run: node tests/unit/access-config-domains.test.js
+      - run: node tests/unit/runtime-management-loader.test.js

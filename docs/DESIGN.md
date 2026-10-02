@@ -53,6 +53,46 @@ Matched＝批准的整批消费者、实际启动入口、候选权限闸门、�
 
 ## D-114 统一访问配置、其他时间与电脑使用汇总（2026-10-02）
 
+### 同连接离线来源租约
+
+`shared-web-local-lease-v1` 是显式协商的本机能力。云端ES256来源证明必须在300秒内验签并建立绑定；过期证明永远不能建立新连接、恢复重启后的授权或访问云端。验证成功后Service在内存保存该绑定的本机租约：完整policyIdentity、既有proof来源范围，以及由可信Service生成的scopeRevision。该摘要必须覆盖Host连接代际/PID启动实例、Windows用户/会话/boot、机器凭据代际、孩子分配及来源范围；不接受Host自行声明摘要作为授权。
+
+同一连接仍存活、身份/配置/范围均一致且双方协商时，证明过期不撤销这个既存本机租约，因此断网时仍能替换该来源的新增贡献。它不扩展来源范围、不授权过期proof的云端请求，也不独立启用动作；执行仍要求完整当前投影及云端shared阶段。失联、Service重启、凭据/分配/配置变化立即撤销，不能从持久化恢复租约；待发送正文保留，联网后新证明可补发。旧端未协商仍按证明期限处理，并明确报告覆盖不足。任何已连接但未授权的活跃来源都使当前投影不完整，即使其旧数据已被云端ACK。
+
+实际提醒连续性：固定 reminder/delivery/round、触发 stateRevision 与首次可见单调时刻。Service 使用同授权范围、日周、完整配置身份、来源集合、更正及产品关联版本的原贡献对照证明连续；逐来源序号与有效贡献不得下降，每次刷新均须通过。普通增长不重启60秒；授权、连接、目标变化独立撤销，下降或更正不冒充增长。许可的 stateRevision 仍为最新执行摘要，可选 triggerStateRevision 绑定原提醒；ACK 必须完整回传。两端声明 shared-reminder-continuity-v1 后才使用该新增许可行为，旧端保持原严格比较。共用准入不改变原账：复合借娱乐仍按复合窗，null/[]全天、起含终不含、等端点或逆序不命中，跨午夜需拆段，其他只受对象限制。
+
+### 三批贯通与派生网页贡献（2026-10-03，PO 已批准）
+
+第二批本机执行版本裁决：`basisRevision` 只标识云端依据，不能独立标识本机替换后的余额。执行许可、提醒轮次与 ACK 必须引用独立内部 `executionRevision`：SHA-256 对规范 JSON `{schemaVersion:1,policyIdentity,basisRevision,projection,replacementVersions}` 求摘要；对象键递归 ASCII 排序，替换版本按 date/source/sourceKey ASCII 排序且不得重复 scope，其他数组保持严格投影顺序。投影包括完整性、失败原因、日桶／借用及周结果；不含 computedAt、transportStatus 或原云端状态。旧序号不得覆盖新值，较新序号下降更正允许；相同身份也不能绕过连接代次、来源授权或配置完整性复核。准备响应不可用／不完整时不生成可执行身份。该身份只绑定执行读模型，不修改网页／应用原统计或公开云端 `sharedQuota`。
+
+云端阶段控制复用孩子唯一 config：可选 `sharedAccessRolloutV1={schemaVersion:1,stage:legacy|shadow|shared}`，不携带另一套配额。父端沿现有受鉴权 config PUT、expectedVersion、版本和操作审计写入；非法字段拒绝。shared 保存需 `SHARED_ACCESS_EXECUTION_ENABLED=true`、派生贡献能力和专用签名密钥配置；默认不具备。读取 shared 时部署开关关闭则降为 shadow，保持旧执行且使完整 policyIdentity 变化；同一受限读取函数用于家长、设备和机器内部绑定，不允许终端请求自选阶段。开关只是最终发布安全开关，不能代替来源完整性、配置一致性、执行能力和真实联调验收；第三批验收前不配置开关或 shared 元数据。
+
+按配置／贡献／余额、实际访问／提醒、最终集成／发布／真机验收三批收口。原网页与应用统计权威不变；新增共享派生来源不得混用网页本机统计摘要和 V2 manifest ordinal。集中契约候选统一为下一 Minor，在全部字段、失败语义与来源证明固定后只发布一次；原 1.29／1.28 准备层继续兼容，不逐字段发版。
+
+网页新贡献由扩展现行权威统计生成。每个已认证设备、孩子及日期拥有独立单调 `revisionOrdinal`、内容 SHA-256、统计／更正版本及 ACK 水位；新版本允许因批准更正减少用量。上传不能提供 Child 或来源键，云端从 DeviceBearer 派生来源。独立贡献包含三个实际扣费桶、其他用量和 ACTIVE 总量；桶总量须与有效总量精确一致，网页保持整数秒。完整策略身份、计算时间、已结算截止时间与完整性分开保存；不能伪造截止时间。完整性不足仍可存储诊断，但不能当作完整共享执行依据。
+
+Guardian additive `033_shared_web_contributions_v1.sql` 仅新增贡献 receipt／head，不修改原账／统计表。不可变 receipt 按家庭、孩子、设备、日期、单调版本唯一；head 只前进、同版异内容拒绝，ACK 丢失重放返回同一内容水位。上传事务通过当前设备归属条件写入，改绑后旧范围上传不能进入新孩子；旧孩子已消费贡献保留。水位用于本机恢复，不向客户端授予其他来源替换权。不存在派生数据的旧客户端保留旧只读诊断，明确新贡献覆盖缺失，不切换原网页统计权威。
+
+Service 的跨端网页替换另需专用云签名来源绑定证明：绑定经机器鉴权核实的应用来源、当前分配版本、孩子范围摘要、经真实 Host 连接生成的浏览器连接摘要、挑战随机量与网页来源。Host 仅转发；证明不能由调用方指定 Child／来源授权，不能携带设备令牌或凭据。专用密钥只用于本证明，不复用登录、机器或 lifecycle 密钥；无密钥配置时稳定返回不可用，不 fallback。挑战与证明均短期、限定 audience，重连／改绑使旧证明失效；离线只能沿用已验证且仍匹配的 LKG 范围，不能为新连接制造授权。最终接口／证明字段需同一契约候选核对后才允许两端实现，生产密钥配置留到发布批。
+
+批次 1 不启用硬限制或结束动作。新增派生上传和读取不触碰原网页 Segment、manifest、修正及上传确认链；两端独立贡献按来源版本替换，不能用总量减本机的近似算法或补造 V2 序号。
+
+分页依据与影子状态 revision 包含完整公共配置摘要、生效时间和阶段，而非只包含 profile-config 序号。云端读取完成再比较完整身份；相同序号但配置内容变化也必须失效，不能把旧页面或余额复用到新配置。
+
+来源证明实施口径：Service 在已核验 Host 连接内自行生成 `connectionHash`，通过机器鉴权为当前受保护用户请求挑战；Runtime 验证当前 assignment 后经 Guardian 专属内部绑定创建 90 秒挑战。Guardian 的新增派生表仅保存挑战随机 ID 与服务端范围，无令牌；浏览器用自己的 DeviceBearer 兑换，Guardian 核对同家庭／孩子，并经 Runtime 内部绑定再次核验分配。单挑战只能绑定一个网页来源；签发最多 300 秒、专用 ES256 密钥的证明，原始机器／用户／孩子 ID 不进入证明。Native 从已配对 HTTPS 机器接口取得专用公开验证键，核对签名、audience、时间、挑战、连接、应用来源、孩子范围摘要和 assignment；不得使用证明中的自报 key 作为信任根。缺钥、过期、撤销或改绑均不授予新网页 scope。离线 proof 过期后显示来源覆盖不足，已有已认证云端依据仍可只读，不冒称当前本机网页增量已纳入。短期证明只授予统计替换，不授予关闭、策略写入或设备登录。
+
+真实余额读出口沿用 `getSharedQuotaState`：旧 `sharedQuota` 仍返回云端读数，不覆盖其来源含义；协商 `shared-quota-execution-preparation-read-v1` 后可选返回 `sharedQuotaPreparation`，包含完整配置身份、依据版本、本机替换版本列表、投影、运输 online/offline/unavailable 和稳定原因，`executionEnabled` 本批固定 false。缺失已认证 scope／全页／配置一致性时 projection=null，不能以零余额或最终共享统计替代。新 `shared-web-contribution-sync-v1` 能力开放三个 sharedQuota 请求：`getSharedWebSourceChallenge` payload={}；`bindSharedWebSource` payload={proof}；`replaceSharedWebContribution` payload={challengeId,upload}。Service 验证已绑定当前连接的 proof 后才保存网页本机贡献；同日期只接受内容一致的同版本或更高版本，不累加，改绑／换连接失效。浏览器设备令牌只用于扩展直接 HTTPS 上传，不经过 Host。云端机器依据读取可附 `X-Shared-Web-Source-Proof` header，Guardian 再核验当前绑定后仅添加该 proof 来源的网页替换 scope；证明不进入 URL。
+
+执行去重记录的安全回收条件：Native对经认证、身份匹配的执行结果在SQLite事务中同时保存Ack和Consumed，事务提交后才返回browserExecutionAck；读取许可拒绝已有Ack或Consumed，重启沿用持久记录。消费者不能仅凭发送成功、墙钟超时、换租约或配置删除claim。只有收到匹配executionId/outcome的成功ACK，并使同一ID旧请求全部终结或由不可复活的请求代际拒绝后，才可在本地持久事务删除claim。ACK丢失、冲突、未持久确认或在途结果未隔离时保留并fail-closed；不能靠扩容无限累积解决长期运行。此为现有1.26许可一次性与ACK语义的实现核验，不增加关闭权限或改变计时。
+
+网站用途规则导入复用 Profile 条件写入：仅接收 `classification: other`、`targetType: host/url` 和 `normalizedValue` 三个公开字段，服务端重新规范化目标并拒绝重复、类型不一致及额外元数据。既有同目标规则的服务端 ID、申请关联与创建时间保留；新规则由服务端生成 ID 和时间。缺省字段不改变规则，显式空数组表示清除。主页面只将已选用途差异应用到当前规则候选，提交公开字段；家庭归属、配置版本和审计继续由现有入口核验，不导入其他家庭的申请 ID，不改访问权限、历史分类或原始账本。
+
+配置文件按 `publicAccess / websites / applications` 三域预览和应用。新公共/网站文件使用 `access-domain-config` schema 2；应用文件继续由 canonical App Policy schema 3 处理，不新增应用配置写入源。旧 profile-config 或混合 bundle 可读取，但先裁剪到选定域再生成差异。公共域只含学习/复合/娱乐配额、提醒、自主度和分类时段；网站域含网站对象、用途规则、单站限制和既有网页专属 onlineMinutes，不将在线总额提升为电脑总限制。全局系统网站库只允许在网站域显式选择，仍需原权限、预检和版本条件。
+
+canonical 应用导入也必须在读取文件前固定 Child/view/策略 ETag，读取后及确认前再次验证；预览使用组件内存草稿而非可修改的 DOM payload。若刷新改变策略版本，必须重新预览，不能把旧预览套上新 ETag 覆盖更新。确认期间禁止重复提交，组件销毁后的迟到文件与写入响应不更新界面。已有 schema 3、旧文件公共字段忽略和服务端 If-Match 条件不变。
+
+导入预览绑定 Child、配置版本、所选域和页面实例代际；任一改变须重新预览。提交只发送已选差异涉及的域内字段。现有 Profile API 按天替换 daily 对象，因此修改公共配额时必须原样保留当前同日的网页 onlineMinutes，修改网页在线总额时必须原样保留三类公共额度；这只是兼容写入封装，不改变其值或建立第二配置源。其他用途规则不得混入访问权限规则。第一批落实文件投影、差异路由和条件上下文纯函数及固定测试；页面接入、用途规则写入许可核对和真实导入仍未完成，不将准备层称为完整 UI。
+
 Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主度配置；网页／应用只保留各自对象级分类、黑名单和独立限制。网站管理、应用管理从访问管理中独立，配置文件入口放入系统管理。增加明确分类 `other`，与 `unclassified` 分离：可统计、不借用或扣减三类公共额度，也不触发对应时间段和休息提醒；对象级限制不受影响。Chrome 由可信产品关联确认后作为特殊容器，分类为 `other`，其应用账仍保留。
 
 电脑使用是展示读模型：`webMs + applicationMs - chromeIncludedMs`。`chromeIncludedMs` 必须是应用权威总量中 Chrome 的实际边际贡献；应用存在区间并集时，计算为同一可验证统计范围的总量减去去掉 Chrome 后的非 Chrome 并集，不能直接相加 Chrome 产品明细。不同电脑累计；非 Chrome 应用与网页同时有效仍分别累计。来源缺失时保留可读来源和稳定原因，不产生假零；无可靠 Chrome 排除依据时不发布完整电脑总量。分类展示排除 Chrome 容器而保留网页及其他非 Chrome 应用的 `other`。旧 D-111 的网页／应用精确区间交叠扣除仅可用于诊断，不再决定本读模型的总量。
@@ -86,7 +126,37 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 第一批待接线：使用已批准的独立派生贡献队列／单调版本／摘要／逐版本ACK，持久版本严格绑定设备Child及日期，旧ACK不得清新版本；范围／更正版本和完整policy捕获沿用已有可信读取。自有web scope必须来自设备HTTPS及架构新增的云签名绑定证明，Host自报appscope不授予网页替换权。贡献组装调用冻结1.28的真实 `projectLocalSharedQuotaExecution`，不新增第二套余额算法；现行统计、原账、原上传队列及配额／提醒调用者不变。当前只有本机只读代码证据，没有固定新契约或真实上传闭环，禁止宣称余额贯通；本次不新建PR／中间候选／提交／部署，保留TASK_BOARD草稿，待同批固定包接线与集中验收。
 
 ### D-114 终端契约与实施边界
+机器挑战响应在四字段挑战外返回机器鉴权派生的 `applicationSourceKey`、`childScopeHash`，供 Native 构造可信 expected context；不能从待验证 proof 读取这两字段当作授权。BrowserBridge 只需要四字段挑战。绑定表仅存设备令牌的专用范围哈希，换令牌后旧证明立即失效，不保存或输出设备令牌。
 
+### D-114 共享访问终端契约边界（2026-10-02）
+
+完整配置一致性契约：新增可选`sharedAccessPolicyIdentity`（schemaVersion/revision/effectiveAtMs/stage/policyHash），配合`shared-access-policy-identity-read`能力，随既有getSharedQuotaState只读响应返回。内容摘要是完整已验证UnifiedChildAccessPolicyV1的UTF-8规范JSON的SHA-256：递归对象key按ASCII序排列、数组保留顺序、无空白、整数/布尔/null采用JSON标准表达；不包含身份、token或路径，摘要只表明配置相同，不授予来源替换或执行权限。先按严格完整配置校验后计算；两端必须核对完整摘要、revision、生效时间和stage，而非只比revision。旧Service没有字段/能力时报告配置身份尚未核实并保持既有路径，不能默认一致。本批只固化1.29函数、类型/schema和共同回归，消费者由所属任务接入；Native原内部缓存hash不是跨端规范摘要，禁止直接冒用。
+
+Native机器只读运输使用`GET /v2/machines/shared-quota/execution-basis?localUserId=opaque&assignmentVersion=N&date=YYYY-MM-DD&offset=0&limit=50[&revision=64hex]`，返回同1.28页结构。机器认证禁止写last_seen；Child由当前受保护assignment决定，拒绝其他query/重复key/外部Child或sourceKey。Runtime沿既有source算法派生application sourceKey，经GUARDIAN_COMPUTER_USAGE内部`/readSharedQuotaExecutionBasis`传递owner/Child/date/分页及opaque自身key；不传机器token、localUserId或SID。Guardian复核Child ownership和policy版本、只授予basis中已有自身application来源；非自身web来源仍完整保留但不授予替换权。Runtime读取后再次验证机器未撤销及同assignment，内部响应有界读取、错版409/参数400/故障503/no-store。此接口没有跨端web授权，也不启用shared；Native必须全页严格组装并按当前身份原子缓存，不能把ACK或单页当完整执行依据。
+
+Contracts1.28固定`SharedQuotaExecutionPageV1`和`assembleSharedQuotaExecutionPages(policy, expectedProfileId, pages)`：transport携带profileId、basis/policy revision、日期覆盖及sourceCount、授权scope和分页游标。认证调用方完整收齐同一次读取所有页后调用组装；函数拒绝未知字段、跨Child/版本/配置混页、缺页/重页、非法游标、总计与逐日来源数不符、范围外或不存在的授权scope。首offset=0，连续递进，末nextOffset=null；limit1–100，总计0–1400，每日最多200，最多七天。零来源需要明确完整空页及各日原因，不把缺页当零。输入保持不可变，输出组装依据与授权scope，随后交既有1.27投影核验；该函数不认证服务器或授予执行能力，只接受调用方通过既定鉴权取得的响应。不增加双向控制或改变原来源统计；Native机器读取和可信跨端来源仍未完成。
+
+#### 共享执行来源替换接入（2026-10-03，待实现）
+
+契约1.27增量批固定只读依据核心：`SharedQuotaExecutionBasisV1`保存周一至查询日逐日的来源条目，每项区分云端`publicationRevision`、来源单调`revisionOrdinal`与原贡献revision。替换请求绑定basis版本、旧publicationRevision及日期/来源键；替换权限来自已验证认证上下文，不从请求自报获取。新贡献ordinal不得倒退，同ordinal必须原贡献完全相同，旧更正/产品关联口径不混用；较新来源版本可改变完整统计而不是假定用量只增不减。不存在的scope不能凭名称或空旧revision插入。本批先实现纯契约与共同向量，云端认证分页/覆盖信息及两端接入另行完成；global覆盖缺口不被替换清除。逐日重新运行既有共享配额投影后汇总周Rest，输出只称本机执行投影，云端权威统计及原账不变。验证替换、重复、错版/非自身/倒退/同版冲突、更正隔离、跨日借用与毫秒；旧shared-access/BrowserBridge契约字节保持兼容，未新增控制指令或启用。
+
+统一配置设备读取补齐：新增只读 `GET /device/shared-access/v1`，使用既有设备 Bearer 鉴权，Child 只能来自认证绑定，不接受 query/body 指定其他 Child/设备。复用 `readSharedAccessPolicyForChild` 的同一 Guardian 配置投影，返回 `{schemaVersion:1,profileId,policy}`；profileId为认证绑定结果，消费方必须与当前既有cloud_profile_id核对，父端改变绑定后不得把另一个孩子的policy缓存到旧作用域。它不返回父账户信息、凭据或来源替换许可。未鉴权401、解绑403、档案缺失404、查询参数400、读取失败503稳定错误码；不修改现有 `/device/config`、不写数据库、不切换 stage。扩展按其当前认证作用域原子缓存已验证 policy，旧云端404不生成假配置。该接口仅补只读接入，不证明用量完整或开启共享执行。
+
+设备执行依据运输：`GET /device/shared-quota-execution/v1?date=YYYY-MM-DD&offset=0&limit=50[&revision=64hex]`沿同一设备认证，只允许这四个唯一参数，limit为1–100，offset为0–1400，offset>0必须带上一页revision。读取周一至指定日的内部完整依据，再按确定性日期/来源顺序切页；版本不符409，非法cursor400。返回schemaVersion/profileId、basisRevision、policyRevision、fromDate/toDate、各日期reasonCodes/sourceCount、page(offset/limit/total/nextOffset/items)、authorizedScopes。自身scope仅由真实设备id与owner派生的web sourceKey确定，且只列依据中存在的本设备日来源；不能代替Native验证或为另一来源授权。所有页完整接收且版本、日期覆盖/计数一致后才组装1.27依据，不能把一页当完整周。读取结束复核当前设备绑定及policy revision/stage，期间变化返回409；缺设备id403不猜来源。响应no-store、无凭据/域名/原Segment；只读不启用shared。当前版本逐页重读有界持久统计，后续可按不变来源版本优化缓存，不得缓存跨孩子权限或混合页。Native机器侧依据与跨端web来源认证仍须单独接入，不能信任Host传入自报sourceKey。
+
+现有共享状态 `sources` 只有来源、日期和版本，缺少各来源逐日贡献；不能由已借用后的 `day.usedMs` 减去自己的分类总量来恢复原贡献。下一接入批按同一最终结构补齐只读执行依据：云端固定配置版本和北京时间周一至查询日的来源向量，携带每个日期各来源已发布的有效贡献、统计/更正/产品关联版本、结算截止、完整性及覆盖原因。它是已结算统计快照，不是原始 Segment；缺页或缺来源不能成为零值，已有展示接口仍保持独立。
+
+本机执行投影仅替换认证确认属于本机的来源副本，不给云端权威结果写回。以 `source + sourceKey + date` 为替换键，绑定所读取的云端依据版本及该来源旧版本；只替换匹配的旧副本，不累加重复快照。新本机贡献由各自权威统计产生，并绑定相同配置与生效更正口径。其他设备的贡献完整保留；替换后只执行共享配额投影及借用规则，不重结算、重新分类或修改任一来源账本。应用毫秒与网页整数秒继续不取整。重复执行同一替换得相同结果；旧云端依据或策略改变须重新取得一致依据，不能字符串比较 opaque revision 推断新旧。
+
+周账必须重新汇总本次一致依据中的各日配额投影，不能只更新查询日而遗留旧周借用量。离线使用原子保存的配置、完整来源依据及本机同口径的新贡献；本机来源无法证明属于该依据、更新不完整或更正口径不一致时，不生成伪完整共享余额，明确报告覆盖缺口并保留既有网页路径。配置 LKG 与用量完整性分开：配置读取成功不证明共享账可执行，阶段仍保持原值，不能借此自行从 legacy/shadow 切成 shared。
+
+身份权限核对是执行副本去重的内部约束，不是要求家长关联电脑或 Chrome，也不阻挡 Child 汇集展示。应用来源由已认证机器、当前受保护用户及 assignment 派生；浏览器本地 Profile UUID 不能代替云端网页设备身份。源标识和替换权限由认证上下文确认，不能接受任意客户端 `sourceKey` 删除别的设备用量。不得把机器/网页 bearer token、Cookie、原始 SID、邮箱、路径通过 Host 传递。浏览器来源绑定的具体认证消息须先核对现有能力再定稿；缺这项证明时不先开放浏览器副本替换。
+
+后续最小固定向量涵盖：同来源替换不累加、异来源不删除、跨日周借用重投影、已借用网页不二次借用、应用毫秒、旧依据拒绝、策略/更正错版、重复请求、离线重启、身份切换及不完整覆盖。云端适配、契约及两端消费者分别由所属工作线实现。现阶段这些是接入设计，不是已实现或已验收；默认关闭提醒桥、候选包及策略 ACK 均不能替代完整共享执行证据。
+
+浏览器执行由扩展负责，提醒呈现者可以是browser或native，两者不得混同。Service保存实例的执行目标source=browser和当时lease/activity；Native兜底窗口仅呈现及确认选择，不调用Windows closer结束Chrome。`stage/resolution`是状态不是许可：只有Service执行开启、shared、已收到可见确认并解决为end_rest/timeout_end、当前scope/策略/统计版本及活动仍匹配时，才在已验证浏览器连接响应返回可选`browserExecution`。许可包含原提醒六项身份、executionId、leaseId、activityId、targetSource=browser、effect及剩余maxAgeMs（1–5000）；不接受客户端指定目标进程或页面。end_rest只为request-normal-close，timeout_end只为force-close；继续、影子、未送达或撤回均无许可。
+
+#### 控件准备层实施与验收记录（默认关闭）
 2026-10-03 统一配置读取／LKG独立包：云端交接明确 `GET /device/shared-access/v1` 使用既有设备Bearer、自绑定Child、无scope query/body，最终响应为 `{schemaVersion:1,profileId,policy}`，同父端UnifiedChildAccessPolicyV1。必须核对服务端profileId与捕获的本机cloud_profile_id；错Child明确不可用，不把政策写入旧scope或沿用旧LKG冒充当前授权。旧云端404保持旧网页路径，不改 `/device/config`、配置源或stage。终端只增加捕获凭据的只读传输和默认关闭消费适配；初始化同步注册生命周期／身份与Native能力监听，显式候选启用后才在启动／重连读取。旧Service未协商V3和shared-quota-state-read时不读取、不共享执行。原云同步、网页访问和配置保存函数不接入此缓存。
 
 LKG仅一份完整policy，严格校验七天配额／时间段／自主度／阶段及现有 `profile-config:N` 单调版本；未知／缺失字段、过大载荷拒绝，`24:00`作为合法结束保留。原子缓存包含policy、版本、摘要、接收时间及不可逆认证scope摘要：由既有设备／Child／端点／设备令牌计算，绝不另存令牌、家长session或浏览内容；不生成第二套可写配置。凭据变化使原scope失效，进程内代次和Abort隔离旧请求；异步身份读取完成后再次核对代次，旧读取／失败不得清除新代次的有效状态。持久缓存在重启后重新验证scope与内容摘要，按现有预算以derived优先级写入，上限32KB。请求失败／损坏保留同scope可信LKG，旧版本不覆盖，同版本异内容报冲突；401／403／404不采用缓存冒充现有授权。配置stage为shared也不启用访问执行或Native共享开关。用最小policy/LKG/真实校验器与Native只读能力测试验证断网、损坏、身份变化、迟到／旧版本、原子写失败和旧端兼容；排除浏览器重复验收、账本或配额算法测试、生产变更与候选替换。
@@ -170,23 +240,61 @@ Content 草稿核查收口：仅展示资格补查窗口聚焦且未最小化，
 
 2026-10-02 终端后续适配：共享查询与提醒结果上报默认关闭，显式开启影子适配且本次 Native health/probe ACK 同时声明 V3 和对应能力后才可进入既有串行连接。按架构澄清 d7fed58，getSharedQuotaState 能力名为 shared-quota-state-read，payload 仅含 date；reportReminderResult 能力名为 shared-reminder-result-shadow，payload 直接为 SharedReminderResultV1，只记录不执行。断连清除协商结果，排队请求发送前再次核验；旧 Host 不接收探测性 sharedQuota 请求。提醒结果按同一 requestId 的成功 NativeHostResponse 确认；Native 只接收自己已登记签发的 reminderId 及已缓存 policy/state 版本，否则返回 SHARED_REMINDER_NOT_ISSUED。终端有界影子适配器最多保留20个待发送结果及20个确认指纹，显式重试采用递增冷却，当前只驻内存、不接入现行 Rest 动作或自动启用。传输失败保留原动作和 delivery，不得伪造 timeout_end；主动 end_rest 不转换为强制动作。正式契约包、Native 签发生命周期、接收幂等和候选实测待配合，不影响原网页账或现行配额。
 
-终端以 `@timeonchrome/app-runtime-contracts` 1.22.0、架构提交 `c403176` 为固定契约；包 SHA-256 为 `1e3188147f56cf7b945a0acf2646bc24bc6b5bcbb8212ed01a7f2d75ffd7adaa`。该版本相对 1.21.0 只增加云端确认的 Chrome 产品身份、应用贡献的 `chromeIncludedInApplicationMs` 显示边际扣除字段及机器鉴权上传外壳；网页贡献不生成该字段，也不生成仅属于应用配额排除的 `chromeExcludedMs`。Native V3 的 `sharedQuota/getSharedQuotaState` 只返回 `SharedQuotaStateV1` 读模型；本阶段仅在显式调用时读取并校验版本、周期、策略 revision，不保存为执行状态，不替换网页配额。合法 partial 状态同样返回 ok=true，完整性及原因保留在 state 内；ok 不授予共享执行。架构拟补的 1.23.0 sharedQuotaStage=shadow 尚未正式发布，本批不升级契约。旧 Host 不支持时返回明确不可用，仍执行既有网页账和配额。`reportReminderResult` 已有默认关闭的校验与传输适配，但 Native 提醒签发及结果消费尚无端到端实现，现行 Rest 不自动发送结果或改变弹层。跨端执行保持关闭，原始网页账本不因本契约变化。
+许可按同一executionId重送，不生成第二次动作。Service从原授权转换时刻起按自身单调钟最多保留5秒，boot/lease改变、已消费或过期不再发行；重查/重送不得重置期限。扩展从请求发起时以本地单调时钟计剩余maxAgeMs，包含传输耗时而非收到响应才重置期限，执行前重查当前连接lease/活动/配置/状态版本与Rest资格，并先持久登记该executionId的一次执行尝试。重放不得再次执行；断连、活动切换、版本变化、过期均取消许可，不能用缓存执行。扩展只结束本次绑定且当前产生Rest用量的网页，不结束整个Chrome、不影响后台页。主动结束允许保存/取消，canceled不自动升级；超时强制仅由Service既有60秒单调转换签发。`sharedQuota/acknowledgeBrowserExecution`严格返回同一许可身份及outcome=completed|canceled|failed|stale，不含URL/标题/Child/进程或客户端时间。Service核对发行记录及认证lease，逐项幂等记录，冲突拒绝；ACK不授予新执行权、不得重试已消费动作或改变原账。Native本地目标继续沿原执行器，与浏览器许可分开。
 
-网页来源影子贡献只能从现有已结算 `BrowserDailyUsageSnapshot` 转换：Study／Composite／Rest 秒数精确乘 1000；显式 `other` 保留在网页统计，但不进入三个扣费桶；未知桶、桶合计与 `activeSeconds` 不一致、来源不完整或整数溢出时标记贡献不完整。网页既有借用 Rest 已在 Rest 桶中，不再次计算。转换器不读取原始分段、不上传、不写缓存、不改变现有配额执行。
+本项增量契约1.26.0：仅补显式许可/回执及共同向量，1.25活动和1.24生命周期保持兼容；缺能力则只保留提醒/状态，不猜测网页执行权。两端各自实现，默认关闭；源代码验证、真实窗口/网页验收与正式启用分开，不改变网页落账语义。
 
-影子核验检查共享状态来源是否包含相同网页来源键、日期和 revision，并核对周期、策略 revision 与完整性；不能据合并总量倒推出单一网页贡献。已有 Rest 日／周合并弹层只构造提醒结果候选；只有真实可见后才记录 `visibleAtMs`，失败投递保持 null。本阶段不向 Host 上报，不把共享状态用于现有提醒。
+实时网页提醒资格增加 `shared-browser-activity-v1`，不以累计快照、heartbeat或一次查询当作正在休息的证据。Service在v3能力协商时为已验证Host进程代际/扩展连接发放不透明`browserActivityLeaseId`；它绑定受保护用户会话、Profile和策略作用域，不允许客户端选择其他用户。Native Host仍只转发。新消息`sharedQuota/reportBrowserActivity`严格包含schemaVersion、leaseId、activityId、sequence、status、quotaBucket、presentationEligible，不接受时间戳、URL/域名/标题、tab/window原始标识、Child/SID/用户名或进程目标。
 
-显式影子诊断入口组合网页快照转换和 Native 只读查询；来源键必须来自可信设备身份。输入不完整时不查询 Host；Host 未发布共享状态时返回明确不可用。结果不存储、不显示为正式配额、不参与现有提醒或拦截。
+扩展从既有getSession与当前页面复核取得ACTIVE且实际Rest桶资格（包括借用Rest），每次自然活动身份变更生成随机activityId，lease内sequence单调增加。active仅允许quotaBucket=rest；inactive必须quotaBucket=null且presentationEligible=false。当前可见聚焦页面才可声明presentationEligible；既有强媒体继续记账但无提醒展示资格时可active/false。不新增、结束或改写任何原始网页会话。停止、导航、标签/窗口切换、失焦/idle/锁屏后立即重验并发送当前事实；关闭结算失败保留旧session不够，须独立复核页面和展示资格。
 
-对“其他”网站，已批准的终端 attribution 只影响未来明确配置对象的新 Segment：映射到 `targetClassificationAtTime=other` 与独立非扣费桶；不改变网页 ACTIVE 的开始／停止、idle、焦点、媒体容错、checkpoint、时长、domain、上传确认或历史 Segment。运行 `mode` 仍表示真实运行模式。终端 V2 设备账和审批路径必须兼容 `quotaBucket=other` 并通过守恒测试后才能启用；历史不自动重分类。配置同步不增加既有活动会话的 Segment 边界。
+活动时每5秒更新，Service以自己的单调接收时间保持最多15秒新鲜度；静默、过期、Service重启、Host进程代际结束或作用域变更即失效。重复sequence且内容相同仅ACK，不续期；同sequence不同内容拒绝，旧sequence无效，旧lease拒绝。新连接取得新lease，不能用旧消息复活。Service还须核验当前用户解锁与真实前台Chrome；仅客户端声明不能授权签发、可见ACK或结束。提醒实例绑定当时lease/activityId；任一变化撤回原实例，迟到ACK/选择不执行。查询只读状态，不能刷新活动。15秒是消息证明的最大新鲜度，不表示允许用户切换后继续操作15秒：已知前台/锁定变化立即撤回。活动租约不贡献用量，不改变配额、阈值或既有60秒响应计时。
+
+本批契约增量1.25.0，保留1.24生命周期及旧Service健康/影子兼容；缺能力时不发送新消息、不降级拿旧快照冒充活动。只实施规范、schema和双方共同向量；扩展/Native由所属任务实现且默认关闭，实机和正式启用另验。架构职责提交与前一云端UI批次分开，不新建分支或工作树。
+
+### 主控制台 Runtime 管理通道
+
+系统诊断使用只读 `/v2/module/segment-diagnostics?childId=&kind=usage|media&fromMs=&toMs=&limit=`，Guardian仅通过同名固定管理资源代理。账户与Child归属、日期范围沿现有校验，limit为1–100，默认50；它是最近一页检查，不提供原始身份游标。响应`items`采用显式字段白名单：startAtMs/endAtMs/durationMs、displayName、estimated、历史applicationClassification（主账）或mediaKind/presentation（媒体）。`hasMore`仅说明存在后续记录；不返回id、machineId、localUserId、runtimeIdentity、凭据、路径、原始分类切片或nextCursor。原明细接口、账本查询和统计不变；此检查不作为用量总量，仍由原权威统计提供。兼容上线需要先提供该云端只读资源再挂载页面，当前不部署。
+
+主控制台发布构建从 canonical `app-runtime-management/console/` 生成仅管理组件的 `runtime-management-component/` 资源。固定 JS/CSS 白名单与无脚本模板 manifest，不发布独立 `index.html`、SSO bootstrap 或 RuntimeSession；模板包含原管理表单和抽屉，由主控制台同源加载器挂载到隔离根。源文件不复制回 pages、不单独维护，独立 Runtime Pages 暂保留兼容入口。拒绝符号链接、覆盖已有输出及路径越界，主 Pages 的 Task 发布排除不变。
+
+Runtime canonical 控制器提供 `AppRuntimeManagement.mount`：注入 DOM root、Guardian 管理网关 request、当前家庭 children/Child、管理 view 和宿主 isCurrent 检查。嵌入实例只服务管理视图，不取得 Runtime 浏览器会话、不执行票据交换/登录跳转；宿主统一管理选择和退出。销毁释放监听器、定时器和知识组件，未完成请求只能被丢弃，不能声称服务端已取消写入。独立 Runtime 页面继续自动创建默认实例直到主控制台实际整合验收。模板和静态依赖由 canonical source 生成同源组件资产，不恢复 pages/app-runtime 副本或 iframe 子站。
+
+canonical 产品知识组件接入主控制台前，DOM 查询与事件绑定须限定在调用者提供的 root（可为 ShadowRoot）；未提供时保持独立页面 document 兼容。调用者在切换孩子/会话时更新 contextRevision 并使旧组件失效；组件请求按开始时 Child/contextRevision 检查返回，不让旧响应更新新孩子的配置界面，销毁移除监听器并关闭自身对话框。组件失效不撤销已经送达服务端的写入，也不自动重试写入。该生命周期只作用于展示/管理适配，不产生第二套知识或统计权威。
+
+主控制台以原 Guardian 家长 session 调用 `/app-runtime/manage/v1/{resource}`。Guardian 仅代理固定 Runtime 管理资源到既有 `APP_RUNTIME_SERVICE`：应用目录／产品知识／对象策略、电脑／账户分配、配对和诊断；不代理机器上传、机器令牌、身份生命周期或请求提供的目的地址。内部短期 account-module JWT 从现有家庭 Child 投影签发，永不返回给主页面，Runtime 继续逐资源核对 account／Child／machine ownership。传入 Authorization、Cookie、账户头和目标地址不转发；仅保留 Content-Type、If-Match 以及服务端内部认证。响应保留状态、JSON body 和 ETag，禁止重定向或 Set-Cookie；全部管理响应 no-store。请求／响应体流式透传，不为整合重新解析或结算原账。现有 SSO 独立页面暂留兼容，主控制台完成真实验收后才转旧地址。此网关不构成新配置权威，公共时间配置仍只写 Guardian。
+
+当前消费基线为 Contracts 1.23.1，主线 `9c1381f`。扩展同仓继续使用 workspace，不改为 tgz 依赖；固定包仅作为消费者验真证据，Native 跨仓则锁定包与 SHA-256。控件提交 `8a3ba2c` 的能力协商、串行请求与有界影子结果适配按原文件集成，不重新实现；其分支中的旧云端提交 `9574c30` 不覆盖已由 PR #179 修订的主线共享状态接口。影子查询合法完整／部分结果均 `ok=true`、`sharedQuotaStage=shadow`，这不授予执行权限。提醒实际签发、可见确认和关闭执行仍待贯通，当前保持默认关闭。下文 1.22.0 为前一阶段记录，不作为当前消费版本。
+
+终端以 `@timeonchrome/app-runtime-contracts` 1.22.0、架构提交 `c403176` 为固定契约；包 SHA-256 为 `1e3188147f56cf7b945a0acf2646bc24bc6b5bcbb8212ed01a7f2d75ffd7adaa`。该版本相对 1.21.0 只增加云端确认的 Chrome 产品身份、应用贡献的 `chromeIncludedInApplicationMs` 显示边际扣除字段及机器鉴权上传外壳；网页贡献不生成该字段，也不生成仅属于应用配额排除的 `chromeExcludedMs`。Native V3 的 `sharedQuota/getSharedQuotaState` 只返回 `SharedQuotaStateV1` 读模型；本阶段仅在显式调用时读取并校验版本、周期、策略 revision，不保存为执行状态，不替换网页配额。旧 Host 不支持时返回明确不可用，仍执行既有网页账和配额。`reportReminderResult` 虽列入契约，但提醒去重与结果消费尚无端到端实现，不发送结果或改变现有弹层。跨端执行保持关闭，原始网页账本不因本契约变化。
+
+网页来源影子贡献只能从现有已结算 `BrowserDailyUsageSnapshot` 转换：Study／Composite／Rest 秒数精确乘 1000；显式 `other` 仍保留在网页主统计中，但不进入三个扣费桶；未知或其他未定义桶、桶合计与 `activeSeconds` 不一致、来源快照不完整或整数溢出时标记贡献不完整。网页既有借用 Rest 已在 Rest 桶中，不再次计算。转换器不读取原始分段、不上传、不写缓存、不改变现有配额执行。
+
+影子核验只检查共享状态 `sources` 是否包含同一网页来源键、日期和 revision，并核对周期、策略 revision 与完整性；不能据合并总量倒推出单一网页贡献。已有 Rest 日／周合并弹层可按每个覆盖 scope 生成独立、同一弹层关联的 `SharedReminderResultV1` 候选；只允许在真实可见后记录 `visibleAtMs`，失败投递保持 null。本阶段纯构造和校验，不向 Host 上报，不把共享状态用于现有提醒。
+
+显式影子诊断入口可组合上述网页快照转换和 Native 只读查询；来源键由调用者从可信设备身份提供，不能由页面、域名或应用名称猜测。输入网页贡献不完整时不查询 Host；Host 尚未发布共享状态时返回 `unavailable`，已发布但来源 revision 缺失或不一致时返回对应原因。结果不存储、不显示为正式配额、不参与 Rest 提醒或拦截。
+
+### “其他”网站的未来分段归属（2026-10-02，D-076 单项批准；云端兼容已实现，待主线发布）
+
+现状：站点解析尚无显式 `other`；未识别站点会进入待归类，已定义站点的原始分段以当前 runtime mode 推导 `quotaBucketAtTime`。仅在界面增加“其他”标签仍会扣学习／复合／休息额度。PO 单项批准对**今后明确归为其他的网站**记录 `targetClassificationAtTime=other` 与独立非扣费桶；不改网页 ACTIVE 的开始／停止、idle、焦点、媒体容错、checkpoint、时长、domain、上传确认或历史分段。
+
+| 场景 | 原计时行为 | 批准后的计时行为 | 唯一归属变化 |
+|---|---|---|---|
+| 普通输入、强视频／强音频、弱 audible | 沿现有焦点／媒体证据规则开始、续账或停账 | 完全不变 | 仅显式“其他”新分段使用独立桶 |
+| 失焦、最小化、后台标签、idle、锁屏 | 沿现有容错和停账边界 | 完全不变 | 不凭分类增加有效时间 |
+| checkpoint、结算、跨日 | 按现有事件和整数秒切片 | 完全不变 | 各层总网页秒数守恒 |
+
+误设“其他”可能少扣分类配额；同一条记录不可同时占用旧分类桶与“其他”。本批准只改变未来 Segment 的 `targetClassificationAtTime` 与独立 `quotaBucketAtTime`，不改变网站访问路由、时间窗、配额执行、模式、频道、开始／停止、时长、上传确认或既有账。终端 V2 设备账仅在目标行接受 `quotaBucket=other`，运行 `mode` 仍只允许真实运行模式。云端原始账兼容由 `416c492` 提供，V2 设备账校验及网站分类审批路径已在云端分支实现，并由 Worker／终端聚焦测试验证；代码尚未合入 master 或生产发布。既有历史数据不自动重分类或改写。
+
+终端从云端档案配置读取独立的 `siteUsageClassificationRulesV1`。仅接受其中 `classification='other'` 且目标类型和值合法的规则，并仅作为新会话的 managed-target 归属输入；不得并入 `siteClassificationRulesV1`、访问路由或网站冲突校验。配置同步时，活动网页会话的有效边界计算忽略该独立规则，避免因它新增网页 Segment 边界；既有会话保留原分类和配额桶，下一次自然新会话才应用 `other`。规则中的 `other` 只映射至 Segment 的 `targetClassificationAtTime` 与 `quotaBucketAtTime`，runtime `mode`、`channel`、时长和结算事件不变。
 
 2026-10-02 PO 对上述未来分段归属变更作出 D-076 单项明确批准：仅新分段写入 `targetClassificationAtTime=other`、`quotaBucketAtTime=other`，不修改历史账或网页开始／停止及总秒数。误设“其他”会少扣分类配额的风险已在确认问题中明示；本项批准不授权其他记账语义变更或生产发布。当前源码路径已存在，本次不重复修改实现；`managed-targets` 47/47、`classification-effective-boundary` 12/12 通过，仅作为归属和边界专项证据，不替代真实浏览器及原始账守恒验收。
 
 ### 固定终端源码与开发候选边界（2026-09-30）
 
-`D:\Codex\Timeonchrome-worktrees\extension-local` 是终端扩展固定源码工作树。1.7.40 候选由该工作树的 staging 工具生成到隔离 unpacked 目录；正式扩展版本不随候选号改变，复用已批准 manifest key 和稳定扩展 ID，不生成 CRX 或 `update.xml`，不进入托管更新源。候选包含周 Rest 提醒、默认关闭的复合观察及 Task 可选模块；旧 Popup 纯网页软配额面板不纳入。原 `81a1` 加载路径只有在独立 Profile 验证、完整备份和加载前后只读核对通过后才可替换目标包。真实 30 分钟复合上传闭环仍待验收。
+`D:\Codex\TimeOnchrome-worktrees\extension-local` 是终端扩展唯一源码工作树。`1.7.40 Native Host Development Candidate` 仅由此工作树的 staging 工具生成到隔离的 unpacked 目录；源码 `extension/manifest.json` 的正式版本不随候选版本改变。候选复用已批准候选 manifest 的公开 key 并核对稳定扩展 ID，不生成 CRX 或 `update.xml`，不进入托管更新源。候选包含周 Rest 提醒、默认关闭的复合观察及 Task 可选模块；旧 Popup 纯网页软配额面板不纳入。Chrome 既有 `81a1` 路径作为 junction 兼容入口，只有独立 Profile 验证、完整备份和加载前后只读核对通过后才替换其 D 盘目标包；不卸载扩展或清空本地数据。真实 30 分钟复合上传闭环仍待验收。
 
-在 1.7.40 Rest 验收失败期间，Chrome 已将 1.7.39 同一 D 盘候选包的加载来源由 `81a1` junction 改为直接路径，未替换包内容。扩展 ID 与绑定已恢复；切换期历史差额由 PO 接受并保留证据，不回填。新账逐 ID 云端确认及日／小时对账仍待完成；旧工作树在仍被会话或进程引用时不得退出 Git 登记。
+路径收拢先于候选升级：在 1.7.40 Rest 完整验收失败期间，Chrome 已将 1.7.39 同一 D 盘包的加载来源由 `81a1` junction 改为直接路径，未替换包内容。扩展 ID 与绑定已恢复；切换期的历史差额由 PO 接受并保留原证据，不回填。新账逐 ID 云端确认及日/小时对账仍是后续门槛，不能仅凭页面汇总宣称数据验收完成。旧工作树在仍被会话或进程引用时不得退出 Git 登记。
 ## 2026-10-02 电脑使用读取优化（不改变D-111/D-113统计语义）
 
 Guardian按完整来源指纹缓存合并后的展示代际，summary与完整详情分键；summary命中仅返回已生成汇总，不重新构造时间线、产品或计算重叠。首次生成继续使用原权威统计和完整证据，不能用删区间的空证据快路径改变Chrome排除、分类或完整性。网页/应用读取及独立版本查询并行；缓存前后核对来源版本，版本变化仍标记不完整。KV只是加速层，故障或过期回落到原读取，不作为新账本。缓存键含account、Child、日期、来源版本和可选来源筛选；每次服务端命中仍核验归属及来源，失败结果不缓存。页面仅内存30秒、最多16条，同请求去重；手动刷新绕过，切换范围/孩子清空视图并防迟到覆盖，明细沿用同revision。无需migration、Native升级或计时/配额变更。

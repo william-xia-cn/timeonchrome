@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict';
-import { projectSharedQuotaDay, projectLegacySharedAccessPolicy, SHARED_ACCESS_SCHEMA_VERSION } from './dist/shared-access.js';
+import fs from 'node:fs';
+import {validateSharedQuotaStateQuery, SHARED_QUOTA_STATE_READ_CAPABILITY, SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY,
+  SHARED_REMINDER_RESULT_SHADOW_CAPABILITY} from './dist/native-host.js';
+import { projectSharedQuotaDay, projectLegacySharedAccessPolicy, SHARED_ACCESS_SCHEMA_VERSION,
+  validateSharedReminderResult, canonicalSharedAccessPolicyV1, createSharedAccessPolicyIdentityV1,
+  validateSharedAccessPolicyIdentityV1, matchesSharedAccessPolicyIdentityV1 } from './dist/shared-access.js';
 
 const date = '2026-10-02';
+assert.equal(SHARED_QUOTA_STATE_READ_CAPABILITY, 'shared-quota-state-read');
+assert.equal(SHARED_REMINDER_RESULT_SHADOW_CAPABILITY, 'shared-reminder-result-shadow');
+assert.deepEqual(validateSharedQuotaStateQuery({date}), {date});
+assert.deepEqual(validateSharedQuotaStateQuery({date:'2028-02-29'}), {date:'2028-02-29'});
+for (const value of [null, [], {}, {date:'2026-02-29'}, {date:'2026-04-31'}, {date:'2026-13-01'},
+  {date,childId:'other'}, {date,localUserId:'other'}, {date,assignmentVersion:1}, {date,expectedRevision:'old'}])
+  assert.throws(()=>validateSharedQuotaStateQuery(value), /INVALID_SHARED_QUOTA_QUERY/);
 const allDay = [{ start: '00:00', end: '24:00' }];
 const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const policy = {
@@ -45,4 +57,64 @@ assert.equal(projectSharedQuotaDay(policy, date, [web, { ...app, policyRevision:
 assert.equal(projectSharedQuotaDay(policy, date, [web]).complete, false, 'missing application coverage is not zero');
 assert.equal(projectSharedQuotaDay(policy, date, [app]).complete, false, 'missing web coverage is not zero');
 assert.equal(projectSharedQuotaDay(policy, date, [web, { ...app, chromeExcludedMs: undefined }]).complete, false);
-console.log('shared access contract: PASS');
+const registration={reminderId:'r1',policyRevision:'p1',stateRevision:'s1',kind:'daily',issuedAtMs:1000,visibleAtMs:2000};
+const receipt={schemaVersion:1,reminderId:'r1',policyRevision:'p1',stateRevision:'s1',kind:'daily',
+  delivery:'visible',visibleAtMs:2000,action:'end_rest',resolvedAtMs:3000};
+assert.deepEqual(validateSharedReminderResult(receipt,registration),receipt);
+assert.deepEqual(validateSharedReminderResult({...receipt,action:'timeout_end',resolvedAtMs:62000},registration),
+  {...receipt,action:'timeout_end',resolvedAtMs:62000});
+assert.throws(()=>validateSharedReminderResult(receipt,null),/SHARED_REMINDER_NOT_ISSUED/);
+assert.throws(()=>validateSharedReminderResult({...receipt,policyRevision:'old'},registration),/VERSION_CHANGED/);
+assert.throws(()=>validateSharedReminderResult({...receipt,stateRevision:'old'},registration),/VERSION_CHANGED/);
+assert.throws(()=>validateSharedReminderResult(receipt,{...registration,visibleAtMs:null}),/DELIVERY/);
+assert.throws(()=>validateSharedReminderResult({...receipt,action:'timeout_end',resolvedAtMs:61999},registration),/TIMEOUT_EARLY/);
+assert.throws(()=>validateSharedReminderResult({...receipt,delivery:'failed',visibleAtMs:null,action:'timeout_end'},
+  {...registration,visibleAtMs:null}),/DELIVERY/);
+assert.throws(()=>validateSharedReminderResult({...receipt,childId:'other'},registration),/INVALID_SHARED_REMINDER_RESULT/);
+assert.throws(()=>validateSharedReminderResult({...receipt,resolvedAtMs:999},registration),/TIME/);
+assert.deepEqual(validateSharedReminderResult({...receipt,delivery:'failed',visibleAtMs:null,action:'delivery_failed_continue'},
+  {...registration,visibleAtMs:null}),{...receipt,delivery:'failed',visibleAtMs:null,action:'delivery_failed_continue'});
+console.log('shared access contract: PASS (quota projection, Bridge query, registered shadow receipt)');
+const vectors=JSON.parse(fs.readFileSync(new URL('./shared-reminder.vectors.json',import.meta.url),'utf8'));
+for (const vector of vectors.cases) {
+  const result={...vectors.result,...vector.resultPatch};
+  const context=vector.registration===null ? null : {...vectors.registration,...vector.registrationPatch};
+  if (vector.error) assert.throws(()=>validateSharedReminderResult(result,context),
+    error=>error.message===vector.error,vector.name);
+  else assert.deepEqual(validateSharedReminderResult(result,context),result,vector.name);
+}
+console.log(`shared reminder golden vectors: PASS (${vectors.cases.length})`);
+
+assert.equal(SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY, 'shared-access-policy-identity-read');
+const identityPolicy = {...structuredClone(policy), revision: 'profile-config:4'};
+const beforeIdentity = structuredClone(identityPolicy);
+const identity = await createSharedAccessPolicyIdentityV1(identityPolicy);
+validateSharedAccessPolicyIdentityV1(identity);
+assert.equal(await matchesSharedAccessPolicyIdentityV1(identityPolicy, identity), true);
+const reorder = value => Array.isArray(value) ? value.map(reorder) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).reverse().map(key => [key, reorder(value[key])])) : value;
+assert.deepEqual(await createSharedAccessPolicyIdentityV1(reorder(identityPolicy)), identity);
+const source = fs.readFileSync(new URL('../../extension/core/shared-access-policy.js', import.meta.url), 'utf8');
+const deviceValidator = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+assert.equal(canonicalSharedAccessPolicyV1(identityPolicy), deviceValidator.validateSharedAccessPolicyV1(identityPolicy).canonical);
+for (const change of [p => { p.stage = 'shared'; }, p => { p.effectiveAtMs += 1; },
+  p => { p.dailyMinutes.monday.study += 1; }, p => { p.autonomy.repeatReminderMinutes += 1; },
+  p => { p.timeWindows.monday.study = [{start:'01:00', end:'24:00'}]; }]) {
+  const changed = structuredClone(identityPolicy); change(changed);
+  assert.equal(await matchesSharedAccessPolicyIdentityV1(changed, identity), false);
+}
+for (const bad of [{...identityPolicy, token:'private'}, {...identityPolicy, revision:'profile-config:9007199254740992'},
+  {...identityPolicy, stage:{toString:() => 'legacy'}},
+  {...identityPolicy, autonomy:{...identityPolicy.autonomy, extra:true}},
+  {...identityPolicy, timeWindows:{...identityPolicy.timeWindows, monday:{study:[{start:'24:00',end:'24:00'}], composite:null,rest:null}}}])
+  assert.throws(() => canonicalSharedAccessPolicyV1(bad), /INVALID_SHARED_ACCESS_POLICY/);
+for (const bad of [{...identity, policyHash:'A'.repeat(64)}, {...identity, token:'private'}, {...identity, stage:'unknown'}])
+  assert.throws(() => validateSharedAccessPolicyIdentityV1(bad), /INVALID_SHARED_ACCESS_POLICY_IDENTITY/);
+const duringDigest = structuredClone(identityPolicy), pendingIdentity = createSharedAccessPolicyIdentityV1(duringDigest);
+duringDigest.stage = 'shared'; duringDigest.effectiveAtMs += 1;
+assert.deepEqual(await pendingIdentity, identity, 'capture policy before asynchronous digest');
+const mutableIdentity = {...identity, policyHash:'0'.repeat(64)}, pendingMatch = matchesSharedAccessPolicyIdentityV1(identityPolicy, mutableIdentity);
+mutableIdentity.policyHash = identity.policyHash;
+assert.equal(await pendingMatch, false, 'capture received identity before asynchronous digest');
+assert.deepEqual(identityPolicy, beforeIdentity, 'identity generation never mutates the authoritative policy');
+console.log('shared policy identity: PASS (actual device canonical bytes, complete content, invalid fields, digest race)');

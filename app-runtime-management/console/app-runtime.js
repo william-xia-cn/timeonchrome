@@ -1,8 +1,23 @@
 (() => {
+  const componentOnly=document.currentScript?.dataset.runtimeComponent==='true';
+  function mount(config={}) {
+  const root=config.root||document;
+  const embedded=typeof config.request==='function';
+  const ownerDocument=root.ownerDocument||document;
+  let disposed=false;
+  const listeners=[];
+  const listen=(target,type,handler)=>{target.addEventListener(type,handler);listeners.push([target,type,handler]);};
+  const live=()=>!disposed&&(!config.isCurrent||config.isCurrent());
+  const assertLive=()=>{if(!live())throw Object.assign(new Error('组件上下文已变化'),{code:'COMPONENT_CONTEXT_CHANGED'});};
   const RUNTIME_API = 'https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev';
-  const MAIN_CONSOLE = 'https://timeonchrome-console.pages.dev/?launch=app-runtime';
-  const authRecovery = AppRuntimeSession.createRecovery(sessionStorage, () => location.assign(MAIN_CONSOLE));
-  const mock = new URLSearchParams(location.search).has('mock');
+  const requestedLaunchView = embedded?config.view:new URLSearchParams(location.search).get('view');
+  if(embedded&&!['apps','devices','access','system','configuration'].includes(requestedLaunchView))throw new Error('INVALID_RUNTIME_MANAGEMENT_VIEW');
+  const initialView = embedded?requestedLaunchView:['apps', 'devices'].includes(requestedLaunchView) ? requestedLaunchView : 'usage';
+  const mainConsoleUrl = new URL('https://timeonchrome-console.pages.dev/?launch=app-runtime');
+  if (['apps', 'devices'].includes(initialView)) mainConsoleUrl.searchParams.set('view', initialView);
+  const MAIN_CONSOLE = mainConsoleUrl.toString();
+  const authRecovery = embedded?null:AppRuntimeSession.createRecovery(sessionStorage, () => location.assign(MAIN_CONSOLE));
+  const mock = !embedded&&new URLSearchParams(location.search).has('mock');
   const categoryLabels = { study: '学习', composite: '复合', restrictedEntertainment: '受限娱乐', unclassified: '未归类', other: '其他时间', blocked: '黑名单' };
   const categoryColors = { study: '#178f6a', composite: '#4d9fd8', restrictedEntertainment: '#ed9f38', unclassified: '#9aa6a0', other: '#7b8f9c', blocked: '#d64545' };
   const projectionReasonLabels = {
@@ -21,10 +36,19 @@
     usage: ['使用统计', '查看电脑应用主使用账本'], access: ['应用访问管理', '管理独立配额、七天时间段和配置文件'],
     apps: ['应用管理', '管理安装发现、产品确认与孩子分类规则'], devices: ['设备管理', '管理电脑、账户分配与运行状态'],
     system: ['系统管理', '查看系统日志、技术进程、主账本、辅助媒体和运行健康'],
+    configuration: ['应用配置文件', '仅应用分类和单应用限制；公共时间配置由综合访问管理'],
   };
-  const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: 'usage', appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
-  const $ = (selector) => document.querySelector(selector);
-  const $$ = (selector) => [...document.querySelectorAll(selector)];
+  const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', sharedAccess: null, sharedAccessError: null, loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: initialView, appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
+  let applicationImportDraft = null;
+  let applicationImportGeneration = 0;
+  const applicationImportContext = () => ({ childId: state.childId, view: state.view, etag: state.policyEtag });
+  function assertApplicationImportContext(context) {
+    assertLive();
+    if (!context || context.childId !== state.childId || context.view !== state.view || context.etag !== state.policyEtag) throw new Error('孩子或应用配置已变化，请重新预览导入文件');
+  }
+  const $ = (selector) => root.querySelector(selector);
+  const $$ = (selector) => [...root.querySelectorAll(selector)];
+  if(embedded){state.children=config.children.map(item=>({...item}));state.childId=config.childId;if(!state.children.some(item=>item.id===state.childId))throw new Error('INVALID_RUNTIME_CHILD_CONTEXT');}
   const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const duration = (ms = 0) => ms < 60000 ? (ms ? '少于 1 分钟' : '0 分钟') : `${Math.floor(ms / 3600000) ? `${Math.floor(ms / 3600000)} 小时 ` : ''}${Math.round(ms % 3600000 / 60000)} 分钟`;
   const time = (ms) => ms ? new Date(ms).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '尚未同步';
@@ -39,7 +63,7 @@
     const date=ms=>new Date(ms+8*3600000).toISOString().slice(0,10);
     const params=new URLSearchParams({childId:selected,from:date(period.from),to:date(period.to-1),...Object.fromEntries(Object.entries(query).filter(([,value])=>value!==''&&value!==undefined).map(([key,value])=>[key,String(value)]))});
     if(mock&&window.__readComputerUsageMock)return window.__readComputerUsageMock(params);
-    if(mock){return window.__computerUsageMock||{schemaVersion:1,revision:'mock-only',fromDate:date(period.from),toDate:date(period.to-1),complete:false,reasons:['DEVICE_MAPPING_INCOMPLETE'],totals:{computerMs:null,webMs:600000,applicationMs:900000,overlapMs:null},categoriesMs:{study:null,composite:null},devices:[],products:[],timeline:[],sourceVersions:[],nextCursor:null};}
+    if(mock){return window.__computerUsageMock||{schemaVersion:1,revision:'mock-only',fromDate:date(period.from),toDate:date(period.to-1),complete:false,reasons:['APPLICATION_SOURCE_UNAVAILABLE'],totals:{computerMs:null,webMs:600000,applicationMs:null,overlapMs:null},categoriesMs:{study:null,composite:null},devices:[],products:[],timeline:[],sourceVersions:[],nextCursor:null};}
     const result=await runtime(`/v2/module/computer-usage?${params}`);
     if(selected!==state.childId)throw new Error('SELECTION_CHANGED');return result;
   },null,()=>{const period=range();return state.childId+'|'+period.from+'|'+period.to;});
@@ -55,11 +79,12 @@
   const statusLabel = (value) => ({ online: '在线', recentlyOnline: '最近在线', offline: '离线', revoked: '已吊销' })[value] || value;
 
   function showError(error) {
+    if(!live()||error?.code==='COMPONENT_CONTEXT_CHANGED')return;
     const message = AppRuntimeNetwork.friendlyError(error).message;
     $('#status-strip').className = 'error';
     if (!state.loaded || error?.code === 'AUTH_RECOVERY_FAILED') {
-      document.querySelector('main').classList.remove('initial-load-pending');
-      document.querySelector('main').classList.add('initial-load-failed');
+      $('main').classList.remove('initial-load-pending');
+      $('main').classList.add('initial-load-failed');
       $('#status-strip').hidden = true;
       $('#load-empty-message').textContent = message;
       $('#load-preview-hint').hidden = !(location.protocol === 'file:' || ['localhost', '127.0.0.1'].includes(location.hostname));
@@ -68,11 +93,12 @@
     }
     $('#status-message').textContent = message; $('#retry').hidden = false; $('#status-strip').hidden = false;
   }
-  function showSuccess(message) { $('#status-strip').className = 'success'; $('#status-message').textContent = message; $('#retry').hidden = true; $('#status-strip').hidden = false; setTimeout(() => { if ($('#status-strip').className === 'success' && $('#status-message').textContent === message) clearError(); }, 3500); }
+  function showSuccess(message) { if(!live())return;$('#status-strip').className = 'success'; $('#status-message').textContent = message; $('#retry').hidden = true; $('#status-strip').hidden = false; setTimeout(() => { if (live()&&$('#status-strip').className === 'success' && $('#status-message').textContent === message) clearError(); }, 3500); }
   function clearError() { $('#status-strip').hidden = true; }
-  function setLoading(active) { const main = document.querySelector('main'); main.setAttribute('aria-busy', String(active)); $('#refresh').disabled = active; if (active) { if (!state.loaded) { main.classList.add('initial-load-pending'); main.classList.remove('initial-load-failed'); $('#load-empty-state').hidden = true; } $('#status-strip').className = 'loading'; $('#status-message').textContent = '正在加载 Runtime 数据…'; $('#retry').hidden = true; $('#status-strip').hidden = false; } else if ($('#status-strip').className === 'loading') clearError(); }
-  function markLoaded() { if (!mock) authRecovery.protectedLoadSucceeded(); state.loaded = true; const main = document.querySelector('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
+  function setLoading(active) { if(!live())return;const main = $('main'); main.setAttribute('aria-busy', String(active)); $('#refresh').disabled = active; if (active) { if (!state.loaded) { main.classList.add('initial-load-pending'); main.classList.remove('initial-load-failed'); $('#load-empty-state').hidden = true; } $('#status-strip').className = 'loading'; $('#status-message').textContent = '正在加载 Runtime 数据…'; $('#retry').hidden = true; $('#status-strip').hidden = false; } else if ($('#status-strip').className === 'loading') clearError(); }
+  function markLoaded() { assertLive();if (!mock&&!embedded) authRecovery.protectedLoadSucceeded(); state.loaded = true; const main = $('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
   async function issue() {
+    if(embedded){assertLive();renderChildPicker();return;}
     state.session = AppRuntimeSession.load(sessionStorage);
     if (window.__runtimeLaunchTicket) {
       const ticket = window.__runtimeLaunchTicket;
@@ -99,13 +125,14 @@
     renderChildPicker();
   }
   async function moduleToken(renew = false) {
+    if(embedded){await issue();return null;}
     if (renew) {
       authRecovery.recover();
     }
     if (!state.session) await issue();
     return state.session.token;
   }
-  async function runtime(path, options = {}) { if(options.method&&options.method!=='GET')applicationReadCache.clear();return AppRuntimeNetwork.requestJson({ url: `${RUNTIME_API}${path}`, options, getToken: moduleToken, authorizationScheme: 'RuntimeSession' }); }
+  async function runtime(path, options = {}) { assertLive();const key=state.childId+'|'+state.view;if(options.method&&options.method!=='GET')applicationReadCache.clear();let result;try{result=await (embedded?config.request(path,options):AppRuntimeNetwork.requestJson({ url: `${RUNTIME_API}${path}`, options, getToken: moduleToken, authorizationScheme: 'RuntimeSession' }));}catch(error){assertLive();if(key!==state.childId+'|'+state.view)throw Object.assign(new Error('组件上下文已变化'),{code:'COMPONENT_CONTEXT_CHANGED'});throw error;}assertLive();if(key!==state.childId+'|'+state.view)throw Object.assign(new Error('组件上下文已变化'),{code:'COMPONENT_CONTEXT_CHANGED'});return result; }
 
   function mockData() {
     const dayStart = AppRuntimeTime.beijingRange('day').from;
@@ -337,20 +364,30 @@
     $('#inventory-status').innerHTML = scans.length ? scans.map((scan,index)=>{const sourceResults=scan.sourceResults||[];const sourceSummary=sourceResults.length?`<span class="inventory-sources">${sourceResults.map(source=>`<b class="source-${escape(source.status)}">${escape(source.source)}：${source.status==='complete'?'成功':source.status==='complete_with_warnings'?`警告 ${Number(source.warningCodes?.length||0)}`:'失败'}</b>`).join('')}</span>`:'';return `<span>${escape(scan.machineName)} · 账户盘点 ${index+1}：${({complete:'该用户盘点完整',completeWithWarnings:'已完成，含单项警告',syncing:'同步中',partial:'部分来源失败',unverified:'尚未验证（未盘点或旧客户端）'})[scan.status]||'状态未知'} · ${scan.receivedBatches}/${scan.expectedBatches} 批 · ${scan.observationCount} 条观察${scan.failedSources?.length?` · ${scan.failedSources.length} 个来源失败`:''} · ${time(scan.updatedAtMs)}${sourceSummary}</span>`;}).join('；') + '。仅完成的来源可结算该来源的缺失对象；警告或失败不会被误判为整机卸载。' : '盘点完整性未验证；目录数量不等于已完成整机盘点。';
   }
   function renderQuotaForm() {
-    const quotas = state.policy.quotas; const fields = [['study','每日学习'],['composite','每日复合'],['restrictedEntertainment','每日受限娱乐'],['unclassified','每日未归类']];
-    $('#quota-form').innerHTML = fields.map(([key,label]) => `<label class="quota-field">${label}（分钟）<input type="number" min="0" data-quota-category="${key}" value="${quotas.dailyCategoryMinutes[key] ?? ''}" placeholder="无限制"></label>`).join('') + `<label class="quota-field">每周受限娱乐（分钟）<input type="number" min="0" id="weekly-restricted" value="${quotas.weeklyRestrictedEntertainmentMinutes ?? ''}" placeholder="无限制"></label>`;
+    const quotas = state.policy.quotas;
+    if (mock) state.sharedAccess ||= { schemaVersion: 1, revision: 'mock:1', effectiveAtMs: Date.now(), stage: 'shadow',
+      dailyMinutes: Object.fromEntries(AppRuntimePolicy.weekdays.map((day) => [day, { study: 60, composite: 60, rest: 90 }])), weeklyRestMinutes: 300,
+      timeWindows: Object.fromEntries(AppRuntimePolicy.weekdays.map((day) => [day, { study: null, composite: null, rest: null }])),
+      autonomy: { restrictedEntryConfirmationRequired: true, dailyFirstReminderMinutes: 45, weeklyFirstReminderMinutes: null, repeatReminderMinutes: 60, softReminderTimeoutAction: 'continue', visibleResponseDeadlineSeconds: 60 } };
+    const shared = state.sharedAccess;
+    const dayLabels = { monday: '周一', tuesday: '周二', wednesday: '周三', thursday: '周四', friday: '周五', saturday: '周六', sunday: '周日' };
+    const minutes = (value) => value == null ? '不限' : `${value} 分钟`;
+    const rows = shared ? AppRuntimePolicy.weekdays.map((day) => `<div class="shared-access-row"><strong>${dayLabels[day]}</strong><span>学习 ${minutes(shared.dailyMinutes?.[day]?.study)}</span><span>复合 ${minutes(shared.dailyMinutes?.[day]?.composite)}</span><span>娱乐 ${minutes(shared.dailyMinutes?.[day]?.rest)}</span></div>`).join('') : '';
+    const stateLabel = shared ? ({ legacy: '沿用旧配置来源', shadow: '影子核对中', shared: '共享执行' }[shared.stage] || '状态未知') : '统一访问配置暂不可读取';
+    $('#quota-form').innerHTML = shared ? `<p>配置版本 ${escape(shared.revision)} · ${stateLabel}</p><div class="shared-access-grid">${rows}</div><p>每周娱乐 ${minutes(shared.weeklyRestMinutes)} · 娱乐进入确认 ${shared.autonomy?.restrictedEntryConfirmationRequired ? '开启' : '关闭'} · 日提醒 ${minutes(shared.autonomy?.dailyFirstReminderMinutes)} · 周提醒 ${minutes(shared.autonomy?.weeklyFirstReminderMinutes)} · 重复间隔 ${minutes(shared.autonomy?.repeatReminderMinutes)}</p><p class="muted">单应用限制在“单应用限制”维护；终端共享执行覆盖仍需在设备管理核对。</p>` : `<p class="error">无法读取主控制台的统一配置（${escape(state.sharedAccessError || 'UNKNOWN')}）。应用统计和分类管理仍可用。</p>`;
     state.quotaApps = observedApps();
     const per = new Map(quotas.perApplicationDailyMinutes.map((item) => [AppRuntimePolicy.keyOf(item), item.minutes]));
     $('#app-quota-list').innerHTML = state.quotaApps.map((app, index) => `<div class="quota-app-row"><span class="app-icon">${escape((app.displayName || '?')[0])}</span><div><strong>${escape(app.displayName || '未知应用')}</strong><small>${app.platform}</small></div><input type="number" min="0" data-app-quota-index="${index}" value="${per.get(AppRuntimePolicy.keyOf(app)) ?? ''}" placeholder="无限制" aria-label="${escape(app.displayName)} 每日分钟"></div>`).join('') || '<p class="empty">暂无已观察应用</p>';
   }
   function renderSchedule() {
     const dayLabels = { monday: '周一', tuesday: '周二', wednesday: '周三', thursday: '周四', friday: '周五', saturday: '周六', sunday: '周日' };
-    $('#schedule-editor').innerHTML = AppRuntimePolicy.weekdays.map((day) => `<section class="schedule-day"><h3>${dayLabels[day]}</h3><div class="schedule-categories">${AppRuntimePolicy.scheduleCategories.map((category) => {
-      const windows = state.policy.timeWindows[day][category];
-      return `<div class="schedule-cell"><div class="schedule-cell-title"><strong>${categoryLabels[category]}应用</strong><button type="button" data-schedule-all="${day}|${category}">全天开放</button></div><div class="schedule-windows">${windows.map((window, index) => `<div class="schedule-window"><input data-schedule-start="${day}|${category}|${index}" value="${window.start}" aria-label="${dayLabels[day]} ${categoryLabels[category]}开始"><span>至</span><input data-schedule-end="${day}|${category}|${index}" value="${window.end}" aria-label="${dayLabels[day]} ${categoryLabels[category]}结束"><button type="button" data-schedule-remove="${day}|${category}|${index}" aria-label="删除时间段">×</button></div>`).join('') || '<small>全天不开放</small>'}</div><button type="button" data-schedule-add="${day}|${category}">＋ 添加时段</button></div>`;
-    }).join('')}</div></section>`).join('');
-    $('#outside-window-summary').textContent = state.usageLoading || state.usageError || !state.usage
-      ? '本周期时段外使用暂不可用' : `本周期时段外使用 ${duration(state.usage.outsideTimeWindows?.durationMs || 0)}`;
+    const shared = state.sharedAccess;
+    const categories = [['study', '学习'], ['composite', '复合'], ['rest', '娱乐']];
+    $('#schedule-editor').innerHTML = shared ? AppRuntimePolicy.weekdays.map((day) => `<section class="schedule-day"><h3>${dayLabels[day]}</h3><div class="schedule-categories">${categories.map(([key, label]) => {
+      const windows = shared.timeWindows?.[day]?.[key];
+      const text = windows == null ? '全天开放' : windows.length ? windows.map((window) => `${escape(window.start)}–${escape(window.end)}`).join('、') : '全天不开放';
+      return `<div class="schedule-cell"><strong>${label}</strong><div class="schedule-windows">${text}</div></div>`;
+    }).join('')}</div></section>`).join('') : `<p class="error">无法读取统一时间段（${escape(state.sharedAccessError || 'UNKNOWN')}）。</p>`;
   }
   function assignmentOptions(selectedId, protectedValue = true) { return `<option value="u"${!protectedValue ? ' selected' : ''}>成人／不保护</option>` + state.children.map((item, index) => `<option value="${index}"${protectedValue && item.id === selectedId ? ' selected' : ''}>${escape(item.name)}</option>`).join(''); }
   function renderMachines() { $('#machines').innerHTML = state.machines.map((machine) => `<button type="button" class="machine-card" data-open-machine="${escape(machine.id)}"><span class="platform-icon">${machine.platform === 'macos' ? '●' : '⊞'}</span><div><strong>${escape(machine.displayName || '电脑')}</strong><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')} · 最近在线 ${time(machine.lastSeenAtMs)}</p></div><span class="policy ${escape(machine.policyState)}">${policyLabel(machine.policyState)}</span><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span><span>›</span></button>`).join('') || '<p class="empty">尚未添加 Runtime 电脑</p>'; }
@@ -382,8 +419,16 @@
     const childId = encodeURIComponent(state.childId);
     const policyPromise = runtime(`/v2/module/app-policy?childId=${childId}`);
     const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`);
+    const sharedAccessPromise = runtime(`/v2/module/shared-access-policy?childId=${childId}`).then((result) => {
+      state.sharedAccess = result.policy || null;
+      state.sharedAccessError = null;
+    }).catch((error) => {
+      if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;
+      state.sharedAccess = null;
+      state.sharedAccessError = error?.code || 'SHARED_ACCESS_POLICY_UNAVAILABLE';
+    });
     const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`)));
-    const [policy, catalog, records] = await Promise.all([policyPromise, catalogPromise, recordsPromise]);
+    const [policy, catalog, records] = await Promise.all([policyPromise, catalogPromise, recordsPromise, sharedAccessPromise]);
     state.policy = AppRuntimePolicy.normalize(policy);
     state.policyEtag = `"app-policy-v${state.policy.version}"`;
     state.catalog = catalog;
@@ -397,7 +442,22 @@
       if (freshToken) state.session = null;
       if (mock) { mockData(); renderAll(); markLoaded(); if(state.view==='usage')await loadUsage(); return; }
       await moduleToken(false);
-      if (requestedView === 'devices' || requestedView === 'usage') {
+      if (requestedView === 'configuration') {
+        const policy = await runtime(`/v2/module/app-policy?childId=${encodeURIComponent(state.childId)}`);
+        state.policy = AppRuntimePolicy.normalize(policy); state.policyEtag = `"app-policy-v${state.policy.version}"`;
+        markLoaded(); clearError();
+      } else if (requestedView === 'system') {
+        let technicalError = null;
+        await Promise.all([loadMachineState(), runtime(`/v2/module/app-catalog?childId=${encodeURIComponent(state.childId)}`)
+          .then(catalog => { state.catalog = catalog; })
+          .catch(error => { if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;technicalError = error; })]);
+        renderAll(); markLoaded(); clearError();
+        if(technicalError)$('#technical-record-list').textContent='技术记录暂不可用，请刷新重试';
+        await Promise.all([
+          loadLoggingPolicy().catch(error => { if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;$('#remote-log-detail').textContent='日志策略暂不可用，请刷新重试';$('#enable-remote-logging').disabled=true;$('#disable-remote-logging').disabled=true; }),
+          loadRuntimeLogs().catch(error => { if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;$('#runtime-log-list').textContent='日志读取失败，请重试'; }),
+        ]);
+      } else if (requestedView === 'devices' || requestedView === 'usage') {
         await loadMachineState();
         renderAll(); markLoaded(); if (state.view === requestedView) clearError();
         if (requestedView === 'usage') void loadUsage();
@@ -442,7 +502,7 @@
   }
   async function savePolicy(next) { if (mock) { const history = [...(state.records.pending || []), ...(state.records.processed || [])]; state.policy = AppRuntimePolicy.normalize({ ...next, version: state.policy.version + 1, effectiveAtMs: Date.now() }); state.policyEtag = `"app-policy-v${state.policy.version}"`; const current = new Map(state.policy.classifications.map((entry) => [AppRuntimePolicy.keyOf(entry), entry])); state.records.pending = history.filter((record) => !current.has(AppRuntimePolicy.keyOf(record))); state.records.processed = history.filter((record) => current.has(AppRuntimePolicy.keyOf(record))).map((record) => ({ ...record, status: 'processed', classification: current.get(AppRuntimePolicy.keyOf(record)).classification })); state.catalog.items = observedApps().map((item) => ({ ...item, classification: current.get(AppRuntimePolicy.keyOf(item))?.classification || 'unclassified' })); renderAll(); return; } const body = { classifications: next.classifications, quotas: next.quotas, timeWindows: next.timeWindows }; const saved = await runtime(`/v2/module/app-policy?childId=${encodeURIComponent(state.childId)}`, { method: 'PUT', headers: { 'If-Match': state.policyEtag }, body: JSON.stringify(body) }); state.policy = AppRuntimePolicy.normalize(saved); state.policyEtag = `"app-policy-v${state.policy.version}"`; await load(); }
   function quotaValue(input) { return input.value === '' ? null : Math.max(0, Number.parseInt(input.value, 10)); }
-  async function saveQuotas() { const daily = {}; $$('[data-quota-category]').forEach((input) => { daily[input.dataset.quotaCategory] = quotaValue(input); }); const perApplicationDailyMinutes = $$('[data-app-quota-index]').filter((input) => input.value !== '').map((input) => { const app = state.quotaApps[Number(input.dataset.appQuotaIndex)]; return { platform: app.platform, runtimeIdentity: app.runtimeIdentity, minutes: quotaValue(input) }; }); await savePolicy(AppRuntimePolicy.withQuotas(state.policy, { dailyCategoryMinutes: daily, weeklyRestrictedEntertainmentMinutes: quotaValue($('#weekly-restricted')), perApplicationDailyMinutes })); }
+  async function saveQuotas() { const perApplicationDailyMinutes = $$('[data-app-quota-index]').filter((input) => input.value !== '').map((input) => { const app = state.quotaApps[Number(input.dataset.appQuotaIndex)]; return { platform: app.platform, runtimeIdentity: app.runtimeIdentity, minutes: quotaValue(input) }; }); await savePolicy(AppRuntimePolicy.withQuotas(state.policy, { ...state.policy.quotas, perApplicationDailyMinutes })); }
   function collectSchedule() {
     const next = AppRuntimePolicy.allOpenTimeWindows();
     AppRuntimePolicy.weekdays.forEach((day) => AppRuntimePolicy.scheduleCategories.forEach((category) => { next[day][category] = []; }));
@@ -559,11 +619,38 @@
   }
   function switchView(view) { state.view = view; $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view)); $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view)); [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[view]; renderAll(); clearError(); if (!mock && ['access', 'apps', 'system'].includes(view) && !state.managementLoaded) void load(); $('#sidebar').classList.remove('open'); $('#mobile-backdrop').hidden = true; }
   function switchTab(type, name) { $$(`[data-${type}-tab]`).forEach((button) => button.classList.toggle('active', button.dataset[`${type}Tab`] === name)); $$(`[data-${type}-panel]`).forEach((panel) => { panel.hidden = panel.dataset[`${type}Panel`] !== name; }); }
-  async function loadLedger(kind) { const period = range(); const result = mock ? { items: kind === 'usage' ? [{ startAtMs: Date.now() - 60000, displayName: 'Visual Studio Code', durationMs: 60000, applicationClassification: 'study', estimated: false }] : [{ startAtMs: Date.now() - 120000, displayName: 'Microsoft Edge', durationMs: 120000, mediaKind: 'video', presentation: 'background', estimated: false }] } : await runtime(`/v2/module/${kind === 'usage' ? 'usage-segments' : 'media-segments'}?childId=${encodeURIComponent(state.childId)}&fromMs=${period.from}&toMs=${period.to}&limit=50`); const target = kind === 'usage' ? $('#ledger-list') : $('#media-list'); target.className = 'table-list'; target.innerHTML = result.items.length ? result.items.map((item) => `<div class="table-row"><time>${time(item.startAtMs)}</time><strong>${escape(item.displayName || '未知应用')}</strong><span>${duration(item.durationMs)}</span><span>${kind === 'usage' ? categoryLabels[item.applicationClassification] || '未归类' : `${item.mediaKind}/${item.presentation}`}</span></div>`).join('') : '<p>暂无明细</p>'; }
-  function exportConfig() { const blob = new Blob([JSON.stringify(AppRuntimePolicy.exportPayload(state.policy), null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'timeonchrome-app-runtime-config.json'; link.click(); URL.revokeObjectURL(link.href); }
-  async function reviewImport(file) { const incoming = JSON.parse(await file.text()); const diff = AppRuntimePolicy.importDiff(state.policy, incoming); const box = $('#import-diff'); box.hidden = false; box.dataset.payload = JSON.stringify(diff.policy); box.innerHTML = `<div class="import-review"><h3>导入差异</h3><label><input type="checkbox" id="import-classifications" checked> 应用分类：新增 ${diff.added}、修改 ${diff.changed}、移除 ${diff.removed}</label><br><label><input type="checkbox" id="import-quotas" checked> 独立配额：${diff.quotasChanged ? '有变化' : '无变化'}</label><br><label><input type="checkbox" id="import-time-windows" checked> 七天时间段：${diff.timeWindowsChanged ? '有变化' : '无变化'}</label><p><button id="confirm-import" class="primary">确认导入所选内容</button></p></div>`; }
+  async function loadLedger(kind) { const period = range(); const result = mock ? { items: kind === 'usage' ? [{ startAtMs: Date.now() - 60000, displayName: 'Visual Studio Code', durationMs: 60000, applicationClassification: 'study', estimated: false }] : [{ startAtMs: Date.now() - 120000, displayName: 'Microsoft Edge', durationMs: 120000, mediaKind: 'video', presentation: 'background', estimated: false }] } : await runtime(`/v2/module/segment-diagnostics?kind=${kind}&childId=${encodeURIComponent(state.childId)}&fromMs=${period.from}&toMs=${period.to}&limit=50`); const target = kind === 'usage' ? $('#ledger-list') : $('#media-list'); target.className = 'table-list'; target.innerHTML = result.items.length ? result.items.map((item) => `<div class="table-row"><time>${time(item.startAtMs)}</time><strong>${escape(item.displayName || '未知应用')}</strong><span>${duration(item.durationMs)}</span><span>${kind === 'usage' ? categoryLabels[item.applicationClassification] || '未归类' : `${item.mediaKind}/${item.presentation}`}</span></div>`).join('') : '<p>暂无明细</p>'; if(result.hasMore)target.insertAdjacentHTML('beforeend','<p>仅显示最近50条诊断记录；该明细不代表范围总用量。</p>'); }
+  function exportConfig() { const blob = new Blob([JSON.stringify(AppRuntimePolicy.exportPayload(state.policy), null, 2)], { type: 'application/json' }); const link = ownerDocument.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'timeonchrome-app-runtime-config.json'; link.click(); URL.revokeObjectURL(link.href); }
+  async function reviewImport(file) {
+    assertLive();
+    const context = applicationImportContext(), generation = ++applicationImportGeneration;
+    applicationImportDraft = null;
+    $('#import-diff').hidden = true;
+    const text = await file.text();
+    assertApplicationImportContext(context);
+    if (generation !== applicationImportGeneration) return;
+    const incoming = JSON.parse(text);
+    const diff = AppRuntimePolicy.importDiff(state.policy, incoming);
+    applicationImportDraft = { context, policy: diff.policy, applying: false };
+    const box = $('#import-diff'); box.hidden = false;
+    const legacySharedFields = incoming.schemaVersion < 3 && (incoming.timeWindows !== undefined || incoming.quotas?.dailyCategoryMinutes !== undefined || incoming.quotas?.weeklyRestrictedEntertainmentMinutes !== undefined);
+    box.innerHTML = `<div class="import-review"><h3>导入差异</h3><label><input type="checkbox" id="import-classifications" checked> 应用分类：新增 ${diff.added}、修改 ${diff.changed}、移除 ${diff.removed}</label><br><label><input type="checkbox" id="import-quotas" checked> 单应用限制：${diff.quotasChanged ? '有变化' : '无变化'}</label><p>${legacySharedFields ? '此旧版文件含孩子级公共配额或时间段；为保持单一配置来源，这些字段将忽略。' : '孩子级公共配额和时间段由主控制台统一管理，不从此文件写入。'}</p><p><button id="confirm-import" class="primary">确认导入所选内容</button></p></div>`;
+  }
+  async function confirmApplicationImport() {
+    const draft = applicationImportDraft;
+    if (!draft) throw new Error('请先选择应用配置文件并预览');
+    assertApplicationImportContext(draft.context);
+    if (draft.applying) throw new Error('正在应用导入，请勿重复提交');
+    const next = AppRuntimePolicy.normalize({ ...state.policy, classifications: $('#import-classifications').checked ? draft.policy.classifications : state.policy.classifications, quotas: $('#import-quotas').checked ? { ...state.policy.quotas, perApplicationDailyMinutes: draft.policy.quotas.perApplicationDailyMinutes } : state.policy.quotas, timeWindows: state.policy.timeWindows });
+    draft.applying = true;
+    try {
+      await savePolicy(next);
+      assertLive();
+      if (applicationImportDraft === draft) { applicationImportDraft = null; $('#import-diff').hidden = true; }
+    } finally { draft.applying = false; }
+  }
 
-  document.addEventListener('click', async (event) => { const groupToggle = event.target.closest('summary[data-app-group-toggle]'); if (groupToggle) { event.preventDefault(); if (!($('#app-search').value || '').trim()) { const key = groupToggle.dataset.appGroupToggle; state.appGroups[key] = !state.appGroups[key]; renderAppDirectory(); } return; } const button = event.target.closest('button'); if (!button) return; try {
+  listen(root,'click', async (event) => { if(!live())return;const groupToggle = event.target.closest('summary[data-app-group-toggle]'); if (groupToggle) { event.preventDefault(); if (!($('#app-search').value || '').trim()) { const key = groupToggle.dataset.appGroupToggle; state.appGroups[key] = !state.appGroups[key]; renderAppDirectory(); } return; } const button = event.target.closest('button'); if (!button) return; try {
     if (button.dataset.view) { switchView(button.dataset.view); if (button.dataset.view === 'system') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
     if (button.dataset.accessTab) switchTab('access', button.dataset.accessTab);
     if (button.dataset.systemTab) { switchTab('system', button.dataset.systemTab); if (button.dataset.systemTab === 'logs') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
@@ -598,12 +685,12 @@
     if (button.dataset.scheduleAdd) updateSchedule('add', button.dataset.scheduleAdd);
     if (button.dataset.scheduleRemove) updateSchedule('remove', button.dataset.scheduleRemove);
     if (button.id === 'export-config') exportConfig();
-    if (button.id === 'confirm-import') { const incoming = JSON.parse($('#import-diff').dataset.payload); const next = AppRuntimePolicy.normalize({ ...state.policy, classifications: $('#import-classifications').checked ? incoming.classifications : state.policy.classifications, quotas: $('#import-quotas').checked ? incoming.quotas : state.policy.quotas, timeWindows: $('#import-time-windows').checked ? incoming.timeWindows : state.policy.timeWindows }); await savePolicy(next); $('#import-diff').hidden = true; }
+    if (button.id === 'confirm-import') await confirmApplicationImport();
   } catch (error) { showError(error); } });
-  document.addEventListener('change', async (event) => { const control = event.target; try {
+  listen(root,'change', async (event) => { if(!live())return;const control = event.target; try {
     if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
     if (['directory-scope','management-platform'].includes(control.id)) { renderAppDirectory(); return; }
-    if (control.id === 'child-select') { const selected = childFromIndex(control.value); if (selected) { usageRequestVersion++;computerReader.invalidate();independentReader.invalidate();state.usage={};renderUsage();state.childId = selected.id; state.managementLoaded = false; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
+    if (control.id === 'child-select') { if(embedded)return;const selected = childFromIndex(control.value); if (selected) { usageRequestVersion++;computerReader.invalidate();independentReader.invalidate();state.usage={};renderUsage();state.childId = selected.id; mountKnowledgeManager(); state.managementLoaded = false; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
     else if (control.id === 'machine-filter') { renderFilters(); if (!mock) await loadUsage(); renderUsage(); }
     else if (['user-filter','platform-filter'].includes(control.id)) { if (!mock) await loadUsage(); renderUsage(); }
     else if (control.id === 'media-toggle') renderUsage();
@@ -612,21 +699,35 @@
     else if (control.dataset.user) { const selected = control.value === 'u' ? null : childFromIndex(control.value); if (!mock) { await runtime(`/v2/module/machines/${encodeURIComponent(control.dataset.machine)}/users/${encodeURIComponent(control.dataset.user)}`, { method: 'PATCH', body: JSON.stringify({ protected: Boolean(selected), childId: selected?.id || null }) }); await load(); } }
     else if (control.id === 'import-config' && control.files[0]) await reviewImport(control.files[0]);
   } catch (error) { showError(error); } });
-  document.addEventListener('input', (event) => { if (event.target.id === 'app-search') { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(renderAppDirectory, 120); } });
-  $('#mobile-backdrop').addEventListener('click', () => { $('#sidebar').classList.remove('open'); closeDrawer(); });
-  $('#runtime-logout').addEventListener('click', async () => {
+  listen(root,'input', (event) => { if(!live())return;if (event.target.id === 'app-search') { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(()=>{if(live())renderAppDirectory();}, 120); } });
+  listen($('#mobile-backdrop'),'click', () => { $('#sidebar').classList.remove('open'); closeDrawer(); });
+  if(!embedded)listen($('#runtime-logout'),'click', async () => {
     applicationReadCache.clear();
     const active = AppRuntimeSession.load(sessionStorage);
     if (active) await fetch(`${RUNTIME_API}/v2/auth/browser-sessions/current`, { method: 'DELETE', headers: { Authorization: `RuntimeSession ${active.token}` } }).catch(() => {});
     AppRuntimeSession.clear(sessionStorage);
     location.assign('https://timeonchrome-console.pages.dev/');
   });
-  const knowledgeManager = AppRuntimeKnowledge.mount({request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onSaved:async knowledge=>{
+  let knowledgeManager;
+  function mountKnowledgeManager(){
+    knowledgeManager?.dispose();
+    knowledgeManager = AppRuntimeKnowledge.mount({root,request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onSaved:async knowledge=>{
     if(!mock){await load();return;}
     state.mockKnowledge=knowledge;
     const binding=knowledge.bindings.find(item=>item.childId===state.childId);
     for(const item of state.catalog.items){const evidence=state.mockInventory.find(observation=>observation.evidence.runtimeIdentity===item.runtimeIdentity)?.evidence;if(!evidence)continue;const products=knowledge.products.filter(product=>product.selectors.some(selector=>selector.platform===evidence.platform&&selector.match.conditions.every(condition=>evidence.values[condition.field]===condition.value)));if(products.length===1){const explicit=binding?.products.find(entry=>entry.productId===products[0].id);if(explicit){item.productId=products[0].id;item.displayName=products[0].name;item.classification=explicit.classification;item.classificationReason='孩子产品明确分类';item.installationState='installed';}}}
     state.machines.forEach(machine=>{machine.desiredPolicyVersion+=1;machine.policyState=machine.status==='online'?'pending':'offline';});renderAll();
-  }});
-  load();
+    }});
+  }
+  mountKnowledgeManager();
+  $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === state.view));
+  $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === (state.view==='configuration'?'access':state.view)));
+  if(state.view==='configuration') { $('[data-view-panel="access"] .tabbar').hidden=true; switchTab('access','config'); }
+  [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[state.view];
+  const ready=load();
+  function dispose(){if(disposed)return;disposed=true;usageRequestVersion++;pairingGeneration++;clearInterval(state.timer);clearTimeout(state.searchTimer);applicationReadCache.clear();computerReader.invalidate();independentReader.invalidate();knowledgeManager.dispose();for(const [target,type,handler]of listeners)target.removeEventListener(type,handler);for(const dialog of $$('dialog[open]'))dialog.close();}
+  return {ready,refresh:()=>{assertLive();return load();},dispose};
+  }
+  globalThis.AppRuntimeManagement={mount};
+  if(!componentOnly)mount();
 })();

@@ -55,6 +55,56 @@ beforeEach(async () => {
 });
 
 describe('Runtime product API', () => {
+  it('limits segment diagnostics to the owning Child and fixed read-only query', async () => {
+    const path = '/v2/module/segment-diagnostics?childId=child-a&kind=usage&fromMs=0&toMs=86400000';
+    expect((await call(path)).status).toBe(401);
+    const account = await accountToken();
+    expect((await call(path.replace('child-a', 'foreign'), { headers: bearer(account) })).status).toBe(404);
+    expect((await call(path, { method: 'POST', headers: bearer(account) })).status).toBe(405);
+    for (const suffix of ['&limit=101', '&limit=0', '&limit=1.5', '&cursor=opaque', '&kind=media']) {
+      expect((await call(path + suffix, { headers: bearer(account) })).status).toBe(400);
+    }
+    expect((await call(path.replace('kind=usage', 'kind=unknown'), { headers: bearer(account) })).status).toBe(400);
+    for (const kind of ['usage', 'media']) {
+      const response = await call(path.replace('kind=usage', `kind=${kind}`), { headers: bearer(account) });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      await expect(response.json()).resolves.toEqual({ items: [], hasMore: false });
+    }
+  });
+  it('exposes the shared policy only to the owning Child session and supports GET only', async () => {
+    const unauthenticated = await call('/v2/module/shared-access-policy?childId=child-a');
+    expect(unauthenticated.status).toBe(401);
+    const account = await accountToken();
+    const foreignChild = await call('/v2/module/shared-access-policy?childId=not-owned-child', { headers: bearer(account) });
+    expect(foreignChild.status).toBe(404);
+    const wrongMethod = await call('/v2/module/shared-access-policy?childId=child-a', {
+      method: 'POST', headers: bearer(account), body: '{}',
+    });
+    expect(wrongMethod.status).toBe(405);
+  });
+
+  it('keeps child-level quota and time-window writes owned by Guardian while allowing app-only edits', async () => {
+    const account = await accountToken();
+    const path = '/v2/module/app-policy?childId=child-a';
+    const currentResponse = await call(path, { headers: bearer(account) });
+    expect(currentResponse.status).toBe(200);
+    const current = await currentResponse.json<{ version: number; classifications: unknown[]; quotas: Record<string, unknown>; timeWindows: Record<string, unknown> }>();
+    const daily = current.quotas.dailyCategoryMinutes as Record<string, number | null>;
+    const changedCommon = await call(path, { method: 'PUT', headers: { ...bearer(account), 'If-Match': `"app-policy-v${current.version}"` },
+      body: JSON.stringify({ classifications: current.classifications, quotas: { ...current.quotas,
+        dailyCategoryMinutes: { ...daily, study: 1 } }, timeWindows: current.timeWindows }) });
+    expect(changedCommon.status).toBe(409);
+    await expect(changedCommon.json()).resolves.toMatchObject({ error: { code: 'SHARED_ACCESS_CONFIG_OWNED_BY_GUARDIAN' } });
+    const appOnly = await call(path, { method: 'PUT', headers: { ...bearer(account), 'If-Match': `"app-policy-v${current.version}"` },
+      body: JSON.stringify({ classifications: [{ platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'other' }],
+        quotas: { ...current.quotas, perApplicationDailyMinutes: [{ platform: 'windows', runtimeIdentity: 'app:editor', minutes: 30 }] },
+        timeWindows: current.timeWindows }) });
+    expect(appOnly.status).toBe(200);
+    await expect(appOnly.json()).resolves.toMatchObject({ classifications: [expect.objectContaining({ classification: 'other' })],
+      quotas: { perApplicationDailyMinutes: [{ runtimeIdentity: 'app:editor', minutes: 30 }] } });
+  });
+
   it('receives versioned application shared contribution without publishing it or trusting a Child from the caller', async () => {
     const {enrolled,localUserId}=await createMachineWithUser();
     const contribution={schemaVersion:1,source:'application',date:'2026-10-02',revision:'app-r1',
@@ -84,6 +134,34 @@ describe('Runtime product API', () => {
     expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_application_shared_quota_receipts_v1')
       .first<{count:number}>())?.count).toBe(1);
   });
+
+  it('returns the shared quota shadow only for the machine protected assignment, never a caller Child ID', async () => {
+    const {enrolled,localUserId}=await createMachineWithUser();
+    const headers=bearer(enrolled.machineToken);
+    const path=`/v2/machines/shared-quota/state?localUserId=${encodeURIComponent(localUserId)}&assignmentVersion=2&date=2026-10-02&childId=attacker-child`;
+    const response=await call(path,{headers});
+    expect(response.status).toBe(200);
+    const result=await response.json<{sharedQuota:Record<string,unknown>}>();
+    expect(result.sharedQuota).toMatchObject({schemaVersion:1,policyRevision:'profile-config:1',revision:'shadow-r1',
+      complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],offline:false,
+      day:{date:'2026-10-02',usedMs:{study:1000,composite:2000,rest:3000}},
+      week:{fromDate:'2026-09-28',toDate:'2026-10-02',complete:false}});
+    expect(result.sharedQuota).not.toHaveProperty('profileId');
+    expect((await call(path.replace('assignmentVersion=2','assignmentVersion=1'),{headers})).status).toBe(403);
+    expect((await call(path.replace('date=2026-10-02','date=2026-02-30'),{headers})).status).toBe(400);
+    expect((await call(path.replace('date=2026-10-02','date=2026-10-03'),{headers})).status).toBe(503);
+    for (const invalidReplyDate of ['2026-10-04','2026-10-05','2026-10-06','2026-10-07','2026-10-08']) {
+      const invalid = await call(path.replace('date=2026-10-02',`date=${invalidReplyDate}`),{headers});
+      expect(invalid.status).toBe(503);
+      await expect(invalid.json()).resolves.toMatchObject({error:{code:'SHARED_QUOTA_STATE_UNAVAILABLE'}});
+    }
+    const nextWeek=await call(path.replace('date=2026-10-02','date=2026-10-09'),{headers});
+    expect(nextWeek.status).toBe(200);
+    await expect(nextWeek.json()).resolves.toMatchObject({sharedQuota:{day:{date:'2026-10-09'},
+      week:{fromDate:'2026-10-05',toDate:'2026-10-09'}}});
+    expect((await call(path,{headers:bearer(enrolled.machineToken+'x')})).status).toBe(401);
+    expect((await call(path,{method:'POST',headers})).status).toBe(405);
+  });
   it('corrects current-week application attribution end-to-end without rewriting ledger or prior weeks', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const day = 86_400_000, now = Date.now(), shifted = new Date(now + 8 * 3_600_000);
@@ -98,8 +176,8 @@ describe('Runtime product API', () => {
     const readRows = () => env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 ORDER BY id').all();
     const original = (await readRows()).results;
     const body = { classifications: [{ platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study' }],
-      quotas: { dailyCategoryMinutes: { study: 1, composite: null, restrictedEntertainment: 0, unclassified: null },
-        weeklyRestrictedEntertainmentMinutes: 0, perApplicationDailyMinutes: [] },
+      quotas: { dailyCategoryMinutes: { study: null, composite: null, restrictedEntertainment: null, unclassified: null },
+        weeklyRestrictedEntertainmentMinutes: null, perApplicationDailyMinutes: [] },
       // Caller cannot forge the correction window or identities.
       weekReclassification: { fromMs: 0, toMs: monday + 7 * day, applications: [{ platform: 'windows', runtimeIdentity: 'app:other', classification: 'blocked' }] } };
     const saved = await call('/v2/module/app-policy?childId=child-a', { method: 'PUT',
@@ -111,7 +189,7 @@ describe('Runtime product API', () => {
     const usagePath = `/v2/module/app-usage?childId=child-a&fromMs=${monday}&toMs=${monday + 7 * day}`;
     const read = () => call(usagePath, { headers: bearer(account) });
     await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 2501,
-      categories: expect.arrayContaining([expect.objectContaining({ classification: 'study', durationMs: 1501, quota: expect.objectContaining({ remainingMs: 58499 }) })]),
+      categories: expect.arrayContaining([expect.objectContaining({ classification: 'study', durationMs: 1501 })]),
       applications: expect.arrayContaining([expect.objectContaining({ runtimeIdentity: 'app:editor', classification: 'study', durationMs: 1501 })]) });
     await expect((await call(`/v2/module/app-usage?childId=child-a&fromMs=${monday - 7 * day}&toMs=${monday}`, { headers: bearer(account) })).json())
       .resolves.toMatchObject({ totalDurationMs: 1501, categories: [expect.objectContaining({ classification: 'unclassified', durationMs: 1501 })] });
@@ -139,7 +217,7 @@ describe('Runtime product API', () => {
     const otherAccount = await accountToken({ sub: 'account-b', account_id: 'account-b', children: [{ id: 'child-b', name: 'Other' }] });
     expect((await call(usagePath, { headers: bearer(otherAccount) })).status).toBe(404);
     await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 2501,
-      weeklyRestrictedEntertainment: expect.objectContaining({ durationMs: 1501, quota: expect.objectContaining({ exceeded: true }) }),
+      weeklyRestrictedEntertainment: expect.objectContaining({ durationMs: 1501, quota: expect.objectContaining({ exceeded: false, limitMs: null }) }),
       categories: expect.arrayContaining([expect.objectContaining({ classification: 'restrictedEntertainment', durationMs: 1501 })]) });
     const late = await accountingUsage({ runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: monday + 4501, end: monday + 6002 });
     await expect((await upload([a, late])).json()).resolves.toMatchObject({ acceptedIds: [a.id, late.id], rejected: [] });
@@ -667,6 +745,17 @@ describe('Runtime product API', () => {
     await expect(mediaResponse.json()).resolves.toEqual({
       acceptedIds: [audio.id, video.id], rejected: [],
     });
+    const mediaDiagnostic = await call('/v2/module/segment-diagnostics?childId=child-a&kind=media&fromMs=0&toMs=80000&limit=1', { headers: bearer(account) });
+    expect(mediaDiagnostic.status).toBe(200);
+    const mediaDiagnosticBody = await mediaDiagnostic.json<{ items: Record<string, unknown>[]; hasMore: boolean }>();
+    expect(mediaDiagnosticBody.hasMore).toBe(true);
+    expect(mediaDiagnosticBody.items).toHaveLength(1);
+    expect(mediaDiagnosticBody.items[0]).toMatchObject({ durationMs: 60_000, mediaKind: 'video', presentation: 'foreground', displayName: null });
+    expect(Object.keys(mediaDiagnosticBody.items[0]).sort()).toEqual([
+      'displayName', 'durationMs', 'endAtMs', 'estimated', 'mediaKind', 'presentation', 'startAtMs',
+    ]);
+    expect(JSON.stringify(mediaDiagnosticBody)).not.toContain(video.id);
+    expect(JSON.stringify(mediaDiagnosticBody)).not.toContain('app:movie');
 
     const read = await call('/v2/module/accounting?childId=child-a&fromMs=0&toMs=80000', {
       headers: bearer(account),
@@ -769,8 +858,8 @@ describe('Runtime product API', () => {
         platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study',
       }],
       quotas: {
-        dailyCategoryMinutes: { study: 30, composite: null, restrictedEntertainment: 0, unclassified: null },
-        weeklyRestrictedEntertainmentMinutes: 60,
+        dailyCategoryMinutes: { study: null, composite: null, restrictedEntertainment: null, unclassified: null },
+        weeklyRestrictedEntertainmentMinutes: null,
         perApplicationDailyMinutes: [{ platform: 'windows', runtimeIdentity: 'app:editor', minutes: 10 }],
       },
     };
@@ -818,6 +907,16 @@ describe('Runtime product API', () => {
     await expect(records.json()).resolves.toMatchObject({ pending: [], processed: [] });
     const ledger = await call('/v2/module/usage-segments?childId=child-a&fromMs=0&toMs=86400000&limit=1', { headers: bearer(account) });
     await expect(ledger.json()).resolves.toMatchObject({ items: [{ runtimeIdentity: 'app:editor', authoritativeForUsage: true }] });
+    const diagnostic = await call('/v2/module/segment-diagnostics?childId=child-a&kind=usage&fromMs=0&toMs=86400000&limit=1', { headers: bearer(account) });
+    expect(diagnostic.status).toBe(200);
+    const diagnosticBody = await diagnostic.json<{ items: Record<string, unknown>[]; hasMore: boolean }>();
+    expect(diagnosticBody.items).toHaveLength(1);
+    expect(diagnosticBody.items[0]).toMatchObject({ durationMs: 600_000, applicationClassification: 'study' });
+    expect(Object.keys(diagnosticBody.items[0]).sort()).toEqual([
+      'applicationClassification', 'displayName', 'durationMs', 'endAtMs', 'estimated', 'startAtMs',
+    ]);
+    expect(JSON.stringify(diagnosticBody)).not.toContain(segment.id);
+    expect(JSON.stringify(diagnosticBody)).not.toContain('app:editor');
   });
 
   it('keeps legacy process usage in the ledger but outside the manageable app directory', async () => {
@@ -876,7 +975,7 @@ describe('Runtime product API', () => {
     expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments').first('n')).toBe(2);
   });
 
-  it('preserves time windows for legacy policy updates and reports only recent unclassified evidence', async () => {
+  it('keeps shared time windows Guardian-owned while reporting recent unclassified evidence', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const now = Date.now();
     const unclassified = await accountingUsage({
@@ -915,8 +1014,13 @@ describe('Runtime product API', () => {
         weeklyRestrictedEntertainmentMinutes: null,
         perApplicationDailyMinutes: [],
       },
-      timeWindows: closed,
     };
+    const forbiddenWindowWrite = await call('/v2/module/app-policy?childId=child-a', {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' },
+      body: JSON.stringify({ ...firstPolicy, timeWindows: closed }),
+    });
+    expect(forbiddenWindowWrite.status).toBe(409);
+    await expect(forbiddenWindowWrite.json()).resolves.toMatchObject({ error: { code: 'SHARED_ACCESS_CONFIG_OWNED_BY_GUARDIAN' } });
     expect((await call('/v2/module/app-policy?childId=child-a', {
       method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' }, body: JSON.stringify(firstPolicy),
     })).status).toBe(200);
@@ -949,18 +1053,13 @@ describe('Runtime product API', () => {
       method: 'POST', headers: bearer(enrolled.machineToken),
       body: JSON.stringify({ schemaVersion: 2, segments: [{ ...classified, localUserId, assignmentVersion: 2 }] }),
     });
-    const usage = await (await call(`/v2/module/app-usage?childId=child-a&fromMs=${now - 180_000}&toMs=${now}`, {
-      headers: bearer(account),
-    })).json<{ outsideTimeWindows: { durationMs: number; segmentCount: number } }>();
-    expect(usage.outsideTimeWindows).toMatchObject({ durationMs: 40_000, segmentCount: 1 });
-
     const legacyUpdate = { classifications: firstPolicy.classifications, quotas: firstPolicy.quotas };
     expect((await call('/v2/module/app-policy?childId=child-a', {
       method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v1"' }, body: JSON.stringify(legacyUpdate),
     })).status).toBe(200);
     const saved = await (await call('/v2/module/app-policy?childId=child-a', { headers: bearer(account) }))
       .json<{ timeWindows: ReturnType<typeof closedTimeWindows> }>();
-    expect(saved.timeWindows).toEqual(closed);
+    expect(saved.timeWindows).not.toEqual(closed);
   });
 
   it('provides privacy-safe accounting diagnostics through runtime log filters', async () => {
@@ -1011,16 +1110,22 @@ describe('Runtime product API', () => {
     });
   });
 
-  it('evaluates daily quotas per Beijing day instead of summing a weekly range', async () => {
+  it('keeps shared category quotas Guardian-owned and evaluates per-application limits per Beijing day', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const policyBody = {
       classifications: [{ platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study' }],
       quotas: {
-        dailyCategoryMinutes: { study: 10, composite: null, restrictedEntertainment: null, unclassified: null },
+        dailyCategoryMinutes: { study: null, composite: null, restrictedEntertainment: null, unclassified: null },
         weeklyRestrictedEntertainmentMinutes: null,
         perApplicationDailyMinutes: [{ platform: 'windows', runtimeIdentity: 'app:editor', minutes: 10 }],
       },
     };
+    const changedCategoryQuota = await call('/v2/module/app-policy?childId=child-a', {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' },
+      body: JSON.stringify({ ...policyBody, quotas: { ...policyBody.quotas,
+        dailyCategoryMinutes: { ...policyBody.quotas.dailyCategoryMinutes, study: 10 } } }),
+    });
+    expect(changedCategoryQuota.status).toBe(409);
     expect((await call('/v2/module/app-policy?childId=child-a', {
       method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' }, body: JSON.stringify(policyBody),
     })).status).toBe(200);
