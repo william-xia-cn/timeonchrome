@@ -8,7 +8,7 @@ const { pathToFileURL } = require('node:url');
 
 async function run() {
   const modulePath = path.join(__dirname, '..', '..', 'extension', 'core', 'shared-reminder-result.js');
-  const { buildSharedReminderResultsV1: build } = await import(pathToFileURL(modulePath).href);
+  const { buildSharedReminderResultsV1: build, validateSharedReminderResultV1: validate } = await import(pathToFileURL(modulePath).href);
   const prompt = { token: 'opaque-prompt', shownAt: 1000,
     reminders: [{ scope: 'daily' }, { scope: 'weekly' }] };
   const versions = { policyRevision: 'profile-config:12', stateRevision: 'shared:8' };
@@ -34,6 +34,11 @@ async function run() {
   assert.equal(build(prompt, { reason: 'unknown', at: 1100 }, versions).ok, false);
   assert.equal(build({ ...prompt, reminders: [{ scope: 'daily' }, { scope: 'daily' }] },
     { reason: 'user_continue', at: 1100 }, versions).ok, false);
+  assert.equal(build(prompt, { reason: 'timeout', at: 2000 }, versions).ok, false);
+  assert.equal(validate({ ...continued.results[0], url: 'https://private.test' }).ok, false);
+  assert.equal(validate({ ...continued.results[0], visibleAtMs: null }).ok, false);
+  assert.equal(validate({ ...continued.results[0], reminderId: '' }).ok, false);
+  assert.equal(validate({ ...continued.results[0], stateRevision: 'x'.repeat(129) }).ok, false);
   console.log('[Shared reminder result] passed');
 }
 

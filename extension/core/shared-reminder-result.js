@@ -9,6 +9,29 @@ const ACTIONS = {
   delivery_failed: 'delivery_failed_end',
 };
 const KINDS = new Set(['entry', 'daily', 'weekly']);
+const RESULT_FIELDS = ['schemaVersion', 'reminderId', 'policyRevision', 'stateRevision', 'kind',
+  'delivery', 'visibleAtMs', 'action', 'resolvedAtMs'];
+const RESULT_ACTIONS = new Set(Object.values(ACTIONS));
+
+export function validateSharedReminderResultV1(value) {
+  const failed = value?.delivery === 'failed';
+  const failureAction = value?.action === 'delivery_failed_continue' || value?.action === 'delivery_failed_end';
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).some(key => !RESULT_FIELDS.includes(key))
+    || value.schemaVersion !== 1
+    || !['reminderId', 'policyRevision', 'stateRevision'].every(key => typeof value[key] === 'string'
+      && value[key].trim().length > 0 && value[key].length <= 128)
+    || !KINDS.has(value.kind) || !RESULT_ACTIONS.has(value.action)
+    || !['visible', 'failed'].includes(value.delivery) || failed !== failureAction
+    || !Number.isSafeInteger(value.resolvedAtMs) || value.resolvedAtMs < 0
+    || (failed ? value.visibleAtMs !== null : !Number.isSafeInteger(value.visibleAtMs)
+      || value.visibleAtMs < 0 || value.visibleAtMs > value.resolvedAtMs)
+    || (['timeout_continue', 'timeout_end'].includes(value.action)
+      && value.resolvedAtMs - value.visibleAtMs < 60_000)) {
+    return { ok: false, errorCode: 'shared_reminder_result_invalid' };
+  }
+  return { ok: true, result: Object.fromEntries(RESULT_FIELDS.map(key => [key, value[key]])) };
+}
 
 export function buildSharedReminderResultsV1(prompt, resolution, { policyRevision, stateRevision } = {}) {
   const token = prompt?.token;
@@ -29,8 +52,12 @@ export function buildSharedReminderResultsV1(prompt, resolution, { policyRevisio
     return { ok: false, errorCode: 'shared_reminder_result_invalid' };
   }
 
-  return { ok: true, results: scopes.map((kind) => ({
+  const results = scopes.map((kind) => ({
     schemaVersion: 1, reminderId: `${token}:${kind}`, policyRevision, stateRevision, kind,
     delivery: deliveryFailed ? 'failed' : 'visible', visibleAtMs, action, resolvedAtMs,
-  })) };
+  }));
+  if (results.some(result => !validateSharedReminderResultV1(result).ok)) {
+    return { ok: false, errorCode: 'shared_reminder_result_invalid' };
+  }
+  return { ok: true, results };
 }

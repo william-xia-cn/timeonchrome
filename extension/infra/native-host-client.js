@@ -6,6 +6,7 @@ import { budgetedLocalSet } from './storage-budget.js';
 import { registerPersistedUsageSegmentObserver } from '../core/usage-segments.js';
 import { readCurrentWeekBrowserSnapshots } from './browser-bridge-v3-snapshot.js';
 import { validateSharedQuotaStateV1 } from '../core/shared-quota-state.js';
+import { validateSharedReminderResultV1 } from '../core/shared-reminder-result.js';
 
 export const TIMEONCHROME_NATIVE_HOST = 'com.timeonchrome.nativehost';
 export const LEGACY_LOCAL_GUARDIAN_HOST = 'com.timeonchrome.guardian';
@@ -48,6 +49,14 @@ let queuedHeartbeat = null;
 let queuedProbe = null;
 let queuedApplicationRead = null;
 let queuedSharedQuotaRead = null;
+let queuedSharedReminderReport = null;
+let sharedBridgeConfig = { enabled: false };
+const SHARED_NATIVE_CAPABILITIES = {
+  getSharedQuotaState: 'shared-quota-state-read',
+  reportReminderResult: 'shared-reminder-result-shadow',
+};
+let sharedNativeV3 = false;
+let sharedNativeCapabilities = new Set();
 let applicationUsageSupported = false;
 let queuedLegacyLedger = null;
 let ledgerDrainRequested = false;
@@ -258,6 +267,9 @@ function normalizeErrorCode(value) {
     'shared_quota_unavailable',
     'shared_quota_invalid_state',
     'shared_quota_stale_state',
+    'shared_reminder_unavailable',
+    'shared_reminder_invalid_ack',
+    'shared_reminder_not_issued',
   ]);
   return allowed.has(value) ? value : 'heartbeat_build_failed';
 }
@@ -288,6 +300,8 @@ function disconnectPort() {
   v2Supported = false;
   v3Supported = false;
   applicationUsageSupported = false;
+  sharedNativeV3 = false;
+  sharedNativeCapabilities.clear();
   v3ReplayPending = true;
   lastV3LocalVersion = null;
   stopHeartbeatTimer();
@@ -315,11 +329,18 @@ function ensureNativePort() {
     if (!pendingAck) return;
     // A delayed v3 response cannot consume the ACK slot of a different request.
     if (response?.requestId && pendingAck.requestId && response.requestId !== pendingAck.requestId) return;
+    if ((pendingAck.sharedQuotaRead || pendingAck.sharedReminderReport)
+      && response?.requestId !== pendingAck.requestId) {
+      rejectPendingAck(pendingAck.sharedReminderReport ? 'shared_reminder_invalid_ack' : 'shared_quota_invalid_state');
+      return;
+    }
     if (response?.ok !== true) {
       const code = response?.errorCode === 'RUNTIME_SERVICE_UNAVAILABLE' ? 'runtime_service_unavailable'
+        : pendingAck.sharedReminderReport && response?.errorCode === 'SHARED_REMINDER_NOT_ISSUED' ? 'shared_reminder_not_issued'
         : response?.errorCode === 'APPLICATION_USAGE_REVISION_CHANGED' ? 'application_usage_revision_changed'
         : pendingAck.applicationRead ? 'application_usage_unavailable'
-        : pendingAck.sharedQuotaRead ? 'shared_quota_unavailable' : 'native_invalid_response';
+        : pendingAck.sharedQuotaRead ? 'shared_quota_unavailable'
+        : pendingAck.sharedReminderReport ? 'shared_reminder_unavailable' : 'native_invalid_response';
       rejectPendingAck(code);
       if (code === 'native_invalid_response') disconnectPort();
       return;
@@ -350,7 +371,11 @@ function ensureNativePort() {
     });
   });
   port.onDisconnect.addListener(() => {
-    if (nativePort === port) nativePort = null;
+    if (nativePort === port) {
+      nativePort = null;
+      sharedNativeV3 = false;
+      sharedNativeCapabilities.clear();
+    }
     stopHeartbeatTimer();
     const hadPendingAck = pendingAck !== null;
     applicationUsageSupported = false;
@@ -368,6 +393,7 @@ function postToNativeHost(payload) {
   const port = ensureNativePort();
   const applicationRead = payload.channel === 'application' && payload.messageType === 'getApplicationUsage';
   const sharedQuotaRead = payload.channel === 'sharedQuota' && payload.messageType === 'getSharedQuotaState';
+  const sharedReminderReport = payload.channel === 'sharedQuota' && payload.messageType === 'reportReminderResult';
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
       if (!pendingAck || pendingAck.timeoutId !== timeoutId) return;
@@ -376,7 +402,7 @@ function postToNativeHost(payload) {
       reject(new Error('native_response_timeout'));
     }, applicationRead || sharedQuotaRead ? APPLICATION_USAGE_RESPONSE_TIMEOUT_MS : NATIVE_RESPONSE_TIMEOUT_MS);
     pendingAck = { resolve, reject, timeoutId, requestId: payload.requestId,
-      applicationRead, sharedQuotaRead };
+      applicationRead, sharedQuotaRead, sharedReminderReport };
     try {
       port.postMessage(payload);
     } catch (_) {
@@ -651,13 +677,27 @@ async function performSnapshotDrain() {
 async function performSend(options) {
   if (options.type === 'sharedQuotaRead') {
     try {
+      if (!sharedCapabilityAvailable('getSharedQuotaState')) return { ok: false, errorCode: 'shared_quota_unsupported' };
       const payload = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
         messageType: 'getSharedQuotaState', extensionId: chrome.runtime.id,
-        profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: {} };
+        profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: { date: options.expected.date } };
       const ack = await postToNativeHost(payload);
       if (ack.requestId !== payload.requestId) return { ok: false, errorCode: 'shared_quota_invalid_state' };
       if (ack.sharedQuota == null) return { ok: false, errorCode: 'shared_quota_unavailable' };
       return validateSharedQuotaStateV1(ack.sharedQuota, options.expected);
+    } catch (error) {
+      return { ok: false, errorCode: normalizeErrorCode(error?.message) };
+    }
+  }
+  if (options.type === 'sharedReminderReport') {
+    try {
+      if (!sharedCapabilityAvailable('reportReminderResult')) return { ok: false, errorCode: 'shared_reminder_unsupported' };
+      const payload = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
+        messageType: 'reportReminderResult', extensionId: chrome.runtime.id,
+        profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.result };
+      const ack = await postToNativeHost(payload);
+      if (ack.requestId !== payload.requestId) return { ok: false, errorCode: 'shared_reminder_invalid_ack' };
+      return { ok: true, receivedAt: ack.receivedAt, duplicate: ack.duplicate === true };
     } catch (error) {
       return { ok: false, errorCode: normalizeErrorCode(error?.message) };
     }
@@ -695,6 +735,10 @@ async function performSend(options) {
       : options.type === 'legacyLedger'
         ? await postToNativeHost(await buildSettledSegmentsPayload(options.segments || []))
         : await postToNativeHost(await buildHeartbeatPayload(options, v3Supported ? 3 : 1));
+    if (options.type === 'heartbeat' || options.type === 'probe') {
+      sharedNativeV3 = ack.supportedProtocols?.includes(3) === true;
+      sharedNativeCapabilities = new Set(ack.capabilities || []);
+    }
     // A local drain summary has no negotiation fields and must not erase capabilities.
     if (ack.supportedProtocols?.length) {
       const wasApplicationAvailable = applicationUsageSupported;
@@ -776,6 +820,12 @@ function drainQueuedSend() {
     const queued = queuedSharedQuotaRead;
     queuedSharedQuotaRead = null;
     startSend(queued.options).then(queued.resolve, () => queued.resolve({ ok: false, errorCode: 'shared_quota_unavailable' }));
+    return;
+  }
+  if (queuedSharedReminderReport) {
+    const queued = queuedSharedReminderReport;
+    queuedSharedReminderReport = null;
+    startSend(queued.options).then(queued.resolve, () => queued.resolve({ ok: false, errorCode: 'shared_reminder_unavailable' }));
     return;
   }
   if (snapshotDrainRequested && v3Supported) {
@@ -910,13 +960,56 @@ export async function requestSharedQuotaState(expected = {}) {
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(expected?.date)
     || !/^\d{4}-\d{2}-\d{2}$/.test(expected?.weekStart)
-    || typeof expected?.policyRevision !== 'string' || !expected.policyRevision) {
+    || typeof expected?.policyRevision !== 'string' || !expected.policyRevision
+    || Object.keys(expected).some(key => !['date', 'weekStart', 'policyRevision'].includes(key))) {
     return { ok: false, errorCode: 'shared_quota_query_invalid' };
   }
+  const negotiated = await negotiateSharedCapability('getSharedQuotaState', 'shared_quota');
+  if (!negotiated.ok) return negotiated;
   const options = { type: 'sharedQuotaRead', expected };
   if (!activeSendPromise) return startSend(options);
   if (queuedSharedQuotaRead) return { ok: false, errorCode: 'shared_quota_busy' };
   return new Promise(resolve => { queuedSharedQuotaRead = { options, resolve }; });
+}
+
+// No production caller enables this adapter in the shadow phase.
+export function configureSharedQuotaNativeBridge({ enabled = false } = {}) {
+  sharedBridgeConfig = { enabled: enabled === true };
+  return { ok: true };
+}
+
+function sharedCapabilityAvailable(method) {
+  const token = SHARED_NATIVE_CAPABILITIES[method];
+  return sharedBridgeConfig.enabled === true && nativePort !== null && sharedNativeV3
+    && typeof token === 'string' && sharedNativeCapabilities.has(token);
+}
+
+async function negotiateSharedCapability(method, errorPrefix) {
+  if (!sharedBridgeConfig.enabled) return { ok: false, errorCode: `${errorPrefix}_disabled` };
+  if (!SHARED_NATIVE_CAPABILITIES[method]) return { ok: false, errorCode: `${errorPrefix}_unsupported` };
+  if (activeSendPromise) await activeSendPromise.catch(() => {});
+  if (!nativePort) {
+    const health = await requestLocalGuardianHeartbeat({ trigger: 'shared_shadow_read' });
+    if (!health.ok) return health;
+    // Startup may have queued this heartbeat behind its first health send.
+    if (activeSendPromise) await activeSendPromise.catch(() => {});
+  }
+  return sharedCapabilityAvailable(method) ? { ok: true }
+    : { ok: false, errorCode: `${errorPrefix}_unsupported` };
+}
+
+export async function reportSharedReminderResult(result) {
+  const checked = validateSharedReminderResultV1(result);
+  if (!checked.ok) return checked;
+  if (!await readNativeHostDeploymentMarker().catch(() => false)) {
+    return { ok: false, errorCode: 'managed_marker_unavailable' };
+  }
+  const negotiated = await negotiateSharedCapability('reportReminderResult', 'shared_reminder');
+  if (!negotiated.ok) return negotiated;
+  const options = { type: 'sharedReminderReport', result: checked.result };
+  if (!activeSendPromise) return startSend(options);
+  if (queuedSharedReminderReport) return { ok: false, errorCode: 'shared_reminder_busy' };
+  return new Promise(resolve => { queuedSharedReminderReport = { options, resolve }; });
 }
 
 function isTrustedRecheckSender(sender) {
