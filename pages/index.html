@@ -3129,6 +3129,12 @@ function buildCustomSiteAccessPayload(config = remoteConfig || {}) {
     customCompositeList: config.customCompositeList || [],
     customRestrictedEntertainmentList: config.customRestrictedEntertainmentList || [],
     customBlockedSites: config.customBlockedSites || [],
+    ...(Array.isArray(config.siteUsageClassificationRulesV1) ? {
+      siteUsageClassificationRulesV1: config.siteUsageClassificationRulesV1.map(rule => ({
+        classification: 'other', targetType: rule.targetType,
+        normalizedValue: rule.normalizedValue || rule.targetValue,
+      })),
+    } : {}),
   };
 }
 
@@ -3832,6 +3838,11 @@ function moveCustomSiteToPolicy(value, policy) {
   if (conflicts.length > 0) {
     toast(formatSiteAccessConflict(conflicts[0]), false);
     return false;
+  }
+  if (Array.isArray(nextConfig.siteUsageClassificationRulesV1)) {
+    const target = normalizeSiteAccessHostKey(normalized);
+    nextConfig.siteUsageClassificationRulesV1 = nextConfig.siteUsageClassificationRulesV1.filter(rule =>
+      rule.targetType !== 'host' || normalizeSiteAccessHostKey(rule.normalizedValue || rule.targetValue) !== target);
   }
   remoteConfig = nextConfig;
   renderRulesPage();
@@ -5602,6 +5613,7 @@ async function applySystemAccessConfigImport() {
 // 保存网站访问配置（只提交 custom 字段，后端自动合并缺省值）
 async function saveSiteAccessConfig() {
   if (!currentProfileId || !remoteConfig) return;
+  const profileId = currentProfileId;
 
   const payload = buildCustomSiteAccessPayload(remoteConfig);
   const conflicts = findSiteAccessExactConflicts({ ...remoteConfig, ...payload });
@@ -5611,12 +5623,14 @@ async function saveSiteAccessConfig() {
   }
 
   try {
-    await saveProfileConfig(payload, 'site_access_save');
-    toast('保存成功');
+    const saved = await saveProfileConfig(payload, 'site_access_save');
+    if (currentProfileId !== profileId || remoteConfigVersion !== Number(saved.version)) return;
     // 重新加载以获取后端合并后的 effective 字段
-    const r = await api(`/profiles/${currentProfileId}/config`);
+    const r = await api(`/profiles/${profileId}/config`);
+    if (currentProfileId !== profileId || remoteConfigVersion !== Number(saved.version) || Number(r.version) !== Number(saved.version)) return;
     applyProfileConfigResponse(r);
     renderRulesPage();
+    toast('保存成功');
   } catch (e) {
     toast('保存失败: ' + (e.message || ''), false);
   }
