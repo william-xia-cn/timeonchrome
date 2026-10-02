@@ -102,6 +102,10 @@ async function run() {
   f.response({ ok: true, profileId: 'child-A', policy: policy(3) });
   assert.equal((await reader.refresh()).errorCode, 'shared_access_stale_policy');
   assert.equal(f.cache().version, 4);
+  const regressedTime = policy(5); regressedTime.effectiveAtMs = 1233;
+  f.response({ ok: true, profileId: 'child-A', policy: regressedTime });
+  assert.equal((await reader.refresh()).errorCode, 'shared_access_stale_policy');
+  assert.equal(JSON.stringify(f.cache()), JSON.stringify(stored), 'new revision cannot move policy effective time backwards');
   const conflict = policy(4); conflict.weeklyRestMinutes = 60;
   f.response({ ok: true, profileId: 'child-A', policy: conflict });
   assert.equal((await reader.refresh()).errorCode, 'shared_access_policy_conflict');
@@ -200,7 +204,7 @@ async function run() {
     .replace(/export /g, '');
   let response = new Response(JSON.stringify({ schemaVersion: 1, profileId: 'child-A', policy: policy(4) }));
   const calls = [];
-  const context = { AbortController, setTimeout, clearTimeout, CLOUD_CONFIG: { REQUEST_TIMEOUT_MS: 15000 },
+  const context = { AbortController, TextDecoder, setTimeout, clearTimeout, CLOUD_CONFIG: { REQUEST_TIMEOUT_MS: 15000 },
     requireRuntimeActivation: async () => ({ ok: true }), getCloudApiBase: () => 'https://fixture.invalid',
     fetch: async (url, options) => { calls.push({ url, options }); return response; } };
   vm.runInNewContext(`${transport};this.read = readCloudSharedAccessPolicy;`, context);
@@ -217,6 +221,49 @@ async function run() {
   response = new Response('not json'); assert.equal((await context.read(input)).errorCode, 'shared_access_invalid_policy');
   response = new Response(JSON.stringify({ schemaVersion: 1, policy: policy(4) }));
   assert.equal((await context.read(input)).errorCode, 'shared_access_invalid_policy', 'old unscoped envelope refused');
+  function streamed(text, chunkSize) {
+    const bytes = new TextEncoder().encode(text); let offset = 0, cancelled = false;
+    const body = new ReadableStream({
+      pull(controller) {
+        if (offset === bytes.length) { controller.close(); return; }
+        const end = Math.min(bytes.length, offset + chunkSize);
+        controller.enqueue(bytes.slice(offset, end)); offset = end;
+      },
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 });
+    return { response: new Response(body), size: bytes.length, consumed: () => offset, cancelled: () => cancelled };
+  }
+  const unicode = JSON.stringify({ schemaVersion: 1, profileId: '孩子-👦', policy: policy(4) });
+  response = streamed(unicode, 1).response;
+  assert.equal((await context.read(input)).profileId, '孩子-👦', 'split UTF-8 bytes decode without replacing characters');
+  const json = JSON.stringify({ schemaVersion: 1, profileId: 'child-A', policy: policy(4) });
+  const exactBytes = streamed(json + ' '.repeat(64 * 1024 - Buffer.byteLength(json)), 4096);
+  response = exactBytes.response;
+  assert.equal((await context.read(input)).ok, true, 'exact 64KiB body is accepted');
+  assert.equal(exactBytes.cancelled(), false);
+  const oversizedText = JSON.stringify({ schemaVersion: 1, profileId: '中'.repeat(24000), policy: policy(4) });
+  assert(oversizedText.length < 64 * 1024, 'character count alone would incorrectly accept this UTF-8 body');
+  const oversized = streamed(oversizedText, 4096); response = oversized.response;
+  assert.equal((await context.read(input)).errorCode, 'shared_access_invalid_policy');
+  assert.equal(oversized.cancelled(), true);
+  assert(oversized.consumed() < oversized.size, 'cancel before consuming the whole oversized response');
+  assert(oversized.consumed() <= 64 * 1024 + 4096, 'retain only an admitted byte budget plus the observed chunk');
+  let bodyCancelled = false;
+  const bodyEntered = deferred();
+  response = new Response(new ReadableStream({
+    pull() { bodyEntered.resolve(); }, cancel() { bodyCancelled = true; },
+  }, { highWaterMark: 0 }));
+  const cancelling = new AbortController();
+  const pendingBody = context.read({ ...input, signal: cancelling.signal });
+  await bodyEntered.promise; cancelling.abort();
+  assert.equal((await pendingBody).errorCode, 'shared_access_cancelled');
+  assert.equal(bodyCancelled, true, 'cancelled request also cancels a stalled response reader');
+  context.CLOUD_CONFIG.REQUEST_TIMEOUT_MS = 10;
+  let timeoutCancelled = false;
+  response = new Response(new ReadableStream({ cancel() { timeoutCancelled = true; } }, { highWaterMark: 0 }));
+  assert.equal((await context.read(input)).errorCode, 'shared_access_unavailable');
+  assert.equal(timeoutCancelled, true);
+  context.CLOUD_CONFIG.REQUEST_TIMEOUT_MS = 15000;
   const aborted = new AbortController(); aborted.abort(); const before = calls.length;
   assert.equal((await context.read({ ...input, signal: aborted.signal })).errorCode, 'shared_access_cancelled');
   assert.equal(calls.length, before);

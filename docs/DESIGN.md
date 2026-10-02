@@ -20,6 +20,10 @@ LKG仅一份完整policy，严格校验七天配额／时间段／自主度／�
 
 本包最小验证结果：`shared-access-policy-reader.test.js` 与 `local-guardian.test.js` 通过，覆盖异步身份核对中途换代、旧失败不清新状态、错Child、损坏／离线／重启、原子写失败、旧版本／同版本冲突、超时与Native能力断开。typecheck、extension-root、app-runtime-boundaries及diff检查通过。测试使用隔离存储／网络／Native夹具和真实终端校验器，不是生产API或真实Host联调。另用固定1.26.0／1.27.0包的实际policy投影与schema核对当前消费者兼容；1.27.0包SHA-256与交接一致（`c277f13547f28d0c619c036f1b0ef9cee8a053fa0384647fd3b3d30c5485c41d`）。扩展无独立契约消费者锁，未修改架构维护的workspace契约或Native锁；新增1.27来源替换执行协议不在此只读包内。Matched：读取、身份隔离、持久LKG及默认关闭；Deviated／Extra：无。Missing：真实设备接口／Host联合验收及共享执行，不部署、不替换候选、不宣称完整D-114已完成。现有TASK_BOARD草稿不纳入本次提交。
 
+2026-10-03 LKG精确审查补项：在Guardian已明确的 `profile-config:N` 数字版本范围内，新revision的effectiveAtMs不得低于旧可信policy；拒绝倒退且保持旧缓存字节不变，不推广为一般opaque revision排序规则。只读传输改用响应流累计UTF-8字节，超过64KiB即取消；多字节字符跨片使用流式解码，外部取消／超时同样取消reader，不先读取完整正文或保存错误内容。Native当前共享状态仅提供policyRevision，没有policy有效时间或摘要，不能证明客户端LKG与Native policy的revision／effectiveAtMs完整一致；本次不新增协议，保持执行关闭并将接口缺口交架构处理。补项测试限定policy/LKG与流式传输、typecheck和差异／职责检查，不改网页或应用原账、统计及任务板草稿。
+
+补项验证通过：固定1.26.0／1.27.0包消费者专项覆盖新revision生效时间倒退不写缓存、恰好64KiB、逐字节UTF-8分片、字符数未超限但字节超限的提前取消、悬停响应外部取消和超时；typecheck、diff与四文件职责检查通过。Native桥源码不变，复用d40a0bc的专项证据；隔离流和存储夹具不替代真实网络／Host验收。1.27固定schema的state仍仅含policyRevision而无effectiveAtMs，接口缺口未关闭。Matched=两项精确补丁，Deviated／Extra=无；未部署或启用。
+
 2026-10-02 执行许可持久登记准备层：新增独立 IndexedDB `shared-browser-execution-attempts-v1`，仅显式启用准备层时打开，不在 bootstrap 运行；inspect 只读登记（首次打开创建独立数据库），claim 才登记尝试。唯一 executionId 在 strict readwrite 事务中先检查、再登记，事务提交后才返回成功；最多20条且逻辑记录总量不超过8KB，容量满、损坏、读取或提交失败均拒绝。记录仅含 executionId、leaseId、时间，不包含网页内容；不自动淘汰已登记 ID，不因断线或重启重新授予同一 ID。此存储不属于网页账本，不改变 storage.local 预算或落账。登记后再次检查当前许可和租约，失效仍保留登记并拒绝；执行效果始终关闭。专项只用隔离事务故障夹具验证，真实 IndexedDB／重启验收仍未通过，不新增浏览器运行。
 
 边界补充：8KB 是记录逻辑载荷上限，不是 IndexedDB 文件的物理大小保证。20条未确认登记满后停止接收新 claim，仅允许下述持久 ACK 证明的安全退休，不按时间清除 tombstone。普通与 split-incognito 存储分区不假定共享，隐身上下文拒绝此准备登记；启用跨上下文效果前需另行验证全局去重与持久性。登记后的故障只消耗该 ID，不可通过重新执行弥补。

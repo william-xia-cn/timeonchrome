@@ -419,8 +419,31 @@ export async function readCloudSharedAccessPolicy({ deviceToken, apiBase, signal
     if (!response.ok) return { ok: false, errorCode: response.status === 401 ? 'shared_access_unauthorized'
       : response.status === 403 ? 'shared_access_unbound' : response.status === 404 ? 'shared_access_unsupported'
       : 'shared_access_unavailable' };
-    const text = await response.text();
-    if (text.length > 64 * 1024) return { ok: false, errorCode: 'shared_access_invalid_policy' };
+    const reader = response.body?.getReader();
+    if (!reader) return { ok: false, errorCode: 'shared_access_invalid_policy' };
+    const cancelReader = () => { void reader.cancel().catch(() => {}); };
+    controller.signal.addEventListener('abort', cancelReader, { once: true });
+    let text = '', bytes = 0;
+    const decoder = new TextDecoder();
+    try {
+      if (controller.signal.aborted) cancelReader();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (controller.signal.aborted) return { ok: false,
+          errorCode: signal?.aborted ? 'shared_access_cancelled' : 'shared_access_unavailable' };
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > 64 * 1024) {
+          cancelReader();
+          return { ok: false, errorCode: 'shared_access_invalid_policy' };
+        }
+        text += decoder.decode(value, { stream: true });
+      }
+      text += decoder.decode();
+    } finally {
+      controller.signal.removeEventListener('abort', cancelReader);
+      reader.releaseLock();
+    }
     let result;
     try { result = JSON.parse(text); } catch (_) { return { ok: false, errorCode: 'shared_access_invalid_policy' }; }
     if (!result || result.schemaVersion !== 1 || Object.keys(result).length !== 3 || !Object.hasOwn(result, 'policy')

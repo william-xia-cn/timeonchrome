@@ -115,6 +115,7 @@ export function createSharedAccessPolicyReader({ enabled = false, readContext = 
         const previous = await validRecord((await storage.get(SHARED_ACCESS_POLICY_LKG_KEY))[SHARED_ACCESS_POLICY_LKG_KEY], context.scopeHash);
         if (previous?.version > record.version) return fail('shared_access_stale_policy');
         if (previous?.version === record.version && previous.policyHash !== record.policyHash) return fail('shared_access_policy_conflict');
+        if (previous && record.policy.effectiveAtMs < previous.policy.effectiveAtMs) return fail('shared_access_stale_policy');
         if (!await matches(epoch, context.scopeHash)) return fail('shared_access_identity_changed');
         await storage.set({ [SHARED_ACCESS_POLICY_LKG_KEY]: record });
         return { ok: true };
