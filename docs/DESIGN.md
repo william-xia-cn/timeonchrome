@@ -20,6 +20,10 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 续修验证：固定1.28包原字节及真实分页reader专项通过，覆盖合法schema的应用scope仍被拒绝（有／无旧缓存）、重启后的旧ordinal拒绝、同ordinal内容／publication冲突、新ordinal合法降量及basis摘要不排序、旧来源消失不清账。typecheck、三文件职责检查和diff通过；固定vendor、cloud传输和background均未改，复用712bce3对应证据。Matched＝设备web授权边界与持久来源版本保护；Deviated／Extra＝无。真实API／Host验收和完整policy身份缺口仍未关闭。
 
+2026-10-03 集成复验夹具修正：超时用例此前以10毫秒期限建立初始LKG且未断言成功，在较慢环境初始缓存可能尚未建立便取消，导致后续预期lkg实际不可用。改为先用正常期限独立确认缓存，再创建超时reader；在首个挂起请求到达后由受控测试时钟触发截止，确认取消／LKG／迟到不写。生产期限与读取代码不改，不以增加超时掩盖失败；只修改该测试及此记录。
+
+夹具修正后，普通专项命令及带固定1.28包验真的专项命令均通过，diff和两文件职责检查通过。产品源码零变更，复用ca0bb56的typecheck／边界证据；Matched＝独立建立可信LKG再验证超时降级与迟到不写，Deviated／Extra＝无。真实API／Host缺项不变，TASK_BOARD草稿未纳入。
+
 ### D-114 终端契约与实施边界
 
 2026-10-03 统一配置读取／LKG独立包：云端交接明确 `GET /device/shared-access/v1` 使用既有设备Bearer、自绑定Child、无scope query/body，最终响应为 `{schemaVersion:1,profileId,policy}`，同父端UnifiedChildAccessPolicyV1。必须核对服务端profileId与捕获的本机cloud_profile_id；错Child明确不可用，不把政策写入旧scope或沿用旧LKG冒充当前授权。旧云端404保持旧网页路径，不改 `/device/config`、配置源或stage。终端只增加捕获凭据的只读传输和默认关闭消费适配；初始化同步注册生命周期／身份与Native能力监听，显式候选启用后才在启动／重连读取。旧Service未协商V3和shared-quota-state-read时不读取、不共享执行。原云同步、网页访问和配置保存函数不接入此缓存。

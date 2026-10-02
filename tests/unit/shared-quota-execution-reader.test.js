@@ -182,9 +182,19 @@ async function run() {
   try { await Promise.race([published.promise, new Promise((_, reject) => { publishTimer = setTimeout(() => reject(Error('queued publish timeout')), 2000); })]); }
   finally { clearTimeout(publishTimer); }
   assert.equal(late.cache().assembled.basis.revision, 'b'.repeat(64)); assert.equal(late.writes.length, 1);
-  const timed = fixture(), tr = mod.createSharedQuotaExecutionReader({ ...timed.options, roundTimeoutMs: 10 }); await tr.refresh();
-  const never = deferred(); timed.response(() => never.promise);
-  assert.equal((await tr.refresh()).status, 'lkg'); assert.equal(timed.calls.at(-1).signal.aborted, true);
+  const timed = fixture(); assert.equal((await timed.reader().refresh()).status, 'fresh');
+  const tr = mod.createSharedQuotaExecutionReader({ ...timed.options, roundTimeoutMs: 10 });
+  const never = deferred(), waiting = deferred(); timed.response(() => { waiting.resolve(); return never.promise; });
+  const realSetTimeout = global.setTimeout; let deadline, timeoutRead;
+  try {
+    global.setTimeout = (callback, delay, ...args) => {
+      assert.equal(delay, 10); deadline = callback;
+      return realSetTimeout(callback, 2000, ...args);
+    };
+    timeoutRead = tr.refresh();
+  } finally { global.setTimeout = realSetTimeout; }
+  await waiting.promise; deadline();
+  assert.equal((await timeoutRead).status, 'lkg'); assert.equal(timed.calls.at(-1).signal.aborted, true);
   never.resolve({ ok: true, page: makePages()[0] }); await new Promise(resolve => setImmediate(resolve)); assert.equal(timed.writes.length, 1);
   // Default boot wires lifecycle/identity listeners only, never reads identity/network/storage.
   const beforeChrome = global.chrome, events = {};
