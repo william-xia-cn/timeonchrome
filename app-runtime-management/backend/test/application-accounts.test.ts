@@ -6,7 +6,8 @@ import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationA
 import { routeV2 } from '../src/v2Routes';
 import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota,
   reconcileApplicationSharedQuotaEvidence, readVerifiedChromeMarginals,
-  readCoveredChromeDeduction, applicationSharedQuotaUploadReady } from '../src/applicationSharedQuota';
+  readCoveredChromeDeduction, applicationSharedQuotaUploadReady,
+  readApplicationSharedQuotaContributions } from '../src/applicationSharedQuota';
 import type { MachineSelfResponse } from '../src/contracts';
 
 const start = usageAccountDayStart('2026-09-27');
@@ -121,6 +122,13 @@ it('checks shared contribution against the published immutable account before an
       reasonCode:'SHARED_POLICY_NOT_VERIFIED'});
   expect(await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB,now+301_000,f.machine.machineId))
     .toEqual({processed:1,verified:1});
+  const shared=await readApplicationSharedQuotaContributions(env.RUNTIME_DB,f.machine.accountId,f.childId,snapshot.manifest.date);
+  expect(shared).toMatchObject({complete:true,expectedScopeCount:1,verifiedScopeCount:1,reasonCodes:[]});
+  expect(shared.contributions).toHaveLength(1);
+  expect(shared.contributions[0].contribution).toMatchObject({source:'application',sourceKey:expect.any(String),
+    policyRevision:'profile-config:1',complete:true});
+  expect(JSON.stringify(shared)).not.toContain(localUserId);
+  expect(JSON.stringify(shared)).not.toContain(f.machine.machineId);
   expect(await env.RUNTIME_DB.prepare(`SELECT source_verified,chrome_included_ms,statistics_manifest_hash
     FROM runtime_application_shared_quota_verified_v1 WHERE machine_id=?1`).bind(f.machine.machineId).first())
     .toEqual({source_verified:1,chrome_included_ms:0,statistics_manifest_hash:snapshot.manifest.manifestHash});
@@ -129,6 +137,8 @@ it('checks shared contribution against the published immutable account before an
   expect(await readCoveredChromeDeduction(env.RUNTIME_DB,f.machine.accountId,f.childId,f.machine.machineId,
     snapshot.manifest.date,snapshot.manifest.date,1501)).toBe(0);
   await send(2,{statisticsRevision:'wrong-statistics'});
+  expect(await readApplicationSharedQuotaContributions(env.RUNTIME_DB,f.machine.accountId,f.childId,snapshot.manifest.date))
+    .toMatchObject({complete:false,expectedScopeCount:1,verifiedScopeCount:0});
   expect(await readVerifiedChromeMarginals(env.RUNTIME_DB,f.machine.accountId,f.childId,
     snapshot.manifest.date,snapshot.manifest.date)).toEqual([]);
   expect(await readCoveredChromeDeduction(env.RUNTIME_DB,f.machine.accountId,f.childId,f.machine.machineId,
