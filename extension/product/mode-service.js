@@ -16,6 +16,9 @@ import { enqueueModeBoundaryIntent } from '../core/mode-boundary-intents.js';
 import { setCachedEffectiveMode } from '../runtime/session.js';
 import { getTodayStatsWithCategories } from './analytics.js';
 import { evaluateQuotaState, getTodayEffectiveRestLimit } from './quota.js';
+import { isSharedAccessRuntimeEnabled } from './shared-access-runtime.js';
+import { sharedAccessAdmissionV1 } from '../core/shared-contracts/1.30.0/shared-access.js';
+import { resolveManagedTargetAttribution } from '../core/managed-targets.js';
 import { getEffectiveQuotaForDate } from '../core/quota-config.js';
 import { getModeWindowStatus, hasTimeWindowsDaily, reminderReasonForModeWindow } from '../core/time-windows.js';
 import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/client-logs.js';
@@ -710,7 +713,7 @@ async function handleAccessObserved(event = {}) {
   }
 
   const nowMs = Number.isFinite(Number(event.nowMs)) ? Number(event.nowMs) : Date.now();
-  const config = await getConfig();
+  let config = await getConfig();
   if (!config.enabled) return baseDecision({ access: 'ignore', reason: 'config_disabled' });
 
   const domain = event.domain || extractDomain(url);
@@ -768,7 +771,7 @@ async function handleAccessObserved(event = {}) {
     siteClassification.classification === 'composite' ||
     isTemporaryCompositeDomain
   );
-  const quotaResult = Number(config?.timeQuota?.accountingVersion) === 2
+  const quotaResult = Number(config?.timeQuota?.accountingVersion) === 2 || isSharedAccessRuntimeEnabled()
     ? await evaluateQuotaState().catch((error) => ({
         ok: true,
         accountingVersion: 2,
@@ -780,6 +783,7 @@ async function handleAccessObserved(event = {}) {
         usage: { ok: false },
       }))
     : null;
+  if (quotaResult?.sharedRuntime) config = quotaResult.config;
   const quotaState = quotaResult?.newState || config.quotaState || {};
   const lockedDomains = quotaResult?.accountingVersion === 2
     ? (quotaResult.lockedDomains || [])
@@ -821,6 +825,27 @@ async function handleAccessObserved(event = {}) {
     });
   }
 
+  if (quotaResult?.sharedModel) {
+    const model = quotaResult.sharedModel, projection = model.preparation.projection;
+    const attribution = resolveManagedTargetAttribution(config, siteClassificationRecords, url);
+    const category = attribution?.targetClassificationAtTime === 'other' ? 'other'
+      : isStudyDomain ? 'study' : isRestricted ? 'restrictedEntertainment' : isCompositeDomain ? 'composite' : 'unclassified';
+    const local = new Date(nowMs + 28800000), date = local.toISOString().slice(0, 10);
+    const day = projection.days.find(d => d.date === date);
+    if (!day) return baseDecision({ access: 'reminder', reminder: { reason: 'accounting_unavailable', params: {} }, domain, config });
+    const admission = sharedAccessAdmissionV1(model.policy, day,
+      { complete: projection.complete, restRemainingMs: projection.week.restRemainingMs }, category,
+      local.getUTCHours() * 60 + local.getUTCMinutes(), true);
+    if (admission.decision !== 'allow') {
+      const reasons = { QUOTA_STUDY: 'quota_study', QUOTA_REST: 'daily_rest_locked', QUOTA_WEEKLY_REST: 'weekly_rest_locked',
+        QUOTA_COMPOSITE_AND_REST: 'quota_composite_and_rest', WINDOW_STUDY: 'study_schedule_locked',
+        WINDOW_REST: 'rest_schedule_locked', WINDOW_COMPOSITE: 'composite_schedule_locked' };
+      return baseDecision({ access: 'reminder', reminder: { reason: reasons[admission.reasonCode] || 'accounting_unavailable', params: {} },
+        sharedAdmission: admission, domain, config });
+    }
+    if (category === 'other') return baseDecision({ access: 'allow', sharedAdmission: admission, domain, config });
+  }
+
   if (quotaState.studyLocked && isStudyDomain) {
     return baseDecision({
       access: 'reminder',
@@ -834,9 +859,18 @@ async function handleAccessObserved(event = {}) {
   const currentMode = modeSnapshot.mode;
   const windowCheckAt = new Date(nowMs);
   const hasModeWindows = hasTimeWindowsDaily(config);
-  const studyWindow = getModeWindowStatus(config, 'study', windowCheckAt);
-  const compositeWindow = getModeWindowStatus(config, 'composite', windowCheckAt);
-  const restWindow = getModeWindowStatus(config, 'rest', windowCheckAt);
+  const sharedWindow = mode => {
+    if (!quotaResult?.sharedModel) return getModeWindowStatus(config, mode, windowCheckAt);
+    const local = new Date(nowMs + 28800000);
+    const result = sharedAccessAdmissionV1(quotaResult.sharedModel.policy,
+      { date: local.toISOString().slice(0, 10), complete: true, remainingMs: { study: null, composite: null, rest: null } },
+      { complete: true, restRemainingMs: null }, mode === 'rest' ? 'restrictedEntertainment' : mode,
+      local.getUTCHours() * 60 + local.getUTCMinutes());
+    return { configured: true, mode, allowed: result.decision === 'allow' };
+  };
+  const studyWindow = sharedWindow('study');
+  const compositeWindow = sharedWindow('composite');
+  const restWindow = sharedWindow('rest');
   const legacyScheduleAllowed = hasModeWindows || !config.schedule?.enabled
     ? true
     : isWithinSchedule(config.schedule, windowCheckAt);

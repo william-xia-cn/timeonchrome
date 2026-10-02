@@ -14,14 +14,22 @@ async function run() {
   const fixed = await import(url('extension/core/shared-contracts/1.30.0/shared-web-sync.js'));
   if (process.argv[2]) {
     const archive = fs.readFileSync(process.argv[2]);
-    assert.equal(archive.length, 101100);
-    assert.equal(createHash('sha256').update(archive).digest('hex'), '63309999adf5115803d5eaee83852126f8d35ed390944208e1acfb07b8783c3e');
-    for (const name of ['shared-access.js', 'shared-web-sync.js']) {
+    assert.equal(archive.length, 109153);
+    assert.equal(createHash('sha256').update(archive).digest('hex'), '83138e4e8b66cebc8331ac6b87cc4b58a2b9f1f2169c976b1eb440f8915984d7');
+    for (const name of ['shared-access.js', 'shared-web-sync.js', 'shared-quota-execution.js', 'shared-reminder-lifecycle.js']) {
       assert.equal(fs.readFileSync(path.join(root, 'extension/core/shared-contracts/1.30.0', name), 'utf8').replace(/\r\n/g, '\n'),
         execFileSync('tar', ['-xOf', process.argv[2], `package/dist/${name}`], { encoding: 'utf8' }).replace(/\r\n/g, '\n'));
     }
     const v = JSON.parse(execFileSync('tar', ['-xOf', process.argv[2], 'package/shared-web-sync.vectors.json'], { encoding: 'utf8' }));
     assert.deepEqual(await fixed.verifySharedWebContributionV1(v.upload), v.upload);
+    const lease = { schemaVersion: 1, scopeRevision: 'a'.repeat(64), policyIdentity: v.upload.policyIdentity,
+      claims: v.proof.claims, verifiedAtMs: v.verificationTimeMs };
+    for (const example of v.localLeaseCases) {
+      assert.equal(fixed.sharedWebLocalLeaseCurrentV1({ ...lease, ...example.lease }, {
+        scopeRevision: lease.scopeRevision, policyIdentity: { ...lease.policyIdentity, ...example.currentPolicy },
+        connectionLive: true, capabilityNegotiated: true, nowMs: v.verificationTimeMs, ...example.current,
+      }), example.expected, example.name);
+    }
     const key = await crypto.subtle.importKey('jwk', v.publicJwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
     const { challengeId, connectionHash, applicationSourceKey, childScopeHash, assignmentVersion } = v.proof.claims;
     const expected = { challengeId, connectionHash, applicationSourceKey, childScopeHash, assignmentVersion };
@@ -39,7 +47,7 @@ async function run() {
     .replace(/import \{ getBeijingWeekPeriod \}[^;]+;/, 'const {getBeijingWeekPeriod}=globalThis.__sharedWebDates;')
     .replace(/import \{ readSharedAccessPolicyContext[^;]+;/, 'const readSharedAccessPolicyContext=()=>null,readSharedAccessPolicyLkg=()=>null,SHARED_ACCESS_POLICY_LKG_KEY="policy";')
     .replace(/import \{ readCloudSharedWebCapabilities[^;]+;/, 'const readCloudSharedWebCapabilities=()=>null,readCloudSharedWebWatermark=()=>null,postCloudSharedWebContribution=()=>null,requestCloudSharedWebSourceBinding=()=>null;')
-    .replace(/import \{ requestSharedWebSync, observeSharedAccessPolicyCapability \}[^;]+;/, 'const requestSharedWebSync=()=>null,observeSharedAccessPolicyCapability=()=>null;')
+    .replace(/import \{ requestSharedWebSync, observeSharedAccessPolicyCapability, readSharedWebLocalConnection \}[^;]+;/, 'const requestSharedWebSync=()=>null,observeSharedAccessPolicyCapability=()=>null,readSharedWebLocalConnection=()=>({connection:null,capabilityNegotiated:false});')
     .replace(/import \{ runStorageMutation \}[^;]+;/, 'const runStorageMutation=()=>null;')
     .replace(/import \{ readSharedQuotaExecutionLkg \}[^;]+;/, 'const readSharedQuotaExecutionLkg=()=>null;');
   const mod = await dataModule(source);
@@ -53,6 +61,7 @@ async function run() {
   assert.equal(policyCore.validateSharedAccessPolicyV1(policy).ok, true);
   const now = Date.parse('2026-10-03T12:00:00Z'), sourceKey = 'web:' + 'b'.repeat(64);
   function fixture(enabled = true) {
+    let clock = now, connection = {}, leaseCapability = true;
     let context = { apiBase: 'https://fixture.invalid', deviceId: 'fixture-device', childId: 'fixture-child', deviceToken: 'fixture-token' };
     let currentPolicy = clone(policy);
     const store = { daily_usage_stats_v1: {}, guardian_config: {} }, heads = new Map(), calls = [], nativeCalls = [];
@@ -64,7 +73,8 @@ async function run() {
       targets: { fixture: { activeByQuotaBucket: { study: 600, other: 600 } } } };
     const head = d => heads.get(d) || { schemaVersion: 1, sourceKey, date: d, revisionOrdinal: 0, contentHash: null, publicationRevision: null };
     let cap = true, failed = false, responseHook = null;
-    const options = { enabled, now: () => now, readContext: async () => clone(context), readPolicy: async () => ({ ok: true, policy: clone(currentPolicy) }),
+    const options = { enabled, now: () => clock, readConnection: () => ({ connection, capabilityNegotiated: leaseCapability }),
+      readContext: async () => clone(context), readPolicy: async () => ({ ok: true, policy: clone(currentPolicy) }),
       readStorage: async () => clone(store), mutate: async fn => fn({ get: async () => clone(store), set: async v => Object.assign(store, clone(v)) }),
       capabilities: async () => ({ ok: true, value: { schemaVersion: 1, protocol: 'shared-web-sync-v1', enabled: cap } }),
       readWatermark: async (_c, d) => ({ ok: true, value: clone(head(d)) }),
@@ -74,7 +84,7 @@ async function run() {
         issuedAtMs: now, expiresAtMs: now + 300000 } } }),
       native: async (method, payload) => {
         nativeCalls.push({ method, payload: clone(payload) });
-        if (method === 'getSharedWebSourceChallenge') return { ok: true, value: { schemaVersion: 1, challengeId: 'c'.repeat(64), connectionHash: 'd'.repeat(64), expiresAtMs: now + 300000 } };
+        if (method === 'getSharedWebSourceChallenge') return { ok: true, value: { schemaVersion: 1, challengeId: 'c'.repeat(64), connectionHash: 'd'.repeat(64), expiresAtMs: now + 90000 } };
         if (method === 'bindSharedWebSource') return { ok: true, value: { challengeId: 'c'.repeat(64), webSourceKey: sourceKey, expiresAtMs: now + 300000 } };
         return { ok: true, value: { date: payload.upload.date, revisionOrdinal: payload.upload.revisionOrdinal, contentHash: payload.upload.contentHash, duplicate: false } };
       }, upload: async (_c, u) => {
@@ -86,6 +96,7 @@ async function run() {
         return { ok: true, value: { ...watermark, status: 'accepted', submittedRevisionOrdinal: u.revisionOrdinal } };
       }, readBasis: async () => ({ ok: false }) };
     return { store, calls, nativeCalls, heads, options, sync: mod.createSharedWebContributionSync(options),
+      clock: v => { clock = v; }, connection: v => { connection = v; }, leaseCapability: v => { leaseCapability = v; },
       cap: v => { cap = v; }, fail: v => { failed = v; }, hook: v => { responseHook = v; }, context: v => { context = v; }, policy: v => { currentPolicy = v; } };
   }
   const disabled = fixture(false); assert.equal((await disabled.sync.refresh()).ok, false); assert.equal(disabled.calls.length, 0);
@@ -95,9 +106,13 @@ async function run() {
   assert.equal(current.upload.bucketsMs.study, 600000); assert.equal(current.cloudConfirmed, true);
   const firstHash = current.upload.contentHash;
   await f.sync.refresh(); assert.equal(f.store[mod.SHARED_WEB_QUEUE_KEY].days['2026-10-03'].upload.contentHash, firstHash);
+  assert.equal(f.calls.length, 6, 'unchanged confirmed week does not upload again');
+  assert.equal(f.nativeCalls.filter(c => c.method === 'replaceSharedWebContribution').length, 6,
+    'same live Host receipt prevents resending unchanged week');
   f.store.daily_usage_stats_v1['2026-10-03'].domains['fixture.invalid'].activeSeconds = 1260;
   f.store.daily_usage_stats_v1['2026-10-03'].targets.fixture.activeByQuotaBucket.rest = 60;
   await f.sync.refresh(); assert.equal(f.store[mod.SHARED_WEB_QUEUE_KEY].days['2026-10-03'].upload.revisionOrdinal, 2);
+  assert.equal(f.calls.length, 7, 'only the changed date uploads');
   f.store.daily_usage_stats_v1['2026-10-03'] = { domains: { fixture: { activeSeconds: 600 } }, targets: { fixture: { activeByQuotaBucket: { study: 600 } } } };
   await f.sync.refresh();
   assert.equal(f.store[mod.SHARED_WEB_QUEUE_KEY].days['2026-10-03'].upload.activeMs, 600000);
@@ -123,7 +138,17 @@ async function run() {
   assert.notEqual(newer.store[mod.SHARED_WEB_QUEUE_KEY].days['2026-09-28'].cloudConfirmed, true, 'old ACK cannot clear a newer persisted ordinal');
   const restart = fixture(); await restart.sync.refresh();
   restart.sync = mod.createSharedWebContributionSync(restart.options); await restart.sync.refresh();
+  assert.equal(restart.calls.length, 6, 'restart reconciles watermark without uploading confirmed content');
+  assert.equal(restart.nativeCalls.filter(c => c.method === 'replaceSharedWebContribution').length, 12);
+  assert.equal((await restart.sync.readBinding()).ok, true);
   assert.equal(restart.store[mod.SHARED_WEB_QUEUE_KEY].days['2026-10-03'].upload.revisionOrdinal, 1);
+  const expiredChallenge = fixture(); let exchanges = 0;
+  expiredChallenge.options.native = async () => ({ ok: true, value: { schemaVersion: 1,
+    challengeId: 'c'.repeat(64), connectionHash: 'd'.repeat(64), expiresAtMs: now } });
+  expiredChallenge.options.exchange = async () => { exchanges++; throw Error('expired challenge must not exchange'); };
+  expiredChallenge.sync = mod.createSharedWebContributionSync(expiredChallenge.options);
+  await expiredChallenge.sync.refresh();
+  assert.equal(exchanges, 0); assert.equal((await expiredChallenge.sync.readBinding()).ok, false);
   const rebase = fixture(); rebase.heads.set('2026-09-28', { schemaVersion: 1, sourceKey, date: '2026-09-28', revisionOrdinal: 9, contentHash: 'a'.repeat(64), publicationRevision: '9:' + 'a'.repeat(64) });
   await rebase.sync.refresh(); assert.equal(rebase.calls[0].revisionOrdinal, 10, 'independent watermark recovers ordinal');
   const prepared = fixture();
@@ -144,6 +169,24 @@ async function run() {
   assert.equal(p.replacementVersions.length, 6);
   prepared.store.daily_usage_stats_v1['2026-10-03'].domains['fixture.invalid'].activeSeconds++;
   assert.equal((await prepared.sync.readPreparation()).errorCode, 'shared_web_local_version_changed');
+  prepared.store.daily_usage_stats_v1['2026-10-03'].targets.fixture.activeByQuotaBucket.rest = 1;
+  const cloudCalls = prepared.calls.length;
+  const nativeCount = prepared.nativeCalls.filter(x => x.method === 'replaceSharedWebContribution').length;
+  prepared.cap(false); prepared.clock(now + 3600000);
+  await prepared.sync.refresh();
+  const offlinePrepared = await prepared.sync.readPreparation();
+  assert.equal(offlinePrepared.projection.complete, true, 'live negotiated local lease accepts growth after proof expiry');
+  assert.equal(offlinePrepared.projection.days.at(-1).usedMs.rest, 1000);
+  assert.equal(prepared.calls.length, cloudCalls, 'offline lease never uploads an expired proof');
+  assert.equal(prepared.nativeCalls.filter(x => x.method === 'replaceSharedWebContribution').length, nativeCount + 1,
+    'only changed local date is replaced');
+  assert.equal((await prepared.sync.readBinding()).ok, true);
+  prepared.leaseCapability(false);
+  assert.equal((await prepared.sync.readBinding()).ok, false, 'old Host cannot extend proof lifetime');
+  prepared.leaseCapability(true); prepared.connection({});
+  assert.equal((await prepared.sync.readPreparation()).ok, false, 'new Port cannot inherit old local lease');
+  await prepared.sync.refresh();
+  assert.equal((await prepared.sync.readBinding()).ok, false, 'offline reconnect requires a new signed binding');
   const stale = fixture(); stale.options.upload = async (_c, u) => ({ ok: true, value: {
     schemaVersion: 1, sourceKey, date: u.date, revisionOrdinal: u.revisionOrdinal + 1, contentHash: 'a'.repeat(64),
     publicationRevision: `${u.revisionOrdinal + 1}:` + 'a'.repeat(64), status: 'stale', submittedRevisionOrdinal: u.revisionOrdinal } });

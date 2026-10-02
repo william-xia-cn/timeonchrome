@@ -119,7 +119,14 @@ function validateExtensionPackageRoot(extensionDir) {
   }
   const manifest = readJson(path.join(extensionDir, 'manifest.json'));
   const markerPath = path.join(extensionDir, 'deployment-profile.json');
-  const deploymentMode = fs.existsSync(markerPath) ? readJson(markerPath)?.mode : null;
+  const marker = fs.existsSync(markerPath) ? readJson(markerPath) : null;
+  const deploymentMode = marker?.mode ?? null;
+  const developmentClose = marker?.sharedBrowserCloseDevelopment === true;
+  const hasDebugger = manifest.permissions?.includes('debugger') === true;
+  if ((developmentClose && deploymentMode !== DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT)
+    || hasDebugger !== developmentClose) {
+    throw new Error('debugger permission requires an explicit native-host development close marker');
+  }
   if (deploymentMode !== null
     && deploymentMode !== DEPLOYMENT_MODE_MANAGED
     && deploymentMode !== DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT) {
@@ -168,10 +175,12 @@ function validateExtensionPackageRoot(extensionDir) {
   }
 }
 
-function applyLocalGuardianChannelBoundary(stagingDir, nativeHostEnabled) {
+function applyLocalGuardianChannelBoundary(stagingDir, nativeHostEnabled, sharedBrowserCloseDevelopment = false) {
   const manifestPath = path.join(stagingDir, 'manifest.json');
   const manifest = readJson(manifestPath);
   const permissions = new Set(Array.isArray(manifest.permissions) ? manifest.permissions : []);
+  if (sharedBrowserCloseDevelopment) permissions.add('debugger');
+  else permissions.delete('debugger');
   const resources = Array.isArray(manifest.web_accessible_resources)
     ? manifest.web_accessible_resources.map((entry) => ({
         ...entry,
@@ -199,7 +208,7 @@ function applyLocalGuardianChannelBoundary(stagingDir, nativeHostEnabled) {
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }
 
-function stageExtensionPackage(extensionDir, stagingDir, deploymentMode = null, manifestPublicKey = null, candidateVersion = null) {
+function stageExtensionPackage(extensionDir, stagingDir, deploymentMode = null, manifestPublicKey = null, candidateVersion = null, sharedBrowserCloseDevelopment = false) {
   const managedDeployment = deploymentMode === DEPLOYMENT_MODE_MANAGED;
   const nativeHostEnabled = managedDeployment
     || deploymentMode === DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT;
@@ -212,7 +221,7 @@ function stageExtensionPackage(extensionDir, stagingDir, deploymentMode = null, 
     const target = path.join(stagingDir, entry.name);
     fs.cpSync(source, target, { recursive: true, force: true });
   }
-  applyLocalGuardianChannelBoundary(stagingDir, nativeHostEnabled);
+  applyLocalGuardianChannelBoundary(stagingDir, nativeHostEnabled, sharedBrowserCloseDevelopment);
   if (deploymentMode === DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT) {
     if (!manifestPublicKey) throw new Error('native-host development staging requires --public-key-manifest');
     const manifestPath = path.join(stagingDir, 'manifest.json');
@@ -223,7 +232,8 @@ function stageExtensionPackage(extensionDir, stagingDir, deploymentMode = null, 
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   }
   if (nativeHostEnabled) {
-    fs.writeFileSync(path.join(stagingDir, 'deployment-profile.json'), JSON.stringify({ mode: deploymentMode }, null, 2) + '\n', 'utf8');
+    fs.writeFileSync(path.join(stagingDir, 'deployment-profile.json'), JSON.stringify({ mode: deploymentMode,
+      ...(sharedBrowserCloseDevelopment ? { sharedBrowserCloseDevelopment: true } : {}) }, null, 2) + '\n', 'utf8');
   }
   if (managedDeployment) {
     const leakedPrivacyPages = [...MANAGED_PACKAGE_EXCLUDED_ENTRIES]
@@ -330,6 +340,11 @@ function main() {
   const managedDeployment = args['managed-deployment'] === true || args['managed-deployment'] === 'true';
   const nativeHostDevelopment = args['native-host-development'] === true
     || args['native-host-development'] === 'true';
+  const sharedBrowserCloseDevelopment = args['shared-browser-close-development'] === true
+    || args['shared-browser-close-development'] === 'true';
+  if (sharedBrowserCloseDevelopment && !nativeHostDevelopment) {
+    throw new Error('--shared-browser-close-development requires an unpacked --native-host-development candidate');
+  }
   if (managedDeployment && nativeHostDevelopment) {
     throw new Error('--managed-deployment and --native-host-development are mutually exclusive');
   }
@@ -373,7 +388,7 @@ function main() {
   }
   if (!/^https:\/\//i.test(baseUrl)) throw new Error('base-url must be HTTPS for production policy use');
 
-  stageExtensionPackage(extensionDir, packageDir, deploymentMode, publicKeyManifest?.key || null, candidateVersion);
+  stageExtensionPackage(extensionDir, packageDir, deploymentMode, publicKeyManifest?.key || null, candidateVersion, sharedBrowserCloseDevelopment);
 
   if (pack) {
     const chromePath = findChromeExecutable(args.chrome || process.env.CHROME_EXE || '');

@@ -10,7 +10,7 @@ export function captureSharedQuotaPreparation(value, expected) {
   if (!exact(value, ['schemaVersion', 'basisRevision', 'policyIdentity', 'projection', 'transportStatus', 'replacementVersions', 'reasonCodes', 'executionEnabled'])
     || value.schemaVersion !== 1 || value.executionEnabled !== false || !['online', 'offline', 'unavailable'].includes(value.transportStatus)
     || !(value.basisRevision === null || hash(value.basisRevision)) || !reasons(value.reasonCodes)
-    || !Array.isArray(value.replacementVersions) || value.replacementVersions.length > 14) throw Error('shared_web_invalid_preparation');
+    || !Array.isArray(value.replacementVersions) || value.replacementVersions.length > 1400) throw Error('shared_web_invalid_preparation');
   if (value.policyIdentity !== null && (!validateSharedAccessPolicyIdentityV1(value.policyIdentity).ok || value.policyIdentity.revision !== expected.policyRevision)) throw Error('shared_web_invalid_preparation');
   const seen = new Set();
   for (const r of value.replacementVersions) {

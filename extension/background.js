@@ -39,7 +39,13 @@ import { acceptPrivacyConsent, getPrivacyConsentPageUrl } from './core/privacy-c
 import { resolveActivationState } from './core/activation-gate.js';
 import { getSiteClassificationSpecialTargets } from './core/site-classification.js';
 import { getQuotaUsageForConfig, getQuotaAccountingVersion, buildQuotaStateFromUsage } from './product/quota.js';
-import { configureRestUsageReminder, evaluateRestUsageReminder, handleRestUsageReminderAction, restoreRestUsageReminderForTab, REST_USAGE_REMINDER_DEADLINE_ALARM, REST_USAGE_REMINDER_RETRY_ALARM } from './product/rest-usage-reminder.js';
+import { configureRestUsageReminder, evaluateRestUsageReminder as evaluateLegacyRestUsageReminder, handleRestUsageReminderAction, restoreRestUsageReminderForTab, suspendLegacyRestUsageReminder, REST_USAGE_REMINDER_DEADLINE_ALARM, REST_USAGE_REMINDER_RETRY_ALARM } from './product/rest-usage-reminder.js';
+import { isSharedAccessRuntimeEnabled } from './product/shared-access-runtime.js';
+import { pollSharedAccessIntegration, initSharedAccessIntegration } from './product/shared-access-integration.js';
+
+function evaluateRestUsageReminder(options) {
+  return isSharedAccessRuntimeEnabled() ? pollSharedAccessIntegration() : evaluateLegacyRestUsageReminder(options);
+}
 import { dispatchOptionalModuleAlarm, dispatchOptionalModuleMessage, getOptionalModuleEntries } from './runtime/optional-module-host.js';
 
 registerStoragePressureHandler((options) => runV1StorageMaintenance(options));
@@ -165,6 +171,10 @@ async function bootstrapServiceWorker(reason) {
     await setupAlarms();
     scheduleModeBoundaryDrain(`bootstrap:${reason}`);
     localGuardianBootstrapState = 'ready';
+    initSharedAccessIntegration({ onExecutionChanged: suspendLegacyRestUsageReminder, allowed: async () => {
+      const activation = await resolveActivationState();
+      return activation.activated === true && getSyncState().monitoringEnabled !== 0;
+    } });
     notifyLocalGuardianBootstrapResult('ready', `bootstrap_complete:${reason}`).catch(() => {});
   } catch (err) {
     localGuardianBootstrapState = 'failed';
@@ -1693,7 +1703,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const currentDomain = extractDomain(sender?.tab?.url || '');
         markContentScriptReady(tabId, currentDomain);
         const delivery = await reSendPendingNoticeDetailed(tabId, currentDomain);
-        await restoreRestUsageReminderForTab(tabId).catch(() => null);
+        if (!isSharedAccessRuntimeEnabled()) await restoreRestUsageReminderForTab(tabId).catch(() => null);
         if (delivery?.attempted === true || delivery?.sent === true || delivery?.ack || delivery?.deferred === true) {
           await recordModeEffectTrace({
             event: {
@@ -1732,6 +1742,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'REST_USAGE_REMINDER_ACTION') {
+    if (isSharedAccessRuntimeEnabled()) {
+      sendResponse({ ok: false, error: 'legacy_rest_reminder_inactive' });
+      return false;
+    }
     (async () => {
       const result = await handleRestUsageReminderAction(msg, sender);
       sendResponse(result);

@@ -821,6 +821,7 @@ async function run() {
   let holdLifecycle = false;
   let releaseLifecycle;
   let lifecycleExecution = null;
+  let continuitySupported = false;
   let wrongExecutionReceipt = false;
   let duplicateExecutionReceipt = false;
   const lifecycle = await loadGuardian({ storage: {}, policy,
@@ -830,7 +831,8 @@ async function run() {
       const reply = () => onMessage.listeners.forEach(listener => listener({
         ok: !(isLifecycle && lifecycleError), errorCode: lifecycleError,
         receivedAt: Date.now(), requestId: isLifecycle && missingLifecycleId ? undefined : payload.requestId,
-        supportedProtocols: [1, 2, 3], capabilities: lifecycleSupported ? ['shared-reminder-lifecycle-v1', 'shared-browser-activity-v1'] : [],
+        supportedProtocols: [1, 2, 3], capabilities: lifecycleSupported ? ['shared-reminder-lifecycle-v1', 'shared-browser-activity-v1',
+          ...(continuitySupported ? ['shared-reminder-continuity-v1'] : [])] : [],
         browserActivityLeaseId: 'fixture-lease',
         ...(isLifecycle ? { sharedReminder: { ...lifecycleState,
           ...(payload.messageType === 'acknowledgeSharedReminderDelivery' ? { status: 'visible', visibleAtMs: 2500 } : {}),
@@ -889,6 +891,21 @@ async function run() {
   assert.strictEqual(lifecycle.module.retirementEvidenceForTest.at(-1).executionId, 'execution-1');
   assert.match(lifecycle.module.retirementEvidenceForTest.at(-1).identityHash, /^[a-f0-9]{64}$/);
   assert.deepStrictEqual(lifecycleRequests.at(-1).payload, executionAck);
+  lifecycleExecution = { ...lifecycleExecution, stateRevision: 'latest-execution', triggerStateRevision: 'state-1' };
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date })).ok, false,
+    'growth permit rejected before capability negotiation');
+  continuitySupported = true;
+  await lifecycle.module.requestLocalGuardianHeartbeat({ trigger: 'test_continuity', force: true });
+  assert.strictEqual(lifecycle.module.hasSharedReminderContinuityCapability(), true);
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date })).browserExecution.triggerStateRevision, 'state-1');
+  const growthAck = { ...executionAck, stateRevision: 'latest-execution', triggerStateRevision: 'state-1' };
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeBrowserExecution', growthAck)).ok, true);
+  assert.deepStrictEqual(lifecycleRequests.at(-1).payload, growthAck);
+  continuitySupported = false;
+  await lifecycle.module.requestLocalGuardianHeartbeat({ trigger: 'test_continuity_removed', force: true });
+  assert.strictEqual(lifecycle.module.hasSharedReminderContinuityCapability(), false);
+  lifecycleExecution = { ...lifeIdentity, executionId: 'execution-1', leaseId: 'fixture-lease', activityId: 'fixture-activity',
+    targetSource: 'browser', effect: 'request-normal-close', maxAgeMs: 5000 };
   wrongExecutionReceipt = true;
   const beforeInvalidAck = lifecycle.module.executionFenceForTest.capture();
   const retirementCount = lifecycle.module.retirementEvidenceForTest.length;
@@ -996,12 +1013,15 @@ async function run() {
   assert.strictEqual(activityRequests.length, oldHostCount);
   assert(leasesObserved.includes(null) && leasesObserved.includes('fixture-lease-2'));
   const webRequests = [], challenge = { schemaVersion: 1, challengeId: 'c'.repeat(64), connectionHash: 'd'.repeat(64), expiresAtMs: Date.now() + 300000 };
-  let webCapable = true, badWebReceipt = false;
+  let webCapable = true, badWebReceipt = false, localLeaseCapable = false, fullSharedCapable = false;
   const webHost = await loadGuardian({ storage: {}, policy, development: true,
     connectNative: () => createPort((payload, onMessage) => {
       webRequests.push(payload);
       queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(), requestId: payload.requestId,
-        supportedProtocols: [3], capabilities: ['health', ...(webCapable ? ['shared-web-contribution-sync-v1'] : [])],
+        supportedProtocols: [3], capabilities: ['health', ...(webCapable ? ['shared-web-contribution-sync-v1'] : []),
+          ...(localLeaseCapable ? ['shared-web-local-lease-v1'] : []),
+          ...(fullSharedCapable ? ['shared-quota-state-read', 'shared-access-policy-identity-read',
+            'shared-quota-execution-preparation-read-v1', 'shared-browser-activity-v1', 'shared-reminder-lifecycle-v1'] : [])],
         ...(payload.messageType === 'getSharedWebSourceChallenge' ? { sharedWebSourceChallenge: badWebReceipt ? { ...challenge, deviceToken: 'forbidden' } : challenge } : {}),
         ...(payload.messageType === 'bindSharedWebSource' ? { sharedWebSourceBound: { challengeId: challenge.challengeId, webSourceKey: payload.payload.proof.claims.webSourceKey, expiresAtMs: payload.payload.proof.claims.expiresAtMs } } : {}),
         ...(payload.messageType === 'replaceSharedWebContribution' ? { sharedWebContributionAccepted: {
@@ -1012,6 +1032,15 @@ async function run() {
   assert.strictEqual((await webHost.module.requestSharedWebSync('getSharedWebSourceChallenge', {})).ok, false);
   webHost.module.configureSharedQuotaNativeBridge({ enabled: true });
   assert.deepStrictEqual((await webHost.module.requestSharedWebSync('getSharedWebSourceChallenge', {})).value, challenge);
+  const liveConnection = webHost.module.readSharedWebLocalConnection().connection;
+  assert(liveConnection);
+  assert.strictEqual(webHost.module.readSharedWebLocalConnection().capabilityNegotiated, false);
+  assert.strictEqual(webHost.module.hasSharedAccessExecutionCapability(), false);
+  localLeaseCapable = true; fullSharedCapable = true;
+  await webHost.module.requestLocalGuardianHeartbeat({ force: true });
+  assert.strictEqual(webHost.module.readSharedWebLocalConnection().connection, liveConnection);
+  assert.strictEqual(webHost.module.readSharedWebLocalConnection().capabilityNegotiated, true);
+  assert.strictEqual(webHost.module.hasSharedAccessExecutionCapability(), true);
   const proof = { schemaVersion: 1, keyId: 'a'.repeat(64), signature: 'A'.repeat(86), claims: { schemaVersion: 1,
     audience: 'timeonchrome:shared-web-source:v1', challengeId: challenge.challengeId, connectionHash: challenge.connectionHash,
     applicationSourceKey: 'e'.repeat(64), childScopeHash: 'f'.repeat(64), assignmentVersion: 1, webSourceKey: 'web:' + 'b'.repeat(64),
@@ -1027,6 +1056,8 @@ async function run() {
   const unsupportedCount = webRequests.length;
   assert.strictEqual((await webHost.module.requestSharedWebSync('getSharedWebSourceChallenge', {})).ok, false);
   assert.strictEqual(webRequests.length, unsupportedCount);
+  assert.strictEqual(webHost.module.readSharedWebLocalConnection().connection, null);
+  assert.strictEqual(webHost.module.hasSharedAccessExecutionCapability(), false);
   console.log('[Local Guardian] passed');
   process.exit(0);
 }

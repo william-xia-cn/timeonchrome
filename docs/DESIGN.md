@@ -1,5 +1,46 @@
 # TimeOnChrome — 技术设计文档
 
+## D-114 第二批终端接线（2026-10-03，本地及隔离关页验证通过，生产执行关闭）
+
+真实期限对齐：Guardian challenge的90秒是兑换窗口，签名proof的300秒是绑定有效期，不得要求proof到期早于challenge。只分别校验challenge当前可兑换、proof结构／签名来源／身份和当前有效期；Host负责真实验签及scope确认。固定回归使用90秒challenge与300秒proof，过期challenge不进入兑换。
+
+旧提醒退出：进入shared消费者前暂停旧Rest提醒调用者，串行清除旧弹层／投递截止并恢复其暂停的媒体；不触发结束休息、不改模式或网页会话、不推进软限额阈值。shared退出后恢复旧提醒评估。旧Content action／restore不在shared期间继续消费，避免两套提醒同时生效。真实关页专项仅测关闭自然结算，固定隔离idle夹具不代表OS idle精度验收。
+
+整批续接线：固定最终local-lease契约包源 `eea0143f85b9c34bed8695660ceb9306ba6782c5`，109153字节，SHA256 `83138e4e8b66cebc8331ac6b87cc4b58a2b9f1f2169c976b1eb440f8915984d7`，保留旧包证据。实际bootstrap在激活有效且managed／经身份核验的开发渠道启用准备读取与派生贡献，普通／CWS保持旧路径；消费者只在可信云端policy为shared且当前Host支持时启用，关页另需开发权限门禁。初始化异步失败不得阻塞原bootstrap。短proof仅授权新绑定与在线云请求；已被Host接受并协商 `shared-web-local-lease-v1` 的同一活Port可通过共同helper延续内存本地lease，不得持久化、断连复用或将过期proof用于云请求。身份／策略变化和Host拒绝立即撤销准备完整性；新增派生事实先走仍有效的本地lease，网络不可用不得阻止本地替换。验收固定包、能力隔离、离线与重连，不以测试开关冒充实际入口；最终候选尚不生成。
+
+此前派生贡献专项复验：PO 已批准修正夹具后再次运行 `shared-web-contribution-sync.test.js`，限定本地测试，不变更原始记账或发布。当时契约包源 `a5597b6c84b904e79cc2371f826a87ee087b8d5a`，108218字节，SHA256 `c89294a50ea3d6425d082329d6781ecef7daa248666f72d198c9e572368b1570`；保留为历史证据，当前固定包见本节local-lease续接线。版本冲突保护不得为使夹具通过而放宽。
+
+本次复验通过（退出码0）：固定包大小／SHA256／编译模块原字节、签名证明、队列重建、旧ACK与版本隔离、下降更正、离线退避、重启水位及网页与应用派生合并均通过。未修改生产实现或放宽契约；Matched＝批准的专项复验，Deviated／Extra＝无。该结果仅为本地夹具和消费者验证，不代表真实Native／HTTPS联调或第二批整体验收完成。
+
+第二批连续性接线使用最终共同契约：提醒身份固定在触发摘要，短期结束许可核验最新摘要，增长许可及ACK必须携带同一 `triggerStateRevision`。仅当前Native连接声明 `shared-reminder-continuity-v1` 时接受增长分支；客户端不得上传自称连续增长的标记。Service负责完整来源、策略、修订与递增用量判定，消费者在每次请求前后核对当前摘要，并要求可见实例身份保持不变。显式隔离开关同时配置既有Native、策略、basis读取和贡献控制器；生产默认仍关闭。关页准备API也须有界，迟到attach须撤销，命令成功不充当关闭证据。专项范围为最终共同向量、真实调用者、Native回执、提醒、执行及隔离Chromium原账守恒，不扩大至生产或全量回归。
+
+开发候选权限闸门：现有staging工具新增显式 `--shared-browser-close-development`，仅与 `--native-host-development` 的unpacked staging组合允许；临时manifest增加debugger，marker增加 `sharedBrowserCloseDevelopment:true`。未指定标记、普通／CWS或正式managed包均剥离debugger；不得生成CRX或update feed，不改正在加载的候选。真实消费者同时确认开发渠道、授权marker、manifest权限和Chrome实际授予权限，缺失时报 `shared_browser_close_permission_unavailable`，不claim、不关闭。此候选权限专项仅在临时目录验证；Native联合授权仍待验收。
+
+后续接线清单：独立内存来源绑定读取（云签名proof对应当前Host连接）→ 同完整policy／本机web版本的Native合并准备余额读取 → quota实际调用者及mode访问窗口消费 → 可见提醒绑定执行摘要与许可消费 → 目标标签正常／强制关闭及自然事件确认 → 隔离Chromium验收。所有新增调用者由一个显式本地开关控制，默认false，云端stage shared仅是必要条件，不能自行开启。公共分类用量按共享余额计算，Online／domain继续读取原网页用量；临时运行配置只投影Guardian公共配置、不保存到storage。原始分段和上传不改。关闭成功必须观察目标onRemoved，正常取消不升级；强制仅消费Service显式force-close许可，debugger仅在隔离候选具有批准权限时可用，正式manifest不增加权限。本批最小专项覆盖实际quota调用、提醒摘要竞态、关页结果及原自然结算；真实浏览器只用全新隔离Profile和本地测试页，不操作既有候选及家庭数据。
+
+此前准备小步只验证共同执行身份、原43执行／28生命周期／24活动向量和派生贡献，当时共享调用者及真实关页为Missing。现由下面整批结果补充，不把早期小步当整批交付，不复用旧持久性证据覆盖新关页结果。
+
+终端工作线仅修改派生准备余额和执行许可消费者，不修改原账、云端、候选或生产开关。按顺序核对：固定第二批1.30包 → 共同执行摘要 → 当前准备余额读取 → 许可检查及claim前后复核 → 专项测试。最终固定源与包哈希见上文 `a5597b6`；中间 `d199d01` 包及第一批包保留为历史证据。整批集成使用现有云端分支最终 `778be44`，保留merge父节点，不用选择性复制替换来源。
+
+执行身份使用契约共同函数，对完整policy身份、basis、完整projection及排序后的来源替换版本求摘要；不能只使用云端state revision。当前准备余额缺失或不完整时不可准备许可；本机贡献变化后摘要变化，旧permit不得登记或执行。连接／认证／租约代次独立校验，同摘要不延长许可期限。源码默认关闭，隔离显式开关可评估效果，绝不手工结算。既有TASK_BOARD草稿不改。
+
+整批实现与审计：
+- 来源绑定只来自当前Host challenge对应的云端签名proof，内存保存有效期；Native准备余额必须匹配完整policy、本机web版本、授权应用source和当前lease，异步前后复核一致。
+- 实际quota消费者使用临时投影，不保存Guardian配置；Online／单站点仍读取网页量。ACCESS_OBSERVED使用共同准入，复合借Rest仍受Composite窗口管理，窗口边界固定北京时间；黑名单及独立对象限制优先，“其他”不扣公共分类桶。
+- 可见提醒固定触发身份，协商连续性后正常增长不撤销或重新投递；短期许可、claim及效果前复核最新执行摘要，ACK完整回传触发摘要。默认关闭的集成控制器统一配置既有读取器，迟到enable不能恢复已关闭执行。
+- 已确认且指纹／水位不变的派生贡献不再重复上传整周；Host重接仍重新接受贡献，不能以云端ACK替代Host状态。只改变独立派生队列，不改原始上传。
+- 正常结束只走可取消的Page.close；超时结束只接受Service明确force-close许可。准备API有界，迟到attach撤销；只有目标onRemoved证明完成，beforeunload取消不升级强制，无关alert不能伪装成取消。
+
+专项结果：共同13准入／12连续性／9增长许可向量、执行摘要、实际共享配额调用者、81项mode-service、17项原模式矩阵、Native Port／完整ACK、提醒bridge、执行claim／结果／重试、控制器开关竞态、派生队列、策略／basis读取器、媒体配额隔离均通过；typecheck、extension-root（2.16MB）、职责边界及diff检查通过。无全量测试、生产操作或候选改动。
+
+新真实隔离证据位于临时 `toc-close-isolated-sQao6n/close-ledger-evidence.json`，不是旧 `output/playwright/d114/execution-persistence.json`。Chromium `147.0.7727.15`：正常与强制各自然结算1段，原始／日／小时均2秒；取消为0段／0秒且原页面ACTIVE，无关页存活，计时dispatch无错误。真实SW加载当前整合模块图、默认关闭检查通过；Native授权仍明确 `FIXTURE_NOT_VERIFIED`。脚本SHA256 `c54ae7c0656dedc92069c10d8370c2f245697666bcbca437d6cfc4f2a900d61c`，closer `a5858b1021ade441e1a872d53a9288a374975f54b19efbd033f068dbede8a97f`，原signal `da4feb79660579ebc5998a244684e47085261186d4c96bcf4491fc8502f4ce56`、timing-dispatcher `9606b3703170c991c3703e07341bb455dd0c76a0f306e1ba90c09fdd4df1170e`、session `5263798a0372bc07690aa4d5661875b91cdc94736f90ca5988f3876c60e24966`。测试只在隔离临时包授予debugger，不改正式manifest或现有家庭数据。
+
+续接线结果：最终local-lease包四个编译模块原字节及7项共同lease向量通过；实际派生调用覆盖过期后同连接新增、能力缺失、换Port拒绝、重连不继承、90秒challenge／300秒proof及不变整周不重复发送。实际bootstrap按渠道／activation／Host／可信stage自动进入与退出，旧提醒清理114项专项通过。开发权限临时包矩阵、executor前置拒绝、closer目标和超时专项通过，不改加载中的候选。
+
+最新隔离关页证据：`C:\Users\William\AppData\Local\Temp\toc-close-isolated-uGhD52\close-ledger-evidence.json`，Chromium147.0.7727.15；normal／force各1段，原始／日／小时均2秒，cancel零段且ACTIVE，无关页存活。脚本SHA256 `e2f22a7b6e327ce7596293779a12e84e0ff347127a4df38abcd98b10c57b7fc4`、closer `2413ba23f75c0732ec6308cf39aedfa9d8d128be0148109e3784f9bda0322d73`。旧sQao6n仅为旧代码证据。首次复跑因测试机器OS idle让ACTIVE夹具提前关闭；隔离测试单独设置idle检测间隔，不改产品代码，证据明确 `idleBoundary=ISOLATED_FIXTURE_NOT_VERIFIED`，不能称真实idle计时验收。
+
+Matched＝批准的整批消费者、实际启动入口、候选权限闸门、同连接内存lease及隔离关页评估；Deviated／Extra＝无。Missing＝真实已部署HTTPS／Native Service联合授权、连续增长／更正／离线／断线实机链路和最终候选安装验收。最终wire只在Host响应声明能力，没有新增客户端capability字段；Service如何绑定终端连续性支持须由架构／Native联合验证，未协商时拒绝增长许可。不得由Host或客户端提供 `continuousUsageGrowth` 自证，不因专项通过宣称生产贯通。最终集成来源为云端整批 `b695549`，保留真实merge父节点；尚不生成候选、不发布。
+
 ## D-114 第一批派生贡献接线（2026-10-03，本地专项通过，真实联调未验收）
 
 使用已核验的集中源码 `30d53c11c9fbc7613539b0e05d99628e9ea27187` 对应1.30.0开发契约（101100字节，SHA256 `63309999adf5115803d5eaee83852126f8d35ed390944208e1acfb07b8783c3e`），替代此前临时草包。新增独立、有界、默认关闭的网页统计贡献队列，读取已落地日统计和批准更正，不改变原始分段、聚合、既有observer或上传队列。当前周启动重建及统计变化驱动；每日期独立ordinal、内容hash、云端ACK及重试状态。旧ACK不得清理新贡献，服务器水位不能被当作V2版本；绑定或策略变化后重新捕获身份，异步旧结果不得生效。
@@ -94,7 +135,9 @@ PR #197 CI 只读核对：`app-runtime.yml` 对所有 PR opened/synchronize/reop
 
 1.26 无效果准备层：固定源 `7ceab64bbe1f5c5e997edbd872c705d03cd5fb56`，82747 字节验真包 SHA-256 `a53d765f239d2f04d7c172c109f49ea2ae0db73689cbcea6d588da81074722c5`。校验独立 `browserExecution`，严格绑定提醒 identity、lease、activity、版本及当前 Rest 页面；有效期从 Native 请求入口的单调时间计入排队和传输延迟。不从 resolution/stage 推断许可。默认关闭的准备调用者 `inspectSharedBrowserExecution(date, { enabled })` 经 Native 读取、实时活动复核、许可资格检查返回无效果结果，不调用网页关闭、模式切换、结算或存储写入；一次尝试登记通过显式注入接口准备，claim 前再次核对身份、时间及已有尝试，真实持久登记及效果调用仍待单项批准。`acknowledgeBrowserExecution` 使用既有串行 Port，发送及回执时复核当前 lease，严格确认 executionId/requestId；准备检查本身不发送 completed，不把 canceled 升级。43 项执行、28 项生命周期、24 项活动共同向量及 Native 回执、实例、未知字段专项通过，真实扩展／Service／效果执行未验收。
 
-### 网页结束执行待裁决边界（尚未实施）
+### 网页结束执行边界（已批准隔离评估，候选执行未启用）
+
+2026-10-03 架构交接补齐此前PO批准原文：允许隔离评估网页强制结束及必要的debugger路径；必须证明必要性、目标隔离、取消行为和原账自然事件守恒后，才能纳入最终候选。以下10月2日“待单项裁决／无浏览器运行授权”记录是历史状态，不再作为拒绝隔离评估的依据；隔离评估批准不等于直接新增正式权限、更新现有候选或开启生产执行，也不允许改原账语义。当前小步仍只完成执行身份准备检查，关闭效果及隔离实测尚未完成。
 
 2026-10-02 API 只读核验：Chrome Tabs API 的 remove 仅接受 tabIds，没有 force/cancel 参数；当前 Chromium main 的 `TabsRemoveFunction::RemoveTab` 调用 WebContents::Close，并等 WebContentsDestroyed 才回响应，不能把请求发出当作关闭完成。其 delegate 经 CanCloseContents 与 CloseWebContents 进入标签关闭路径，不能仅靠 Promise<void> 分辨用户取消。CDP `PageHandler::Close` 明确派发 TAB_CLOSE beforeunload，可作为正常关闭候选；CDP 与 `chrome.debugger` 需要额外权限、挂接和真实取消/目标销毁验收，当前 manifest 无 debugger，不新增权限或实现。不能把 Target.closeTarget 的返回 true 当成页面已销毁或强制保证。证据为 Chromium main，不冒充当前安装 Chrome 的实测。来源：https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/extensions/api/tabs/tabs_api.cc 、https://raw.githubusercontent.com/chromium/chromium/main/content/browser/devtools/protocol/page_handler.cc 、https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc 。
 

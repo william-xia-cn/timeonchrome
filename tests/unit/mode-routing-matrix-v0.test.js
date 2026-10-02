@@ -61,6 +61,7 @@ function loadModeService(stubs = {}) {
   code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
 
   const context = {
+    isSharedAccessRuntimeEnabled: () => false,
     URL,
     console,
     Date,

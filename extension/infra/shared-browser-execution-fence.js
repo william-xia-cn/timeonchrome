@@ -2,7 +2,8 @@ const IDENTITY = ['schemaVersion', 'roundId', 'reminderId', 'deliveryId', 'polic
   'stateRevision', 'executionId', 'leaseId', 'activityId'];
 
 export async function browserExecutionIdentityHash(value) {
-  const bytes = new TextEncoder().encode(JSON.stringify(IDENTITY.map(key => value[key])));
+  const fields = Object.hasOwn(value, 'triggerStateRevision') ? [...IDENTITY, 'triggerStateRevision'] : IDENTITY;
+  const bytes = new TextEncoder().encode(JSON.stringify(fields.map(key => value[key])));
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }

@@ -134,6 +134,7 @@ const quotaApi = loadProdModule('product/quota.js', ['evaluateQuotaState'], {
   isCloudQuotaStateFactCurrent: () => false,
   combineQuotaStates: (localState) => localState,
   getConfig: async () => config,
+  isSharedAccessRuntimeEnabled: () => false,
   saveConfig: async (next) => {
     savedConfig = JSON.parse(JSON.stringify(next));
     config = next;

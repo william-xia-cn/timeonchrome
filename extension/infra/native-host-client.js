@@ -784,7 +784,9 @@ async function performSend(options) {
       const execution = validateSharedBrowserExecution(ack.browserExecution);
       if (!execution.ok || !state.state || state.state.stage !== 'shared' || state.state.status !== 'resolved'
         || !Number.isSafeInteger(state.state.visibleAtMs) || Object.keys(sharedReminderIdentityForExecution(state.state))
-        .some(field => execution.payload[field] !== state.state[field])) {
+        .some(field => (field === 'stateRevision'
+          ? execution.payload.triggerStateRevision ?? execution.payload.stateRevision : execution.payload[field]) !== state.state[field])
+        || execution.payload.triggerStateRevision !== undefined && !hasSharedReminderContinuityCapability()) {
         return { ok: false, errorCode: 'INVALID_SHARED_BROWSER_EXECUTION' };
       }
       return { ...state, browserExecution: execution.payload, requestStartedMonotonicMs: options.requestStartedMonotonicMs };
@@ -1164,6 +1166,16 @@ export function configureSharedQuotaNativeBridge({ enabled = false } = {}) {
 export function getSharedBrowserActivityLease() {
   return sharedCapabilityAvailable('reportBrowserActivity') ? browserActivityLeaseId : null;
 }
+export function hasSharedReminderContinuityCapability() {
+  return sharedBridgeConfig.enabled === true && nativePort !== null && sharedNativeV3
+    && sharedNativeCapabilities.has('shared-reminder-continuity-v1');
+}
+// Opaque Port identity stays in memory; never serialize it into Native payloads or storage.
+export function readSharedWebLocalConnection() {
+  return { connection: sharedCapabilityAvailable('replaceSharedWebContribution') ? nativePort : null,
+    capabilityNegotiated: sharedBridgeConfig.enabled === true && nativePort !== null && sharedNativeV3
+      && sharedNativeCapabilities.has('shared-web-local-lease-v1') };
+}
 function notifyBrowserActivityLease() {
   try { Promise.resolve(browserActivityObserver?.(getSharedBrowserActivityLease())).catch(() => {}); } catch (_) {}
   for (const observer of sharedPolicyObservers) {
@@ -1172,6 +1184,12 @@ function notifyBrowserActivityLease() {
 }
 export function hasSharedAccessPolicyCapability() {
   return nativePort !== null && sharedNativeV3 && sharedNativeCapabilities.has('shared-quota-state-read');
+}
+export function hasSharedAccessExecutionCapability() {
+  return sharedBridgeConfig.enabled === true && nativePort !== null && sharedNativeV3
+    && ['shared-quota-state-read', 'shared-web-contribution-sync-v1', 'shared-access-policy-identity-read',
+      'shared-quota-execution-preparation-read-v1', 'shared-browser-activity-v1', 'shared-reminder-lifecycle-v1']
+      .every(capability => sharedNativeCapabilities.has(capability));
 }
 export function observeSharedAccessPolicyCapability(observer) {
   if (typeof observer !== 'function' || sharedPolicyObservers.size >= 8) return () => {};

@@ -34,7 +34,7 @@ function loadBorrowRestQuota(stubs) {
   code = code.replace(/export\s+function\s+/g, 'function ');
   code = code.replace(/export\s+const\s+/g, 'const ');
   code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
-  const context = { ...stubs, Date, Math };
+  const context = { isSharedAccessRuntimeEnabled: () => false, ...stubs, Date, Math };
   vm.createContext(context);
   vm.runInContext(`${code}\nthis.__borrowRestQuota = borrowRestQuota;`, context, { filename: 'quota.js' });
   return { borrowRestQuota: context.__borrowRestQuota };

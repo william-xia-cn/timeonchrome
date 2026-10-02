@@ -1,12 +1,12 @@
 import { canonicalSharedWebSync, sharedWebContributionHashV1, verifySharedWebContributionV1,
-  validateSharedWebSourceBindingProofV1, sharedWebExecutionSourceV1 } from '../core/shared-contracts/1.30.0/shared-web-sync.js';
+  validateSharedWebSourceBindingProofV1, sharedWebExecutionSourceV1, sharedWebLocalLeaseCurrentV1 } from '../core/shared-contracts/1.30.0/shared-web-sync.js';
 import { validateSharedAccessPolicyV1 } from '../core/shared-access-policy.js';
 import { buildLocalQuotaProjectionV2 } from '../core/quota-read-model-v2.js';
 import { getBeijingWeekPeriod } from '../core/profile-account-v2.js';
 import { readSharedAccessPolicyContext, readSharedAccessPolicyLkg, SHARED_ACCESS_POLICY_LKG_KEY } from './shared-access-policy-reader.js';
 import { readCloudSharedWebCapabilities, readCloudSharedWebWatermark, postCloudSharedWebContribution,
   requestCloudSharedWebSourceBinding } from './cloud-sync.js';
-import { requestSharedWebSync, observeSharedAccessPolicyCapability } from './native-host-client.js';
+import { requestSharedWebSync, observeSharedAccessPolicyCapability, readSharedWebLocalConnection } from './native-host-client.js';
 import { runStorageMutation } from './storage-budget.js';
 import { readSharedQuotaExecutionLkg } from './shared-quota-execution-reader.js';
 import { projectLocalSharedQuotaExecution } from '../core/shared-contracts/1.28.0/shared-quota-execution.js';
@@ -40,11 +40,21 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
   readStorage = keys => chrome.storage.local.get(keys), mutate = runStorageMutation,
   capabilities = readCloudSharedWebCapabilities, readWatermark = readCloudSharedWebWatermark,
   upload = postCloudSharedWebContribution, exchange = requestCloudSharedWebSourceBinding, native = requestSharedWebSync,
-  readBasis = readSharedQuotaExecutionLkg } = {}) {
+  readBasis = readSharedQuotaExecutionLkg, readConnection = readSharedWebLocalConnection } = {}) {
   let running = null, queued = false, epoch = 0;
   const nativeReceipts = new Map();
   let preparation = fail('shared_web_not_prepared');
   let preparationScope = null;
+  let sourceBinding = null;
+  let bindingConnection = null, localLease = null;
+  function bindingCurrent(c) {
+    const connection = readConnection();
+    if (!sourceBinding || sourceBinding.scopeHash !== c.scopeHash || localLease?.policyIdentity.policyHash !== c.policyHash
+      || !bindingConnection || connection.connection !== bindingConnection) return false;
+    return sourceBinding.expiresAtMs > now() || sharedWebLocalLeaseCurrentV1(localLease, {
+      scopeRevision: c.scopeHash, policyIdentity: c.policyIdentity, connectionLive: true,
+      capabilityNegotiated: connection.capabilityNegotiated === true, nowMs: now() });
+  }
   async function capture() {
     const context = await readContext(), response = await readPolicy();
     const checked = response?.ok && validateSharedAccessPolicyV1(response.policy);
@@ -98,6 +108,7 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     return { fingerprint, upload: { ...body, contentHash: await sharedWebContributionHashV1(body) } };
   }
   async function bind(c, generation, sourceKey) {
+    const connection = readConnection().connection;
     const challenge = await native('getSharedWebSourceChallenge', {});
     if (!challenge.ok || !await current(c, generation)) return null;
     const r = challenge.value;
@@ -108,12 +119,19 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     const proof = clone(proofResponse.value);
     validateSharedWebSourceBindingProofV1(proof);
     if (proof.claims.challengeId !== r.challengeId || proof.claims.connectionHash !== r.connectionHash
-      || proof.claims.webSourceKey !== sourceKey || proof.claims.expiresAtMs > r.expiresAtMs
+      || proof.claims.webSourceKey !== sourceKey
       || proof.claims.issuedAtMs > now() || proof.claims.expiresAtMs <= now()) return null;
     // Signature and machine assignment are verified by Host against its trusted HTTPS context.
     const bound = await native('bindSharedWebSource', { proof });
-    if (!await current(c, generation) || !bound.ok || bound.value?.challengeId !== r.challengeId
+    if (!connection || readConnection().connection !== connection || !await current(c, generation) || !bound.ok || bound.value?.challengeId !== r.challengeId
       || bound.value.webSourceKey !== sourceKey || bound.value.expiresAtMs !== proof.claims.expiresAtMs) return null;
+    sourceBinding = { challengeId: r.challengeId, connectionHash: r.connectionHash,
+      expiresAtMs: proof.claims.expiresAtMs, webSourceKey: sourceKey,
+      applicationSourceKey: proof.claims.applicationSourceKey, scopeHash: c.scopeHash };
+    bindingConnection = connection;
+    localLease = { schemaVersion: 1, scopeRevision: c.scopeHash, policyIdentity: clone(c.policyIdentity),
+      claims: clone(proof.claims), verifiedAtMs: now() };
+    nativeReceipts.clear();
     return { challengeId: r.challengeId, expiresAtMs: proof.claims.expiresAtMs };
   }
   async function perform(generation) {
@@ -139,10 +157,37 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
         q = await change(c, generation, q => { q.days[d] = item; return q; });
         if (!q) return fail('shared_web_identity_changed');
       }
+      // Already verified local scope continues before any network read; never send expired proofs online.
+      if (bindingCurrent(c)) {
+        for (const d of dates) {
+          const submitted = q.days[d].upload;
+          if (nativeReceipts.get(d)?.hash === submitted.contentHash) continue;
+          const accepted = await native('replaceSharedWebContribution', { challengeId: sourceBinding.challengeId, upload: submitted });
+          if (!await current(c, generation) || !bindingCurrent(c)) return fail('shared_web_identity_changed');
+          if (!accepted.ok || accepted.value?.date !== d || accepted.value.revisionOrdinal !== submitted.revisionOrdinal
+            || accepted.value.contentHash !== submitted.contentHash) {
+            nativeReceipts.clear(); sourceBinding = null; localLease = null; bindingConnection = null;
+            preparation = fail('shared_web_native_rejected');
+            return preparation;
+          }
+          nativeReceipts.set(d, { hash: submitted.contentHash });
+          q = await change(c, generation, latest => {
+            if (latest.days[d]?.upload.contentHash === submitted.contentHash) latest.days[d].sourceKey = sourceBinding.webSourceKey;
+            return latest;
+          });
+          if (!q) return fail('shared_web_identity_changed');
+        }
+        preparation = await prepare(c, generation, date, q); preparationScope = c.scopeHash;
+      } else {
+        nativeReceipts.clear(); preparation = fail('shared_web_binding_unavailable');
+      }
       const cap = await capabilities(c);
       if (!await current(c, generation)) return fail('shared_web_identity_changed');
       if (!cap.ok || !exact(cap.value, ['schemaVersion', 'protocol', 'enabled']) || cap.value.schemaVersion !== 1
-        || cap.value.protocol !== 'shared-web-sync-v1' || cap.value.enabled !== true) return fail('shared_web_disabled');
+        || cap.value.protocol !== 'shared-web-sync-v1' || cap.value.enabled !== true) {
+        if (preparation.schemaVersion === 1) preparation.transportStatus = 'offline';
+        return fail('shared_web_disabled');
+      }
       let sourceKey = null, binding = null;
       for (const d of dates) {
         const old = q.days[d];
@@ -159,24 +204,30 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
           await verifySharedWebContributionV1(old.upload);
           if (previous > head.revisionOrdinal || previous === head.revisionOrdinal && old.upload.contentHash === head.contentHash) item = old;
         }
-        q = await change(c, generation, q => { q.days[d] = { ...item, sourceKey, cloudConfirmed: false, failures: item.failures || 0, nextRetryAtMs: item.nextRetryAtMs || 0 }; return q; });
+        const alreadyConfirmed = old?.cloudConfirmed === true && old.upload?.contentHash === item.upload.contentHash
+          && head.revisionOrdinal === item.upload.revisionOrdinal && head.contentHash === item.upload.contentHash;
+        q = await change(c, generation, q => { q.days[d] = { ...item, sourceKey, cloudConfirmed: alreadyConfirmed, failures: item.failures || 0, nextRetryAtMs: item.nextRetryAtMs || 0 }; return q; });
         if (!q) return fail('shared_web_identity_changed');
         const submitted = clone(q.days[d].upload);
         if (q.days[d].nextRetryAtMs > now()) continue;
-        if (!binding || binding.expiresAtMs <= now()) {
+        if (!bindingCurrent(c)) {
           try { binding = await bind(c, generation, sourceKey); } catch (_) { binding = null; }
         }
         let nativeAccepted = false;
-        if (binding && binding.expiresAtMs > now()) {
-          const r = await native('replaceSharedWebContribution', { challengeId: binding.challengeId, upload: submitted });
+        if (bindingCurrent(c)) {
+          const r = nativeReceipts.get(d)?.hash === submitted.contentHash
+            ? { ok: true, value: { date: d, revisionOrdinal: submitted.revisionOrdinal, contentHash: submitted.contentHash } }
+            : await native('replaceSharedWebContribution', { challengeId: sourceBinding.challengeId, upload: submitted });
           nativeAccepted = r.ok === true && r.value?.date === d && r.value.revisionOrdinal === submitted.revisionOrdinal && r.value.contentHash === submitted.contentHash;
           if (!await current(c, generation)) return fail('shared_web_identity_changed');
-          if (nativeAccepted) nativeReceipts.set(d, { hash: submitted.contentHash, expiresAtMs: binding.expiresAtMs });
+          if (nativeAccepted) nativeReceipts.set(d, { hash: submitted.contentHash });
+          else { nativeReceipts.delete(d); preparation = fail('shared_web_native_rejected'); }
           if (nativeAccepted) {
             preparation = await prepare(c, generation, date, q);
             preparationScope = c.scopeHash;
           }
         }
+        if (alreadyConfirmed) continue;
         const r = await upload(c, submitted);
         if (!await current(c, generation)) return fail('shared_web_identity_changed');
         let ack = null;
@@ -206,7 +257,7 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     const replacements = [], versions = [];
     for (const [d, item] of Object.entries(q.days)) {
       const accepted = nativeReceipts.get(d);
-      if (accepted?.hash !== item.upload?.contentHash || accepted.expiresAtMs <= now() || !item.upload.complete) continue;
+      if (!bindingCurrent(c) || accepted?.hash !== item.upload?.contentHash || !item.upload.complete) continue;
       const source = sharedWebExecutionSourceV1(await verifySharedWebContributionV1(item.upload), item.sourceKey);
       const authorized = remote.authorizedScopes?.some(s => s.source === 'web' && s.sourceKey === item.sourceKey && s.date === d);
       const old = remote.basis?.days.find(day => day.date === d)?.sources.find(s => s.contribution.source === 'web' && s.contribution.sourceKey === item.sourceKey);
@@ -233,13 +284,20 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     running = perform(epoch).finally(() => { running = null; if (queued && enabled) { queued = false; void refresh(); } });
     return running;
   }
-  return { refresh, invalidate() { epoch++; queued = false; nativeReceipts.clear(); preparation = fail('shared_web_identity_changed'); },
-    configure(value) { epoch++; nativeReceipts.clear(); preparation = fail('shared_web_not_prepared'); enabled = value === true; return refresh(); },
+  return { refresh, invalidate() { epoch++; queued = false; sourceBinding = null; localLease = null; bindingConnection = null; nativeReceipts.clear(); preparation = fail('shared_web_identity_changed'); },
+    configure(value) { epoch++; sourceBinding = null; localLease = null; bindingConnection = null; nativeReceipts.clear(); preparation = fail('shared_web_not_prepared'); enabled = value === true; return refresh(); },
+    async readBinding() {
+      if (!enabled) return fail('shared_web_disabled');
+      const generation = epoch, c = await capture(), binding = sourceBinding;
+      if (!binding || !bindingCurrent(c) || binding.scopeHash !== c.scopeHash
+        || !await current(c, generation) || binding !== sourceBinding) return fail('shared_web_binding_unavailable');
+      return { ok: true, ...clone(binding) };
+    },
     async readPreparation() {
       if (!enabled) return fail('shared_web_disabled');
       const generation = epoch, c = await capture();
       if (preparationScope !== c.scopeHash || preparation.policyIdentity?.policyHash !== c.policyHash || preparation.projection?.week.toDate !== new Date(now() + 28800000).toISOString().slice(0, 10)) return fail('shared_web_not_prepared');
-      if ([...nativeReceipts.values()].some(r => r.expiresAtMs <= now())) return fail('shared_web_binding_expired');
+      if (!bindingCurrent(c)) return fail('shared_web_binding_expired');
       const stored = clone(await readStorage(['daily_usage_stats_v1', 'guardian_config', SHARED_WEB_QUEUE_KEY]));
       const q = stored[SHARED_WEB_QUEUE_KEY];
       for (const v of preparation.replacementVersions) {
@@ -259,7 +317,7 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
         const sources = [];
         for (const item of Object.values(raw.days || {})) {
           const accepted = nativeReceipts.get(item.upload?.date);
-          if (accepted?.hash !== item.upload?.contentHash || accepted.expiresAtMs <= now() || item.upload?.policyIdentity?.policyHash !== c.policyHash) continue;
+          if (!bindingCurrent(c) || accepted?.hash !== item.upload?.contentHash || item.upload?.policyIdentity?.policyHash !== c.policyHash) continue;
           sources.push(sharedWebExecutionSourceV1(await verifySharedWebContributionV1(item.upload), item.sourceKey));
         }
         return { ok: true, sources, executionEnabled: false };
@@ -271,6 +329,7 @@ let sync;
 export function configureSharedWebContributionSync({ enabled = false } = {}) { return sync?.configure(enabled) || Promise.resolve(fail('shared_web_disabled')); }
 export function readLocalSharedWebReplacements() { return sync?.replacements() || Promise.resolve(fail('shared_web_disabled')); }
 export function readLocalSharedQuotaPreparation() { return sync?.readPreparation() || Promise.resolve(fail('shared_web_disabled')); }
+export function readSharedWebSourceBinding() { return sync?.readBinding() || Promise.resolve(fail('shared_web_disabled')); }
 export function initSharedWebContributionSync() {
   if (sync) return;
   sync = createSharedWebContributionSync();
