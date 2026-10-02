@@ -102,6 +102,9 @@ function check(label, condition, detail = '') {
   const otherRows = account.rows.map((row) => row.kind.endsWith('_target') ? { ...row, quotaBucket: 'other' } : row)
     .sort((left, right) => api.canonicalDeviceAccountJson(left).localeCompare(api.canonicalDeviceAccountJson(right)));
   check('future other bucket keeps all device account dimensions conserved', api.validateDeviceAccountRows(otherRows, snapshot.date).ok);
+  check('other is not accepted as a runtime mode', api.validateDeviceAccountRows(
+    account.rows.map((row, index) => index === 0 ? { ...row, mode: 'other' } : row), snapshot.date
+  ).code === 'DEVICE_ACCOUNT_INVALID_ROUTE');
   check('stats hash is deterministic', account.statsHash === (await api.buildDeviceAccountSnapshot(makeSnapshot())).statsHash);
   const compactedSnapshot = makeSnapshot();
   compactedSnapshot.compactedFactCount = 2;
