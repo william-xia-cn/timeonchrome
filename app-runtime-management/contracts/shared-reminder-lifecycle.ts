@@ -3,6 +3,8 @@ export const SHARED_REMINDER_LIFECYCLE_CAPABILITY = 'shared-reminder-lifecycle-v
 export const SHARED_BROWSER_ACTIVITY_CAPABILITY = 'shared-browser-activity-v1' as const;
 export const SHARED_BROWSER_ACTIVITY_RENEW_MS = 5_000 as const;
 export const SHARED_BROWSER_ACTIVITY_MAX_AGE_MS = 15_000 as const;
+export const SHARED_BROWSER_EXECUTION_CAPABILITY = 'shared-browser-execution-v1' as const;
+export const SHARED_BROWSER_EXECUTION_MAX_AGE_MS = 5_000 as const;
 /** Live facts only: this is neither usage nor permission to enforce. */
 export interface SharedBrowserActivity {
   schemaVersion: 1;
@@ -96,6 +98,102 @@ export interface SharedReminderDeliveryAck extends SharedReminderIdentity {
 }
 export interface SharedReminderResolution extends SharedReminderIdentity {
   action: 'continue' | 'end_rest';
+}
+/** Explicit Service permission, not inferred from the reminder's resolution. */
+export interface SharedBrowserExecution extends SharedReminderIdentity {
+  executionId: string;
+  leaseId: string;
+  activityId: string;
+  targetSource: 'browser';
+  effect: 'request-normal-close' | 'force-close';
+  /** Remaining Service lifetime; consumer measures from request start, not receipt. */
+  maxAgeMs: number;
+}
+export interface SharedBrowserExecutionAck extends SharedReminderIdentity {
+  executionId: string;
+  leaseId: string;
+  activityId: string;
+  outcome: 'completed' | 'canceled' | 'failed' | 'stale';
+}
+const executionIdentityFields = ['executionId','leaseId','activityId'];
+function validateExecution(value: unknown, ack: boolean): Record<string, unknown> {
+  const fields = [...identityFields,...executionIdentityFields,...(ack ? ['outcome'] : ['targetSource','effect','maxAgeMs'])];
+  if (!value || typeof value!=='object' || Array.isArray(value)
+    || Object.keys(value).length!==fields.length || fields.some(field=>!Object.hasOwn(value,field)))
+    throw new Error('INVALID_SHARED_BROWSER_EXECUTION');
+  const item=value as Record<string,unknown>;
+  if(item.schemaVersion!==1 || [...identityFields.slice(1),...executionIdentityFields].some(field=>
+    typeof item[field]!=='string'||!(item[field] as string).trim()||(item[field] as string).length>128))
+    throw new Error('INVALID_SHARED_BROWSER_EXECUTION');
+  if(ack ? !['completed','canceled','failed','stale'].includes(item.outcome as string)
+    : item.targetSource!=='browser'||!['request-normal-close','force-close'].includes(item.effect as string)
+      ||!validTime(item.maxAgeMs)||item.maxAgeMs<1||item.maxAgeMs>SHARED_BROWSER_EXECUTION_MAX_AGE_MS)
+    throw new Error('INVALID_SHARED_BROWSER_EXECUTION');
+  return item;
+}
+export function validateSharedBrowserExecution(value: unknown): SharedBrowserExecution {
+  return {...validateExecution(value,false)} as unknown as SharedBrowserExecution;
+}
+export function validateSharedBrowserExecutionAck(value: unknown): SharedBrowserExecutionAck {
+  return {...validateExecution(value,true)} as unknown as SharedBrowserExecutionAck;
+}
+/** Service uses persisted target binding; presenter=native may still target browser. */
+export function authorizeSharedBrowserExecution(context: SharedReminderRuntimeContext,
+  browser: SharedBrowserActivityContext, target: {source:'browser'|'application';activityId:string;executionId:string;
+    leaseId:string;issuedMonotonicMs:number;bootId:string;consumed:boolean}): SharedBrowserExecution|null {
+  if(!current(context)||context.state.stage!=='shared'||!context.executionEnabled
+    ||target.source!=='browser'||context.state.status!=='resolved'||!visibleClockValid(context)
+    ||!validTime(context.state.visibleAtMs))return null;
+  const resolution=context.state.resolution;
+  if(resolution!=='end_rest'&&resolution!=='timeout_end')return null;
+  if(resolution==='timeout_end'&&(context.state.timeoutAction!=='end'
+    ||context.monotonicNowMs-context.visibleMonotonicMs!<60_000))return null;
+  if(target.consumed||target.bootId!==context.bootId||target.leaseId!==browser.leaseId
+    ||browser.bootId!==context.bootId
+    ||!validTime(target.issuedMonotonicMs)||context.monotonicNowMs<target.issuedMonotonicMs
+    ||context.monotonicNowMs-target.issuedMonotonicMs>=SHARED_BROWSER_EXECUTION_MAX_AGE_MS)return null;
+  if(!sharedBrowserReminderEligibility(browser,target.activityId).eligible)return null;
+  const identity=Object.fromEntries(identityFields.map(field=>[field,context.state[field as keyof SharedReminderIdentity]]));
+  return validateSharedBrowserExecution({...identity,executionId:target.executionId,leaseId:browser.leaseId,
+    activityId:target.activityId,targetSource:'browser',effect:resolution==='end_rest'?'request-normal-close':'force-close',
+    maxAgeMs:SHARED_BROWSER_EXECUTION_MAX_AGE_MS-(context.monotonicNowMs-target.issuedMonotonicMs)});
+}
+/** Local receipt clock and current facts. Caller durably claims the ID BEFORE effects. */
+export function sharedBrowserExecutionEligibility(value: unknown, context: {
+  connectionCurrent:boolean;leaseId:string;activityId:string;policyRevision:string;stateRevision:string;
+  reminder:SharedReminderIdentity;restEligible:boolean;requestStartedMonotonicMs:number;monotonicNowMs:number;attemptedIds:ReadonlySet<string>;
+}): {eligible:boolean;reasonCode:string|null} {
+  const permit=validateSharedBrowserExecution(value);
+  const reject=(reasonCode:string)=>({eligible:false,reasonCode});
+  if(context.attemptedIds.has(permit.executionId))return reject('SHARED_BROWSER_EXECUTION_ALREADY_ATTEMPTED');
+  if(!context.connectionCurrent||context.leaseId!==permit.leaseId)return reject('SHARED_BROWSER_ACTIVITY_LEASE_CHANGED');
+  if(context.activityId!==permit.activityId||!context.restEligible)return reject('SHARED_BROWSER_ACTIVITY_CHANGED');
+  if(identityFields.some(field=>context.reminder[field as keyof SharedReminderIdentity]
+    !==permit[field as keyof SharedReminderIdentity]))return reject('SHARED_BROWSER_EXECUTION_INSTANCE_CHANGED');
+  if(context.policyRevision!==permit.policyRevision||context.stateRevision!==permit.stateRevision)
+    return reject('SHARED_REMINDER_SCOPE_CHANGED');
+  if(!validTime(context.monotonicNowMs)||!validTime(context.requestStartedMonotonicMs)
+    ||context.monotonicNowMs<context.requestStartedMonotonicMs)return reject('INVALID_SHARED_BROWSER_EXECUTION_CLOCK');
+  if(context.monotonicNowMs-context.requestStartedMonotonicMs>=permit.maxAgeMs)
+    return reject('SHARED_BROWSER_EXECUTION_EXPIRED');
+  return{eligible:true,reasonCode:null};
+}
+/** ACK consumes the issued attempt; never changes effect or creates another permit. */
+export function acknowledgeSharedBrowserExecution(issued: SharedBrowserExecution, value: unknown,
+  existing: SharedBrowserExecutionAck|null, authenticatedLeaseCurrent: boolean): {ack:SharedBrowserExecutionAck;duplicate:boolean} {
+  const permit=validateSharedBrowserExecution(issued),ack=validateSharedBrowserExecutionAck(value);
+  if(!authenticatedLeaseCurrent)throw new Error('SHARED_BROWSER_ACTIVITY_LEASE_CHANGED');
+  if([...identityFields,...executionIdentityFields].some(field=>
+    ack[field as keyof SharedBrowserExecutionAck]!==permit[field as keyof SharedBrowserExecution]))
+    throw new Error('SHARED_BROWSER_EXECUTION_INSTANCE_CHANGED');
+  if(ack.outcome==='canceled'&&permit.effect==='force-close')throw new Error('SHARED_BROWSER_EXECUTION_RESULT_CONFLICT');
+  if(existing){
+    const prior=validateSharedBrowserExecutionAck(existing);
+    if(Object.keys(ack).some(field=>ack[field as keyof SharedBrowserExecutionAck]!==prior[field as keyof SharedBrowserExecutionAck]))
+      throw new Error('SHARED_BROWSER_EXECUTION_RESULT_CONFLICT');
+    return{ack:prior,duplicate:true};
+  }
+  return{ack,duplicate:false};
 }
 export interface SharedReminderState extends SharedReminderIdentity {
   date: string;

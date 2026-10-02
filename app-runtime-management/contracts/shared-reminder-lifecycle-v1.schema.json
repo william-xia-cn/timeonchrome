@@ -24,6 +24,40 @@
         "else": { "properties": { "quotaBucket": { "type": "null" }, "presentationEligible": { "const": false } } }
       }]
     },
+    "browserExecution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "roundId", "reminderId", "deliveryId", "policyRevision", "stateRevision", "executionId", "leaseId", "activityId", "targetSource", "effect", "maxAgeMs"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "roundId": { "$ref": "#/$defs/key" },
+        "reminderId": { "$ref": "#/$defs/key" },
+        "deliveryId": { "$ref": "#/$defs/key" },
+        "policyRevision": { "$ref": "#/$defs/key" },
+        "stateRevision": { "$ref": "#/$defs/key" },
+        "executionId": { "$ref": "#/$defs/key" },
+        "leaseId": { "$ref": "#/$defs/key" },
+        "activityId": { "$ref": "#/$defs/key" },
+        "targetSource": { "const": "browser" },
+        "effect": { "enum": ["request-normal-close", "force-close"] },
+        "maxAgeMs": { "type": "integer", "minimum": 1, "maximum": 5000 }
+      }
+    },
+    "browserExecutionAck": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "roundId", "reminderId", "deliveryId", "policyRevision", "stateRevision", "executionId", "leaseId", "activityId", "outcome"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "roundId": { "$ref": "#/$defs/key" },
+        "reminderId": { "$ref": "#/$defs/key" },
+        "deliveryId": { "$ref": "#/$defs/key" },
+        "policyRevision": { "$ref": "#/$defs/key" },
+        "stateRevision": { "$ref": "#/$defs/key" },
+        "executionId": { "$ref": "#/$defs/key" },
+        "leaseId": { "$ref": "#/$defs/key" },
+        "activityId": { "$ref": "#/$defs/key" },
+        "outcome": { "enum": ["completed", "canceled", "failed", "stale"] }
+      }
+    },
     "deliveryAck": {
       "type": "object", "additionalProperties": false,
       "required": ["schemaVersion", "roundId", "reminderId", "deliveryId", "policyRevision", "stateRevision", "delivery"],
