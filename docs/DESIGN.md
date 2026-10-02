@@ -14,6 +14,10 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 共享访问终端契约边界（2026-10-02）
 
+### 主控制台 Runtime 管理通道
+
+主控制台以原 Guardian 家长 session 调用 `/app-runtime/manage/v1/{resource}`。Guardian 仅代理固定 Runtime 管理资源到既有 `APP_RUNTIME_SERVICE`：应用目录／产品知识／对象策略、电脑／账户分配、配对和诊断；不代理机器上传、机器令牌、身份生命周期或请求提供的目的地址。内部短期 account-module JWT 从现有家庭 Child 投影签发，永不返回给主页面，Runtime 继续逐资源核对 account／Child／machine ownership。传入 Authorization、Cookie、账户头和目标地址不转发；仅保留 Content-Type、If-Match 以及服务端内部认证。响应保留状态、JSON body 和 ETag，禁止重定向或 Set-Cookie；全部管理响应 no-store。请求／响应体流式透传，不为整合重新解析或结算原账。现有 SSO 独立页面暂留兼容，主控制台完成真实验收后才转旧地址。此网关不构成新配置权威，公共时间配置仍只写 Guardian。
+
 当前消费基线为 Contracts 1.23.1，主线 `9c1381f`。扩展同仓继续使用 workspace，不改为 tgz 依赖；固定包仅作为消费者验真证据，Native 跨仓则锁定包与 SHA-256。控件提交 `8a3ba2c` 的能力协商、串行请求与有界影子结果适配按原文件集成，不重新实现；其分支中的旧云端提交 `9574c30` 不覆盖已由 PR #179 修订的主线共享状态接口。影子查询合法完整／部分结果均 `ok=true`、`sharedQuotaStage=shadow`，这不授予执行权限。提醒实际签发、可见确认和关闭执行仍待贯通，当前保持默认关闭。下文 1.22.0 为前一阶段记录，不作为当前消费版本。
 
 终端以 `@timeonchrome/app-runtime-contracts` 1.22.0、架构提交 `c403176` 为固定契约；包 SHA-256 为 `1e3188147f56cf7b945a0acf2646bc24bc6b5bcbb8212ed01a7f2d75ffd7adaa`。该版本相对 1.21.0 只增加云端确认的 Chrome 产品身份、应用贡献的 `chromeIncludedInApplicationMs` 显示边际扣除字段及机器鉴权上传外壳；网页贡献不生成该字段，也不生成仅属于应用配额排除的 `chromeExcludedMs`。Native V3 的 `sharedQuota/getSharedQuotaState` 只返回 `SharedQuotaStateV1` 读模型；本阶段仅在显式调用时读取并校验版本、周期、策略 revision，不保存为执行状态，不替换网页配额。旧 Host 不支持时返回明确不可用，仍执行既有网页账和配额。`reportReminderResult` 虽列入契约，但提醒去重与结果消费尚无端到端实现，不发送结果或改变现有弹层。跨端执行保持关闭，原始网页账本不因本契约变化。

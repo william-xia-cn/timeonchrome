@@ -5,16 +5,22 @@ on:
   pull_request:
     paths:
       - 'workers/src/services/appRuntimeIdentityBridge.ts'
+      - 'workers/src/services/appRuntimeManagementGateway.ts'
       - 'workers/src/index.ts'
       - 'workers/wrangler.toml'
       - 'app-runtime-management/contracts/**'
       - 'tests/unit/app-runtime-integration.test.js'
+      - 'tests/unit/app-runtime-management-gateway.test.js'
+      - '.github/workflows/app-runtime-guardian-integration.yml'
   push:
     branches: [master]
     paths:
       - 'workers/src/services/appRuntimeIdentityBridge.ts'
+      - 'workers/src/services/appRuntimeManagementGateway.ts'
       - 'workers/src/index.ts'
       - 'app-runtime-management/contracts/**'
+      - 'tests/unit/app-runtime-management-gateway.test.js'
+      - '.github/workflows/app-runtime-guardian-integration.yml'
 
 jobs:
   compatibility:
@@ -27,3 +33,4 @@ jobs:
       - run: npm run build:app-runtime-contracts
       - run: npx tsc --noEmit
       - run: node tests/unit/app-runtime-integration.test.js
+      - run: node tests/unit/app-runtime-management-gateway.test.js
