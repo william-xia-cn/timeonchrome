@@ -6,6 +6,8 @@
 
 1.29提交前审计：契约编译、shared-access（含实际控件规范字节和摘要异步输入隔离）、兼容schema、既有12执行向量及分页回归、根typecheck、边界/diff通过。首轮身份测试沿用了旧投影测试任意revision(policy-1)，已替换为实际Guardian profile-config:4；未放宽完整配置校验。仅新增只读能力常量／可选响应字段和纯内容核对函数，旧请求enum与消息未改。Matched＝完整配置身份契约；Deviated／Extra＝无；Missing＝两端接入、跨端来源认证及实机共享执行。Native内部缓存hash与跨端规范不同，消费者尚未使用1.29，不冒称一致性已实机验证。
 
+PR211首次CI契约任务失败：机器控制golden向量contractVersion仍为1.28，遗漏同步包1.29。仅更新该元数据（不改HTTP/撤销语义或向量内容），复验契约workspace测试；失败不合并。已生成的临时1.29 tgz不是最终交付包，修正后另存并重新核对，不以旧包哈希宣称通过。
+
 2026-10-03机器分页批已合入：PR209/head3e74d4e，Guardian CI37039273277与App Runtime CI37039273194相关检查成功，插件merge为master e47da005db412d03aee9b46d984743df76643e4d，既有云端树fast-forward。Guardian本地dry-run940.12KiB亦通过；没有部署或安装。控件1.28分页消费已由所属任务提交712bce3及ca0bb56，当前精确集成；不改所属任务的产品代码。Native会话当前为Default但未执行Windows1.28组装：其报告跨会话读取工具未返回原始用户输入，无法独立核验已有授权；该子项保持未完成，其他云端/契约/控件工作继续。
 
 本次集成范围：architecture-integration，来源3675991ff391677e7378094ca2799da2dcc4fd5a（含712bce3、ca0bb56）；仅整合其八个产品／测试路径及设计记录，合并文档冲突时保留两端事实。先核对来源字节一致，再运行分页reader、policy reader、local guardian聚焦测试、根typecheck及边界／diff检查；排除Windows、macOS、WiX及无关全量测试。第一次复验失败定位为10毫秒建立缓存未确认的夹具，已由控件所属任务修正；未放宽生产超时或缓存规则。默认关闭，不改候选、不部署；真实通道、完整配置身份和共享执行仍待完成。
