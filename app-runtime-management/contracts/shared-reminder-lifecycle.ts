@@ -1,5 +1,88 @@
 /** Service-issued reminders. These messages never select a child, user or process. */
 export const SHARED_REMINDER_LIFECYCLE_CAPABILITY = 'shared-reminder-lifecycle-v1' as const;
+export const SHARED_BROWSER_ACTIVITY_CAPABILITY = 'shared-browser-activity-v1' as const;
+export const SHARED_BROWSER_ACTIVITY_RENEW_MS = 5_000 as const;
+export const SHARED_BROWSER_ACTIVITY_MAX_AGE_MS = 15_000 as const;
+/** Live facts only: this is neither usage nor permission to enforce. */
+export interface SharedBrowserActivity {
+  schemaVersion: 1;
+  leaseId: string;
+  activityId: string;
+  sequence: number;
+  status: 'active' | 'inactive';
+  quotaBucket: 'rest' | null;
+  presentationEligible: boolean;
+}
+export interface SharedBrowserActivityReceipt {
+  message: SharedBrowserActivity;
+  receivedMonotonicMs: number;
+  bootId: string;
+}
+/** Service-only connection, session and foreground checks; never client payload. */
+export interface SharedBrowserActivityContext {
+  leaseId: string;
+  leaseCurrent: boolean;
+  verifiedChromeForeground: boolean;
+  unlocked: boolean;
+  monotonicNowMs: number;
+  bootId: string;
+  current: SharedBrowserActivityReceipt | null;
+}
+export function validateSharedBrowserActivity(value: unknown): SharedBrowserActivity {
+  const fields=['schemaVersion','leaseId','activityId','sequence','status','quotaBucket','presentationEligible'];
+  if (!value || typeof value!=='object' || Array.isArray(value)
+    || Object.keys(value).length!==fields.length || fields.some(field=>!Object.hasOwn(value,field)))
+    throw new Error('INVALID_SHARED_BROWSER_ACTIVITY');
+  const item=value as Record<string,unknown>;
+  if(item.schemaVersion!==1 || ['leaseId','activityId'].some(field=>typeof item[field]!=='string'
+    || !(item[field] as string).trim() || (item[field] as string).length>128)
+    || !validTime(item.sequence) || item.sequence<1 || typeof item.presentationEligible!=='boolean'
+    || (item.status==='active' ? item.quotaBucket!=='rest'
+      : item.status!=='inactive' || item.quotaBucket!==null || item.presentationEligible!==false))
+    throw new Error('INVALID_SHARED_BROWSER_ACTIVITY');
+  return {...item} as unknown as SharedBrowserActivity;
+}
+export function receiveSharedBrowserActivity(context: SharedBrowserActivityContext, value: unknown): {
+  receipt: SharedBrowserActivityReceipt; duplicate: boolean; stale: boolean;
+} {
+  const message=validateSharedBrowserActivity(value);
+  if(!validTime(context.monotonicNowMs)||!context.bootId)throw new Error('INVALID_SHARED_BROWSER_ACTIVITY_CLOCK');
+  if(!context.leaseCurrent||message.leaseId!==context.leaseId)throw new Error('SHARED_BROWSER_ACTIVITY_LEASE_CHANGED');
+  const old=context.current;
+  if(old&&(old.message.leaseId!==context.leaseId||old.bootId!==context.bootId
+    || !validTime(old.receivedMonotonicMs)||context.monotonicNowMs<old.receivedMonotonicMs))
+    throw new Error('SHARED_BROWSER_ACTIVITY_LEASE_CHANGED');
+  if(old&&message.sequence<=old.message.sequence){
+    if(message.sequence===old.message.sequence){
+      if(Object.keys(message).some(field=>message[field as keyof SharedBrowserActivity]!==old.message[field as keyof SharedBrowserActivity]))
+        throw new Error('SHARED_BROWSER_ACTIVITY_SEQUENCE_CONFLICT');
+      return{receipt:old,duplicate:true,stale:false};
+    }
+    return{receipt:old,duplicate:false,stale:true};
+  }
+  return{receipt:{message,receivedMonotonicMs:context.monotonicNowMs,bootId:context.bootId},duplicate:false,stale:false};
+}
+/** Bind each issued reminder to this activityId as well as its presenter lease. */
+export function sharedBrowserReminderEligibility(context: SharedBrowserActivityContext,
+  expectedActivityId?: string): {eligible:boolean;reasonCode:string|null} {
+  const reject=(reasonCode:string)=>({eligible:false,reasonCode});
+  if(!context.leaseCurrent)return reject('SHARED_BROWSER_ACTIVITY_LEASE_CHANGED');
+  if(!context.unlocked)return reject('SHARED_BROWSER_ACTIVITY_LOCKED');
+  if(!context.verifiedChromeForeground)return reject('SHARED_BROWSER_ACTIVITY_NOT_FOREGROUND');
+  const receipt=context.current;
+  if(!receipt)return reject('SHARED_BROWSER_ACTIVITY_MISSING');
+  if(receipt.bootId!==context.bootId||receipt.message.leaseId!==context.leaseId)
+    return reject('SHARED_BROWSER_ACTIVITY_LEASE_CHANGED');
+  if(!validTime(context.monotonicNowMs)||!validTime(receipt.receivedMonotonicMs)
+    || context.monotonicNowMs<receipt.receivedMonotonicMs)return reject('INVALID_SHARED_BROWSER_ACTIVITY_CLOCK');
+  if(context.monotonicNowMs-receipt.receivedMonotonicMs>=SHARED_BROWSER_ACTIVITY_MAX_AGE_MS)
+    return reject('SHARED_BROWSER_ACTIVITY_EXPIRED');
+  if(receipt.message.status!=='active'||receipt.message.quotaBucket!=='rest'||!receipt.message.presentationEligible)
+    return reject('SHARED_BROWSER_ACTIVITY_NOT_ELIGIBLE');
+  if(expectedActivityId!==undefined&&receipt.message.activityId!==expectedActivityId)
+    return reject('SHARED_BROWSER_ACTIVITY_CHANGED');
+  return{eligible:true,reasonCode:null};
+}
 export interface SharedReminderIdentity {
   schemaVersion: 1;
   roundId: string;

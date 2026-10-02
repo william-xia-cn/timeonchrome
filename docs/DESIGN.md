@@ -14,6 +14,14 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 共享访问终端契约边界（2026-10-02）
 
+实时网页提醒资格增加 `shared-browser-activity-v1`，不以累计快照、heartbeat或一次查询当作正在休息的证据。Service在v3能力协商时为已验证Host进程代际/扩展连接发放不透明`browserActivityLeaseId`；它绑定受保护用户会话、Profile和策略作用域，不允许客户端选择其他用户。Native Host仍只转发。新消息`sharedQuota/reportBrowserActivity`严格包含schemaVersion、leaseId、activityId、sequence、status、quotaBucket、presentationEligible，不接受时间戳、URL/域名/标题、tab/window原始标识、Child/SID/用户名或进程目标。
+
+扩展从既有getSession与当前页面复核取得ACTIVE且实际Rest桶资格（包括借用Rest），每次自然活动身份变更生成随机activityId，lease内sequence单调增加。active仅允许quotaBucket=rest；inactive必须quotaBucket=null且presentationEligible=false。当前可见聚焦页面才可声明presentationEligible；既有强媒体继续记账但无提醒展示资格时可active/false。不新增、结束或改写任何原始网页会话。停止、导航、标签/窗口切换、失焦/idle/锁屏后立即重验并发送当前事实；关闭结算失败保留旧session不够，须独立复核页面和展示资格。
+
+活动时每5秒更新，Service以自己的单调接收时间保持最多15秒新鲜度；静默、过期、Service重启、Host进程代际结束或作用域变更即失效。重复sequence且内容相同仅ACK，不续期；同sequence不同内容拒绝，旧sequence无效，旧lease拒绝。新连接取得新lease，不能用旧消息复活。Service还须核验当前用户解锁与真实前台Chrome；仅客户端声明不能授权签发、可见ACK或结束。提醒实例绑定当时lease/activityId；任一变化撤回原实例，迟到ACK/选择不执行。查询只读状态，不能刷新活动。15秒是消息证明的最大新鲜度，不表示允许用户切换后继续操作15秒：已知前台/锁定变化立即撤回。活动租约不贡献用量，不改变配额、阈值或既有60秒响应计时。
+
+本批契约增量1.25.0，保留1.24生命周期及旧Service健康/影子兼容；缺能力时不发送新消息、不降级拿旧快照冒充活动。只实施规范、schema和双方共同向量；扩展/Native由所属任务实现且默认关闭，实机和正式启用另验。架构职责提交与前一云端UI批次分开，不新建分支或工作树。
+
 ### 主控制台 Runtime 管理通道
 
 系统诊断使用只读 `/v2/module/segment-diagnostics?childId=&kind=usage|media&fromMs=&toMs=&limit=`，Guardian仅通过同名固定管理资源代理。账户与Child归属、日期范围沿现有校验，limit为1–100，默认50；它是最近一页检查，不提供原始身份游标。响应`items`采用显式字段白名单：startAtMs/endAtMs/durationMs、displayName、estimated、历史applicationClassification（主账）或mediaKind/presentation（媒体）。`hasMore`仅说明存在后续记录；不返回id、machineId、localUserId、runtimeIdentity、凭据、路径、原始分类切片或nextCursor。原明细接口、账本查询和统计不变；此检查不作为用量总量，仍由原权威统计提供。兼容上线需要先提供该云端只读资源再挂载页面，当前不部署。

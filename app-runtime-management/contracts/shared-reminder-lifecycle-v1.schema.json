@@ -6,6 +6,24 @@
     "key": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S" },
     "time": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
     "nullableTime": { "anyOf": [{ "$ref": "#/$defs/time" }, { "type": "null" }] },
+    "browserActivity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "leaseId", "activityId", "sequence", "status", "quotaBucket", "presentationEligible"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "leaseId": { "$ref": "#/$defs/key" },
+        "activityId": { "$ref": "#/$defs/key" },
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "status": { "enum": ["active", "inactive"] },
+        "quotaBucket": { "enum": ["rest", null] },
+        "presentationEligible": { "type": "boolean" }
+      },
+      "allOf": [{
+        "if": { "properties": { "status": { "const": "active" } }, "required": ["status"] },
+        "then": { "properties": { "quotaBucket": { "const": "rest" } } },
+        "else": { "properties": { "quotaBucket": { "type": "null" }, "presentationEligible": { "const": false } } }
+      }]
+    },
     "deliveryAck": {
       "type": "object", "additionalProperties": false,
       "required": ["schemaVersion", "roundId", "reminderId", "deliveryId", "policyRevision", "stateRevision", "delivery"],
