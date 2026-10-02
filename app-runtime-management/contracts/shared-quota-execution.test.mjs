@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { projectLocalSharedQuotaExecution } from './dist/shared-quota-execution.js';
+import { projectLocalSharedQuotaExecution, assembleSharedQuotaExecutionPages } from './dist/shared-quota-execution.js';
 const vectors = JSON.parse(fs.readFileSync(new URL('./shared-quota-execution.vectors.json', import.meta.url)));
 const clone = value => structuredClone(value);
 const weekdays = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
@@ -61,3 +61,36 @@ assert.throws(() => projectLocalSharedQuotaExecution(policy,privateField,[],[]),
 const fractionalWeb = clone(original); fractionalWeb.days[0].sources[0].contribution.bucketsMs.study = 1001;
 assert.throws(() => projectLocalSharedQuotaExecution(policy,fractionalWeb,[],[]),/INVALID_EXECUTION_WEB_CONTRIBUTION/);
 console.log(`shared quota execution: PASS (${vectors.cases.length} common vectors + scope/period/coverage/immutability)`);
+
+const transportBasis = basis(); transportBasis.revision = 'a'.repeat(64);
+const transportEntries = transportBasis.days.flatMap(day => day.sources);
+const ownScopes = transportBasis.days.map(day => ({source:'web',sourceKey:day.sources[0].contribution.sourceKey,date:day.date}));
+const pages = [0,3].map(offset => ({schemaVersion:1,profileId:'fixture-child',basisRevision:transportBasis.revision,
+  policyRevision:policy.revision,fromDate:transportBasis.fromDate,toDate:transportBasis.toDate,
+  days:transportBasis.days.map(day => ({date:day.date,reasonCodes:day.reasonCodes,sourceCount:day.sources.length})),
+  authorizedScopes:ownScopes,page:{offset,limit:3,total:4,nextOffset:offset===0?3:null,items:transportEntries.slice(offset,offset+3)}}));
+const beforePages = JSON.stringify(pages);
+assert.deepEqual(assembleSharedQuotaExecutionPages(policy,'fixture-child',pages),{basis:transportBasis,authorizedScopes:ownScopes});
+assert.equal(JSON.stringify(pages),beforePages,'transport input remains immutable');
+const isolated = assembleSharedQuotaExecutionPages(policy,'fixture-child',pages); isolated.basis.days[0].sources[0].revisionOrdinal++;
+assert.equal(JSON.stringify(pages),beforePages,'returned basis does not alias transport input');
+const rejectPage = (mutate,error) => { const bad=clone(pages); mutate(bad); assert.throws(() => assembleSharedQuotaExecutionPages(policy,'fixture-child',bad),error); };
+assert.throws(() => assembleSharedQuotaExecutionPages(policy,'another-child',pages),/INVALID_EXECUTION_PAGE/);
+assert.throws(() => assembleSharedQuotaExecutionPages(policy,'fixture-child',pages.slice(0,1)),/INCOMPLETE_EXECUTION_PAGES/);
+rejectPage(p => p[1].basisRevision='b'.repeat(64),/EXECUTION_PAGE_CONTEXT_CHANGED/);
+rejectPage(p => p[1].page.offset=0,/INVALID_EXECUTION_PAGE/);
+rejectPage(p => p[0].page.nextOffset=2,/INCOMPLETE_EXECUTION_PAGES/);
+rejectPage(p => p[1].page.items=[],/INVALID_EXECUTION_PAGE_COUNT/);
+rejectPage(p => p.forEach(page => page.days[0].sourceCount=1),/INVALID_EXECUTION_COVERAGE/);
+rejectPage(p => p.forEach(page => page.authorizedScopes[0].sourceKey='unrelated'),/INVALID_EXECUTION_SCOPE/);
+rejectPage(p => p[0].token='private',/INVALID_EXECUTION_PAGE/);
+rejectPage(p => p[0].page.items[0].contribution.url='private',/INVALID_EXECUTION_CONTRIBUTION/);
+rejectPage(p => p[0].page.items[0].revisionOrdinal=1.5,/INVALID_EXECUTION_SOURCE/);
+rejectPage(p => p[0].page.items[0].contribution.date='2026-09-29',/INVALID_EXECUTION_COVERAGE/);
+rejectPage(p => p[1].policyRevision='different',/INVALID_EXECUTION_PAGE/);
+const empty = clone(pages[0]); empty.page={offset:0,limit:100,total:0,nextOffset:null,items:[]};
+empty.authorizedScopes=[]; empty.days.forEach(day => {day.sourceCount=0;day.reasonCodes=['SOURCE_COVERAGE_UNAVAILABLE'];});
+const emptyResult=assembleSharedQuotaExecutionPages(policy,'fixture-child',[empty]);
+assert.equal(projectLocalSharedQuotaExecution(policy,emptyResult.basis,[],[]).complete,false,'explicit empty coverage stays unavailable');
+assert.throws(() => assembleSharedQuotaExecutionPages(policy,'fixture-child',[]),/INVALID_EXECUTION_PAGES/);
+console.log('shared quota transport: PASS (complete paging, Child/version/coverage/scope rejection, immutable and empty sources)');

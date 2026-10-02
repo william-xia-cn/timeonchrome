@@ -71,10 +71,15 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
  assert.equal(page1.days.length,5);assert.equal(page1.authorizedScopes.length,5);
  assert.ok(page1.authorizedScopes.every(scope=>scope.source==='web'&&scope.sourceKey===ownWeb));
  assert.equal(service.pageSharedQuotaExecutionBasis(basis,'not-own',0,100,null).authorizedScopes.length,0);
+ const wirePages=[{profileId:'child',...page1}];
  const collected=[...page1.page.items];let cursor=page1.page.nextOffset;
  while(cursor!==null){const next=service.pageSharedQuotaExecutionBasis(basis,ownWeb,cursor,3,basis.revision);
-   collected.push(...next.page.items);cursor=next.page.nextOffset;}
+   wirePages.push({profileId:'child',...next});collected.push(...next.page.items);cursor=next.page.nextOffset;}
  assert.equal(collected.length,10);assert.equal(JSON.stringify(collected),JSON.stringify(basis.days.flatMap(day=>day.sources)));
+ const {assembleSharedQuotaExecutionPages}=await import('../../app-runtime-management/contracts/dist/shared-quota-execution.js');
+ const assembled=assembleSharedQuotaExecutionPages(policy,'child',JSON.parse(JSON.stringify(wirePages)));
+ assert.equal(JSON.stringify(assembled.basis),JSON.stringify(basis),'real producer pages reconstruct the exact shared-contract basis');
+ assert.equal(JSON.stringify(assembled.authorizedScopes),JSON.stringify(page1.authorizedScopes));
  assert.throws(()=>service.pageSharedQuotaExecutionBasis(basis,ownWeb,1,3,null),/INVALID_EXECUTION_CURSOR/);
  assert.throws(()=>service.pageSharedQuotaExecutionBasis(basis,ownWeb,1,3,'changed'),/EXECUTION_BASIS_VERSION_CHANGED/);
  assert.throws(()=>service.pageSharedQuotaExecutionBasis(basis,ownWeb,11,3,basis.revision),/INVALID_EXECUTION_CURSOR/);

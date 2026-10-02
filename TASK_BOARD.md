@@ -2,6 +2,12 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+下一契约批（architecture-integration）：Contracts1.28固定设备分页运输类型、严格全页组装函数及schema；当前1.27核心/黄金向量不改。验证同Child/版本/配置、连续游标、总计/逐日覆盖、自身scope、私密/未知字段拒绝与输入不变；缺页不得生成完整依据。允许contracts、workspace版本锁、现有DESIGN/任务板；只跑契约编译/兼容/新增分页回归、原执行向量、根typecheck/边界/diff。PR206已合入93e9090，Guardian37035871728与修正职责声明后的App Runtime37035982360通过，未部署。机器授权、跨端来源证明、完整policy身份及真实执行仍须后续接入，不用运输验证代替认证。
+
+本批兼容验证精确增加根shared-access-state-cloud测试：将真实Worker分页helper生成的多页JSON交给新契约组装器，核对还原依据逐字段一致，不仅使用契约理想夹具。该根测试为跨端兼容消费者例外，不修改云端产品实现。Native已交付518e51d候选层与7ff3839纯投影，控件明确生产调度仍未接入；尚未构建/安装/启用。本批首次编译报隐式any，修正类型声明后相关测试通过，不计首次失败为通过。
+
+1.28本地审计：类型/schema/严格全页组装、新分页错误/零来源/不可变回归、既有12执行向量、真实云端多页兼容、契约兼容/shared-access/machine版本测试、根typecheck/源码边界/职责/diff通过。Matched=分页运输契约与完整接收核验；Deviated/Extra=无；Missing=机器授权与跨端证明、两端完整policy一致性、真实执行联调及启用，整体未完成。未改网页/应用原账、配额执行、旧消息或生产。
+
 本轮标准云端接入清单：①设备Bearer绑定Child/真实deviceId，无外部scope；②逐页最大100、非首page需basis revision、错版409；③返回完整日期覆盖/计数和仅自身web授权scope；④读取结束复核解绑/改绑/policy变化；⑤真实路由与分页固定回归、旧policy/state兼容、根typecheck/边界/diff及Guardian精确CI。允许device.ts/sharedAccessState.ts、两个对应根测试、现有DESIGN/任务板；CI仅接入这两个固定测试。无关平台/UI/安装器不跑，不部署。Native授权读取和跨端web证明尚未完成，不能把设备API视为整条执行链完成。
 
 本接入批本地审计：设备真实路由权限/参数/分页错版/读取中改绑与配置变化/故障脱敏/无写入口、真实分页helper完整重组/自身scope/覆盖计数、旧共享state及owner路由、根typecheck、源码边界/职责/diff通过。首轮VM数组原型跨realm导致deepStrictEqual失败，改为JSON传输内容精确比较后通过，产品代码未为测试修改。CI精确例外仅现有Guardian workflow接入两项实际受影响固定回归，不新增重型流程。Matched=云端设备只读接入；Deviated/Extra=无；Missing=版本化运输契约交接、两端真实读取/执行/验收，未启用/部署。控件d40a0bc+5a22ccd已返回并推送，审查补齐policy生效时间不倒退及流式64KiB限制；尚未集成本轮云端提交，不混作已验收。
