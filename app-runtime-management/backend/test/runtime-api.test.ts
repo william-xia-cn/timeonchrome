@@ -150,6 +150,15 @@ describe('Runtime product API', () => {
     expect((await call(path.replace('assignmentVersion=2','assignmentVersion=1'),{headers})).status).toBe(403);
     expect((await call(path.replace('date=2026-10-02','date=2026-02-30'),{headers})).status).toBe(400);
     expect((await call(path.replace('date=2026-10-02','date=2026-10-03'),{headers})).status).toBe(503);
+    for (const invalidReplyDate of ['2026-10-04','2026-10-05','2026-10-06','2026-10-07','2026-10-08']) {
+      const invalid = await call(path.replace('date=2026-10-02',`date=${invalidReplyDate}`),{headers});
+      expect(invalid.status).toBe(503);
+      await expect(invalid.json()).resolves.toMatchObject({error:{code:'SHARED_QUOTA_STATE_UNAVAILABLE'}});
+    }
+    const nextWeek=await call(path.replace('date=2026-10-02','date=2026-10-09'),{headers});
+    expect(nextWeek.status).toBe(200);
+    await expect(nextWeek.json()).resolves.toMatchObject({sharedQuota:{day:{date:'2026-10-09'},
+      week:{fromDate:'2026-10-05',toDate:'2026-10-09'}}});
     expect((await call(path,{headers:bearer(enrolled.machineToken+'x')})).status).toBe(401);
     expect((await call(path,{method:'POST',headers})).status).toBe(405);
   });

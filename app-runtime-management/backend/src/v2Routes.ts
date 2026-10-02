@@ -97,7 +97,8 @@ function isSharedQuotaState(value: unknown): value is SharedQuotaStateV1 {
     'complete','reasonCodes','sources','day','week','offline']) || value.schemaVersion !== 1
     || typeof value.policyRevision !== 'string' || !value.policyRevision
     || typeof value.revision !== 'string' || !value.revision || !Number.isSafeInteger(value.computedAtMs)
-    || !(value.settledAtMs === null || Number.isSafeInteger(value.settledAtMs))
+    || Number(value.computedAtMs) < 0
+    || !(value.settledAtMs === null || (Number.isSafeInteger(value.settledAtMs) && Number(value.settledAtMs) >= 0))
     || typeof value.complete !== 'boolean' || !Array.isArray(value.reasonCodes)
     || !value.reasonCodes.every(code => typeof code === 'string') || !Array.isArray(value.sources)
     || typeof value.offline !== 'boolean' || !isRecord(value.day) || !isRecord(value.week)) return false;
@@ -147,6 +148,13 @@ async function readSharedQuotaState(env: Env, accountId: string, childId: string
   try { body = await response.json() as typeof body; }
   catch { throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态响应无效。'); }
   if (!isSharedQuotaState(body.state)) throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态响应无效。');
+  // Bind both periods to this read; a well-shaped reply for another date is not usable.
+  const dayStart = Date.parse(`${date}T00:00:00+08:00`);
+  const weekday = new Date(dayStart + 28_800_000).getUTCDay();
+  const monday = new Date(dayStart - ((weekday + 6) % 7) * 86_400_000 + 28_800_000).toISOString().slice(0, 10);
+  if (body.state.day.date !== date || body.state.week.toDate !== date || body.state.week.fromDate !== monday) {
+    throw new HttpError(503, 'SHARED_QUOTA_STATE_UNAVAILABLE', '共享用量状态范围无效。');
+  }
   return body.state;
 }
 
