@@ -203,3 +203,50 @@ export interface SharedReminderResultV1 {
   action: 'continue' | 'end_rest' | 'timeout_continue' | 'timeout_end' | 'delivery_failed_continue' | 'delivery_failed_end';
   resolvedAtMs: number;
 }
+
+/** Service-local registration, never accepted from an extension request. */
+export interface SharedReminderRegistration {
+  reminderId: string;
+  policyRevision: string;
+  stateRevision: string;
+  kind: SharedReminderResultV1['kind'];
+  issuedAtMs: number;
+  visibleAtMs: number | null;
+}
+
+/** Validate a shadow receipt, not an instruction to close an application. */
+export function validateSharedReminderResult(value: unknown,
+  registration: SharedReminderRegistration | null): SharedReminderResultV1 {
+  const fields = ['schemaVersion','reminderId','policyRevision','stateRevision','kind',
+    'delivery','visibleAtMs','action','resolvedAtMs'];
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).length !== fields.length || fields.some(field => !Object.hasOwn(value, field)))
+    throw new Error('INVALID_SHARED_REMINDER_RESULT');
+  const result = value as SharedReminderResultV1;
+  const ms = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0;
+  const revision = (n: unknown) => typeof n === 'string' && n.length > 0 && n.length <= 128;
+  if (result.schemaVersion !== 1 || !revision(result.reminderId) || !revision(result.policyRevision)
+    || !revision(result.stateRevision) || !['entry','daily','weekly'].includes(result.kind)
+    || !['visible','failed'].includes(result.delivery) || !ms(result.resolvedAtMs)
+    || !(result.visibleAtMs === null || ms(result.visibleAtMs))
+    || !['continue','end_rest','timeout_continue','timeout_end','delivery_failed_continue',
+      'delivery_failed_end'].includes(result.action)) throw new Error('INVALID_SHARED_REMINDER_RESULT');
+  if (!registration || registration.reminderId !== result.reminderId)
+    throw new Error('SHARED_REMINDER_NOT_ISSUED');
+  if (registration.policyRevision !== result.policyRevision || registration.stateRevision !== result.stateRevision
+    || registration.kind !== result.kind) throw new Error('SHARED_REMINDER_VERSION_CHANGED');
+  if (!ms(registration.issuedAtMs) || result.resolvedAtMs < registration.issuedAtMs)
+    throw new Error('INVALID_SHARED_REMINDER_TIME');
+  const failedAction = result.action.startsWith('delivery_failed_');
+  if (result.delivery === 'failed') {
+    if (!failedAction || result.visibleAtMs !== null || registration.visibleAtMs !== null)
+      throw new Error('INVALID_SHARED_REMINDER_DELIVERY');
+  } else {
+    if (failedAction || result.visibleAtMs === null || registration.visibleAtMs !== result.visibleAtMs
+      || result.visibleAtMs < registration.issuedAtMs || result.resolvedAtMs < result.visibleAtMs)
+      throw new Error('INVALID_SHARED_REMINDER_DELIVERY');
+    if (result.action.startsWith('timeout_') && result.resolvedAtMs - result.visibleAtMs < 60_000)
+      throw new Error('SHARED_REMINDER_TIMEOUT_EARLY');
+  }
+  return {...result};
+}

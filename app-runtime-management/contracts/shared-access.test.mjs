@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
-import { projectSharedQuotaDay, projectLegacySharedAccessPolicy, SHARED_ACCESS_SCHEMA_VERSION } from './dist/shared-access.js';
+import fs from 'node:fs';
+import {validateSharedQuotaStateQuery, SHARED_QUOTA_STATE_READ_CAPABILITY,
+  SHARED_REMINDER_RESULT_SHADOW_CAPABILITY} from './dist/native-host.js';
+import { projectSharedQuotaDay, projectLegacySharedAccessPolicy, SHARED_ACCESS_SCHEMA_VERSION,
+  validateSharedReminderResult } from './dist/shared-access.js';
 
 const date = '2026-10-02';
+assert.equal(SHARED_QUOTA_STATE_READ_CAPABILITY, 'shared-quota-state-read');
+assert.equal(SHARED_REMINDER_RESULT_SHADOW_CAPABILITY, 'shared-reminder-result-shadow');
+assert.deepEqual(validateSharedQuotaStateQuery({date}), {date});
+assert.deepEqual(validateSharedQuotaStateQuery({date:'2028-02-29'}), {date:'2028-02-29'});
+for (const value of [null, [], {}, {date:'2026-02-29'}, {date:'2026-04-31'}, {date:'2026-13-01'},
+  {date,childId:'other'}, {date,localUserId:'other'}, {date,assignmentVersion:1}, {date,expectedRevision:'old'}])
+  assert.throws(()=>validateSharedQuotaStateQuery(value), /INVALID_SHARED_QUOTA_QUERY/);
 const allDay = [{ start: '00:00', end: '24:00' }];
 const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const policy = {
@@ -45,4 +56,30 @@ assert.equal(projectSharedQuotaDay(policy, date, [web, { ...app, policyRevision:
 assert.equal(projectSharedQuotaDay(policy, date, [web]).complete, false, 'missing application coverage is not zero');
 assert.equal(projectSharedQuotaDay(policy, date, [app]).complete, false, 'missing web coverage is not zero');
 assert.equal(projectSharedQuotaDay(policy, date, [web, { ...app, chromeExcludedMs: undefined }]).complete, false);
-console.log('shared access contract: PASS');
+const registration={reminderId:'r1',policyRevision:'p1',stateRevision:'s1',kind:'daily',issuedAtMs:1000,visibleAtMs:2000};
+const receipt={schemaVersion:1,reminderId:'r1',policyRevision:'p1',stateRevision:'s1',kind:'daily',
+  delivery:'visible',visibleAtMs:2000,action:'end_rest',resolvedAtMs:3000};
+assert.deepEqual(validateSharedReminderResult(receipt,registration),receipt);
+assert.deepEqual(validateSharedReminderResult({...receipt,action:'timeout_end',resolvedAtMs:62000},registration),
+  {...receipt,action:'timeout_end',resolvedAtMs:62000});
+assert.throws(()=>validateSharedReminderResult(receipt,null),/SHARED_REMINDER_NOT_ISSUED/);
+assert.throws(()=>validateSharedReminderResult({...receipt,policyRevision:'old'},registration),/VERSION_CHANGED/);
+assert.throws(()=>validateSharedReminderResult({...receipt,stateRevision:'old'},registration),/VERSION_CHANGED/);
+assert.throws(()=>validateSharedReminderResult(receipt,{...registration,visibleAtMs:null}),/DELIVERY/);
+assert.throws(()=>validateSharedReminderResult({...receipt,action:'timeout_end',resolvedAtMs:61999},registration),/TIMEOUT_EARLY/);
+assert.throws(()=>validateSharedReminderResult({...receipt,delivery:'failed',visibleAtMs:null,action:'timeout_end'},
+  {...registration,visibleAtMs:null}),/DELIVERY/);
+assert.throws(()=>validateSharedReminderResult({...receipt,childId:'other'},registration),/INVALID_SHARED_REMINDER_RESULT/);
+assert.throws(()=>validateSharedReminderResult({...receipt,resolvedAtMs:999},registration),/TIME/);
+assert.deepEqual(validateSharedReminderResult({...receipt,delivery:'failed',visibleAtMs:null,action:'delivery_failed_continue'},
+  {...registration,visibleAtMs:null}),{...receipt,delivery:'failed',visibleAtMs:null,action:'delivery_failed_continue'});
+console.log('shared access contract: PASS (quota projection, Bridge query, registered shadow receipt)');
+const vectors=JSON.parse(fs.readFileSync(new URL('./shared-reminder.vectors.json',import.meta.url),'utf8'));
+for (const vector of vectors.cases) {
+  const result={...vectors.result,...vector.resultPatch};
+  const context=vector.registration===null ? null : {...vectors.registration,...vector.registrationPatch};
+  if (vector.error) assert.throws(()=>validateSharedReminderResult(result,context),
+    error=>error.message===vector.error,vector.name);
+  else assert.deepEqual(validateSharedReminderResult(result,context),result,vector.name);
+}
+console.log(`shared reminder golden vectors: PASS (${vectors.cases.length})`);

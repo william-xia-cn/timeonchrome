@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.22.0');
+assert.equal(pkg.version, '1.23.0');
 assert(pkg.exports['./shared-access'], 'shared access contract must be exported');
 const sharedAccess = JSON.parse(fs.readFileSync(path.join(root, 'shared-access-v1.schema.json'), 'utf8'));
 assert.equal(sharedAccess.$defs.policy.properties.stage.enum[0], 'legacy');
@@ -93,6 +93,11 @@ assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics', 
 assert.deepEqual(nativeHostV3.properties.messageType.enum,
   ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getSharedQuotaState', 'reportReminderResult']);
 assert.equal(nativeHostV3.$defs.applicationQuery.additionalProperties, false);
+assert.deepEqual(nativeHostV3.$defs.sharedQuotaQuery.required, ['date']);
+assert.deepEqual(Object.keys(nativeHostV3.$defs.sharedQuotaQuery.properties), ['date']);
+assert.equal(nativeHostV3.$defs.sharedQuotaQuery.additionalProperties, false);
+assert.equal(nativeHostV3.allOf[3].then.allOf[1].then.properties.payload.$ref,
+  'shared-access-v1.schema.json#/$defs/reminderResult');
 assert.deepEqual(nativeHostV3.$defs.applicationQuery.required, ['fromDate', 'toDate', 'offset']);
 assert.equal(nativeHostV3.$defs.applicationQuery.properties.offset.maximum, 20000);
 assert.equal(nativeHostV3.$defs.dailySnapshot.properties.activeSeconds.type, 'integer');

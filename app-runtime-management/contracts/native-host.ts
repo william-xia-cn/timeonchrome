@@ -6,6 +6,25 @@ export const LEGACY_NATIVE_HOST_ID = 'com.timeonchrome.guardian' as const;
 export const BROWSER_BRIDGE_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v1' as const;
 export const BROWSER_BRIDGE_V2_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v2' as const;
 export const BROWSER_BRIDGE_V3_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v3' as const;
+/** These capabilities never imply shared enforcement is enabled. */
+export const SHARED_QUOTA_STATE_READ_CAPABILITY = 'shared-quota-state-read' as const;
+export const SHARED_REMINDER_RESULT_SHADOW_CAPABILITY = 'shared-reminder-result-shadow' as const;
+
+export interface SharedQuotaStateQuery { date: string }
+
+/** Identity and assignment are resolved by the authenticated Service connection. */
+export function validateSharedQuotaStateQuery(value: unknown): SharedQuotaStateQuery {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).length !== 1 || !Object.hasOwn(value, 'date'))
+    throw new Error('INVALID_SHARED_QUOTA_QUERY');
+  const date = (value as {date?: unknown}).date;
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date))
+    throw new Error('INVALID_SHARED_QUOTA_QUERY');
+  const start = Date.parse(`${date}T00:00:00+08:00`);
+  if (!Number.isFinite(start) || new Date(start + 28_800_000).toISOString().slice(0, 10) !== date)
+    throw new Error('INVALID_SHARED_QUOTA_QUERY');
+  return {date};
+}
 
 export type NativeHostMessageType = 'heartbeat' | 'probe' | 'settledUsageSegments';
 
@@ -53,6 +72,8 @@ export interface NativeHostResponse {
   stale?: boolean;
   applicationUsage?: ApplicationUsageSnapshot;
   sharedQuota?: import('./shared-access.js').SharedQuotaStateV1;
+  /** Read success is not permission to enforce quota or end an application. */
+  sharedQuotaStage?: 'shadow';
 }
 
 export type BrowserBridgeChannel = 'health' | 'ledger';
