@@ -9,7 +9,7 @@ export const BROWSER_BRIDGE_V3_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridg
 /** These capabilities never imply shared enforcement is enabled. */
 export const SHARED_QUOTA_STATE_READ_CAPABILITY = 'shared-quota-state-read' as const;
 export const SHARED_REMINDER_RESULT_SHADOW_CAPABILITY = 'shared-reminder-result-shadow' as const;
-export { SHARED_REMINDER_LIFECYCLE_CAPABILITY } from './shared-reminder-lifecycle.js';
+export { SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY } from './shared-reminder-lifecycle.js';
 
 export interface SharedQuotaStateQuery { date: string }
 
@@ -76,6 +76,9 @@ export interface NativeHostResponse {
   /** Read success is not permission to enforce quota or end an application. */
   sharedQuotaStage?: 'shadow';
   sharedReminder?: import('./shared-reminder-lifecycle.js').SharedReminderState | null;
+  /** Service-issued scope-bound lease, returned only when its capability is supported. */
+  browserActivityLeaseId?: string;
+  browserActivityAck?: { leaseId: string; acceptedSequence: number; duplicate: boolean; stale: boolean };
 }
 
 export type BrowserBridgeChannel = 'health' | 'ledger';
@@ -126,7 +129,7 @@ export interface BrowserBridgeV3Envelope<TPayload = unknown> {
   channel: 'health' | 'statistics' | 'application' | 'sharedQuota';
   requestId: string;
   messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getSharedQuotaState' | 'reportReminderResult'
-    | 'getSharedReminderState' | 'acknowledgeSharedReminderDelivery' | 'resolveSharedReminder';
+    | 'getSharedReminderState' | 'acknowledgeSharedReminderDelivery' | 'resolveSharedReminder' | 'reportBrowserActivity';
   extensionId: string;
   profileId: string;
   sentAtMs: number;

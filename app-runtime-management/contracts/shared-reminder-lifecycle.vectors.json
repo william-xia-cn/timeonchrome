@@ -12,6 +12,36 @@
     "executionEnabled": true, "nowMs": 62000, "monotonicNowMs": 62000,
     "bootId": "boot-1", "visibleBootId": "boot-1", "visibleMonotonicMs": 2000
   },
+  "browserActivity": {
+    "message": {"schemaVersion":1,"leaseId":"fixture-lease","activityId":"fixture-activity","sequence":2,"status":"active","quotaBucket":"rest","presentationEligible":true},
+    "context": {"leaseId":"fixture-lease","leaseCurrent":true,"verifiedChromeForeground":true,"unlocked":true,"monotonicNowMs":10000,"bootId":"fixture-boot","current":null},
+    "cases": [
+      {"name":"fresh active is eligible","operation":"eligible","expect":{"eligible":true,"reasonCode":null}},
+      {"name":"14999ms still fresh","operation":"eligible","contextPatch":{"monotonicNowMs":24999},"expect":{"eligible":true,"reasonCode":null}},
+      {"name":"15000ms expired","operation":"eligible","contextPatch":{"monotonicNowMs":25000},"expect":{"eligible":false,"reasonCode":"SHARED_BROWSER_ACTIVITY_EXPIRED"}},
+      {"name":"locked immediately ineligible","operation":"eligible","contextPatch":{"unlocked":false},"expect":{"eligible":false,"reasonCode":"SHARED_BROWSER_ACTIVITY_LOCKED"}},
+      {"name":"actual foreground wins","operation":"eligible","contextPatch":{"verifiedChromeForeground":false},"expect":{"eligible":false,"reasonCode":"SHARED_BROWSER_ACTIVITY_NOT_FOREGROUND"}},
+      {"name":"disconnected lease immediately invalid","operation":"eligible","contextPatch":{"leaseCurrent":false},"expect":{"eligible":false,"reasonCode":"SHARED_BROWSER_ACTIVITY_LEASE_CHANGED"}},
+      {"name":"restart cannot revive","operation":"eligible","contextPatch":{"bootId":"another-boot"},"expect":{"eligible":false,"reasonCode":"SHARED_BROWSER_ACTIVITY_LEASE_CHANGED"}},
+      {"name":"old reminder activity cannot follow navigation","operation":"eligible","expectedActivityId":"old-activity","expect":{"eligible":false,"reasonCode":"SHARED_BROWSER_ACTIVITY_CHANGED"}},
+      {"name":"strong media without presentation eligibility","operation":"eligible","messagePatch":{"presentationEligible":false},"expect":{"eligible":false,"reasonCode":"SHARED_BROWSER_ACTIVITY_NOT_ELIGIBLE"}},
+      {"name":"inactive cannot present","operation":"eligible","messagePatch":{"status":"inactive","quotaBucket":null,"presentationEligible":false},"expect":{"eligible":false,"reasonCode":"SHARED_BROWSER_ACTIVITY_NOT_ELIGIBLE"}},
+      {"name":"monotonic regression fails closed","operation":"eligible","contextPatch":{"monotonicNowMs":9999},"expect":{"eligible":false,"reasonCode":"INVALID_SHARED_BROWSER_ACTIVITY_CLOCK"}},
+      {"name":"duplicate never renews","operation":"receive","contextPatch":{"monotonicNowMs":24000},"expect":{"duplicate":true,"stale":false,"receivedMonotonicMs":10000}},
+      {"name":"duplicate after expiry never renews","operation":"receive","contextPatch":{"monotonicNowMs":30000},"expect":{"duplicate":true,"stale":false,"receivedMonotonicMs":10000}},
+      {"name":"old sequence never renews","operation":"receive","contextPatch":{"monotonicNowMs":24000},"nextPatch":{"sequence":1},"expect":{"duplicate":false,"stale":true,"receivedMonotonicMs":10000}},
+      {"name":"next sequence renews","operation":"receive","contextPatch":{"monotonicNowMs":14000},"nextPatch":{"sequence":3},"expect":{"duplicate":false,"stale":false,"receivedMonotonicMs":14000}},
+      {"name":"same sequence different fact rejected","operation":"receive","nextPatch":{"activityId":"other-activity"},"error":"SHARED_BROWSER_ACTIVITY_SEQUENCE_CONFLICT"},
+      {"name":"old lease rejected","operation":"receive","nextPatch":{"leaseId":"old-lease"},"error":"SHARED_BROWSER_ACTIVITY_LEASE_CHANGED"},
+      {"name":"revoked lease rejected","operation":"receive","contextPatch":{"leaseCurrent":false},"error":"SHARED_BROWSER_ACTIVITY_LEASE_CHANGED"},
+      {"name":"stop invalidates current activity","operation":"receive","nextPatch":{"sequence":3,"status":"inactive","quotaBucket":null,"presentationEligible":false},"expect":{"duplicate":false,"stale":false,"receivedMonotonicMs":10000,"eligible":false}},
+      {"name":"client timestamp forbidden","operation":"validate","nextPatch":{"sentAtMs":10000},"error":"INVALID_SHARED_BROWSER_ACTIVITY"},
+      {"name":"caller Child forbidden","operation":"validate","nextPatch":{"childId":"private"},"error":"INVALID_SHARED_BROWSER_ACTIVITY"},
+      {"name":"active other bucket forbidden","operation":"validate","nextPatch":{"quotaBucket":"other"},"error":"INVALID_SHARED_BROWSER_ACTIVITY"},
+      {"name":"inactive with rest forbidden","operation":"validate","nextPatch":{"status":"inactive"},"error":"INVALID_SHARED_BROWSER_ACTIVITY"},
+      {"name":"zero sequence forbidden","operation":"validate","nextPatch":{"sequence":0},"error":"INVALID_SHARED_BROWSER_ACTIVITY"}
+    ]
+  },
   "cases": [
     { "name": "visible starts Service clock", "operation": "ack", "message": {"delivery":"visible"}, "statePatch":{"status":"offered","visibleAtMs":null}, "contextPatch":{"nowMs":2500,"monotonicNowMs":2400,"visibleBootId":null,"visibleMonotonicMs":null}, "expect":{"status":"visible","effect":"none","visibleAtMs":2500,"visibleMonotonicMs":2400} },
     { "name": "duplicate visible never restarts clock", "operation":"ack", "message":{"delivery":"visible"}, "expect":{"status":"visible","effect":"none","duplicate":true,"visibleMonotonicMs":2000} },

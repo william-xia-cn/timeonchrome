@@ -9,7 +9,7 @@
     "protocolVersion": { "const": 3 },
     "channel": { "enum": ["health", "statistics", "application", "sharedQuota"] },
     "requestId": { "type": "string", "format": "uuid" },
-    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder"] },
+    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity"] },
     "extensionId": { "type": "string", "minLength": 1 },
     "profileId": { "type": "string", "format": "uuid" },
     "sentAtMs": { "type": "integer", "minimum": 0 },
@@ -31,7 +31,7 @@
     {
       "if": { "properties": { "channel": { "const": "sharedQuota" } }, "required": ["channel"] },
       "then": {
-        "properties": { "messageType": { "enum": ["getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder"] } },
+        "properties": { "messageType": { "enum": ["getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity"] } },
         "allOf": [
           { "if": { "properties": { "messageType": { "const": "getSharedQuotaState" } } },
             "then": { "properties": { "payload": { "$ref": "#/$defs/sharedQuotaQuery" } } } },
@@ -42,7 +42,9 @@
           { "if": { "properties": { "messageType": { "const": "acknowledgeSharedReminderDelivery" } } },
             "then": { "properties": { "payload": { "$ref": "shared-reminder-lifecycle-v1.schema.json#/$defs/deliveryAck" } } } },
           { "if": { "properties": { "messageType": { "const": "resolveSharedReminder" } } },
-            "then": { "properties": { "payload": { "$ref": "shared-reminder-lifecycle-v1.schema.json#/$defs/resolution" } } } }
+            "then": { "properties": { "payload": { "$ref": "shared-reminder-lifecycle-v1.schema.json#/$defs/resolution" } } } },
+          { "if": { "properties": { "messageType": { "const": "reportBrowserActivity" } } },
+            "then": { "properties": { "payload": { "$ref": "shared-reminder-lifecycle-v1.schema.json#/$defs/browserActivity" } } } }
         ]
       }
     }
