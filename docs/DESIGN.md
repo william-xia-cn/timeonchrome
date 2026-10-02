@@ -24,6 +24,12 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### 执行登记安全退休（默认关闭的准备层）
 
+后续受控验收改用 Playwright 直接 persistent-context，必须显式指定此前留存的隔离 fixture 根目录，不创建新 Profile。仅更新该最小测试扩展的登记／代次模块，复验真实 strict IDB 提交／abort、ACK 后退休、旧候选拒绝、SW 重建和同 Profile 浏览器重启。ACK 权威输入仍由测试夹具模拟，不能称为真实 Native Service 联调；仅关闭自己启动的隔离 context。不新增 debugger 权限、不触碰原候选或家庭 Chrome，不更改原账。PR CI 同时核查 workflow 触发、角色声明与合并冲突；无运行不视为成功。
+
+真实隔离持久性结果：Chrome for Testing `149.0.7827.55`，沿用原隔离 Profile。第一轮失败来自 Chrome 保留旧 unpacked SW 脚本，不是生产退休实现；只重载同一隔离测试扩展后通过。保留此前旧代码写入的一条无摘要登记，不清库；连续45笔新登记／模拟 ACK 退休、重复退休、旧候选及断流代次拒绝、实际 IDB 添加／删除 abort、SW boot 变化、浏览器重启后的丢 ACK tombstone、20条满额拒绝均通过。ACK 为夹具权威输入，Native Service 授权／ACK、隐身分区、真实关页及原账守恒仍未验收。忽略目录证据 `output/playwright/d114/execution-persistence.json` 绑定登记源码 SHA-256 `d50e8ba08bc173a5d7e5c52ddc072e34e5324724d5a05e07f2aa5b60d6cdcae7` 和代次模块 `fe0a64302eabf513ae9a1ff1c5550c571127893199c8ec3fd9a1f57dd12b7079`。脚本要求显式 `TOC_PERSISTENCE_FIXTURE_ROOT`／`TOC_PERSISTENCE_CHROME`，只允许此前留存的临时 fixture；命令为 `node tests/e2e/shared-browser-execution-persistence.js`。此前 CLI 失败记录仍保留，但该登记库／SW／浏览器重启的 Missing 已由此隔离验收补齐。
+
+PR #197 CI 只读核对：`app-runtime.yml` 对所有 PR opened/synchronize/reopened/edited 提供检查，push 则只覆盖 master；草稿并非排除条件。GitHub 返回 mergeable=false，三路只读比较确认 `docs/DESIGN.md` 一处冲突，故 pull_request 运行被阻断（GitHub 官方说明：https://docs.github.com/en/actions/how-tos/troubleshoot-workflows）。另发现 PR 缺少角色检查必需的 `Task-Role: extension-local`，已补元数据，未改 CI 文件、重试旧入口或自行合并主线。冲突保留为集成 blocker；无 run 不记为通过，不以本地浏览器证据替代 CI。
+
 2026-10-02 架构提供 Native `main@2436a8f` 的实际持久性依据：`AcknowledgeBrowserExecutionAsync` 在同一 SQLite 事务写入 ACK 与 `Target.Consumed=true`，等待 CommitAsync 后 Coordinator 才回成功；读取和授权均拒绝已消费目标。因此不新增 wire 字段。终端仅在现有严格 requestId、executionId、lease 及成功响应校验后生成内部不可伪造的退休凭据，绑定完整执行身份与 outcome。成功 ACK 推进本 SW 请求代次；所有旧请求、旧准备候选及旧代次 claim 被永久隔离后，strict IDB 事务才删除对应登记。断连同样推进代次，但不生成退休凭据。
 
 登记新增固定 SHA-256 身份摘要，不存网页内容；旧无摘要登记不自动退休。未知、失败、丢失或冲突 ACK 保留 tombstone；删除失败也保留且允许相同结果重新 ACK，不重新执行。容量仍为20条／8KB，不因墙钟或配置清库；已 ACK 项安全退休使长期连续尝试可超过20次。验证覆盖连续超过20次、丢 ACK 满额、迟到回复／旧候选、SW 重建、删除失败及重复 ACK；事务夹具不替代仍缺失的真实浏览器持久性验收。执行、计时、关页及候选目录均不改。
