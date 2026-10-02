@@ -2,6 +2,8 @@
 
 ## D-114 统一访问配置、其他时间与电脑使用汇总（2026-10-02）
 
+执行去重记录的安全回收条件：Native对经认证、身份匹配的执行结果在SQLite事务中同时保存Ack和Consumed，事务提交后才返回browserExecutionAck；读取许可拒绝已有Ack或Consumed，重启沿用持久记录。消费者不能仅凭发送成功、墙钟超时、换租约或配置删除claim。只有收到匹配executionId/outcome的成功ACK，并使同一ID旧请求全部终结或由不可复活的请求代际拒绝后，才可在本地持久事务删除claim。ACK丢失、冲突、未持久确认或在途结果未隔离时保留并fail-closed；不能靠扩容无限累积解决长期运行。此为现有1.26许可一次性与ACK语义的实现核验，不增加关闭权限或改变计时。
+
 网站用途规则导入复用 Profile 条件写入：仅接收 `classification: other`、`targetType: host/url` 和 `normalizedValue` 三个公开字段，服务端重新规范化目标并拒绝重复、类型不一致及额外元数据。既有同目标规则的服务端 ID、申请关联与创建时间保留；新规则由服务端生成 ID 和时间。缺省字段不改变规则，显式空数组表示清除。主页面只将已选用途差异应用到当前规则候选，提交公开字段；家庭归属、配置版本和审计继续由现有入口核验，不导入其他家庭的申请 ID，不改访问权限、历史分类或原始账本。
 
 配置文件按 `publicAccess / websites / applications` 三域预览和应用。新公共/网站文件使用 `access-domain-config` schema 2；应用文件继续由 canonical App Policy schema 3 处理，不新增应用配置写入源。旧 profile-config 或混合 bundle 可读取，但先裁剪到选定域再生成差异。公共域只含学习/复合/娱乐配额、提醒、自主度和分类时段；网站域含网站对象、用途规则、单站限制和既有网页专属 onlineMinutes，不将在线总额提升为电脑总限制。全局系统网站库只允许在网站域显式选择，仍需原权限、预检和版本条件。

@@ -1174,6 +1174,7 @@
                   <option value="system">系统网站配置-分类管理</option>
                   <option value="custom">用户自定义配置</option>
                   <option value="rule">已批准精确规则</option>
+                  <option value="usage">其他时间用途规则</option>
                   <option value="used-unclassified">已使用未归类网站</option>
                   <option value="unmarked">未标注</option>
                 </select>
@@ -2972,9 +2973,11 @@ const RULES_POLICY_DEFS = [
   { key: 'restricted', label: '受限娱乐网站', icon: 'assets/icons/restricted.svg', customKey: 'customRestrictedEntertainmentList', effectiveKey: 'restrictedEntertainmentList', defaultKey: 'defaultRestrictedEntertainmentSites', addPlaceholder: '添加受限娱乐网站，如 example-game.com' },
   { key: 'blocked', label: '黑名单网站', icon: 'assets/icons/blocked.svg', customKey: 'customBlockedSites', effectiveKey: 'unsafeList', defaultKey: 'defaultBlockedSites', addPlaceholder: '添加黑名单网站，如 example-blocked.com' },
   { key: 'special', label: '特殊网站', icon: 'assets/icons/rules.svg', isSpecial: true, addPlaceholder: '特殊对象规则通过 Popup 申请或云端审批生成' },
+  { key: 'other', label: '其他时间网站', icon: 'assets/icons/rules.svg', isUsage: true, addPlaceholder: '添加其他时间域名或完整 https:// 页面网址' },
   { key: 'used-unclassified', label: '已使用未归类网站', icon: 'assets/icons/composite.svg', isUsedUnclassified: true, addPlaceholder: '已使用未归类网站从最近 30 天使用历史自动生成' },
 ];
 const RULES_SOURCE_LABELS = {
+  usage: '其他时间用途规则（不改变访问权限）',
   system: '系统网站配置-分类管理',
   custom: '用户自定义配置',
   rule: '已批准精确规则',
@@ -3046,6 +3049,7 @@ function getPolicyCustomList(def, config = remoteConfig, defaults = siteAccessDe
 
 function getRulesPolicyModel() {
   return RULES_POLICY_DEFS.map(def => {
+    if (def.isUsage) return { ...def, system: [], custom: [], rules: remoteConfig?.siteUsageClassificationRulesV1 || [], usedUnclassified: [] };
     if (def.isSpecial) {
       const specialRows = youtubeSpecialRuleRows();
       return { ...def, system: [], custom: [], rules: specialRows, usedUnclassified: [], specialRows };
@@ -3067,6 +3071,7 @@ function renderRulesPolicyNav() {
   nav.innerHTML = getRulesPolicyModel().map(def => {
     const counts = def.isSpecial
       ? '<span>对象 ' + def.rules.length + '</span><span>YouTube</span>'
+      : def.isUsage ? '<span>用途规则 ' + def.rules.length + '</span><span>权限不变</span>'
       : def.isUsedUnclassified
         ? '<span>待处理 ' + def.usedUnclassified.length + '</span><span>最近 30 天</span>'
         : '<span>系统 ' + def.system.length + '</span><span>自定义 ' + def.custom.length + '</span><span>规则 ' + def.rules.length + '</span>';
@@ -3161,6 +3166,7 @@ function isYouTubeSpecialRuleValue(value = '') {
 
 function rulesDirectoryEntriesForPolicy(def) {
   const entries = [];
+  if (def.isUsage) return (def.rules || []).map(rule => ({ source: 'usage', classification: 'other', value: rule.normalizedValue || rule.targetValue, title: rule.normalizedValue || rule.targetValue, rule }));
   for (const value of def.system || []) {
     const catalog = systemSiteCatalogEntryForValue(value);
     entries.push({ source: 'system', classification: def.key, value, title: value, catalog, contentCategory: String(catalog?.contentCategory || '').trim() });
@@ -3187,6 +3193,7 @@ function filterRulesDirectoryEntries(entries) {
 }
 
 function rulesSiteMeta(entry) {
+  if (entry.source === 'usage') return '计入其他时间；原访问权限与对象限制保留。删除后恢复原用途归属，不改历史账。';
   if (entry.source === 'used-unclassified') {
     const site = entry.site || {};
     const prefix = site.historicalPending ? `历史待归类落账 · 当前已归类为${sitePolicyLabel(site.currentClassification)}` : '当前仍未归类';
@@ -3236,6 +3243,8 @@ function renderRulesSiteRow(entry, idx) {
   const unknown = unknownUsageIdentifier(entry);
   if (unknown) {
     actionHtml = '<div class="rules-site-actions"><span class="rules-site-badge">未识别页面，不适用网站归类</span></div>';
+  } else if (entry.source === 'usage') {
+    actionHtml = '<div class="rules-site-actions"><span class="rules-site-badge">其他时间；访问权限独立</span></div>';
   } else if (entry.source === 'rule') {
     const specialRule = isYouTubeSpecialRuleValue(entry.value);
     const options = specialRule
@@ -3274,6 +3283,8 @@ function renderRulesSiteRow(entry, idx) {
         </div>
         ${actionHtml}
       </div>
+      ${!unknown && entry.source !== 'usage' ? `<div class="rules-site-actions"><button class="rules-site-action-btn" onclick="setRulesOtherUsage(${idx})">归为其他时间</button></div>` : ''}
+      ${!unknown && entry.source === 'usage' ? `<div class="rules-site-actions"><button class="rules-site-action-btn danger" onclick="deleteRulesOtherUsage(${idx})">解除其他时间</button></div>` : ''}
       ${unknown ? '' : renderSystemSiteCategoryEditor(entry, idx)}
     </div>`;
 }
@@ -3685,7 +3696,7 @@ function renderRulesSiteDirectory() {
   const filtered = filterRulesDirectoryEntries(all);
   window._rulesSiteDirectoryEntries = filtered;
   filtered.forEach((entry, idx) => { entry._directoryIndex = idx; });
-  const grouped = ['used-unclassified', 'custom', 'system', 'rule', 'unmarked']
+  const grouped = ['used-unclassified', 'usage', 'custom', 'system', 'rule', 'unmarked']
     .map(source => [source, filtered.filter(entry => entry.source === source)])
     .filter(([, list]) => list.length > 0);
   const emptyText = def.isUsedUnclassified ? '当前没有已使用但仍未归类的网站。' : '当前筛选下没有网站。可以用上方输入框添加到' + htmlEscape(def.label) + '。';
@@ -3761,6 +3772,7 @@ async function loadUsedUnclassifiedSitesForRules(forceRefresh = false) {
 
 function addSiteToCurrentPolicy() {
   const def = currentRulesPolicyDef();
+  if (def.isUsage) { void saveOtherUsageTarget(document.getElementById('rules-site-add-input')?.value || ''); return; }
   if (def.isSpecial || def.isUsedUnclassified) { toast(def.isUsedUnclassified ? '已使用未归类网站来自最近使用历史，不能手动添加。' : '特殊对象规则通过孩子端 Popup 申请，或在已有 YouTube 规则行中调整分类。', false); return; }
   const input = document.getElementById('rules-site-add-input');
   const validation = validateRulesSiteAdd(input?.value || '', def.key);
@@ -3772,6 +3784,40 @@ function addSiteToCurrentPolicy() {
     if (input) input.value = '';
   }
 }
+
+let otherUsageSavePending = false;
+async function saveOtherUsageTarget(value, remove = false) {
+  if (otherUsageSavePending || !currentProfileId || !Number.isInteger(remoteConfigVersion)) return;
+  const raw = String(value || '').trim();
+  if (!raw) { toast('请输入域名或完整页面网址', false); return; }
+  const targetType = /^https?:\/\//i.test(raw) ? 'url' : 'host';
+  // 最终目标校验和规范化由Profile路由的共享匹配核心执行，不建立第二套识别规则。
+  const publicRule = rule => ({ classification: 'other', targetType: rule.targetType, normalizedValue: rule.normalizedValue || rule.targetValue });
+  const rules = (remoteConfig?.siteUsageClassificationRulesV1 || []).map(publicRule)
+    .filter(rule => !(rule.targetType === targetType && rule.normalizedValue === raw));
+  if (!remove) rules.push({ classification: 'other', targetType, normalizedValue: raw });
+  const child = currentProfileId;
+  otherUsageSavePending = true;
+  try {
+    const saved = await saveProfileConfig({ siteUsageClassificationRulesV1: rules }, 'site_access_save');
+    if (currentProfileId !== child || remoteConfigVersion !== Number(saved.version)) return;
+    const latest = await api(`/profiles/${child}/config`);
+    if (currentProfileId !== child || remoteConfigVersion !== Number(saved.version) || Number(latest.version) !== Number(saved.version)) return;
+    // 只替换服务器已保存的用途规则，保留页面尚未保存的访问配置草稿。
+    remoteConfig.siteUsageClassificationRulesV1 = latest.config?.siteUsageClassificationRulesV1 || [];
+    renderRulesPolicyNav(); renderRulesSiteDirectory();
+    toast(remove ? '其他时间已解除，原访问权限不变' : '已归为其他时间，原访问权限不变');
+  } catch (error) { toast('用途配置保存失败：' + (error.message || error), false); }
+  finally { otherUsageSavePending = false; }
+}
+window.setRulesOtherUsage = idx => {
+  const entry = window._rulesSiteDirectoryEntries?.[idx];
+  if (entry && !unknownUsageIdentifier(entry)) return saveOtherUsageTarget(entry.value);
+};
+window.deleteRulesOtherUsage = idx => {
+  const entry = window._rulesSiteDirectoryEntries?.[idx];
+  if (entry?.source === 'usage') return saveOtherUsageTarget(entry.value, true);
+};
 
 function moveCustomSiteToPolicy(value, policy) {
   const normalized = normalizeSiteAccessInput(value);
