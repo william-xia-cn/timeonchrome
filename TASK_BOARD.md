@@ -2,6 +2,12 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+2026-10-03机器分页批已合入：PR209/head3e74d4e，Guardian CI37039273277与App Runtime CI37039273194相关检查成功，插件merge为master e47da005db412d03aee9b46d984743df76643e4d，既有云端树fast-forward。Guardian本地dry-run940.12KiB亦通过；没有部署或安装。控件1.28分页消费已由所属任务提交712bce3及ca0bb56，当前精确集成；不改所属任务的产品代码。Native会话当前为Default但未执行Windows1.28组装：其报告跨会话读取工具未返回原始用户输入，无法独立核验已有授权；该子项保持未完成，其他云端/契约/控件工作继续。
+
+本次集成范围：architecture-integration，来源3675991ff391677e7378094ca2799da2dcc4fd5a（含712bce3、ca0bb56）；仅整合其八个产品／测试路径及设计记录，合并文档冲突时保留两端事实。先核对来源字节一致，再运行分页reader、policy reader、local guardian聚焦测试、根typecheck及边界／diff检查；排除Windows、macOS、WiX及无关全量测试。第一次复验失败定位为10毫秒建立缓存未确认的夹具，已由控件所属任务修正；未放宽生产超时或缓存规则。默认关闭，不改候选、不部署；真实通道、完整配置身份和共享执行仍待完成。
+
+提交前审计：修正后的分页reader专项通过，配置reader／local guardian、根typecheck、源码边界及diff通过；后两者产品代码未变，复用本次此前通过证据。八路径与所属来源3675991逐字节diff为空；DESIGN只合并双方记录，无候选或其他草稿变更。Matched＝默认关闭只读消费者及精确集成；Deviated／Extra＝无；Missing＝跨端来源认证、完整配置身份、Native消费者与真实共享执行，整体目标继续未完成。
+
 下一标准云端批：补机器授权的1.28分页依据读取，复用Machine Bearer、当前protected assignment及既有Guardian内部绑定；自身application sourceKey由服务端按已用算法派生，不接收caller Child/sourceKey。Guardian先验证owner Child，再分页，只允许该机器来源scope；读取完成复核assignment/机器撤销及policy变化。新增接口不写activity或账本、不授予网页scope。允许v2Routes/applicationSharedQuota、Guardian computerUsage/sharedAccessState及对应现有聚焦测试、DESIGN/任务板；最小验证权限/参数/绑定并发/错版/内部故障/应用scope隔离、根和Runtime typecheck、边界/diff。无关平台/页面/安装器不跑，不部署。PR208已合入507d010，精确CI37037200688通过，控件源码来源字节未改。
 
 本批本地审计：机器GET与Guardian受限内部分页读取已实现；来源键复用原上传算法，逐项拒绝caller Child/source、重复参数、旧assignment、非应用scope和错Child，读取后重新校验撤销/改绑。响应流限制256KiB、超限取消；读取不更新机器activity。computer-usage-cloud/shared-access-state-cloud聚焦通过；真实本地D1机器读取、改绑/撤销及现有配置读取3项通过（19项无关跳过），根/Runtime typecheck、源码与standard-cloud九路径检查、diff通过，Runtime dry-run465.75KiB。首轮失败来自VM Error跨realm及测试使用不存在的revoked列/非法manual枚举，已按真实schema修正并复验，不放宽产品校验。Matched=本批机器分页授权读取；Deviated/Extra=无；Missing=跨端网页来源可信证明、完整配置身份、两端实际消费与共享执行/提醒实机验收，保持全目标未完成。没有部署、安装、迁移或候选替换。

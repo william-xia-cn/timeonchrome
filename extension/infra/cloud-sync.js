@@ -402,7 +402,7 @@ export async function readSharedAccessPolicyCloudScope() {
     : { ok: false, errorCode: 'shared_access_inactive' };
 }
 
-export async function readCloudSharedAccessPolicy({ deviceToken, apiBase, signal } = {}) {
+async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {}, path) {
   if (typeof deviceToken !== 'string' || !deviceToken || apiBase !== getCloudApiBase()) {
     return { ok: false, errorCode: 'shared_access_identity_changed' };
   }
@@ -412,12 +412,13 @@ export async function readCloudSharedAccessPolicy({ deviceToken, apiBase, signal
   const timeout = setTimeout(abort, CLOUD_CONFIG.REQUEST_TIMEOUT_MS);
   try {
     if (signal?.aborted) return { ok: false, errorCode: 'shared_access_cancelled' };
-    const response = await fetch(`${apiBase}/device/shared-access/v1`, {
+    const response = await fetch(`${apiBase}${path}`, {
       method: 'GET', headers: { Authorization: `Bearer ${deviceToken}` }, signal: controller.signal,
       redirect: 'error', cache: 'no-store',
     });
     if (!response.ok) return { ok: false, errorCode: response.status === 401 ? 'shared_access_unauthorized'
       : response.status === 403 ? 'shared_access_unbound' : response.status === 404 ? 'shared_access_unsupported'
+      : response.status === 409 ? 'shared_access_snapshot_changed'
       : 'shared_access_unavailable' };
     const reader = response.body?.getReader();
     if (!reader) return { ok: false, errorCode: 'shared_access_invalid_policy' };
@@ -446,17 +447,36 @@ export async function readCloudSharedAccessPolicy({ deviceToken, apiBase, signal
     }
     let result;
     try { result = JSON.parse(text); } catch (_) { return { ok: false, errorCode: 'shared_access_invalid_policy' }; }
-    if (!result || result.schemaVersion !== 1 || Object.keys(result).length !== 3 || !Object.hasOwn(result, 'policy')
-      || typeof result.profileId !== 'string' || !result.profileId) {
-      return { ok: false, errorCode: 'shared_access_invalid_policy' };
-    }
-    return { ok: true, profileId: result.profileId, policy: result.policy };
+    return { ok: true, value: result };
   } catch (_) {
     return { ok: false, errorCode: signal?.aborted ? 'shared_access_cancelled' : 'shared_access_unavailable' };
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener('abort', abort);
   }
+}
+
+export async function readCloudSharedAccessPolicy(options = {}) {
+  const response = await readCapturedSharedDeviceJson(options, '/device/shared-access/v1');
+  if (!response.ok) return response;
+  const result = response.value;
+  if (!result || result.schemaVersion !== 1 || Object.keys(result).length !== 3 || !Object.hasOwn(result, 'policy')
+    || typeof result.profileId !== 'string' || !result.profileId) return { ok: false, errorCode: 'shared_access_invalid_policy' };
+  return { ok: true, profileId: result.profileId, policy: result.policy };
+}
+
+export async function readCloudSharedQuotaExecutionPage(options = {}) {
+  const { date, offset = 0, revision } = options;
+  const time = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00Z`) : NaN;
+  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== date
+    || !Number.isSafeInteger(offset) || offset < 0 || offset > 1400
+    || (revision !== undefined && !/^[a-f0-9]{64}$/.test(revision)) || (offset > 0 && revision === undefined)) {
+    return { ok: false, errorCode: 'shared_execution_invalid_cursor' };
+  }
+  const path = `/device/shared-quota-execution/v1?date=${date}&offset=${offset}&limit=50`
+    + (revision === undefined ? '' : `&revision=${revision}`);
+  const response = await readCapturedSharedDeviceJson(options, path);
+  return response.ok ? { ok: true, page: response.value } : response;
 }
 
 async function requireRuntimeActivation() {

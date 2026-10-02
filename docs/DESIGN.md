@@ -22,6 +22,18 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 网站显式选择“其他时间”时，家长审批写入独立 `siteUsageClassificationRulesV1`，并将申请标记为 `approved_other`。它不写入 `siteClassificationRulesV1`，不改 `studyList`、`compositeList`、受限或黑名单列表，避免把用量归类误作访问权限变更；同一对象后来被明确归入其他访问类别时，清除旧的用途归类覆盖规则。扩展消费端按未来分段 attribution 接入；本字段不改 `mode`、时间窗、阻断、时长或已落账数据。
 
+2026-10-03 D-076 单项授权：PO 明确批准今后新分段写入 `targetClassificationAtTime=other` 与独立非扣费桶 `quotaBucketAtTime=other`。仅适用于显式“其他”用途归类；网页开始／停止、运行模式、总秒数和历史账保持不变。误设“其他”会减少学习／复合／休息分类额度的扣减，此风险已在授权问题中明示；本授权不包含追溯改账、共享执行启用或发布。当前已有对应归属代码，复验该实现，不重复改动计时逻辑。
+
+单项授权后复验：`managed-targets.test.js` 47/47、`classification-effective-boundary.test.js` 12/12、`usage-segments.test.js` 295/295 通过，`git diff --check` 通过。已验证“其他”60秒新分段在原始、日、小时账中均保留60秒，独立桶计入60秒且Study桶不增加；用途归类不触发配置变更切分。仅是本地专项证据，不替代真实浏览器或上线验收；本次没有新增产品代码变更、历史改账、提交或部署。
+
+2026-10-03 分页包精确审查续修：已确认固定1.28组装器允许应用scope，且终端缓存替换此前未比较持久来源版本。设备HTTPS消费者增加独立授权边界：只接受web授权scope，同一设备各日期的授权sourceKey必须一致；应用贡献可读但应用scope不得授予。在derived串行写入中读取同scope／完整policy摘要／同截止日期的可信旧LKG，逐source/date比较revisionOrdinal；旧ordinal、同ordinal异内容及无明确退休协议的已有来源消失均拒绝替换并保留旧缓存。新ordinal允许用量下降，不对opaque basisRevision排序，不修改固定契约或原账。仅复验真实reader的授权／缓存回归及类型、职责、diff；默认关闭，不启用、发布或改候选。
+
+续修验证：固定1.28包原字节及真实分页reader专项通过，覆盖合法schema的应用scope仍被拒绝（有／无旧缓存）、重启后的旧ordinal拒绝、同ordinal内容／publication冲突、新ordinal合法降量及basis摘要不排序、旧来源消失不清账。typecheck、三文件职责检查和diff通过；固定vendor、cloud传输和background均未改，复用712bce3对应证据。Matched＝设备web授权边界与持久来源版本保护；Deviated／Extra＝无。真实API／Host验收和完整policy身份缺口仍未关闭。
+
+2026-10-03 集成复验夹具修正：超时用例此前以10毫秒期限建立初始LKG且未断言成功，在较慢环境初始缓存可能尚未建立便取消，导致后续预期lkg实际不可用。改为先用正常期限独立确认缓存，再创建超时reader；在首个挂起请求到达后由受控测试时钟触发截止，确认取消／LKG／迟到不写。生产期限与读取代码不改，不以增加超时掩盖失败；只修改该测试及此记录。
+
+夹具修正后，普通专项命令及带固定1.28包验真的专项命令均通过，diff和两文件职责检查通过。产品源码零变更，复用ca0bb56的typecheck／边界证据；Matched＝独立建立可信LKG再验证超时降级与迟到不写，Deviated／Extra＝无。真实API／Host缺项不变，TASK_BOARD草稿未纳入。
+
 ### D-114 共享访问终端契约边界（2026-10-02）
 
 Native机器只读运输使用`GET /v2/machines/shared-quota/execution-basis?localUserId=opaque&assignmentVersion=N&date=YYYY-MM-DD&offset=0&limit=50[&revision=64hex]`，返回同1.28页结构。机器认证禁止写last_seen；Child由当前受保护assignment决定，拒绝其他query/重复key/外部Child或sourceKey。Runtime沿既有source算法派生application sourceKey，经GUARDIAN_COMPUTER_USAGE内部`/readSharedQuotaExecutionBasis`传递owner/Child/date/分页及opaque自身key；不传机器token、localUserId或SID。Guardian复核Child ownership和policy版本、只授予basis中已有自身application来源；非自身web来源仍完整保留但不授予替换权。Runtime读取后再次验证机器未撤销及同assignment，内部响应有界读取、错版409/参数400/故障503/no-store。此接口没有跨端web授权，也不启用shared；Native必须全页严格组装并按当前身份原子缓存，不能把ACK或单页当完整执行依据。
@@ -58,6 +70,12 @@ LKG仅一份完整policy，严格校验七天配额／时间段／自主度／�
 2026-10-03 LKG精确审查补项：在Guardian已明确的 `profile-config:N` 数字版本范围内，新revision的effectiveAtMs不得低于旧可信policy；拒绝倒退且保持旧缓存字节不变，不推广为一般opaque revision排序规则。只读传输改用响应流累计UTF-8字节，超过64KiB即取消；多字节字符跨片使用流式解码，外部取消／超时同样取消reader，不先读取完整正文或保存错误内容。Native当前共享状态仅提供policyRevision，没有policy有效时间或摘要，不能证明客户端LKG与Native policy的revision／effectiveAtMs完整一致；本次不新增协议，保持执行关闭并将接口缺口交架构处理。补项测试限定policy/LKG与流式传输、typecheck和差异／职责检查，不改网页或应用原账、统计及任务板草稿。
 
 补项验证通过：固定1.26.0／1.27.0包消费者专项覆盖新revision生效时间倒退不写缓存、恰好64KiB、逐字节UTF-8分片、字符数未超限但字节超限的提前取消、悬停响应外部取消和超时；typecheck、diff与四文件职责检查通过。Native桥源码不变，复用d40a0bc的专项证据；隔离流和存储夹具不替代真实网络／Host验收。1.27固定schema的state仍仅含policyRevision而无effectiveAtMs，接口缺口未关闭。Matched=两项精确补丁，Deviated／Extra=无；未部署或启用。
+
+2026-10-03 执行依据只读分页消费准备包：采用交接的1.28.0候选包（来源511b52c，SHA-256 `72dbd1f611c0471913f07a72b23be519ad0066eb1c5d29f5433c7655b4b59c04`），此时尚无主线合入证据。仅将包内 `dist/shared-access.js` 与 `dist/shared-quota-execution.js` 原字节固定在终端core/shared-contracts/1.28.0，调用真实assemble函数，不修改共享契约源码、锁或另写组装算法。消费 `GET /device/shared-quota-execution/v1`：首offset=0/limit=50，随后携带首basisRevision；串行收齐，最多28页、一次409整轮重读，不能把缺页或错版当零。沿用设备Bearer、Child／设备／凭据代次及64KiB响应流上限；完整组装前检查日期截止、完整policy摘要及授权scope。连接不提供完整policy身份一致性仍禁止执行。
+
+派生缓存 `shared_quota_execution_lkg_v1` 默认关闭，保存一个日期截止的完整组装依据、授权scope、内容与认证scope摘要，不保存token、URL、标题或原始Segment。日覆盖严格等于周一至请求日期；跨日期、Child、设备、凭据、端点或policy变更不消费旧缓存。总收集与缓存预算512KiB、请求轮次60秒取消期限；不承诺底层本地存储挂起时整个调用仍能准时返回。读取期间新增触发合并成最多一个待重读日期，旧代次不得发布。完整性由固定契约投影判断，缺源可显式缓存为不完整，但executionEnabled始终false，不成为拦截输入。网络／坏页保留同scope可信LKG，401／403／404／错Child不以旧缓存冒充授权。以现有预算derived串行原子替换，不触碰原账、quota_check、提醒效果或候选；范围测试为固定包字节、真实组装器、分页／取消／缓存／身份／期限与类型、职责和扩展边界，不跑生产／全量平台验收。
+
+2026-10-03 分页包收口证据：架构后续交接报告1.28契约PR #207已合入 `85826e47aa32cc16c41dffb6186e8d7904fc6abf`，包来源及摘要未变；本终端实测包SHA与大小、两个编译模块原字节均一致，不将交接报告冒称自行查询CI。分页消费者及原policy消费者专项、typecheck、extension-root、app-runtime-boundaries通过；覆盖缺页不发布、零来源显式不完整、409一次重读、跨页冲突、缓存预算、取消后迟到响应、身份／policy变化及重启LKG。早期夹具等待固定次数事件循环曾失败，改为等待实际存储写入并设置有界超时后通过，没有放宽生产发布保护。Matched＝只读分页／固定组装／原子LKG／默认关闭；Deviated／Extra＝无。Missing＝已部署设备API／真实Host联合验收、完整policy跨端身份及来源真实性证明；同revision或Host自报均不授予共享执行。本次不改原账、TASK_BOARD草稿、候选、部署或版本。
 
 2026-10-02 执行许可持久登记准备层：新增独立 IndexedDB `shared-browser-execution-attempts-v1`，仅显式启用准备层时打开，不在 bootstrap 运行；inspect 只读登记（首次打开创建独立数据库），claim 才登记尝试。唯一 executionId 在 strict readwrite 事务中先检查、再登记，事务提交后才返回成功；最多20条且逻辑记录总量不超过8KB，容量满、损坏、读取或提交失败均拒绝。记录仅含 executionId、leaseId、时间，不包含网页内容；不自动淘汰已登记 ID，不因断线或重启重新授予同一 ID。此存储不属于网页账本，不改变 storage.local 预算或落账。登记后再次检查当前许可和租约，失效仍保留登记并拒绝；执行效果始终关闭。专项只用隔离事务故障夹具验证，真实 IndexedDB／重启验收仍未通过，不新增浏览器运行。
 

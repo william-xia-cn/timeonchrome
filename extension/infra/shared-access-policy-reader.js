@@ -29,6 +29,9 @@ async function capturedContext(readContext) {
     value.deviceId, value.childId, value.deviceToken])) };
 }
 
+// Internal captured identity for read-only consumers. Never sent to UI or logs.
+export async function readSharedAccessPolicyContext() { return capturedContext(readCurrentContext); }
+
 async function validRecord(value, scopeHash) {
   if (!value || Object.keys(value).length !== 6 || value.schemaVersion !== 1 || value.scopeHash !== scopeHash
     || !Number.isSafeInteger(value.receivedAtMs) || value.receivedAtMs < 0
