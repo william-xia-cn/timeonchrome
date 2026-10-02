@@ -1,4 +1,4 @@
-import { projectSharedQuotaDay, type SharedQuotaContributionV1, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
+import { projectSharedQuotaDay, type SharedQuotaContributionV1, type SharedQuotaStateV1, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import type { Env } from '../db/middleware';
 import { readManifestAccountV2 } from './profileAccountsV2';
 import { projectCompositeDailyRows, readCompositeCorrections } from './compositePageCorrections';
@@ -143,6 +143,10 @@ async function readSharedAccessDayProjection(env:SharedAccessStateEnv,accountId:
       availableScopeCount:webSource.availableScopeCount,reasonCodes:webSource.reasonCodes,bucketsMs:webSource.visibleBucketsMs},
     application:{complete:appSource.complete,expectedScopeCount:appSource.expectedScopeCount,
       availableScopeCount:appSource.availableScopeCount,reasonCodes:appSource.reasonCodes,classesMs:appSource.visibleClassesMs},
+    sources:sources.map(source=>({source:source.source,sourceKey:source.sourceKey,date:source.date,revision:source.revision}))
+      .sort((a,b)=>`${a.source}:${a.sourceKey}`.localeCompare(`${b.source}:${b.sourceKey}`)),
+    settledAtMs:complete&&sources.length>0&&sources.every(source=>source.settledAtMs!==null)
+      ?sources.reduce((minimum,source)=>Math.min(minimum,source.settledAtMs!),Number.MAX_SAFE_INTEGER):null,
     day:projection};
 }
 

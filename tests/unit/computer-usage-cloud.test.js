@@ -19,7 +19,7 @@ const authorityRows=['daily_domain','hourly_domain','daily_target','hourly_targe
 assert.equal(schema.validateDeviceAccountRows(authorityRows,date).ok,true,'fixture must match the real authoritative schema');
 assert.equal(schema.validateDeviceAccountRows([{kind:'daily_total'}],date).code,'DEVICE_ACCOUNT_INVALID_KIND');
 const app={key:'app:opaque',computerKey:'opaque-computer',computerName:'电脑',revision:'a1',associationVersion:'association1',correctionRevision:'ac1',settledAtMs:start+4000,complete:true,reasons:[],totalMs:2000,categoriesMs:{composite:2000},intervals:[{startMs:start+1500,endMs:start+3500,classification:'composite',subjectKey:'opaque-product',label:'办公应用',special:false}]};
-function fixture({owned=true,appFailure=false,webFailure=false,failedDate,legacy=false,appError='private runtime failure',publicStats=[]}={}){
+function fixture({owned=true,appFailure=false,webFailure=false,sharedStateFailure=false,failedDate,legacy=false,appError='private runtime failure',publicStats=[]}={}){
 let reads=0,heads=1,appReads=0;const store=new Map();
 const account={profileId:'child',deviceId:'browser',date,revision:1,statsHash:'hash',generatedAt:start+4000,committedAt:start+5000,complete:true,lossCount:0,rows:authorityRows};
 const db={
@@ -33,7 +33,15 @@ const load=loader({'./profileAccountsV2':{readManifestAccountV2:async(_db,manife
 './usageAccountingCorrections':{listUsageAccountingCorrections:async()=>[],applyCorrectionsToV1StatsRows:rows=>rows},
 '../db/middleware':{generateToken:async()=> 'test-internal'},'../routes/stats':{statsRouter:{handle:async request=>Response.json({stats:new URL(request.url).pathname.includes('hourly')?publicStats.map(row=>({...row,hour:0})):publicStats})}},
 '../routes/profiles':{readSharedAccessPolicyForChild:async(_db,accountId,childId)=>accountId==='current-account'&&childId==='current-child'
-  ?{schemaVersion:1,revision:'profile-config:7',stage:'legacy'}:null}});
+  ?{schemaVersion:1,revision:'profile-config:7',stage:'legacy'}:null},
+'./sharedAccessState':{readSharedAccessDayState:async(_env,accountId,childId,selectedDate,policy)=>{
+  assert.equal(accountId,'current-account');assert.equal(childId,'current-child');
+  if(sharedStateFailure)throw Error('private state failure');
+  return {schemaVersion:1,policyRevision:policy.revision,revision:'state-r1',computedAtMs:1234,settledAtMs:null,
+    complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],sources:[{source:'web',sourceKey:'opaque-source',date:selectedDate,revision:'web-r1'}],
+    day:{date:selectedDate,usedMs:{study:1000,composite:2000,rest:0},remainingMs:{study:5000,composite:4000,rest:3000},borrowedRestMs:0},
+    week:{fromDate:'2026-09-28',toDate:selectedDate,complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],restUsedMs:0,restRemainingMs:3000}};
+}}});
 return {load,env:{DB:db,CONFIG_CACHE:{get:async key=>store.has(key)?JSON.parse(store.get(key)):null,put:async(key,value)=>store.set(key,value)},RUNTIME_COMPUTER_USAGE:{applicationEvidenceRevision:async()=>{if(appFailure)throw Error(appError);return 'a1';},readApplicationEvidence:async()=>{appReads++;if(appFailure)throw Error(appError);return [app];}}},store,reads:()=>reads,appReads:()=>appReads,change(){heads++;}};
 }
 (async()=>{
@@ -49,6 +57,24 @@ assert.deepEqual(await (await scoped.fetch(policyRequest('current-account','curr
 assert.equal((await scoped.fetch(policyRequest('foreign-account','current-child'))).status,404);
 assert.equal((await scoped.fetch(new Request('https://private-capability/getUsage',{method:'POST'}))).status,405);
 assert.equal((await scoped.fetch(scopeRequest('x'.repeat(3000),'current-child'))).status,400);
+const quotaStateRequest=(accountId,childId,date='2026-10-02',extra={})=>new Request('https://private-capability/readSharedQuotaState',
+  {method:'POST',body:JSON.stringify({accountId,childId,date,...extra})});
+const quotaStateResponse=await scoped.fetch(quotaStateRequest('current-account','current-child'));
+assert.equal(quotaStateResponse.status,200);
+const quotaStateBody=await quotaStateResponse.json();
+assert.deepEqual(quotaStateBody.state,{schemaVersion:1,policyRevision:'profile-config:7',revision:'state-r1',computedAtMs:1234,
+  settledAtMs:null,complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],
+  sources:[{source:'web',sourceKey:'opaque-source',date:'2026-10-02',revision:'web-r1'}],
+  day:{date:'2026-10-02',usedMs:{study:1000,composite:2000,rest:0},remainingMs:{study:5000,composite:4000,rest:3000},borrowedRestMs:0},
+  week:{fromDate:'2026-09-28',toDate:'2026-10-02',complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],restUsedMs:0,restRemainingMs:3000},offline:false});
+assert.equal('stage' in quotaStateBody.state,false,'wire state contains only the published contract fields');
+assert.equal((await scoped.fetch(quotaStateRequest('current-account','current-child','2026-02-30'))).status,400);
+assert.equal((await scoped.fetch(quotaStateRequest('foreign-account','current-child'))).status,404);
+assert.equal((await scoped.fetch(quotaStateRequest('current-account','current-child','2026-10-02',{childId:'foreign-child'}))).status,404);
+const stateFailureFixture=fixture({sharedStateFailure:true});const stateFailureService=new (stateFailureFixture.load('workers/src/services/computerUsage.ts').ComputerUsageService)({}, {DB:{
+  prepare(){return {bind(){return {first:async()=>({id:'current-child'})};}};}}});
+const stateFailure=await stateFailureService.fetch(quotaStateRequest('current-account','current-child'));
+assert.equal(stateFailure.status,503);assert.deepEqual(await stateFailure.json(),{code:'SHARED_QUOTA_STATE_UNAVAILABLE'});
 const failedScope=new service.ComputerUsageService({}, {DB:{prepare(){throw Error('private DB failure');}}});
 assert.deepEqual(await (await failedScope.fetch(scopeRequest('current-account','current-child'))).json(),{code:'APPLICATION_SCOPE_UNAVAILABLE'});
 let result=await service.readComputerUsage(f.env,'account','child',date,date);
