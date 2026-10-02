@@ -14,9 +14,17 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 终端契约与实施边界
 
+2026-10-02 执行许可持久登记准备层：新增独立 IndexedDB `shared-browser-execution-attempts-v1`，仅显式启用准备层时打开，不在 bootstrap 运行；inspect 只读登记（首次打开创建独立数据库），claim 才登记尝试。唯一 executionId 在 strict readwrite 事务中先检查、再登记，事务提交后才返回成功；最多20条且逻辑记录总量不超过8KB，容量满、损坏、读取或提交失败均拒绝。记录仅含 executionId、leaseId、时间，不包含网页内容；不自动淘汰已登记 ID，不因断线或重启重新授予同一 ID。此存储不属于网页账本，不改变 storage.local 预算或落账。登记后再次检查当前许可和租约，失效仍保留登记并拒绝；执行效果始终关闭。专项只用隔离事务故障夹具验证，真实 IndexedDB／重启验收仍未通过，不新增浏览器运行。
+
+边界补充：8KB 是记录逻辑载荷上限，不是 IndexedDB 文件的物理大小保证。20条满后停止接收新 claim，不自动清除 tombstone；长期保留及安全回收未定。普通与 split-incognito 存储分区不假定共享，隐身上下文拒绝此准备登记；启用跨上下文效果前需另行验证全局去重与持久性。登记后的故障只消耗该 ID，不可通过重新执行弥补。
+
 1.26 无效果准备层：固定源 `7ceab64bbe1f5c5e997edbd872c705d03cd5fb56`，82747 字节验真包 SHA-256 `a53d765f239d2f04d7c172c109f49ea2ae0db73689cbcea6d588da81074722c5`。校验独立 `browserExecution`，严格绑定提醒 identity、lease、activity、版本及当前 Rest 页面；有效期从 Native 请求入口的单调时间计入排队和传输延迟。不从 resolution/stage 推断许可。默认关闭的准备调用者 `inspectSharedBrowserExecution(date, { enabled })` 经 Native 读取、实时活动复核、许可资格检查返回无效果结果，不调用网页关闭、模式切换、结算或存储写入；一次尝试登记通过显式注入接口准备，claim 前再次核对身份、时间及已有尝试，真实持久登记及效果调用仍待单项批准。`acknowledgeBrowserExecution` 使用既有串行 Port，发送及回执时复核当前 lease，严格确认 executionId/requestId；准备检查本身不发送 completed，不把 canceled 升级。43 项执行、28 项生命周期、24 项活动共同向量及 Native 回执、实例、未知字段专项通过，真实扩展／Service／效果执行未验收。
 
 ### 网页结束执行待裁决边界（尚未实施）
+
+2026-10-02 API 只读核验：Chrome Tabs API 的 remove 仅接受 tabIds，没有 force/cancel 参数；当前 Chromium main 的 `TabsRemoveFunction::RemoveTab` 调用 WebContents::Close，并等 WebContentsDestroyed 才回响应，不能把请求发出当作关闭完成。其 delegate 经 CanCloseContents 与 CloseWebContents 进入标签关闭路径，不能仅靠 Promise<void> 分辨用户取消。CDP `PageHandler::Close` 明确派发 TAB_CLOSE beforeunload，可作为正常关闭候选；CDP 与 `chrome.debugger` 需要额外权限、挂接和真实取消/目标销毁验收，当前 manifest 无 debugger，不新增权限或实现。不能把 Target.closeTarget 的返回 true 当成页面已销毁或强制保证。证据为 Chromium main，不冒充当前安装 Chrome 的实测。来源：https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/extensions/api/tabs/tabs_api.cc 、https://raw.githubusercontent.com/chromium/chromium/main/content/browser/devtools/protocol/page_handler.cc 、https://raw.githubusercontent.com/chromium/chromium/main/chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc 。
+
+PO 待单项裁决：正常结束若用户取消，保留原页面和 ACTIVE，不先切 Study／停账；真正关闭后仅由现有 tabClosed 自然事件结算，不手工双重关 session。强制结束是否允许绕过 beforeunload、丢失页面未保存内容，以及是否批准 debugger 权限/执行技术路径，均未获批。本批默认关闭的登记准备层不实施上述行为，也不改变现行 Rest 结束路径。误关会少记，取消先停账会少记，关闭后漏事件会多记，手动与自然事件并行可能重复；必须通过隔离真实浏览器与原始账守恒后才能开启。
 
 - 旧路径：`product/rest-usage-reminder.js:endPrompt()` 调用 background 注入的 `endRestUsage()`，以 `REQUEST_MODE_CHANGE` 请求 Study；既有拦截器可用 `chrome.tabs.update()` 导航到完整 Reminder。这是模式／页面跳转，不是有取消结果的正常关页，不能冒充 `request-normal-close`。
 - 新许可读取位置：`infra/native-host-client.js:requestSharedReminderLifecycle()` 保留显式许可和请求发起单调时间；`product/shared-browser-execution-preparation.js` 绑定当前实例，仅返回准备结果。后续真实执行器尚未创建或接线，不能将纯校验称为实际结束执行。

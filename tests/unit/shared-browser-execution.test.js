@@ -90,6 +90,7 @@ async function run() {
   }
   const preparationSource = fs.readFileSync(path.join(root, 'extension/product/shared-browser-execution-preparation.js'), 'utf8');
   const preparation = await load(coreSource + '\nconst requestSharedReminderLifecycle = async () => ({ok:false});\n'
+    + 'const sharedBrowserExecutionAttempts = {readAttemptedIds:async()=>new Set(),claimAttempt:async()=>({ok:false})};\n'
     + 'const sharedReminderIdentity = value => Object.fromEntries(["schemaVersion","roundId","reminderId","deliveryId","policyRevision","stateRevision"].map(key=>[key,value[key]]));\n'
     + preparationSource.replace(/^import .*;\r?\n/gm, ''));
   const disabled = preparation.createSharedBrowserExecutionPreparation({ request: () => { throw Error('must not request'); } });
@@ -110,6 +111,17 @@ async function run() {
   assert.equal((await candidate.inspect(vectors.state.date)).reasonCode, 'SHARED_BROWSER_EXECUTION_EXPIRED');
   clock = 1000; await candidate.inspect(vectors.state.date); current = { ...current, connectionCurrent: false };
   assert.equal((await candidate.claim(basePermit)).errorCode, 'SHARED_BROWSER_ACTIVITY_LEASE_CHANGED'); assert.equal(claims, 1);
+  current = { ...current, connectionCurrent: true };
+  const delayed = preparation.createSharedBrowserExecutionPreparation({ enabled: true, now: () => clock,
+    request: async () => ({ ok: true, state: vectors.state, browserExecution: basePermit, requestStartedMonotonicMs: 1000 }),
+    readContext: async () => current, readAttemptedIds: async () => new Set(),
+    claimAttempt: async () => { clock = 6000; return { ok: true }; } });
+  await delayed.inspect(vectors.state.date);
+  const expiredAfterCommit = await delayed.claim(basePermit);
+  assert.equal(expiredAfterCommit.ok, false);
+  assert.equal(expiredAfterCommit.registered, true);
+  assert.equal(expiredAfterCommit.effectsEnabled, false);
+  assert.equal(expiredAfterCommit.errorCode, 'SHARED_BROWSER_EXECUTION_EXPIRED');
   assert(!/tabs\.(remove|update)|closeCurrentSession|dispatchModeEvent|budgetedLocalSet|storage\.(local|session)\.set/.test(preparationSource));
   console.log(`[Browser Execution Preparation] ${vectors.browserExecution.cases.length} execution / ${vectors.cases.length} lifecycle / ${vectors.browserActivity.cases.length} activity vectors and no-effect caller checks passed`);
 }

@@ -2,6 +2,7 @@ import { requestSharedReminderLifecycle, getSharedBrowserActivityLease } from '.
 import { sharedReminderIdentity } from '../core/shared-reminder-lifecycle.js';
 import { sharedBrowserExecutionEligibility, validateSharedBrowserExecution } from '../core/shared-browser-execution.js';
 import { inspectSharedBrowserActivity, readBrowserRestActivity } from './shared-browser-activity.js';
+import { sharedBrowserExecutionAttempts } from '../infra/shared-browser-execution-attempts.js';
 
 export async function readBrowserExecutionContext(state) {
   const before = inspectSharedBrowserActivity();
@@ -17,7 +18,8 @@ export async function readBrowserExecutionContext(state) {
 
 // No execution callback: even an eligible explicit permit cannot close a page here.
 export function createSharedBrowserExecutionPreparation({ enabled = false, request = requestSharedReminderLifecycle,
-  readContext = readBrowserExecutionContext, readAttemptedIds = async () => new Set(), claimAttempt = null,
+  readContext = readBrowserExecutionContext, readAttemptedIds = sharedBrowserExecutionAttempts.readAttemptedIds,
+  claimAttempt = sharedBrowserExecutionAttempts.claimAttempt,
   now = () => Math.floor(performance.now()) } = {}) {
   let busy = false;
   let candidate = null;
@@ -48,7 +50,7 @@ export function createSharedBrowserExecutionPreparation({ enabled = false, reque
   }
   return {
     inspect,
-    // Separate, explicitly injected candidate-only persistence preparation. Never executed by inspect.
+    // Durable preparation only. Never executed by inspect, and never invokes effects.
     async claim(permit) {
       if (!enabled || typeof claimAttempt !== 'function') return { ok: false, errorCode: 'browser_execution_claim_disabled' };
       const checked = validateSharedBrowserExecution(permit);
@@ -64,7 +66,14 @@ export function createSharedBrowserExecutionPreparation({ enabled = false, reque
           monotonicNowMs: now() };
         const eligibility = sharedBrowserExecutionEligibility(checked.payload, context);
         if (!eligibility.eligible) return { ok: false, errorCode: eligibility.reasonCode };
-        return await claimAttempt(checked.payload.executionId, checked.payload.leaseId);
+        const claimed = await claimAttempt(checked.payload.executionId, checked.payload.leaseId);
+        if (!claimed?.ok) return claimed;
+        const rechecked = sharedBrowserExecutionEligibility(checked.payload, {
+          ...await readContext(prepared.state), reminder: sharedReminderIdentity(prepared.state), attemptedIds: new Set(),
+          requestStartedMonotonicMs: prepared.requestStartedMonotonicMs, monotonicNowMs: now(),
+        });
+        if (!rechecked.eligible) return { ok: false, errorCode: rechecked.reasonCode, registered: true, effectsEnabled: false };
+        return { ...claimed, registered: true, effectsEnabled: false };
       }
       catch (_) { return { ok: false, errorCode: 'browser_execution_claim_failed' }; }
     },
