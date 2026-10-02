@@ -1,6 +1,10 @@
 (() => {
   const RUNTIME_API = 'https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev';
-  const MAIN_CONSOLE = 'https://timeonchrome-console.pages.dev/?launch=app-runtime';
+  const requestedLaunchView = new URLSearchParams(location.search).get('view');
+  const initialView = ['apps', 'devices'].includes(requestedLaunchView) ? requestedLaunchView : 'usage';
+  const mainConsoleUrl = new URL('https://timeonchrome-console.pages.dev/?launch=app-runtime');
+  if (['apps', 'devices'].includes(initialView)) mainConsoleUrl.searchParams.set('view', initialView);
+  const MAIN_CONSOLE = mainConsoleUrl.toString();
   const authRecovery = AppRuntimeSession.createRecovery(sessionStorage, () => location.assign(MAIN_CONSOLE));
   const mock = new URLSearchParams(location.search).has('mock');
   const categoryLabels = { study: '学习', composite: '复合', restrictedEntertainment: '受限娱乐', unclassified: '未归类', other: '其他时间', blocked: '黑名单' };
@@ -22,7 +26,7 @@
     apps: ['应用管理', '管理安装发现、产品确认与孩子分类规则'], devices: ['设备管理', '管理电脑、账户分配与运行状态'],
     system: ['系统管理', '查看系统日志、技术进程、主账本、辅助媒体和运行健康'],
   };
-  const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: 'usage', appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
+  const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', sharedAccess: null, sharedAccessError: null, loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: initialView, appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => [...document.querySelectorAll(selector)];
   const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -337,20 +341,30 @@
     $('#inventory-status').innerHTML = scans.length ? scans.map((scan,index)=>{const sourceResults=scan.sourceResults||[];const sourceSummary=sourceResults.length?`<span class="inventory-sources">${sourceResults.map(source=>`<b class="source-${escape(source.status)}">${escape(source.source)}：${source.status==='complete'?'成功':source.status==='complete_with_warnings'?`警告 ${Number(source.warningCodes?.length||0)}`:'失败'}</b>`).join('')}</span>`:'';return `<span>${escape(scan.machineName)} · 账户盘点 ${index+1}：${({complete:'该用户盘点完整',completeWithWarnings:'已完成，含单项警告',syncing:'同步中',partial:'部分来源失败',unverified:'尚未验证（未盘点或旧客户端）'})[scan.status]||'状态未知'} · ${scan.receivedBatches}/${scan.expectedBatches} 批 · ${scan.observationCount} 条观察${scan.failedSources?.length?` · ${scan.failedSources.length} 个来源失败`:''} · ${time(scan.updatedAtMs)}${sourceSummary}</span>`;}).join('；') + '。仅完成的来源可结算该来源的缺失对象；警告或失败不会被误判为整机卸载。' : '盘点完整性未验证；目录数量不等于已完成整机盘点。';
   }
   function renderQuotaForm() {
-    const quotas = state.policy.quotas; const fields = [['study','每日学习'],['composite','每日复合'],['restrictedEntertainment','每日受限娱乐'],['unclassified','每日未归类']];
-    $('#quota-form').innerHTML = fields.map(([key,label]) => `<label class="quota-field">${label}（分钟）<input type="number" min="0" data-quota-category="${key}" value="${quotas.dailyCategoryMinutes[key] ?? ''}" placeholder="无限制"></label>`).join('') + `<label class="quota-field">每周受限娱乐（分钟）<input type="number" min="0" id="weekly-restricted" value="${quotas.weeklyRestrictedEntertainmentMinutes ?? ''}" placeholder="无限制"></label>`;
+    const quotas = state.policy.quotas;
+    if (mock) state.sharedAccess ||= { schemaVersion: 1, revision: 'mock:1', effectiveAtMs: Date.now(), stage: 'shadow',
+      dailyMinutes: Object.fromEntries(AppRuntimePolicy.weekdays.map((day) => [day, { study: 60, composite: 60, rest: 90 }])), weeklyRestMinutes: 300,
+      timeWindows: Object.fromEntries(AppRuntimePolicy.weekdays.map((day) => [day, { study: null, composite: null, rest: null }])),
+      autonomy: { restrictedEntryConfirmationRequired: true, dailyFirstReminderMinutes: 45, weeklyFirstReminderMinutes: null, repeatReminderMinutes: 60, softReminderTimeoutAction: 'continue', visibleResponseDeadlineSeconds: 60 } };
+    const shared = state.sharedAccess;
+    const dayLabels = { monday: '周一', tuesday: '周二', wednesday: '周三', thursday: '周四', friday: '周五', saturday: '周六', sunday: '周日' };
+    const minutes = (value) => value == null ? '不限' : `${value} 分钟`;
+    const rows = shared ? AppRuntimePolicy.weekdays.map((day) => `<div class="shared-access-row"><strong>${dayLabels[day]}</strong><span>学习 ${minutes(shared.dailyMinutes?.[day]?.study)}</span><span>复合 ${minutes(shared.dailyMinutes?.[day]?.composite)}</span><span>娱乐 ${minutes(shared.dailyMinutes?.[day]?.rest)}</span></div>`).join('') : '';
+    const stateLabel = shared ? ({ legacy: '沿用旧配置来源', shadow: '影子核对中', shared: '共享执行' }[shared.stage] || '状态未知') : '统一访问配置暂不可读取';
+    $('#quota-form').innerHTML = shared ? `<p>配置版本 ${escape(shared.revision)} · ${stateLabel}</p><div class="shared-access-grid">${rows}</div><p>每周娱乐 ${minutes(shared.weeklyRestMinutes)} · 娱乐进入确认 ${shared.autonomy?.restrictedEntryConfirmationRequired ? '开启' : '关闭'} · 日提醒 ${minutes(shared.autonomy?.dailyFirstReminderMinutes)} · 周提醒 ${minutes(shared.autonomy?.weeklyFirstReminderMinutes)} · 重复间隔 ${minutes(shared.autonomy?.repeatReminderMinutes)}</p><p class="muted">单应用限制在“单应用限制”维护；终端共享执行覆盖仍需在设备管理核对。</p>` : `<p class="error">无法读取主控制台的统一配置（${escape(state.sharedAccessError || 'UNKNOWN')}）。应用统计和分类管理仍可用。</p>`;
     state.quotaApps = observedApps();
     const per = new Map(quotas.perApplicationDailyMinutes.map((item) => [AppRuntimePolicy.keyOf(item), item.minutes]));
     $('#app-quota-list').innerHTML = state.quotaApps.map((app, index) => `<div class="quota-app-row"><span class="app-icon">${escape((app.displayName || '?')[0])}</span><div><strong>${escape(app.displayName || '未知应用')}</strong><small>${app.platform}</small></div><input type="number" min="0" data-app-quota-index="${index}" value="${per.get(AppRuntimePolicy.keyOf(app)) ?? ''}" placeholder="无限制" aria-label="${escape(app.displayName)} 每日分钟"></div>`).join('') || '<p class="empty">暂无已观察应用</p>';
   }
   function renderSchedule() {
     const dayLabels = { monday: '周一', tuesday: '周二', wednesday: '周三', thursday: '周四', friday: '周五', saturday: '周六', sunday: '周日' };
-    $('#schedule-editor').innerHTML = AppRuntimePolicy.weekdays.map((day) => `<section class="schedule-day"><h3>${dayLabels[day]}</h3><div class="schedule-categories">${AppRuntimePolicy.scheduleCategories.map((category) => {
-      const windows = state.policy.timeWindows[day][category];
-      return `<div class="schedule-cell"><div class="schedule-cell-title"><strong>${categoryLabels[category]}应用</strong><button type="button" data-schedule-all="${day}|${category}">全天开放</button></div><div class="schedule-windows">${windows.map((window, index) => `<div class="schedule-window"><input data-schedule-start="${day}|${category}|${index}" value="${window.start}" aria-label="${dayLabels[day]} ${categoryLabels[category]}开始"><span>至</span><input data-schedule-end="${day}|${category}|${index}" value="${window.end}" aria-label="${dayLabels[day]} ${categoryLabels[category]}结束"><button type="button" data-schedule-remove="${day}|${category}|${index}" aria-label="删除时间段">×</button></div>`).join('') || '<small>全天不开放</small>'}</div><button type="button" data-schedule-add="${day}|${category}">＋ 添加时段</button></div>`;
-    }).join('')}</div></section>`).join('');
-    $('#outside-window-summary').textContent = state.usageLoading || state.usageError || !state.usage
-      ? '本周期时段外使用暂不可用' : `本周期时段外使用 ${duration(state.usage.outsideTimeWindows?.durationMs || 0)}`;
+    const shared = state.sharedAccess;
+    const categories = [['study', '学习'], ['composite', '复合'], ['rest', '娱乐']];
+    $('#schedule-editor').innerHTML = shared ? AppRuntimePolicy.weekdays.map((day) => `<section class="schedule-day"><h3>${dayLabels[day]}</h3><div class="schedule-categories">${categories.map(([key, label]) => {
+      const windows = shared.timeWindows?.[day]?.[key];
+      const text = windows == null ? '全天开放' : windows.length ? windows.map((window) => `${escape(window.start)}–${escape(window.end)}`).join('、') : '全天不开放';
+      return `<div class="schedule-cell"><strong>${label}</strong><div class="schedule-windows">${text}</div></div>`;
+    }).join('')}</div></section>`).join('') : `<p class="error">无法读取统一时间段（${escape(state.sharedAccessError || 'UNKNOWN')}）。</p>`;
   }
   function assignmentOptions(selectedId, protectedValue = true) { return `<option value="u"${!protectedValue ? ' selected' : ''}>成人／不保护</option>` + state.children.map((item, index) => `<option value="${index}"${protectedValue && item.id === selectedId ? ' selected' : ''}>${escape(item.name)}</option>`).join(''); }
   function renderMachines() { $('#machines').innerHTML = state.machines.map((machine) => `<button type="button" class="machine-card" data-open-machine="${escape(machine.id)}"><span class="platform-icon">${machine.platform === 'macos' ? '●' : '⊞'}</span><div><strong>${escape(machine.displayName || '电脑')}</strong><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')} · 最近在线 ${time(machine.lastSeenAtMs)}</p></div><span class="policy ${escape(machine.policyState)}">${policyLabel(machine.policyState)}</span><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span><span>›</span></button>`).join('') || '<p class="empty">尚未添加 Runtime 电脑</p>'; }
@@ -382,8 +396,16 @@
     const childId = encodeURIComponent(state.childId);
     const policyPromise = runtime(`/v2/module/app-policy?childId=${childId}`);
     const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`);
+    const sharedAccessPromise = runtime(`/v2/module/shared-access-policy?childId=${childId}`).then((result) => {
+      state.sharedAccess = result.policy || null;
+      state.sharedAccessError = null;
+    }).catch((error) => {
+      state.sharedAccess = null;
+      state.sharedAccessError = error?.code || 'SHARED_ACCESS_POLICY_UNAVAILABLE';
+    });
     const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`)));
     const [policy, catalog, records] = await Promise.all([policyPromise, catalogPromise, recordsPromise]);
+    await sharedAccessPromise;
     state.policy = AppRuntimePolicy.normalize(policy);
     state.policyEtag = `"app-policy-v${state.policy.version}"`;
     state.catalog = catalog;
@@ -442,7 +464,7 @@
   }
   async function savePolicy(next) { if (mock) { const history = [...(state.records.pending || []), ...(state.records.processed || [])]; state.policy = AppRuntimePolicy.normalize({ ...next, version: state.policy.version + 1, effectiveAtMs: Date.now() }); state.policyEtag = `"app-policy-v${state.policy.version}"`; const current = new Map(state.policy.classifications.map((entry) => [AppRuntimePolicy.keyOf(entry), entry])); state.records.pending = history.filter((record) => !current.has(AppRuntimePolicy.keyOf(record))); state.records.processed = history.filter((record) => current.has(AppRuntimePolicy.keyOf(record))).map((record) => ({ ...record, status: 'processed', classification: current.get(AppRuntimePolicy.keyOf(record)).classification })); state.catalog.items = observedApps().map((item) => ({ ...item, classification: current.get(AppRuntimePolicy.keyOf(item))?.classification || 'unclassified' })); renderAll(); return; } const body = { classifications: next.classifications, quotas: next.quotas, timeWindows: next.timeWindows }; const saved = await runtime(`/v2/module/app-policy?childId=${encodeURIComponent(state.childId)}`, { method: 'PUT', headers: { 'If-Match': state.policyEtag }, body: JSON.stringify(body) }); state.policy = AppRuntimePolicy.normalize(saved); state.policyEtag = `"app-policy-v${state.policy.version}"`; await load(); }
   function quotaValue(input) { return input.value === '' ? null : Math.max(0, Number.parseInt(input.value, 10)); }
-  async function saveQuotas() { const daily = {}; $$('[data-quota-category]').forEach((input) => { daily[input.dataset.quotaCategory] = quotaValue(input); }); const perApplicationDailyMinutes = $$('[data-app-quota-index]').filter((input) => input.value !== '').map((input) => { const app = state.quotaApps[Number(input.dataset.appQuotaIndex)]; return { platform: app.platform, runtimeIdentity: app.runtimeIdentity, minutes: quotaValue(input) }; }); await savePolicy(AppRuntimePolicy.withQuotas(state.policy, { dailyCategoryMinutes: daily, weeklyRestrictedEntertainmentMinutes: quotaValue($('#weekly-restricted')), perApplicationDailyMinutes })); }
+  async function saveQuotas() { const perApplicationDailyMinutes = $$('[data-app-quota-index]').filter((input) => input.value !== '').map((input) => { const app = state.quotaApps[Number(input.dataset.appQuotaIndex)]; return { platform: app.platform, runtimeIdentity: app.runtimeIdentity, minutes: quotaValue(input) }; }); await savePolicy(AppRuntimePolicy.withQuotas(state.policy, { ...state.policy.quotas, perApplicationDailyMinutes })); }
   function collectSchedule() {
     const next = AppRuntimePolicy.allOpenTimeWindows();
     AppRuntimePolicy.weekdays.forEach((day) => AppRuntimePolicy.scheduleCategories.forEach((category) => { next[day][category] = []; }));
@@ -561,7 +583,7 @@
   function switchTab(type, name) { $$(`[data-${type}-tab]`).forEach((button) => button.classList.toggle('active', button.dataset[`${type}Tab`] === name)); $$(`[data-${type}-panel]`).forEach((panel) => { panel.hidden = panel.dataset[`${type}Panel`] !== name; }); }
   async function loadLedger(kind) { const period = range(); const result = mock ? { items: kind === 'usage' ? [{ startAtMs: Date.now() - 60000, displayName: 'Visual Studio Code', durationMs: 60000, applicationClassification: 'study', estimated: false }] : [{ startAtMs: Date.now() - 120000, displayName: 'Microsoft Edge', durationMs: 120000, mediaKind: 'video', presentation: 'background', estimated: false }] } : await runtime(`/v2/module/${kind === 'usage' ? 'usage-segments' : 'media-segments'}?childId=${encodeURIComponent(state.childId)}&fromMs=${period.from}&toMs=${period.to}&limit=50`); const target = kind === 'usage' ? $('#ledger-list') : $('#media-list'); target.className = 'table-list'; target.innerHTML = result.items.length ? result.items.map((item) => `<div class="table-row"><time>${time(item.startAtMs)}</time><strong>${escape(item.displayName || '未知应用')}</strong><span>${duration(item.durationMs)}</span><span>${kind === 'usage' ? categoryLabels[item.applicationClassification] || '未归类' : `${item.mediaKind}/${item.presentation}`}</span></div>`).join('') : '<p>暂无明细</p>'; }
   function exportConfig() { const blob = new Blob([JSON.stringify(AppRuntimePolicy.exportPayload(state.policy), null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'timeonchrome-app-runtime-config.json'; link.click(); URL.revokeObjectURL(link.href); }
-  async function reviewImport(file) { const incoming = JSON.parse(await file.text()); const diff = AppRuntimePolicy.importDiff(state.policy, incoming); const box = $('#import-diff'); box.hidden = false; box.dataset.payload = JSON.stringify(diff.policy); box.innerHTML = `<div class="import-review"><h3>导入差异</h3><label><input type="checkbox" id="import-classifications" checked> 应用分类：新增 ${diff.added}、修改 ${diff.changed}、移除 ${diff.removed}</label><br><label><input type="checkbox" id="import-quotas" checked> 独立配额：${diff.quotasChanged ? '有变化' : '无变化'}</label><br><label><input type="checkbox" id="import-time-windows" checked> 七天时间段：${diff.timeWindowsChanged ? '有变化' : '无变化'}</label><p><button id="confirm-import" class="primary">确认导入所选内容</button></p></div>`; }
+  async function reviewImport(file) { const incoming = JSON.parse(await file.text()); const diff = AppRuntimePolicy.importDiff(state.policy, incoming); const box = $('#import-diff'); box.hidden = false; box.dataset.payload = JSON.stringify(diff.policy); const legacySharedFields = incoming.schemaVersion < 3 && (incoming.timeWindows !== undefined || incoming.quotas?.dailyCategoryMinutes !== undefined || incoming.quotas?.weeklyRestrictedEntertainmentMinutes !== undefined); box.innerHTML = `<div class="import-review"><h3>导入差异</h3><label><input type="checkbox" id="import-classifications" checked> 应用分类：新增 ${diff.added}、修改 ${diff.changed}、移除 ${diff.removed}</label><br><label><input type="checkbox" id="import-quotas" checked> 单应用限制：${diff.quotasChanged ? '有变化' : '无变化'}</label><p>${legacySharedFields ? '此旧版文件含孩子级公共配额或时间段；为保持单一配置来源，这些字段将忽略。' : '孩子级公共配额和时间段由主控制台统一管理，不从此文件写入。'}</p><p><button id="confirm-import" class="primary">确认导入所选内容</button></p></div>`; }
 
   document.addEventListener('click', async (event) => { const groupToggle = event.target.closest('summary[data-app-group-toggle]'); if (groupToggle) { event.preventDefault(); if (!($('#app-search').value || '').trim()) { const key = groupToggle.dataset.appGroupToggle; state.appGroups[key] = !state.appGroups[key]; renderAppDirectory(); } return; } const button = event.target.closest('button'); if (!button) return; try {
     if (button.dataset.view) { switchView(button.dataset.view); if (button.dataset.view === 'system') { await loadLoggingPolicy(); await loadRuntimeLogs(); } }
@@ -598,7 +620,7 @@
     if (button.dataset.scheduleAdd) updateSchedule('add', button.dataset.scheduleAdd);
     if (button.dataset.scheduleRemove) updateSchedule('remove', button.dataset.scheduleRemove);
     if (button.id === 'export-config') exportConfig();
-    if (button.id === 'confirm-import') { const incoming = JSON.parse($('#import-diff').dataset.payload); const next = AppRuntimePolicy.normalize({ ...state.policy, classifications: $('#import-classifications').checked ? incoming.classifications : state.policy.classifications, quotas: $('#import-quotas').checked ? incoming.quotas : state.policy.quotas, timeWindows: $('#import-time-windows').checked ? incoming.timeWindows : state.policy.timeWindows }); await savePolicy(next); $('#import-diff').hidden = true; }
+    if (button.id === 'confirm-import') { const incoming = JSON.parse($('#import-diff').dataset.payload); const next = AppRuntimePolicy.normalize({ ...state.policy, classifications: $('#import-classifications').checked ? incoming.classifications : state.policy.classifications, quotas: $('#import-quotas').checked ? { ...state.policy.quotas, perApplicationDailyMinutes: incoming.quotas.perApplicationDailyMinutes } : state.policy.quotas, timeWindows: state.policy.timeWindows }); await savePolicy(next); $('#import-diff').hidden = true; }
   } catch (error) { showError(error); } });
   document.addEventListener('change', async (event) => { const control = event.target; try {
     if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
@@ -628,5 +650,8 @@
     for(const item of state.catalog.items){const evidence=state.mockInventory.find(observation=>observation.evidence.runtimeIdentity===item.runtimeIdentity)?.evidence;if(!evidence)continue;const products=knowledge.products.filter(product=>product.selectors.some(selector=>selector.platform===evidence.platform&&selector.match.conditions.every(condition=>evidence.values[condition.field]===condition.value)));if(products.length===1){const explicit=binding?.products.find(entry=>entry.productId===products[0].id);if(explicit){item.productId=products[0].id;item.displayName=products[0].name;item.classification=explicit.classification;item.classificationReason='孩子产品明确分类';item.installationState='installed';}}}
     state.machines.forEach(machine=>{machine.desiredPolicyVersion+=1;machine.policyState=machine.status==='online'?'pending':'offline';});renderAll();
   }});
+  $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === state.view));
+  $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === state.view));
+  [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[state.view];
   load();
 })();

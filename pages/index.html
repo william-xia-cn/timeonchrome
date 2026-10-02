@@ -198,12 +198,14 @@
     .page-header h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
     .page-header p  { font-size: 13px; color: var(--muted); }
     .system-management-tabs { margin-bottom: 16px; }
+    .system-management-shortcuts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
     .system-management-panel { display: none; }
     .system-management-panel.active { display: block; }
     #quota-audit-panel label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; max-width: 100%; }
     #quota-audit-panel select, #quota-audit-panel input { max-width: 100%; min-height: 38px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); font: inherit; }
     .rules-management-panel { display: none; }
     .rules-management-panel.active { display: block; }
+    #access-management-tabs[hidden] { display: none !important; }
 
     /* Cards */
     .card {
@@ -461,6 +463,7 @@
     .rules-policy-nav-counts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; font-size: 11px; color: var(--muted); }
     .rules-policy-main { min-width: 0; }
     .rules-policy-toolbar { display: grid; grid-template-columns: minmax(180px, 1fr) 150px minmax(210px, 1fr) auto; gap: 8px; margin-bottom: 12px; }
+    .rules-policy-actions { display: flex; justify-content: flex-end; margin: 0 0 12px; }
     .rules-policy-toolbar input, .rules-policy-toolbar select { background: rgba(0,184,148,0.04); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; color: var(--text); font-size: 13px; outline: none; min-width: 0; }
     .rules-policy-toolbar input:focus, .rules-policy-toolbar select:focus { border-color: var(--accent); }
     .rules-site-group { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
@@ -761,7 +764,7 @@
         position: fixed; left: 0; right: 0; bottom: 0; z-index: 125;
         height: calc(66px + env(safe-area-inset-bottom));
         padding: 5px 6px env(safe-area-inset-bottom);
-        display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: visible;
+        display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: visible;
         background: rgba(255,255,255,.98); border-top: 1px solid var(--border);
         box-shadow: 0 -8px 24px rgba(26,46,37,.06); backdrop-filter: blur(16px);
       }
@@ -1096,24 +1099,18 @@
         <div class="nav-item" data-page="rules">
           <span class="nav-icon"><img src="assets/icons/rules.svg" alt=""></span><span>访问管理</span>
         </div>
-        <div class="nav-item" data-page="review">
-          <span class="nav-icon"><img src="assets/icons/request.svg" alt=""></span><span>网站归类记录 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
+        <div class="nav-item" data-page="sites">
+          <span class="nav-icon"><img src="assets/icons/request.svg" alt=""></span><span>网站管理 <span id="review-badge" style="display:none;background:#ef4444;color:#fff;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:4px;"></span></span>
         </div>
-        <a class="nav-item mobile-secondary-nav" href="native-apps/">
-          <span class="nav-icon"><img src="assets/icons/devices.svg" alt=""></span><span>Native Apps</span>
+        <a class="nav-item runtime-launch" data-runtime-view="apps" href="?launch=app-runtime&amp;view=apps">
+          <span class="nav-icon"><img src="assets/icons/online-time.svg" alt=""></span><span>应用管理</span>
         </a>
-        <a class="nav-item mobile-secondary-nav runtime-launch" href="?launch=app-runtime">
-          <span class="nav-icon"><img src="assets/icons/online-time.svg" alt=""></span><span>电脑应用使用</span>
+        <a class="nav-item runtime-launch" data-runtime-view="devices" href="?launch=app-runtime&amp;view=devices">
+          <span class="nav-icon"><img src="assets/icons/devices.svg" alt=""></span><span>设备管理</span>
         </a>
-        <div class="nav-item" data-page="account">
-          <span class="nav-icon"><img src="assets/icons/user.svg" alt=""></span><span>子用户管理</span>
-        </div>
-        <div class="nav-item mobile-secondary-nav" data-page="system-management">
+        <div class="nav-item" data-page="system-management">
           <span class="nav-icon"><img src="assets/icons/settings.svg" alt=""></span><span>系统管理</span>
         </div>
-        <a class="nav-item mobile-secondary-nav" href="/modules/">
-          <span class="nav-icon"><img src="assets/icons/settings.svg" alt=""></span><span>扩展模块</span>
-        </a>
         <button class="nav-item mobile-more-nav" id="mobile-more-btn" type="button" aria-expanded="false" aria-controls="mobile-more-overlay">
           <span class="nav-icon"><img src="assets/icons/settings.svg" alt=""></span><span>更多</span>
         </button>
@@ -1134,9 +1131,9 @@
         <a class="mobile-more-action" href="native-apps/">
           <img class="toc-ui-icon" src="assets/icons/devices.svg" alt="">Native Apps
         </a>
-        <a class="mobile-more-action runtime-launch" href="?launch=app-runtime">
-          <img class="toc-ui-icon" src="assets/icons/online-time.svg" alt="">电脑应用使用
-        </a>
+        <button class="mobile-more-action" id="mobile-child-account-btn" type="button">
+          <img class="toc-ui-icon" src="assets/icons/user.svg" alt="">子用户管理
+        </button>
         <button class="mobile-more-action" id="mobile-system-management-btn" type="button">
           <img class="toc-ui-icon" src="assets/icons/settings.svg" alt="">系统管理
         </button>
@@ -1153,18 +1150,17 @@
       <!-- 访问管理 -->
       <div class="page" id="page-rules">
         <div class="page-header">
-          <h2>访问管理</h2>
-          <p>管理网站分类、时间配额和时间段规则，修改后点击保存同步到孩子设备</p>
+          <h2 id="rules-management-heading">访问管理</h2>
+          <p id="rules-management-subtitle">管理网页与应用共用的时间配额、自主度与时间段配置。</p>
         </div>
-        <div class="tabs" aria-label="访问管理功能" style="margin-bottom:16px;">
-          <button class="tab-btn active" data-rules-management-tab="site-management">网站管理</button>
-          <button class="tab-btn" data-rules-management-tab="quota">时间配额</button>
+        <div class="tabs" id="access-management-tabs" aria-label="访问管理功能" style="margin-bottom:16px;">
+          <button class="tab-btn active" data-rules-management-tab="quota">时间配额</button>
           <button class="tab-btn" data-rules-management-tab="autonomy">自主度配置</button>
           <button class="tab-btn" data-rules-management-tab="schedule">时间段管理</button>
           <button class="tab-btn" data-rules-management-tab="config-files">配置文件</button>
         </div>
 
-        <section class="rules-management-panel active" data-rules-management-panel="site-management">
+        <section class="rules-management-panel" data-rules-management-panel="site-management">
           <div class="rules-policy-shell" id="rules-policy-shell">
             <aside class="rules-policy-nav" id="rules-policy-nav" aria-label="网站管理策略目录">
               <!-- policy navigation rendered by JS -->
@@ -1183,6 +1179,7 @@
                 <input type="text" id="rules-site-add-input" placeholder="添加到当前策略，如 example.com">
                 <button class="btn-add" id="rules-site-add-btn">+ 添加</button>
               </div>
+              <div class="rules-policy-actions"><button class="btn-save" id="open-site-review-btn" type="button">网站归类记录 <span id="review-badge-inline"></span></button></div>
               <div id="rules-site-directory" class="rules-site-directory">
                 <!-- site directory rendered by JS -->
               </div>
@@ -1247,7 +1244,7 @@
           </div>
         </section>
       <!-- 时间配额 -->
-      <section class="rules-management-panel" data-rules-management-panel="quota">
+        <section class="rules-management-panel active" data-rules-management-panel="quota">
         <div class="card">
           <div class="card-header">
             <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">配额记账来源</div><div class="card-subtitle">V2 由孩子设备使用本机完整账与云端其他设备已确认账实时计算；云端不下发锁状态</div></div>
@@ -1526,6 +1523,11 @@
         <div class="page-header">
           <h2>系统管理</h2>
           <p>集中查看统计对账、网页落账、媒体落账和系统日志；落账记录最新记录显示在最上方</p>
+          <div class="system-management-shortcuts">
+            <button class="btn-save" id="open-child-account-management" type="button">子用户管理</button>
+            <a class="btn-save" href="native-apps/">Native Apps</a>
+            <a class="btn-save" href="/modules/">扩展模块</a>
+          </div>
         </div>
         <div class="tabs system-management-tabs" aria-label="系统管理功能">
           <button class="tab-btn active" data-system-management-tab="reconciliation">统计对账</button>
@@ -1988,7 +1990,8 @@
       <div class="page" id="page-review">
         <div class="page-header">
           <h2>网站归类记录</h2>
-          <p>记录孩子申请和系统记录的待归类网站；内容分类 / Qustodio 分类请在访问管理的系统网站配置中维护。</p>
+          <p>记录孩子申请和系统记录的待归类网站；网站分类和规则请在“网站管理”维护。</p>
+          <button class="btn-save" id="return-to-site-management" type="button">返回网站管理</button>
         </div>
 
         <div class="card" id="site-classification-review-card" style="margin-bottom:16px;">
@@ -2064,7 +2067,7 @@ let cloudMediaSettlementState = { range: 'today', rows: [], nextCursor: null, ha
 let cloudReconciliationState = { range: 'today', rows: [], summary: null };
 let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore: false };
 let cloudSystemManagementActiveTab = 'reconciliation';
-let cloudRulesManagementActiveTab = 'site-management';
+let cloudRulesManagementActiveTab = 'quota';
 let cloudDevicesCache = { profileId: null, devices: [] };
 let cloudUsageState = { ledger: 'computer', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
 let cloudUsageLastView = null;
@@ -2125,8 +2128,31 @@ window.addEventListener('DOMContentLoaded', () => {
   setupProfileModal();
   document.querySelectorAll('.runtime-launch').forEach((link) => link.addEventListener('click', (event) => {
     event.preventDefault();
-    launchAppRuntime();
+    launchAppRuntime(link.dataset.runtimeView || 'usage');
   }));
+  document.getElementById('open-site-review-btn')?.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+    document.querySelector('.nav-item[data-page="sites"]')?.classList.add('active');
+    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    document.getElementById('page-review')?.classList.add('active');
+    renderReviewPage();
+  });
+  document.getElementById('return-to-site-management')?.addEventListener('click', () => {
+    document.querySelector('.nav-item[data-page="sites"]')?.click();
+  });
+  document.getElementById('open-child-account-management')?.addEventListener('click', () => {
+    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    document.getElementById('page-account')?.classList.add('active');
+    renderPage('account');
+  });
+  document.getElementById('mobile-child-account-btn')?.addEventListener('click', () => {
+    setMobileMoreOpen(false);
+    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+    document.getElementById('page-account')?.classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+    document.querySelector('.nav-item[data-page="system-management"]')?.classList.add('active');
+    renderPage('account');
+  });
   document.getElementById('logout-btn').addEventListener('click', logout);
 });
 
@@ -2263,11 +2289,12 @@ async function enterMain(email) {
     toast('加载档案失败: ' + e.message, false);
   }
   if (new URLSearchParams(location.search).get('launch') === 'app-runtime') {
-    await launchAppRuntime();
+    const requestedView = new URLSearchParams(location.search).get('view');
+    await launchAppRuntime(['apps', 'devices'].includes(requestedView) ? requestedView : 'usage');
   }
 }
 
-async function launchAppRuntime() {
+async function launchAppRuntime(view = 'usage') {
   if (runtimeLaunchInFlight) return;
   if (!accountToken) {
     showScreen('login');
@@ -2277,10 +2304,12 @@ async function launchAppRuntime() {
   try {
     const result = await api('/app-runtime/sso/tickets', 'POST', { childId: currentProfileId });
     const launchUrl = String(result?.launchUrl || '');
-    if (!launchUrl.startsWith('https://timeonchrome-app-runtime-console.pages.dev/#ticket=')) {
+    const parsedLaunchUrl = new URL(launchUrl);
+    if (parsedLaunchUrl.origin !== 'https://timeonchrome-app-runtime-console.pages.dev' || parsedLaunchUrl.pathname !== '/' || !parsedLaunchUrl.hash.startsWith('#ticket=')) {
       throw new Error('Runtime launch 地址无效');
     }
-    window.location.assign(launchUrl);
+    if (['apps', 'devices'].includes(view)) parsedLaunchUrl.searchParams.set('view', view);
+    window.location.assign(parsedLaunchUrl.toString());
   } catch (error) {
     toast('无法打开电脑应用管理: ' + (error.message || ''), false);
   } finally {
@@ -2364,7 +2393,7 @@ async function selectProfile(id) {
   updateReviewBadge(id);
 
   // 渲染当前页
-  const activePage = document.querySelector('.nav-item.active')?.dataset.page || 'stats';
+  const activePage = document.querySelector('.page.active')?.id?.replace(/^page-/, '') || 'stats';
   renderPage(activePage);
 }
 
@@ -2390,11 +2419,12 @@ async function updateReviewBadge(profileId) {
       .map((site) => canonicalBadgeKey(site.domain))
       .filter((key) => key && !pendingRequestKeys.has(key));
     const count = pendingRequestKeys.size + new Set(usedOnlyKeys).size;
-    const badge = document.getElementById('review-badge');
-    if (badge) {
+    ['review-badge', 'review-badge-inline'].forEach((id) => {
+      const badge = document.getElementById(id);
+      if (!badge) return;
       badge.textContent = count > 0 ? count : '';
       badge.style.display = count > 0 ? 'inline-block' : 'none';
-    }
+    });
   } catch(e) {
     // 静默失败
   }
@@ -2457,13 +2487,16 @@ function setMobileMoreOpen(open) {
 function setupNav() {
   document.querySelectorAll('.nav-item[data-page]').forEach(item => {
     item.addEventListener('click', () => {
+      const requestedPage = item.dataset.page;
+      if (requestedPage === 'rules') cloudRulesManagementActiveTab = 'quota';
+      if (requestedPage === 'sites') cloudRulesManagementActiveTab = 'site-management';
       document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
       item.classList.add('active');
       document.getElementById('mobile-more-btn')?.classList.toggle('active', item.dataset.page === 'system-management');
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-      document.getElementById('page-' + item.dataset.page)?.classList.add('active');
+      document.getElementById('page-' + (['rules', 'sites'].includes(requestedPage) ? 'rules' : requestedPage))?.classList.add('active');
       setMobileMoreOpen(false);
-      renderPage(item.dataset.page);
+      renderPage(requestedPage);
     });
   });
   document.getElementById('mobile-more-btn')?.addEventListener('click', () => {
@@ -2499,7 +2532,7 @@ function setupNav() {
   });
   document.querySelectorAll('[data-rules-management-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
-      cloudRulesManagementActiveTab = btn.dataset.rulesManagementTab || 'site-management';
+      cloudRulesManagementActiveTab = btn.dataset.rulesManagementTab || 'quota';
       const navItem = document.querySelector('.nav-item[data-page="rules"]');
       if (navItem && !navItem.classList.contains('active')) {
         document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
@@ -2514,7 +2547,7 @@ function setupNav() {
 
 function renderPage(name) {
   if (!remoteConfig) return;
-  if (name === 'rules')     renderRulesManagementPage();
+  if (name === 'rules' || name === 'sites') renderRulesManagementPage();
   if (name === 'stats')     renderStatsPage();
   if (name === 'system-management') renderSystemManagementPage();
   if (name === 'account')   renderAccountPage();
@@ -2532,6 +2565,12 @@ function syncRulesManagementTabs() {
 
 function renderRulesManagementPage() {
   syncRulesManagementTabs();
+  const siteMode = cloudRulesManagementActiveTab === 'site-management';
+  document.getElementById('access-management-tabs').hidden = siteMode;
+  document.getElementById('rules-management-heading').textContent = siteMode ? '网站管理' : '访问管理';
+  document.getElementById('rules-management-subtitle').textContent = siteMode
+    ? '管理网站分类、黑名单、单网站限制和网站例外。'
+    : '管理网页与应用共用的时间配额、自主度与时间段配置。';
   if (cloudRulesManagementActiveTab === 'site-management') void window.loadCompositeReviews?.();
   if (cloudRulesManagementActiveTab === 'site-management') renderRulesPage();
   if (cloudRulesManagementActiveTab === 'quota') renderQuotaPage();

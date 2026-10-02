@@ -62,6 +62,33 @@ import {
 
 const policyStates = new Set(['pending', 'cached', 'applied', 'failed', 'offline']);
 
+async function readSharedAccessPolicy(env: Env, accountId: string, childId: string): Promise<Record<string, unknown>> {
+  if (!env.GUARDIAN_COMPUTER_USAGE) {
+    throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置服务暂不可用。');
+  }
+  let response: Response;
+  try {
+    response = await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedAccessPolicy', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId, childId }),
+    }));
+  } catch {
+    throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置服务暂不可用。');
+  }
+  if (!response.ok) throw new HttpError(response.status === 404 ? 404 : 503,
+    response.status === 404 ? 'CHILD_NOT_FOUND' : 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置服务暂不可用。');
+  let result: { policy?: Record<string, unknown> };
+  try { result = await response.json() as typeof result; }
+  catch { throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置响应无效。'); }
+  const policy = result.policy;
+  if (!policy || policy.schemaVersion !== 1 || typeof policy.revision !== 'string'
+    || !Number.isSafeInteger(policy.effectiveAtMs)
+    || !['legacy', 'shadow', 'shared'].includes(String(policy.stage))
+    || !isRecord(policy.dailyMinutes) || !isRecord(policy.timeWindows) || !isRecord(policy.autonomy)) {
+    throw new HttpError(503, 'SHARED_ACCESS_POLICY_UNAVAILABLE', '统一访问配置响应无效。');
+  }
+  return policy;
+}
+
 export async function routeV2(request: Request, env: Env, nowMs: number, defer?:(work:Promise<unknown>)=>void): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/v2/') && url.pathname !== '/v1/devices/self/retire') return null;
@@ -116,6 +143,11 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       }
       return childId;
     };
+    if (url.pathname === '/v2/module/shared-access-policy') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild();
+      return jsonResponse({ policy: await readSharedAccessPolicy(env, claims.account_id, childId) });
+    }
     const requireRange = (maximumDays = 31): { fromMs: number; toMs: number } => {
       const fromMs = Number(url.searchParams.get('fromMs'));
       const toMs = Number(url.searchParams.get('toMs'));
@@ -395,20 +427,7 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
             AND newer.assignment_version>a.assignment_version)`)
       .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
     if (!assignment) throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
-    let response:Response;
-    try {response=await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSharedAccessPolicy',{
-      method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({accountId:machine.accountId,childId:assignment.child_id})}));}
-    catch {throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');}
-    if (!response.ok) throw new HttpError(response.status===404?404:503,
-      response.status===404?'CHILD_NOT_FOUND':'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');
-    let result:{policy?:{schemaVersion?:unknown;revision?:unknown;stage?:unknown}};
-    try {result=await response.json() as typeof result;}
-    catch {throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');}
-    if (result.policy?.schemaVersion!==1||typeof result.policy.revision!=='string'
-      ||!['legacy','shadow','shared'].includes(String(result.policy.stage)))
-      throw new HttpError(503,'SHARED_ACCESS_POLICY_UNAVAILABLE','Shared access policy is unavailable.');
-    return jsonResponse({policy:result.policy});
+    return jsonResponse({ policy: await readSharedAccessPolicy(env, machine.accountId, assignment.child_id) });
   }
   if (url.pathname === '/v2/machines/shared-quota/capabilities') {
     if (request.method !== 'GET') return methodNotAllowed('GET');

@@ -55,6 +55,39 @@ beforeEach(async () => {
 });
 
 describe('Runtime product API', () => {
+  it('exposes the shared policy only to the owning Child session and supports GET only', async () => {
+    const unauthenticated = await call('/v2/module/shared-access-policy?childId=child-a');
+    expect(unauthenticated.status).toBe(401);
+    const account = await accountToken();
+    const foreignChild = await call('/v2/module/shared-access-policy?childId=not-owned-child', { headers: bearer(account) });
+    expect(foreignChild.status).toBe(404);
+    const wrongMethod = await call('/v2/module/shared-access-policy?childId=child-a', {
+      method: 'POST', headers: bearer(account), body: '{}',
+    });
+    expect(wrongMethod.status).toBe(405);
+  });
+
+  it('keeps child-level quota and time-window writes owned by Guardian while allowing app-only edits', async () => {
+    const account = await accountToken();
+    const path = '/v2/module/app-policy?childId=child-a';
+    const currentResponse = await call(path, { headers: bearer(account) });
+    expect(currentResponse.status).toBe(200);
+    const current = await currentResponse.json<{ version: number; classifications: unknown[]; quotas: Record<string, unknown>; timeWindows: Record<string, unknown> }>();
+    const daily = current.quotas.dailyCategoryMinutes as Record<string, number | null>;
+    const changedCommon = await call(path, { method: 'PUT', headers: { ...bearer(account), 'If-Match': `"app-policy-v${current.version}"` },
+      body: JSON.stringify({ classifications: current.classifications, quotas: { ...current.quotas,
+        dailyCategoryMinutes: { ...daily, study: 1 } }, timeWindows: current.timeWindows }) });
+    expect(changedCommon.status).toBe(409);
+    await expect(changedCommon.json()).resolves.toMatchObject({ error: { code: 'SHARED_ACCESS_CONFIG_OWNED_BY_GUARDIAN' } });
+    const appOnly = await call(path, { method: 'PUT', headers: { ...bearer(account), 'If-Match': `"app-policy-v${current.version}"` },
+      body: JSON.stringify({ classifications: [{ platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'other' }],
+        quotas: { ...current.quotas, perApplicationDailyMinutes: [{ platform: 'windows', runtimeIdentity: 'app:editor', minutes: 30 }] },
+        timeWindows: current.timeWindows }) });
+    expect(appOnly.status).toBe(200);
+    await expect(appOnly.json()).resolves.toMatchObject({ classifications: [expect.objectContaining({ classification: 'other' })],
+      quotas: { perApplicationDailyMinutes: [{ runtimeIdentity: 'app:editor', minutes: 30 }] } });
+  });
+
   it('receives versioned application shared contribution without publishing it or trusting a Child from the caller', async () => {
     const {enrolled,localUserId}=await createMachineWithUser();
     const contribution={schemaVersion:1,source:'application',date:'2026-10-02',revision:'app-r1',

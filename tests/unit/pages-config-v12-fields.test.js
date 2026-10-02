@@ -97,13 +97,13 @@ function run() {
   expectTrue('Pages 日期应使用本地日期，不应使用 toISOString 作为显示/查询日期', !/function fmtDate\(d\)\s*\{\s*return d\.toISOString\(\)/.test(source));
   expectTrue('Pages 不应再包含总览一级入口', !source.includes('data-page="overview"') && !source.includes('id="page-overview"'));
   expectTrue('Pages 默认 active 导航应为使用统计', source.includes('<div class="nav-item active" data-page="stats">') && source.includes('<div class="page active" id="page-stats">'));
-  const navOrder = ['data-page="stats"', 'data-page="rules"', 'data-page="review"', 'data-page="account"', 'data-page="system-management"'].map(item => source.indexOf(item));
-  expectTrue('Pages 左侧导航顺序应为使用统计/访问管理/网站归类记录/子用户管理/系统管理', navOrder.every(i => i >= 0) && navOrder.every((value, index) => index === 0 || value > navOrder[index - 1]));
-  expectTrue('Pages 左侧不应再包含一级设备管理入口', !source.includes('data-page="devices"') && !source.includes('<span class="nav-icon">💻</span><span>设备管理</span>'));
+  const navOrder = ['data-page="stats"', 'data-page="rules"', 'data-page="sites"', 'data-runtime-view="apps"', 'data-runtime-view="devices"', 'data-page="system-management"'].map(item => source.indexOf(item));
+  expectTrue('Pages 主导航应为使用统计/访问管理/网站管理/应用管理/设备管理/系统管理', navOrder.every(i => i >= 0) && navOrder.every((value, index) => index === 0 || value > navOrder[index - 1]));
+  expectTrue('网站归类记录应是网站管理的次级页面', !source.includes('data-page="review"') && source.includes('id="open-site-review-btn"') && source.includes('id="return-to-site-management"'));
   expectTrue('Pages 账户设置可见文案应改为子用户管理', source.includes('子用户管理') && !source.includes('<span>账户设置</span>') && !source.includes('<span>用户管理</span>'));
-  expectTrue('Pages 待审核一级导航应改为网站归类记录', source.includes('<span>网站归类记录') && !source.includes('<span>待审核') && !source.includes('<span>网站归类审核'));
+  expectTrue('Pages 应通过网站管理按钮进入网站归类记录', source.includes('网站归类记录') && !source.includes('<span>待审核') && !source.includes('<span>网站归类审核'));
   expectTrue('Pages 应包含系统管理导航', source.includes('data-page="system-management"') && source.includes('系统管理'));
-  expectTrue('Pages 系统管理导航应位于用户管理之后', source.indexOf('data-page="account"') < source.indexOf('data-page="system-management"'));
+  expectTrue('子用户管理应可从系统管理入口访问且不占主导航', !source.includes('data-page="account"') && source.includes('id="open-child-account-management"'));
   expectTrue('Pages 系统管理应包含统计对账/网页落账/媒体落账/系统日志/数据备份与恢复/账户管理 Tab', source.includes('data-system-management-tab="reconciliation"') && source.includes('data-system-management-tab="web-settlements"') && source.includes('data-system-management-tab="media-settlements"') && source.includes('data-system-management-tab="client-logs"') && source.includes('data-system-management-tab="backup-restore"') && source.includes('data-system-management-tab="account-management"'));
   const systemPageStart = source.indexOf('<div class="page" id="page-system-management">');
   const reconciliationPageStart = source.indexOf('data-system-management-panel="reconciliation"');
@@ -118,7 +118,7 @@ function run() {
   expectTrue('Pages 设备内容应迁入子用户管理并位于档案和配置导入之间', accountPageSlice.indexOf('编辑档案') >= 0 && accountPageSlice.indexOf('devices-list') > accountPageSlice.indexOf('编辑档案') && accountPageSlice.indexOf('配置导入与导出') > accountPageSlice.indexOf('devices-list'));
   expectTrue('Pages 修改密码应迁入系统管理账户管理 Tab', systemPageSlice.includes('data-system-management-panel="account-management"') && systemPageSlice.includes('acct-save-pw-btn') && !accountPageSlice.includes('acct-save-pw-btn') && !accountPageSlice.includes('修改密码'));
   expectTrue('Pages 账户管理 Tab 应保留密码表单 ID', systemPageSlice.includes('acct-old-pw') && systemPageSlice.includes('acct-new-pw') && systemPageSlice.includes('acct-confirm-pw') && systemPageSlice.includes('acct-pw-msg'));
-  expectTrue('Pages 访问管理应包含网站管理/时间配额/自主度配置/时间段管理/配置文件五个 Tab', source.includes('data-rules-management-tab="site-management"') && source.includes('data-rules-management-tab="quota"') && source.includes('data-rules-management-tab="autonomy"') && !source.includes('data-rules-management-tab="notifications"') && source.includes('data-rules-management-tab="schedule"') && source.includes('data-rules-management-tab="config-files"'));
+  expectTrue('Pages 访问管理应保留时间配额/自主度配置/时间段管理/配置文件四个 Tab，网站配置独立', !source.includes('data-rules-management-tab="site-management"') && source.includes('data-rules-management-tab="quota"') && source.includes('data-rules-management-tab="autonomy"') && !source.includes('data-rules-management-tab="notifications"') && source.includes('data-rules-management-tab="schedule"') && source.includes('data-rules-management-tab="config-files"'));
   expectTrue('Pages 自主度配置应提供进入确认、软提醒和超时动作', source.includes('id="a-restricted-entry-confirmation"') && source.includes('id="a-rest-reminder-enabled"') && source.includes('name="a-rest-timeout-action" value="end_rest"') && source.includes('name="a-rest-timeout-action" value="continue"'));
   expectTrue('Pages 软提醒编辑应只存在于自主度配置面板', source.indexOf('id="a-rest-reminder-enabled"') > source.indexOf('data-rules-management-panel="autonomy"') && !source.includes('id="q-rest-reminder-enabled"'));
   expectTrue('Pages 自主度保存应使用独立最小 payload', extractFunctionSource(source, 'saveAutonomyConfig').includes('autonomyConfig:') && extractFunctionSource(source, 'saveAutonomyConfig').includes('restConfig:') && !extractFunctionSource(source, 'saveTimeQuotaConfig').includes('restConfig:'));
