@@ -41,7 +41,7 @@ function moduleSource(instance) {
     .replace(/import \{ budgetedLocalSet \} from '\.\/storage-budget\.js';/, 'const budgetedLocalSet = (...args) => globalThis.__guardianBudgetedSet(...args);')
     .replace(/import \{ registerPersistedUsageSegmentObserver \} from '\.\.\/core\/usage-segments\.js';/, 'const registerPersistedUsageSegmentObserver = (observer) => { globalThis.__persistedSegmentObserver = observer; };')
     .replace(/import \{ readCurrentWeekBrowserSnapshots \} from '\.\/browser-bridge-v3-snapshot\.js';/, 'const readCurrentWeekBrowserSnapshots = (...args) => globalThis.__readBrowserSnapshots(...args);')
-    .replace(/import \{ validateSharedQuotaStateV1 \} from '\.\.\/core\/shared-quota-state\.js';/,
+    .replace(/import \{ validateSharedQuotaStateV1, validateSharedAccessPolicyIdentityV1 \} from '\.\.\/core\/shared-quota-state\.js';/,
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-quota-state.js'), 'utf8').replace(/export function /g, 'function '))
     .replace(/import \{ validateSharedReminderResultV1 \} from '\.\.\/core\/shared-reminder-result\.js';/,
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-reminder-result.js'), 'utf8').replace(/export function /g, 'function '))
@@ -539,14 +539,15 @@ async function run() {
       restUsedMs: 60000, restRemainingMs: null }, offline: false,
   };
   const sharedPayloads = [];
+  let identityCapabilities = ['health', 'shared-quota-state-read'], sharedIdentity;
   let sharedPolicyTestPort;
   const sharedRead = await loadGuardian({ storage: {}, policy, development: true,
     connectNative: () => (sharedPolicyTestPort = createPort((payload, onMessage) => {
       sharedPayloads.push(payload);
       queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true,
         receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [1, 2, 3],
-        capabilities: ['health', 'shared-quota-state-read'],
-        ...(payload.messageType === 'getSharedQuotaState' ? { sharedQuota: sharedState } : {}) })));
+        capabilities: identityCapabilities,
+        ...(payload.messageType === 'getSharedQuotaState' ? { sharedQuota: sharedState, sharedAccessPolicyIdentity: sharedIdentity } : {}) })));
     })) });
   const expectedShared = { date: '2026-10-02', weekStart: '2026-09-28', policyRevision: 'profile-config:12' };
   assert.strictEqual(sharedRead.module.hasSharedAccessPolicyCapability(), false);
@@ -557,6 +558,18 @@ async function run() {
   sharedRead.module.configureSharedQuotaNativeBridge({ enabled: true });
   const sharedResult = await sharedRead.module.requestSharedQuotaState(expectedShared);
   assert.strictEqual(sharedResult.ok, true, JSON.stringify(sharedResult));
+  assert.strictEqual(sharedResult.policyIdentityStatus, 'unverified');
+  sharedIdentity = { schemaVersion: 1, revision: expectedShared.policyRevision, effectiveAtMs: 1234, stage: 'shadow', policyHash: 'a'.repeat(64) };
+  assert.strictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).policyIdentityStatus, 'unverified', 'unnegotiated identity is not trusted');
+  identityCapabilities = [...identityCapabilities, 'shared-access-policy-identity-read'];
+  await sharedRead.module.requestLocalGuardianHeartbeat({ trigger: 'identity_capability_fixture', force: true });
+  const identityResult = await sharedRead.module.requestSharedQuotaState(expectedShared);
+  assert.strictEqual(identityResult.policyIdentityStatus, 'available');
+  assert.deepStrictEqual(identityResult.sharedAccessPolicyIdentity, sharedIdentity);
+  sharedIdentity.policyHash = 'invalid';
+  assert.strictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).errorCode, 'shared_policy_identity_invalid');
+  sharedIdentity = undefined;
+  assert.strictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).policyIdentityStatus, 'unverified', 'negotiated old/missing field is still unverified');
   assert.strictEqual(sharedRead.module.hasSharedAccessPolicyCapability(), true);
   assert.strictEqual(policyAvailability.at(-1), true);
   // A failed observer cannot break the existing health/shared read path.

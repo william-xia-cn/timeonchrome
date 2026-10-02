@@ -44,6 +44,18 @@ function validSourceVector(sources) {
   return true;
 }
 
+export function validateSharedAccessPolicyIdentityV1(value) {
+  const fields = ['schemaVersion', 'revision', 'effectiveAtMs', 'stage', 'policyHash'];
+  const valid = value && typeof value === 'object' && !Array.isArray(value)
+    && Object.keys(value).length === fields.length && fields.every(key => Object.hasOwn(value, key))
+    && value.schemaVersion === 1 && typeof value.revision === 'string'
+    && /^profile-config:(?:0|[1-9][0-9]*)$/.test(value.revision)
+    && Number.isSafeInteger(Number(value.revision.slice(15))) && nonnegativeInteger(value.effectiveAtMs)
+    && ['legacy', 'shadow', 'shared'].includes(value.stage) && typeof value.policyHash === 'string'
+    && /^[a-f0-9]{64}$/.test(value.policyHash);
+  return valid ? { ok: true, identity: { ...value } } : { ok: false, errorCode: 'shared_policy_identity_invalid' };
+}
+
 export function validateSharedQuotaStateV1(value, { date, weekStart, policyRevision } = {}) {
   if (!value || typeof value !== 'object' || value.schemaVersion !== 1
     || typeof value.revision !== 'string' || !value.revision
