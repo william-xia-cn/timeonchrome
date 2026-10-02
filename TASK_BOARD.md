@@ -16,6 +16,8 @@ PO 已批准三个完整功能批次；现有准备层与测试证据保留，�
 
 第一批云端代码审计：集中契约 1.30.0 新增独立贡献、ACK、水位、专用 ES256 来源证明及本地余额准备读出口；Guardian DeviceBearer 由服务端派生来源，Runtime MachineBearer 返回可信上下文，受限内部绑定重验当前分配，令牌轮换使旧绑定失效。新增 033 只在独立本地 D1 执行，五条 SQL 通过；发布／幂等／下降更正／改绑竞态在隔离 SQLite 实测；真实设备路由、机器挑战路由、公开 P1363 向量及共享读模型聚焦通过，网页10分钟＋非Chrome应用10分钟＝20分钟，缺派生来源不回退旧 manifest 序号。Contracts build/compatibility、共享替换向量、根及 Runtime typecheck、源码边界、diff 通过；Guardian/Runtime dry-run 分别 976.47/475.97 KiB。未跑无关平台／安装器／页面全量；没有部署、生产迁移、密钥配置、候选安装或启用。Matched＝云端调用链及集中契约；Deviated／Extra＝无；Missing＝两端消费者完成及真实联调、第二／第三批，不宣称完整 D-114 交付。
 
+同批完整配置复核：云端 basis／余额 revision 及读取后的身份复核改为完整配置摘要，覆盖同 profile-config 序号但 quota 内容变化的缓存／分页失效。首轮旧测试只提供三字段假配置，不能通过真实身份校验；改为真实投影后再修正 VM prototype 的 JSON 运输夹具，相关两项聚焦测试通过，不放宽生产校验。真实本地 D1 机器挑战与执行依据测试三项通过（20 项无关跳过），覆盖错误令牌、拒绝 caller Child、可信六字段上下文、读取不写 activity 及等待期间改绑；Runtime typecheck、diff 通过。集中契约源码／包仍为 30d53c1／1.30.0，契约字段没有追加发版；两端实现与真实联调仍进行中。上述 HTTP／D1 夹具不是生产或安装验收。
+
 2026-10-03 当前整合批：控件来源7ad8f6d6e8b44a3117c76f2a05366bc2f03a1da1，六文件完整策略身份只读准备层。仅精确整合所属产品/测试字节及保留双方DESIGN记录；运行身份专项（含固定1.29包）、Native桥专项、状态专项、typecheck、边界与diff，不跑平台/安装器或原账全量。默认关闭，不更新候选、不安装部署；策略一致不代表来源授权或执行许可。
 
 本批提交前审计：固定1.29包身份专项、local-guardian、shared-quota-state、根typecheck、extension-root、源码边界、职责和diff均通过；五个产品/测试路径与7ad8f6d逐字节差异为空。一次边界命令误写不存在的.mjs后缀，纠正为现有.js入口后通过，未改检查代码。仅DESIGN冲突保留双方记录；既有任务板草稿保留，.wrangler未纳入。Matched＝完整身份准备层精确整合；Deviated/Extra＝无；Missing＝Native身份返回、可信跨端来源、本机增量替换及实际共享执行/提醒与真机验收，全目标仍进行中。

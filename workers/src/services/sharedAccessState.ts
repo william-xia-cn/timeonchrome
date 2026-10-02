@@ -1,4 +1,4 @@
-import { projectSharedQuotaDay, type SharedQuotaContributionV1, type SharedQuotaStateV1, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
+import { projectSharedQuotaDay, createSharedAccessPolicyIdentityV1, type SharedQuotaContributionV1, type SharedQuotaStateV1, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { projectLocalSharedQuotaExecution, type SharedQuotaExecutionBasisV1, type SharedQuotaExecutionSourceV1 } from '@timeonchrome/app-runtime-contracts/shared-quota-execution';
 import type { Env } from '../db/middleware';
 import { readManifestAccountV2 } from './profileAccountsV2';
@@ -185,7 +185,7 @@ async function readSharedAccessDayProjection(env:SharedAccessStateEnv,accountId:
   const coverageReasons=[...new Set([...webSource.reasonCodes,...appSource.reasonCodes])].sort();
   const complete=projection.complete&&webSource.complete&&appSource.complete;
   const reasons=[...new Set([...projection.reasonCodes,...coverageReasons])].sort();
-  const revision=await sha(JSON.stringify({schemaVersion:1,date,policy:policy.revision,stage:policy.stage,
+  const revision=await sha(JSON.stringify({schemaVersion:1,date,policyIdentity:await createSharedAccessPolicyIdentityV1(policy),
     web:webSource.contributions.map(({sourceKey,revision,correctionRevision})=>[sourceKey,revision,correctionRevision]).sort(),
     application:appSource.contributions.map(({sourceKey,revision,correctionRevision,productAssociationVersion})=>
       [sourceKey,revision,correctionRevision,productAssociationVersion]).sort(),
@@ -229,7 +229,7 @@ export async function readSharedQuotaExecutionBasis(env:SharedAccessStateEnv,acc
       .sort((a,b)=>`${a.contribution.source}:${a.contribution.sourceKey}`.localeCompare(`${b.contribution.source}:${b.contribution.sourceKey}`))});
   }
   const basis:SharedQuotaExecutionBasisV1={schemaVersion:1,revision:await sha(JSON.stringify({accountId,childId,
-    policyRevision:policy.revision,stage:policy.stage,days})),policyRevision:policy.revision,fromDate:days[0].date,toDate:date,days};
+    policyIdentity:await createSharedAccessPolicyIdentityV1(policy),days})),policyRevision:policy.revision,fromDate:days[0].date,toDate:date,days};
   projectLocalSharedQuotaExecution(policy,basis,[],[]); // Reject invalid upstream shape; never bless malformed source facts.
   return basis;
 }

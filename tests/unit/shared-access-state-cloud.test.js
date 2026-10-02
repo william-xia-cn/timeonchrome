@@ -111,6 +111,12 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
    'source keys are opaque, never raw device identifiers');
  const stageChanged=await service.readSharedAccessDayState(env,'account','child',date,{...policy,stage:'shadow'});
  assert.notEqual(result.revision,stageChanged.revision,'policy rollout stage changes produce a new state revision');
+ const sameRevisionPolicy=structuredClone(policy);
+ sameRevisionPolicy.dailyMinutes.friday.study=61;
+ assert.notEqual((await service.readSharedQuotaExecutionBasis(env,'account','child',date,sameRevisionPolicy)).revision,basis.revision,
+   'same revision but changed quota content invalidates pagination');
+ assert.notEqual((await service.readSharedAccessDayState(env,'account','child',date,sameRevisionPolicy)).revision,result.revision,
+   'same revision but changed quota content invalidates shared balance');
  assert.equal(JSON.stringify(result).includes('local_user_id'),false,'raw Runtime account identifiers never reach the Child reader');
 
  const incomplete=fixture({appCoverage:false}),partial=await incomplete.service.readSharedAccessDayState(incomplete.env,'account','child',date,policy);

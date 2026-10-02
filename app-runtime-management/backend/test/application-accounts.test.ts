@@ -81,6 +81,34 @@ it('reads only the current protected assignment shared policy from the bound Gua
     {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:malformed},now))
     .rejects.toMatchObject({status:503,code:'SHARED_ACCESS_POLICY_UNAVAILABLE'});
 });
+it('shared web source challenge authenticates machine context without caller Child or activity writes', async()=>{
+  const f=await fixture(), own=await applicationSharedQuotaSourceKey(f.machine.machineId,localUserId,1);
+  let calls=0, rebind=false;
+  const guardian={fetch:async(request:Request)=>{
+    calls++;expect(new URL(request.url).pathname).toBe('/createSharedWebSourceChallenge');
+    expect(await request.json()).toEqual({accountId:f.machine.accountId,childId:f.childId,machineId:f.machine.machineId,
+      localUserId,assignmentVersion:1,connectionHash:'d'.repeat(64),applicationSourceKey:own});
+    if(rebind)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+      VALUES (?1,?2,2,?3,1,'override',?4,?4)`).bind(f.machine.machineId,localUserId,f.childId,now).run();
+    return Response.json({schemaVersion:1,challengeId:'c'.repeat(64),connectionHash:'d'.repeat(64),expiresAtMs:Date.now()+90000});
+  }} as typeof env.GUARDIAN_COMPUTER_USAGE;
+  const read=(patch:Record<string,unknown>={},token=f.token)=>routeV2(new Request('http://runtime.test/v2/machines/shared-web-source/challenge',{
+    method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
+    body:JSON.stringify({localUserId,assignmentVersion:1,connectionHash:'d'.repeat(64),...patch})}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now);
+  await expect(read({},randomToken(''))).rejects.toMatchObject({status:401});
+  await expect(read({childId:'caller-child'})).rejects.toMatchObject({status:400,code:'INVALID_WEB_SOURCE_CHALLENGE'});
+  expect(calls).toBe(0);
+  const response=await read();expect(response?.status).toBe(200);
+  const body=await response?.json() as Record<string,unknown>;
+  expect(Object.keys(body)).toHaveLength(6);expect(body.applicationSourceKey).toBe(own);
+  expect(body.childScopeHash).toBe(await sha256Hex(`shared-web-child\n${f.machine.accountId}\n${f.childId}`));
+  expect(body.connectionHash).toBe('d'.repeat(64));
+  const activity=await env.RUNTIME_DB.prepare('SELECT last_seen_at_ms FROM runtime_machines_v2 WHERE id=?1')
+    .bind(f.machine.machineId).first<{last_seen_at_ms:number}>();expect(activity?.last_seen_at_ms).toBe(start);
+  rebind=true;await expect(read()).rejects.toMatchObject({status:409,code:'SHARED_ACCESS_BINDING_CHANGED'});
+  await expect(read()).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});
+});
 it('execution basis authenticates machine scope and rejects untrusted page or concurrent assignment changes', async () => {
   const f=await fixture(), ownSourceKey=await applicationSharedQuotaSourceKey(f.machine.machineId,localUserId,1);
   expect(ownSourceKey).toBe(await sha256Hex(`application\n${f.machine.machineId}\n${localUserId}\n1`));

@@ -10,7 +10,7 @@ import { generateToken } from '../db/middleware';
 import { statsRouter } from '../routes/stats';
 import { readSharedAccessPolicyForChild } from '../routes/profiles';
 import { readSharedAccessDayState, readSharedQuotaExecutionBasis, pageSharedQuotaExecutionBasis, type SharedAccessStateEnv } from './sharedAccessState';
-import type { SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
+import { createSharedAccessPolicyIdentityV1, type SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { createSharedWebSourceChallenge, readSharedWebVerificationKey, verifyCurrentSharedWebSource } from './sharedWebSourceBinding';
 
 export interface ComputerUsageEnv extends Env {
@@ -216,6 +216,7 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
           ||(Number(input.offset)>0&&input.expectedRevision===null))return Response.json({code:'INVALID_EXECUTION_CURSOR'},{status:400});
         const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
         if(!policy)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
+        const policyIdentity=await createSharedAccessPolicyIdentityV1(policy);
         const basis=await readSharedQuotaExecutionBasis(this.env,String(input.accountId),String(input.childId),date,policy);
         const page=pageSharedQuotaExecutionBasis(basis,input.ownSourceKey,Number(input.offset),Number(input.limit),input.expectedRevision as string|null,'application');
         if(Object.hasOwn(input,'webSourceProof')){
@@ -224,7 +225,7 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
             &&source.contribution.sourceKey===web.webSourceKey).map(()=>({source:'web' as const,sourceKey:web.webSourceKey,date:day.date}))));
         }
         const current=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId));
-        if(!current||current.revision!==policy.revision||current.stage!==policy.stage)
+        if(!current||JSON.stringify(await createSharedAccessPolicyIdentityV1(current))!==JSON.stringify(policyIdentity))
           return Response.json({code:'EXECUTION_BASIS_VERSION_CHANGED'},{status:409});
         return Response.json({profileId:input.childId,...page},{headers:{'cache-control':'no-store'}});
       }

@@ -14,6 +14,8 @@ Service 的跨端网页替换另需专用云签名来源绑定证明：绑定经
 
 批次 1 不启用硬限制或结束动作。新增派生上传和读取不触碰原网页 Segment、manifest、修正及上传确认链；两端独立贡献按来源版本替换，不能用总量减本机的近似算法或补造 V2 序号。
 
+分页依据与影子状态 revision 包含完整公共配置摘要、生效时间和阶段，而非只包含 profile-config 序号。云端读取完成再比较完整身份；相同序号但配置内容变化也必须失效，不能把旧页面或余额复用到新配置。
+
 来源证明实施口径：Service 在已核验 Host 连接内自行生成 `connectionHash`，通过机器鉴权为当前受保护用户请求挑战；Runtime 验证当前 assignment 后经 Guardian 专属内部绑定创建 90 秒挑战。Guardian 的新增派生表仅保存挑战随机 ID 与服务端范围，无令牌；浏览器用自己的 DeviceBearer 兑换，Guardian 核对同家庭／孩子，并经 Runtime 内部绑定再次核验分配。单挑战只能绑定一个网页来源；签发最多 300 秒、专用 ES256 密钥的证明，原始机器／用户／孩子 ID 不进入证明。Native 从已配对 HTTPS 机器接口取得专用公开验证键，核对签名、audience、时间、挑战、连接、应用来源、孩子范围摘要和 assignment；不得使用证明中的自报 key 作为信任根。缺钥、过期、撤销或改绑均不授予新网页 scope。离线 proof 过期后显示来源覆盖不足，已有已认证云端依据仍可只读，不冒称当前本机网页增量已纳入。短期证明只授予统计替换，不授予关闭、策略写入或设备登录。
 
 真实余额读出口沿用 `getSharedQuotaState`：旧 `sharedQuota` 仍返回云端读数，不覆盖其来源含义；协商 `shared-quota-execution-preparation-read-v1` 后可选返回 `sharedQuotaPreparation`，包含完整配置身份、依据版本、本机替换版本列表、投影、运输 online/offline/unavailable 和稳定原因，`executionEnabled` 本批固定 false。缺失已认证 scope／全页／配置一致性时 projection=null，不能以零余额或最终共享统计替代。新 `shared-web-contribution-sync-v1` 能力开放三个 sharedQuota 请求：`getSharedWebSourceChallenge` payload={}；`bindSharedWebSource` payload={proof}；`replaceSharedWebContribution` payload={challengeId,upload}。Service 验证已绑定当前连接的 proof 后才保存网页本机贡献；同日期只接受内容一致的同版本或更高版本，不累加，改绑／换连接失效。浏览器设备令牌只用于扩展直接 HTTPS 上传，不经过 Host。云端机器依据读取可附 `X-Shared-Web-Source-Proof` header，Guardian 再核验当前绑定后仅添加该 proof 来源的网页替换 scope；证明不进入 URL。
