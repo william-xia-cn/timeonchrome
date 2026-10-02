@@ -10,11 +10,24 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.23.0');
+assert.equal(pkg.version, '1.23.1');
 assert(pkg.exports['./shared-access'], 'shared access contract must be exported');
 const sharedAccess = JSON.parse(fs.readFileSync(path.join(root, 'shared-access-v1.schema.json'), 'utf8'));
 assert.equal(sharedAccess.$defs.policy.properties.stage.enum[0], 'legacy');
 assert.equal(sharedAccess.$defs.policy.properties.autonomy.properties.visibleResponseDeadlineSeconds.const, 60);
+const quotaWeek=sharedAccess.$defs.state.properties.week;
+assert.equal(quotaWeek.additionalProperties,false);
+assert.deepEqual(quotaWeek.required,['fromDate','toDate','complete','reasonCodes','restUsedMs','restRemainingMs']);
+assert.equal(quotaWeek.properties.toDate.$ref,'#/$defs/date');
+assert.equal(quotaWeek.properties.complete.type,'boolean');
+assert.equal(quotaWeek.properties.reasonCodes.type,'array');
+for(const week of [
+  {fromDate:'2026-09-28',toDate:'2026-10-02',complete:true,reasonCodes:[],restUsedMs:10,restRemainingMs:20},
+  {fromDate:'2026-09-28',toDate:'2026-10-02',complete:false,reasonCodes:['APPLICATION_SOURCE_UNAVAILABLE'],restUsedMs:10,restRemainingMs:null},
+]) {
+  assert(Object.keys(week).every(key=>Object.hasOwn(quotaWeek.properties,key)),'real weekly fields must not be rejected');
+  assert(quotaWeek.required.every(key=>Object.hasOwn(week,key)),'weekly completeness must be explicit');
+}
 assert(sharedAccess.$defs.contribution.allOf[0].then.required.includes('chromeExcludedMs'));
 assert(sharedAccess.$defs.contribution.properties.chromeIncludedInApplicationMs,
   'Chrome marginal display deduction is distinct from quota exclusion');
