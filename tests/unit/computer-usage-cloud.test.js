@@ -79,7 +79,8 @@ const failedScope=new service.ComputerUsageService({}, {DB:{prepare(){throw Erro
 assert.deepEqual(await (await failedScope.fetch(scopeRequest('current-account','current-child'))).json(),{code:'APPLICATION_SCOPE_UNAVAILABLE'});
 let result=await service.readComputerUsage(f.env,'account','child',date,date);
 assert.equal(result.totals.webMs,3000);assert.equal(result.totals.applicationMs,2000);assert.equal(result.totals.computerMs,5000);
-assert.ok(result.reasons.includes('DEVICE_MAPPING_INCOMPLETE'));assert.equal(result.timeline.some(row=>row.key.includes('private-segment')),false);
+assert.ok(!result.reasons.includes('DEVICE_MAPPING_INCOMPLETE'));assert.equal(result.timeline.some(row=>row.key.includes('private-segment')),false);
+assert.equal(result.devices.length,1);assert.equal(result.devices[0].key,'child','projection is Child-level, not split by physical computer');
 assert.equal(result.sourceStatus.web,'complete','missing computer mapping does not invalidate authoritative web statistics');assert.equal(result.sourceStatus.application,'complete');
 const firstReads=f.reads();await service.readComputerUsage(f.env,'account','child',date,date);assert.equal(f.reads(),firstReads,'same source versions reuse interval cache');
 const cachedSummary=await service.readComputerUsage(f.env,'account','child',date,date,undefined,true);
@@ -87,11 +88,12 @@ assert.deepEqual(JSON.parse(JSON.stringify(cachedSummary.totals)),JSON.parse(JSO
 assert.equal(cachedSummary.revision,result.revision);assert.equal(cachedSummary.timeline.length,0);assert.equal(cachedSummary.products.length,0);
 assert.equal(f.reads(),firstReads);assert.equal(f.appReads(),1,'summary/details cache hits never reload application evidence');
 const summaryKeys=[...f.store.keys()].filter(key=>key.endsWith(':summary'));assert.equal(summaryKeys.length,1);
+assert.ok(summaryKeys[0].startsWith('computer-projection-v5:'),'the Child projection invalidates cached physical-computer generations');
 assert.equal(JSON.parse(f.store.get(summaryKeys[0])).timeline.length,0,'summary KV generation is small and separate from details');
 f.change();const updated=await service.readComputerUsage(f.env,'account','child',date,date);assert.notEqual(updated.revision,result.revision);assert.ok(f.reads()>firstReads);
 const selected=await service.readComputerUsage(f.env,'account','child',date,date,'opaque-computer');assert.equal(selected.totals.applicationMs,2000);assert.equal(selected.devices.length,1);
-const week=await service.readComputerUsage(f.env,'account','child',date,'2026-10-02');const webGroup=week.devices.find(device=>device.key.startsWith('unmapped:web:'));assert.ok(webGroup,'unmapped browser source is selectable');
-const weekSelected=await service.readComputerUsage(f.env,'account','child',date,'2026-10-02',webGroup.key);assert.equal(weekSelected.sourceVersions.filter(source=>source.kind==='web').length,2,'one stable browser source selects both dates');assert.equal(weekSelected.totals.webMs,6000);assert.equal(weekSelected.devices.length,1);
+const week=await service.readComputerUsage(f.env,'account','child',date,'2026-10-02');const webGroup=week.devices.find(device=>device.key==='child');assert.ok(webGroup,'week view exposes a single Child aggregate');
+const weekSelected=await service.readComputerUsage(f.env,'account','child',date,'2026-10-02',webGroup.key);assert.equal(weekSelected.sourceVersions.length,week.sourceVersions.length,'legacy computer query is ignored, not used as an aggregation boundary');assert.equal(weekSelected.totals.webMs,week.totals.webMs);assert.equal(weekSelected.devices.length,1);
 f=fixture({appFailure:true});result=await f.load('workers/src/services/computerUsage.ts').readComputerUsage(f.env,'account','child',date,date);assert.equal(result.totals.webMs,3000);assert.equal(result.totals.applicationMs,null);assert.ok(result.reasons.includes('APPLICATION_SOURCE_UNAVAILABLE'));
 assert.equal(f.store.size,0,'source failures are not retained as successful generations');
 f=fixture({webFailure:true});result=await f.load('workers/src/services/computerUsage.ts').readComputerUsage(f.env,'account','child',date,date);assert.equal(result.totals.applicationMs,2000);assert.equal(result.totals.webMs,null);
@@ -119,5 +121,5 @@ await assert.rejects(()=>service.readIndependentUsage(f.env,'account','child',da
 f=fixture();f.env.RUNTIME_COMPUTER_USAGE.fetch=async request=>{const scope=await request.json();assert.equal(scope.childId,'child');return Response.json(new URL(request.url).pathname.includes('Revision')?'cap-r1':[app]);};
 result=await f.load('workers/src/services/computerUsage.ts').readComputerUsage(f.env,'account','child',date,date);assert.equal(result.totals.applicationMs,2000,'bounded capability HTTP transport preserves app authority');
 for(const [a,b] of [['2026-02-30','2026-02-30'],['2026-10-01','2026-10-08'],['2026-10-02','2026-10-01']])assert.throws(()=>service.validateComputerUsageRange(a,b),/INVALID_RANGE/);
-console.log('PASS cloud computer usage: original authority, ownership, failure isolation, mapping, version cache, filtering, privacy, range');
+console.log('PASS cloud computer usage: original authority, Child aggregation, failure isolation, versioned cache, legacy-filter compatibility, privacy, range');
 })().catch(error=>{console.error(error);process.exitCode=1;});

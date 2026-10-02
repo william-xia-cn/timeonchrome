@@ -2,6 +2,10 @@
 
 ## D-114：共享访问契约与电脑展示（1.21.0 本地草稿）
 
+2026-10-02 通道语义补齐（实现设计，包消费以正式固定版本为准）：`sharedQuota/getSharedQuotaState` 的 payload 仅为 `{date: "YYYY-MM-DD"}`，使用北京时间日期；不接受 Child、本机用户、assignment 或 expectedRevision。Service 从已验证连接及当前受保护分配生成机器鉴权 `GET /v2/machines/shared-quota/state?localUserId=...&assignmentVersion=...&date=...`，返回的 `{sharedQuota}` 是云端只读影子，不能以本机部分统计伪造余额。能力名固定为 `shared-quota-state-read`；完整性、日期和策略版本不足时不可用于执行。
+
+`reportReminderResult` 直接携带 `SharedReminderResultV1`，影子能力名为 `shared-reminder-result-shadow`，只校验／记录，不触发结束或扣费。Native 必须在已验证用户范围校验 policyRevision、stateRevision 和 Service 已签发的 reminderId；未签发返回 `SHARED_REMINDER_NOT_ISSUED`。重复同 ID／双版本且内容相同只 ACK，冲突拒绝；可见事件和时间关系必须有记录，未送达不能当作超时。当前 Service 尚无完整提醒签发／可见生命周期，两端测试可注入登记，但真实统一提醒仍保持未完成／关闭；不能靠接收任意扩展结果宣称完成。后续执行阶段须补齐可恢复签发、单电脑唯一投递、可见确认与截止状态，未实现前不得声明执行能力。
+
 `shared-access.ts` 规范 Guardian 唯一 Child 公共配置、网页／应用各自的已结算配额贡献、共享状态与提醒结果；来源按 `(source,sourceKey,date,revision)` 版本替换，不按重传次数累加。网页贡献沿用其有效配额桶整数秒和既有借用结果；应用贡献以毫秒报告原分类（复合／未归类尚未借用），明确排除可信 Chrome 与 `other`，再由共享层按现有复合余额借用娱乐。缺任一来源、版本冲突或 Chrome 扣除无证据时不得标记完整。新增的 Guardian `GET /profiles/:id/shared-access/v1` 仅对所属家长返回现有 Profile 配置的只读 `legacy` 投影，既不新建可写配置源，也不启用共享执行。
 
 机器心跳只有声明 `application-other-v1` 后，机器策略才下发 `other` 分类；未声明的旧终端收到 `unclassified` 兼容投影，云端家长配置和历史事实不改写。能力变化须改变策略 ETag，避免缓存旧投影；策略 ACK 不代表共享配额或提醒能力完成验收。
@@ -103,11 +107,11 @@ Native 首次核对的兼容裁决（不改旧统计）：缺失事实 policyVer
 
 2026-10-01性能与范围补正：电脑使用固定为孩子/日期汇总，界面不提供电脑/账户/平台筛选；既有只读筛选协议保留兼容，独立统计不改变。应用原查询函数不改，新增鉴权后的内部版本缓存，使用已授权家庭/孩子、查询范围/筛选、涵盖所选范围和当前配额周的v1/v2账本计数/上传摘要、媒体摘要及App Policy最新版本构成不透明键。策略版本覆盖更正与产品投影；迟到上传和政策变化使旧缓存不可命中。计算期间版本变化不写缓存，异常不缓存，缓存失败回退权威读取。内部结果不超过2MB、最多保存5分钟，HTTP响应继续no-store，不向共享公开URL缓存用户数据。前端仅内存保存最多16项30秒，按完整孩子/日期/筛选请求键隔离，合并并发，刷新绕过内存；清除或过期的请求不得重新写回缓存。命中展示原读取时间，不伪装为实时数据。
 
-收尾修订覆盖下文阻塞说明：设备对应及Mac Chrome自动规则不作为读取前提。sourceStatus、historyStatus、overlapStatus分别表示统计来源、历史尽力还原和精确去重；原complete只控制去重总量。Runtime读取旧runtime_devices/runtime_usage_segments的现有统计口径及可恢复明细，返回historyQuality=bestEffort，不将旧设备占位当成所有应用失败。来源完整性与区间守恒分开；独立原总量/分类在区间证据不足时仍保留，展示分类在未确认重叠时标明来源累计。Chrome未确认归属时展示child级网页内容，不计算容器解释量或未知余量；仅可信同电脑证据允许容器内外解释。原app usage、更正、账本和配额函数不改。
+收尾修订：Child ID 是汇总边界；设备对应及 Mac Chrome 自动规则不作为读取或汇总前提。电脑使用按 Child 累计网页主用量＋应用主用量－应用统计已提供且核验通过的 Chrome 边际贡献，不要求跨来源物理电脑关联，不对跨设备并行用量做时间并集。来源缺失、来源版本冲突或 Chrome 扣除证据缺失仍阻止完整合计，但保留可读来源小计。`sourceStatus`、`historyStatus`、`overlapStatus` 分别描述来源完整性、历史尽力还原及该口径下 Chrome 扣除是否有依据；物理设备关联不进入诊断。应用统计归集按 Child 合并产品，稳定产品只显示一行，时长跨来源累计。Chrome 展开显示该孩子网页原始内容，不声称内容发生在某个 Chrome 容器内；该内容不作为第二份用量进入总量。原 app usage、更正、账本和配额函数不改。
 
 共享 Contracts `computer-usage` 定义只读来源、统一结果、完整性和版本分页。Guardian 持有唯一合并入口；Runtime 通过受限具名 Service Binding 提供已授权的应用权威用量与必要区间证据，Runtime 浏览器入口只代理同一 Guardian 结果。既有生命周期 Service Binding 不替换；新绑定是该展示的上线配置依赖，不是重新配对或迁移需求。内部证据不作为公开 HTTP 原始账本接口。
 
-Chrome 特殊属性由可信产品／具体应用关联产生，不依赖显示名称，也不改应用策略。云端读模型验证来源原统计与证据一致后，用明确重叠调整生成展示总量；分类排除 Chrome 容器贡献，保留网页内容及其他应用贡献。原 app usage 的会话／clock epoch 统计语义不改写；如果来源合计与电脑级区间证据无法一致，报告不可用而非重算补齐。没有可信网页设备与 Runtime 电脑对应时返回 `DEVICE_MAPPING_INCOMPLETE`，Child ID、名称与时间巧合不能替代设备证明。
+Chrome 特殊属性由可信产品／具体应用关联产生，不依赖显示名称，也不改应用策略。云端读模型按已核验来源原统计和 Runtime 提供的 Chrome 边际值生成 Child 展示总量；不以网页／应用的物理设备匹配或区间重叠重算总量。分类排除 Chrome 容器贡献，保留网页内容及其他应用贡献。原 app usage 的会话／clock epoch 统计语义不改写。时间线保留来源事实，但网页与其他应用按各自来源累计，不输出虚构的跨设备重叠值。
 
 Windows Chrome 的受控展示身份采用经本地只读核验的公开软件签名系列：2026-10-01 核验 Google Chrome 154.0.8037.59 的 Authenticode 有效、Google LLC 证书、`chrome.exe` 原文件名及 `Google Chrome` 产品元数据。复用既有 Native 文件系列算法（已验证签名公钥摘要＋原文件名＋产品元数据，不含路径/版本），云端只接受盘点中已验证的精确 signer/file-series 组合；规则包记录版本与来源，不上传证书正文或任何家庭原始设备信息。同名、签名无效、系列不同均不命中；证书轮换需重新审核。已有家长批准的 Chrome 产品及真实强 selector 匹配可作为另一条可信依据。未上传可核验依据的旧观察继续标标准对象，不能把“规则可识别”记为实机覆盖完成。
 
