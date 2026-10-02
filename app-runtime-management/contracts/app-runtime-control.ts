@@ -176,6 +176,7 @@ export type RuntimeApplicationClassification =
   | 'composite'
   | 'restrictedEntertainment'
   | 'unclassified'
+  | 'other'
   | 'blocked';
 
 export interface RuntimeAppPolicyV1 {

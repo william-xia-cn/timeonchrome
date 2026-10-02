@@ -2,6 +2,7 @@ import type { AppEvidence, ApplicationKnowledge, ProductIdentityProjection } fro
 import { associateApplicationEvidence, matches } from '@timeonchrome/app-runtime-contracts/classification';
 import type { AppPolicyClassification, ApplicationClassification } from './contracts';
 import { sha256Hex } from './crypto';
+import { CHROME_SPECIAL_PRODUCT, isConfirmedChrome } from './specialApplications';
 
 const keyOf = (item: Pick<AppEvidence, 'platform' | 'runtimeIdentity'>) => `${item.platform}\n${item.runtimeIdentity}`;
 const usable = (item: AppEvidence) => item.discovery?.role !== 'component'
@@ -96,11 +97,14 @@ export function productIdentityItems(evidence: AppEvidence[], knowledge: Applica
     // One cloud-selected label for a verified alias set; consumers never guess a name.
     const canonicalName = product?.name ?? members.find(member => member.discovery?.nameSource === 'appList')?.displayName
       ?? members.find(member => member.displayName.trim())?.displayName ?? item.displayName;
-    return { platform: item.platform, runtimeIdentity: item.runtimeIdentity,
+    const projectedItem: ProductIdentityProjection['items'][number] = { platform: item.platform, runtimeIdentity: item.runtimeIdentity,
       associationKey: product ? `product:${item.platform}:${product.id}` : conflict ? key : root,
       productId: product?.id ?? null, canonicalName: conflict ? item.displayName : canonicalName,
       status: conflict ? 'conflict' : product ? 'confirmed' : associated ? 'associated' : 'unresolved',
       reasonCode: conflict ? 'IDENTITY_CONFLICT' : product ? 'APPROVED_PRODUCT' : associated ? 'VERIFIED_LEAF_ALIAS' : 'IDENTITY_UNRESOLVED' };
+    if (product?.id === CHROME_SPECIAL_PRODUCT && members.some(member => isConfirmedChrome(member,
+      { ...projectedItem, runtimeIdentity: member.runtimeIdentity }, knowledge))) projectedItem.isChromeContainer = true;
+    return projectedItem;
   });
   return projected;
 }

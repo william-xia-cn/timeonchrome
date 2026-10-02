@@ -3,7 +3,7 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.AppRuntimePolicy = api;
 })(typeof globalThis === 'undefined' ? this : globalThis, () => {
-  const categories = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked'];
+  const categories = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked'];
   const scheduleCategories = ['study', 'composite', 'restrictedEntertainment', 'unclassified'];
   const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
   const allOpenTimeWindows = () => Object.fromEntries(weekdays.map((day) => [day,

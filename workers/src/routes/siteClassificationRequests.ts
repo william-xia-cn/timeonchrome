@@ -14,6 +14,54 @@ import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig } from 
 import { processRestrictedReattributions } from '../services/usageAccountingCorrections';
 import { mutateProfileConfig } from '../services/profileConfigMutation';
 
+export function normalizeSiteClassificationDecisionForWorker(value: unknown): string | null {
+  if (value === 'other') return 'other';
+  return typeof value === 'string' ? normalizeSiteClassificationDecision(value) : null;
+}
+
+export function siteClassificationDecisionStatusForWorker(decision: string): string | null {
+  return decision === 'other' ? 'approved_other' : decisionToStatus(decision);
+}
+
+export function upsertOtherUsageClassificationRule(
+  config: Record<string, unknown>,
+  requestId: string,
+  target: { targetType: string; normalizedValue: string },
+  now: number,
+): void {
+  const rules = Array.isArray(config.siteUsageClassificationRulesV1)
+    ? config.siteUsageClassificationRulesV1.filter((rule): rule is Record<string, unknown> => Boolean(rule) && typeof rule === 'object')
+    : [];
+  config.siteUsageClassificationRulesV1 = [
+    ...rules.filter((rule) => rule.requestId !== requestId
+      && !(rule.targetType === target.targetType
+        && (rule.normalizedValue === target.normalizedValue || rule.targetValue === target.normalizedValue))),
+    {
+      id: `usage_rule_${requestId}`,
+      requestId,
+      targetType: target.targetType,
+      targetValue: target.normalizedValue,
+      normalizedValue: target.normalizedValue,
+      classification: 'other',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ];
+}
+
+export function removeUsageClassificationRuleForTarget(
+  config: Record<string, unknown>,
+  target: { targetType: string; normalizedValue: string },
+): void {
+  if (!Array.isArray(config.siteUsageClassificationRulesV1)) return;
+  config.siteUsageClassificationRulesV1 = config.siteUsageClassificationRulesV1.filter((rule) => {
+    if (!rule || typeof rule !== 'object') return true;
+    const candidate = rule as Record<string, unknown>;
+    return !(candidate.targetType === target.targetType
+      && (candidate.normalizedValue === target.normalizedValue || candidate.targetValue === target.normalizedValue));
+  });
+}
+
 async function verifyProfileOwner(request: Request, env: Env, profileId: string): Promise<string | null> {
   const accountId = await verifyAccountToken(request, env.JWT_SECRET);
   if (!accountId) return null;
@@ -293,6 +341,11 @@ async function applyDecisionToProfileConfig(env: Env, profileId: string, request
     sourceAction: 'site_classification_decision',
     requestId,
   }, (config) => {
+    if (decision === 'other') {
+      upsertOtherUsageClassificationRule(config, requestId, target, now);
+      return;
+    }
+    removeUsageClassificationRuleForTarget(config, target);
     const rules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
     const nextRules = rules.filter((rule: any) => rule?.requestId !== requestId);
     nextRules.push({
@@ -557,7 +610,7 @@ export async function decideSiteClassificationRequest(
   env: Env,
   input: DecideSiteClassificationRequestInput,
 ): Promise<Record<string, any>> {
-  const decision = normalizeSiteClassificationDecision(input.decision);
+  const decision = normalizeSiteClassificationDecisionForWorker(input.decision);
   if (!decision) return { ok: false, status: 400, error: 'invalid decision', code: 'INVALID_DECISION' };
 
   const existing = await env.DB.prepare(
@@ -592,7 +645,8 @@ export async function decideSiteClassificationRequest(
   }
 
   const now = Date.now();
-  const status = decisionToStatus(decision);
+  const status = siteClassificationDecisionStatusForWorker(decision);
+  if (!status) return { ok: false, status: 400, error: 'invalid decision', code: 'INVALID_DECISION' };
   const update = await env.DB.prepare(
     `UPDATE site_classification_requests_v1
      SET status = ?, decision = ?, decision_target_type = ?, decision_normalized_value = ?,

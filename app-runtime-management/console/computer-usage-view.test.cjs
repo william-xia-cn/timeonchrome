@@ -20,7 +20,8 @@ assert.ok(products.includes('原应用历史归类，仅用于原口径；不贡
 const childContent=view.detailRows('products',[{key:'child-chrome',name:'Chrome',source:'application',special:true,durationMs:1501,classification:['composite'],chromeContent:{scope:'child',webMs:3000,complete:true,explainedMs:null,unexplainedMs:null,categoriesMs:{study:3000}}}]);
 assert.ok(childContent.includes('该孩子的网页内容'));assert.ok(childContent.includes('不代表容器内访问，不扣除重叠'));assert.ok(!childContent.includes('网页解释'));
 const statusHtml=view.summary({...snapshot,sourceStatus:{web:'complete',application:'partial'},historyStatus:'bestEffort',overlapStatus:'unconfirmed',categoryBasis:'sourceCumulative',categoriesMs:{study:1501},sourceCategoriesMs:{web:{study:1501},application:{composite:3001}}});
-assert.ok(statusHtml.includes('来源累计、尚未去重'));assert.ok(statusHtml.includes('不是完整合计'));assert.ok(statusHtml.includes('独立权威分类'));assert.ok(statusHtml.includes('历史数据，尽力还原'));
+assert.ok(statusHtml.includes('电脑使用＝网页＋应用－应用总量中 Chrome 的贡献'));
+assert.ok(statusHtml.includes('不是完整合计'));assert.ok(statusHtml.includes('独立权威分类'));assert.ok(statusHtml.includes('历史数据，尽力还原'));
 assert.ok(statusHtml.includes('<details><summary>来源状态与诊断详情</summary>'));
 for(const [file,attribute] of [['index.html','data-usage-kind'],['../../pages/index.html','data-cloud-usage-ledger']]){
 const page=fs.readFileSync(path.join(__dirname,file),'utf8');

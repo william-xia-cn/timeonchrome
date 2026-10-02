@@ -1,9 +1,13 @@
 {
   "name": "@timeonchrome/app-runtime-contracts",
-  "version": "1.20.0",
+  "version": "1.22.0",
   "private": false,
   "type": "module",
   "exports": {
+    "./shared-access": {
+      "types": "./dist/shared-access.d.ts",
+      "default": "./dist/shared-access.js"
+    },
     "./usage-account": {
       "types": "./dist/usage-account.d.ts",
       "default": "./dist/usage-account.js"
@@ -33,6 +37,7 @@
     "app-runtime-control.ts",
     "computer-usage.ts",
     "usage-account.ts",
+    "shared-access.ts",
     "application-classification.ts",
     "application-knowledge-validation.ts",
     "*.schema.json",
@@ -42,7 +47,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node contract-compatibility.test.cjs && node classification.test.mjs && node machine-control.test.mjs && node computer-usage.test.mjs && node usage-account.test.mjs"
+    "test": "node contract-compatibility.test.cjs && node classification.test.mjs && node machine-control.test.mjs && node computer-usage.test.mjs && node usage-account.test.mjs && node shared-access.test.mjs"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

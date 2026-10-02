@@ -1,6 +1,6 @@
 /** D-111: cloud-owned display projection, never a ledger or a quota authority. */
 export const COMPUTER_USAGE_SCHEMA_VERSION = 1 as const;
-export const COMPUTER_USAGE_DISPLAY_RULE_VERSION = '2';
+export const COMPUTER_USAGE_DISPLAY_RULE_VERSION = '3';
 export const COMPUTER_USAGE_MAX_INTERVALS = 20_000;
 
 export interface ComputerUsageInterval {
@@ -34,6 +34,8 @@ export interface ComputerWebSource extends ComputerUsageSource {
 }
 export interface ComputerApplicationSource extends ComputerUsageSource {
   associationVersion: string;
+  /** Authoritative same-scope marginal Chrome deduction; null means not provable. */
+  chromeIncludedInApplicationMs?: number | null;
   intervals: Array<ComputerUsageInterval & { special: boolean }>;
 }
 export interface ComputerUsageSourceBundle {
@@ -51,6 +53,8 @@ export interface ComputerUsageDevice {
   webMs: number | null;
   applicationMs: number | null;
   overlapMs: number | null;
+  /** Marginal Chrome contribution actually included in applicationMs. */
+  chromeIncludedMs?: number | null;
   chromeUnexplainedMs: number | null;
   categoriesMs: Record<string, number | null>;
 }
@@ -97,7 +101,7 @@ export interface ComputerUsageResult {
     associationVersion?: string; settledAtMs: number | null;
   }>;
   devices: ComputerUsageDevice[];
-  totals: { computerMs: number | null; webMs: number | null; applicationMs: number | null; overlapMs: number | null };
+  totals: { computerMs: number | null; webMs: number | null; applicationMs: number | null; overlapMs: number | null; chromeIncludedMs?: number | null };
   categoriesMs: Record<string, number | null>;
   products: ComputerUsageProduct[];
   timeline: ComputerUsageTimelineItem[];
@@ -148,6 +152,18 @@ function displayApplicationCategories(source: ComputerApplicationSource): Record
       return [cls, valid && length(ranges(original)) === authority
         ? length(ranges(original.filter(i => !i.special))) : null];
     }).filter(([cls, value]) => value !== 0 || source.intervals.some(i => i.classification === cls && !i.special)));
+}
+
+/** Same union scope as the source total: Chrome's marginal contribution, not its product-row duration. */
+function chromeIncludedInApplication(source: ComputerApplicationSource): number | null {
+  if (source.totalMs === null || !validMs(source.totalMs)) return null;
+  if (source.chromeIncludedInApplicationMs !== undefined)
+    return source.chromeIncludedInApplicationMs !== null && validMs(source.chromeIncludedInApplicationMs)
+      && source.chromeIncludedInApplicationMs <= source.totalMs ? source.chromeIncludedInApplicationMs : null;
+  if (source.intervals.some(i => !validMs(i.startMs) || !validMs(i.endMs) || i.endMs <= i.startMs)) return null;
+  if (length(ranges(source.intervals)) !== source.totalMs) return null;
+  const included = source.totalMs - length(ranges(source.intervals.filter(i => !i.special)));
+  return validMs(included) ? included : null;
 }
 
 /** Credit may occupy any subset of its support. No invented distribution of integer seconds. */
@@ -266,23 +282,18 @@ export function mergeComputerUsage(bundle: ComputerUsageSourceBundle): ComputerU
     const chromeOverlaps = webIntervals.map(i => exactOverlapWithUnion(i, chromeRanges));
     if (overlaps.some(i => i === null) || chromeOverlaps.some(i => i === null)) reasons.push('OVERLAP_AMBIGUOUS');
     const overlap = overlaps.some(i => i === null) ? null : overlaps.reduce<number>((sum, i) => sum + i!, 0);
-    const categoriesMs: Record<string, number | null> = Object.create(null);
-    const normalApps = appIntervals.filter(i => !i.special);
-    for (const cls of unique([...webIntervals.map(i => i.classification), ...normalApps.map(i => i.classification)])) {
-      const categoryApps = ranges(normalApps.filter(i => i.classification === cls));
-      const categoryWeb = webIntervals.filter(i => i.classification === cls);
-      const categoryOverlaps = categoryWeb.map(i => exactOverlapWithUnion(i, categoryApps));
-      if (categoryOverlaps.some(i => i === null)) { reasons.push('CATEGORY_OVERLAP_AMBIGUOUS'); categoriesMs[cls] = null; }
-      else categoriesMs[cls] = length(categoryApps) + categoryWeb.reduce((sum, i) => sum + i.creditedMs, 0)
-        - categoryOverlaps.reduce<number>((sum, i) => sum + i!, 0);
-    }
-    const complete = reasons.length === 0;
-    const displayCategories = complete ? Object.fromEntries(Object.entries(categoriesMs))
-      : sumCategories([...web.map(source => source.categoriesMs), ...app.map(displayApplicationCategories)]);
+    const chromeIncludedMs = sumReadable(app.map(chromeIncludedInApplication));
+    const sourcesComplete = web.length > 0 && app.length > 0 && group.every(({source}) =>
+      (source.statisticsComplete ?? source.complete) && source.totalMs !== null && validMs(source.totalMs));
+    const complete = sourcesComplete && chromeIncludedMs !== null
+      && app.every(source => chromeIncludedInApplication(source) !== null)
+      && webMs !== null && applicationMs !== null && !globalReasons.length;
+    const displayCategories = sumCategories([...web.map(source => source.categoriesMs), ...app.map(displayApplicationCategories)]);
     devices.push({ key, name: group[0]!.source.computerName, complete, reasons: unique(reasons), webMs, applicationMs,
-      totalMs: complete ? webMs! + applicationMs! - overlap! : null,
-      overlapMs: complete ? overlap : null,
-      chromeUnexplainedMs: complete ? length(chromeRanges) - chromeOverlaps.reduce<number>((sum, i) => sum + i!, 0) : null,
+      totalMs: complete ? webMs! + applicationMs! - chromeIncludedMs! : null,
+      overlapMs: overlaps.some(i => i === null) ? null : overlap,
+      chromeIncludedMs,
+      chromeUnexplainedMs: chromeOverlaps.some(i => i === null) ? null : length(chromeRanges) - chromeOverlaps.reduce<number>((sum, i) => sum + i!, 0),
       categoriesMs: displayCategories });
     const productGroups = new Map<string, { source: 'web' | 'application'; intervals: ComputerUsageTimelineItem[] }>();
     for (const { kind, source } of group) for (const [index, item] of source.intervals.entries()) {
@@ -331,7 +342,6 @@ export function mergeComputerUsage(bundle: ComputerUsageSourceBundle): ComputerU
       products.push(entry);
     }
   }
-  const complete = devices.length > 0 && devices.every(d => d.complete) && !globalReasons.length;
   if (!devices.length) globalReasons.push('SOURCE_MISSING');
   const webSources = sources.filter(s => s.kind === 'web').map(s => s.source as ComputerWebSource);
   const appSources = sources.filter(s => s.kind === 'application').map(s => s.source as ComputerApplicationSource);
@@ -342,10 +352,13 @@ export function mergeComputerUsage(bundle: ComputerUsageSourceBundle): ComputerU
       && Object.values(source.categoriesMs).every(validMs)) ? 'complete' : 'partial';
   };
   const sourceStatus = {web: status(webSources), application: status(appSources)};
+  const chromeIncludedMs = sumReadable(appSources.map(chromeIncludedInApplication));
+  const complete = sourceStatus.web === 'complete' && sourceStatus.application === 'complete'
+    && appSources.every(source => chromeIncludedInApplication(source) !== null)
+    && chromeIncludedMs !== null && !globalReasons.length;
   const sourceCategoriesMs = {web: sumCategories(webSources.map(s => s.categoriesMs)),
     application: sumCategories(appSources.map(s => s.categoriesMs))};
-  const categoriesMs = complete ? sumCategories(devices.map(d => d.categoriesMs))
-    : sumCategories([...webSources.map(s => s.categoriesMs), ...appSources.map(displayApplicationCategories)]);
+  const categoriesMs = sumCategories([...webSources.map(s => s.categoriesMs), ...appSources.map(displayApplicationCategories)]);
   for (const product of products.filter(item => item.special && !item.chromeContent?.complete)) {
     product.chromeContent = {scope: 'child', webMs: sumReadable(webSources.map(s => s.totalMs)),
       complete: sourceStatus.web === 'complete', reasons: sourceStatus.web === 'complete' ? [] : ['CHILD_WEB_SOURCE_PARTIAL'],
@@ -353,15 +366,16 @@ export function mergeComputerUsage(bundle: ComputerUsageSourceBundle): ComputerU
   }
   return { schemaVersion: 1, revision: 'pending', fromDate: bundle.fromDate, toDate: bundle.toDate, complete,
     sourceStatus, historyStatus: sources.some(s => s.source.historyQuality) ? 'bestEffort' : 'none',
-    overlapStatus: complete ? 'confirmed' : 'unconfirmed', categoryBasis: complete ? 'deduplicated' : 'sourceCumulative',
+    overlapStatus: sources.every(item => item.source.computerKey !== null)
+      && devices.every(d => d.overlapMs !== null) && devices.length > 0 ? 'confirmed' : 'unconfirmed', categoryBasis: 'sourceCumulative',
     sourceCategoriesMs,
     reasons: unique([...globalReasons, ...devices.flatMap(d => d.reasons)]),
     sourceVersions: sources.map(({ kind, source }) => ({ key: source.key, kind, revision: source.revision,
       correctionRevision: source.correctionRevision, settledAtMs: source.settledAtMs,
       ...(kind === 'application' ? { associationVersion: (source as ComputerApplicationSource).associationVersion } : {}) })),
-    devices, totals: { computerMs: complete ? sumReadable(devices.map(d => d.totalMs)) : null,
+    devices, totals: { computerMs: complete ? sumReadable(webSources.map(s => s.totalMs))! + sumReadable(appSources.map(s => s.totalMs))! - chromeIncludedMs! : null,
       webMs: sumReadable(webSources.map(s => s.totalMs)), applicationMs: sumReadable(appSources.map(s => s.totalMs)),
-      overlapMs: complete ? sumReadable(devices.map(d => d.overlapMs)) : null },
+      overlapMs: sumReadable(devices.map(d => d.overlapMs)), chromeIncludedMs },
     categoriesMs, products: products.sort((a, b) => a.key.localeCompare(b.key)),
     timeline: timeline.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs || a.key.localeCompare(b.key)), nextCursor: null };
 }

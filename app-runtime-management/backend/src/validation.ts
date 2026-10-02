@@ -348,7 +348,7 @@ function parseEstimated(value: Record<string, unknown>): AccountingUsageSegment[
 }
 
 function parsePolicySnapshot(value: unknown): AccountingUsageSegment['policySnapshot'] {
-  const classifications = new Set(['study', 'composite', 'restrictedEntertainment', 'unclassified', 'blocked']);
+  const classifications = new Set(['study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked']);
   if (!isRecord(value)
     || (value.assignmentVersion != null && !safeNonNegativeInteger(value.assignmentVersion))
     || (value.appPolicyVersion != null && !safeNonNegativeInteger(value.appPolicyVersion))

@@ -24,7 +24,8 @@
             "productId": { "type": ["string", "null"], "maxLength": 128 },
             "canonicalName": { "type": "string", "maxLength": 256 },
             "status": { "enum": ["confirmed", "associated", "unresolved", "conflict"] },
-            "reasonCode": { "enum": ["APPROVED_PRODUCT", "VERIFIED_LEAF_ALIAS", "IDENTITY_UNRESOLVED", "IDENTITY_CONFLICT"] }
+            "reasonCode": { "enum": ["APPROVED_PRODUCT", "VERIFIED_LEAF_ALIAS", "IDENTITY_UNRESOLVED", "IDENTITY_CONFLICT"] },
+            "isChromeContainer": { "type": "boolean" }
           }
         } }
       }
@@ -69,7 +70,7 @@
             "properties": {
               "platform": { "enum": ["windows", "macos"] },
               "runtimeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
-              "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "blocked"] }
+              "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "other", "blocked"] }
             }
           }
         }
@@ -86,7 +87,7 @@
           "platform": { "enum": ["windows", "macos"] },
           "runtimeIdentity": { "type": "string", "minLength": 1, "maxLength": 256 },
           "displayName": { "type": ["string", "null"], "maxLength": 256 },
-          "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "blocked"] }
+          "classification": { "enum": ["study", "composite", "restrictedEntertainment", "unclassified", "other", "blocked"] }
         }
       }
     },

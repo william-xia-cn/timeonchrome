@@ -4,6 +4,7 @@ import { validateQuotaAuditRequest } from '../../../extension/core/quota-audit.j
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeWithDefaults, stripDerivedSiteAccessFields, systemAccessDefaultsResponse, type SystemAccessConfig } from '../config/system-access-config';
 import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
+import { projectLegacySharedAccessPolicy, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { nativeChildDeletedOutboxStatement } from '../services/nativeAppIdentityBridge';
 import { appRuntimeChildDeletedOutboxStatement } from '../services/appRuntimeIdentityBridge';
 
@@ -272,6 +273,18 @@ function migrateLegacyTimeWindows(config: Record<string, unknown>): void {
   tw.daily = daily;
 }
 
+/** The same owner-scoped Child projection serves the parent read and the bound Runtime capability. */
+export async function readSharedAccessPolicyForChild(db: D1Database, accountId: string,
+  childId: string): Promise<UnifiedChildAccessPolicyV1 | null> {
+  const row = await db.prepare('SELECT config, version, updated_at FROM profiles WHERE id = ? AND account_id = ?')
+    .bind(childId, accountId).first<{ config: string; version: number; updated_at: number }>();
+  if (!row) return null;
+  const config = row.config ? JSON.parse(row.config) as Record<string, unknown> : {};
+  migrateLegacyTimeWindows(config);
+  injectEffectiveTimeQuota(config);
+  return projectLegacySharedAccessPolicy(config, Number(row.version || 0), Number(row.updated_at || 0));
+}
+
 // 归一化空数组为 null（UI 清除所有窗口后应为 unrestricted）
 function normalizeEmptyArraysToNull(config: Record<string, unknown>): void {
   const daily = (config.timeWindows as any)?.daily;
@@ -530,6 +543,7 @@ export const profilesRouter = {
     // ── 以下路由均需 profileId ──────────────────────────────────────────
 
     const configMatch      = path.match(/^\/profiles\/([^/]+)\/config$/);
+    const sharedAccessMatch = path.match(/^\/profiles\/([^/]+)\/shared-access\/v1$/);
     const configHistoryMatch = path.match(/^\/profiles\/([^/]+)\/config-history\/v1$/);
     const defaultsMatch    = path.match(/^\/profiles\/([^/]+)\/defaults$/);
     const devicesMatch     = path.match(/^\/profiles\/([^/]+)\/devices$/);
@@ -542,7 +556,7 @@ export const profilesRouter = {
 
     // 抽取 profileId 并验证归属
     const profileId =
-      configMatch?.[1] ?? configHistoryMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? deviceTokenActionMatch?.[1] ??
+      configMatch?.[1] ?? sharedAccessMatch?.[1] ?? configHistoryMatch?.[1] ?? defaultsMatch?.[1] ?? devicesMatch?.[1] ?? deviceIdMatch?.[1] ?? deviceTokenActionMatch?.[1] ??
       recoveryRequestsMatch?.[1] ?? recoveryRequestIdMatch?.[1] ?? managedMappingsMatch?.[1] ?? profileSelfMatch?.[1] ?? null;
 
     if (!profileId) return json({ error: 'Not found' }, 404);
@@ -697,6 +711,13 @@ export const profilesRouter = {
         };
       });
       return json({ profileId, history });
+    }
+
+    // GET /profiles/:id/shared-access/v1 — read-only projection of the one Child config.
+    // Stage stays legacy until both clients and the shared source are verified.
+    if (request.method === 'GET' && sharedAccessMatch) {
+      const policy = await readSharedAccessPolicyForChild(env.DB, accountId, profileId);
+      return policy ? json({ profileId, policy }) : json({ error: 'Profile not found' }, 404);
     }
 
     // GET /profiles/:id/config

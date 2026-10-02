@@ -113,6 +113,10 @@ function check(label, condition, detail = '') {
 
   const brokenRows = account.rows.filter((row) => row.kind !== 'hourly_target');
   check('non-conserved account is rejected', api.validateDeviceAccountRows(brokenRows, snapshot.date).code === 'DEVICE_ACCOUNT_NOT_CONSERVED');
+  const otherBucketRows = account.rows.map((row) => row.kind.endsWith('_target') ? { ...row, quotaBucket: 'other' } : row);
+  check('other is accepted as a target quota bucket', api.validateDeviceAccountRows(otherBucketRows, snapshot.date).ok === true);
+  const invalidOtherModeRows = otherBucketRows.map((row) => row.kind.endsWith('_target') ? { ...row, mode: 'other' } : row);
+  check('other remains invalid as an execution mode', api.validateDeviceAccountRows(invalidOtherModeRows, snapshot.date).code === 'DEVICE_ACCOUNT_INVALID_ROUTE');
   check('unexpected fields are rejected', api.validateDeviceAccountRows(
     account.rows.map((row, index) => index === 0 ? { ...row, title: 'must-not-persist' } : row), snapshot.date
   ).code === 'DEVICE_ACCOUNT_UNEXPECTED_FIELD');
