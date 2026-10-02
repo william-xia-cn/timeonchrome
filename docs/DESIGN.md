@@ -12,6 +12,35 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 网站显式选择“其他时间”时，家长审批写入独立 `siteUsageClassificationRulesV1`，并将申请标记为 `approved_other`。它不写入 `siteClassificationRulesV1`，不改 `studyList`、`compositeList`、受限或黑名单列表，避免把用量归类误作访问权限变更；同一对象后来被明确归入其他访问类别时，清除旧的用途归类覆盖规则。扩展消费端按未来分段 attribution 接入；本字段不改 `mode`、时间窗、阻断、时长或已落账数据。
 
+### D-114 共享访问终端契约边界（2026-10-02）
+
+终端以 `@timeonchrome/app-runtime-contracts` 1.22.0、架构提交 `c403176` 为固定契约；包 SHA-256 为 `1e3188147f56cf7b945a0acf2646bc24bc6b5bcbb8212ed01a7f2d75ffd7adaa`。该版本相对 1.21.0 只增加云端确认的 Chrome 产品身份、应用贡献的 `chromeIncludedInApplicationMs` 显示边际扣除字段及机器鉴权上传外壳；网页贡献不生成该字段，也不生成仅属于应用配额排除的 `chromeExcludedMs`。Native V3 的 `sharedQuota/getSharedQuotaState` 只返回 `SharedQuotaStateV1` 读模型；本阶段仅在显式调用时读取并校验版本、周期、策略 revision，不保存为执行状态，不替换网页配额。旧 Host 不支持时返回明确不可用，仍执行既有网页账和配额。`reportReminderResult` 虽列入契约，但提醒去重与结果消费尚无端到端实现，不发送结果或改变现有弹层。跨端执行保持关闭，原始网页账本不因本契约变化。
+
+网页来源影子贡献只能从现有已结算 `BrowserDailyUsageSnapshot` 转换：Study／Composite／Rest 秒数精确乘 1000；显式 `other` 仍保留在网页主统计中，但不进入三个扣费桶；未知或其他未定义桶、桶合计与 `activeSeconds` 不一致、来源快照不完整或整数溢出时标记贡献不完整。网页既有借用 Rest 已在 Rest 桶中，不再次计算。转换器不读取原始分段、不上传、不写缓存、不改变现有配额执行。
+
+影子核验只检查共享状态 `sources` 是否包含同一网页来源键、日期和 revision，并核对周期、策略 revision 与完整性；不能据合并总量倒推出单一网页贡献。已有 Rest 日／周合并弹层可按每个覆盖 scope 生成独立、同一弹层关联的 `SharedReminderResultV1` 候选；只允许在真实可见后记录 `visibleAtMs`，失败投递保持 null。本阶段纯构造和校验，不向 Host 上报，不把共享状态用于现有提醒。
+
+显式影子诊断入口可组合上述网页快照转换和 Native 只读查询；来源键由调用者从可信设备身份提供，不能由页面、域名或应用名称猜测。输入网页贡献不完整时不查询 Host；Host 尚未发布共享状态时返回 `unavailable`，已发布但来源 revision 缺失或不一致时返回对应原因。结果不存储、不显示为正式配额、不参与 Rest 提醒或拦截。
+
+### “其他”网站的未来分段归属（2026-10-02，D-076 单项批准；云端兼容已实现，待主线发布）
+
+现状：站点解析尚无显式 `other`；未识别站点会进入待归类，已定义站点的原始分段以当前 runtime mode 推导 `quotaBucketAtTime`。仅在界面增加“其他”标签仍会扣学习／复合／休息额度。PO 单项批准对**今后明确归为其他的网站**记录 `targetClassificationAtTime=other` 与独立非扣费桶；不改网页 ACTIVE 的开始／停止、idle、焦点、媒体容错、checkpoint、时长、domain、上传确认或历史分段。
+
+| 场景 | 原计时行为 | 批准后的计时行为 | 唯一归属变化 |
+|---|---|---|---|
+| 普通输入、强视频／强音频、弱 audible | 沿现有焦点／媒体证据规则开始、续账或停账 | 完全不变 | 仅显式“其他”新分段使用独立桶 |
+| 失焦、最小化、后台标签、idle、锁屏 | 沿现有容错和停账边界 | 完全不变 | 不凭分类增加有效时间 |
+| checkpoint、结算、跨日 | 按现有事件和整数秒切片 | 完全不变 | 各层总网页秒数守恒 |
+
+误设“其他”可能少扣分类配额；同一条记录不可同时占用旧分类桶与“其他”。本批准只改变未来 Segment 的 `targetClassificationAtTime` 与独立 `quotaBucketAtTime`，不改变网站访问路由、时间窗、配额执行、模式、频道、开始／停止、时长、上传确认或既有账。终端 V2 设备账仅在目标行接受 `quotaBucket=other`，运行 `mode` 仍只允许真实运行模式。云端原始账兼容由 `416c492` 提供，V2 设备账校验及网站分类审批路径已在云端分支实现，并由 Worker／终端聚焦测试验证；代码尚未合入 master 或生产发布。既有历史数据不自动重分类或改写。
+
+终端从云端档案配置读取独立的 `siteUsageClassificationRulesV1`。仅接受其中 `classification='other'` 且目标类型和值合法的规则，并仅作为新会话的 managed-target 归属输入；不得并入 `siteClassificationRulesV1`、访问路由或网站冲突校验。配置同步时，活动网页会话的有效边界计算忽略该独立规则，避免因它新增网页 Segment 边界；既有会话保留原分类和配额桶，下一次自然新会话才应用 `other`。规则中的 `other` 只映射至 Segment 的 `targetClassificationAtTime` 与 `quotaBucketAtTime`，runtime `mode`、`channel`、时长和结算事件不变。
+
+### 固定终端源码与开发候选边界（2026-09-30）
+
+`D:\Codex\TimeOnchrome-worktrees\extension-local` 是终端扩展唯一源码工作树。`1.7.40 Native Host Development Candidate` 仅由此工作树的 staging 工具生成到隔离的 unpacked 目录；源码 `extension/manifest.json` 的正式版本不随候选版本改变。候选复用已批准候选 manifest 的公开 key 并核对稳定扩展 ID，不生成 CRX 或 `update.xml`，不进入托管更新源。候选包含周 Rest 提醒、默认关闭的复合观察及 Task 可选模块；旧 Popup 纯网页软配额面板不纳入。Chrome 既有 `81a1` 路径作为 junction 兼容入口，只有独立 Profile 验证、完整备份和加载前后只读核对通过后才替换其 D 盘目标包；不卸载扩展或清空本地数据。真实 30 分钟复合上传闭环仍待验收。
+
+路径收拢先于候选升级：在 1.7.40 Rest 完整验收失败期间，Chrome 已将 1.7.39 同一 D 盘包的加载来源由 `81a1` junction 改为直接路径，未替换包内容。扩展 ID 与绑定已恢复；切换期的历史差额由 PO 接受并保留原证据，不回填。新账逐 ID 云端确认及日/小时对账仍是后续门槛，不能仅凭页面汇总宣称数据验收完成。旧工作树在仍被会话或进程引用时不得退出 Git 登记。
 ## 2026-10-02 电脑使用读取优化（不改变D-111/D-113统计语义）
 
 Guardian按完整来源指纹缓存合并后的展示代际，summary与完整详情分键；summary命中仅返回已生成汇总，不重新构造时间线、产品或计算重叠。首次生成继续使用原权威统计和完整证据，不能用删区间的空证据快路径改变Chrome排除、分类或完整性。网页/应用读取及独立版本查询并行；缓存前后核对来源版本，版本变化仍标记不完整。KV只是加速层，故障或过期回落到原读取，不作为新账本。缓存键含account、Child、日期、来源版本和可选来源筛选；每次服务端命中仍核验归属及来源，失败结果不缓存。页面仅内存30秒、最多16条，同请求去重；手动刷新绕过，切换范围/孩子清空视图并防迟到覆盖，明细沿用同revision。无需migration、Native升级或计时/配额变更。
@@ -39,7 +68,6 @@ Guardian 持有统一入口，使用既有网页权威快照和只读区间证�
 Chrome `presentationKind=contentBased` 是展示属性，不改变旧 classification/quotaBucket/App Policy。原独立应用统计和配额仍可查询。两套页面按需加载新视图、明细分页、缓存按来源版本有界复用；失败只影响统一视图，不阻塞设备管理。当前任务不新增终端计算/上传，不发布；可信设备关联若现有云端事实不足，明确登记缺口，不按显示名、同 Child 或时间接近自动建关系。
 
 公共入口为 `GET /profiles/:childId/computer-usage/v1`，Runtime 的 `GET /v2/module/computer-usage` 只代理相同结果。查询使用北京时间 `from/to`（最多七天）、不透明 `computer`、`detail=summary|timeline|products`、`revision/offset/limit`（最多100条）；Chrome 内容明细使用响应内不透明 `product` 键。汇总不发送完整产品或时间线，明细从首请求起锁定汇总版本。Chrome 明细区分容器、内容和容器外独立网页；没有可信电脑对应时不建立上下级关系。请求／响应 schema 为 `computer-usage-v1.schema.json`。
-
 ### 复合页面证据共享契约来源
 
 `contracts/composite-page-evidence/v1.js` 是网页与 Guardian 共用的纯 JavaScript 规范源，维护身份、裁剪脱敏、摘要与保留期，不含网页计时或配额逻辑。原草稿行为原样提取不代表完整隐私验收通过。Worker 从根契约导入；扩展因 unpacked 根边界，使用由控件任务生成的 `extension/core/generated/composite-page-evidence-v1.js` 字节相同副本，禁止手工维护分叉。构建/CI 用检查器强制核对；尚未接入终端时不得宣称已实现消费者一致。云端候选筛选、阈值、页面归属和人工建议留在云端服务；Native 不消费此协议，不提升 App Runtime 契约版本。正文中既有更广泛隐私与发布门禁继续有效。

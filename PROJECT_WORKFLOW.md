@@ -56,7 +56,7 @@ CI按实际diff运行；纯文档不触发产品测试。发布使用精确maste
 
 普通单模块修复由所属任务直接处理。消息字段、能力协商、错误码、版本、权威、隐私或兼容行为变化，先由架构任务确定契约语义、失败行为、兼容范围、最小测试及上线依赖，再向两端发送包含版本、允许路径、验收与禁止事项的精简任务。契约只在 TimeOnChrome 定义；Native 锁定版本及哈希，不引用其他仓库源码。两端返回提交/PR、测试和实机证据，架构任务核对兼容状态。不得以等价实现自行改变契约。网页落账、安全和生产专项批准继续有效。
 
-每项任务在任务板或PR声明职责档案、允许路径、最小测试；公共锁文件/CI等例外必须逐文件说明原因，不接受根目录白名单。提交前运行`tools/check-task-scope.js`检查本任务diff。旁路PR描述使用`Task-Role: standard-cloud`、`extension-local`、`task-local`或`santa-specialist`；架构主线直提使用`architecture-integration`声明并检查diff。例外使用`Scope-Exception: 精确路径 | 原因`，跨职责路径不能靠例外放行，须拆分交接。CI只证明声明与路径匹配，不能证明哪个聊天窗口编写代码，不使用CODEOWNERS伪造同账号独立审批。发现越界停止提交并转交，不自动回滚他人修改。D-109治理修订在云端旁路过渡时可用`architecture-integration`的PR合入一次，不据此改变后续master直提规则。
+每项任务在任务板或PR声明职责档案、允许路径、最小测试；公共锁文件/CI等例外必须逐文件说明原因，不接受根目录白名单。提交前运行`tools/check-task-scope.js`检查本任务diff。旁路PR描述使用`Task-Role: standard-cloud`、`extension-local`、`task-local`或`santa-specialist`；架构主线直提使用`architecture-integration`声明并检查diff。跨工作线集成PR使用`Task-Role: architecture-integration`，并对每个被合入的来源分支头增加一行`Integration-Source: <完整40位SHA>`。检查器要求每个来源SHA确为PR历史中某个merge commit的直接父提交，并且只有这些来源相对PR基线实际带入的路径可跨越模块所有权；架构集成自身的契约／治理文件仍按原规则检查。不得仅在描述中声明SHA而不真实合并来源，也不得用`Scope-Exception`替代来源证明。CI只证明声明与Git历史／路径匹配，不能证明哪个聊天窗口编写代码，不使用CODEOWNERS伪造同账号独立审批。发现越界停止提交并转交，不自动回滚他人修改。D-109治理修订在云端旁路过渡时可用`architecture-integration`的PR合入一次，不据此改变后续master直提规则。
 
 治理测试只运行职责检查固定用例、现有 CI 路由/源码边界及 diff check；文档只走轻量门，不运行产品/平台测试。本轮无业务、协议、安装或部署变更。
 

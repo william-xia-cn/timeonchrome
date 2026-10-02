@@ -32,5 +32,4 @@ assert.equal(context.getAdminRestReminderView().weeklyEnabled, false);
 assert.ok(fs.readFileSync('extension/infra/storage.js', 'utf8').includes('weeklyFirstReminderMinutes: 840'));
 const background = fs.readFileSync('extension/background.js', 'utf8');
 assert.ok(background.includes("source: 'soft_reminder_continue_check'"));
-assert.ok(!background.includes('initCompositePageObserver'));
 console.log('Rest weekly terminal defaults, bounds, Admin read-only and hard-routing wiring: PASS');

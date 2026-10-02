@@ -63,7 +63,8 @@ it('advertises shared contribution upload only to an authenticated machine with 
 });
 it('reads only the current protected assignment shared policy from the bound Guardian source', async () => {
   const f=await fixture();
-  const policy={schemaVersion:1,revision:'profile-config:7',stage:'legacy'};
+  const policy={schemaVersion:1,revision:'profile-config:7',stage:'legacy',effectiveAtMs:0,
+    dailyMinutes:{study:null,composite:null,restrictedEntertainment:null},timeWindows:{},autonomy:{}};
   let guardianCalls=0;
   const guardian={fetch:async(request:Request)=>{guardianCalls++;
     expect(new URL(request.url).pathname).toBe('/readSharedAccessPolicy');

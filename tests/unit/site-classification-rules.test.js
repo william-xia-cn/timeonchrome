@@ -353,6 +353,26 @@ async function run() {
   });
   expectTrue('parent/child cross classification overlap is valid', parentChild.ok);
 
+  const otherRule = { targetType: 'host', targetValue: 'other.example.test', decision: 'other' };
+  expectEqual('explicit other overrides same-host study default', mod.resolveSiteAccessClassification({
+    studyList: ['other.example.test'], siteClassificationRulesV1: [otherRule],
+  }, [], 'https://other.example.test/').classification, 'other');
+  expectEqual('protective blocked classification still wins over other', mod.resolveSiteAccessClassification({
+    unsafeList: ['other.example.test'], siteClassificationRulesV1: [otherRule],
+  }, [], 'https://other.example.test/').classification, 'blocked');
+  expectEqual('legacy direct classification read recognizes other rule', mod.getSiteClassificationForUrl({
+    siteClassificationRulesV1: [otherRule],
+  }, [], 'https://other.example.test/').classification, 'other');
+  expectEqual('approved other status remains other after rule reload', mod.resolveSiteAccessClassification({
+    siteClassificationRulesV1: [{ ...otherRule, decision: 'approved_other' }],
+  }, [], 'https://other.example.test/').classification, 'other');
+  expectEqual('usage-only approval does not alter access classification', mod.resolveSiteAccessClassification({
+    siteUsageClassificationRulesV1: [{ targetType: 'host', normalizedValue: 'other.example.test', classification: 'other' }],
+  }, [], 'https://other.example.test/').classification, null);
+  expectEqual('other rule is visible to future classification validation', mod.validateSiteClassificationAction({
+    siteClassificationRulesV1: [otherRule],
+  }, 'other.example.test', 'study').code, 'ALREADY_CLASSIFIED');
+
   const total = passed + failed;
   console.log(`\n[Site Classification Rules] ${passed}/${total} passed${failed ? ` - ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

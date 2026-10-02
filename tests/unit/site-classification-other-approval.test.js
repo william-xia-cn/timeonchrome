@@ -10,7 +10,7 @@ const ts = require('typescript');
 const source = fs.readFileSync(
   path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'siteClassificationRequests.ts'),
   'utf8',
-);
+).replace(/\r\n/g, '\n');
 const start = source.indexOf('export function normalizeSiteClassificationDecisionForWorker');
 const end = source.indexOf('\nasync function verifyProfileOwner', start);
 assert(start >= 0 && end > start, 'Worker helpers must remain extractable for isolated tests');

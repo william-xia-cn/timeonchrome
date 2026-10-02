@@ -150,8 +150,8 @@ describe('Runtime product API', () => {
     const readRows = () => env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 ORDER BY id').all();
     const original = (await readRows()).results;
     const body = { classifications: [{ platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study' }],
-      quotas: { dailyCategoryMinutes: { study: 1, composite: null, restrictedEntertainment: 0, unclassified: null },
-        weeklyRestrictedEntertainmentMinutes: 0, perApplicationDailyMinutes: [] },
+      quotas: { dailyCategoryMinutes: { study: null, composite: null, restrictedEntertainment: null, unclassified: null },
+        weeklyRestrictedEntertainmentMinutes: null, perApplicationDailyMinutes: [] },
       // Caller cannot forge the correction window or identities.
       weekReclassification: { fromMs: 0, toMs: monday + 7 * day, applications: [{ platform: 'windows', runtimeIdentity: 'app:other', classification: 'blocked' }] } };
     const saved = await call('/v2/module/app-policy?childId=child-a', { method: 'PUT',
@@ -163,7 +163,7 @@ describe('Runtime product API', () => {
     const usagePath = `/v2/module/app-usage?childId=child-a&fromMs=${monday}&toMs=${monday + 7 * day}`;
     const read = () => call(usagePath, { headers: bearer(account) });
     await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 2501,
-      categories: expect.arrayContaining([expect.objectContaining({ classification: 'study', durationMs: 1501, quota: expect.objectContaining({ remainingMs: 58499 }) })]),
+      categories: expect.arrayContaining([expect.objectContaining({ classification: 'study', durationMs: 1501 })]),
       applications: expect.arrayContaining([expect.objectContaining({ runtimeIdentity: 'app:editor', classification: 'study', durationMs: 1501 })]) });
     await expect((await call(`/v2/module/app-usage?childId=child-a&fromMs=${monday - 7 * day}&toMs=${monday}`, { headers: bearer(account) })).json())
       .resolves.toMatchObject({ totalDurationMs: 1501, categories: [expect.objectContaining({ classification: 'unclassified', durationMs: 1501 })] });
@@ -191,7 +191,7 @@ describe('Runtime product API', () => {
     const otherAccount = await accountToken({ sub: 'account-b', account_id: 'account-b', children: [{ id: 'child-b', name: 'Other' }] });
     expect((await call(usagePath, { headers: bearer(otherAccount) })).status).toBe(404);
     await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 2501,
-      weeklyRestrictedEntertainment: expect.objectContaining({ durationMs: 1501, quota: expect.objectContaining({ exceeded: true }) }),
+      weeklyRestrictedEntertainment: expect.objectContaining({ durationMs: 1501, quota: expect.objectContaining({ exceeded: false, limitMs: null }) }),
       categories: expect.arrayContaining([expect.objectContaining({ classification: 'restrictedEntertainment', durationMs: 1501 })]) });
     const late = await accountingUsage({ runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: monday + 4501, end: monday + 6002 });
     await expect((await upload([a, late])).json()).resolves.toMatchObject({ acceptedIds: [a.id, late.id], rejected: [] });
@@ -821,8 +821,8 @@ describe('Runtime product API', () => {
         platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study',
       }],
       quotas: {
-        dailyCategoryMinutes: { study: 30, composite: null, restrictedEntertainment: 0, unclassified: null },
-        weeklyRestrictedEntertainmentMinutes: 60,
+        dailyCategoryMinutes: { study: null, composite: null, restrictedEntertainment: null, unclassified: null },
+        weeklyRestrictedEntertainmentMinutes: null,
         perApplicationDailyMinutes: [{ platform: 'windows', runtimeIdentity: 'app:editor', minutes: 10 }],
       },
     };
@@ -928,7 +928,7 @@ describe('Runtime product API', () => {
     expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments').first('n')).toBe(2);
   });
 
-  it('preserves time windows for legacy policy updates and reports only recent unclassified evidence', async () => {
+  it('keeps shared time windows Guardian-owned while reporting recent unclassified evidence', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const now = Date.now();
     const unclassified = await accountingUsage({
@@ -967,8 +967,13 @@ describe('Runtime product API', () => {
         weeklyRestrictedEntertainmentMinutes: null,
         perApplicationDailyMinutes: [],
       },
-      timeWindows: closed,
     };
+    const forbiddenWindowWrite = await call('/v2/module/app-policy?childId=child-a', {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' },
+      body: JSON.stringify({ ...firstPolicy, timeWindows: closed }),
+    });
+    expect(forbiddenWindowWrite.status).toBe(409);
+    await expect(forbiddenWindowWrite.json()).resolves.toMatchObject({ error: { code: 'SHARED_ACCESS_CONFIG_OWNED_BY_GUARDIAN' } });
     expect((await call('/v2/module/app-policy?childId=child-a', {
       method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' }, body: JSON.stringify(firstPolicy),
     })).status).toBe(200);
@@ -1001,18 +1006,13 @@ describe('Runtime product API', () => {
       method: 'POST', headers: bearer(enrolled.machineToken),
       body: JSON.stringify({ schemaVersion: 2, segments: [{ ...classified, localUserId, assignmentVersion: 2 }] }),
     });
-    const usage = await (await call(`/v2/module/app-usage?childId=child-a&fromMs=${now - 180_000}&toMs=${now}`, {
-      headers: bearer(account),
-    })).json<{ outsideTimeWindows: { durationMs: number; segmentCount: number } }>();
-    expect(usage.outsideTimeWindows).toMatchObject({ durationMs: 40_000, segmentCount: 1 });
-
     const legacyUpdate = { classifications: firstPolicy.classifications, quotas: firstPolicy.quotas };
     expect((await call('/v2/module/app-policy?childId=child-a', {
       method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v1"' }, body: JSON.stringify(legacyUpdate),
     })).status).toBe(200);
     const saved = await (await call('/v2/module/app-policy?childId=child-a', { headers: bearer(account) }))
       .json<{ timeWindows: ReturnType<typeof closedTimeWindows> }>();
-    expect(saved.timeWindows).toEqual(closed);
+    expect(saved.timeWindows).not.toEqual(closed);
   });
 
   it('provides privacy-safe accounting diagnostics through runtime log filters', async () => {
@@ -1063,16 +1063,22 @@ describe('Runtime product API', () => {
     });
   });
 
-  it('evaluates daily quotas per Beijing day instead of summing a weekly range', async () => {
+  it('keeps shared category quotas Guardian-owned and evaluates per-application limits per Beijing day', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const policyBody = {
       classifications: [{ platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study' }],
       quotas: {
-        dailyCategoryMinutes: { study: 10, composite: null, restrictedEntertainment: null, unclassified: null },
+        dailyCategoryMinutes: { study: null, composite: null, restrictedEntertainment: null, unclassified: null },
         weeklyRestrictedEntertainmentMinutes: null,
         perApplicationDailyMinutes: [{ platform: 'windows', runtimeIdentity: 'app:editor', minutes: 10 }],
       },
     };
+    const changedCategoryQuota = await call('/v2/module/app-policy?childId=child-a', {
+      method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' },
+      body: JSON.stringify({ ...policyBody, quotas: { ...policyBody.quotas,
+        dailyCategoryMinutes: { ...policyBody.quotas.dailyCategoryMinutes, study: 10 } } }),
+    });
+    expect(changedCategoryQuota.status).toBe(409);
     expect((await call('/v2/module/app-policy?childId=child-a', {
       method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' }, body: JSON.stringify(policyBody),
     })).status).toBe(200);

@@ -129,10 +129,12 @@ try{
   await actionsPage.close();
   const modulesPage=await context.newPage();
   await modulesPage.goto(`http://127.0.0.1:${port}/`,{waitUntil:'networkidle'});
-  assert(await modulesPage.locator('.sidebar-nav a[href="/modules/"]').isVisible(),'desktop main navigation exposes generic module entry');
+  assert(await modulesPage.locator('.sidebar-nav [data-page="system-management"]').isVisible(),'desktop main navigation exposes system management');
   assert(await modulesPage.locator('.sidebar-nav a[href="/task/"]').count()===0,'main navigation does not embed Task-specific entry');
   await modulesPage.locator('#toast').waitFor({state:'hidden'});
   await modulesPage.screenshot({path:join(output,'task-v1-cloud-module-navigation-desktop.png'),fullPage:true});
+  await modulesPage.locator('.sidebar-nav [data-page="system-management"]').click();
+  assert(await modulesPage.locator('#page-system-management a[href="/modules/"]').isVisible(),'system management exposes the generic module directory');
   await modulesPage.setViewportSize({width:430,height:900});
   await modulesPage.click('#mobile-more-btn');
   assert(await modulesPage.locator('.mobile-more-action[href="/modules/"]').isVisible(),'mobile More exposes generic module entry');

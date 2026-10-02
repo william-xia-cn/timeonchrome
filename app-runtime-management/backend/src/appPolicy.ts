@@ -390,7 +390,7 @@ export async function putAppPolicy(
   if (expectedEtag !== appPolicyEtag(current.version)) {
     throw new HttpError(412, 'APP_POLICY_CONFLICT', 'App policy has changed. Reload before saving.');
   }
-  if (JSON.stringify(update.quotas.dailyCategoryMinutes) !== JSON.stringify(current.quotas.dailyCategoryMinutes)
+  if (quotaCategories.some((category) => update.quotas.dailyCategoryMinutes[category] !== current.quotas.dailyCategoryMinutes[category])
     || update.quotas.weeklyRestrictedEntertainmentMinutes !== current.quotas.weeklyRestrictedEntertainmentMinutes
     || (update.timeWindows !== undefined && JSON.stringify(update.timeWindows) !== JSON.stringify(current.timeWindows))) {
     throw new HttpError(409, 'SHARED_ACCESS_CONFIG_OWNED_BY_GUARDIAN',
