@@ -36,6 +36,10 @@ on:
         description: Approved exact-tree Worker-only release; retain 0011 unapplied
         type: boolean
         default: false
+      prepare_shared_access_shadow:
+        description: D-114 only; provision Guardian 033 and contribution intake, keep execution off
+        type: boolean
+        default: false
 
 concurrency:
   group: app-runtime-production
@@ -62,9 +66,14 @@ jobs:
         env:
           BOOTSTRAP_COMPUTER_USAGE_RPC: ${{ inputs.bootstrap_computer_usage_rpc }}
           DEPLOY_BOTH_WORKERS: ${{ inputs.deploy_runtime_worker && inputs.deploy_guardian_worker }}
+          PREPARE_SHARED_ACCESS_SHADOW: ${{ inputs.prepare_shared_access_shadow }}
         run: |
           if [[ "$BOOTSTRAP_COMPUTER_USAGE_RPC" == true && "$DEPLOY_BOTH_WORKERS" != true ]]; then
             echo 'RPC bootstrap requires both Worker deployments' >&2
+            exit 1
+          fi
+          if [[ "$PREPARE_SHARED_ACCESS_SHADOW" == true && "$DEPLOY_BOTH_WORKERS" != true ]]; then
+            echo 'D-114 shadow preparation requires both compatible Workers' >&2
             exit 1
           fi
           test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing production CLOUDFLARE_API_TOKEN secret' >&2; exit 1; }
@@ -97,6 +106,12 @@ jobs:
       - run: npm ci
       - run: npm ci --prefix app-runtime-management/backend
       - run: npm run build:app-runtime-contracts
+      - name: D-114 source proof preflight
+        if: inputs.prepare_shared_access_shadow
+        working-directory: app-runtime-management/backend
+        run: |
+          npx wrangler secret list --config ../../workers/wrangler.toml > "$RUNNER_TEMP/d114-secret-names.json"
+          node -e 'const names=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));if(!names.some(x=>x.name==="SHARED_WEB_SOURCE_BINDING_PRIVATE_JWK"))throw Error("Dedicated source proof key must be configured before shadow preparation")' "$RUNNER_TEMP/d114-secret-names.json"
       - name: Runtime migrations
         id: migrations
         if: inputs.deploy_runtime_worker || inputs.apply_runtime_migrations
@@ -134,6 +149,42 @@ jobs:
             npx wrangler d1 migrations apply timeonchrome-app-runtime --remote
             echo "applied=$actual" >> "$GITHUB_OUTPUT"
           fi
+      - name: D-114 Guardian derived storage
+        id: shared_web_storage
+        if: inputs.prepare_shared_access_shadow
+        working-directory: app-runtime-management/backend
+        run: |
+          # Legacy Guardian migrations were also applied outside Wrangler. Never replay that list.
+          node - <<'NODE_SHARED_STORAGE'
+          const fs = require('fs'), path = require('path');
+          const root = path.resolve('../..');
+          const toml = fs.readFileSync(path.join(root, 'workers/wrangler.toml'), 'utf8');
+          const blocks = toml.match(/\[\[d1_databases\]\]([\s\S]*?)(?=\n\[|$)/g) || [];
+          if (blocks.length !== 1) throw new Error('Expected one Guardian database');
+          const field = name => blocks[0].match(new RegExp('^' + name + '\\s*=\\s*"([^"\\r\\n]+)"', 'm'))?.[1];
+          const databaseId = field('database_id');
+          if (field('binding') !== 'DB' || field('database_name') !== 'guardian-db'
+              || !/^[a-f0-9-]{36}$/.test(databaseId || '')) throw new Error('Guardian storage identity mismatch');
+          const directory = path.join(process.env.RUNNER_TEMP, 'd114-guardian-storage');
+          const migrations = path.join(directory, 'migrations');
+          fs.mkdirSync(migrations, { recursive: true });
+          fs.copyFileSync(path.join(root, 'workers/migrations/033_shared_web_contributions_v1.sql'),
+            path.join(migrations, '033_shared_web_contributions_v1.sql'));
+          fs.writeFileSync(path.join(directory, 'wrangler.json'), JSON.stringify({ name: 'guardian-api',
+            compatibility_date: '2024-09-01', d1_databases: [{ binding: 'DB', database_name: 'guardian-db',
+              database_id: databaseId, migrations_dir: migrations }] }));
+          NODE_SHARED_STORAGE
+          config="$RUNNER_TEMP/d114-guardian-storage/wrangler.json"
+          npx wrangler d1 migrations list guardian-db --config "$config" --remote | tee guardian-derived-pending.txt
+          actual="$( { grep -oE '[0-9]+_[A-Za-z0-9_-]+\.sql' guardian-derived-pending.txt || true; } | awk '!seen[$0]++' | paste -sd, -)"
+          if [ -n "$actual" ] && [ "$actual" != '033_shared_web_contributions_v1.sql' ]; then
+            echo 'Unexpected Guardian derived migration' >&2
+            exit 1
+          fi
+          if [ -n "$actual" ]; then
+            npx wrangler d1 migrations apply guardian-db --config "$config" --remote
+            echo "applied=$actual" >> "$GITHUB_OUTPUT"
+          fi
       - name: Runtime RPC bootstrap
         if: inputs.bootstrap_computer_usage_rpc && inputs.deploy_runtime_worker && inputs.deploy_guardian_worker
         working-directory: app-runtime-management/backend
@@ -156,7 +207,15 @@ jobs:
       - name: Guardian Worker
         if: inputs.deploy_guardian_worker
         working-directory: app-runtime-management/backend
-        run: npx wrangler deploy --config ../../workers/wrangler.toml
+        env:
+          PREPARE_SHARED_ACCESS_SHADOW: ${{ inputs.prepare_shared_access_shadow }}
+        run: |
+          if [ "$PREPARE_SHARED_ACCESS_SHADOW" = true ]; then
+            npx wrangler deploy --config ../../workers/wrangler.toml --keep-vars \
+              --var SHARED_WEB_CONTRIBUTIONS_ENABLED:true --var SHARED_ACCESS_EXECUTION_ENABLED:false
+          else
+            npx wrangler deploy --config ../../workers/wrangler.toml --keep-vars
+          fi
       - name: Runtime Worker
         if: inputs.deploy_runtime_worker
         working-directory: app-runtime-management/backend
@@ -195,6 +254,8 @@ jobs:
       - name: Release manifest
         env:
           APPLIED_RUNTIME_MIGRATIONS: ${{ steps.migrations.outputs.applied }}
+          APPLIED_GUARDIAN_MIGRATIONS: ${{ steps.shared_web_storage.outputs.applied }}
+          PREPARE_SHARED_ACCESS_SHADOW: ${{ inputs.prepare_shared_access_shadow }}
           DEPLOY_RUNTIME_WORKER: ${{ inputs.deploy_runtime_worker }}
           DEPLOY_RUNTIME_PAGES: ${{ inputs.deploy_runtime_pages }}
           DEPLOY_GUARDIAN_WORKER: ${{ inputs.deploy_guardian_worker }}

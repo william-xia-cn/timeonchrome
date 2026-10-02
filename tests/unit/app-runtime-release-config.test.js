@@ -71,6 +71,38 @@ for (const overrides of [{ DEFER_MACOS_HOTFIX: 'false' }, { HOTFIX_WORKER_ONLY: 
 }
 assert(workflow.includes('if [ -n "$actual" ] && [ "$APPLY_RUNTIME_MIGRATIONS" = true ]; then'));
 
+assert(/prepare_shared_access_shadow:\s+description:[^\n]+\s+type: boolean\s+default: false/.test(workflow));
+assert(workflow.includes('"$PREPARE_SHARED_ACCESS_SHADOW" == true && "$DEPLOY_BOTH_WORKERS" != true'));
+assert(workflow.indexOf('D-114 source proof preflight') < workflow.indexOf('- name: Runtime migrations'));
+assert(workflow.includes('--var SHARED_WEB_CONTRIBUTIONS_ENABLED:true --var SHARED_ACCESS_EXECUTION_ENABLED:false'));
+assert(!workflow.includes('--var SHARED_ACCESS_EXECUTION_ENABLED:true'));
+assert(workflow.includes("[ \"$actual\" != '033_shared_web_contributions_v1.sql' ]"));
+assert(workflow.includes('APPLIED_GUARDIAN_MIGRATIONS: ${{ steps.shared_web_storage.outputs.applied }}'));
+const derivedStorageCode = workflow.match(/node - <<'NODE_SHARED_STORAGE'\n([\s\S]*?)\n\s*NODE_SHARED_STORAGE/)[1];
+const writes = new Map(), copies = [];
+const runStorage = toml => vm.runInNewContext(derivedStorageCode, {
+  require: name => name === 'fs' ? { readFileSync: () => toml, mkdirSync() {},
+    copyFileSync: (from, to) => copies.push([from, to]), writeFileSync: (file, value) => writes.set(file, value) } : require(name),
+  process: { env: { RUNNER_TEMP: os.tmpdir() } },
+});
+const guardianConfig = fs.readFileSync(path.join(root, 'workers/wrangler.toml'), 'utf8');
+runStorage(guardianConfig);
+assert.equal(copies.length, 1);
+assert(copies[0][0].endsWith(path.join('workers', 'migrations', '033_shared_web_contributions_v1.sql')));
+const derivedConfig = JSON.parse([...writes.values()][0]);
+assert.equal(derivedConfig.d1_databases[0].database_name, 'guardian-db');
+assert(path.isAbsolute(derivedConfig.d1_databases[0].migrations_dir));
+assert(copies[0][1].startsWith(derivedConfig.d1_databases[0].migrations_dir + path.sep));
+assert.throws(() => runStorage(guardianConfig.replace('guardian-db', 'different-db')), /identity mismatch/);
+assert.throws(() => runStorage(guardianConfig + '\n[[d1_databases]]\nbinding="OTHER"\n'), /one Guardian database/);
+const proofPreflight = workflow.match(/node -e '(const names=JSON\.parse[^\n]+)' "\$RUNNER_TEMP\/d114-secret-names\.json"/)[1];
+const checkProofNames = names => vm.runInNewContext(proofPreflight, {
+  require: () => ({readFileSync: () => JSON.stringify(names)}), process: {argv: ['node','names.json']},
+});
+checkProofNames([{name:'SHARED_WEB_SOURCE_BINDING_PRIVATE_JWK'}]);
+assert.throws(() => checkProofNames([]), /Dedicated source proof key/);
+assert.throws(() => checkProofNames([{name:'APP_RUNTIME_SSO_PRIVATE_JWK'},{name:'APP_RUNTIME_TOKEN_PRIVATE_JWK'}]), /Dedicated source proof key/);
+
 const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'app-runtime-release-config-'));
 try {
   const json = (file, value) => fs.writeFileSync(path.join(fixture, file), JSON.stringify(value));
@@ -86,11 +118,12 @@ try {
   json('runtime-pages-deployments.json', [{ Id: 'unknown-source' }, { Id: 'new-page', Source: 'abcdef0', Deployment: 'https://example.invalid' }]);
   json('main-pages-deployments.json', [{ Id: 'unchanged-main', Source: '1234567' }]);
   json('runtime-r2-latest.json', { version: '2.0.6' });
-  const run = (applied) => {
+  const run = (applied, guardianApplied = '', shadowPrepared = false) => {
     const result = spawnSync(process.execPath, [path.join(root, 'tools/write-app-runtime-release-manifest.js')], {
       cwd: fixture, encoding: 'utf8', env: {
         ...process.env, GITHUB_SHA: 'abcdef0123456789', GITHUB_STEP_SUMMARY: '',
         APPLIED_RUNTIME_MIGRATIONS: applied, EXPECTED_RUNTIME_MIGRATIONS: 'must-not-be-recorded.sql',
+        APPLIED_GUARDIAN_MIGRATIONS: guardianApplied, PREPARE_SHARED_ACCESS_SHADOW: String(shadowPrepared),
         DEPLOY_RUNTIME_WORKER: 'true', DEPLOY_RUNTIME_PAGES: 'true',
         DEPLOY_GUARDIAN_WORKER: 'false', DEPLOY_MAIN_PAGES: 'false',
       },
@@ -108,6 +141,11 @@ try {
   assert.equal(manifest.mainPages.id, 'unchanged-main');
   assert.equal(manifest.r2Latest.version, '2.0.6');
   assert.deepEqual(run('').runtimeMigrations, []);
+  assert.deepEqual(manifest.guardianMigrations, []);
+  assert.equal(manifest.sharedAccessShadowPrepared, false);
+  const shadowManifest = run('', '033_shared_web_contributions_v1.sql', true);
+  assert.deepEqual(shadowManifest.guardianMigrations, ['033_shared_web_contributions_v1.sql']);
+  assert.equal(shadowManifest.sharedAccessShadowPrepared, true);
 } finally {
   fs.rmSync(fixture, { recursive: true, force: true });
 }
