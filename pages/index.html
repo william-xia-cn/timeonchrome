@@ -206,6 +206,7 @@
     .rules-management-panel { display: none; }
     .rules-management-panel.active { display: block; }
     #access-management-tabs[hidden] { display: none !important; }
+    #access-config-files-host [hidden] { display: none !important; }
 
     /* Cards */
     .card {
@@ -1428,13 +1429,15 @@
           <div class="card-header">
             <div>
               <div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rules.svg" alt="">访问管理配置文件</div>
-              <div class="card-subtitle">默认导入导出全部访问管理配置，可选择用户配置或系统配置；不包含登录凭证、device token、统计落账或诊断文件。</div>
+              <div class="card-subtitle">综合访问、网站、应用分别预览和应用；不包含登录凭证、device token、统计落账或诊断文件。</div>
             </div>
           </div>
+          <label>配置域 <select id="access-config-domain"><option value="publicAccess">综合访问</option><option value="websites">网站</option><option value="applications">应用</option></select></label>
+          <div id="access-config-profile-controls">
           <div style="display:grid;gap:10px;margin-bottom:12px;">
             <label style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:10px;padding:10px;background:#fff;">
               <input type="checkbox" id="rules-config-scope-user" checked style="margin-top:3px;">
-              <span><strong>用户配置</strong><br><span style="font-size:13px;color:var(--muted);">当前档案的网站自定义、精确规则、审核记录、配额和时间段。</span></span>
+              <span><strong>用户配置</strong><br><span style="font-size:13px;color:var(--muted);">仅当前孩子及所选配置域；其他域的配置保持不变。</span></span>
             </label>
             <label style="display:flex;gap:10px;align-items:flex-start;border:1px solid var(--border);border-radius:10px;padding:10px;background:#fff;">
               <input type="checkbox" id="rules-config-scope-system" checked style="margin-top:3px;">
@@ -1449,6 +1452,8 @@
           </div>
           <div id="rules-access-config-io-msg" style="font-size:13px;margin-top:12px;display:none;"></div>
           <div id="rules-access-config-import-result" style="display:none;margin-top:12px;"></div>
+          </div>
+          <div id="runtime-configuration-host" hidden></div><div id="runtime-configuration-error" hidden role="alert"></div>
         </div>
       </section>
       </div>
@@ -1537,6 +1542,7 @@
           <button class="tab-btn" data-system-management-tab="media-settlements">媒体落账</button>
           <button class="tab-btn" data-system-management-tab="client-logs">系统日志</button>
           <button class="tab-btn" data-system-management-tab="runtime-diagnostics">应用运行诊断</button>
+          <button class="tab-btn" data-system-management-tab="config-files">配置文件</button>
           <button class="tab-btn" data-system-management-tab="notifications">消息通知</button>
           <button class="tab-btn" data-system-management-tab="backup-restore">数据备份与恢复</button>
           <button class="tab-btn" data-system-management-tab="account-management">账户管理</button>
@@ -1545,6 +1551,7 @@
         <section class="system-management-panel" data-system-management-panel="runtime-diagnostics">
           <div id="runtime-system-host"></div><div id="runtime-system-error" hidden role="alert"></div>
         </section>
+        <section class="system-management-panel" data-system-management-panel="config-files"><div id="access-config-files-host"></div></section>
         <section class="system-management-panel active" data-system-management-panel="reconciliation">
         <div class="card">
           <div class="card-header">
@@ -2056,6 +2063,7 @@
 
 <script src="computer-usage-view.js"></script>
 <script src="runtime-management-loader.js"></script>
+<script src="access-config-domains.js"></script>
 <script>
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日','周一','周二','周三','周四','周五','周六'];
@@ -2067,7 +2075,7 @@ let runtimeManagementEpoch = 0;
 function disposeRuntimeManagement() {
   runtimeManagementEpoch++;
   runtimeManagementController?.dispose();runtimeManagementController=null;
-  for(const view of ['apps','devices','system']) {
+  for(const view of ['apps','devices','system','configuration']) {
     const host=document.getElementById(`runtime-${view}-host`);
     host?.shadowRoot?.replaceChildren();
     const error=document.getElementById(`runtime-${view}-error`);
@@ -2078,8 +2086,9 @@ async function renderRuntimeManagement(view) {
   disposeRuntimeManagement();
   const epoch=runtimeManagementEpoch, childId=currentProfileId;
   const isCurrent=()=>epoch===runtimeManagementEpoch&&currentProfileId===childId
-    &&document.getElementById(`page-${view==='system'?'system-management':view}`)?.classList.contains('active')
-    &&(view!=='system'||cloudSystemManagementActiveTab==='runtime-diagnostics');
+    &&document.getElementById(`page-${['system','configuration'].includes(view)?'system-management':view}`)?.classList.contains('active')
+    &&(view!=='system'||cloudSystemManagementActiveTab==='runtime-diagnostics')
+    &&(view!=='configuration'||(cloudSystemManagementActiveTab==='config-files'&&readAccessConfigDomain()==='applications'));
   const host=document.getElementById(`runtime-${view}-host`);
   if(!childId){host.textContent='请选择孩子后查看';return;}
   host.textContent='正在加载…';
@@ -2531,6 +2540,9 @@ function setMobileMoreOpen(open) {
 }
 
 function setupNav() {
+  const configPanel=document.querySelector('[data-rules-management-panel="config-files"]');
+  if(configPanel){configPanel.classList.remove('rules-management-panel');configPanel.removeAttribute('data-rules-management-panel');document.getElementById('access-config-files-host').append(configPanel);}
+  document.getElementById('access-config-domain').addEventListener('change',()=>renderRulesConfigFilesPage());
   document.querySelectorAll('.nav-item[data-page]').forEach(item => {
     item.addEventListener('click', () => {
       const requestedPage = item.dataset.page;
@@ -2578,6 +2590,7 @@ function setupNav() {
   });
   document.querySelectorAll('[data-rules-management-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
+      if(btn.dataset.rulesManagementTab==='config-files'){document.querySelector('[data-system-management-tab="config-files"]').click();return;}
       cloudRulesManagementActiveTab = btn.dataset.rulesManagementTab || 'quota';
       const navItem = document.querySelector('.nav-item[data-page="rules"]');
       if (navItem && !navItem.classList.contains('active')) {
@@ -2638,6 +2651,7 @@ function syncSystemManagementTabs() {
 
 function renderSystemManagementPage() {
   syncSystemManagementTabs();
+  if(cloudSystemManagementActiveTab==='config-files'){void renderRulesConfigFilesPage();return;}
   if(cloudSystemManagementActiveTab==='runtime-diagnostics'){void renderRuntimeManagement('system');return;}
   disposeRuntimeManagement();
   if (cloudSystemManagementActiveTab === 'reconciliation') renderReconciliationPage();
@@ -4263,6 +4277,7 @@ function buildProfileConfigExportData(classificationRequests = [], notificationS
         rawRule: rule,
       })),
       classificationRequests,
+      usageClassificationRules: (cfg.siteUsageClassificationRulesV1 || []).map(rule => ({ classification: rule.classification, targetType: rule.targetType, normalizedValue: rule.normalizedValue || rule.targetValue })),
     },
     notifications: {
       unclassifiedUsage: profileNotificationSettingsView(notificationSettings),
@@ -4367,6 +4382,14 @@ async function exportProfileConfig() {
 
 
 const ACCESS_MANAGEMENT_BUNDLE_TYPE = 'access-management-config-bundle';
+let accessConfigGeneration=0;
+let accessConfigImportGeneration=0;
+function readAccessConfigDomain(){return document.getElementById('access-config-domain')?.value||'publicAccess';}
+function accessConfigContext(){return{childId:currentProfileId,version:remoteConfigVersion,domain:readAccessConfigDomain(),instance:String(accessConfigGeneration)};}
+function assertAccessConfigContext(context){
+  AccessConfigDomains.assertContext(context,accessConfigContext());
+  if(!document.getElementById('page-system-management').classList.contains('active')||cloudSystemManagementActiveTab!=='config-files')throw new Error('配置页面已关闭，请重新预览');
+}
 const ACCESS_MANAGEMENT_SCOPE_FIELDS = [
   { key: 'userConfig', label: '用户配置', checkboxId: 'rules-config-scope-user' },
   { key: 'systemConfig', label: '系统配置', checkboxId: 'rules-config-scope-system' },
@@ -4378,6 +4401,7 @@ function readRulesAccessConfigScopes() {
     const input = document.getElementById(field.checkboxId);
     scopes[field.key] = input ? Boolean(input.checked) : true;
   }
+  if(readAccessConfigDomain()!=='websites')scopes.systemConfig=false;
   return scopes;
 }
 
@@ -4395,41 +4419,22 @@ function showRulesAccessConfigMsg(message, ok = true) {
 }
 
 async function buildAccessManagementConfigBundle(scopes = readRulesAccessConfigScopes()) {
-  if (accessConfigSelectedScopeCount(scopes) === 0) throw new Error('请至少选择用户配置或系统配置');
-  const bundle = {
-    app: 'TimeOnChrome',
-    configType: ACCESS_MANAGEMENT_BUNDLE_TYPE,
-    schemaVersion: 1,
-    exportedAt: new Date().toISOString(),
-    profile: {
-      id: currentProfileId || '',
-      name: profiles.find(p => p.id === currentProfileId)?.name || '',
-    },
-    scopes: {
-      userConfig: Boolean(scopes.userConfig),
-      systemConfig: Boolean(scopes.systemConfig),
-    },
-  };
-  if (scopes.userConfig) {
-    const [requests, notificationSettings] = await Promise.all([
-      fetchAllSiteClassificationRequestsForExport(),
-      fetchProfileNotificationSettingsForExport(),
-    ]);
-    bundle.userConfig = buildProfileConfigExportData(requests, notificationSettings);
+  const context=accessConfigContext();assertAccessConfigContext(context);
+  const domain=context.domain;
+  if(domain==='applications')throw new Error('请使用应用配置面板');
+  let profile=null,system=null;
+  if(scopes.userConfig){
+    const [requests,notifications]=domain==='websites'?await Promise.all([fetchAllSiteClassificationRequestsForExport(),fetchProfileNotificationSettingsForExport()]):[[],null];
+    assertAccessConfigContext(context);profile=buildProfileConfigExportData(requests,notifications);
   }
-  if (scopes.systemConfig) {
-    const record = await api('/system/access-management-config/v1');
-    systemAccessCanWrite = Boolean(record.canWrite);
-    bundle.systemConfig = record.config || {};
-  }
-  return bundle;
+  if(scopes.systemConfig&&domain==='websites'){const record=await api('/system/access-management-config/v1');assertAccessConfigContext(context);systemAccessCanWrite=Boolean(record.canWrite);system=record.config;}
+  return AccessConfigDomains.createFile(domain,profile,system);
 }
-
 async function exportAccessManagementConfigBundle() {
   try {
     const scopes = readRulesAccessConfigScopes();
     const bundle = await buildAccessManagementConfigBundle(scopes);
-    downloadJsonFile(bundle, `timeonchrome-access-management-config-v1-${new Date().toISOString().slice(0,10)}.json`);
+    downloadJsonFile(bundle, `timeonchrome-${bundle.domain}-config-v2-${new Date().toISOString().slice(0,10)}.json`);
     toast('访问管理配置文件已导出');
   } catch (e) {
     toast('访问管理配置导出失败：' + (e.message || e), false);
@@ -4462,18 +4467,23 @@ function normalizeAccessManagementConfigBundleFile(data) {
 }
 
 async function prepareAccessManagementConfigImport(fileName, data) {
-  const parsed = normalizeAccessManagementConfigBundleFile(data);
-  await ensureProfileNotificationSettingsLoaded();
+  const context=accessConfigContext();assertAccessConfigContext(context);
+  const file=AccessConfigDomains.readFile(context.domain,data);
+  const parsed={scopes:{userConfig:Boolean(file.profileConfig),systemConfig:Boolean(file.systemConfig)},userConfig:file.profileConfig?normalizeProfileConfigImportData(file.profileConfig):null,systemConfig:file.systemConfig?normalizeSystemAccessConfigFile(file.systemConfig):null};
+  if(context.domain==='websites')await ensureProfileNotificationSettingsLoaded();
+  assertAccessConfigContext(context);
   const selectedScopes = readRulesAccessConfigScopes();
   const diffs = [];
   if (parsed.scopes.userConfig && selectedScopes.userConfig && parsed.userConfig) {
-    diffs.push(...buildProfileConfigImportDiffs(parsed.userConfig).map(diff => ({ ...diff, scope: 'userConfig', groupLabel: '用户配置' })));
+    diffs.push(...AccessConfigDomains.filterDiffs(context.domain,[...buildProfileConfigImportDiffs(parsed.userConfig),...buildUsageClassificationImportDiffs(parsed.userConfig)]).map(diff => ({ ...diff, scope: 'userConfig', groupLabel: context.domain==='publicAccess'?'综合访问':'网站配置' })));
   }
   if (parsed.scopes.systemConfig && selectedScopes.systemConfig && parsed.systemConfig) {
     const currentRecord = await api('/system/access-management-config/v1');
+    assertAccessConfigContext(context);
     systemAccessCanWrite = Boolean(currentRecord.canWrite);
     const currentConfig = cloneSystemAccessConfig(currentRecord.config || siteAccessDefaults || {});
     const preflight = await api('/system/access-management-config/v1/preflight', 'POST', { data: parsed.systemConfig });
+    assertAccessConfigContext(context);
     const errors = Array.isArray(preflight?.errors) ? preflight.errors : [];
     if (errors.length > 0) throw new Error('系统配置预检失败：' + errors.join('；'));
     systemAccessConfigImportState = { fileName, config: parsed.systemConfig, currentConfig, currentVersion: currentRecord.version, preflight };
@@ -4482,10 +4492,12 @@ async function prepareAccessManagementConfigImport(fileName, data) {
     systemAccessConfigImportState = { fileName: '', config: null, currentConfig: null, currentVersion: null, preflight: null };
   }
   if (!diffs.length) throw new Error('当前选择范围内没有可导入的配置');
-  return { parsed, diffs };
+  return { parsed, diffs, context };
 }
 
 async function importAccessManagementConfigBundle() {
+  const context=accessConfigContext();assertAccessConfigContext(context);
+  const generation=++accessConfigImportGeneration;
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/json';
@@ -4493,8 +4505,13 @@ async function importAccessManagementConfigBundle() {
     const file = e.target.files[0];
     if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
+      const text = await file.text();
+      assertAccessConfigContext(context);
+      if(generation!==accessConfigImportGeneration)return;
+      const data = JSON.parse(text);
       const prepared = await prepareAccessManagementConfigImport(file.name, data);
+      assertAccessConfigContext(context);
+      if(generation!==accessConfigImportGeneration)return;
       configImportDiffState = {
         fileName: file.name,
         importedConfig: prepared.parsed,
@@ -4504,12 +4521,15 @@ async function importAccessManagementConfigBundle() {
         targetContainerId: 'rules-access-config-import-result',
         messageId: 'rules-access-config-io-msg',
         applyHandler: applyAccessManagementConfigImport,
-        scopeNote: `访问管理配置文件：默认导入用户配置和系统配置；系统配置应用后全局生效${systemAccessCanWrite ? '' : '，当前账号只能查看不能应用系统配置差异'}。`,
+        context:prepared.context,
+        scopeNote: `仅应用所选${context.domain==='publicAccess'?'综合访问':'网站'}域；其他域不变。系统配置应用后全局生效${systemAccessCanWrite ? '' : '，当前账号只能查看不能应用系统配置差异'}。`,
       };
       renderConfigImportDiffPanel();
       toast('已生成访问管理配置导入差异，请确认后应用');
       showRulesAccessConfigMsg('已生成导入差异，请选择需要应用的项目。', true);
     } catch (err) {
+      try{assertAccessConfigContext(context);}catch{return;}
+      if(generation!==accessConfigImportGeneration)return;
       configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'rules-access-config-import-result', messageId: 'rules-access-config-io-msg' };
       renderConfigImportDiffPanel();
       toast('访问管理配置导入失败：' + (err.message || err), false);
@@ -4520,6 +4540,9 @@ async function importAccessManagementConfigBundle() {
 }
 
 async function applyAccessManagementConfigImport() {
+  const draft=configImportDiffState,context=draft.context;
+  try{assertAccessConfigContext(context);}catch(error){showRulesAccessConfigMsg(error.message,false);return;}
+  if(draft.applying)return;
   const selectedDiffs = configImportDiffState.diffs.filter(diff => configImportDiffState.selectedIds.has(diff.id));
   const userDiffs = selectedDiffs.filter(diff => diff.scope === 'userConfig');
   const systemDiffs = selectedDiffs.filter(diff => diff.scope === 'systemConfig');
@@ -4534,16 +4557,22 @@ async function applyAccessManagementConfigImport() {
   if (systemDiffs.length > 0 && systemAccessCanWrite && !confirm('系统配置导入后会全局生效，影响所有孩子档案。确认应用选中的系统配置差异？')) return;
 
   const results = [];
+  // 当前旧 Profile 接口尚不接收此字段；显式阻止，不能把静默忽略当成成功。
+  if(userDiffs.some(diff=>diff.area==='usage-rule')){showRulesAccessConfigMsg('其他用途规则的导入写入待云端兼容，请取消该项后导入其余内容。',false);return;}
+  draft.applying=true;
   try {
     if (userDiffs.length > 0) {
       const configDiffs = userDiffs.filter(diff => diff.area !== 'unclassified-notification');
       if (configDiffs.length > 0) {
-        const payload = buildProfileConfigImportPayload(configDiffs);
-        await saveProfileConfig(payload, 'access_config_import');
-        const refreshed = await api('/profiles/' + currentProfileId + '/config');
+        const payload = AccessConfigDomains.buildPatch(context.domain,buildProfileConfigImportPayload(configDiffs),remoteConfig,configDiffs);
+        const saved=await saveProfileConfig(payload, 'access_config_import');
+        context.version=Number(saved.version);assertAccessConfigContext(context);
+        const refreshed = await api('/profiles/' + context.childId + '/config');
+        assertAccessConfigContext(context);
         applyProfileConfigResponse(refreshed);
       }
-      await applyProfileNotificationImport(userDiffs);
+      await applyProfileNotificationImport(userDiffs,context);
+      assertAccessConfigContext(context);
       results.push('用户配置已应用');
     }
     if (systemDiffs.length > 0) {
@@ -4553,6 +4582,7 @@ async function applyAccessManagementConfigImport() {
         if (!systemAccessConfigImportState.config || !systemAccessConfigImportState.currentConfig) throw new Error('请先选择系统配置并完成预检');
         const payload = buildSystemAccessConfigImportPayload(systemAccessConfigImportState.currentConfig, systemDiffs);
         const preflight = await api('/system/access-management-config/v1/preflight', 'POST', { data: payload });
+        assertAccessConfigContext(context);
         const errors = Array.isArray(preflight?.errors) ? preflight.errors : [];
         if (errors.length > 0) throw new Error(errors.join('；'));
         const saved = await api('/system/access-management-config/v1', 'PUT', {
@@ -4560,6 +4590,7 @@ async function applyAccessManagementConfigImport() {
           expectedVersion: systemAccessConfigImportState.currentVersion,
           note: `Imported selected diffs from ${systemAccessConfigImportState.fileName || 'access-management-config-bundle.json'}`,
         });
+        assertAccessConfigContext(context);
         siteAccessDefaults = saved.config || payload;
         systemAccessCanWrite = Boolean(saved.canWrite ?? systemAccessCanWrite);
         renderSystemConfigSummary(saved);
@@ -4575,9 +4606,16 @@ async function applyAccessManagementConfigImport() {
     toast(results.join('；'));
     showRulesAccessConfigMsg(results.join('；'), true);
   } catch (err) {
+    try{assertAccessConfigContext(context);}catch{return;}
     toast('应用导入失败：' + (err.message || err), false);
     showRulesAccessConfigMsg('应用导入失败：' + (err.message || err), false);
-  }
+  } finally {draft.applying=false;}
+}
+function buildUsageClassificationImportDiffs(imported){
+  if(!imported.usageRulesPresent)return[];
+  const before=new Map((remoteConfig?.siteUsageClassificationRulesV1||[]).map(rule=>[configImportRuleKey(rule),rule]));
+  const after=new Map((imported.siteUsageClassificationRulesV1||[]).map(rule=>[configImportRuleKey(rule),rule]));
+  return [...new Set([...before.keys(),...after.keys()])].map(key=>({id:'usage-rule:'+key,area:'usage-rule',key,type:before.has(key)&&after.has(key)?'same':after.has(key)?'add':'delete',label:'其他用途规则：'+key,currentValue:before.has(key)?'其他':'无',importedValue:after.has(key)?'其他':'无',importedRule:after.get(key)}));
 }
 function assertStringArrayField(obj, field, label) {
   if (obj[field] === undefined) return undefined;
@@ -4662,6 +4700,11 @@ function normalizeProfileConfigImportData(data) {
     customRestrictedEntertainmentList: lists.customRestrictedEntertainmentList || [],
     customBlockedSites: lists.customBlockedSites || [],
     siteClassificationRulesV1: uniqueSiteRules(importedRules),
+    usageRulesPresent:Object.prototype.hasOwnProperty.call(data.siteAccess||{},'usageClassificationRules'),
+    siteUsageClassificationRulesV1:(data.siteAccess?.usageClassificationRules||[]).map(rule=>{
+      if(rule.classification!=='other'||!['url','host'].includes(rule.targetType)||typeof rule.normalizedValue!=='string'||!rule.normalizedValue)throw new Error('无效的其他用途规则');
+      return{classification:'other',targetType:rule.targetType,normalizedValue:rule.normalizedValue};
+    }),
     timeQuota: {
       accountingVersion: Number(data.quota?.timeQuota?.accountingVersion) === 2 ? 2 : 1,
       daily: data.quota?.timeQuota?.daily && typeof data.quota.timeQuota.daily === 'object' ? data.quota.timeQuota.daily : {},
@@ -4968,12 +5011,16 @@ function buildProfileNotificationImportPayload(selectedDiffs) {
   return profileNotificationSettingsView(payload);
 }
 
-async function applyProfileNotificationImport(selectedDiffs) {
+async function applyProfileNotificationImport(selectedDiffs, context = null) {
   const payload = buildProfileNotificationImportPayload(selectedDiffs);
   if (!payload) return false;
-  const result = await api('/profiles/' + currentProfileId + '/unclassified-usage-notification/v1', 'PUT', { data: payload });
+  if(context)assertAccessConfigContext(context);
+  const profileId=context?context.childId:currentProfileId;
+  const result = await api('/profiles/' + profileId + '/unclassified-usage-notification/v1', 'PUT', { data: payload });
+  if(context)assertAccessConfigContext(context);
+  else if(currentProfileId!==profileId)return true;
   profileNotificationSettingsState = {
-    profileId: currentProfileId,
+    profileId,
     loading: false,
     settings: profileNotificationSettingsView(result.settings || payload),
   };
@@ -5187,14 +5234,29 @@ function renderSystemConfigSummary(record = null) {
 }
 
 async function renderRulesConfigFilesPage() {
+  accessConfigGeneration++;
+  const domain=readAccessConfigDomain();
+  configImportDiffState={fileName:'',importedConfig:null,diffs:[],selectedIds:new Set(),filter:'all',targetContainerId:'rules-access-config-import-result',messageId:'rules-access-config-io-msg'};
+  renderConfigImportDiffPanel();
+  document.getElementById('access-config-profile-controls').hidden=domain==='applications';
+  document.getElementById('runtime-configuration-host').hidden=domain!=='applications';
+  document.getElementById('rules-config-scope-system').closest('label').hidden=domain!=='websites';
+  document.getElementById('rules-system-config-summary').hidden=domain!=='websites';
+  document.getElementById('rules-profile-custom-summary').hidden=domain!=='websites';
+  if(domain==='applications'){await renderRuntimeManagement('configuration');return;}
+  disposeRuntimeManagement();
+  if(domain!=='websites')return;
+  const context=accessConfigContext();
   renderSystemConfigSummary();
   renderProfileCustomConfigSummary();
   try {
     const record = await api('/system/access-management-config/v1');
+    assertAccessConfigContext(context);
     systemAccessCanWrite = Boolean(record.canWrite);
     renderSystemConfigSummary(record);
     renderProfileCustomConfigSummary();
   } catch (e) {
+    try{assertAccessConfigContext(context);}catch{return;}
     const el = document.getElementById('rules-system-config-summary');
     if (el) el.innerHTML = `系统配置读取失败：${htmlEscape(e.message || e)}`;
   }

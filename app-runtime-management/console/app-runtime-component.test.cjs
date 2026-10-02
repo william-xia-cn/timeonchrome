@@ -9,7 +9,7 @@ assert.match(css,/#ledger-list \.table-row>strong,#media-list \.table-row>strong
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return{promise,resolve,reject};}
 function fixture(){
   const elements=new Map(),listeners=[],queries=[];
-  const element=selector=>{if(!elements.has(selector))elements.set(selector,{innerHTML:'',textContent:'',value:'',hidden:false,dataset:{},classList:{add(){},remove(){},toggle(){}},setAttribute(){},addEventListener(type,handler){listeners.push([selector,type,handler]);},removeEventListener(type,handler){const index=listeners.findIndex(item=>item[0]===selector&&item[1]===type&&item[2]===handler);if(index>=0)listeners.splice(index,1);}});return elements.get(selector);};
+  const element=selector=>{if(!elements.has(selector))elements.set(selector,{innerHTML:'',textContent:'',value:'',hidden:false,dataset:{},classList:{add(){},remove(){},toggle(){}},querySelector(nested){return element(selector+' '+nested);},setAttribute(){},addEventListener(type,handler){listeners.push([selector,type,handler]);},removeEventListener(type,handler){const index=listeners.findIndex(item=>item[0]===selector&&item[1]===type&&item[2]===handler);if(index>=0)listeners.splice(index,1);}});return elements.get(selector);};
   const document={currentScript:{dataset:{runtimeComponent:'true'}},querySelector(){throw Error('Global DOM query forbidden');},querySelectorAll(){throw Error('Global DOM query forbidden');}};
   const root={ownerDocument:document,querySelector(selector){queries.push(selector);return element(selector);},querySelectorAll(){return[];},addEventListener(type,handler){listeners.push(['root',type,handler]);},removeEventListener(type,handler){const index=listeners.findIndex(item=>item[0]==='root'&&item[1]===type&&item[2]===handler);if(index>=0)listeners.splice(index,1);}};
   let knowledgeDisposed=0;
@@ -92,5 +92,57 @@ function fixture(){
   assert.equal(lateSystem.element('#load-empty-message').textContent,'');
   assert.equal(lateSystem.listeners.length,0);
   assert.throws(()=>invalid.mount({root:invalid.root,view:'devices',children:[{id:'a'}],childId:'b',request:async()=>{}}),/INVALID_RUNTIME_CHILD_CONTEXT/);
+  async function importFixture() {
+    const view=fixture(),writes=[];let version=3,writeGate=null;
+    const controller=view.mount({root:view.root,view:'apps',children:[{id:'a',name:'A'}],childId:'a',request:async(path,options={})=>{
+      if(path.includes('app-policy')) {
+        if(options.method==='PUT') { writes.push(options); if(writeGate)await writeGate.promise;version++; }
+        return {...Policy.defaultPolicy(),version};
+      }
+      if(path.includes('app-catalog'))return{items:[],technicalItems:[],inventoryCoverage:[]};
+      if(path.includes('shared-access'))throw Error('Independent application import must not require shared policy');
+      throw Error('Unexpected import dependency '+path);
+    }});
+    await controller.ready;
+    assert.equal(view.element('#load-empty-state').hidden,true,view.element('#load-empty-message').textContent);
+    const change=view.listeners.find(item=>item[0]==='root'&&item[1]==='change')[2];
+    const click=view.listeners.find(item=>item[0]==='root'&&item[1]==='click')[2];
+    return {view,writes,controller,bump(){version++;},block(){writeGate=deferred();return writeGate;},
+      review:file=>change({target:{id:'import-config',files:[file],dataset:{}}}),
+      confirm:()=>click({target:{closest:selector=>selector==='button'?{id:'confirm-import',dataset:{},classList:{contains:()=>false}}:null}})};
+  }
+  const file=()=>({text:async()=>JSON.stringify(Policy.exportPayload(Policy.defaultPolicy()))});
+  const configuration=fixture(),configurationCalls=[];
+  const configurationController=configuration.mount({root:configuration.root,view:'configuration',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{
+    configurationCalls.push(path);
+    if(path.includes('/app-policy?childId=a'))return {...Policy.defaultPolicy(),version:3};
+    throw Error('Configuration view must not query '+path);
+  }});
+  await configurationController.ready;
+  assert.equal(configuration.element('#load-empty-state').hidden,true,configuration.element('#load-empty-message').textContent);
+  assert.equal(configurationCalls.length,1);
+  assert.equal(configuration.element('[data-view-panel="access"] .tabbar').hidden,true);
+  configurationController.dispose();assert.equal(configuration.listeners.length,0);
+  const revision=await importFixture();
+  await revision.review(file());assert.equal(revision.view.element('#import-diff').hidden,false);
+  revision.bump();await revision.controller.refresh();await revision.confirm();
+  assert.equal(revision.writes.length,0);assert.match(revision.view.element('#status-message').textContent,/重新预览/);revision.controller.dispose();
+  const lateFile=await importFixture(),fileGate=deferred();
+  const reading=lateFile.review({text:()=>fileGate.promise});lateFile.controller.dispose();
+  fileGate.resolve(JSON.stringify(Policy.exportPayload(Policy.defaultPolicy())));await reading;
+  assert.equal(lateFile.view.element('#import-diff').hidden,true);assert.equal(lateFile.view.element('#import-diff').innerHTML,'');assert.equal(lateFile.writes.length,0);
+  const competing=await importFixture(),oldFile=deferred();
+  const oldReading=competing.review({text:()=>oldFile.promise});
+  await competing.review(file());const preview=competing.view.element('#import-diff').innerHTML;
+  oldFile.resolve('{"schemaVersion":3,"classifications":[],"quotas":{"perApplicationDailyMinutes":[]}}');await oldReading;
+  assert.equal(competing.view.element('#import-diff').innerHTML,preview);competing.controller.dispose();
+  const submit=await importFixture();await submit.review(file());
+  submit.view.element('#import-classifications').checked=true;submit.view.element('#import-quotas').checked=true;
+  // DOM 中的 payload 不是已批准的草稿；修改它不能替换提交内容。
+  submit.view.element('#import-diff').dataset.payload='invalid untrusted payload';
+  const write=submit.block(),saving=submit.confirm();await new Promise(resolve=>setImmediate(resolve));
+  await submit.confirm();assert.equal(submit.writes.length,1);assert.equal(submit.writes[0].headers['If-Match'],'"app-policy-v3"');
+  assert.match(submit.view.element('#status-message').textContent,/勿重复提交/);
+  write.resolve();await saving;assert.equal(submit.view.element('#import-diff').hidden,true);submit.controller.dispose();
   console.log('PASS: embedded canonical controller, injected transport/Child, no second login, isolated errors, late disposal and listener release');
 })().catch(error=>{console.error(error);process.exitCode=1;});
