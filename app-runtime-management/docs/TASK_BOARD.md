@@ -8,6 +8,12 @@
 
 阶段进度：Runtime 已有机器鉴权的应用贡献收据、统计来源核验与 Child 读取接口；Guardian 已有网页账本贡献及按孩子影子投影；Runtime 定时核验仅在 0015 生产迁移后可用。0014/0015 均未在生产执行，不能启用共享执行。当前修复同时确保当天已经产生统计、随后解除绑定的网页设备仍参与孩子当天累计。
 
+当前云端修正：Child 级电脑使用只按网页总量＋应用总量－应用中已确认的 Chrome 边际贡献汇总；不得要求网页设备与 Runtime 电脑做物理关联，也不得用该关联状态否定有效统计。来源完整性与 Chrome 扣除依据仍分别校验，历史数据按 best-effort 标注。移除旧 `DEVICE_MAPPING_INCOMPLETE` 作为电脑汇总阻断/告警原因，保留来源缺失、版本变化和 Chrome 扣除不可验证等真实原因。最小验证：Contracts merge 向量、Worker 投影、Console 状态文案/视图测试、Worker/Contracts/Console typecheck、Wrangler dry-run、`git diff --check`；不运行 Windows、macOS、WiX，不部署或执行 migration。
+
+本地验证记录：Contracts 8 组黄金向量、Worker 聚焦测试、Console 视图/缓存测试、根与 Contracts TypeScript 检查、Worker dry-run、渲染器一致性和 `git diff --check` 均通过。复用本机已缓存 Playwright CLI，完成两套页面 1440px／390px 隔离 mock 截图目视：Child 汇总无需电脑选择，网页 60000ms＋应用 121501ms－Chrome 60000ms＝121501ms；历史 1501ms 保留，Chrome 展开明确为该孩子网页内容，不宣称容器重叠。截图仅为本地布局证据，不代表真实终端或生产验收；mock 主页面图标／favicon 路径未提供，不作为生产缺陷处理。未部署、未执行 migration。
+
+Windows 通道缺口核对（2026-10-02）：Native 的 BrowserBridgeProtocol／Dispatcher 当前未接受 `sharedQuota/getSharedQuotaState` 或 `reportReminderResult`，能力仅包含健康、网页快照和应用读取；不能把契约定义当作运行能力。已向现有 Windows Native 会话交接只读影子读取与提醒结果校验／幂等记录，不发 Mac 任务，不启用执行、不安装或部署。两端接通、真实提醒与共享执行仍未完成。
+
 未完成：来源覆盖与应用真实贡献的端到端核验；主控制台统一访问配置的最终写入／导入导出体验；共享来源对照与阶段启用；提醒结果通道及 Windows 实机验收。Mac 开发验收按用户决定延后。`COMPUTER_USAGE_UNAVAILABLE` P1 单独追踪。生产迁移、部署及共享执行均未批准／未执行；具体跨工作线状态以根 TASK_BOARD 为准。
 
 ## NOW：应用持久化统计结构补齐（D-113，2026-10-01）

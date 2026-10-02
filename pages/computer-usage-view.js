@@ -2,7 +2,7 @@
 (function(root){
 'use strict';
 const labels={study:'学习',composite:'复合',restrictedEntertainment:'受限娱乐',unclassified:'未归类',blocked:'黑名单',unknown:'历史分类未知',historicalUnknown:'历史分类未知',rest:'娱乐',other:'其他',video:'视频',audio:'音频'};
-const reasons={DEVICE_MAPPING_INCOMPLETE:'网页设备与电脑之间缺少可信关联',WEB_ACCOUNT_UNAVAILABLE:'网页权威统计尚不可用',WEB_SOURCE_UNAVAILABLE:'网页来源读取失败',APPLICATION_SOURCE_UNAVAILABLE:'应用来源读取失败',APPLICATION_SERVICE_UNAVAILABLE:'应用服务未连接',APPLICATION_EVIDENCE_UNAVAILABLE:'应用区间证据不可用',SOURCE_VERSION_CHANGED:'来源正在更新，请重试',WEB_EVIDENCE_LIMIT:'网页证据超出本次查询上限',APPLICATION_EVIDENCE_LIMIT:'应用证据超出本次查询上限',WEB_CREDIT_EVIDENCE_MISMATCH:'网页区间证据与原统计不一致',APPLICATION_TOTAL_EVIDENCE_MISMATCH:'应用区间证据与原统计不一致',APPLICATION_SOURCE_OVERLAP:'应用来源存在不可唯一合并的重叠',PARTIAL_WEB_CREDIT_OVERLAP_AMBIGUOUS:'网页部分计秒的重叠无法唯一确定'};
+const reasons={WEB_ACCOUNT_UNAVAILABLE:'网页权威统计尚不可用',WEB_SOURCE_UNAVAILABLE:'网页来源读取失败',APPLICATION_SOURCE_UNAVAILABLE:'应用来源读取失败',APPLICATION_SERVICE_UNAVAILABLE:'应用服务未连接',APPLICATION_EVIDENCE_UNAVAILABLE:'应用区间证据不可用',SOURCE_VERSION_CHANGED:'来源正在更新，请重试',WEB_EVIDENCE_LIMIT:'网页证据超出本次查询上限',APPLICATION_EVIDENCE_LIMIT:'应用证据超出本次查询上限',WEB_CREDIT_EVIDENCE_MISMATCH:'网页区间证据与原统计不一致',APPLICATION_TOTAL_EVIDENCE_MISMATCH:'应用区间证据与原统计不一致',APPLICATION_SOURCE_OVERLAP:'应用来源存在不可唯一合并的重叠',PARTIAL_WEB_CREDIT_OVERLAP_AMBIGUOUS:'网页部分计秒的重叠无法唯一确定'};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 Object.assign(reasons,{OVERLAP_AMBIGUOUS:'重叠的有效计秒无法唯一确定',WEB_TOTAL_EVIDENCE_MISMATCH:'网页区间证据与原总量不一致',WEB_CATEGORY_EVIDENCE_MISMATCH:'网页分类证据与原分类统计不一致',APPLICATION_CATEGORY_EVIDENCE_MISMATCH:'应用分类证据与原分类统计不一致',APPLICATION_CLOCK_EVIDENCE_INCOMPLETE:'应用时钟证据不完整',LEGACY_APPLICATION_BEST_EFFORT:'旧版应用历史按原口径尽力读取，不证明精确重叠',LEGACY_APPLICATION_SOURCE_UNAVAILABLE:'旧版应用历史读取失败，其余可读来源仍保留'});
 function duration(ms){if(ms===null||ms===undefined)return '不可用';const n=Math.max(0,ms);return (Math.floor(n/3600000)?Math.floor(n/3600000)+'小时 ':'')+Math.floor(n%3600000/60000)+'分 '+Math.floor(n%60000/1000)+'秒'+(n%1000?' '+n%1000+'毫秒':'');}
@@ -16,7 +16,7 @@ const sourceStatus=snapshot.sourceStatus||{web:'unavailable',application:'unavai
 const sourceCategories=kind=>'<div><b>'+esc(kind==='web'?'网页原分类':'应用原分类')+'</b><p>'+Object.entries(snapshot.sourceCategoriesMs?.[kind]||{}).map(([category,ms])=>esc(labels[category]||category)+' '+duration(ms)).join(' · ')+'</p></div>';
 return '<style>.computer-view{display:grid;gap:16px}.computer-view button,.computer-view select{max-width:100%}.computer-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.computer-metric{padding:16px;border:1px solid #dce7e3;border-radius:12px;background:#fff}.computer-metric strong{display:block;font-size:22px;margin-top:8px}.computer-view section{padding:18px;background:#fff;border:1px solid #dce7e3;border-radius:12px}.computer-view p{margin:8px 0;color:#697d78;line-height:1.6}.computer-view ul{padding:0;list-style:none}.computer-view li{padding:10px 0;border-bottom:1px solid #e7eeeb;overflow-wrap:anywhere}.computer-view small{color:#697d78}.computer-category-list{display:flex;gap:20px;flex-wrap:wrap}.computer-status{background:#fff5df!important}.computer-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.computer-timeline{max-height:500px;overflow:auto}.computer-view details{padding:10px 0}.computer-view [hidden]{display:none!important}</style>'+
 '<style>.computer-view button,.computer-view select{min-height:44px;padding:9px 14px;border:1px solid #c9ddd6;border-radius:10px;background:#fff;color:inherit;font:inherit;line-height:1.4}.computer-view button{cursor:pointer}.computer-view button:hover{background:#edf7f3}.computer-view button:disabled{opacity:.55;cursor:default}.computer-view button:focus-visible,.computer-view select:focus-visible{outline:2px solid #168d72;outline-offset:2px}.computer-view summary{cursor:pointer;min-height:44px;display:list-item;padding:10px 0}</style>'+
-'<div class="computer-toolbar"><b>电脑使用 · '+esc(snapshot.fromDate)+' — '+esc(snapshot.toDate)+'</b><button data-computer-retry>刷新</button></div><p>云端统一展示，不改变现行配额。全部电脑按设备累计；网页、应用原用量独立保留。</p>'+
+'<div class="computer-toolbar"><b>电脑使用 · '+esc(snapshot.fromDate)+' — '+esc(snapshot.toDate)+'</b><button data-computer-retry>刷新</button></div><p>云端按孩子汇总网页与应用使用；多台设备分别累计，不做跨设备重叠扣除。</p>'+
 '<div class="computer-metrics">'+metric('电脑总用量（来源累计）',snapshot.totals.computerMs)+metric('网页主用量',snapshot.totals.webMs)+metric('应用主用量',snapshot.totals.applicationMs)+metric('Chrome 容器扣除',snapshot.totals.chromeIncludedMs)+'</div>'+
 '<p>电脑使用＝网页＋应用－应用总量中 Chrome 的贡献。其他应用与网页同时使用仍分别累计。'+(snapshot.totals.computerMs===null?'来源未齐，当前仅显示可用部分。':'')+'</p>'+
 '<section><h3>分类归集（来源累计）</h3><p>排除已确认 Chrome 容器，分类允许重叠，不能相加为电脑总量。</p><div class="computer-category-list">'+Object.entries(snapshot.categoriesMs).map(([key,ms])=>'<p><b>'+esc(labels[key]||key)+'</b><br>'+duration(ms)+'</p>').join('')+'</div><h4>独立权威分类（原口径）</h4>'+sourceCategories('web')+sourceCategories('application')+'</section>'+
@@ -29,8 +29,8 @@ const originalClassification=row=>row.special?'原应用历史归类，仅用于
 const historyLabel=row=>row.historyQuality==='bestEffort'?' · 旧版历史（尽力读取）':'';
 const chromeDetails=row=>{
   const content=row.chromeContent||{},child=content.scope==='child';
-  return '<details><summary>'+esc(child?'该孩子的网页内容':'该电脑的 Chrome 网页内容')+'</summary>'
-    +(child?'<p>该孩子的网页原用量 '+duration(content.webMs)+'。尚未确认与此 Chrome 同电脑，不代表容器内访问，不扣除重叠。</p>'
+  return '<details><summary>'+esc(child?'该孩子的网页内容':'该孩子的网页内容')+'</summary>'
+    +(child?'<p>该孩子的网页原用量 '+duration(content.webMs)+'。这表示同一孩子的网页明细，不代表全部发生在该 Chrome 容器内；网页内容不作为第二份用量加入总量。</p>'
       :'<p>网页解释 '+duration(content.explainedMs)+' · 内容未识别 '+duration(content.unexplainedMs)+'</p>')
     +'<p>'+Object.entries(content.categoriesMs||{}).map(([category,ms])=>esc(labels[category]||category)+' '+duration(ms)).join(' · ')+'</p>'
     +(!content.complete?'<p>网页统计有缺失，显示可读来源及已知小计，不是完整合计。</p>':'')
@@ -38,7 +38,7 @@ const chromeDetails=row=>{
 };
 return '<ul>'+rows.map(row=>kind==='products'
 ?'<li><strong>'+esc(row.name)+'</strong> · '+(row.special?'特殊应用（内容决定分类）':esc(row.source==='web'?'网页':'应用'))+' · '+duration(row.durationMs)+historyLabel(row)+'<br><small>'+originalClassification(row)+esc(row.classification.map(c=>labels[c]||c).join(' / '))+'</small>'+(row.special?chromeDetails(row):'')+'</li>'
-:'<li><b>'+esc(row.source==='web'?'网页':'应用')+'</b> · '+esc(row.label)+historyLabel(row)+(row.special?' · Chrome 容器':'')+(row.containerRelation==='outsideContainer'?' · 容器外网页（独立来源）':row.containerRelation==='childContent'?' · 该孩子的网页内容（同电脑归属未确认）':'')+'<br>'+esc(time(row.startMs))+' — '+esc(time(row.endMs))+'<br><small>权威有效用量 '+duration(row.creditedMs)+' · '+originalClassification(row)+esc(labels[row.classification]||row.classification)+' · 重叠 '+duration(row.overlapMs)+'</small></li>').join('')+'</ul>';
+:'<li><b>'+esc(row.source==='web'?'网页':'应用')+'</b> · '+esc(row.label)+historyLabel(row)+(row.special?' · Chrome 容器':'')+(row.containerRelation==='outsideContainer'?' · 容器外网页（独立来源）':row.containerRelation==='childContent'?' · 该孩子的网页内容（不表示发生于此 Chrome）':'')+'<br>'+esc(time(row.startMs))+' — '+esc(time(row.endMs))+'<br><small>权威有效用量 '+duration(row.creditedMs)+' · '+originalClassification(row)+esc(labels[row.classification]||row.classification)+(row.source==='web'?' · 网页与其他应用分别累计':'')+'</small></li>').join('')+'</ul>';
 }
 function create(host,read,onRange,getScope){
 let generation=0,snapshot=null,scope;

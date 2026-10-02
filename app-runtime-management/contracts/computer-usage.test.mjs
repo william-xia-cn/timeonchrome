@@ -41,13 +41,16 @@ const dual=structuredClone(input);
 dual.web.push({...structuredClone(input.web[0]),key:'opaque-browser-b',computerKey:'opaque-computer-b'});
 dual.applications.push({...structuredClone(input.applications[0]),key:'opaque-app-source-b',computerKey:'opaque-computer-b'});
 assert.equal(mergeComputerUsage(dual).totals.computerMs,1200000,'cross-computer concurrency is accumulated, not unioned');
+assert.equal(mergeComputerUsage(dual).devices.length,1,'the computer usage read model has one Child aggregate, not physical-computer buckets');
+assert.equal(mergeComputerUsage(dual).products.filter(row=>row.special).length,1,'Chrome is one Child-level special product');
+assert.equal(mergeComputerUsage(dual).products.find(row=>row.special).durationMs,1200000,'same Chrome product durations sum across devices');
 const unmapped=structuredClone(input);unmapped.web[0].computerKey=null;
 const missing=mergeComputerUsage(unmapped);
 assert.equal(missing.totals.computerMs,600000);assert.equal(missing.totals.webMs,600000);assert.equal(missing.totals.applicationMs,600000);
-assert(missing.reasons.includes('DEVICE_MAPPING_INCOMPLETE'));
+assert(!missing.reasons.includes('DEVICE_MAPPING_INCOMPLETE'),'physical computer association is not a Child aggregate prerequisite');
 assert.deepEqual(missing.sourceStatus,{web:'complete',application:'complete'});
-assert.equal(missing.overlapStatus,'unconfirmed');assert.equal(missing.categoryBasis,'sourceCumulative');
-assert.deepEqual(missing.categoriesMs,{study:600000},'unconfirmed overlap must not erase valid classification or add Chrome container');
+assert.equal(missing.overlapStatus,'confirmed');assert.equal(missing.categoryBasis,'sourceCumulative');
+assert.deepEqual(missing.categoriesMs,{study:600000},'valid Child classifications remain visible and Chrome container is excluded');
 assert.deepEqual(missing.sourceCategoriesMs.application,{composite:600000},'original Chrome classification remains readable');
 const empty=mergeComputerUsage({fromDate:day,toDate:day,web:[],applications:[]});assert.equal(empty.complete,false);assert.equal(empty.totals.computerMs,null);
 const zero=structuredClone(input);for(const source of [...zero.web,...zero.applications]){source.totalMs=0;source.intervals=[];source.categoriesMs={};}
@@ -65,7 +68,9 @@ assert.equal(mergeComputerUsage(historical).categoriesMs.historicalUnknown,60000
 const duplicate=structuredClone(input);duplicate.web.push(structuredClone(duplicate.web[0]));assert.equal(mergeComputerUsage(duplicate).totals.computerMs,600000);
 duplicate.web[1].revision='other';assert.equal(mergeComputerUsage(duplicate).totals.computerMs,null);
 const repeatedApp=structuredClone(input);repeatedApp.applications.push({...structuredClone(input.applications[0]),key:'other-session'});
-assert(mergeComputerUsage(repeatedApp).reasons.includes('APPLICATION_SOURCE_OVERLAP'),'existing session statistics not flattened to manufacture completeness');
+for(const source of repeatedApp.applications)source.intervals[0].special=false;
+assert.equal(mergeComputerUsage(repeatedApp).totals.applicationMs,1200000,'independently scoped app sources accumulate at Child level');
+assert.equal(mergeComputerUsage(repeatedApp).totals.computerMs,1800000,'non-Chrome app contributions accumulate without cross-device interval union');
 const before=JSON.stringify(input);
 Object.freeze(input.web[0].intervals[0]);Object.freeze(input.web[0]);Object.freeze(input.applications[0]);
 const revision=await withComputerUsageRevision(mergeComputerUsage(input));
@@ -83,7 +88,7 @@ const productPage=computerUsageReadPage(revision,'products',revision.revision,0,
 const chromeKey=revision.products.find(row=>row.special).key;
 const chromeTimeline=computerUsageReadPage(revision,'timeline',revision.revision,0,100,chromeKey);
 assert(chromeTimeline.timeline.some(row=>row.containerRelation==='container'));
-assert(chromeTimeline.timeline.some(row=>row.containerRelation==='content'));
+assert(chromeTimeline.timeline.some(row=>row.containerRelation==='childContent'));
 assert.throws(()=>computerUsageReadPage(revision,'timeline',revision.revision,0,100,'unapproved'),/INVALID_PRODUCT/);
 assert.throws(()=>computerUsageReadPage(revision,'summary',revision.revision,0,100,chromeKey),/INVALID_PRODUCT_DETAIL/);
 const missingRevision=await withComputerUsageRevision(missing);
@@ -112,7 +117,7 @@ weekSource.web[0].sourceGroupKey='same-browser-source';
 weekSource.web.push({...structuredClone(weekSource.web[0]),key:'same-browser-previous-day',
   intervals:weekSource.web[0].intervals.map(row=>({...row,startMs:row.startMs-86400000,endMs:row.endMs-86400000}))});
 const groupedWeek=mergeComputerUsage(weekSource);
-assert.equal(groupedWeek.devices.filter(row=>row.key==='unmapped:web:same-browser-source').length,1,'one weekly source selector, not seven invented computers');
+assert.equal(groupedWeek.devices.length,1);assert.equal(groupedWeek.devices[0].key,'child','weekly projection stays Child-scoped, not grouped by device');
 assert.equal(groupedWeek.totals.webMs,1200000);assert.equal(groupedWeek.sourceStatus.web,'complete');
 assert.equal(groupedWeek.products.find(row=>row.special).chromeContent.webMs,1200000);
 const historicalVersion=await withComputerUsageRevision(restored);
