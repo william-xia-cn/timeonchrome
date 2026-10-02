@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import fs from 'node:fs';
 import { sharedWebContributionHashV1, verifySharedWebContributionV1, sharedWebExecutionSourceV1,
-  signSharedWebSourceBindingV1, verifySharedWebSourceBindingV1 } from './dist/shared-web-sync.js';
+  signSharedWebSourceBindingV1, verifySharedWebSourceBindingV1, sharedQuotaExecutionIdentityV1 } from './dist/shared-web-sync.js';
 globalThis.crypto ??= webcrypto;
 const policyIdentity={schemaVersion:1,revision:'profile-config:8',effectiveAtMs:0,stage:'shadow',policyHash:'a'.repeat(64)};
 const base={schemaVersion:1,date:'2026-10-03',revisionOrdinal:1,statisticsRevision:'statistics-hash',correctionRevision:'correction-1',
@@ -45,4 +45,34 @@ await assert.rejects(()=>verifySharedWebSourceBindingV1(proof,proof.keyId,key.pu
 await assert.rejects(()=>verifySharedWebSourceBindingV1(proof,'0'.repeat(64),key.publicKey,expected,1000),/CONTEXT_CHANGED/);
 await assert.rejects(()=>verifySharedWebSourceBindingV1({...proof,claims:{...claims,webSourceKey:'web:'+'0'.repeat(64)}},proof.keyId,key.publicKey,expected,1000),/SIGNATURE_INVALID/);
 await assert.rejects(()=>signSharedWebSourceBindingV1({...claims,deviceToken:'private'},proof.keyId,key.privateKey));
-console.log('shared-web-sync: authority/precision/hash/version/privacy/source-proof tests PASS');
+const preparation={schemaVersion:1,basisRevision:'b'.repeat(64),policyIdentity,
+  projection:{basisRevision:'b'.repeat(64),policyRevision:policyIdentity.revision,complete:true,reasonCodes:[],
+    days:[{date:'2026-09-28',complete:true,reasonCodes:[],usedMs:{study:1200000,composite:0,rest:0},
+      remainingMs:{study:null,composite:null,rest:null},borrowedRestMs:0}],
+    week:{fromDate:'2026-09-28',toDate:'2026-09-28',restUsedMs:0,restRemainingMs:null}},
+  transportStatus:'online',replacementVersions:[
+    {source:'web',sourceKey:'web:'+'b'.repeat(64),date:'2026-09-28',revisionOrdinal:2,contentRevision:'c'.repeat(64)},
+    {source:'application',sourceKey:'e'.repeat(64),date:'2026-09-28',revisionOrdinal:3,contentRevision:'d'.repeat(64)}],
+  reasonCodes:[],executionEnabled:false};
+const executionIdentity=await sharedQuotaExecutionIdentityV1(preparation);
+assert.deepEqual(preparation,vectors.executionPreparation,'cross-platform fixture contains all identity inputs');
+assert.equal(await sharedQuotaExecutionIdentityV1({...preparation,transportStatus:'offline',
+  replacementVersions:[...preparation.replacementVersions].reverse()}),executionIdentity,'transport and input order do not reset a reminder');
+for(const changed of [
+  {...preparation,policyIdentity:{...policyIdentity,policyHash:'f'.repeat(64)}},
+  {...preparation,replacementVersions:preparation.replacementVersions.map((v,i)=>i? v:{...v,revisionOrdinal:3})},
+  {...preparation,projection:{...preparation.projection,days:preparation.projection.days.map(d=>({...d,usedMs:{...d.usedMs,study:600000}}))}},
+]) assert.notEqual(await sharedQuotaExecutionIdentityV1(changed),executionIdentity,'local revision/content changes retire old permits');
+for(const changed of [
+  {...preparation,executionEnabled:true},{...preparation,transportStatus:'unavailable'},
+  {...preparation,reasonCodes:['SOURCE_MISSING']},
+  {...preparation,projection:{...preparation.projection,complete:false}},
+  {...preparation,projection:{...preparation.projection,week:{...preparation.projection.week,restUsedMs:1}}},
+  {...preparation,replacementVersions:[preparation.replacementVersions[0],preparation.replacementVersions[0]]},
+  {...preparation,childId:'private'},
+]) await assert.rejects(()=>sharedQuotaExecutionIdentityV1(changed));
+const captured=structuredClone(preparation), pendingIdentity=sharedQuotaExecutionIdentityV1(captured);
+captured.projection.days[0].usedMs.study=1;
+assert.equal(await pendingIdentity,executionIdentity,'hash captures input before awaiting');
+assert.equal(executionIdentity,vectors.executionIdentityHash,'shared cross-platform local execution identity');
+console.log('shared-web-sync: authority/precision/hash/version/privacy/source-proof/execution identity tests PASS');

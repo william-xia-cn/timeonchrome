@@ -24,6 +24,17 @@
     },
     "signature":"JeSwx9ZPdk4Yu8Vw85NKHHaxDtwVVHVZfjJS9sY0aIb6JwGLsUYEZP-VyGSfyYaHtX8jSEItBhY83kU1xvVl9w"
   },
+  "executionIdentityHash":"4c0f9512a8fef4f4bcf5481f4f60804ef410e1f6f453a948ca02c4fe05765e4d",
+  "executionPreparation":{
+    "schemaVersion":1,"basisRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "policyIdentity":{"schemaVersion":1,"revision":"profile-config:8","effectiveAtMs":0,"stage":"shadow","policyHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "projection":{"basisRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","policyRevision":"profile-config:8","complete":true,"reasonCodes":[],
+      "days":[{"date":"2026-09-28","complete":true,"reasonCodes":[],"usedMs":{"study":1200000,"composite":0,"rest":0},"remainingMs":{"study":null,"composite":null,"rest":null},"borrowedRestMs":0}],
+      "week":{"fromDate":"2026-09-28","toDate":"2026-09-28","restUsedMs":0,"restRemainingMs":null}},
+    "transportStatus":"online","replacementVersions":[
+      {"source":"web","sourceKey":"web:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","date":"2026-09-28","revisionOrdinal":2,"contentRevision":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+      {"source":"application","sourceKey":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","date":"2026-09-28","revisionOrdinal":3,"contentRevision":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}],
+    "reasonCodes":[],"executionEnabled":false},
   "verificationTimeMs":1000,
   "invalidCases":["expiry-at-301000","wrong-connection","wrong-child-scope","wrong-assignment","wrong-trusted-key","modified-web-source","caller-device-token"]
 }

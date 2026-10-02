@@ -94,3 +94,15 @@ const emptyResult=assembleSharedQuotaExecutionPages(policy,'fixture-child',[empt
 assert.equal(projectLocalSharedQuotaExecution(policy,emptyResult.basis,[],[]).complete,false,'explicit empty coverage stays unavailable');
 assert.throws(() => assembleSharedQuotaExecutionPages(policy,'fixture-child',[]),/INVALID_EXECUTION_PAGES/);
 console.log('shared quota transport: PASS (complete paging, Child/version/coverage/scope rejection, immutable and empty sources)');
+const multi = basis(), webTemplate = multi.days[0].sources.find(v => v.contribution.source === 'web');
+multi.days = multi.days.map(day => ({...day,sources:[...day.sources.filter(v=>v.contribution.source==='application'),
+  ...Array.from({length:15},(_,i)=>({...clone(webTemplate),
+    contribution:{...clone(webTemplate.contribution),date:day.date,sourceKey:`local-browser-${i}`}}))]}));
+const multiScopes = multi.days.flatMap(day => day.sources.map(v => ({source:v.contribution.source,sourceKey:v.contribution.sourceKey,date:day.date})));
+const multiReplacements = multi.days.flatMap(day => day.sources.map(v => ({basisRevision:multi.revision,
+  expectedPublicationRevision:v.publicationRevision,revisionOrdinal:v.revisionOrdinal+1,contribution:clone(v.contribution)})));
+assert.equal(projectLocalSharedQuotaExecution(policy,multi,multiReplacements,multiScopes).complete,true,
+  'multiple authenticated local profiles are not silently limited to one browser');
+assert.throws(()=>projectLocalSharedQuotaExecution(policy,multi,Array(1401).fill(multiReplacements[0]),multiScopes),/INVALID_EXECUTION_BASIS/);
+assert.throws(()=>projectLocalSharedQuotaExecution(policy,multi,[],Array(1401).fill(multiScopes[0])),/INVALID_EXECUTION_BASIS/);
+console.log('shared quota multi-profile: PASS (all authorized replacements, bounded 1400, no source privilege expansion)');

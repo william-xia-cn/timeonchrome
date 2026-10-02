@@ -16,6 +16,66 @@ export interface SharedQuotaExecutionPreparationV1 {
   executionEnabled: false;
 }
 
+/** Read-model identity only; a digest never grants source authority or an execution permit. */
+export async function sharedQuotaExecutionIdentityV1(value: SharedQuotaExecutionPreparationV1): Promise<string> {
+  if (!exact(value, ['schemaVersion','basisRevision','policyIdentity','projection','transportStatus',
+    'replacementVersions','reasonCodes','executionEnabled']) || value.schemaVersion !== 1
+    || value.executionEnabled !== false || !['online','offline'].includes(value.transportStatus)
+    || !Array.isArray(value.reasonCodes) || value.reasonCodes.length !== 0
+    || typeof value.basisRevision !== 'string' || !/^[a-f0-9]{64}$/.test(value.basisRevision)
+    || !Array.isArray(value.replacementVersions) || value.replacementVersions.length > 1400)
+    throw new Error('EXECUTION_IDENTITY_UNAVAILABLE');
+  validateSharedAccessPolicyIdentityV1(value.policyIdentity);
+  const projection = value.projection;
+  if (!exact(projection, ['basisRevision','policyRevision','complete','reasonCodes','days','week'])
+    || projection.basisRevision !== value.basisRevision || projection.policyRevision !== value.policyIdentity.revision
+    || projection.complete !== true || !Array.isArray(projection.reasonCodes) || projection.reasonCodes.length !== 0
+    || !Array.isArray(projection.days) || projection.days.length < 1 || projection.days.length > 7
+    || !exact(projection.week, ['fromDate','toDate','restUsedMs','restRemainingMs']))
+    throw new Error('EXECUTION_IDENTITY_UNAVAILABLE');
+  validateSharedWebDate(projection.week.fromDate); validateSharedWebDate(projection.week.toDate);
+  const from = Date.parse(projection.week.fromDate + 'T00:00:00Z');
+  if (new Date(from).getUTCDay() !== 1
+    || Date.parse(projection.week.toDate + 'T00:00:00Z') !== from + (projection.days.length - 1) * 86400000)
+    throw new Error('EXECUTION_IDENTITY_INVALID_PERIOD');
+  let rest = 0;
+  for (let index = 0; index < projection.days.length; index++) {
+    const day = projection.days[index];
+    if (!exact(day, ['date','complete','reasonCodes','usedMs','remainingMs','borrowedRestMs'])
+      || day.date !== new Date(from + index * 86400000).toISOString().slice(0,10)
+      || day.complete !== true || !Array.isArray(day.reasonCodes) || day.reasonCodes.length !== 0
+      || !exact(day.usedMs, ['study','composite','rest']) || !Object.values(day.usedMs).every(ms)
+      || !exact(day.remainingMs, ['study','composite','rest'])
+      || !Object.values(day.remainingMs).every(amount => amount === null || ms(amount))
+      || !ms(day.borrowedRestMs) || day.borrowedRestMs > Number(day.usedMs.rest))
+      throw new Error('EXECUTION_IDENTITY_INVALID_PROJECTION');
+    rest += Number(day.usedMs.rest);
+  }
+  if (!ms(rest) || projection.week.restUsedMs !== rest
+    || !(projection.week.restRemainingMs === null || ms(projection.week.restRemainingMs)))
+    throw new Error('EXECUTION_IDENTITY_INVALID_PROJECTION');
+  const scopes = new Set<string>();
+  for (const item of value.replacementVersions) {
+    if (!exact(item, ['source','sourceKey','date','revisionOrdinal','contentRevision'])
+      || !['web','application'].includes(String(item.source))
+      || !opaque(item.sourceKey) || !opaque(item.contentRevision) || !ms(item.revisionOrdinal) || item.revisionOrdinal < 1)
+      throw new Error('EXECUTION_IDENTITY_INVALID_REPLACEMENT');
+    validateSharedWebDate(item.date);
+    if (item.date < projection.week.fromDate || item.date > projection.week.toDate)
+      throw new Error('EXECUTION_IDENTITY_INVALID_PERIOD');
+    const scope = `${item.date}\0${item.source}\0${item.sourceKey}`;
+    if (scopes.has(scope)) throw new Error('EXECUTION_IDENTITY_DUPLICATE_SCOPE');
+    scopes.add(scope);
+  }
+  const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+  const replacements = [...value.replacementVersions].sort((a,b) => compare(a.date,b.date)
+    || compare(a.source,b.source) || compare(a.sourceKey,b.sourceKey));
+  // Capture the complete input before the first await: subsequent caller mutation is irrelevant.
+  const bytes = new TextEncoder().encode(canonicalSharedWebSync({schemaVersion:1,
+    policyIdentity:value.policyIdentity,basisRevision:value.basisRevision,projection,replacementVersions:replacements}));
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join('');
+}
+
 /** Separate derived queue. This ordinal is NOT a web ledger/manifest revision. */
 export interface SharedWebContributionUploadV1 {
   schemaVersion: 1;

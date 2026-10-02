@@ -108,7 +108,7 @@ export function assembleSharedQuotaExecutionPages(policy: UnifiedChildAccessPoli
       || value.schemaVersion !== 1 || value.profileId !== expectedProfileId
       || typeof value.basisRevision !== 'string' || !/^[a-f0-9]{64}$/.test(value.basisRevision)
       || value.policyRevision !== policy.revision || !Array.isArray(value.days) || value.days.length < 1 || value.days.length > 7
-      || !Array.isArray(value.authorizedScopes) || value.authorizedScopes.length > 14
+      || !Array.isArray(value.authorizedScopes) || value.authorizedScopes.length > 1400
       || !exact(value.page, ['offset','limit','total','nextOffset','items'])
       || !ms(value.page.offset) || value.page.offset !== offset || !ms(value.page.total) || value.page.total > 1400
       || !ms(value.page.limit) || value.page.limit < 1 || value.page.limit > 100 || !Array.isArray(value.page.items))
@@ -158,7 +158,7 @@ export function projectLocalSharedQuotaExecution(policy: UnifiedChildAccessPolic
   if (!exact(basis, ['schemaVersion', 'revision', 'policyRevision', 'fromDate', 'toDate', 'days'])
     || basis.schemaVersion !== 1 || !revision(basis.revision) || basis.policyRevision !== policy.revision
     || !Array.isArray(basis.days) || !Array.isArray(replacements) || !Array.isArray(authorizedScopes)
-    || replacements.length > 14 || authorizedScopes.length > 14) throw new Error('INVALID_EXECUTION_BASIS');
+    || replacements.length > 1400 || authorizedScopes.length > 1400) throw new Error('INVALID_EXECUTION_BASIS');
   const from = dateMs(basis.fromDate), to = dateMs(basis.toDate);
   const count = (to - from) / 86_400_000 + 1;
   if (new Date(from).getUTCDay() !== 1 || !Number.isInteger(count) || count < 1 || count > 7
