@@ -10,7 +10,13 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.26.0');
+assert.equal(pkg.version, '1.27.0');
+assert(pkg.exports['./shared-quota-execution']);
+const executionSchema = JSON.parse(fs.readFileSync(path.join(root, 'shared-quota-execution-v1.schema.json'), 'utf8'));
+assert.equal(executionSchema.$defs.basis.additionalProperties, false);
+assert.equal(executionSchema.$defs.basis.properties.days.maxItems, 7);
+assert.equal(executionSchema.$defs.day.properties.sources.maxItems, 200);
+assert.equal(executionSchema.$defs.source.properties.contribution.$ref, 'shared-access-v1.schema.json#/$defs/contribution');
 assert(pkg.exports['./shared-reminder-lifecycle']);
 assert(pkg.exports['./shared-access'], 'shared access contract must be exported');
 const sharedAccess = JSON.parse(fs.readFileSync(path.join(root, 'shared-access-v1.schema.json'), 'utf8'));
