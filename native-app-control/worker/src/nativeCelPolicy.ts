@@ -1,4 +1,5 @@
 import { childTimeZone } from './blockSchedules';
+import { loadEffectiveIdentityWindows } from './applicationBlockPolicies';
 import { canonicalStoredSigningIdentifier } from './policy';
 import type { Env, NativeAuth, SantaRule } from './types';
 
@@ -46,30 +47,8 @@ export async function setNativeTimeRulesEnabled(
 }
 
 export async function loadNativeTimedPolicy(env: Env, childId: string) {
-  const [direct, predefined, publishers, timeZone] = await Promise.all([
-    env.DB.prepare(`SELECT i.identity_type, i.identifier, COALESCE(i.team_id, a.team_id) AS team_id,
-        bs.start_minute, bs.end_minute
-      FROM child_application_states_v1 s
-      JOIN account_applications_v1 a ON a.id = s.application_id
-      JOIN application_memberships_v1 m ON m.application_id = a.id
-      JOIN application_identities_v1 i ON i.id = m.identity_id
-      LEFT JOIN native_app_block_schedules_v1 bs ON bs.child_id = s.child_id
-        AND bs.source_type = 'APPLICATION' AND bs.source_key = s.application_id
-      WHERE s.child_id = ? AND s.state = 'BLOCK' AND s.block_origin = 'DIRECT'
-        AND a.merged_into_application_id IS NULL`).bind(childId).all<TimedIdentity>(),
-    env.DB.prepare(`SELECT p.identity_type, p.identifier,
-        (SELECT ai.team_id FROM application_identities_v1 ai
-          WHERE ai.identity_key = p.identity_key LIMIT 1) AS team_id,
-        bs.start_minute, bs.end_minute
-      FROM native_app_predefined_identities_v1 p
-      JOIN native_app_predefined_items_v1 item ON item.child_id = p.child_id
-        AND item.source = p.source AND item.source_index = p.source_index
-      LEFT JOIN native_app_block_schedules_v1 bs ON bs.child_id = p.child_id
-        AND bs.source_type = 'PREDEFINED'
-        AND bs.source_key = json_array(p.source, p.source_index)
-      WHERE p.child_id = ? AND item.desired_state = 'BLOCK'
-        AND item.disabled_at IS NULL AND p.status IN ('AUTO', 'CONFIRMED')`)
-      .bind(childId).all<TimedIdentity>(),
+  const [identities, publishers, timeZone] = await Promise.all([
+    loadEffectiveIdentityWindows(env, childId),
     env.DB.prepare(`SELECT p.team_id, bs.start_minute, bs.end_minute
       FROM child_publisher_blocks_v1 p
       LEFT JOIN native_app_block_schedules_v1 bs ON bs.child_id = p.child_id
@@ -78,7 +57,7 @@ export async function loadNativeTimedPolicy(env: Env, childId: string) {
     childTimeZone(env, childId),
   ]);
   return {
-    identities: [...(direct.results || []), ...(predefined.results || [])],
+    identities,
     publishers: publishers.results || [],
     timeZone,
   };

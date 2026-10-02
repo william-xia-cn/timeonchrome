@@ -9,12 +9,15 @@ import catalogRules from '../src/data/product-catalog-rules.v3.json';
 import { syncApplicationInventory } from '../src/applicationKnowledge';
 import { machinePolicyEtag } from '../src/v2Repository';
 import worker from '../src/index';
+import { rebuildApplicationStatistics } from '../src/applicationStatistics';
 
 const origin = 'http://runtime.test';
 const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE', y: '5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA', crv: 'P-256', d: '2Ja3Py77LNt6aspenNTttELbGzm2-u9WcF4x8BQql8w' };
 
 beforeEach(async () => {
   await env.RUNTIME_DB.batch([
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_statistics_queue_v1'),
+    env.RUNTIME_DB.prepare('DELETE FROM runtime_application_statistics_days_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_knowledge_audit_v1'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_scan_batches_v2'),
     env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_scans_v2'),
@@ -350,12 +353,20 @@ describe('Runtime product API', () => {
   });
 
   it('platform neutral heartbeat uses authenticated platform and rejects invalid updates', async () => {
-    const {enrolled}=await createMachineWithUser();
+    const {account,enrolled}=await createMachineWithUser();
     const headers=bearer(enrolled.machineToken);
     const heartbeat=(fields:Record<string,unknown>)=>call('/v2/machines/heartbeat',{method:'POST',headers,
       body:JSON.stringify({serviceVersion:'fixture',architecture:'x64',tamperCount:0,policyState:'applied',...fields})});
     for(const fields of [{windowsVersion:'11'},{osVersion:'11'},{windowsVersion:'11',osVersion:'11'},
       {windowsVersion:'11',platform:'macos'}]) expect((await heartbeat(fields)).status).toBe(200);
+    const machineStatus=async()=>((await (await call('/v2/module/machines',{headers:bearer(account)}))
+      .json<{machines:Array<{productBlockingCapability:string}>}>()).machines[0]!.productBlockingCapability);
+    expect(await machineStatus()).toBe('notReported');
+    expect((await heartbeat({windowsVersion:'11',capabilities:['product-block-v1','future-capability']})).status).toBe(200);
+    expect(await machineStatus()).toBe('reported');
+    expect((await heartbeat({windowsVersion:'11',capabilities:[]})).status).toBe(200);
+    expect(await machineStatus()).toBe('notReported');
+    expect((await heartbeat({windowsVersion:'11',capabilities:'product-block-v1'})).status).toBe(400);
     const prior=await env.RUNTIME_DB.prepare('SELECT os_version,last_seen_at_ms FROM runtime_machines_v2 WHERE id=?').bind(enrolled.machineId).first();
     const conflict=await heartbeat({windowsVersion:'11',osVersion:'11 '});
     expect(conflict.status).toBe(400);
@@ -1039,6 +1050,70 @@ describe('Runtime product API', () => {
 });
 
 describe('Application knowledge and installed inventory', () => {
+  it('migrates confirmed Firefox legacy blocks into a child product policy without trusting a same-name program', async () => {
+    const {account,enrolled,localUserId}=await createMachineWithUser();
+    const sha=(character:string)=>character.repeat(64), signer=sha('a');
+    const make=(runtimeIdentity:string,fileSeriesKey:string,signerKey:string)=>({
+      localUserId,status:'installed',evidence:{platform:'windows',runtimeIdentity,displayName:'Firefox',
+        values:{fileSeriesKey,signerKey,productName:'Firefox'},verifiedFields:['fileSeriesKey','signerKey'],
+        discovery:{role:'application',nameSource:'fileMetadata',sourceKinds:['runtime']}}});
+    const observations=[make('firefox-normal',sha('b'),signer),make('firefox-private',sha('c'),signer),
+      make('firefox-ordinary-choice',sha('f'),signer),
+      make('same-name-other',sha('d'),sha('e'))];
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+      body:JSON.stringify({schemaVersion:1,batchId:'firefox-known-variants',observations})})).status).toBe(200);
+    const policyResponse=await call('/v2/module/app-policy?childId=child-a',{headers:bearer(account)});
+    const base=await policyResponse.json<{quotas:unknown}>();
+    const legacy=await call('/v2/module/app-policy?childId=child-a',{method:'PUT',
+      headers:{...bearer(account),'If-Match':policyResponse.headers.get('etag')!},
+      body:JSON.stringify({quotas:base.quotas,classifications:[...['firefox-normal','firefox-private']
+        .map(runtimeIdentity=>({platform:'windows',runtimeIdentity,displayName:'Firefox',classification:'blocked'})),
+        {platform:'windows',runtimeIdentity:'firefox-ordinary-choice',displayName:'Firefox',classification:'composite'}]})});
+    expect(legacy.status).toBe(200);
+    const product={schemaVersion:3,version:0,products:[{id:'product-firefox',name:'Firefox',type:'other',
+      selectors:[sha('b'),sha('c'),sha('f')].map(value=>({platform:'windows',match:{operator:'all',
+        conditions:[{field:'fileSeriesKey',value}]}})),
+      suspectedMatchers:[{platform:'windows',signerKey:signer,productName:'Firefox'}]}],rules:[],
+      bindings:[{childId:'child-a',products:[{productId:'product-firefox',classification:'blocked',enhancedBlocking:true}],ruleIds:[]}]};
+    const operation=(preview:boolean,knowledge:unknown,version:number)=>call('/v2/module/application-knowledge/operations',{
+      method:'POST',headers:{...bearer(account),'If-Match':`"application-knowledge-v${version}"`},
+      body:JSON.stringify({action:'confirm',knowledge,preview,migrateExplicitClassifications:preview || version===0,
+        migrateChildIds:['child-a']})});
+    const preview=await operation(true,product,0);expect(preview.status).toBe(200);
+    await expect(preview.json()).resolves.toMatchObject({migrationConflicts:[]});
+    expect((await operation(false,product,0)).status).toBe(200);
+    const machine=await (await call('/v2/machines/policy',{headers:bearer(enrolled.machineToken)}))
+      .json<{appPolicies:Array<{childId:string;policy:{classifications:Array<{runtimeIdentity:string}>,
+        resolvedApplications:Array<{runtimeIdentity:string;classification:string}>,
+        productBlockPolicy:{entries:Array<{productId:string;strongMatchers:unknown[];suspectedMatchers:unknown[]}>}}}>}>();
+    const childPolicy=machine.appPolicies.find(item=>item.childId==='child-a')!.policy;
+    expect(childPolicy.classifications).toEqual([expect.objectContaining({runtimeIdentity:'firefox-ordinary-choice',classification:'composite'})]);
+    expect(childPolicy.resolvedApplications).toEqual(expect.arrayContaining([
+      expect.objectContaining({runtimeIdentity:'firefox-normal',classification:'blocked'}),
+      expect.objectContaining({runtimeIdentity:'firefox-private',classification:'blocked'}),
+      expect.objectContaining({runtimeIdentity:'firefox-ordinary-choice',classification:'blocked'})]));
+    expect(childPolicy.resolvedApplications.some(item=>item.runtimeIdentity==='same-name-other')).toBe(false);
+    expect(childPolicy.productBlockPolicy.entries).toEqual([expect.objectContaining({productId:'product-firefox',
+      strongMatchers:expect.arrayContaining([{field:'fileSeriesKey',value:sha('b')},{field:'fileSeriesKey',value:sha('c')}]),
+      suspectedMatchers:[{signerKey:signer,productName:'Firefox'}]})]);
+    // An already reviewed hint must not trap the parent when an inventory source disappears.
+    await env.RUNTIME_DB.prepare('DELETE FROM runtime_application_inventory_v1').run();
+    expect((await operation(false,product,1)).status).toBe(200);
+    expect((await call('/v2/machines/application-inventory',{method:'POST',headers:bearer(enrolled.machineToken),
+      body:JSON.stringify({schemaVersion:1,batchId:'firefox-known-variants-returned',observations})})).status).toBe(200);
+    const released=structuredClone(product);released.bindings[0]!.products[0]!.classification='composite';
+    delete (released.bindings[0]!.products[0]! as {enhancedBlocking?:boolean}).enhancedBlocking;
+    expect((await operation(false,released,2)).status).toBe(200);
+    const current=await (await call('/v2/machines/policy',{headers:bearer(enrolled.machineToken)}))
+      .json<{appPolicies:Array<{childId:string;policy:{resolvedApplications:Array<{runtimeIdentity:string;classification:string}>,
+        productBlockPolicy:{entries:unknown[]}}}>}>();
+    const after=current.appPolicies.find(item=>item.childId==='child-a')!.policy;
+    expect(after.productBlockPolicy.entries).toEqual([]);
+    expect(after.resolvedApplications).toEqual(expect.arrayContaining([
+      expect.objectContaining({runtimeIdentity:'firefox-normal',classification:'composite'}),
+      expect.objectContaining({runtimeIdentity:'firefox-private',classification:'composite'}),
+      expect.objectContaining({runtimeIdentity:'firefox-ordinary-choice',classification:'composite'})]));
+  });
   it('freezes explicit product and leaf inheritance on save and later inventory without rewriting old policies', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const productKey = 'e'.repeat(64), excelHash = 'f'.repeat(64);
@@ -2028,7 +2103,18 @@ describe('Application knowledge and installed inventory', () => {
 async function call(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body !== undefined) headers.set('content-type', 'application/json');
-  return exports.default.fetch(new Request(`${origin}${path}`, { ...init, headers }));
+  const fetch=()=>exports.default.fetch(new Request(`${origin}${path}`, { ...init, headers }));
+  let response=await fetch();
+  // Existing business assertions exercise settled authority. Cold/pending behavior
+  // is independently covered by application-statistics.test.ts, not hidden by product fallback.
+  if(path.startsWith('/v2/module/app-usage?')) {
+    const data=await response.clone().json<{error?:{code?:string};statistics?:{stale:boolean}}>();
+    if(data.error?.code==='APPLICATION_STATISTICS_PENDING'||data.error?.code==='APPLICATION_STATISTICS_MANAGEMENT_PENDING'||data.statistics?.stale) {
+      for(let i=0;i<20;i++)if(!(await rebuildApplicationStatistics(env.RUNTIME_DB)).processed)break;
+      response=await fetch();
+    }
+  }
+  return response;
 }
 function bearer(value: string): HeadersInit { return { authorization: `Bearer ${value}` }; }
 function closedTimeWindows(): Record<string, Record<string, Array<{ start: string; end: string }>>> {

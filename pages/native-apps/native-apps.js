@@ -32,6 +32,18 @@
     const schedule = scheduleFor(type, key);
     return schedule ? `${clockTime(schedule.start_minute)}–${clockTime(schedule.end_minute)}` : '全天';
   };
+  const appPolicyFor = (id) => {
+    const app = state.data.find((item) => item.id === id || item.relatedApplicationIds?.includes(id));
+    const ids = new Set([id, ...(app?.relatedApplicationIds || [])]);
+    return (state.blockSchedules?.applicationPolicies || [])
+      .filter((item) => ids.has(item.application_id))
+      .sort((a, b) => Number(b.updated_at || 0) - Number(a.updated_at || 0))[0];
+  };
+  const appWindowLabel = (id) => {
+    const policy = appPolicyFor(id);
+    return !policy || Number(policy.all_day) ? '全天'
+      : policy.windows.map((window) => `${clockTime(window.start_minute)}–${clockTime(window.end_minute)}`).join('、');
+  };
   const syncPending = () => (state.blockSchedules?.macs || []).some((mac) =>
     Number(mac.applied_policy_version) < Number(mac.desired_policy_version));
   const syncStateLabel = () => !(state.blockSchedules?.macs || []).length ? '暂无已绑定终端'
@@ -41,6 +53,7 @@
     if (app.directBlockApplicationId) sources.push(['APPLICATION', app.directBlockApplicationId]);
     if (app.publisher_blocked && app.team_id) sources.push(['PUBLISHER', app.team_id]);
     const appIds = new Set([app.id, ...(app.relatedApplicationIds || [])]);
+    if (app.directBlockApplicationId) return sources;
     for (const item of state.preconfigurations?.items || []) {
       if (item.desired_state === 'BLOCK' && !item.disabled_at && appIds.has(item.matchedApplicationId)) {
         sources.push(['PREDEFINED', JSON.stringify([item.source, item.source_index])]);
@@ -48,15 +61,24 @@
     }
     return sources;
   };
-  const bulkSourcesForApp = (app) => app.publisher_blocked || app.policyAvailable === false
-    ? [] : blockSourcesForApp(app).filter(([type]) => type !== 'PUBLISHER');
+  const bulkSourcesForApp = (app) => app.policyAvailable === false
+    || (!app.directBlockApplicationId && !app.preconfiguredBlock) ? []
+    : [['APPLICATION', app.directBlockApplicationId || app.id]];
   const appScheduleSummary = (app) => {
     const sources = blockSourcesForApp(app);
     if (!sources.length) return '暂无可执行阻止来源';
-    const active = sources.some(([type, key]) => !scheduleFor(type, key)
-      || Number(scheduleFor(type, key).effective_active) === 1);
-    const range = sources.length === 1 ? scheduleLabel(...sources[0]) : `${sources.length} 条阻止来源`;
-    return `${range} · ${active ? '云端目标阻止' : '云端目标放行'} · ${syncStateLabel()}`;
+    const appId = app.directBlockApplicationId;
+    const appPolicy = appId ? appPolicyFor(appId) : null;
+    const appActive = appId && (!appPolicy || Number(appPolicy.all_day)
+      || appPolicy.windows.some((window) => window.effective_active === 1));
+    const otherActive = sources.some(([type, key]) => type !== 'APPLICATION'
+      && (!scheduleFor(type, key) || Number(scheduleFor(type, key).effective_active) === 1));
+    const range = appId ? appWindowLabel(appId)
+      : [...new Set(sources.filter(([type]) => type !== 'PUBLISHER')
+        .map(([type, key]) => scheduleLabel(type, key)))].join('、');
+    const publisher = app.publisher_blocked && app.team_id
+      ? ` · 发布者 ${scheduleLabel('PUBLISHER', app.team_id)}` : '';
+    return `${range || '发布者规则'}${publisher} · ${appActive || otherActive ? '云端目标阻止' : '云端目标放行'} · ${syncStateLabel()}`;
   };
   const escapeXml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&apos;', '"': '&quot;',
@@ -305,7 +327,7 @@
       <button class="secondary" data-action="IGNORE" data-id="${escapeHtml(app.id)}">忽略</button>
       <button class="danger" data-action="BLOCK" data-id="${escapeHtml(app.id)}">阻止</button>
       <button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
-    if (state.view === 'BLOCK') return `${app.directBlockApplicationId ? `<button class="secondary" data-action="SCHEDULE" data-id="${escapeHtml(app.directBlockApplicationId)}" data-schedule-name="${escapeHtml(app.display_name)}">时间段</button>` : ''}<button class="secondary" data-action="IGNORE" data-id="${escapeHtml(app.id)}">改为忽略</button><button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
+    if (state.view === 'BLOCK') return `${app.directBlockApplicationId || app.preconfiguredBlock ? `<button class="secondary" data-action="SCHEDULE" data-id="${escapeHtml(app.directBlockApplicationId || app.id)}" data-schedule-name="${escapeHtml(app.display_name)}">时间段</button>` : ''}<button class="secondary" data-action="IGNORE" data-id="${escapeHtml(app.id)}">改为忽略</button><button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
     if (state.view === 'IGNORE') return `<button class="danger" data-action="BLOCK" data-id="${escapeHtml(app.id)}">改为阻止</button><button class="quiet" data-action="DETAIL" data-id="${escapeHtml(app.id)}">详情</button>`;
     return '';
   }
@@ -543,23 +565,68 @@
     });
     await loadView();
   }
+  function setBlockScheduleAllDay(allDay) {
+    $('#block-schedule-all-day').checked = allDay;
+    const appMode = state.editingBlockSource?.type === 'APPLICATION' || !!state.editingBlockSources;
+    $('#application-window-editor').hidden = allDay || !appMode;
+    $('#block-schedule-time-range').hidden = allDay || appMode;
+    for (const input of [$('#block-schedule-start'), $('#block-schedule-end')]) {
+      input.disabled = allDay || appMode;
+      input.required = !allDay && !appMode;
+    }
+    $('#application-window-list').querySelectorAll('input').forEach((input) => {
+      input.disabled = allDay || !appMode;
+    });
+  }
+  function addApplicationWindow(start = '09:00', end = '18:00', id = '') {
+    const row = document.createElement('div');
+    row.className = 'application-window-row';
+    row.dataset.windowId = id;
+    row.innerHTML = `<label>开始时间<input type="time" value="${escapeHtml(start)}" required></label>
+      <label>结束时间<input type="time" value="${escapeHtml(end)}" required></label>
+      <button class="secondary" type="button" aria-label="删除时段">删除</button>`;
+    row.querySelector('button').addEventListener('click', () => {
+      if ($('#application-window-list').children.length === 1) {
+        showBlockScheduleError(new Error('最后一条时段不能直接删除；请选择“全天阻止”或改为忽略'));
+        return;
+      }
+      row.remove();
+    });
+    $('#application-window-list').append(row);
+  }
+  function setApplicationWindows(policy) {
+    $('#application-window-list').replaceChildren();
+    for (const window of policy?.windows || []) addApplicationWindow(
+      clockTime(window.start_minute), clockTime(window.end_minute), window.id);
+    if (!policy?.windows?.length) addApplicationWindow();
+  }
+  function showBlockScheduleError(error) {
+    const message = $('#block-schedule-error');
+    message.textContent = error instanceof Error ? error.message : String(error);
+    message.hidden = false;
+  }
   function openBlockSchedule(type, key, name) {
+    $('#block-schedule-error').hidden = true;
     state.editingBlockSource = { type, key };
     state.editingBlockSources = null;
     const scope = type === 'PUBLISHER' ? '该发布者 TeamID 下的全部应用'
-      : type === 'PREDEFINED' ? '这条预配置项核验过的所有组件身份' : '这个应用的独立阻止规则';
+      : type === 'PREDEFINED' ? '这条未接管的预配置项及其核验身份'
+        : '该应用主程序及已核验组件；已匹配预配置仅保留来源记录';
     $('#block-schedule-title').textContent = name;
-    $('#block-schedule-scope').textContent = `作用范围：${scope}。其他阻止来源仍独立生效。`;
+    const app = state.data.find((item) => item.id === key || item.directBlockApplicationId === key);
+    const publisherWarning = type === 'APPLICATION' && app?.publisher_blocked && app.team_id
+      ? ` 发布者 ${app.team_id} 的阻止规则仍独立生效（${scheduleLabel('PUBLISHER', app.team_id)}），修改本应用不会解除该规则。`
+      : '';
+    $('#block-schedule-scope').textContent = `作用范围：${scope}。${publisherWarning}`;
     const existing = scheduleFor(type, key);
-    $('#block-schedule-all-day').checked = !existing;
+    if (type === 'APPLICATION') setApplicationWindows(appPolicyFor(key));
     $('#block-schedule-start').value = existing ? clockTime(existing.start_minute) : '09:00';
     $('#block-schedule-end').value = existing ? clockTime(existing.end_minute) : '18:00';
-    $('#block-schedule-time-range').hidden = !existing;
-    $('#block-schedule-start').required = !!existing;
-    $('#block-schedule-end').required = !!existing;
+    setBlockScheduleAllDay(type === 'APPLICATION' ? !appPolicyFor(key) || !!appPolicyFor(key).all_day : !existing);
     $('#block-schedule-dialog').showModal();
   }
   function openBulkBlockSchedule() {
+    $('#block-schedule-error').hidden = true;
     const selected = state.data.filter((app) => state.selectedBlockAppIds.has(app.id));
     const sources = [...new Map(selected.flatMap(bulkSourcesForApp)
       .map(([type, key]) => [`${type}:${key}`, { sourceType: type, sourceKey: key }])).values()];
@@ -567,17 +634,14 @@
     state.editingBlockSource = null;
     state.editingBlockSources = sources;
     $('#block-schedule-title').textContent = `设置 ${selected.length} 款应用的时间段`;
-    $('#block-schedule-scope').textContent = '将统一覆盖所选应用的独立阻止来源；发布者规则不会被批量修改。';
-    const existing = sources.map((source) => scheduleFor(source.sourceType, source.sourceKey));
-    const same = existing.every((item) => item?.start_minute === existing[0]?.start_minute
-      && item?.end_minute === existing[0]?.end_minute);
-    const initial = same ? existing[0] : null;
-    $('#block-schedule-all-day').checked = !!initial ? false : same;
-    $('#block-schedule-start').value = initial ? clockTime(initial.start_minute) : '09:00';
-    $('#block-schedule-end').value = initial ? clockTime(initial.end_minute) : '18:00';
-    $('#block-schedule-time-range').hidden = $('#block-schedule-all-day').checked;
-    $('#block-schedule-start').required = !$('#block-schedule-all-day').checked;
-    $('#block-schedule-end').required = !$('#block-schedule-all-day').checked;
+    const publisherCount = selected.filter((app) => app.publisher_blocked).length;
+    $('#block-schedule-scope').textContent = `统一设置所选应用及已核验组件；预配置由应用策略接管。发布者规则不会修改${publisherCount ? `，其中 ${publisherCount} 款应用仍可能受发布者规则阻止` : ''}。`;
+    const existing = sources.map((source) => appPolicyFor(source.sourceKey));
+    const same = existing.every((item) => JSON.stringify(item?.windows.map(({ start_minute, end_minute }) => [start_minute, end_minute]))
+      === JSON.stringify(existing[0]?.windows.map(({ start_minute, end_minute }) => [start_minute, end_minute]))
+      && Boolean(item?.all_day ?? true) === Boolean(existing[0]?.all_day ?? true));
+    setApplicationWindows(same ? existing[0] : null);
+    setBlockScheduleAllDay(same ? !existing[0] || !!existing[0].all_day : false);
     $('#block-schedule-dialog').showModal();
   }
   async function saveBlockSchedule(event) {
@@ -588,12 +652,52 @@
     const allDay = $('#block-schedule-all-day').checked;
     const start = $('#block-schedule-start').value;
     const end = $('#block-schedule-end').value;
-    if (!allDay && start === end) throw new Error('开始和结束时间不能相同；全天请勾选“全天阻止”');
-    await native(sources ? '/native/v1/block-schedules/bulk' : '/native/v1/block-schedules', {
+    const appMode = source?.type === 'APPLICATION' || !!sources;
+    if (!appMode && !allDay && start === end) throw new Error('开始和结束时间不能相同；全天请勾选“全天阻止”');
+    if (appMode) {
+      const windows = allDay ? [] : [...$('#application-window-list').children].map((row) => {
+        const [startInput, endInput] = row.querySelectorAll('input');
+        if (startInput.value === endInput.value) throw new Error('开始和结束时间不能相同');
+        return { ...(row.dataset.windowId ? { id: row.dataset.windowId } : {}),
+          start: startInput.value, end: endInput.value };
+      });
+      if (!allDay && !windows.length) throw new Error('至少保留一条时段；或明确选择全天阻止/改为忽略');
+      const applicationIds = sources ? sources.map((item) => item.sourceKey) : [source.key];
+      const url = sources ? '/native/v1/applications/block-policies/bulk'
+        : `/native/v1/applications/${encodeURIComponent(source.key)}/block-policy`;
+      const result = await native(url, { method: 'PUT', body: JSON.stringify(sources
+        ? { applicationIds, allDay, windows } : { allDay, windows }) });
+      const saved = result.data?.applicationPolicies;
+      if (!Array.isArray(saved) || !applicationIds.every((id) => {
+        const policy = saved.find((item) => item.application_id === id);
+        return policy && Boolean(policy.all_day) === allDay && (allDay ||
+          JSON.stringify(policy.windows.map((item) => [item.start_minute, item.end_minute])
+            .sort((a, b) => a[0] - b[0] || a[1] - b[1]))
+          === JSON.stringify(windows.map((item) => [Number(item.start.slice(0, 2)) * 60 + Number(item.start.slice(3, 5)),
+            Number(item.end.slice(0, 2)) * 60 + Number(item.end.slice(3, 5))])
+            .sort((a, b) => a[0] - b[0] || a[1] - b[1])));
+      })) throw new Error('应用时段未保存，请重试');
+      state.blockSchedules = result.data;
+      $('#block-schedule-dialog').close();
+      state.selectedBlockAppIds.clear();
+      if ($('#application-detail-dialog').open) $('#application-detail-dialog').close();
+      await loadView();
+      return;
+    }
+    const result = await native(sources ? '/native/v1/block-schedules/bulk' : '/native/v1/block-schedules', {
       method: 'POST', body: JSON.stringify(sources
         ? { sources, allDay, start, end }
         : { sourceType: source.type, sourceKey: source.key, allDay, start, end }),
     });
+    const expected = sources || [{ sourceType: source.type, sourceKey: source.key }];
+    const responseSchedules = result.data?.schedules;
+    const startMinute = Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5));
+    const endMinute = Number(end.slice(0, 2)) * 60 + Number(end.slice(3, 5));
+    if (!Array.isArray(responseSchedules) || !expected.every(({ sourceType, sourceKey }) => {
+      const saved = responseSchedules.find((item) => item.source_type === sourceType && item.source_key === sourceKey);
+      return allDay ? !saved : saved?.start_minute === startMinute && saved?.end_minute === endMinute;
+    })) throw new Error('时间段未保存，请重试');
+    state.blockSchedules = result.data;
     $('#block-schedule-dialog').close();
     state.selectedBlockAppIds.clear();
     if ($('#application-detail-dialog').open) $('#application-detail-dialog').close();
@@ -621,6 +725,18 @@
       ['最近发现', Number(app.observed) ? formatTime(app.last_observed_at) : '尚未在终端发现'],
     ];
     $('#detail-application-fields').innerHTML = fields.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('');
+    const policySection = $('#detail-application-policy');
+    policySection.hidden = state.view !== 'BLOCK';
+    if (state.view === 'BLOCK') {
+      const appId = app.directBlockApplicationId || (app.preconfiguredBlock ? app.id : null);
+      const windows = appId ? appPolicyFor(appId)?.windows || [] : [];
+      const windowRows = appId ? (windows.length
+        ? windows.map((window) => `<div><strong>${escapeHtml(clockTime(window.start_minute))}–${escapeHtml(clockTime(window.end_minute))}</strong><small>每日阻止</small></div>`).join('')
+        : '<div><strong>全天</strong><small>每日阻止</small></div>') : '';
+      const publisherRow = app.publisher_blocked && app.team_id
+        ? `<div><strong>发布者规则 · ${escapeHtml(scheduleLabel('PUBLISHER', app.team_id))}</strong><small>适用于 ${escapeHtml(app.team_id)} 下所有应用；独立于本应用策略</small></div>` : '';
+      policySection.innerHTML = `<h3>有效阻止策略</h3><div class="detail-component-list">${windowRows}${publisherRow}</div>`;
+    }
     const componentSection = $('#detail-application-components');
     componentSection.hidden = components.length === 0;
     componentSection.innerHTML = components.length ? `<h3>内部组件 <span>${components.length}</span></h3><div class="detail-component-list">${components.map((item) => `<div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.bundle_id || item.top_level_bundle_id || '未提供 Bundle ID')}</small><code>${escapeHtml(item.sample_path || '未提供执行路径')}</code></div>`).join('')}</div>` : '';
@@ -629,7 +745,8 @@
     sourceSection.innerHTML = sources.length ? `<h3>预配置来源 <span>${sources.length}</span></h3><div class="detail-component-list">${sources.map((item) => {
       const old = item.source === 'qustodio-2026-09' ? oldItems.get(item.source_index) : null;
       const pending = (old?.identities || []).filter((identity) => identity.status === 'NEEDS_CONFIRM');
-      return `<div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.source)} · ${item.desired_state === 'BLOCK' ? '期望阻止' : '候选，不下发规则'}${old ? ` · ${escapeHtml(old.status)}` : ''}</small>${item.desired_state === 'BLOCK' ? `<button class="quiet" data-schedule-type="PREDEFINED" data-schedule-key="${escapeHtml(JSON.stringify([item.source, item.source_index]))}" data-schedule-name="${escapeHtml(item.display_name)}">时间段 ${escapeHtml(scheduleLabel('PREDEFINED', JSON.stringify([item.source, item.source_index])))}</button>` : ''}${pending.map((identity) => `<div class="predefined-identity"><code>${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code><button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">确认身份</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">排除</button></div>`).join('')}</div>`;
+      const takenOver = !!app.directBlockApplicationId;
+      return `<div><strong>${escapeHtml(item.display_name)}</strong><small>${escapeHtml(item.source)} · ${takenOver ? '已由手动应用策略接管' : item.desired_state === 'BLOCK' ? '预配置阻止' : '候选，不下发规则'}${old && !takenOver ? ` · ${escapeHtml(old.status)}` : ''}</small>${item.desired_state === 'BLOCK' && !takenOver ? `<button class="quiet" data-schedule-type="PREDEFINED" data-schedule-key="${escapeHtml(JSON.stringify([item.source, item.source_index]))}" data-schedule-name="${escapeHtml(item.display_name)}">时间段 ${escapeHtml(scheduleLabel('PREDEFINED', JSON.stringify([item.source, item.source_index])))}</button>` : ''}${pending.map((identity) => `<div class="predefined-identity"><code>${escapeHtml(identity.identity_type)} · ${escapeHtml(identity.identifier)}</code><button class="quiet" data-preset-action="CONFIRM" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">确认身份</button><button class="quiet" data-preset-action="REJECT" data-index="${item.source_index}" data-key="${escapeHtml(identity.identity_key)}">排除</button></div>`).join('')}</div>`;
     }).join('')}</div>` : '';
     const advanced = $('#detail-application-advanced');
     const advancedActions = [];
@@ -730,14 +847,10 @@
       loadView();
     }));
     $('#refresh-button').addEventListener('click', loadView);
-    $('#block-schedule-all-day').addEventListener('change', (event) => {
-      const timed = !event.target.checked;
-      $('#block-schedule-time-range').hidden = !timed;
-      $('#block-schedule-start').required = timed;
-      $('#block-schedule-end').required = timed;
-    });
+    $('#block-schedule-all-day').addEventListener('change', (event) => setBlockScheduleAllDay(event.target.checked));
+    $('#add-application-window').addEventListener('click', () => addApplicationWindow());
     $('#cancel-block-schedule').addEventListener('click', () => $('#block-schedule-dialog').close());
-    $('#block-schedule-form').addEventListener('submit', (event) => saveBlockSchedule(event).catch(showError));
+    $('#block-schedule-form').addEventListener('submit', (event) => saveBlockSchedule(event).catch(showBlockScheduleError));
     $('#cancel-time-zone').addEventListener('click', () => $('#time-zone-dialog').close());
     $('#time-zone-form').addEventListener('submit', (event) => {
       event.preventDefault();

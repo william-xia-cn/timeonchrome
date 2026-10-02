@@ -146,6 +146,8 @@ export interface AppProduct {
   name: string;
   type: AppType;
   selectors: Array<{ platform: AppPlatform; match: MatchExpression }>;
+  /** Explicitly reviewed, non-authoritative execution hints. Never establish product identity. */
+  suspectedMatchers?: Array<{ platform: 'windows'; signerKey: string; productName: string }>;
 }
 export interface ClassificationRule {
   id: string;
@@ -164,15 +166,25 @@ export interface ClassificationRule {
 }
 export interface ChildProductBinding {
   childId: string;
-  products: Array<{ productId: string; classification: AppClass }>;
+  products: Array<{ productId: string; classification: AppClass; enhancedBlocking?: boolean }>;
   ruleIds: string[];
 }
 export interface ApplicationKnowledge {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
   version: number;
   products: AppProduct[];
   rules: ClassificationRule[];
   bindings: ChildProductBinding[];
+}
+export interface ProductBlockPolicyV1 {
+  schemaVersion: 1;
+  knowledgeVersion: number;
+  associationVersion: string;
+  entries: Array<{
+    productId: string;
+    strongMatchers: Array<{ field: 'packageId' | 'fileSeriesKey' | 'binaryHash'; value: string }>;
+    suspectedMatchers: Array<{ signerKey: string; productName: string }>;
+  }>;
 }
 export interface ClassificationResolution {
   productId: string | null;

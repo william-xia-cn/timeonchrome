@@ -19,6 +19,10 @@ on:
         description: Deploy main console Pages (separate approval scope)
         type: boolean
         default: false
+      bootstrap_computer_usage_rpc:
+        description: First deployment only; requires both Runtime and Guardian Workers
+        type: boolean
+        default: false
       apply_runtime_migrations:
         description: Apply exactly the expected pending Runtime migrations
         type: boolean
@@ -55,7 +59,14 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - name: Release preflight
+        env:
+          BOOTSTRAP_COMPUTER_USAGE_RPC: ${{ inputs.bootstrap_computer_usage_rpc }}
+          DEPLOY_BOTH_WORKERS: ${{ inputs.deploy_runtime_worker && inputs.deploy_guardian_worker }}
         run: |
+          if [[ "$BOOTSTRAP_COMPUTER_USAGE_RPC" == true && "$DEPLOY_BOTH_WORKERS" != true ]]; then
+            echo 'RPC bootstrap requires both Worker deployments' >&2
+            exit 1
+          fi
           test -n "$CLOUDFLARE_API_TOKEN" || { echo 'Missing production CLOUDFLARE_API_TOKEN secret' >&2; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo 'Missing production CLOUDFLARE_ACCOUNT_ID variable' >&2; exit 1; }
           test -z "$(git status --porcelain)"
@@ -123,14 +134,33 @@ jobs:
             npx wrangler d1 migrations apply timeonchrome-app-runtime --remote
             echo "applied=$actual" >> "$GITHUB_OUTPUT"
           fi
-      - name: Runtime Worker
-        if: inputs.deploy_runtime_worker
+      - name: Runtime RPC bootstrap
+        if: inputs.bootstrap_computer_usage_rpc && inputs.deploy_runtime_worker && inputs.deploy_guardian_worker
         working-directory: app-runtime-management/backend
-        run: npx wrangler deploy
+        run: |
+          # Publish the target entrypoint first without its new reverse binding.
+          # Source SHA, other bindings, secrets, migrations and CI gates are unchanged.
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          config.main = path.resolve(config.main);
+          delete config.$schema;
+          config.services = (config.services || []).filter(binding => binding.binding !== 'GUARDIAN_COMPUTER_USAGE');
+          for (const db of config.d1_databases || []) {
+            if (db.migrations_dir) db.migrations_dir = path.resolve(db.migrations_dir);
+          }
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'runtime-rpc-bootstrap.json'), JSON.stringify(config));
+          NODE
+          npx wrangler deploy --config "$RUNNER_TEMP/runtime-rpc-bootstrap.json"
       - name: Guardian Worker
         if: inputs.deploy_guardian_worker
         working-directory: app-runtime-management/backend
         run: npx wrangler deploy --config ../../workers/wrangler.toml
+      - name: Runtime Worker
+        if: inputs.deploy_runtime_worker
+        working-directory: app-runtime-management/backend
+        run: npx wrangler deploy
       - name: Runtime Pages
         if: inputs.deploy_runtime_pages
         working-directory: app-runtime-management/backend

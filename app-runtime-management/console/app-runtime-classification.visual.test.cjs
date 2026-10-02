@@ -11,10 +11,13 @@ const {chromium}=require('playwright');
    const name=viewport.width===390?'mobile':'desktop',context=await browser.newContext({viewport}),page=await context.newPage(),errors=[];
    page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.type()==='prompt'?dialog.accept('Separate fixture'):dialog.accept());
    await page.route('https://**/*',route=>route.abort()); // Mock only, never production.
-   await page.goto(pathToFileURL(path.resolve('app-runtime-management/console/index.html')).href+'?mock=1&inventoryFixtures=80');
-   await page.waitForSelector('#app-category-nav .app-category-item',{state:'attached'});
+   const pageUrl=process.env.APP_RUNTIME_VISUAL_BASE_URL
+    ? new URL('/index.html',process.env.APP_RUNTIME_VISUAL_BASE_URL).href
+    : pathToFileURL(path.resolve('app-runtime-management/console/index.html')).href;
+   await page.goto(pageUrl+'?mock=1&inventoryFixtures=80');
    if(name==='mobile'){await page.click('#mobile-menu');}
    await page.click('[data-view="apps"]');
+   await page.waitForSelector('#app-category-nav .app-category-item',{state:'attached'});
    assert.equal(await page.locator('.nav-item').count(),5);assert.equal(await page.locator('#app-category-nav button').count(),5);
    assert.equal(await page.locator('[data-view-panel="apps"] .tabbar').count(),0);
    await page.screenshot({path:path.join(artifacts,`${name}-directory.png`),fullPage:true});
@@ -24,6 +27,10 @@ const {chromium}=require('playwright');
    assert.equal(await page.locator('#product-panel .knowledge-child:checked').count(),1);
    assert.equal(await page.locator('#discovered-applications .knowledge-item').count(),80);
    await page.screenshot({path:path.join(artifacts,`${name}-products.png`)});
+   await page.selectOption('#confirmed-products [data-product-class="0"]','blocked');
+   await page.waitForSelector('#confirmed-products [data-enhanced-product="0"]');
+   assert.match(await page.locator('#confirmed-products').innerText(),/疑似变体：关闭/);
+   await page.screenshot({path:path.join(artifacts,`${name}-product-block.png`)});
    const metrics=await page.locator('#product-dialog').evaluate(element=>({dialog:element.getBoundingClientRect().bottom,footer:element.querySelector('footer').getBoundingClientRect().bottom,scroll:element.querySelector('.knowledge-body').scrollHeight,client:element.querySelector('.knowledge-body').clientHeight,overflow:element.scrollWidth-element.clientWidth}));
    assert(metrics.dialog<=viewport.height+1&&metrics.footer<=viewport.height+1);assert(metrics.scroll>metrics.client);assert(metrics.overflow<=1);
    await page.selectOption('#confirm-observation','0');await page.fill('#confirm-name','Editor fixture');await page.selectOption('#confirm-type','other');await page.selectOption('#confirm-class','study');
@@ -43,9 +50,9 @@ const {chromium}=require('playwright');
    await page.fill('#product-search','受控应用夹具 80');assert.equal(await page.locator('#discovered-applications .knowledge-item:not([hidden])').count(),1);
    await page.click('#product-dialog footer [data-knowledge-close]');
    await page.click('#open-rules');await page.waitForSelector('#rule-dialog[open]');
-   assert.match(await page.locator('#classification-rules').innerText(),/系统应用默认归为复合/);
-   assert.match(await page.locator('#classification-rules').innerText(),/已确认的游戏、游戏平台和游戏工具默认归为受限娱乐/);
-   assert.match(await page.locator('#classification-rules').innerText(),/家庭自定义规则/);
+   assert.match(await page.locator('#rule-panel').innerText(),/系统默认：系统应用归为复合/);
+   assert.match(await page.locator('#rule-panel').innerText(),/已确认的游戏、游戏平台和游戏工具归为受限娱乐/);
+   assert.match(await page.locator('#classification-rules').innerText(),/家庭自定义分类规则/);
    await page.locator('#rule-dialog .knowledge-body').evaluate(element=>{element.scrollTop=0;});
    await page.screenshot({path:path.join(artifacts,`${name}-type-rule.png`)});
    await page.fill('#rule-name','Weak game clue');await page.selectOption('#rule-kind','type');await page.fill('#rule-product-name','Fixture video');await page.fill('#rule-reason','Name only, parent review required');

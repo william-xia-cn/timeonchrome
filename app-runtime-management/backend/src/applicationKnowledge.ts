@@ -8,12 +8,13 @@ import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { isRecord } from './validation';
 import { controlledProducts, systemToolPackageIds } from './productCatalogRules';
-import { buildProductIdentityProjection, productIdentityItems, productProjectionEvidence, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
+import { buildProductIdentityProjection, includeHistoricalStandaloneIdentities, productIdentityItems, productProjectionEvidence, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
+import { buildProductBlockPolicy } from './productBlockPolicy';
 
 export const knowledgeEtag = (version: number) => `"application-knowledge-v${version}"`;
 export function effectiveApplicationKnowledge(value: ApplicationKnowledge): ApplicationKnowledge {
   const products = value.products.filter(item=>!controlledProducts.some(builtin=>builtin.id===item.id)).concat(controlledProducts);
-  return {...value,schemaVersion:2,products};
+  return {...value,schemaVersion:value.schemaVersion >= 3 ? 3 : 2,products};
 }
 
 export const defaultSystemApplicationRuleId = 'builtin.default.system-application.composite';
@@ -103,8 +104,11 @@ export function resolvePolicyApplications(knowledge: ApplicationKnowledge, child
   const resolved = items.map(item => {
     const prior = previous.find(entry => entry.platform === item.platform && entry.runtimeIdentity === item.runtimeIdentity);
     const key = `${item.platform}\n${item.runtimeIdentity}`;
-    const classification = configured.get(key)
-      ?? productChoices.get(products.get(key) ?? '')
+    const productChoice = productChoices.get(products.get(key) ?? '');
+    // A parent blocks the product, not only the known implementation hash.
+    // Preserve a variant's ordinary choice for restoration after unblocking.
+    const classification = productChoice === 'blocked' ? 'blocked' : configured.get(key)
+      ?? productChoice
       ?? resolveEffectiveApplication(knowledge, childId, item, prior?.classification).classification;
     return { platform: item.platform, runtimeIdentity: item.runtimeIdentity, displayName: item.displayName, classification };
   }).filter(item => item.classification !== 'unclassified');
@@ -115,32 +119,47 @@ export function resolvePolicyApplications(knowledge: ApplicationKnowledge, child
 /** Freeze server resolutions in the same transaction as knowledge/inventory; old ledger stays unchanged. */
 async function policyStatements(db: D1Database, accountId: string, knowledge: ApplicationKnowledge,
     childIds: string[], evidence: AppEvidence[], nowMs: number, repairWeekStart?: string,
-    preserveRepairWindow = false): Promise<D1PreparedStatement[]> {
+    preserveRepairWindow = false, migrateBlockedChildIds: readonly string[] = []): Promise<D1PreparedStatement[]> {
   const statements: D1PreparedStatement[] = [];
   const effectiveKnowledge = effectiveApplicationKnowledge(knowledge);
   for (const childId of childIds) {
+    const migrateBlockedEntries = migrateBlockedChildIds.includes(childId);
     const current = await getAppPolicy(db, accountId, childId);
     const correctionWeek = repairWeekStart ?? (preserveRepairWindow ? current.repairWeekStart : undefined);
     const previous = current.resolvedApplications ?? [];
-    const resolvedApplications = resolvePolicyApplications(effectiveKnowledge, childId, evidence, current.classifications, previous);
+    const blockedProducts = new Set(effectiveKnowledge.bindings.find(item => item.childId === childId)?.products
+      .filter(item => item.classification === 'blocked').map(item => item.productId) ?? []);
+    const confirmed = migrateBlockedEntries && blockedProducts.size
+      ? new Map(productIdentityItems(evidence, effectiveKnowledge, current.classifications)
+        .filter(item => item.status === 'confirmed').map(item => [`${item.platform}\n${item.runtimeIdentity}`, item.productId]))
+      : new Map<string, string | null>();
+    const classifications = migrateBlockedEntries ? current.classifications.filter(item =>
+      item.classification !== 'blocked' || !blockedProducts.has(confirmed.get(`${item.platform}\n${item.runtimeIdentity}`) ?? ''))
+      : current.classifications;
+    const resolvedApplications = resolvePolicyApplications(effectiveKnowledge, childId, evidence, classifications, previous);
     const binding = effectiveKnowledge.bindings.filter(item => item.childId === childId);
     const enabled = new Set(binding.flatMap(item => item.ruleIds));
     const scoped = { ...effectiveKnowledge, bindings: binding, rules: effectiveKnowledge.rules.filter(rule => enabled.has(rule.id)) };
-    const productIdentityProjection = await buildProductIdentityProjection(evidence, scoped, current.classifications);
+    const productIdentityProjection = await includeHistoricalStandaloneIdentities(db,accountId,childId,
+      await buildProductIdentityProjection(evidence, scoped, classifications),nowMs);
+    const productBlockPolicy = buildProductBlockPolicy(scoped, childId, productIdentityProjection.version);
     if (!repairWeekStart && current.productIdentityProjection?.version === productIdentityProjection.version
+        && canonical(current.classifications) === canonical(classifications)
         && canonical(current.resolvedApplications ?? []) === canonical(resolvedApplications)
-        && canonical(current.applicationKnowledge ?? null) === canonical(scoped)) continue;
-    const payload = canonical({ classifications: current.classifications, quotas: current.quotas,
+        && canonical(current.applicationKnowledge ?? null) === canonical(scoped)
+        && canonical(current.productBlockPolicy ?? null) === canonical(productBlockPolicy)) continue;
+    const payload = canonical({ classifications, quotas: current.quotas,
       timeWindows: current.timeWindows, applicationKnowledge: scoped, resolvedApplications,
       productIdentityProjection,
+      productBlockPolicy,
       ...(correctionWeek ? { repairWeekStart: correctionWeek } : {}),
-      weekReclassification: buildWeekReclassification({ classifications: current.classifications, resolvedApplications },
+      weekReclassification: buildWeekReclassification({ classifications, resolvedApplications },
         correctionWeek ? Date.parse(`${correctionWeek}T00:00:00+08:00`) : nowMs, current) });
     statements.push(db.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
       (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms)
       VALUES(?1,?2,?3,?4,?5,?6,?6)`).bind(accountId, childId, current.version + 1, payload, await sha256Hex(payload), nowMs));
-    // Explicit technical identity choices remain higher priority than rule projections.
-    for (const entry of current.classifications) statements.push(db.prepare(`INSERT INTO runtime_app_classification_history_v1
+    // Old classification history remains immutable; only the new snapshot omits migrated redundant entries.
+    for (const entry of classifications) statements.push(db.prepare(`INSERT INTO runtime_app_classification_history_v1
       (account_id,child_id,platform,runtime_identity,policy_version,classification,display_name,effective_at_ms,created_at_ms)
       VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?8)`).bind(accountId, childId, entry.platform, entry.runtimeIdentity,
         current.version + 1, entry.classification, entry.displayName, nowMs));
@@ -172,23 +191,50 @@ async function inventoryPolicyChildren(db: D1Database, accountId: string) {
   return { childIds: rows.results.map(item => item.child_id), hasExplicit: Boolean(explicit) };
 }
 export async function putApplicationKnowledge(db: D1Database, accountId: string, childIds: string[],
-    expected: string | null, update: ApplicationKnowledge, nowMs: number, action = 'publish', repairWeekStart?: string) {
+    expected: string | null, update: ApplicationKnowledge, nowMs: number, action = 'publish', repairWeekStart?: string,
+    migrateBlockedChildIds: readonly string[] = []) {
   validateRepairWeek(repairWeekStart);
   if (!['publish','import','confirm','merge','split','undo'].includes(action)) throw new HttpError(400, 'INVALID_KNOWLEDGE_ACTION', 'Application operation is invalid.');
   const current = await getApplicationKnowledge(db, accountId);
   if (expected !== knowledgeEtag(current.version)) throw new HttpError(412, 'APPLICATION_KNOWLEDGE_CONFLICT', 'Application data changed. Reload before saving.');
   const next = { ...update, version: current.version + 1 };
-  const payload = canonical(next), hash = await sha256Hex(payload);
   const inventory = await listApplicationInventory(db, accountId);
+  validateSuspectedMatchers(next, current, inventory.map(item => item.evidence));
+  const payload = canonical(next), hash = await sha256Hex(payload);
   const statements = [db.prepare(`INSERT INTO runtime_application_knowledge_versions_v1
     (account_id,version,payload_json,payload_hash,created_at_ms) VALUES(?1,?2,?3,?4,?5)`)
     .bind(accountId, next.version, payload, hash, nowMs),
     db.prepare(`INSERT INTO runtime_application_knowledge_audit_v1
       (account_id,version,action,previous_hash,next_hash,created_at_ms) VALUES(?1,?2,?3,?4,?5,?6)`)
       .bind(accountId, next.version, action, await sha256Hex(canonical(current)), hash, nowMs),
-    ...await policyStatements(db, accountId, next, childIds, inventory.map(item => item.evidence), nowMs, repairWeekStart)];
+    ...await policyStatements(db, accountId, next, childIds, inventory.map(item => item.evidence), nowMs,
+      repairWeekStart, false, migrateBlockedChildIds)];
   await batch(db, statements);
   return next;
+}
+
+function validateSuspectedMatchers(knowledge: ApplicationKnowledge, previous: ApplicationKnowledge,
+    evidence: AppEvidence[]): void {
+  const projection = productIdentityItems(evidence, effectiveApplicationKnowledge(knowledge));
+  const confirmed = new Map(projection.filter(item => item.status === 'confirmed' && item.productId)
+    .map(item => [`${item.platform}\n${item.runtimeIdentity}`, item.productId]));
+  for (const product of knowledge.products) for (const hint of product.suspectedMatchers ?? []) {
+    const wasApproved = previous.products.some(item => item.id === product.id
+      && item.suspectedMatchers?.some(existing => existing.platform === hint.platform
+        && existing.signerKey === hint.signerKey && existing.productName === hint.productName));
+    const approved = evidence.some(item => item.platform === 'windows'
+      && confirmed.get(`${item.platform}\n${item.runtimeIdentity}`) === product.id
+      && item.verifiedFields.includes('signerKey') && item.values.signerKey === hint.signerKey
+      && item.values.productName === hint.productName);
+    if (!wasApproved && !approved) throw new HttpError(400, 'UNREVIEWED_PRODUCT_BLOCK_MATCHER',
+      'A suspected-variant matcher needs confirmed, signed product evidence.');
+  }
+  for (const binding of knowledge.bindings) for (const choice of binding.products) {
+    if (!choice.enhancedBlocking) continue;
+    const product = knowledge.products.find(item => item.id === choice.productId);
+    if (!product?.suspectedMatchers?.length) throw new HttpError(400, 'PRODUCT_BLOCK_EVIDENCE_REQUIRED',
+      'Enhanced blocking needs reviewed product evidence.');
+  }
 }
 
 export function validateRepairWeek(value: unknown): string | undefined {
@@ -209,6 +255,9 @@ export async function promoteProductClassifications(knowledge: ApplicationKnowle
   for (const entry of explicit) {
     const product = byIdentity.get(`${entry.platform}\n${entry.runtimeIdentity}`);
     if (product?.status !== 'confirmed' || !product.productId) continue;
+    // A product block intentionally overrides, but does not erase, ordinary variant choices.
+    if (entry.classification !== 'blocked' && binding?.products.some(item =>
+      item.productId === product.productId && item.classification === 'blocked')) continue;
     const values = choices.get(product.productId) ?? new Set<AppClass>();
     values.add(entry.classification); choices.set(product.productId, values);
   }
@@ -305,9 +354,15 @@ export async function applyKnowledgeOperation(db:D1Database,accountId:string,chi
   const repairWeekStart = validateRepairWeek(value.repairWeekStart);
   let next=parseKnowledge(knowledge,childIds);
   const migrationConflicts: Array<{ childIndex: number; productId: string; classifications: AppClass[] }> = [];
+  const migrateChildIds = value.migrateExplicitClassifications === true
+    ? (Array.isArray(value.migrateChildIds) ? value.migrateChildIds : childIds) : [];
+  if (!migrateChildIds.every(item => typeof item === 'string' && childIds.includes(item))
+      || new Set(migrateChildIds).size !== migrateChildIds.length)
+    throw new HttpError(400,'CHILD_NOT_FOUND','Migration target Child is invalid.');
   if (value.migrateExplicitClassifications === true) {
     const inventory = await listApplicationInventory(db, accountId);
     for (const [childIndex, childId] of childIds.entries()) {
+      if (!migrateChildIds.includes(childId)) continue;
       const policy = await getAppPolicy(db, accountId, childId);
       const migration = await promoteProductClassifications(next, childId, inventory.map(item => item.evidence), policy.classifications);
       next = migration.knowledge;
@@ -329,7 +384,8 @@ export async function applyKnowledgeOperation(db:D1Database,accountId:string,chi
       ...(repairWeekStart ? { repairWeekStart } : {})};
   }
   if (migrationConflicts.length) throw new HttpError(409, 'PRODUCT_CLASSIFICATION_CONFLICT', 'Review conflicting product classifications before applying.');
-  return putApplicationKnowledge(db,accountId,childIds,expected,next,nowMs,String(value.action),repairWeekStart);
+  return putApplicationKnowledge(db,accountId,childIds,expected,next,nowMs,String(value.action),repairWeekStart,
+    migrateChildIds);
 }
 
 export async function syncApplicationInventory(db: D1Database, accountId: string, machineId: string,

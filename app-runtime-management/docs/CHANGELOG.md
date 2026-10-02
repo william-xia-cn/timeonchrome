@@ -1,5 +1,11 @@
 # App Runtime Changelog
 
+## 2026-10-01：D-113 云端统计发布（非整体实机完成）
+
+- 契约 1.20.0 与云端实现经 PR #159/#160 合入；精确 master `646fbfe` CI 成功，受保护运行 `36834193889` 仅发布 Runtime Worker 与 additive 0013 派生统计表。
+- 新接收/发布分离、Child 持久化归集和旧日期后台兼容读取上线，schema/health/未认证 401 核对通过。Pages、Guardian、R2 latest 2.3.1、原账及现有配额未改。
+- Windows 2.6.13 非-main 候选已构建，不作已安装/已验收；共享基线隔离整合与实际补发/固定截止/真实页面性能仍待完成，Mac D-113 延后。证据统一见根 TASK_BOARD。
+
 ## 2026-09-27：补录历史发布证据（不是重新发布）
 
 - 来源 `5f14cab` / 旧 PR #12：恢复 `docs/release/APP_RUNTIME_CLASSIFICATION_RELEASE_2026-09-15.json` 原始文件，保留当时的测试、批准例外、未验收项和风险，不把其中 2.0.6/latest 或历史部署当作当前版本。

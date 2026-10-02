@@ -92,6 +92,15 @@ input, select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px so
 .checkbox-label { display: flex !important; align-items: center; gap: 9px; color: var(--text) !important; }
 .checkbox-label input { width: 18px; min-height: 18px; height: 18px; margin: 0; }
 .time-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.time-range[hidden] { display: none; }
+.application-window-list { display: grid; gap: 8px; margin-bottom: 10px; }
+.application-window-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.application-window-row button { min-height: 40px; }
+#application-window-editor[hidden] { display: none; }
+.application-window-row label { min-width: 0; }
+@media (max-width: 480px) { .application-window-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .application-window-row button { grid-column: 2; justify-self: end; } }
+.dialog-error { margin: 0; color: #a22138; font-size: 13px; }
+.dialog-error[hidden] { display: none; }
 .schedule-line { color: var(--text); font-size: 12px; }
 .schedule-line.pending { color: #9b5900; }
 @media (max-width: 480px) { .time-range { grid-template-columns: 1fr; } }

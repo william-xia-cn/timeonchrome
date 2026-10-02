@@ -1,7 +1,10 @@
 import { requireAccountModule, requireMachine } from './auth';
+import { routeApplicationAccounts } from './applicationAccounts';
+import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import { resolveRuntimeOsVersion } from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
 import { machineUsageCorrections } from './applicationUsageCorrections';
+import { readPersistentApplicationUsage } from './applicationStatistics';
 import { getApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
   putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
   applyKnowledgeOperation } from './applicationKnowledge';
@@ -41,7 +44,6 @@ import {
   parseAppPolicyUpdate,
   parseCursor,
   putAppPolicy,
-  queryAppUsage,
   queryAppCatalog,
   queryClassificationRecords,
   queryRuntimeLogs,
@@ -59,7 +61,7 @@ import {
 
 const policyStates = new Set(['pending', 'cached', 'applied', 'failed', 'offline']);
 
-export async function routeV2(request: Request, env: Env, nowMs: number): Promise<Response | null> {
+export async function routeV2(request: Request, env: Env, nowMs: number, defer?:(work:Promise<unknown>)=>void): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/v2/') && url.pathname !== '/v1/devices/self/retire') return null;
 
@@ -122,6 +124,34 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
       }
       return { fromMs, toMs };
     };
+    if (url.pathname === '/v2/module/computer-usage') {
+      if(request.method!=='GET')return methodNotAllowed('GET');
+      const childId=requireChild();
+      if(!env.GUARDIAN_COMPUTER_USAGE)throw new HttpError(503,'COMPUTER_USAGE_UNAVAILABLE','统一统计服务尚未连接。');
+      const from=url.searchParams.get('from')||'',to=url.searchParams.get('to')||'';
+      const start=Date.parse(`${from}T00:00:00+08:00`),end=Date.parse(`${to}T00:00:00+08:00`);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||!Number.isFinite(start)||!Number.isFinite(end)
+        ||end<start||end-start>6*86400000||new Date(start+8*3600000).toISOString().slice(0,10)!==from||new Date(end+8*3600000).toISOString().slice(0,10)!==to)
+        throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
+      const binding=env.GUARDIAN_COMPUTER_USAGE as unknown as {getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly?:boolean):Promise<import('@timeonchrome/app-runtime-contracts/computer-usage').ComputerUsageResult>;getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string):Promise<unknown>};
+      const source=url.searchParams.get('source');
+      if(source){if(!['application','web','media'].includes(source))throw new HttpError(400,'INVALID_SOURCE','统计来源无效。');return jsonResponse(await binding.getIndependentUsage(claims.account_id,childId,from,to,source));}
+      const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||100);
+      if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>100)
+        throw new HttpError(400,'INVALID_CURSOR','时间线分页无效。');
+      const detail=url.searchParams.get('detail')||'summary';
+      if(!['summary','timeline','products'].includes(detail)||detail!=='summary'&&!url.searchParams.get('revision')||offset>0&&!url.searchParams.get('revision'))
+        throw new HttpError(400,'INVALID_CURSOR','明细须使用同一汇总版本。');
+      const expected=url.searchParams.get('revision'),product=url.searchParams.get('product');
+      if(expected&&!/^computer-v1:[a-f0-9]{64}$/.test(expected)||product&&detail!=='timeline')
+        throw new HttpError(400,'INVALID_CURSOR','明细请求无效。');
+      const snapshot=await binding.getComputerUsage(claims.account_id,childId,from,to,url.searchParams.get('computer')||undefined,detail==='summary');
+      if(url.searchParams.has('revision')&&url.searchParams.get('revision')!==snapshot.revision)
+        throw new HttpError(409,'COMPUTER_USAGE_VERSION_CHANGED','统一统计已更新，请重新读取。');
+      try{return jsonResponse(computerUsageReadPage(snapshot,detail as 'summary'|'timeline'|'products',expected||undefined,offset,limit,product||undefined));}
+      catch(error){if(error instanceof Error&&['INVALID_PRODUCT','INVALID_PRODUCT_DETAIL','INVALID_PAGINATION'].includes(error.message))
+        throw new HttpError(400,error.message,'明细请求无效。');throw error;}
+    }
     if (url.pathname === '/v2/module/app-policy') {
       const childId = requireChild();
       if (request.method === 'GET') {
@@ -183,12 +213,13 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
       if (platform != null && platform !== 'windows' && platform !== 'macos') {
         throw new HttpError(400, 'INVALID_PLATFORM', 'Platform is invalid.');
       }
-      return jsonResponse(await queryAppUsage(env.RUNTIME_DB, claims.account_id, childId,
+      const result=await readPersistentApplicationUsage(env.RUNTIME_DB, claims.account_id, childId,
         range.fromMs, range.toMs, {
           machineId: url.searchParams.get('machineId') || undefined,
           localUserId: url.searchParams.get('userId') || undefined,
           platform: platform || undefined,
-        }));
+        },defer,nowMs);
+      return jsonResponse({...result.value,statistics:result.statistics},{headers:{'x-application-usage-cache':result.cacheStatus}});
     }
     if (url.pathname === '/v2/module/usage-segments' || url.pathname === '/v2/module/media-segments') {
       if (request.method !== 'GET') return methodNotAllowed('GET');
@@ -343,6 +374,9 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
   }
 
   // Heartbeat records activity only after the complete payload passes validation.
+  if (url.pathname.startsWith('/v2/machines/application-accounts/')) {
+    return routeApplicationAccounts(request, env.RUNTIME_DB, await requireMachine(request, env.RUNTIME_DB, nowMs, false), nowMs);
+  }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
     url.pathname !== '/v2/machines/heartbeat');
   if (url.pathname === '/v2/machines/app-usage-corrections') {
@@ -403,10 +437,16 @@ export async function routeV2(request: Request, env: Env, nowMs: number): Promis
       || typeof body.policyState !== 'string' || !policyStates.has(body.policyState)) {
       throw new HttpError(400, 'INVALID_REQUEST', 'Heartbeat state is invalid.');
     }
+    if (body.capabilities !== undefined && (!Array.isArray(body.capabilities)
+      || body.capabilities.length > 16 || body.capabilities.some(item => typeof item !== 'string'
+        || item.length < 1 || item.length > 64))) {
+      throw new HttpError(400, 'INVALID_REQUEST', 'Heartbeat capabilities are invalid.');
+    }
     await recordMachineHeartbeat(env.RUNTIME_DB, machine, {
       serviceVersion: String(body.serviceVersion), osVersion: version.osVersion,
       architecture: String(body.architecture), tamperCount: Number(body.tamperCount),
       policyState: body.policyState as 'pending' | 'cached' | 'applied' | 'failed' | 'offline',
+      capabilities: Array.isArray(body.capabilities) ? body.capabilities as string[] : [],
     }, nowMs);
     return jsonResponse({ success: true, nextHeartbeatSeconds: 300, policyPollSeconds: 60 });
   }

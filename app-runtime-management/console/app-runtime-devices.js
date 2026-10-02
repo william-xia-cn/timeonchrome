@@ -4,6 +4,10 @@
     osLabel: (machine) => machine.osVersion || machine.windowsVersion || api.platformLabel(machine.platform),
     syncAt: (machine) => machine.lastSyncAtMs ?? machine.lastUploadAtMs,
     accountStatus: (user) => user.sessionActive === true ? '会话活动' : user.sessionActive === false ? '会话未活动' : '会话状态未报告',
+    productBlockStatus: (machine) => machine.platform !== 'windows' ? '当前平台未报告产品级封锁能力'
+      : machine.productBlockingCapability !== 'reported' ? '产品级封锁未覆盖（设备未报告执行能力）'
+      : machine.policyState !== 'applied' ? '产品级封锁能力已报告，策略尚未生效'
+      : '产品级封锁能力已报告；实际结束行为仍需实机验收',
     pairingName(platform) { if (!['windows', 'macos'].includes(platform)) throw new Error('请选择支持的平台'); return platform === 'macos' ? 'Mac 电脑' : 'Windows 电脑'; },
     releasePath: (platform) => platform === 'windows' ? '/v1/releases/windows/x64/latest' : null,
     installHint: (platform) => platform === 'macos'

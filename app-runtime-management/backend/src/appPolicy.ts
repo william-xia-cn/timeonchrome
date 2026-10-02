@@ -17,8 +17,10 @@ import { isRecord } from './validation';
 import { identifyProducts, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
 import { defaultGameGroupRuleId, defaultSystemApplicationRuleId, effectiveApplicationKnowledge,
   listApplicationInventory, queryInventoryScanStatus, resolveEffectiveApplication, resolvePolicyApplications } from './applicationKnowledge';
-import { buildProductIdentityProjection, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
+import { buildProductIdentityProjection, includeHistoricalStandaloneIdentities, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
+import { buildProductBlockPolicy } from './productBlockPolicy';
 import { buildWeekReclassification, correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
+import { isConfirmedChrome, CHROME_SPECIAL_PRODUCT } from './specialApplications';
 import type {
   AppEvidence,
   ApplicationOrigin,
@@ -300,6 +302,8 @@ function normalizeStoredPolicy(
     ...(payload.resolvedApplications ? { resolvedApplications: payload.resolvedApplications } : {}),
     ...('productIdentityProjection' in payload && payload.productIdentityProjection
       ? { productIdentityProjection: payload.productIdentityProjection } : {}),
+    ...('productBlockPolicy' in payload && payload.productBlockPolicy
+      ? { productBlockPolicy: payload.productBlockPolicy } : {}),
     ...('repairWeekStart' in payload && payload.repairWeekStart === '2026-09-21' ? { repairWeekStart: '2026-09-21' as const } : {}),
     ...('weekReclassification' in payload && payload.weekReclassification
       ? { weekReclassification: payload.weekReclassification } : {}) };
@@ -402,7 +406,9 @@ export async function putAppPolicy(
     observed, update.classifications, current.resolvedApplications);
   const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
     applicationKnowledge: current.applicationKnowledge, resolvedApplications });
-  completeUpdate.productIdentityProjection = await buildProductIdentityProjection(observed, knowledge, update.classifications);
+  completeUpdate.productIdentityProjection = await includeHistoricalStandaloneIdentities(database,accountId,childId,
+    await buildProductIdentityProjection(observed, knowledge, update.classifications),nowMs);
+  completeUpdate.productBlockPolicy = buildProductBlockPolicy(knowledge, childId, completeUpdate.productIdentityProjection.version);
   completeUpdate.weekReclassification = buildWeekReclassification(completeUpdate, nowMs, current);
   const version = current.version + 1;
   const payloadJson = JSON.stringify(completeUpdate);
@@ -451,6 +457,41 @@ export async function putAppPolicy(
     throw error;
   }
   return { version, effectiveAtMs: nowMs, ...completeUpdate };
+}
+
+/** Same immutable policy/history delivery as an ordinary refresh, without reclassifying anything. */
+export async function refreshHistoricalProductIdentityProjection(database:D1Database,accountId:string,childId:string,nowMs:number) {
+  const current=await getAppPolicy(database,accountId,childId);
+  if(!current.productIdentityProjection)return false;
+  const projection=await includeHistoricalStandaloneIdentities(database,accountId,childId,current.productIdentityProjection,nowMs);
+  if(projection.version===current.productIdentityProjection.version)return false;
+  const payload=normalizeStoredPolicy(current);
+  payload.productIdentityProjection=projection;
+  if(payload.productBlockPolicy)payload.productBlockPolicy={...payload.productBlockPolicy,associationVersion:projection.version};
+  const body=JSON.stringify(payload),hash=await sha256Hex(body),version=current.version+1;
+  const statements=[database.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
+    (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms)
+    VALUES(?1,?2,?3,?4,?5,?6,?6)`).bind(accountId,childId,version,body,hash,nowMs)];
+  const machines=await database.prepare(`SELECT id,desired_policy_version FROM runtime_machines_v2 m
+    WHERE m.account_id=?1 AND m.revoked_at_ms IS NULL AND (m.default_child_id=?2 OR EXISTS
+      (SELECT 1 FROM runtime_user_assignments_v2 a WHERE a.machine_id=m.id AND a.child_id=?2 AND a.protected=1
+        AND a.assignment_version=(SELECT MAX(b.assignment_version) FROM runtime_user_assignments_v2 b
+          WHERE b.machine_id=a.machine_id AND b.local_user_id=a.local_user_id)))`)
+    .bind(accountId,childId).all<{id:string;desired_policy_version:number}>();
+  for(const machine of machines.results){
+    const next=Number(machine.desired_policy_version)+1;
+    statements.push(database.prepare(`UPDATE runtime_machines_v2 SET desired_policy_version=?1,policy_state='pending',
+      policy_error=NULL,updated_at_ms=?2 WHERE id=?3 AND desired_policy_version=?4`).bind(next,nowMs,machine.id,machine.desired_policy_version));
+    statements.push(database.prepare(`INSERT INTO runtime_machine_policy_versions_v2(machine_id,version,payload_hash,created_at_ms)
+      VALUES(?1,?2,?3,?4)`).bind(machine.id,next,await sha256Hex(JSON.stringify({machineId:machine.id,version:next,
+        appPolicyChildId:childId,appPolicyVersion:version,productIdentityProjectionVersion:projection.version})),nowMs));
+  }
+  try{await database.batch(statements);}catch(error){
+    if(error instanceof Error&&/UNIQUE|constraint/iu.test(error.message))
+      throw new HttpError(412,'APP_POLICY_CONFLICT','App policy changed during historical identity refresh.');
+    throw error;
+  }
+  return true;
 }
 
 export async function resolveClassification(
@@ -684,6 +725,7 @@ export async function queryAppUsage(
   fromMs: number,
   toMs: number,
   filters: { machineId?: string; localUserId?: string; platform?: RuntimePlatform },
+  materialization?: { dayOnly: true },
 ): Promise<unknown> {
   const values: unknown[] = [accountId, childId, fromMs, toMs];
   let sqlFilter = '';
@@ -691,7 +733,7 @@ export async function queryAppUsage(
   if (filters.localUserId) { values.push(filters.localUserId); sqlFilter += ` AND s.local_user_id=?${values.length}`; }
   if (filters.platform) { values.push(filters.platform); sqlFilter += ` AND s.platform=?${values.length}`; }
   const result = await database.prepare(`
-    SELECT s.machine_id,s.local_user_id,s.runtime_session_id,COALESCE(s.clock_epoch_id,'legacy-v2') AS clock_epoch_id,s.platform,
+    SELECT s.id,s.machine_id,s.local_user_id,s.runtime_session_id,COALESCE(s.clock_epoch_id,'legacy-v2') AS clock_epoch_id,s.platform,
       s.runtime_identity,s.display_name,s.channel,
       CASE WHEN s.accounting_schema_version=2 THEN s.start_wall_time_ms ELSE s.start_at_ms END AS start_wall_time_ms,
       CASE WHEN s.accounting_schema_version=2 THEN s.end_wall_time_ms ELSE s.end_at_ms END AS end_wall_time_ms,
@@ -708,7 +750,7 @@ export async function queryAppUsage(
   if (filters.platform) { legacyValues.push(filters.platform); legacyFilter = ` AND s.platform=?${legacyValues.length}`; }
   const legacy = filters.machineId || filters.localUserId ? { results: [] as Record<string, unknown>[] }
     : await database.prepare(`
-      SELECT s.device_id AS machine_id,'legacy-v1' AS local_user_id,s.runtime_session_id,
+      SELECT s.id,s.device_id AS machine_id,'legacy-v1' AS local_user_id,s.runtime_session_id,
         'legacy-v1' AS clock_epoch_id,s.platform,s.runtime_identity,s.display_name,NULL AS channel,
         s.start_at_ms AS start_wall_time_ms,s.end_at_ms AS end_wall_time_ms,
         'unclassified' AS classification,NULL AS app_policy_version,0 AS estimated
@@ -738,7 +780,9 @@ export async function queryAppUsage(
   let outsideWindowSegmentCount = 0;
   const estimatedSources = new Set<unknown>(), outsideSources = new Set<unknown>();
   const correctionRules = await loadUsageCorrections(database, accountId, childId, fromMs, toMs);
-  for (const row of correctUsageRows([...(result.results || []), ...(legacy.results || [])], correctionRules, fromMs, toMs)) {
+  const sourceRows:Record<string,unknown>[] = [...(result.results || []).map(row => ({...row, factKind: 'v2'})),
+    ...(legacy.results || []).map(row => ({...row, factKind: 'v1'}))];
+  for (const row of correctUsageRows(sourceRows, correctionRules, fromMs, toMs)) {
     const start = Math.max(fromMs, Number(row.start_wall_time_ms));
     const end = Math.min(toMs, Number(row.end_wall_time_ms));
     if (end <= start) continue;
@@ -826,8 +870,10 @@ export async function queryAppUsage(
       classification: app.classification, classifications: [...app.classificationSet].sort(), durationMs, quota: dailyQuotaState(app.days, limit) };
   }).sort((a, b) => b.durationMs - a.durationMs);
   const shifted = new Date(fromMs + 8 * 3_600_000);
-  const weekStart = beijingDayStart(fromMs) - ((shifted.getUTCDay() + 6) % 7) * 86_400_000;
-  const weekValues: unknown[] = [accountId, childId, weekStart, weekStart + 7 * 86_400_000];
+  // 后台单日物化不重复扫描其余六日；默认权威读取行为不变。
+  const weekStart = materialization ? fromMs : beijingDayStart(fromMs) - ((shifted.getUTCDay() + 6) % 7) * 86_400_000;
+  const weekEnd = materialization ? toMs : weekStart + 7 * 86_400_000;
+  const weekValues: unknown[] = [accountId, childId, weekStart, weekEnd];
   let weekFilter = '';
   if (filters.machineId) { weekValues.push(filters.machineId); weekFilter += ` AND s.machine_id=?${weekValues.length}`; }
   if (filters.localUserId) { weekValues.push(filters.localUserId); weekFilter += ` AND s.local_user_id=?${weekValues.length}`; }
@@ -850,14 +896,14 @@ export async function queryAppUsage(
       FROM runtime_usage_segments s JOIN runtime_devices d ON d.id=s.device_id
       WHERE d.account_id=?1 AND d.child_id=?2 AND s.start_at_ms<?4 AND s.end_at_ms>?3
         AND (?5 IS NULL OR s.platform=?5)`)
-      .bind(accountId, childId, weekStart, weekStart + 7 * 86_400_000, filters.platform ?? null).all<Record<string, unknown>>();
-  const weeklyCorrections = await loadUsageCorrections(database, accountId, childId, weekStart, weekStart + 7 * 86_400_000);
+      .bind(accountId, childId, weekStart, weekEnd, filters.platform ?? null).all<Record<string, unknown>>();
+  const weeklyCorrections = await loadUsageCorrections(database, accountId, childId, weekStart, weekEnd);
   for (const row of correctUsageRows([...(restrictedRows.results || []), ...(weeklyLegacy.results || [])],
-    weeklyCorrections, weekStart, weekStart + 7 * 86_400_000).filter(row => row.classification === 'restrictedEntertainment')) {
+    weeklyCorrections, weekStart, weekEnd).filter(row => row.classification === 'restrictedEntertainment')) {
     const group = `${row.machine_id}\n${row.local_user_id}\n${row.runtime_session_id}\n${row.clock_epoch_id}`;
     const intervals = restrictedGroups.get(group) || [];
     intervals.push([Math.max(weekStart, Number(row.start_wall_time_ms)),
-      Math.min(weekStart + 7 * 86_400_000, Number(row.end_wall_time_ms))]);
+      Math.min(weekEnd, Number(row.end_wall_time_ms))]);
     restrictedGroups.set(group, intervals);
   }
   const restrictedDuration = groupedUnion(restrictedGroups);
@@ -903,6 +949,17 @@ export async function queryAppUsage(
       })).sort((left, right) => right.durationMs - left.durationMs),
     },
     mediaPlaybackTotalMs,
+    ...(materialization ? {materialization: {
+      estimatedFactKeys: [...estimatedSources].map(index => {
+        const row = sourceRows[Number(index)]!;
+        return `${row.factKind}:${row.machine_id}:${row.local_user_id}:${row.id}`;
+      }),
+      outsideFactKeys: [...outsideSources].map(index => {
+        const row = sourceRows[Number(index)]!;
+        return `${row.factKind}:${row.machine_id}:${row.local_user_id}:${row.id}`;
+      }),
+      applicationLastEnds: Object.fromEntries([...applications].map(([key, app]) => [key, app.lastEnd])),
+    }} : {}),
   };
 }
 
@@ -1077,7 +1134,8 @@ export async function queryAppCatalog(
     const displayName = product?.name || (projectedProduct?.status === 'associated' ? projectedProduct.canonicalName : null)
       || (found?.evidence.discovery?.nameSource !== 'fallback' ? found?.evidence.displayName : null)
       || observed?.displayName || configured?.displayName || found?.evidence.displayName || null;
-    const classification = configured?.classification ?? productChoice?.classification ?? resolvedByKey.get(key)?.classification
+    const classification = productChoice?.classification === 'blocked' ? 'blocked'
+      : configured?.classification ?? productChoice?.classification ?? resolvedByKey.get(key)?.classification
       ?? resolution?.classification ?? 'unclassified';
     const nameSuggestedType = knownProductType(displayName);
     const appType = product?.type ?? (resolution?.appType && resolution.appType !== 'unknown' ? resolution.appType : nameSuggestedType ?? 'unknown');
@@ -1100,6 +1158,8 @@ export async function queryAppCatalog(
       displayName,
       discovery: found?.evidence.discovery ?? null,
       productId: product?.id ?? null,
+      presentationKind: isConfirmedChrome(found?.evidence, projectedProduct, knowledge) ? 'contentBased' as const : 'standard' as const,
+      specialProductId: isConfirmedChrome(found?.evidence, projectedProduct, knowledge) ? CHROME_SPECIAL_PRODUCT : null,
       classification,
       classificationStatus: configured || productChoice ? 'explicit' : resolution?.status ?? 'unclassified',
       classificationReason: configured ? (direct ? '家长明确配置' : '继承已确认应用／产品分类') : resolution?.status==='explicit' ? '孩子产品明确分类'
@@ -1133,6 +1193,8 @@ export async function queryAppCatalog(
     for (const itemPlatform of new Set(product?.selectors.map(item=>item.platform) ?? [])) {
       if (items.some(item=>item.productId===entry.productId && item.platform===itemPlatform)) continue;
       items.push({platform:itemPlatform,runtimeIdentity:null,displayName:product!.name,productId:entry.productId,
+        presentationKind:'standard' as 'standard'|'contentBased',
+        specialProductId:null,
         classification:entry.classification,classificationStatus:'explicit',classificationReason:'孩子产品明确分类',installationState:'preconfigured',
         appType:product!.type,typeStatus:'confirmed' as const,typeReasonCode:'verifiedProductRule' as const,
         productType:product!.type,suggestedClassification:null,productTypeReason:'家庭产品知识',
@@ -1145,7 +1207,8 @@ export async function queryAppCatalog(
   const baseKey=(item:typeof items[number])=>{const identityKey=`${item.platform}\n${item.runtimeIdentity}`;
     const ambiguityKey=item.runtimeIdentity===null?undefined:ambiguityByIdentity.get(identityKey);
     const possibleVariantKey=item.runtimeIdentity===null?undefined:possibleVariantByIdentity.get(identityKey);
-    return item.productId?`${item.platform}\nproduct:${item.productId}`
+    return 'specialProductId' in item && item.specialProductId?`${item.platform}\nspecial:${item.specialProductId}`
+      :item.productId?`${item.platform}\nproduct:${item.productId}`
       :isPackageContainer(inventory.get(identityKey)?.evidence)?`${item.platform}\npackage-container:${item.runtimeIdentity}`
         :isLaunchablePackageApplication(inventory.get(identityKey)?.evidence)?`${item.platform}\npackage-app:${item.runtimeIdentity}`
       :ambiguityKey&&item.manageability!=='actionable'?ambiguityKey
@@ -1157,7 +1220,7 @@ export async function queryAppCatalog(
   const productGroups = new Map<string,typeof items>();
   for(const item of items){const base=baseKey(item),classes=classificationsByBase.get(base);
     const classificationKey=!classes||classes.size<=1?[...(classes??[])][0]??'unclassified':item.discovery?.objectKind==='product'?'mixed':item.classification;
-    const key=`${base}\n${classificationKey}`;const group=productGroups.get(key)??[];group.push(item);productGroups.set(key,group);}
+    const key='presentationKind' in item&&item.presentationKind==='contentBased'?base:`${base}\n${classificationKey}`;const group=productGroups.get(key)??[];group.push(item);productGroups.set(key,group);}
   const directory = [...productGroups.values()].map(group=>{
     const variants=group.filter(item=>item.runtimeIdentity!==null&&item.discovery?.objectKind!=='product');
     const groupHasActionable=group.some(item=>item.manageability==='actionable');
@@ -1214,6 +1277,7 @@ export async function queryAppCatalog(
       typeStatus:String(confirmedTypeItem.typeStatus),
     });
     return {...primary,runtimeIdentity:implementations.length===1?implementations[0]!.runtimeIdentity:implementations.length===0?primary.runtimeIdentity:null,
+      presentationKind: group.some(item => 'presentationKind' in item && item.presentationKind === 'contentBased') ? 'contentBased' as const : 'standard' as const,
       classification:classes.size===1?[...classes][0]!:primary.classification,mixedClassifications:classes.size>1,
       observedInWindow:group.some(item=>item.observedInWindow),
       discovery:group.some(item=>item.discovery?.role==='application')?{...primary.discovery!,role:'application' as const}:primary.discovery,

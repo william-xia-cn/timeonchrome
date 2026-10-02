@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://timeonchrome.invalid/contracts/application-knowledge-v2",
+  "$id": "https://timeonchrome.invalid/contracts/application-knowledge-v3",
   "title": "家庭应用知识与分类规则",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "version", "products", "rules", "bindings"],
   "properties": {
-    "schemaVersion": { "enum": [1, 2] },
+    "schemaVersion": { "enum": [1, 2, 3] },
     "version": { "type": "integer", "minimum": 0 },
     "products": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/product" } },
     "rules": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/rule" } },
@@ -40,7 +40,8 @@
       "type": "object", "additionalProperties": false, "required": ["id", "name", "type", "selectors"],
       "properties": {
         "id": { "$ref": "#/$defs/id" }, "name": { "$ref": "#/$defs/text" }, "type": { "$ref": "#/$defs/appType" },
-        "selectors": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/selector" } }
+        "selectors": { "type": "array", "minItems": 1, "maxItems": 64, "items": { "$ref": "#/$defs/selector" } },
+        "suspectedMatchers": { "type": "array", "maxItems": 16, "items": { "type": "object", "additionalProperties": false, "required": ["platform", "signerKey", "productName"], "properties": { "platform": { "const": "windows" }, "signerKey": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "productName": { "$ref": "#/$defs/text" } } } }
       }
     },
     "rule": {
@@ -65,7 +66,7 @@
           "type": "array", "maxItems": 1000,
           "items": {
             "type": "object", "additionalProperties": false, "required": ["productId", "classification"],
-            "properties": { "productId": { "$ref": "#/$defs/id" }, "classification": { "$ref": "#/$defs/classification" } }
+            "properties": { "productId": { "$ref": "#/$defs/id" }, "classification": { "$ref": "#/$defs/classification" }, "enhancedBlocking": { "const": true } }
           }
         },
         "ruleIds": { "type": "array", "maxItems": 1000, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }

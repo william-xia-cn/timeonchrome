@@ -16,8 +16,8 @@ BEGIN
   UPDATE runtime_uninstall_codes_v2 SET consumed_at_ms=NEW.committed_at_ms
     WHERE code_hash=NEW.code_hash AND machine_id=NEW.machine_id AND account_id=NEW.account_id
       AND consumed_at_ms IS NULL AND expires_at_ms>=NEW.committed_at_ms;
-  SELECT CASE WHEN changes()!=1 THEN RAISE(ABORT, 'UNINSTALL_ATOMIC_CODE') END;
+  SELECT RAISE(ABORT, 'UNINSTALL_ATOMIC_CODE') WHERE changes()!=1;
   UPDATE runtime_machines_v2 SET revoked_at_ms=NEW.committed_at_ms, updated_at_ms=NEW.committed_at_ms
     WHERE id=NEW.machine_id AND account_id=NEW.account_id AND revoked_at_ms IS NULL;
-  SELECT CASE WHEN changes()!=1 THEN RAISE(ABORT, 'UNINSTALL_ATOMIC_MACHINE') END;
+  SELECT RAISE(ABORT, 'UNINSTALL_ATOMIC_MACHINE') WHERE changes()!=1;
 END;

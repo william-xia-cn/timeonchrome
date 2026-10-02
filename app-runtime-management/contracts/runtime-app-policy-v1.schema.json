@@ -29,6 +29,30 @@
         } }
       }
     },
+    "productBlockPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "knowledgeVersion", "associationVersion", "entries"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "knowledgeVersion": { "type": "integer", "minimum": 0 },
+        "associationVersion": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "entries": { "type": "array", "maxItems": 1000, "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["productId", "strongMatchers", "suspectedMatchers"],
+          "properties": {
+            "productId": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "strongMatchers": { "type": "array", "maxItems": 64, "items": {
+              "type": "object", "additionalProperties": false, "required": ["field", "value"],
+              "properties": { "field": { "enum": ["packageId", "fileSeriesKey", "binaryHash"] }, "value": { "type": "string", "minLength": 1, "maxLength": 256 } }
+            } },
+            "suspectedMatchers": { "type": "array", "maxItems": 16, "items": {
+              "type": "object", "additionalProperties": false, "required": ["signerKey", "productName"],
+              "properties": { "signerKey": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "productName": { "type": "string", "minLength": 1, "maxLength": 256 } }
+            } }
+          }
+        } }
+      }
+    },
     "repairWeekStart": { "const": "2026-09-21" },
     "weekReclassification": {
       "type": "object",

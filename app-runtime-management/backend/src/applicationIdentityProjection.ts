@@ -63,6 +63,29 @@ export function productIdentityItems(evidence: AppEvidence[], knowledge: Applica
     for (const product of approvedLeafProducts(item, knowledge)) products.add(product.id);
     productsByRoot.set(root, products);
   }
+  // An installation record is a directory container, not an executable selector.
+  // Attach it to a confirmed product only when every observed launchable child
+  // with the same verified parent key resolves to that one product. A suite with
+  // an unknown member or separate Excel/Word products must stay independent.
+  const childrenByParent = new Map<string, { products: Set<string>; unresolved: boolean }>();
+  for (const item of items) {
+    const parent = item.discovery?.parentProductKey;
+    if (item.discovery?.objectKind !== 'variant' || item.discovery.role !== 'application'
+        || !parent || item.values.productKey !== parent || !item.verifiedFields.includes('productKey')) continue;
+    const parentKey = `${item.platform}\n${parent}`;
+    const group = childrenByParent.get(parentKey) ?? { products: new Set<string>(), unresolved: false };
+    const matched = productsByRoot.get(aliases.get(keyOf(item)) ?? keyOf(item)) ?? new Set<string>();
+    if (matched.size !== 1) group.unresolved = true;
+    else group.products.add([...matched][0]!);
+    childrenByParent.set(parentKey, group);
+  }
+  for (const item of items) {
+    if (item.discovery?.objectKind !== 'product' || !item.values.productKey
+        || !item.verifiedFields.includes('productKey')) continue;
+    const group = childrenByParent.get(`${item.platform}\n${item.values.productKey}`);
+    if (!group || group.unresolved || group.products.size !== 1) continue;
+    productsByRoot.get(aliases.get(keyOf(item)) ?? keyOf(item))!.add([...group.products][0]!);
+  }
   const projected: ProductIdentityProjection['items'] = items.map(item => {
     const key = keyOf(item), root = aliases.get(key) ?? key;
     const matches = productsByRoot.get(root)!;
@@ -86,6 +109,30 @@ export async function buildProductIdentityProjection(evidence: AppEvidence[], kn
     explicit: AppPolicyClassification[] = []): Promise<ProductIdentityProjection> {
   const content = { knowledgeVersion: knowledge.version, items: productIdentityItems(evidence, knowledge, explicit) };
   return { version: await sha256Hex(JSON.stringify(content)), ...content };
+}
+
+/** Recent ledger-only identities are standalone evidence, never directory/rule input. */
+export async function includeHistoricalStandaloneIdentities(db:D1Database,account:string,child:string,
+    projection:ProductIdentityProjection,now:number):Promise<ProductIdentityProjection> {
+  const day=86400000,start=Math.floor((now+8*3600000)/day)*day-8*3600000-6*day;
+  const history=await db.prepare(`SELECT s.platform,s.runtime_identity,MAX(s.display_name) AS display_name
+    FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
+    WHERE m.account_id=?1 AND s.child_id=?2 AND s.diagnostic=0 AND s.monotonic_duration_ms>0
+      AND s.start_wall_time_ms<?4 AND s.end_wall_time_ms>?3
+    GROUP BY s.platform,s.runtime_identity ORDER BY s.platform,s.runtime_identity LIMIT 10001`)
+    .bind(account,child,start-2000,now+2000).all<{platform:AppEvidence['platform'];runtime_identity:string;display_name:string|null}>();
+  if(history.results.length>10000)throw new Error('APPLICATION_IDENTITY_HISTORY_LIMIT');
+  const keys=new Set(projection.items.map(item=>keyOf(item))),items=[...projection.items];
+  for(const row of history.results){const key=`${row.platform}\n${row.runtime_identity}`;
+    if(keys.has(key))continue;keys.add(key);
+    const canonicalName=(row.display_name??'未命名应用').replace(/[\p{Cc}@\\/]/gu,'').slice(0,128)||'未命名应用';
+    items.push({platform:row.platform,runtimeIdentity:row.runtime_identity,associationKey:key,productId:null,
+      canonicalName,status:'unresolved',reasonCode:'IDENTITY_UNRESOLVED'});
+  }
+  if(items.length===projection.items.length)return projection;
+  items.sort((a,b)=>keyOf(a).localeCompare(keyOf(b)));
+  const content={knowledgeVersion:projection.knowledgeVersion,items};
+  return {version:await sha256Hex(JSON.stringify(content)),...content};
 }
 
 /** Leaf identity is not a suite/container. Never join by name, signer alone or productKey. */
