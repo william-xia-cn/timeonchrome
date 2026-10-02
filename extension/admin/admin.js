@@ -2056,12 +2056,14 @@ function siteRequestStatusLabel(status, record = {}) {
     if (classification === 'blocked') return '当前配置已禁止';
     if (classification === 'study') return '当前配置已归为学习';
     if (classification === 'composite' || classification === 'pending_composite') return '当前配置已归为复合';
+    if (classification === 'other') return '当前配置已归为其他';
     return '当前配置已归类';
   }
   if (status === 'pending') return '待家长确认';
   if (status === 'returned') return kind === 'unclassified_visit' ? '已暂不归类' : '已退回';
   if (status === 'approved_study') return '已确认为学习';
   if (status === 'approved_composite') return '已确认为复合';
+  if (status === 'approved_other') return '已确认为其他';
   if (status === 'rejected') return '已归为受限娱乐';
   if (record?.decision === 'blocked' || status === 'blocked' || status === 'approved_blocked') return '已归为黑名单';
   return status || '未知';
@@ -2075,6 +2077,7 @@ function siteRuleDecision(rule = {}) {
   const decision = String(rule.decision || rule.classification || rule.status || '').trim();
   if (decision === 'study' || decision === 'approved_study') return 'study';
   if (decision === 'composite' || decision === 'approved_composite') return 'composite';
+  if (decision === 'other' || decision === 'approved_other') return 'other';
   if (decision === 'reject' || decision === 'rejected') return 'reject';
   return null;
 }
@@ -2382,7 +2385,7 @@ function youtubeSpecialRuleRows() {
 }
 
 function adminUsedUnclassifiedRows() {
-  const finalStatuses = new Set(['approved', 'approved_study', 'approved_composite', 'approved_blocked', 'blocked', 'rejected', 'returned']);
+  const finalStatuses = new Set(['approved', 'approved_study', 'approved_composite', 'approved_other', 'approved_blocked', 'blocked', 'rejected', 'returned']);
   return (Array.isArray(adminSiteClassificationRecords) ? adminSiteClassificationRecords : [])
     .filter((record) => record && record.requestedClassification !== 'study')
     .filter((record) => record.recordSource === 'auto_unclassified_access')
