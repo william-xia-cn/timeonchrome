@@ -2,7 +2,7 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { validateQuotaAuditRequest } from '../../../extension/core/quota-audit.js';
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeWithDefaults, stripDerivedSiteAccessFields, systemAccessDefaultsResponse, type SystemAccessConfig } from '../config/system-access-config';
-import { validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
+import { normalizeSiteClassificationTarget, validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
 import { projectLegacySharedAccessPolicy, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { nativeChildDeletedOutboxStatement } from '../services/nativeAppIdentityBridge';
@@ -33,6 +33,38 @@ type ProfileConfigUpdateBody = {
   expectedVersion?: unknown;
   sourceAction?: unknown;
 };
+
+function normalizeOtherUsageRules(input: unknown, previous: unknown, now: number):
+  { ok: true; rules: Record<string, unknown>[] } | { ok: false } {
+  if (!Array.isArray(input)) return { ok: false };
+  const existing = Array.isArray(previous) ? previous : [];
+  const seen = new Set<string>();
+  const rules: Record<string, unknown>[] = [];
+  for (const value of input) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false };
+    const rule = value as Record<string, unknown>;
+    if (Object.keys(rule).some(key => !['classification', 'targetType', 'normalizedValue'].includes(key)) ||
+        rule.classification !== 'other' || !['host', 'url'].includes(String(rule.targetType)) ||
+        typeof rule.normalizedValue !== 'string') return { ok: false };
+    const target = normalizeSiteClassificationTarget(rule.normalizedValue);
+    if (!target.ok || target.targetType !== rule.targetType) return { ok: false };
+    const key = `${target.targetType}:${target.normalizedValue}`;
+    if (seen.has(key)) return { ok: false };
+    seen.add(key);
+    const old = existing.find(item => item && item.classification === 'other' &&
+      item.targetType === target.targetType &&
+      (item.normalizedValue || item.targetValue) === target.normalizedValue);
+    rules.push({
+      id: typeof old?.id === 'string' ? old.id : `usage_rule_${crypto.randomUUID()}`,
+      ...(typeof old?.requestId === 'string' ? { requestId: old.requestId } : {}),
+      classification: 'other', targetType: target.targetType,
+      targetValue: target.normalizedValue, normalizedValue: target.normalizedValue,
+      createdAt: Number.isFinite(old?.createdAt) ? old.createdAt : now,
+      updatedAt: Number.isFinite(old?.updatedAt) ? old.updatedAt : now,
+    });
+  }
+  return { ok: true, rules };
+}
 
 function normalizeManagedPolicyId(value: unknown, max = 128): string | null {
   if (typeof value !== 'string') return null;
@@ -820,7 +852,7 @@ export const profilesRouter = {
           'customStudyList', 'customCompositeList', 'customRestrictedEntertainmentList', 'customBlockedSites',
           'dailyOnlineQuota', 'dailyStudyQuota', 'dailyRestQuota',
           'dailyUndeterminedQuota', 'weeklyRestQuota',
-          'domainQuotas', 'classificationRules', 'siteClassificationRulesV1',
+          'domainQuotas', 'classificationRules', 'siteClassificationRulesV1', 'siteUsageClassificationRulesV1',
           'quotaState', 'schedule',
           'restConfig', 'autonomyConfig', 'autoStudyConfig', 'compositeReviewConfig',
           'clientLoggingPolicyV1',
@@ -828,6 +860,12 @@ export const profilesRouter = {
         ]);
 
         const incomingConfig = data as Record<string, unknown>;
+        if (Object.hasOwn(incomingConfig, 'siteUsageClassificationRulesV1')) {
+          const usageRules = normalizeOtherUsageRules(incomingConfig.siteUsageClassificationRulesV1,
+            existingConfig.siteUsageClassificationRulesV1, now);
+          if (!usageRules.ok) return json({ error: 'Invalid other usage rules', code: 'INVALID_OTHER_USAGE_RULES' }, 400);
+          incomingConfig.siteUsageClassificationRulesV1 = usageRules.rules;
+        }
         const reviewError = validateCompositeReviewConfig(incomingConfig);
         if (reviewError) return json({ error: reviewError, code: 'INVALID_COMPOSITE_REVIEW_CONFIG' }, 400);
         const loggingPolicy = incomingConfig.clientLoggingPolicyV1 as any;
