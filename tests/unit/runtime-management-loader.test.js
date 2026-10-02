@@ -72,6 +72,32 @@ function fixture({hold=false,invalid=false,holdStyles=false}={}){
   ]);
   assert.equal(usageBefore.length,2);assert.equal(usageBefore[0].requestId,'owned-request');
   assert(!html.includes('其他用途规则的导入写入待云端兼容'));
+  // 实际条件保存函数：409后的异步读取与成功PUT均不能覆盖后来加载的孩子/版本。
+  const saveStart=html.indexOf('async function saveProfileConfig(');
+  const saveEnd=html.indexOf('function normalizeStatsRows(',saveStart);
+  function saveFixture(conflict=true){
+    let resolve;const calls=[],applied=[],renders=[];
+    const context={currentProfileId:'a',remoteConfigVersion:7,
+      document:{querySelector:()=>({dataset:{page:'system-management'}})},
+      applyProfileConfigResponse:result=>{applied.push(result);context.remoteConfigVersion=result.version;},
+      renderPage:value=>renders.push(value),
+      api:async(path,method,body)=>{calls.push({path,method,body});if(method==='PUT'&&conflict)throw {status:409,code:'PROFILE_CONFIG_VERSION_CONFLICT'};return await new Promise(yes=>resolve=yes);}};
+    vm.runInNewContext(html.slice(saveStart,saveEnd),context);
+    return{context,calls,applied,renders,release:value=>resolve(value)};
+  }
+  for(const change of ['child','version']){
+    const fixture=saveFixture();const pending=fixture.context.saveProfileConfig({},'access_config_import');
+    await new Promise(resolve=>setImmediate(resolve));assert.equal(fixture.calls.length,2);
+    if(change==='child')fixture.context.currentProfileId='b';else fixture.context.remoteConfigVersion=9;
+    fixture.release({data:{oldChild:true},version:8});await assert.rejects(pending,/重新预览/);
+    assert.equal(fixture.applied.length,0);assert.equal(fixture.renders.length,0);
+  }
+  const currentSave=saveFixture();const currentPending=currentSave.context.saveProfileConfig({},'access_config_import');
+  await new Promise(resolve=>setImmediate(resolve));currentSave.release({data:{current:true},version:8});
+  await assert.rejects(currentPending,/配置已被其他页面更新/);assert.equal(currentSave.applied.length,1);assert.equal(currentSave.renders.length,1);
+  const successfulSave=saveFixture(false);const successfulPending=successfulSave.context.saveProfileConfig({},'access_config_import');
+  successfulSave.context.remoteConfigVersion=9;successfulSave.release({version:8});await successfulPending;
+  assert.equal(successfulSave.context.remoteConfigVersion,9,'late PUT cannot downgrade a newer loaded version');
   // 实际通知导入函数：迟到响应不得更新另一个孩子，预览失效不得先发请求。
   const notificationStart=html.indexOf('async function applyProfileNotificationImport(');
   const notificationEnd=html.indexOf('function renderConfigImportVisibleDiffs',notificationStart);
