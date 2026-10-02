@@ -41,6 +41,8 @@
     const template=document.createElement('template');template.innerHTML=manifest.template;root.appendChild(template.content.cloneNode(true));
     const style=document.createElement('style');
     style.textContent=':host{display:block;container-type:inline-size;font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif;color:#1b2535;--green:#178f6a;--green-dark:#087858;--green-soft:#e8f6f0;--border:#dfe7e3;--muted:#68766f;--shadow:0 8px 28px rgba(31,64,50,.07)}.sidebar,#mobile-menu,#child-select,#runtime-logout,.load-empty-actions a{display:none!important}.app-shell{margin-left:0;min-height:0}.topbar{position:static}.computer-view[hidden],[data-independent-app-usage][hidden]{display:none!important}@container(max-width:1100px){.app-directory-toolbar{grid-template-columns:minmax(0,1fr) 170px}.app-directory-toolbar>span{grid-column:1/-1;text-align:left}}@container(max-width:720px){.app-directory-toolbar{grid-template-columns:minmax(0,1fr)}.app-directory-toolbar>span{grid-column:auto}.app-category-nav{max-width:100%}}';
+    // Embedded drawers must not place their close control behind the console's fixed mobile chrome.
+    style.textContent+='@media(max-width:768px){.drawer{top:calc(62px + env(safe-area-inset-top));bottom:calc(66px + env(safe-area-inset-bottom))}}';
     root.appendChild(style);
     const controller=globalThis.AppRuntimeManagement.mount({root,request,children,childId,view,isCurrent:active});
     return {ready:controller.ready,refresh:controller.refresh,dispose(){controller.dispose();if(leases.get(host)===lease){leases.delete(host);root.replaceChildren();}}};

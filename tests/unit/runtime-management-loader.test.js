@@ -23,6 +23,8 @@ function fixture({hold=false,invalid=false,holdStyles=false}={}){
   assert(good.loaded.every(script=>script.src.startsWith('/runtime-management-component/')&&script.dataset.runtimeComponent==='true'));
   assert(!good.loaded.some(script=>/session|bootstrap/.test(script.src)));
   assert.equal(good.mounts[0].request,request);assert.equal(good.mounts[0].root,good.root);assert.equal(good.mounts[0].childId,'a');
+  assert.match(code,/@media\(max-width:768px\)\{\.drawer\{top:calc\(62px \+ env\(safe-area-inset-top\)\);bottom:calc\(66px \+ env\(safe-area-inset-bottom\)\)\}\}/,
+    'embedded mobile drawer leaves the console header and bottom navigation clear');
   controller.dispose();assert.equal(good.root.innerHTML,'');assert.equal(good.disposed,1);
   await good.RuntimeManagementLoader.mount({...options,childId:'b'});assert.equal(good.fetched.length,1);assert.equal(good.mounts[1].childId,'b');
   const stale=fixture({hold:true});let current=true;
