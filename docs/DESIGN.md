@@ -16,6 +16,8 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### 主控制台 Runtime 管理通道
 
+主控制台发布构建从 canonical `app-runtime-management/console/` 生成仅管理组件的 `runtime-management-component/` 资源。固定 JS/CSS 白名单与无脚本模板 manifest，不发布独立 `index.html`、SSO bootstrap 或 RuntimeSession；模板包含原管理表单和抽屉，由主控制台同源加载器挂载到隔离根。源文件不复制回 pages、不单独维护，独立 Runtime Pages 暂保留兼容入口。拒绝符号链接、覆盖已有输出及路径越界，主 Pages 的 Task 发布排除不变。
+
 Runtime canonical 控制器提供 `AppRuntimeManagement.mount`：注入 DOM root、Guardian 管理网关 request、当前家庭 children/Child、管理 view 和宿主 isCurrent 检查。嵌入实例只服务管理视图，不取得 Runtime 浏览器会话、不执行票据交换/登录跳转；宿主统一管理选择和退出。销毁释放监听器、定时器和知识组件，未完成请求只能被丢弃，不能声称服务端已取消写入。独立 Runtime 页面继续自动创建默认实例直到主控制台实际整合验收。模板和静态依赖由 canonical source 生成同源组件资产，不恢复 pages/app-runtime 副本或 iframe 子站。
 
 canonical 产品知识组件接入主控制台前，DOM 查询与事件绑定须限定在调用者提供的 root（可为 ShadowRoot）；未提供时保持独立页面 document 兼容。调用者在切换孩子/会话时更新 contextRevision 并使旧组件失效；组件请求按开始时 Child/contextRevision 检查返回，不让旧响应更新新孩子的配置界面，销毁移除监听器并关闭自身对话框。组件失效不撤销已经送达服务端的写入，也不自动重试写入。该生命周期只作用于展示/管理适配，不产生第二套知识或统计权威。

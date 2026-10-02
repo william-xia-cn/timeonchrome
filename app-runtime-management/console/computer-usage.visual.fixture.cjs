@@ -1,6 +1,8 @@
 // Local-only visual fixture server: no real credentials, no external API calls.
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),{pathToFileURL}=require('node:url');
 const root=path.resolve(__dirname,'../..');
+const component=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'toc-component-visual-'));
+require('../../tools/stage-runtime-management-component').stageRuntimeManagementComponent(__dirname,path.join(component,'assets'));
 (async()=>{
 const {mergeComputerUsage,withComputerUsageRevision,computerUsageReadPage}=await import(pathToFileURL(path.join(root,'app-runtime-management/contracts/dist/computer-usage.js')));
 const day=Date.parse('2026-10-01T00:00:00+08:00');
@@ -12,23 +14,41 @@ const readableSnapshot=await withComputerUsageRevision(mergeComputerUsage(readab
 const partialSnapshot=await withComputerUsageRevision(mergeComputerUsage({...readableBundle,applications:[...readableBundle.applications,{...base,key:'mock-legacy-unavailable',computerKey:null,computerName:'不可读旧版来源',complete:false,statisticsComplete:false,historyQuality:'bestEffort',reasons:['LEGACY_APPLICATION_SOURCE_UNAVAILABLE'],associationVersion:'missing',totalMs:null,categoriesMs:{},intervals:[]}]}));
 const server=http.createServer(async(req,res)=>{
 const url=new URL(req.url,'http://127.0.0.1');
+if(url.pathname.startsWith('/runtime-management-component/')){
+const name=url.pathname.slice('/runtime-management-component/'.length);
+if(!/^[a-z0-9-]+\.(js|css|json)$/.test(name)){res.writeHead(404);res.end();return;}
+const asset=path.join(component,'assets',name);if(!fs.existsSync(asset)){res.writeHead(404);res.end();return;}
+res.setHeader('Content-Type',name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'application/json');res.end(fs.readFileSync(asset));return;
+}
 if(url.pathname==='/mock-computer-usage'){
 const data=url.searchParams.has('mapped')?snapshot:url.searchParams.has('partial')?partialSnapshot:readableSnapshot;
 const detail=url.searchParams.get('detail')||'summary';try{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(computerUsageReadPage(data,detail,url.searchParams.get('revision')||undefined,Number(url.searchParams.get('offset')||0),100,url.searchParams.get('product')||undefined)));}catch{res.writeHead(409);res.end('{}');}return;
 }
-const file=path.resolve(root,'.'+decodeURIComponent(url.pathname));
+const publicPath=url.pathname.startsWith('/assets/')?'/pages'+url.pathname:url.pathname;
+const file=path.resolve(root,'.'+decodeURIComponent(publicPath));
 const publicRoots=[path.join(root,'pages')+path.sep,path.join(root,'app-runtime-management','console')+path.sep];
 if(!publicRoots.some(prefix=>file.startsWith(prefix))||url.pathname.split('/').some(part=>part.startsWith('.'))||!['.html','.js','.css','.svg','.png','.jpg','.webp','.ico'].includes(path.extname(file))){res.writeHead(404);res.end();return;}
 if(!file.startsWith(root+path.sep)||!fs.existsSync(file)||fs.statSync(file).isDirectory()){res.writeHead(404);res.end();return;}
 let body=fs.readFileSync(file);
 if(file.endsWith('console'+path.sep+'app-runtime.js'))body=String(body).replace("const $ =",'window.__mockRuntimeState=state; const $ =');
-res.setHeader('Content-Type',file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css':'application/octet-stream');
+res.setHeader('Content-Type',file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'application/octet-stream');
 if(file.endsWith('console'+path.sep+'index.html'))body=String(body).replace('<script src="computer-usage-view.js">','<script>window.__readComputerUsageMock=async params=>(await fetch("/mock-computer-usage?"+params)).json();</script><script src="computer-usage-view.js">');
 if(file===path.join(root,'pages','index.html')){
 body=String(body).replace('<head>','<head><script>localStorage.setItem("toc_session",JSON.stringify({token:"isolated-mock",email:"demo@example.invalid"}));</script>');
-body=body.replace("async function api(path, method='GET', body=null) {",`async function api(path, method='GET', body=null) {
+body=body.replace("async function api(path, method='GET', body=null, conditionalHeaders=null) {",`async function api(path, method='GET', body=null, conditionalHeaders=null) {
+if(path.startsWith('/app-runtime/manage/v1/')){
+if(path.endsWith('/machines'))return {machines:[{id:'fixture-machine',displayName:'演示 Windows 电脑',platform:'windows',osVersion:'11',architecture:'x64',status:'online',policyState:'applied',serviceVersion:'mock-only',defaultChildId:'mock-child',desiredPolicyVersion:1,appliedPolicyVersion:1}]};
+if(path.endsWith('/users'))return {users:[{localUserId:'fixture-user',displayName:'演示账户',protected:true,childId:'mock-child',policyState:'applied'}]};
+if(path.includes('/app-catalog'))return {items:[],technicalItems:[],classificationRecords:{pending:[],processed:[],technical:[]}};
+if(path.includes('/app-policy'))return {version:1,classifications:{},quotas:{perApplicationDailyMinutes:{}}};
+if(path.includes('/shared-access-policy'))return {policy:null};
+if(path.includes('/app-classification-records'))return {pending:[],processed:[],technical:[]};
+if(path.includes('/application-knowledge'))return {schemaVersion:2,version:0,products:[],associations:[],bindings:[],rules:[]};
+if(path.includes('/application-inventory'))return {items:[]};
+return {};
+}
 if(path.includes('computer-usage')){const params=new URLSearchParams(path.split('?')[1]);if(params.has('source'))return {source:params.get('source'),fromDate:params.get('from'),toDate:params.get('to'),totalDurationMs:5134000,categories:[{classification:'study',durationMs:5134000}],buckets:[{startAtMs:${day},durationMs:5134000}],applications:[{displayName:'演示办公应用',classification:'study',durationMs:5134000}]};return (await fetch('/mock-computer-usage?'+params)).json();}
-if(path==='/profiles')return {profiles:[{id:'mock-child',name:'演示孩子',avatar_color:'#168d72'}]};
+if(path==='/profiles')return {profiles:[{id:'mock-child',name:'演示孩子',avatar_color:'#168d72'},{id:'mock-child-b',name:'第二个孩子',avatar_color:'#168d72'}]};
 if(path.endsWith('/config'))return {config:{},version:1};
 if(path.includes('devices'))return {devices:[]};
 if(path.includes('stats'))return {stats:[{date:'2026-10-01',hour:0,channel:'active',mode:'study',target_key:'domain:learning.example',target_classification_at_time:'study',duration_seconds:5134,managed_target_label_at_time:'演示学习网站',domain:'learning.example'}]};
