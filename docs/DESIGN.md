@@ -47,6 +47,16 @@ Contracts1.28固定`SharedQuotaExecutionPageV1`和`assembleSharedQuotaExecutionP
 浏览器执行由扩展负责，提醒呈现者可以是browser或native，两者不得混同。Service保存实例的执行目标source=browser和当时lease/activity；Native兜底窗口仅呈现及确认选择，不调用Windows closer结束Chrome。`stage/resolution`是状态不是许可：只有Service执行开启、shared、已收到可见确认并解决为end_rest/timeout_end、当前scope/策略/统计版本及活动仍匹配时，才在已验证浏览器连接响应返回可选`browserExecution`。许可包含原提醒六项身份、executionId、leaseId、activityId、targetSource=browser、effect及剩余maxAgeMs（1–5000）；不接受客户端指定目标进程或页面。end_rest只为request-normal-close，timeout_end只为force-close；继续、影子、未送达或撤回均无许可。
 
 #### 控件准备层实施与验收记录（默认关闭）
+2026-10-03 统一配置读取／LKG独立包：云端交接明确 `GET /device/shared-access/v1` 使用既有设备Bearer、自绑定Child、无scope query/body，最终响应为 `{schemaVersion:1,profileId,policy}`，同父端UnifiedChildAccessPolicyV1。必须核对服务端profileId与捕获的本机cloud_profile_id；错Child明确不可用，不把政策写入旧scope或沿用旧LKG冒充当前授权。旧云端404保持旧网页路径，不改 `/device/config`、配置源或stage。终端只增加捕获凭据的只读传输和默认关闭消费适配；初始化同步注册生命周期／身份与Native能力监听，显式候选启用后才在启动／重连读取。旧Service未协商V3和shared-quota-state-read时不读取、不共享执行。原云同步、网页访问和配置保存函数不接入此缓存。
+
+LKG仅一份完整policy，严格校验七天配额／时间段／自主度／阶段及现有 `profile-config:N` 单调版本；未知／缺失字段、过大载荷拒绝，`24:00`作为合法结束保留。原子缓存包含policy、版本、摘要、接收时间及不可逆认证scope摘要：由既有设备／Child／端点／设备令牌计算，绝不另存令牌、家长session或浏览内容；不生成第二套可写配置。凭据变化使原scope失效，进程内代次和Abort隔离旧请求；异步身份读取完成后再次核对代次，旧读取／失败不得清除新代次的有效状态。持久缓存在重启后重新验证scope与内容摘要，按现有预算以derived优先级写入，上限32KB。请求失败／损坏保留同scope可信LKG，旧版本不覆盖，同版本异内容报冲突；401／403／404不采用缓存冒充现有授权。配置stage为shared也不启用访问执行或Native共享开关。用最小policy/LKG/真实校验器与Native只读能力测试验证断网、损坏、身份变化、迟到／旧版本、原子写失败和旧端兼容；排除浏览器重复验收、账本或配额算法测试、生产变更与候选替换。
+
+本包最小验证结果：`shared-access-policy-reader.test.js` 与 `local-guardian.test.js` 通过，覆盖异步身份核对中途换代、旧失败不清新状态、错Child、损坏／离线／重启、原子写失败、旧版本／同版本冲突、超时与Native能力断开。typecheck、extension-root、app-runtime-boundaries及diff检查通过。测试使用隔离存储／网络／Native夹具和真实终端校验器，不是生产API或真实Host联调。另用固定1.26.0／1.27.0包的实际policy投影与schema核对当前消费者兼容；1.27.0包SHA-256与交接一致（`c277f13547f28d0c619c036f1b0ef9cee8a053fa0384647fd3b3d30c5485c41d`）。扩展无独立契约消费者锁，未修改架构维护的workspace契约或Native锁；新增1.27来源替换执行协议不在此只读包内。Matched：读取、身份隔离、持久LKG及默认关闭；Deviated／Extra：无。Missing：真实设备接口／Host联合验收及共享执行，不部署、不替换候选、不宣称完整D-114已完成。现有TASK_BOARD草稿不纳入本次提交。
+
+2026-10-03 LKG精确审查补项：在Guardian已明确的 `profile-config:N` 数字版本范围内，新revision的effectiveAtMs不得低于旧可信policy；拒绝倒退且保持旧缓存字节不变，不推广为一般opaque revision排序规则。只读传输改用响应流累计UTF-8字节，超过64KiB即取消；多字节字符跨片使用流式解码，外部取消／超时同样取消reader，不先读取完整正文或保存错误内容。Native当前共享状态仅提供policyRevision，没有policy有效时间或摘要，不能证明客户端LKG与Native policy的revision／effectiveAtMs完整一致；本次不新增协议，保持执行关闭并将接口缺口交架构处理。补项测试限定policy/LKG与流式传输、typecheck和差异／职责检查，不改网页或应用原账、统计及任务板草稿。
+
+补项验证通过：固定1.26.0／1.27.0包消费者专项覆盖新revision生效时间倒退不写缓存、恰好64KiB、逐字节UTF-8分片、字符数未超限但字节超限的提前取消、悬停响应外部取消和超时；typecheck、diff与四文件职责检查通过。Native桥源码不变，复用d40a0bc的专项证据；隔离流和存储夹具不替代真实网络／Host验收。1.27固定schema的state仍仅含policyRevision而无effectiveAtMs，接口缺口未关闭。Matched=两项精确补丁，Deviated／Extra=无；未部署或启用。
+
 2026-10-02 执行许可持久登记准备层：新增独立 IndexedDB `shared-browser-execution-attempts-v1`，仅显式启用准备层时打开，不在 bootstrap 运行；inspect 只读登记（首次打开创建独立数据库），claim 才登记尝试。唯一 executionId 在 strict readwrite 事务中先检查、再登记，事务提交后才返回成功；最多20条且逻辑记录总量不超过8KB，容量满、损坏、读取或提交失败均拒绝。记录仅含 executionId、leaseId、时间，不包含网页内容；不自动淘汰已登记 ID，不因断线或重启重新授予同一 ID。此存储不属于网页账本，不改变 storage.local 预算或落账。登记后再次检查当前许可和租约，失效仍保留登记并拒绝；执行效果始终关闭。专项只用隔离事务故障夹具验证，真实 IndexedDB／重启验收仍未通过，不新增浏览器运行。
 
 边界补充：8KB 是记录逻辑载荷上限，不是 IndexedDB 文件的物理大小保证。20条未确认登记满后停止接收新 claim，仅允许下述持久 ACK 证明的安全退休，不按时间清除 tombstone。普通与 split-incognito 存储分区不假定共享，隐身上下文拒绝此准备登记；启用跨上下文效果前需另行验证全局去重与持久性。登记后的故障只消耗该 ID，不可通过重新执行弥补。

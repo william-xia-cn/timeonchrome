@@ -539,19 +539,28 @@ async function run() {
       restUsedMs: 60000, restRemainingMs: null }, offline: false,
   };
   const sharedPayloads = [];
+  let sharedPolicyTestPort;
   const sharedRead = await loadGuardian({ storage: {}, policy, development: true,
-    connectNative: () => createPort((payload, onMessage) => {
+    connectNative: () => (sharedPolicyTestPort = createPort((payload, onMessage) => {
       sharedPayloads.push(payload);
       queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true,
         receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [1, 2, 3],
         capabilities: ['health', 'shared-quota-state-read'],
         ...(payload.messageType === 'getSharedQuotaState' ? { sharedQuota: sharedState } : {}) })));
-    }) });
+    })) });
   const expectedShared = { date: '2026-10-02', weekStart: '2026-09-28', policyRevision: 'profile-config:12' };
+  assert.strictEqual(sharedRead.module.hasSharedAccessPolicyCapability(), false);
+  const policyAvailability = [];
+  const stopPolicyObservation = sharedRead.module.observeSharedAccessPolicyCapability(value => policyAvailability.push(value));
+  assert.deepStrictEqual(policyAvailability, [false]);
   assert.strictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).errorCode, 'shared_quota_disabled');
   sharedRead.module.configureSharedQuotaNativeBridge({ enabled: true });
   const sharedResult = await sharedRead.module.requestSharedQuotaState(expectedShared);
   assert.strictEqual(sharedResult.ok, true, JSON.stringify(sharedResult));
+  assert.strictEqual(sharedRead.module.hasSharedAccessPolicyCapability(), true);
+  assert.strictEqual(policyAvailability.at(-1), true);
+  // A failed observer cannot break the existing health/shared read path.
+  sharedRead.module.observeSharedAccessPolicyCapability(() => { throw Error('observer fixture'); });
   assert.strictEqual(sharedPayloads.at(-1).channel, 'sharedQuota');
   assert.strictEqual(sharedPayloads.at(-1).messageType, 'getSharedQuotaState');
   assert.deepStrictEqual(sharedPayloads.at(-1).payload, { date: expectedShared.date });
@@ -580,12 +589,17 @@ async function run() {
   assert.strictEqual((await sharedRead.module.requestSharedQuotaState({ ...expectedShared, date: '2026-10-03' })).errorCode,
     'shared_quota_stale_state');
   assert.strictEqual((await sharedRead.module.requestSharedQuotaState({})).errorCode, 'shared_quota_query_invalid');
+  sharedPolicyTestPort.disconnect();
+  assert.strictEqual(sharedRead.module.hasSharedAccessPolicyCapability(), false);
+  assert.strictEqual(policyAvailability.at(-1), false);
+  stopPolicyObservation();
   const oldSharedHost = await loadGuardian({ storage: {}, policy, development: true,
     connectNative: () => createPort((payload, onMessage) => queueMicrotask(() =>
       onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(), requestId: payload.requestId })))) });
   oldSharedHost.module.configureSharedQuotaNativeBridge({ enabled: true });
   assert.strictEqual((await oldSharedHost.module.requestSharedQuotaState(expectedShared)).errorCode,
     'shared_quota_unsupported');
+  assert.strictEqual(oldSharedHost.module.hasSharedAccessPolicyCapability(), false);
   const reportPayloads = [], reportPorts = [];
   let reportError = null, omitReportRequestId = false, holdSharedRead = false, releaseSharedRead;
   let holdReport = false, releaseReport;

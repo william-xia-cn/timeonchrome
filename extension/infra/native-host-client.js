@@ -77,6 +77,7 @@ const LIFECYCLE_ERRORS = new Set(['INVALID_SHARED_REMINDER_MESSAGE', 'SHARED_REM
   'INVALID_SHARED_BROWSER_EXECUTION', 'SHARED_BROWSER_EXECUTION_INSTANCE_CHANGED', 'SHARED_BROWSER_EXECUTION_RESULT_CONFLICT']);
 let sharedNativeV3 = false;
 let sharedNativeCapabilities = new Set();
+const sharedPolicyObservers = new Set();
 let applicationUsageSupported = false;
 let queuedLegacyLedger = null;
 let ledgerDrainRequested = false;
@@ -1098,6 +1099,18 @@ export function getSharedBrowserActivityLease() {
 }
 function notifyBrowserActivityLease() {
   try { Promise.resolve(browserActivityObserver?.(getSharedBrowserActivityLease())).catch(() => {}); } catch (_) {}
+  for (const observer of sharedPolicyObservers) {
+    try { Promise.resolve(observer(hasSharedAccessPolicyCapability())).catch(() => {}); } catch (_) {}
+  }
+}
+export function hasSharedAccessPolicyCapability() {
+  return nativePort !== null && sharedNativeV3 && sharedNativeCapabilities.has('shared-quota-state-read');
+}
+export function observeSharedAccessPolicyCapability(observer) {
+  if (typeof observer !== 'function' || sharedPolicyObservers.size >= 8) return () => {};
+  sharedPolicyObservers.add(observer);
+  try { Promise.resolve(observer(hasSharedAccessPolicyCapability())).catch(() => {}); } catch (_) {}
+  return () => sharedPolicyObservers.delete(observer);
 }
 export function observeSharedBrowserActivityLease(observer) {
   browserActivityObserver = typeof observer === 'function' ? observer : null;

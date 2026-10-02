@@ -2,6 +2,10 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+本轮技术集成清单：精确merge控件来源5a22ccd954e7c28e980122ba1794ddf3ef9cf1cf（含d40a0bc设备配置读取与LKG及流式边界修复），保持其产品/测试字节不变，只合并双方现有设计记录；不操作控件工作树未提交任务板。聚焦复验shared-access-policy-reader/local-guardian、根typecheck/源码边界/diff及Integration-Source范围证明；不生成候选包、不改加载目录、不启用执行或部署。1.28 PR207已合入85826e4，所有相关CI通过，固定候选90991bytes/SHA25672dbd1f611c0471913f07a72b23be519ad0066eb1c5d29f5433c7655b4b59c04已通知两端开展只读分页消费，机器来源授权/完整policy一致性等仍未完成。
+
+集成审计：配置读取/LKG及local-guardian聚焦测试、根typecheck/源码边界/diff通过；只有DESIGN插入位置冲突，双方完整记录保留。产品与测试逐路径对照来源5a22ccd无差异，所属控件TASK_BOARD草稿未动。Matched=所属实现精确集成与当前1.28兼容；Deviated/Extra=无；Missing=真实设备API/Host及共享执行验收，默认关闭。未部署/安装/替换候选。
+
 下一契约批（architecture-integration）：Contracts1.28固定设备分页运输类型、严格全页组装函数及schema；当前1.27核心/黄金向量不改。验证同Child/版本/配置、连续游标、总计/逐日覆盖、自身scope、私密/未知字段拒绝与输入不变；缺页不得生成完整依据。允许contracts、workspace版本锁、现有DESIGN/任务板；只跑契约编译/兼容/新增分页回归、原执行向量、根typecheck/边界/diff。PR206已合入93e9090，Guardian37035871728与修正职责声明后的App Runtime37035982360通过，未部署。机器授权、跨端来源证明、完整policy身份及真实执行仍须后续接入，不用运输验证代替认证。
 
 本批兼容验证精确增加根shared-access-state-cloud测试：将真实Worker分页helper生成的多页JSON交给新契约组装器，核对还原依据逐字段一致，不仅使用契约理想夹具。该根测试为跨端兼容消费者例外，不修改云端产品实现。Native已交付518e51d候选层与7ff3839纯投影，控件明确生产调度仍未接入；尚未构建/安装/启用。本批首次编译报隐式any，修正类型声明后相关测试通过，不计首次失败为通过。
