@@ -10,7 +10,8 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.23.1');
+assert.equal(pkg.version, '1.24.0');
+assert(pkg.exports['./shared-reminder-lifecycle']);
 assert(pkg.exports['./shared-access'], 'shared access contract must be exported');
 const sharedAccess = JSON.parse(fs.readFileSync(path.join(root, 'shared-access-v1.schema.json'), 'utf8'));
 assert.equal(sharedAccess.$defs.policy.properties.stage.enum[0], 'legacy');
@@ -104,13 +105,22 @@ const nativeHostV3 = JSON.parse(fs.readFileSync(path.join(root, 'native-host-v3.
 assert.equal(nativeHostV3.properties.protocolVersion.const, 3);
 assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics', 'application', 'sharedQuota']);
 assert.deepEqual(nativeHostV3.properties.messageType.enum,
-  ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getSharedQuotaState', 'reportReminderResult']);
+  ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getSharedQuotaState', 'reportReminderResult',
+    'getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder']);
 assert.equal(nativeHostV3.$defs.applicationQuery.additionalProperties, false);
 assert.deepEqual(nativeHostV3.$defs.sharedQuotaQuery.required, ['date']);
 assert.deepEqual(Object.keys(nativeHostV3.$defs.sharedQuotaQuery.properties), ['date']);
 assert.equal(nativeHostV3.$defs.sharedQuotaQuery.additionalProperties, false);
 assert.equal(nativeHostV3.allOf[3].then.allOf[1].then.properties.payload.$ref,
   'shared-access-v1.schema.json#/$defs/reminderResult');
+assert.equal(nativeHostV3.allOf[3].then.allOf[2].then.properties.payload.$ref,'#/$defs/sharedQuotaQuery');
+assert.equal(nativeHostV3.allOf[3].then.allOf[3].then.properties.payload.$ref,
+  'shared-reminder-lifecycle-v1.schema.json#/$defs/deliveryAck');
+assert.equal(nativeHostV3.allOf[3].then.allOf[4].then.properties.payload.$ref,
+  'shared-reminder-lifecycle-v1.schema.json#/$defs/resolution');
+const lifecycle=JSON.parse(fs.readFileSync(path.join(root,'shared-reminder-lifecycle-v1.schema.json'),'utf8'));
+assert.equal(lifecycle.$defs.state.additionalProperties,false);
+assert.deepEqual(lifecycle.$defs.state.required,Object.keys(lifecycle.$defs.state.properties));
 assert.deepEqual(nativeHostV3.$defs.applicationQuery.required, ['fromDate', 'toDate', 'offset']);
 assert.equal(nativeHostV3.$defs.applicationQuery.properties.offset.maximum, 20000);
 assert.equal(nativeHostV3.$defs.dailySnapshot.properties.activeSeconds.type, 'integer');
