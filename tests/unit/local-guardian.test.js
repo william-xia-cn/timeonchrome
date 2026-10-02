@@ -47,6 +47,8 @@ function moduleSource(instance) {
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-reminder-result.js'), 'utf8').replace(/export function /g, 'function '))
     .replace(/import \{ validateSharedReminderMessage, validateSharedReminderState \} from '\.\.\/core\/shared-reminder-lifecycle\.js';/,
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-reminder-lifecycle.js'), 'utf8').replace(/export function /g, 'function '))
+    .replace(/import \{ validateSharedBrowserActivity \} from '\.\.\/core\/shared-browser-activity\.js';/,
+      fs.readFileSync(path.join(root, 'extension', 'core', 'shared-browser-activity.js'), 'utf8').replace(/export function /g, 'function '))
     + `\n// test-instance-${instance}`;
 }
 
@@ -804,6 +806,88 @@ async function run() {
   lifecycleSupported = false;
   await lifecycle.module.requestLocalGuardianHeartbeat({ trigger: 'test_lifecycle_revoked', force: true });
   assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date })).errorCode, 'shared_reminder_unsupported');
+  const activityRequests = [];
+  const leasesObserved = [];
+  let activityPort;
+  let activityLease = 'fixture-lease-1';
+  let activityCapable = true;
+  let holdActivity = false;
+  let releaseActivity;
+  let badActivityAck = false;
+  let staleActivityAck = false;
+  const activity = await loadGuardian({ storage: {}, policy,
+    connectNative: () => {
+      activityPort = createPort((payload, onMessage) => {
+        activityRequests.push(payload);
+        const isActivity = payload.messageType === 'reportBrowserActivity';
+        const reply = () => onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(),
+          requestId: isActivity && badActivityAck ? undefined : payload.requestId,
+          supportedProtocols: [1, 2, 3], capabilities: activityCapable
+            ? ['shared-browser-activity-v1', 'application-usage-read'] : ['health'],
+          browserActivityLeaseId: activityLease,
+          ...(isActivity ? { browserActivityAck: { leaseId: payload.payload.leaseId,
+            acceptedSequence: payload.payload.sequence, duplicate: false, stale: staleActivityAck } } : {}),
+          ...(payload.messageType === 'getApplicationUsage' ? { applicationUsage: { revision: 'fair-read' } } : {}) }));
+        if (isActivity && holdActivity) releaseActivity = reply;
+        else queueMicrotask(reply);
+      });
+      return activityPort;
+    } });
+  const makeActivity = sequence => ({ schemaVersion: 1, leaseId: activityLease, activityId: 'fixture-activity',
+    sequence, status: 'active', quotaBucket: 'rest', presentationEligible: true });
+  activity.module.observeSharedBrowserActivityLease(value => leasesObserved.push(value));
+  await activity.module.requestLocalGuardianHeartbeat({ force: true });
+  assert.strictEqual(activity.module.getSharedBrowserActivityLease(), null, 'default-off even with Service capability');
+  const beforeActivity = activityRequests.length;
+  assert.strictEqual((await activity.module.reportSharedBrowserActivity(makeActivity(1))).ok, false);
+  assert.strictEqual(activityRequests.length, beforeActivity);
+  activity.module.configureSharedQuotaNativeBridge({ enabled: true });
+  assert.strictEqual(activity.module.getSharedBrowserActivityLease(), activityLease);
+  assert.strictEqual((await activity.module.reportSharedBrowserActivity(makeActivity(1))).ok, true);
+  assert.deepStrictEqual(activityRequests.at(-1).payload, makeActivity(1));
+  assert.strictEqual((await activity.module.reportSharedBrowserActivity({ ...makeActivity(2), sentAtMs: 1 })).ok, false);
+  holdActivity = true;
+  const firstActivity = activity.module.reportSharedBrowserActivity(makeActivity(2));
+  await waitFor(() => releaseActivity);
+  const secondActivity = activity.module.reportSharedBrowserActivity(makeActivity(3));
+  const lastActivity = activity.module.reportSharedBrowserActivity(makeActivity(4));
+  assert.strictEqual((await secondActivity).reason, 'activity_superseded');
+  const concurrentRead = activity.module.requestApplicationUsage(query);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const fairStart = activityRequests.length;
+  holdActivity = false;
+  releaseActivity();
+  assert.strictEqual((await firstActivity).ok, true);
+  assert.strictEqual((await concurrentRead).ok, true);
+  assert.strictEqual((await lastActivity).ok, true);
+  assert.deepStrictEqual(activityRequests.slice(fairStart).map(item => item.messageType), ['getApplicationUsage', 'reportBrowserActivity']);
+  badActivityAck = true;
+  assert.strictEqual((await activity.module.reportSharedBrowserActivity(makeActivity(5))).ok, false);
+  badActivityAck = false;
+  staleActivityAck = true;
+  assert.strictEqual((await activity.module.reportSharedBrowserActivity(makeActivity(6))).ok, false);
+  staleActivityAck = false;
+  holdActivity = true; releaseActivity = null;
+  const disconnecting = activity.module.reportSharedBrowserActivity(makeActivity(7));
+  await waitFor(() => releaseActivity);
+  const lateActivityReply = releaseActivity;
+  activityPort.disconnect();
+  assert.strictEqual((await disconnecting).ok, false);
+  assert.strictEqual(activity.module.getSharedBrowserActivityLease(), null);
+  lateActivityReply();
+  assert.strictEqual(activity.module.getSharedBrowserActivityLease(), null, 'late ACK cannot restore disconnected lease');
+  holdActivity = false;
+  activityLease = 'fixture-lease-2';
+  await activity.module.requestLocalGuardianHeartbeat({ force: true });
+  assert.strictEqual(activity.module.getSharedBrowserActivityLease(), activityLease);
+  assert.strictEqual((await activity.module.reportSharedBrowserActivity({ ...makeActivity(8), leaseId: 'fixture-lease-1' })).ok, false);
+  assert.strictEqual((await activity.module.reportSharedBrowserActivity(makeActivity(1))).ok, true);
+  activityCapable = false;
+  await activity.module.requestLocalGuardianHeartbeat({ force: true });
+  const oldHostCount = activityRequests.length;
+  assert.strictEqual((await activity.module.reportSharedBrowserActivity(makeActivity(2))).ok, false);
+  assert.strictEqual(activityRequests.length, oldHostCount);
+  assert(leasesObserved.includes(null) && leasesObserved.includes('fixture-lease-2'));
   console.log('[Local Guardian] passed');
   process.exit(0);
 }
