@@ -4557,8 +4557,6 @@ async function applyAccessManagementConfigImport() {
   if (systemDiffs.length > 0 && systemAccessCanWrite && !confirm('系统配置导入后会全局生效，影响所有孩子档案。确认应用选中的系统配置差异？')) return;
 
   const results = [];
-  // 当前旧 Profile 接口尚不接收此字段；显式阻止，不能把静默忽略当成成功。
-  if(userDiffs.some(diff=>diff.area==='usage-rule')){showRulesAccessConfigMsg('其他用途规则的导入写入待云端兼容，请取消该项后导入其余内容。',false);return;}
   draft.applying=true;
   try {
     if (userDiffs.length > 0) {
@@ -4969,6 +4967,12 @@ function buildProfileConfigImportPayload(selectedDiffs) {
     timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(remoteConfig?.timeWindows?.daily || {}) },
   };
 
+  const publicUsageRule = rule => ({ classification: 'other', targetType: rule.targetType,
+    normalizedValue: rule.normalizedValue || rule.targetValue });
+  if (selectedDiffs.some(diff => diff.area === 'usage-rule')) {
+    payload.siteUsageClassificationRulesV1 = (remoteConfig?.siteUsageClassificationRulesV1 || []).map(publicUsageRule);
+  }
+
   for (const diff of selectedDiffs) {
     if (diff.area === 'site-list') {
       removeHostFromAllImportLists(payload, diff.key);
@@ -4977,6 +4981,9 @@ function buildProfileConfigImportPayload(selectedDiffs) {
       payload.siteClassificationRulesV1 = payload.siteClassificationRulesV1.filter(rule => configImportRuleKey(rule) !== diff.key);
       if (diff.type !== 'delete' && diff.importedRule) payload.siteClassificationRulesV1.push(diff.importedRule);
       payload.siteClassificationRulesV1 = uniqueSiteRules(payload.siteClassificationRulesV1);
+    } else if (diff.area === 'usage-rule') {
+      payload.siteUsageClassificationRulesV1 = payload.siteUsageClassificationRulesV1.filter(rule => configImportRuleKey(rule) !== diff.key);
+      if (diff.type !== 'delete' && diff.importedRule) payload.siteUsageClassificationRulesV1.push(publicUsageRule(diff.importedRule));
     } else if (diff.area === 'quota') {
       payload.timeQuota.daily[diff.day] = payload.timeQuota.daily[diff.day] || {};
       if (diff.type === 'delete') delete payload.timeQuota.daily[diff.day][diff.field];

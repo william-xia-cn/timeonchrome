@@ -49,6 +49,29 @@ function fixture({hold=false,invalid=false,holdStyles=false}={}){
   assert.match(html,/id="access-config-domain"/);
   assert.match(html,/await applyProfileNotificationImport\(userDiffs,context\)/);
   assert.match(html,/if\(generation!==accessConfigImportGeneration\)return/);
+  // 执行实际导入候选函数：只应用选中用途差异，且绝不发送服务器申请身份。
+  const payloadStart=html.indexOf('function buildProfileConfigImportPayload(');
+  const payloadEnd=html.indexOf('function buildProfileNotificationImportPayload(',payloadStart);
+  const usageBefore=[
+    {id:'owned-id',requestId:'owned-request',classification:'other',targetType:'host',normalizedValue:'keep.test'},
+    {id:'remove-id',classification:'other',targetType:'host',normalizedValue:'remove.test'},
+  ];
+  const payloadContext={remoteConfig:{siteUsageClassificationRulesV1:usageBefore,timeQuota:{daily:{},weekly:{restMinutes:null}}},
+    weeklyRestQuotaView:()=>({value:null}),uniqueSiteRules:value=>value,quotaFiniteNumber:()=>null,
+    sanitizeTimeWindowsDailyForConfigIo:value=>value,findSiteAccessExactConflicts:()=>[],
+    configImportRuleKey:rule=>`${rule.targetType}::${rule.normalizedValue||rule.targetValue}`};
+  vm.runInNewContext(html.slice(payloadStart,payloadEnd),payloadContext);
+  assert.equal(Object.hasOwn(payloadContext.buildProfileConfigImportPayload([]),'siteUsageClassificationRulesV1'),false);
+  const candidate=payloadContext.buildProfileConfigImportPayload([
+    {area:'usage-rule',type:'delete',key:'host::remove.test'},
+    {area:'usage-rule',type:'add',key:'host::new.test',importedRule:{classification:'other',targetType:'host',normalizedValue:'new.test',requestId:'foreign-request',id:'foreign-id'}},
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(candidate.siteUsageClassificationRulesV1)),[
+    {classification:'other',targetType:'host',normalizedValue:'keep.test'},
+    {classification:'other',targetType:'host',normalizedValue:'new.test'},
+  ]);
+  assert.equal(usageBefore.length,2);assert.equal(usageBefore[0].requestId,'owned-request');
+  assert(!html.includes('其他用途规则的导入写入待云端兼容'));
   // 实际通知导入函数：迟到响应不得更新另一个孩子，预览失效不得先发请求。
   const notificationStart=html.indexOf('async function applyProfileNotificationImport(');
   const notificationEnd=html.indexOf('function renderConfigImportVisibleDiffs',notificationStart);
