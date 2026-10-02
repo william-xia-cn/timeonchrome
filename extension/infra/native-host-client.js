@@ -9,6 +9,7 @@ import { validateSharedQuotaStateV1 } from '../core/shared-quota-state.js';
 import { validateSharedReminderResultV1 } from '../core/shared-reminder-result.js';
 import { validateSharedReminderMessage, validateSharedReminderState } from '../core/shared-reminder-lifecycle.js';
 import { validateSharedBrowserActivity } from '../core/shared-browser-activity.js';
+import { validateSharedBrowserExecution } from '../core/shared-browser-execution.js';
 
 export const TIMEONCHROME_NATIVE_HOST = 'com.timeonchrome.nativehost';
 export const LEGACY_LOCAL_GUARDIAN_HOST = 'com.timeonchrome.guardian';
@@ -65,11 +66,13 @@ const SHARED_NATIVE_CAPABILITIES = {
   acknowledgeSharedReminderDelivery: 'shared-reminder-lifecycle-v1',
   resolveSharedReminder: 'shared-reminder-lifecycle-v1',
   reportBrowserActivity: 'shared-browser-activity-v1',
+  acknowledgeBrowserExecution: 'shared-reminder-lifecycle-v1',
 };
 const LIFECYCLE_ERRORS = new Set(['INVALID_SHARED_REMINDER_MESSAGE', 'SHARED_REMINDER_SCOPE_CHANGED',
   'SHARED_REMINDER_PRESENTER_CHANGED', 'SHARED_REMINDER_INSTANCE_CHANGED', 'SHARED_REMINDER_DELIVERY_CONFLICT',
   'SHARED_REMINDER_NOT_VISIBLE', 'SHARED_REMINDER_DEADLINE_ELAPSED', 'SHARED_REMINDER_RESULT_CONFLICT',
-  'INVALID_SHARED_BROWSER_ACTIVITY', 'SHARED_BROWSER_ACTIVITY_LEASE_CHANGED', 'SHARED_BROWSER_ACTIVITY_SEQUENCE_CONFLICT']);
+  'INVALID_SHARED_BROWSER_ACTIVITY', 'SHARED_BROWSER_ACTIVITY_LEASE_CHANGED', 'SHARED_BROWSER_ACTIVITY_SEQUENCE_CONFLICT',
+  'INVALID_SHARED_BROWSER_EXECUTION', 'SHARED_BROWSER_EXECUTION_INSTANCE_CHANGED', 'SHARED_BROWSER_EXECUTION_RESULT_CONFLICT']);
 let sharedNativeV3 = false;
 let sharedNativeCapabilities = new Set();
 let applicationUsageSupported = false;
@@ -390,6 +393,8 @@ function ensureNativePort() {
       sharedReminder: response.sharedReminder,
       browserActivityLeaseId: response.browserActivityLeaseId,
       browserActivityAck: response.browserActivityAck,
+      browserExecution: response.browserExecution,
+      browserExecutionAck: response.browserExecutionAck,
       requestId: response.requestId,
     });
   });
@@ -420,7 +425,7 @@ function postToNativeHost(payload) {
   const sharedQuotaRead = payload.channel === 'sharedQuota' && payload.messageType === 'getSharedQuotaState';
   const sharedReminderReport = payload.channel === 'sharedQuota' && payload.messageType === 'reportReminderResult';
   const sharedLifecycle = payload.channel === 'sharedQuota' && ['getSharedReminderState',
-    'acknowledgeSharedReminderDelivery', 'resolveSharedReminder'].includes(payload.messageType);
+    'acknowledgeSharedReminderDelivery', 'resolveSharedReminder', 'acknowledgeBrowserExecution'].includes(payload.messageType);
   const browserActivity = payload.channel === 'sharedQuota' && payload.messageType === 'reportBrowserActivity';
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
@@ -722,12 +727,31 @@ async function performSend(options) {
   if (options.type === 'sharedLifecycle') {
     try {
       if (!sharedCapabilityAvailable(options.method)) return { ok: false, errorCode: 'shared_reminder_unsupported' };
+      if (options.method === 'acknowledgeBrowserExecution' && getSharedBrowserActivityLease() !== options.payload.leaseId) {
+        return { ok: false, errorCode: 'SHARED_BROWSER_ACTIVITY_LEASE_CHANGED' };
+      }
       const payload = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
         messageType: options.method, extensionId: chrome.runtime.id,
         profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.payload };
       const ack = await postToNativeHost(payload);
       if (ack.requestId !== payload.requestId) return { ok: false, errorCode: 'shared_reminder_invalid_ack' };
-      return validateSharedReminderState(ack.sharedReminder, options.expected);
+      if (options.method === 'acknowledgeBrowserExecution') {
+        const receipt = ack.browserExecutionAck;
+        if (getSharedBrowserActivityLease() !== options.payload.leaseId || !receipt || Object.keys(receipt).length !== 2 || receipt.executionId !== options.payload.executionId
+          || typeof receipt.duplicate !== 'boolean') return { ok: false, errorCode: 'shared_reminder_invalid_ack' };
+        return { ok: true, receipt: { executionId: receipt.executionId, duplicate: receipt.duplicate } };
+      }
+      const state = validateSharedReminderState(ack.sharedReminder, options.expected);
+      if (!state.ok) return state;
+      if (ack.browserExecution == null) return { ...state, browserExecution: null,
+        requestStartedMonotonicMs: options.requestStartedMonotonicMs };
+      const execution = validateSharedBrowserExecution(ack.browserExecution);
+      if (!execution.ok || !state.state || state.state.stage !== 'shared' || state.state.status !== 'resolved'
+        || !Number.isSafeInteger(state.state.visibleAtMs) || Object.keys(sharedReminderIdentityForExecution(state.state))
+        .some(field => execution.payload[field] !== state.state[field])) {
+        return { ok: false, errorCode: 'INVALID_SHARED_BROWSER_EXECUTION' };
+      }
+      return { ...state, browserExecution: execution.payload, requestStartedMonotonicMs: options.requestStartedMonotonicMs };
     } catch (error) {
       return { ok: false, errorCode: normalizeErrorCode(error?.message) };
     }
@@ -1116,6 +1140,7 @@ export async function reportSharedReminderResult(result) {
 }
 
 export async function requestSharedReminderLifecycle(method, value) {
+  const requestStartedMonotonicMs = Math.floor(performance.now());
   let checked;
   if (method === 'getSharedReminderState') {
     const validDate = typeof value?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.date);
@@ -1125,17 +1150,24 @@ export async function requestSharedReminderLifecycle(method, value) {
       return { ok: false, errorCode: 'INVALID_SHARED_REMINDER_MESSAGE' };
     }
     checked = { ok: true, payload: { date: value.date } };
-  } else checked = validateSharedReminderMessage(value, method);
+  } else checked = method === 'acknowledgeBrowserExecution'
+    ? validateSharedBrowserExecution(value, true) : validateSharedReminderMessage(value, method);
   if (!checked.ok) return checked;
   if (!await readNativeHostDeploymentMarker().catch(() => false)) return { ok: false, errorCode: 'managed_marker_unavailable' };
   const negotiated = await negotiateSharedCapability(method, 'shared_reminder');
   if (!negotiated.ok) return negotiated;
   const { delivery, action, ...identity } = checked.payload;
   const options = { type: 'sharedLifecycle', method, payload: checked.payload,
+    requestStartedMonotonicMs,
     expected: method === 'getSharedReminderState' ? { date: value.date } : identity };
   if (!activeSendPromise) return startSend(options);
   if (queuedSharedLifecycle) return { ok: false, errorCode: 'shared_reminder_busy' };
   return new Promise(resolve => { queuedSharedLifecycle = { options, resolve }; });
+}
+
+function sharedReminderIdentityForExecution(state) {
+  return Object.fromEntries(['schemaVersion', 'roundId', 'reminderId', 'deliveryId', 'policyRevision', 'stateRevision']
+    .map(field => [field, state[field]]));
 }
 
 function isTrustedRecheckSender(sender) {

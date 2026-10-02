@@ -14,6 +14,19 @@ Guardian 按 Child 维护唯一的公共时间配额、七天时间段和自主�
 
 ### D-114 终端契约与实施边界
 
+1.26 无效果准备层：固定源 `7ceab64bbe1f5c5e997edbd872c705d03cd5fb56`，82747 字节验真包 SHA-256 `a53d765f239d2f04d7c172c109f49ea2ae0db73689cbcea6d588da81074722c5`。校验独立 `browserExecution`，严格绑定提醒 identity、lease、activity、版本及当前 Rest 页面；有效期从 Native 请求入口的单调时间计入排队和传输延迟。不从 resolution/stage 推断许可。默认关闭的准备调用者 `inspectSharedBrowserExecution(date, { enabled })` 经 Native 读取、实时活动复核、许可资格检查返回无效果结果，不调用网页关闭、模式切换、结算或存储写入；一次尝试登记通过显式注入接口准备，claim 前再次核对身份、时间及已有尝试，真实持久登记及效果调用仍待单项批准。`acknowledgeBrowserExecution` 使用既有串行 Port，发送及回执时复核当前 lease，严格确认 executionId/requestId；准备检查本身不发送 completed，不把 canceled 升级。43 项执行、28 项生命周期、24 项活动共同向量及 Native 回执、实例、未知字段专项通过，真实扩展／Service／效果执行未验收。
+
+### 网页结束执行待裁决边界（尚未实施）
+
+- 旧路径：`product/rest-usage-reminder.js:endPrompt()` 调用 background 注入的 `endRestUsage()`，以 `REQUEST_MODE_CHANGE` 请求 Study；既有拦截器可用 `chrome.tabs.update()` 导航到完整 Reminder。这是模式／页面跳转，不是有取消结果的正常关页，不能冒充 `request-normal-close`。
+- 新许可读取位置：`infra/native-host-client.js:requestSharedReminderLifecycle()` 保留显式许可和请求发起单调时间；`product/shared-browser-execution-preparation.js` 绑定当前实例，仅返回准备结果。后续真实执行器尚未创建或接线，不能将纯校验称为实际结束执行。
+- 拟裁决行为：主动结束仅一次可取消正常关闭，取消保留页面且不升级为强制；Service 超时结束仅在独立有效的 `force-close` 许可下终止绑定页面。不能由弹层所在平台决定目标，不能调用 Windows 应用 closer 关闭 Chrome 或其他标签／进程。
+- API 未决：`chrome.tabs.remove(tabId)` 是关闭标签的候选 API，但官方签名没有 force 参数，也未给出本项目所需的 canceled／force 双分支保证（https://developer.chrome.com/docs/extensions/reference/api/tabs#method-remove）。必须先单独验证；在真实关闭／取消证据不足时，不实现或宣称这两个动作。不得擅增 debugger 权限、终止 Chrome 进程或以跳转 Reminder 代替关闭。
+- 原自然结算保持：`core/signal.js` 的 `onRemoved` 仍产生 `tabClosedSuccessor/tabClosedNoActiveTab`，既有 foreground/timing-dispatcher/session 链路负责结算；本批未改这些文件。未来关闭动作不得同时手工 closeCurrentSession 再依赖自然事件重复结算。
+- 少记风险：过期／串页许可导致错误关闭会提前终止真实使用；正常关闭取消后若错误停账会少记。多记风险：真实关页后事件丢失或残留 ACTIVE 会续记；人工停账与自然事件双结算会重叠。均须保持 P0，不能因各层秒数一致而消除。
+- 真实验收方案：独立 unpacked Profile 和测试页面，保存许可请求单调时间、活动／原提醒绑定及关闭前后原始分段；分别验证正常关闭、取消保留、超时强制、导航／标签切换／锁屏、断连、重复 executionId、迟到响应及存储登记失败。原始账只允许沿自然导航边界结束一次，不能少记取消后的有效用量；核对小时／日／设备账守恒。本次未获新的真实浏览器运行授权，未执行。
+
+
 活动观察器导航竞态补严：强媒体核验可能没有 `observedUrl`，因此采样时另用既有 `extractDomain()` 校验实际 tab URL 与会话域名一致；核验后的导航不能继续沿用旧域名的租约证据。仅影响默认关闭的活动上报，不修改网页会话或原始账。
 
 2026-10-02 活动租约适配：固定 contracts 源 `543d5062f238f2378a1ec637672727647030a926`（1.25.0，架构通报已集成于 `14f5896`）；验真包 78698 字节，SHA-256 `27115fe33c4ac585fda3468ec42c6835e41277b5f93ca77969210285ce64a403`。继续使用同仓 workspace 依赖，固定包仅用于验真，不替换依赖或根锁。仅能力 `shared-browser-activity-v1`、Service 签发的 `browserActivityLeaseId` 和显式本地开关均满足时启用。每 5 秒只读复核已有 ACTIVE、实际 Rest 桶及当前页面，包含借用 Rest；展示资格另查聚焦、未最小化和 Content 可见。读取最多等待 3 秒，超时报告 inactive，晚到读取不恢复活动。上报严格七字段 `schemaVersion/leaseId/activityId/sequence/status/quotaBucket/presentationEligible`，不含客户端时间或网页身份；既有 V3 通讯外壳不作为活动期限依据。自然页面切换随机新 activityId，lease 内 sequence 递增；观察事件先撤销旧活动，复核后续报。串行 Port 只有一个待发活动槽，较新事实替换旧事实，活动与既有消息轮换，不中断在途账快照；长请求下 Service 的 15 秒期限可以失效，不延长权限。断连清除 lease、停止定时器，旧结果不得恢复；重新协商后重新核实。停止或读取异常报 inactive，不调用开段、停段或结算；关闭失败的残留 ACTIVE 不是活动证明。默认关闭，不安装或发布，不修改契约源码。24 个活动契约向量、只读采样及控制器、Native 串行／ACK／重连专项、typecheck 和扩展根目录检查通过；真实扩展和 Service 联调仍待验收，Content 第三次浏览器复验保持暂停。1.26 网页结束执行许可尚未消费，不从 stage/resolution 推断正常或强制结束权限。

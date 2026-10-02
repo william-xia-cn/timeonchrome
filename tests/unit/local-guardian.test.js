@@ -49,6 +49,8 @@ function moduleSource(instance) {
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-reminder-lifecycle.js'), 'utf8').replace(/export function /g, 'function '))
     .replace(/import \{ validateSharedBrowserActivity \} from '\.\.\/core\/shared-browser-activity\.js';/,
       fs.readFileSync(path.join(root, 'extension', 'core', 'shared-browser-activity.js'), 'utf8').replace(/export function /g, 'function '))
+    .replace(/import \{ validateSharedBrowserExecution \} from '\.\.\/core\/shared-browser-execution\.js';/,
+      fs.readFileSync(path.join(root, 'extension', 'core', 'shared-browser-execution.js'), 'utf8').replace(/export function /g, 'function '))
     + `\n// test-instance-${instance}`;
 }
 
@@ -762,17 +764,24 @@ async function run() {
   let missingLifecycleId = false;
   let holdLifecycle = false;
   let releaseLifecycle;
+  let lifecycleExecution = null;
+  let wrongExecutionReceipt = false;
   const lifecycle = await loadGuardian({ storage: {}, policy,
     connectNative: () => createPort((payload, onMessage) => {
       lifecycleRequests.push(payload);
-      const isLifecycle = ['getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder'].includes(payload.messageType);
+      const isLifecycle = ['getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder', 'acknowledgeBrowserExecution'].includes(payload.messageType);
       const reply = () => onMessage.listeners.forEach(listener => listener({
         ok: !(isLifecycle && lifecycleError), errorCode: lifecycleError,
         receivedAt: Date.now(), requestId: isLifecycle && missingLifecycleId ? undefined : payload.requestId,
-        supportedProtocols: [1, 2, 3], capabilities: lifecycleSupported ? ['shared-reminder-lifecycle-v1'] : [],
+        supportedProtocols: [1, 2, 3], capabilities: lifecycleSupported ? ['shared-reminder-lifecycle-v1', 'shared-browser-activity-v1'] : [],
+        browserActivityLeaseId: 'fixture-lease',
         ...(isLifecycle ? { sharedReminder: { ...lifecycleState,
           ...(payload.messageType === 'acknowledgeSharedReminderDelivery' ? { status: 'visible', visibleAtMs: 2500 } : {}),
-          ...(payload.messageType === 'resolveSharedReminder' ? { status: 'resolved', visibleAtMs: 2500, resolution: payload.payload.action } : {}) } } : {}) }));
+          ...(payload.messageType === 'resolveSharedReminder' ? { status: 'resolved', visibleAtMs: 2500, resolution: payload.payload.action } : {}),
+          ...(lifecycleExecution ? { stage: 'shared', status: 'resolved', visibleAtMs: 2500, resolution: 'end_rest' } : {}) },
+          browserExecution: lifecycleExecution,
+          ...(payload.messageType === 'acknowledgeBrowserExecution' ? { browserExecutionAck: {
+            executionId: wrongExecutionReceipt ? 'old-execution' : payload.payload.executionId, duplicate: false } } : {}) } : {}) }));
       if (isLifecycle && holdLifecycle) releaseLifecycle = reply;
       else queueMicrotask(reply);
     }) });
@@ -806,6 +815,28 @@ async function run() {
   lifecycleSupported = false;
   await lifecycle.module.requestLocalGuardianHeartbeat({ trigger: 'test_lifecycle_revoked', force: true });
   assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date })).errorCode, 'shared_reminder_unsupported');
+  lifecycleSupported = true;
+  await lifecycle.module.requestLocalGuardianHeartbeat({ trigger: 'test_execution_available', force: true });
+  lifecycleExecution = { ...lifeIdentity, executionId: 'execution-1', leaseId: 'fixture-lease', activityId: 'fixture-activity',
+    targetSource: 'browser', effect: 'request-normal-close', maxAgeMs: 5000 };
+  const executionRequestStarted = Math.floor(performance.now());
+  const executionRead = await lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date });
+  assert.strictEqual(executionRead.browserExecution.executionId, 'execution-1');
+  assert(executionRead.requestStartedMonotonicMs >= executionRequestStarted
+    && executionRead.requestStartedMonotonicMs <= Math.floor(performance.now()));
+  const executionAck = { ...lifeIdentity, executionId: 'execution-1', leaseId: 'fixture-lease', activityId: 'fixture-activity', outcome: 'stale' };
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeBrowserExecution', executionAck)).receipt.executionId, 'execution-1');
+  assert.deepStrictEqual(lifecycleRequests.at(-1).payload, executionAck);
+  wrongExecutionReceipt = true;
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeBrowserExecution', executionAck)).ok, false);
+  wrongExecutionReceipt = false;
+  const executionCount = lifecycleRequests.length;
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeBrowserExecution', { ...executionAck, url: 'private' })).ok, false);
+  assert.strictEqual(lifecycleRequests.length, executionCount);
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('acknowledgeBrowserExecution', { ...executionAck, leaseId: 'old-lease' })).ok, false);
+  assert.strictEqual(lifecycleRequests.length, executionCount);
+  lifecycleExecution = { ...lifecycleExecution, reminderId: 'old-reminder' };
+  assert.strictEqual((await lifecycle.module.requestSharedReminderLifecycle('getSharedReminderState', { date })).ok, false);
   const activityRequests = [];
   const leasesObserved = [];
   let activityPort;

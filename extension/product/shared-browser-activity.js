@@ -99,6 +99,7 @@ export function createSharedBrowserActivity({ enabled = false, sample = readBrow
   return {
     tick,
     invalidate,
+    inspect: () => ({ leaseId: lease, activityId, key, active }),
     setLease(value) {
       const next = typeof value === 'string' && value.trim() && value.length <= 128 ? value : null;
       if (next === lease) return;
@@ -122,6 +123,9 @@ export function createSharedBrowserActivity({ enabled = false, sample = readBrow
 }
 
 let controller = null;
+export function inspectSharedBrowserActivity() {
+  return controller?.inspect() || null;
+}
 export function configureSharedBrowserActivity({ enabled = false } = {}) {
   controller?.configure(enabled);
 }
