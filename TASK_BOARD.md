@@ -6,6 +6,8 @@
 
 页面接线验证：新摘要直接读取已存在 API；使用真实 `profile-config:<version>` 策略 revision，拒绝旧孩子、配置、日期、页签和超时迟到结果；保留毫秒，不完整日／周不显示零余额。聚焦页面与现有云端状态测试、根 typecheck、脚本语法及 diff 通过。最终桌面／390px移动 mock 截图已目视无溢出；仅 mock，不代替真机。既有主页面 CI 增加同一项聚焦测试及其路径触发，不新增 job 或平台门。Matched＝共享读模型接入管理页面；Deviated/Extra＝无；整体 Missing＝本机安装／重载／真实联调及启用，仍未完成。
 
+阶段文案固定：家长只读接口的 `usableForEnforcement=false` 不是终端执行证明。页面按已投影阶段显示 shadow“尚未启用”或 shared“已配置，实际执行以设备状态为准”，不把只读接口误当机器执行授权，也不在最终启用后错误显示未启用；追加 shared 阶段聚焦回归。
+
 第三批修补发布回读（2026-10-03）：PR #214 合入 `191dee1fd781b17cf4e236d7b5b018fd651d2cec`；精确 Guardian CI 37069069179 通过，Production 37069151173 成功，仅更新 Guardian Worker 为 `f8bb83de-8904-4ad0-a1bb-f69e0e131978`。Runtime Worker、两 Pages、R2 latest 均与上一生产 manifest 相同；本次未执行迁移。真实已登录孩子的重复 shadow 保存成功返回 `success=true/noChange=true`，版本34不增长；这证明幂等保存烟测，不冒称新的实写或完整共享联调通过。真实配置仍 shadow、全局共享执行关闭；最终2.6.18安装确认、管理员固定原账指纹及原路径1.7.40重载仍待完成。无逐零件新分支、工作树或中间候选。
 
 第三批实际集成／影子发布（2026-10-03）：整批 PR #213 已合入 master `b1729172ea5067dabd4b1f97220abe848661fd86`；精确主线 Runtime CI 37066633782、Guardian 37066633730、主页面 37066790058 均成功。Production 37066948206 已成功部署 Runtime Worker／独立 Pages、Guardian Worker／主 Pages，仅应用 Runtime 0014/0015 和隔离 Guardian 033 派生存储，未回放旧迁移。独立 P-256 来源证明密钥内存生成并通过标准输入配置，未复用旧密钥、未本地保存私钥。贡献接入开放，`SHARED_ACCESS_EXECUTION_ENABLED=false`；未启用共享限制、不改 R2 latest。Native 唯一候选 2.6.18 来源 `7e6e054` 已核对 Burn/MSI/manifest，446/446 当前与398/398上一契约测试通过；安装前基线与原目录控件最终候选正在准备。真实两端来源绑定、余额、离线恢复、提醒／结束及原账守恒仍未验收，不标记 D-114 完成。

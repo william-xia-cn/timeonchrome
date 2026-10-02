@@ -6284,7 +6284,8 @@ function renderSharedAccessManagementState(state) {
   const dayComplete = state.complete === true && state.day?.complete === true;
   const phases = { legacy: '兼容阶段', shadow: '影子核对', shared: '共享阶段' };
   const phase = phases[state.stage] || '阶段未知';
-  const execution = state.usableForEnforcement === true ? '云端允许共享执行；终端覆盖需分别验收' : '尚未启用共享限制';
+  // The parent read model is not a device execution authorization.
+  const execution = state.stage === 'shared' ? '已配置共享阶段；实际执行以设备能力和实机状态为准' : '尚未启用共享限制';
   document.getElementById('shared-access-summary-status').textContent =
     `${phase} · ${execution} · ${state.date} · ${dayComplete ? '今日来源完整' : '今日来源不完整，不能提供完整余额'}`;
   const values = document.getElementById('shared-access-summary-values');

@@ -39,6 +39,9 @@ const harnessIds = ['shared-access-summary-status', 'shared-access-summary-cover
   assert.match(content(h), /无限制/); assert.match(content(h), /尚未启用共享限制/);
   assert.doesNotMatch(content(h), /PRIVATE-ID/);
   assert.equal(h.get('shared-access-summary-refresh').disabled, false);
+  const shared = harness(), sharedRead = shared.context.refreshSharedAccessManagementState();
+  shared.requests[0].resolve(snapshot({stage: 'shared', usableForEnforcement: false})); await sharedRead;
+  assert.match(content(shared), /已配置共享阶段/); assert.doesNotMatch(content(shared), /尚未启用共享限制/);
   const missing = h.context.refreshSharedAccessManagementState();
   h.requests[1].resolve(snapshot({complete: false, week: {complete: false, restUsedMs: 0, restRemainingMs: 0,
     reasonCodes: ['WEB_COVERAGE_MISSING', '<script>private</script>']}, reasonCodes: ['APPLICATION_COVERAGE_MISSING']}));
