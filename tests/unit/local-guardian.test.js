@@ -535,7 +535,8 @@ async function run() {
     computedAtMs: Date.now(), settledAtMs: Date.now(), complete: true, reasonCodes: [], sources: [],
     day: { date: '2026-10-02', usedMs: { study: 0, composite: 0, rest: 60000 },
       remainingMs: { study: null, composite: null, rest: 3600000 }, borrowedRestMs: 0 },
-    week: { fromDate: '2026-09-28', restUsedMs: 60000, restRemainingMs: null }, offline: false,
+    week: { fromDate: '2026-09-28', toDate: '2026-10-02', complete: true, reasonCodes: [],
+      restUsedMs: 60000, restRemainingMs: null }, offline: false,
   };
   const sharedPayloads = [];
   const sharedRead = await loadGuardian({ storage: {}, policy, development: true,
@@ -562,6 +563,20 @@ async function run() {
   assert.deepStrictEqual(partialShared.state.reasonCodes, ['APPLICATION_SOURCE_INCOMPLETE']);
   sharedState.complete = true;
   sharedState.reasonCodes = [];
+  sharedState.week.toDate = '2026-10-04';
+  assert.strictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).errorCode, 'shared_quota_stale_state');
+  sharedState.week.toDate = '2026-10-02';
+  sharedState.week.complete = false;
+  sharedState.week.reasonCodes = ['WEB_COVERAGE_MISSING'];
+  assert.strictEqual((await sharedRead.module.requestSharedQuotaState(expectedShared)).errorCode, 'shared_quota_invalid_state');
+  sharedState.complete = false;
+  sharedState.reasonCodes = ['WEEK_PENDING'];
+  const partialWeek = await sharedRead.module.requestSharedQuotaState(expectedShared);
+  assert.strictEqual(partialWeek.ok, true);
+  assert.strictEqual(partialWeek.state.week.complete, false);
+  assert.deepStrictEqual(partialWeek.state.week.reasonCodes, ['WEB_COVERAGE_MISSING']);
+  sharedState.complete = true; sharedState.reasonCodes = [];
+  sharedState.week.complete = true; sharedState.week.reasonCodes = [];
   assert.strictEqual((await sharedRead.module.requestSharedQuotaState({ ...expectedShared, date: '2026-10-03' })).errorCode,
     'shared_quota_stale_state');
   assert.strictEqual((await sharedRead.module.requestSharedQuotaState({})).errorCode, 'shared_quota_query_invalid');

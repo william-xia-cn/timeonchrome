@@ -2,6 +2,7 @@
 
 import { initSignal } from './core/signal.js';
 import { initCompositePageObserver } from './infra/composite-page-observer.js';
+import { initSharedReminderContentBridge } from './product/shared-reminder-content-bridge.js';
 import { initSharedBrowserActivity } from './product/shared-browser-activity.js';
 import { dispatchTimingSignal, drainPendingModeBoundaries } from './core/timing-dispatcher.js';
 import { confirmForegroundPageCheckpoint, resolveUnknownDomainForSettlement } from './core/foreground-timing.js';
@@ -40,6 +41,7 @@ import { dispatchOptionalModuleAlarm, dispatchOptionalModuleMessage, getOptional
 
 registerStoragePressureHandler((options) => runV1StorageMaintenance(options));
 initCompositePageObserver();
+initSharedReminderContentBridge();
 initSharedBrowserActivity();
 
 let badgeUpdateQueue = Promise.resolve();
@@ -1584,7 +1586,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === 'TIMEONCHROME_LOCAL_HEALTH_PROBE'
     || msg?.type === 'TIMEONCHROME_LOCAL_HEALTH_RECHECK'
     || msg?.type === 'TIMEONCHROME_APPLICATION_USAGE_READ'
-    || msg?.type === 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE') return false;
+    || msg?.type === 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE'
+    || msg?.type === 'SHARED_REMINDER_ACTION' || msg?.type === 'SHARED_REMINDER_DISMISSED') return false;
 
   const isInternalTestSender = () => {
     if (sender?.id !== chrome.runtime.id) return false;

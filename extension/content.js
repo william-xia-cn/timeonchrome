@@ -30,6 +30,8 @@
   let restReminderPausedMedia = [];
   let restReminderPreviousOverflow = '';
   let restReminderPreviousFocus = null;
+  let sharedReminderView = null;
+  const revokedSharedPresentations = new Set();
   let pipPolicyNoticeHost = null;
   let pipPolicyNoticeShadow = null;
   let pipPolicyNoticeHideTimer = null;
@@ -483,6 +485,41 @@
   // ── 接收来自 background 的指令 ────────────────────────────────────────────
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (['SHOW_SHARED_REMINDER', 'ACTIVATE_SHARED_REMINDER', 'DISMISS_SHARED_REMINDER'].includes(msg?.type)) {
+      if (_sender?.id !== chrome.runtime.id || !canRenderTopFrameUi) {
+        sendResponse?.({ ok: false, visible: false });
+        return;
+      }
+      if (msg.type === 'SHOW_SHARED_REMINDER') {
+        showSharedReminder(msg.state, msg.presentationId).then(sendResponse, () => sendResponse?.({ ok: false, visible: false }));
+        return true;
+      }
+      const identity = sharedContentIdentity(msg.state);
+      if (msg.type === 'DISMISS_SHARED_REMINDER' && typeof msg.presentationId === 'string') {
+        rememberRevokedSharedPresentation(msg.presentationId);
+      }
+      if (!sharedReminderView || JSON.stringify(identity) !== JSON.stringify(sharedReminderView.identity)) {
+        sendResponse?.({ ok: false, visible: false });
+        return;
+      }
+      if (msg.presentationId !== sharedReminderView.presentationId) {
+        sendResponse?.({ ok: false, visible: false });
+        return;
+      }
+      if (msg.type === 'DISMISS_SHARED_REMINDER') {
+        clearSharedReminder();
+        sendResponse?.({ ok: true, visible: false });
+      } else {
+        const visible = sharedReminderIsVisible();
+        if (visible && msg.state?.status === 'visible' && Number.isSafeInteger(msg.state.visibleAtMs)) {
+          sharedReminderView.ready = true;
+          sharedReminderView.shadow.querySelectorAll('button').forEach(button => { button.disabled = false; });
+          sharedReminderView.shadow.getElementById('shared-status').textContent = '';
+          sendResponse?.({ ok: true, visible: true, identity, presentationId: msg.presentationId });
+        } else sendResponse?.({ ok: false, visible: false });
+      }
+      return;
+    }
     if (msg.type === 'SHOW_WARNING') {
       showTimeWarning(msg.minutesLeft, msg.domain);
     } else if (msg.type === 'SHOW_OVERLAY') {
@@ -549,6 +586,7 @@
         }));
       return true;
     } else if (msg.type === 'SHOW_REST_USAGE_REMINDER') {
+      clearSharedReminder(true);
       if (!canRenderTopFrameUi) {
         sendResponse?.({ ok: false, handled: true, visible: false, reason: 'not_top_frame' });
         return;
@@ -624,6 +662,7 @@
   window.addEventListener('focus', () => notifyContentScriptReady('window_focus'));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') notifyContentScriptReady('visibilitychange');
+    else clearSharedReminder(true);
   });
 
   async function exitPictureInPictureIfNeeded() {
@@ -944,6 +983,119 @@
         .value { font-size: 15px; }
       }
     `;
+  }
+
+  function sharedContentIdentity(state) {
+    if (!state || state.schemaVersion !== 1) return null;
+    const keys = ['schemaVersion', 'roundId', 'reminderId', 'deliveryId', 'policyRevision', 'stateRevision'];
+    if (!keys.slice(1).every(key => typeof state[key] === 'string' && state[key].trim() && state[key].length <= 128)) return null;
+    return Object.fromEntries(keys.map(key => [key, state[key]]));
+  }
+
+  function rememberRevokedSharedPresentation(id) {
+    revokedSharedPresentations.add(id);
+    if (revokedSharedPresentations.size > 20) revokedSharedPresentations.delete(revokedSharedPresentations.values().next().value);
+  }
+
+  function clearSharedReminder(notify = false) {
+    if (!sharedReminderView) return;
+    const view = sharedReminderView;
+    sharedReminderView = null;
+    rememberRevokedSharedPresentation(view.presentationId);
+    try { view.dialog.close(); } catch (_) {}
+    view.host.remove();
+    if (notify) {
+      try {
+        chrome.runtime.sendMessage({ type: 'SHARED_REMINDER_DISMISSED', presentationId: view.presentationId,
+          payload: view.identity }, () => { void chrome.runtime.lastError; });
+      } catch (_) { /* Dismissal is not a Service choice or a close authorization. */ }
+    }
+  }
+
+  function sharedReminderIsVisible(view = sharedReminderView) {
+    if (view !== sharedReminderView) return false;
+    if (!view?.dialog.open || !view.host.isConnected || document.visibilityState !== 'visible') return false;
+    const rect = view.dialog.getBoundingClientRect();
+    const style = getComputedStyle(view.dialog);
+    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden'
+      && Number(style.opacity) > 0;
+  }
+
+  async function showSharedReminder(state, presentationId) {
+    const identity = sharedContentIdentity(state);
+    if (typeof presentationId !== 'string' || !presentationId || presentationId.length > 128
+      || revokedSharedPresentations.has(presentationId) || !identity || state.presenter !== 'browser' || !['shadow', 'shared'].includes(state.stage)
+      || !['offered', 'visible'].includes(state.status) || !Array.isArray(state.kinds)
+      || !state.kinds.length || !state.kinds.every(kind => ['entry', 'daily', 'weekly'].includes(kind))
+      || document.visibilityState !== 'visible' || restReminderDialog?.open) return { ok: false, visible: false };
+    if (sharedReminderView?.presentationId === presentationId && JSON.stringify(identity) === JSON.stringify(sharedReminderView.identity)) {
+      return { ok: true, visible: sharedReminderIsVisible(), identity, presentationId };
+    }
+    clearSharedReminder();
+    const host = document.createElement('div');
+    host.id = '__toc_shared_reminder__';
+    const shadow = host.attachShadow({ mode: 'open' });
+    shadow.innerHTML = `<style>${restReminderStyles()}</style>
+      <dialog aria-labelledby="shared-title"><div class="panel">
+        <h1 id="shared-title"></h1><p class="subtitle">请确认是否继续休息。</p>
+        <div class="slider" id="shared-slider"><div class="slider-track">滑动继续休息</div>
+          <button class="slider-thumb" id="shared-continue" type="button" aria-label="滑动继续休息" disabled>›</button></div>
+        <button class="end" id="shared-end" type="button" disabled>结束休息</button>
+        <div class="status" id="shared-status" role="status">正在确认提醒…</div>
+      </div></dialog>`;
+    const title = state.kinds.includes('daily') && state.kinds.includes('weekly') ? '今日与本周休息提醒'
+      : state.kinds.includes('weekly') ? '本周休息提醒' : state.kinds.includes('daily') ? '今日休息提醒' : '进入休息内容';
+    shadow.getElementById('shared-title').textContent = title;
+    (document.documentElement || document.body).appendChild(host);
+    const dialog = shadow.querySelector('dialog');
+    const view = { host, shadow, dialog, identity, presentationId, ready: false, resolving: false };
+    sharedReminderView = view;
+    dialog.addEventListener('cancel', () => clearSharedReminder(true));
+    const choose = action => {
+      if (sharedReminderView !== view || !view.ready || view.resolving || !sharedReminderIsVisible()) return;
+      view.resolving = true;
+      const status = shadow.getElementById('shared-status');
+      status.textContent = '正在确认…';
+      chrome.runtime.sendMessage({ type: 'SHARED_REMINDER_ACTION', presentationId, payload: { ...identity, action } }, response => {
+        if (sharedReminderView !== view) return;
+        if (chrome.runtime.lastError || response?.ok !== true || response.state?.status !== 'resolved'
+          || response.state?.resolution !== action
+          || JSON.stringify(sharedContentIdentity(response.state)) !== JSON.stringify(identity)) {
+          view.resolving = false;
+          status.textContent = '操作未完成，请重试';
+          return;
+        }
+        clearSharedReminder();
+      });
+    };
+    shadow.getElementById('shared-end').addEventListener('click', () => choose('end_rest'));
+    const thumb = shadow.getElementById('shared-continue');
+    const slider = shadow.getElementById('shared-slider');
+    let origin = null;
+    const maximum = () => Math.max(4, slider.clientWidth - thumb.clientWidth - 4);
+    thumb.addEventListener('pointerdown', event => {
+      if (!view.ready || view.resolving) return;
+      origin = event.clientX;
+      thumb.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    thumb.addEventListener('pointermove', event => {
+      if (origin === null) return;
+      thumb.style.left = `${Math.max(4, Math.min(maximum(), 4 + event.clientX - origin))}px`;
+    });
+    thumb.addEventListener('pointerup', () => {
+      if (origin === null) return;
+      origin = null;
+      if (parseFloat(thumb.style.left || '4') >= maximum() * 0.92) choose('continue');
+      thumb.style.left = '4px';
+    });
+    thumb.addEventListener('pointercancel', () => { origin = null; thumb.style.left = '4px'; });
+    thumb.addEventListener('keydown', event => {
+      if (['Enter', 'End'].includes(event.key)) { event.preventDefault(); choose('continue'); }
+    });
+    dialog.showModal();
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return { ok: true, visible: sharedReminderIsVisible(view), identity, presentationId };
   }
 
   function bindRestReminderSlider(shadow, resolveAction) {
