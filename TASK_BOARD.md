@@ -2,6 +2,12 @@
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
+续验（本地候选，不是安装或上线）：PR199 四组相关 CI 已通过并合入 master `6f068020b09153a2f7cc98fdcf80cd00c0b71db0`，云端尚未部署。通过 GitHub 插件下载 Native run `37018922387` 的 artifact `11232527536`，独立核对 ZIP 为 179627996 bytes / SHA-256 `6ad89e1829293efd3f4f92d6b6fb033cf3175c6609b53e3893326cac3bc4c26b`；仅含 manifest、Burn、MSI。manifest 来源 `748bddcbc634cabbece6bf799fd3eea2e0935997`、契约 1.26.0 / `a53d765f239d2f04d7c172c109f49ea2ae0db73689cbcea6d588da81074722c5`；逐件流式重算与 manifest 一致：Burn 119549595 bytes / `0deff02d6e55cca439cb84ca7fb39ff93d35635266f3349d984f009c2caffd04`，MSI 60929782 bytes / `33c6762b6b6bfc76e43d438de7dcaab3c9c92334e731fe5ad2e553c7b1b65d43`。版本 2.6.16，仍为未签名内部候选 `BLOCKED_BY_AUTHENTICODE_SIGNING`；manifest 的 latestEligible 不是切换 latest 授权。没有安装、R2、迁移或生产部署。
+
+控件草稿 PR197 最新 `7828cd81ed218f66b4d40c49176b17594c25c8e9` 已推送。只读审查确认匹配持久 ACK 推进请求代次，再使用严格 IndexedDB 事务退休登记；旧响应、断流、丢 ACK 和删除失败不能凭时间自动清理。45 次事务夹具及故障回归不替代真实浏览器持久性；本次插件查询该 SHA 的 PR workflow runs 为空，PR 保持 draft，尚未合并。已继续交接所属控件任务完成隔离真实 IndexedDB/SW 重启与故障验收，不修改原加载目录。正常可取消／超时强制关页仍待独立权限和语义裁决，当前关闭效果保持关闭。Matched=候选字节校验及已合入云端代码证据；Deviated/Extra=无；Missing=控件 CI/真实持久性、跨端真实提醒和关闭、安装及分阶段启用验收，全目标未完成。
+
+本机现状补充：只读读取正式安装目录确认 Manager、Service、Session Agent、Native Host 文件版本均为 2.6.16.0；实际 SCM 为 Running/Automatic。这表明候选版本已在本机出现，不再沿用“尚未安装”的旧推断；当前任务未执行安装。具体文件哈希与候选源提交、运行时能力及跨端结果仍由 Native 所属任务核验，不以文件版本或服务启动替代真实验收。初次沙箱 CIM 被拒后，使用获准的只读命令完成 SCM 核验，无服务变更。
+
 PR198相关四组CI全部通过，已合入master e00bc1283c267b12935b6a29d409cfc4f2770cbe，未部署。接续核验发现手工moveCustomSiteToPolicy及saveSiteAccessConfig未解除/提交同目标旧other覆盖，与D-114已明确的后续显式归类清除覆盖要求不一致。下一小补丁只在成功的家庭自定义主站分类操作中解除同一规范host用途规则，保留其他域/具体页面规则；保存网站配置仅在现有用途数组存在时一并提交公开规则，不凭缺省生成空清单。固定真实页面函数回归验证前后配置、未保存草稿、无权限/配额/历史变化，运行已有加载器/Profile/配置域与typecheck/diff；不跑平台/安装器，不部署。系统全局分类不能借此清除其他家庭覆盖。
 
 同一保存闭环另有已证实迟到缺口：saveSiteAccessConfig在PUT后用当前Child拼接GET，且GET完成无Child/版本核验，会把旧操作刷新套给后来页面。仅补原Child/成功版本上下文核验；失败/旧上下文不刷新，正常保存仍加载effective配置。实际函数延迟回归覆盖PUT与GET期间换孩子/版本、正常成功和失败恢复；不修改条件写入、权限或计时。
