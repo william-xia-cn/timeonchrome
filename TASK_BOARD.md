@@ -2,6 +2,10 @@
 
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 
+跨端验收续进（2026-10-04）：网页取消加载故障已确认是隔离Profile开发扩展禁用；经获准一次性隔离Profile和匹配Playwright Chromium147，定向取消真实通过。控件集中测试提交`fe585e0`，仅夹具/任务条目、未推送；原文档草稿保留。架构回读取消JSON并重算SHA`6af8cfa18a19ead628965d6e9c1690207bbbaa38b7c6459323eb7688ca5a19b5`：页面存活、session ACTIVE、分段0、日/小时0、其他页面保留。旧normal/force证据SHA`b15f3af4601cf6244289680d089f65534c3ee8ca35eeffab3e9f85ac9e007b99`，四产品源码hash全匹配当前；两关闭各一条2秒自然结算，原始=日=小时，无重跑。此前“网页取消NOT_VERIFIED”被本项更新，但Native真实授权与Service60秒整链不由夹具关闭。
+
+Native随机CurrentUserOnly双向Named Pipe测试提交`b73175c`：正常取消、visible ACK写前失败、取消结果写前失败三项最终定向通过；生产源码/协议/已安装服务未变。架构回读TRX与SHA一致：中间轮次`3ec4a3f50975dbfbf5ca4155e1e4bd39a1aca5663de8358881ea8e4dc6d70380`两负例通过/正常宿主读写顺序失败，修正后正常1/1`ca26a2141921bf0bd41aef3774e586e680ca228f00e687d8302b4ba3dfe7ec00`，旧失败保留。ACK失败不生成effect；取消结果丢失时持久effect留dispatched/result NULL，不重复Claim、不升级强制、目标存活。该恢复/诊断缺口已隔离复现，尚未修复；结果补发不能重新执行关闭。正式Service/Agent管道编排、身份认证/WTS与部分写入/收到后崩溃仍未覆盖。整体目标保持未完成，共享执行关闭，不以三项测试绿证明所有恢复行为通过。
+
 提醒组件闭环补验（2026-10-04 00:08）：Native新增生产PolicyCache/ExecutionReader/QuotaBridge/Scheduler/ReminderBridge/授权/LifecycleStore/Presenter/Closer集成，自有WPF窗口真实取消，临时存储与受控HTTP，offer→visible ACK→end_rest→当前授权→Claim→cancelled→完成1/1通过；目标存活，重复resolve/timeout/领取不重复执行或升级强制。测试提交`ff244a7`（前一夹具提交`27e8943`），生产源码不变、未推送/构建候选/安装部署。架构独立回读TRX Passed及SHA`42787b0f8f211583d39fac94ea43e1525348db03b988b309239f65e5ba6a5b9a`一致。正式Service编排/Agent主循环/Named Pipe/WTS及真人输入仍未覆盖，不冒称真机共享执行已可启用。
 
 网页关闭隔离验收暂留：旧Worker入口不匹配已证实；新增夹具版本/就绪/重载后两轮仍未进入关闭，当前取消NOT_VERIFIED，不认定产品失败。保留未提交测试修订与失败现场，不提交失败夹具、不追加产品绕过或重复安装。Content桥真实DOM补验及已有接线专项通过可保留。当前可关闭Native前台/正常取消组件缺项，正式跨端调度/网页关闭闭环仍待下一次集中验收；共享执行继续关闭。
