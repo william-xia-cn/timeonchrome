@@ -56,7 +56,7 @@ function moduleSource(instance) {
       fs.readFileSync(path.join(root, 'extension', 'infra', 'shared-browser-execution-fence.js'), 'utf8').replace(/export (function|const) /g, '$1 '))
     .replace(/import \{ sharedBrowserExecutionAttempts \} from '\.\/shared-browser-execution-attempts\.js';/,
       'const retirementEvidence = []; const sharedBrowserExecutionAttempts = {retireAttempt:async proof=>{const evidence=browserExecutionFence.evidence(proof);retirementEvidence.push(evidence);return {ok:!!evidence,retired:true};}};')
-    + `\nexport const executionFenceForTest = browserExecutionFence; export const retirementEvidenceForTest = retirementEvidence;\n// test-instance-${instance}`;
+    + `\nexport const executionFenceForTest = browserExecutionFence; export const retirementEvidenceForTest = retirementEvidence; export const expireSnapshotRetryForTest=()=>{snapshotRetryAtMs=0;};\n// test-instance-${instance}`;
 }
 
 async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [] } = {}) {
@@ -284,6 +284,7 @@ async function run() {
   let hostInstalled = false;
   let serviceAvailable = false;
   let wrongRevision = false;
+  let businessRejected = false;
   let laterConnections = 0;
   const laterPayloads = [];
   const later = await loadGuardian({
@@ -297,6 +298,9 @@ async function run() {
           payload.messageType === 'heartbeat' || payload.messageType === 'probe' ? {
             ok: true, receivedAt: 1787160200, supportedProtocols: [1, 3],
             capabilities: ['authoritative-daily-snapshot'],
+          } : businessRejected ? {
+            ok: false, receivedAt: 1787160201, requestId: payload.requestId,
+            errorCode: 'BROWSER_BRIDGE_MESSAGE_REJECTED',
           } : !serviceAvailable ? {
             ok: false, receivedAt: 1787160201, errorCode: 'RUNTIME_SERVICE_UNAVAILABLE',
           } : {
@@ -324,6 +328,22 @@ async function run() {
   }
   laterSnapshots[0] = { ...laterSnapshots[0], snapshotRevision: 'corrected-revision' };
   laterStorage.daily_usage_stats_v1 = { fixtureRevision: 2 };
+  businessRejected = true;
+  const connectedBeforeBusinessRejection = laterConnections;
+  await later.module.requestLocalGuardianHeartbeat({ trigger: 'business_rejected', force: true });
+  await waitFor(() => later.module.readNativeHostDiagnosticState().lastResponseRejection?.reason === 'service_message_rejected', 1_000);
+  assert.strictEqual(later.module.readNativeHostDiagnosticState().connected, true);
+  assert.strictEqual(laterStorage.local_guardian_status_v1.lastErrorCode, null, 'statistics rejection must not replace health success');
+  assert.strictEqual(laterStorage.browser_bridge_v3_state_v1.pendingDates['2026-09-21'], 'corrected-revision');
+  assert.notStrictEqual(laterStorage.browser_bridge_v3_state_v1.acknowledgedRevisions['2026-09-21'], 'corrected-revision');
+  assert.strictEqual(laterConnections, connectedBeforeBusinessRejection);
+  const rejectedSnapshotCount = laterPayloads.filter(payload => payload.messageType === 'dailyUsageSnapshot').length;
+  for (let i = 0; i < 10; i++) await later.module.requestLocalGuardianHeartbeat({ trigger: 'during_snapshot_cooldown', force: true });
+  assert.strictEqual(laterPayloads.filter(payload => payload.messageType === 'dailyUsageSnapshot').length, rejectedSnapshotCount,
+    'repeated triggers during cooldown must not loop rejected snapshot frames');
+  assert.strictEqual(later.module.readNativeHostDiagnosticState().connected, true);
+  later.module.expireSnapshotRetryForTest();
+  businessRejected = false;
   wrongRevision = true;
   await later.module.requestLocalGuardianHeartbeat({ trigger: 'wrong_ack', force: true });
   await waitFor(() => laterStorage.local_guardian_status_v1?.lastErrorCode === 'native_invalid_response', 1_000);

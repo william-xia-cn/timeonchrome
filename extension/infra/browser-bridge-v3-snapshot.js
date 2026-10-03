@@ -227,7 +227,7 @@ export async function buildAuthoritativeDailySnapshots({
       date, statisticsRevision, correctionRevision, computedAtMs: now,
       activeSeconds, quotaBucketSeconds, complete: reasons.size === 0,
       incompleteReasonCodes: [...reasons].sort(),
-      intervals: reasons.has('ACTIVE_INTERVAL_OVERLAP') || reasons.has('EVIDENCE_INTERVAL_INVALID')
+      intervals: reasons.has('ACTIVE_INTERVAL_OVERLAP') || reasons.has('EVIDENCE_INTERVAL_INVALID') || reasons.has('EVIDENCE_TOTAL_MISMATCH')
         ? [] : intervals.slice(0, 500),
     };
     snapshots.push({ ...draft, snapshotRevision: await digest({ ...draft, computedAtMs: undefined }) });

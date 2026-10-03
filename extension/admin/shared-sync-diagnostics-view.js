@@ -10,7 +10,20 @@ const capabilityNames = { 'application-usage-read': '应用用量读取', 'share
   'shared-reminder-lifecycle-v1': '提醒生命周期', 'shared-reminder-continuity-v1': '提醒连续性',
   'shared-web-local-lease-v1': '本地来源租约' };
 
-export function renderSharedSyncDiagnostics(container, model) {
+const failures = {
+  diagnostics_sender_rejected: '管理页身份校验未通过',
+  diagnostics_storage_read_failed: '本地诊断缓存读取失败',
+  diagnostics_native_read_failed: '当前本地连接状态读取失败',
+  diagnostics_shared_read_failed: '当前共享同步状态读取失败',
+  diagnostics_projection_failed: '诊断摘要生成失败',
+  diagnostics_read_failed: '后台诊断读取失败',
+  diagnostics_background_unsupported: '后台尚未加载诊断接口，请重新加载扩展',
+  diagnostics_response_invalid: '后台未返回有效诊断摘要',
+  diagnostics_channel_unavailable: '管理页与后台通信失败',
+  diagnostics_response_interrupted: '后台响应通道中断',
+  diagnostics_context_invalidated: '管理页扩展上下文已失效，请重新打开管理页',
+};
+export function renderSharedSyncDiagnostics(container, model, failure = null, pageVersion = null) {
   container.replaceChildren();
   const doc = container.ownerDocument;
   const append = (parent, tag, value, className) => {
@@ -18,12 +31,24 @@ export function renderSharedSyncDiagnostics(container, model) {
     if (className) element.className = className;
     parent.append(element); return element;
   };
-  if (!model) { append(container, 'p', '共享诊断暂不可读；不代表用量为零。'); return; }
+  if (!model) {
+    const code = Object.hasOwn(failures, failure) ? failure : 'diagnostics_response_invalid';
+    append(container, 'p', '共享诊断暂不可读；不代表用量为零。');
+    append(container, 'p', `${failures[code]}（${code}）`);
+    append(container, 'p', `页面版本：${pageVersion || '未知'}；不代表后台已加载同一版本。`);
+    return;
+  }
   const rows = append(container, 'dl', '', 'shared-sync-summary');
   const row = (name, value) => { append(rows, 'dt', name); append(rows, 'dd', value); };
   const c = model.connection || {};
   row('运行版本', text(model.version));
   row('当前连接', c.connectedCurrent === true ? '已连接' : c.connectedCurrent === false ? '未连接' : '未知');
+  row('历史连接成功时间', time(c.lastSuccessAtMsHistorical));
+  row('历史连接错误码', text(c.lastErrorCodeHistorical));
+  const rejection = c.responseRejection;
+  row('本次后台最近响应拒绝', rejection
+    ? `${time(rejection.atMs)} · ${text(rejection.messageType)} / ${text(rejection.channel)} · ${text(rejection.reason)} · 服务码 ${text(rejection.serviceErrorCode)}`
+    : '尚未采样；历史错误无法反推拒绝分支');
   row('协议', c.protocolVersion == null ? '未知' : `v${c.protocolVersion}`);
   row('已协商能力', c.capabilities == null ? '未知' : c.capabilities.map(v => capabilityNames[v] || '未知能力').join('、') || '无');
   row('应用用量读取能力', c.applicationUsageSupported === true ? '支持' : c.applicationUsageSupported === false ? '未协商' : '未知');
@@ -58,14 +83,28 @@ export function renderSharedSyncDiagnostics(container, model) {
 export function attachSharedSyncDiagnostics(details, container, { runtime = chrome.runtime, storage = chrome.storage,
   schedule = setInterval, cancel = clearInterval } = {}) {
   let timer = null, reading = false, generation = 0, disposed = false;
+  let pageVersion = null;
+  try {
+    const v = runtime.getManifest?.().version;
+    if (typeof v === 'string' && /^[0-9.]{1,32}$/.test(v)) pageVersion = v;
+  } catch (_) { /* The page may outlive its extension context. */ }
   const read = async () => {
     if (disposed || !details.open || reading) return;
     const ticket = generation;
     reading = true;
     try {
       const result = await runtime.sendMessage({ type: 'TIMEONCHROME_SHARED_SYNC_DIAGNOSTICS_READ' });
-      if (!disposed && ticket === generation && details.open) renderSharedSyncDiagnostics(container, result?.ok ? result.diagnostics : null);
-    } catch (_) { if (!disposed && ticket === generation && details.open) renderSharedSyncDiagnostics(container, null); }
+      const valid = result?.ok === true && result.diagnostics && Array.isArray(result.diagnostics.days);
+      const failure = result?.error === 'Unknown message type' ? 'diagnostics_background_unsupported'
+        : result?.errorCode || 'diagnostics_response_invalid';
+      if (!disposed && ticket === generation && details.open) renderSharedSyncDiagnostics(container, valid ? result.diagnostics : null, failure, pageVersion);
+    } catch (error) {
+      const raw = typeof error?.message === 'string' ? error.message : '';
+      const failure = raw.includes('Extension context invalidated') ? 'diagnostics_context_invalidated'
+        : raw.includes('message port closed') || raw.includes('message channel closed') ? 'diagnostics_response_interrupted'
+          : 'diagnostics_channel_unavailable';
+      if (!disposed && ticket === generation && details.open) renderSharedSyncDiagnostics(container, null, failure, pageVersion);
+    }
     finally { if (ticket === generation) reading = false; }
   };
   const toggle = () => {

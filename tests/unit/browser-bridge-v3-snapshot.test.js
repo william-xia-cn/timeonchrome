@@ -67,6 +67,22 @@ global.readDeviceCorrectionEvidenceWeek = async () => ({
   });
   assert.equal(mismatch.complete, false);
   assert.ok(mismatch.incompleteReasonCodes.includes('EVIDENCE_TOTAL_MISMATCH'));
+  assert.deepEqual(mismatch.intervals, []);
+  assert.equal(mismatch.activeSeconds, 4);
+  assert.deepEqual(mismatch.quotaBucketSeconds, { study: 4 });
+  const unchangedInput = JSON.stringify(base);
+  for (const input of [
+    { ...base, statsByDate: { '2026-09-21': { domains: { 'study.example': { activeSeconds: 2 } }, targets: { study: { activeByQuotaBucket: { study: 2 } } } } } },
+    { ...base, segmentsById: { one: { ...base.segmentsById.one, quotaBucketAtTime: 'rest' } } },
+  ]) {
+    const before = JSON.stringify(input);
+    const [rejectedEvidence] = await module.buildAuthoritativeDailySnapshots(input);
+    assert.equal(rejectedEvidence.complete, false);
+    assert(rejectedEvidence.incompleteReasonCodes.includes('EVIDENCE_TOTAL_MISMATCH'));
+    assert.deepEqual(rejectedEvidence.intervals, []);
+    assert.equal(JSON.stringify(input), before, 'derived transport must not alter its authoritative inputs');
+  }
+  assert.equal(JSON.stringify(base), unchangedInput);
   const [overlap] = await module.buildAuthoritativeDailySnapshots({
     ...base, statsByDate: { '2026-09-21': {
       domains: { 'study.example': { activeSeconds: 6 } },
@@ -144,6 +160,7 @@ global.readDeviceCorrectionEvidenceWeek = async () => ({
     intervalEvidenceByDate: { '2026-09-21': { ...recovery, items: [{ ...recovery.items[0], quotaBucket: 'rest' }] } } });
   assert.equal(badBucket.complete, false);
   assert.ok(badBucket.incompleteReasonCodes.includes('EVIDENCE_TOTAL_MISMATCH'));
+  assert.deepEqual(badBucket.intervals, []);
   const [duplicate] = await module.buildAuthoritativeDailySnapshots({ ...recoveredInput,
     intervalEvidenceByDate: { '2026-09-21': { ...recovery, items: [...recovery.items, ...recovery.items] } } });
   assert.equal(duplicate.complete, false);

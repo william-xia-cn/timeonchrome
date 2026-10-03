@@ -70,7 +70,21 @@ export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, 
     connection: { connectedCurrent: boolean(native.connected), protocolVersion: integer(native.protocolVersion),
       capabilities: Array.isArray(native.capabilities) ? capabilities.filter(v => native.capabilities.includes(v)) : null,
       applicationUsageSupported: boolean(native.applicationUsageSupported), lastSuccessAtMsHistorical: integer(host?.lastSuccessAt),
-      lastErrorCodeHistorical: errorCode(host?.lastErrorCode) },
+      lastErrorCodeHistorical: errorCode(host?.lastErrorCode),
+      responseRejection: native.lastResponseRejection ? {
+        atMs: integer(native.lastResponseRejection.atMs),
+        serviceErrorCode: ['BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
+          'NATIVE_ENVELOPE_REJECTED', 'NATIVE_MESSAGE_INVALID'].includes(native.lastResponseRejection.serviceErrorCode)
+          ? native.lastResponseRejection.serviceErrorCode : null,
+        reason: ['service_message_rejected', 'service_unavailable', 'negative_response', 'received_at_invalid',
+          'snapshot_stale', 'snapshot_revision_mismatch', 'application_request_mismatch', 'application_payload_missing'].includes(native.lastResponseRejection.reason)
+          ? native.lastResponseRejection.reason : 'unknown',
+        messageType: ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'settledUsageSegments',
+          'getSharedQuotaState', 'reportReminderResult', 'getSharedReminderState', 'acknowledgeSharedReminderDelivery',
+          'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution', 'getSharedWebSourceChallenge',
+          'bindSharedWebSource', 'replaceSharedWebContribution'].includes(native.lastResponseRejection.messageType) ? native.lastResponseRejection.messageType : 'unknown',
+        channel: ['health', 'statistics', 'application', 'ledger', 'sharedQuota'].includes(native.lastResponseRejection.channel) ? native.lastResponseRejection.channel : 'unknown',
+      } : null },
     policy: { revision: typeof p?.policy?.revision === 'string' && /^profile-config:\d{1,16}$/.test(p.policy.revision) ? p.policy.revision : null,
       stage: ['legacy', 'shadow', 'shared'].includes(p?.policy?.stage) ? p.policy.stage : null, receivedAtMs: integer(p?.receivedAtMs) },
     bindingState: ['valid', 'disabled', 'disconnected', 'unbound', 'expired_or_changed'].includes(live.bindingState) ? live.bindingState : 'unknown',
@@ -87,15 +101,30 @@ export function registerSharedSyncDiagnosticsReader({ runtime = chrome.runtime, 
   native = readNativeHostDiagnosticState, live = readSharedWebDiagnosticState } = {}) {
   runtime.onMessage.addListener((message, sender, respond) => {
     if (message?.type !== SHARED_SYNC_DIAGNOSTICS_MESSAGE) return false;
-    if (sender?.id !== runtime.id || sender?.url !== runtime.getURL('admin/admin.html')) {
+    let authorized = false;
+    try {
+      const actual = new URL(sender?.url), expected = new URL(runtime.getURL('admin/admin.html'));
+      authorized = sender?.id === runtime.id && actual.protocol === expected.protocol
+        && actual.host === expected.host && actual.pathname === expected.pathname;
+    } catch (_) { /* Invalid sender URLs are rejected. */ }
+    if (!authorized) {
       respond({ ok: false, errorCode: 'diagnostics_sender_rejected' }); return false;
     }
-    storage.get(['shared_web_contribution_queue_v1', 'shared_access_policy_lkg_v1',
-      'shared_web_sync_diagnostics_v1', 'local_guardian_status_v1']).then(stored => {
+    void (async () => {
+      let failure = 'diagnostics_storage_read_failed';
+      try {
+      const stored = await storage.get(['shared_web_contribution_queue_v1', 'shared_access_policy_lkg_v1',
+      'shared_web_sync_diagnostics_v1', 'local_guardian_status_v1']);
       const q = stored.shared_web_contribution_queue_v1, p = stored.shared_access_policy_lkg_v1;
-      respond({ ok: true, diagnostics: buildSharedSyncDiagnostics(stored, native(), live(p?.policyHash, q?.days || {}, q?.scopeHash),
+      failure = 'diagnostics_native_read_failed';
+      const nativeState = native();
+      failure = 'diagnostics_shared_read_failed';
+      const liveState = live(p?.policyHash, q?.days || {}, q?.scopeHash);
+      failure = 'diagnostics_projection_failed';
+      respond({ ok: true, diagnostics: buildSharedSyncDiagnostics(stored, nativeState, liveState,
         Date.now(), runtime.getManifest().version) });
-    }).catch(() => respond({ ok: false, errorCode: 'diagnostics_read_failed' }));
+      } catch (_) { respond({ ok: false, errorCode: failure }); }
+    })();
     return true;
   });
 }

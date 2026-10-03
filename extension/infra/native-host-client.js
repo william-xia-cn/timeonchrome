@@ -95,6 +95,19 @@ let lastV3LocalVersion = null;
 let lastScheduledAttemptAt = 0;
 let lastProbeAt = 0;
 let persistedStatus = null;
+let lastResponseRejection = null;
+let snapshotRetryAtMs = 0;
+function recordResponseRejection(request, reason, serviceErrorCode = null) {
+  const types = ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'settledUsageSegments',
+    'getSharedQuotaState', 'reportReminderResult', 'getSharedReminderState', 'acknowledgeSharedReminderDelivery',
+    'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution', 'getSharedWebSourceChallenge',
+    'bindSharedWebSource', 'replaceSharedWebContribution'];
+  lastResponseRejection = { atMs: safeNow(), reason,
+    serviceErrorCode: ['BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
+      'NATIVE_ENVELOPE_REJECTED', 'NATIVE_MESSAGE_INVALID'].includes(serviceErrorCode) ? serviceErrorCode : null,
+    messageType: types.includes(request?.messageType) ? request.messageType : 'unknown',
+    channel: ['health', 'statistics', 'application', 'ledger', 'sharedQuota'].includes(request?.channel) ? request.channel : 'unknown' };
+}
 
 function normalizeBridgeState(raw) {
   if (!raw || typeof raw !== 'object' || !validUuid(raw.bridgeEpochId)) return null;
@@ -283,6 +296,7 @@ function normalizeErrorCode(value) {
     'native_port_disconnected',
     'native_response_timeout',
     'native_invalid_response',
+    'native_snapshot_rejected',
     'native_post_failed',
     'runtime_service_unavailable',
     'managed_marker_unavailable',
@@ -365,6 +379,16 @@ function ensureNativePort() {
       return;
     }
     if (response?.ok !== true) {
+      recordResponseRejection(pendingAck, response?.errorCode === 'BROWSER_BRIDGE_MESSAGE_REJECTED'
+        ? 'service_message_rejected' : response?.errorCode === 'RUNTIME_SERVICE_UNAVAILABLE'
+          ? 'service_unavailable' : 'negative_response', response?.errorCode);
+      // A correlated business rejection is not a broken Native transport.
+      if (pendingAck.messageType === 'dailyUsageSnapshot' && pendingAck.channel === 'statistics'
+        && response?.requestId === pendingAck.requestId && Number.isFinite(response.receivedAt)
+        && response.errorCode === 'BROWSER_BRIDGE_MESSAGE_REJECTED') {
+        rejectPendingAck('native_snapshot_rejected');
+        return;
+      }
       const code = response?.errorCode === 'RUNTIME_SERVICE_UNAVAILABLE' ? 'runtime_service_unavailable'
         : pendingAck.sharedLifecycle || pendingAck.browserActivity ? LIFECYCLE_ERRORS.has(response?.errorCode)
           ? response.errorCode : 'shared_reminder_unavailable'
@@ -379,6 +403,7 @@ function ensureNativePort() {
       return;
     }
     if (!Number.isFinite(response.receivedAt)) {
+      recordResponseRejection(pendingAck, 'received_at_invalid');
       rejectPendingAck('native_invalid_response');
       disconnectPort();
       return;
@@ -451,7 +476,8 @@ function postToNativeHost(payload) {
       disconnectPort();
       reject(new Error('native_response_timeout'));
     }, applicationRead || sharedQuotaRead || sharedWeb ? APPLICATION_USAGE_RESPONSE_TIMEOUT_MS : NATIVE_RESPONSE_TIMEOUT_MS);
-    pendingAck = { resolve, reject, timeoutId, requestId: payload.requestId,
+    pendingAck = { resolve, reject, timeoutId, requestId: payload.requestId, messageType: payload.messageType || payload.type,
+      channel: payload.channel || 'health',
       applicationRead, sharedQuotaRead, sharedReminderReport, sharedLifecycle, browserActivity, sharedWeb };
     try {
       port.postMessage(payload);
@@ -714,9 +740,11 @@ async function performSnapshotDrain() {
   };
   const ack = await postToNativeHost(payload);
   if (ack.acceptedRevision !== snapshot.snapshotRevision || ack.stale === true) {
+    recordResponseRejection(payload, ack.stale === true ? 'snapshot_stale' : 'snapshot_revision_mismatch');
     throw new Error('native_invalid_response');
   }
   state.acknowledgedRevisions[snapshot.date] = snapshot.snapshotRevision;
+  snapshotRetryAtMs = 0;
   delete state.pendingDates[snapshot.date];
   state.lastSnapshotAckAtMs = ack.receivedAt;
   await saveV3State(state);
@@ -853,6 +881,7 @@ async function performSend(options) {
         profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.query };
       const ack = await postToNativeHost(payload);
       if (ack.requestId !== payload.requestId || !ack.applicationUsage) {
+        recordResponseRejection(payload, ack.requestId !== payload.requestId ? 'application_request_mismatch' : 'application_payload_missing');
         return { ok: false, errorCode: 'native_invalid_response' };
       }
       return { ok: true, applicationUsage: ack.applicationUsage, receivedAt: ack.receivedAt };
@@ -928,6 +957,10 @@ async function performSend(options) {
     v3ReplayPending = true;
     lastV3LocalVersion = null;
     const code = normalizeErrorCode(error?.message);
+    if (options.type === 'snapshotDrain' && code === 'native_snapshot_rejected') {
+      snapshotRetryAtMs = safeNow() + HEARTBEAT_INTERVAL_MS;
+      return { ok: false, errorCode: code };
+    }
     const current = await loadPersistedStatus().catch(() => ({ consecutiveFailures: 0 }));
     const failureCount = Math.min(9999, (Number(current?.consecutiveFailures) || 0) + 1);
     await persistStatus({
@@ -990,7 +1023,7 @@ function drainQueuedSend() {
     startSend(queued.options).then(queued.resolve, () => queued.resolve({ ok: false, errorCode: 'shared_reminder_unavailable' }));
     return;
   }
-  if (snapshotDrainRequested && v3Supported) {
+  if (snapshotDrainRequested && v3Supported && safeNow() >= snapshotRetryAtMs) {
     snapshotDrainRequested = false;
     preferHealthAfterLedger = true;
     startSend({ type: 'snapshotDrain', trigger: 'snapshot_drain' }).catch(() => {});
@@ -1186,7 +1219,8 @@ export function readNativeHostDiagnosticState() {
     'shared-web-local-lease-v1'];
   return { connected, protocolVersion: known ? 3 : null,
     capabilities: known ? allowed.filter(v => sharedNativeCapabilities.has(v)) : null,
-    applicationUsageSupported: applicationUsageSupported && connected ? true : known ? false : null };
+    applicationUsageSupported: applicationUsageSupported && connected ? true : known ? false : null,
+    lastResponseRejection: lastResponseRejection ? { ...lastResponseRejection } : null };
 }
 function notifyBrowserActivityLease() {
   try { Promise.resolve(browserActivityObserver?.(getSharedBrowserActivityLease())).catch(() => {}); } catch (_) {}
