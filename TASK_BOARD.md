@@ -2,6 +2,8 @@
 
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 
+远端CI外部阻塞（2026-10-04）：Native推送`eedbe7c`运行`37138554278`的changes/native-gate在启动前失败，GitHub原注释为账号付款失败或spending limit需增加；Windows/Mac jobs跳过，没有执行产品测试。插件日志BlobNotFound后以CLI只读回读run和check注释确认。本地测试/构建证据保留，远端记NOT_RUN/BILLING_BLOCKED，不重跑、降级门禁或改付款设置。既有云端运行通过证据不被冒用为本次Native SHA的CI；源码合入和实际安装验收分别保留待办。
+
 最终Native候选已交付（2026-10-04）：2.6.25一次干净构建来源`050cfe6`，后续交付文档`eedbe7ce86b197fcbef65e45a53aaa71872bfcb7`已推送现有main；无新分支/树。架构独立核对Burn119791699字节/SHA`d769b45ce34973f379885216104b1a6cc2b26f8a6cf199e7b65c32aef1b98928`、MSI61073142字节/SHA`88a51c942f63387e327e61354b594c7b907d4c028534253b21bf336bdd3d2a18`及manifest SHA`931e9ba824ec0e6c21c930946990dded8b5c102da0a59f82c1726f078bd072fd`相符；四发布组件2.6.25.0及哈希匹配交付说明。固定契约1.31.0，内部未签名/latestEligible=false。Native核对旧40发行文件及latest哈希未变；当前仍安装2.6.24，不冒称新回执已生效。唯一安装器位于`D:\Codex\TimeWhereNative\artifacts\release\windows\x64\2.6.25\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.25.exe`，按PO既有手动安装选择交付，不自动启动。
 
 最终联调剩余五项集中验收：固定孩子/截止范围逐来源核对日周余额；真实时段/硬配额/借用与单轮提醒；正式Service投递→可见ACK→继续/主动取消/超时授权→终态ACK；断线/重连/重启旧租约撤销及无重复；原始网页账与统计自然结算守恒。控件报告无未提交产品代码，fe585e0仅测试，三个既有文档草稿保留；目前真实身份/贡献ACK通过不证明余额/执行。Cloudflare现场读取因内置浏览器保存的网站权限阻止访问，未绕过、未改权限；云端现场与共享执行保持未验收/关闭，不影响本地候选交付。Mac、历史未知桶及P1仍单列。
