@@ -1,5 +1,19 @@
 # TimeOnChrome — 技术设计文档
 
+## D-114 本机提醒终态回执恢复（2026-10-04）
+
+隔离真实管道已经证明：正常取消成功后，结果写前断流会留下Service的dispatched状态。修复属于原提醒可靠性链，不改变主动结束/超时强制、原账、配额或执行开关。只补发已经生成的终态，不重发effect、不再次Claim/Close，不以结果丢失推导超时。
+
+最小内部协议沿用既有认证用户、assignment、reminder、policy/execution revision及原lease/boot范围；不新增云端身份、随机挑战或签名证明。需要定位具体派发时，从既有不可变派发字段规范化派生不透明dispatch摘要，不另建随机身份。Service发effect和双方能力协商仅增加可选回执上下文；新增本机结果ACK，不改BrowserBridge/公共Contracts。旧端明确不具备可靠回执能力，不向其发送未知消息或伪造确认。
+
+Agent为实际生成的白名单终态保存独立、有界本机待发状态，执行前预留容量，原子保存后发送；队列不存SID/账号/凭据/路径/目标PID，不混入事实、分段、云端上传或SharedReminderResult公共诊断账。最大256条/1MiB、单条4KiB、单在途、5秒ACK预算、2秒至5分钟退避。未ACK不静默逐出；满/存储不可用时拒绝该提醒关闭效果并明确报告，不影响独立硬限制路径。关闭已发生但终态提交前崩溃只报告未知，不能补造结果或重复执行。稳定摘要由规范化payload生成，不能将重传等价为新动作。
+
+队列按既有OS用户/当前Windows session隔离文件，沿用每session Agent互斥，不共享全用户JSON或新增跨进程锁/云端generation。Agent只读自己的session队列，另一活动会话的待发结果不能被本会话补发或标stale；当前session重启可恢复pending，结束会话后的旧文件保留为历史未知，不当作新session当前执行状态。内部回执如需明示session编号，由已验证连接派生，不接受指定其他会话；编号不是SID，不进入用户诊断。发送等待超时必须实际取消底层gate/pipe写入，不能只停止观察后留下迟到写任务；空队列事件唤醒，不每秒反复读完整文件。
+
+Service在已有生命周期DB事务内校验既有派发、真实pipe用户及不可变范围，保存终态/hash并完成仍当前的effect，提交后才ACK。同派发同内容幂等、不同内容冲突且保留首终态。ACK准确绑定派发和payload hash，不代表云端或账本ACK。断流/ACK丢失只重传结果；重启不恢复关闭权限。改绑/assignment/lease/boot撤销后不得更新当前效果，已保存终态只可返回原接收事实；未保存旧结果返回明确stale/revoked，Agent隔离为本机历史诊断，不能冒称当前执行已确认。不得引入泛化historical_only写入或跨孩子旧结果上报。回执接收不能改变配置、可见计时或配额。
+
+实施由Native所属会话在现有工作线完成，先核对现有范围字段可用性，缺字段集中报告，不猜测或另造身份。最小验证：实际结果断流、提交后ACK丢失、同内容重复/冲突、Agent重启、旧租约/改绑拒绝、队列满/原子写失败；均断言无第二次effect执行、取消不升级、未送达不强制。只本地源码/聚焦测试，不安装部署/构建候选/开启家庭执行；正式Service整链另记。
+
 ## D-114 可复用共享身份核验（2026-10-03）
 
 PO批准简化为本机管理范围→缓存云端来源证明→本地同孩子核验→贡献ACK。v1连接挑战保留兼容；v2证明不含challengeId/connectionHash，绑定childScopeHash、applicationSourceKey、assignmentVersion、webSourceKey及browser bindingEpochHash，期限最多300000ms。现有专用ES256密钥复用，机器/扩展令牌不经过Host。

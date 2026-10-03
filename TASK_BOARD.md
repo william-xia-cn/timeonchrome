@@ -2,6 +2,42 @@
 
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 
+安装后核验更新（2026-10-04 00:58）：Native会话收到PO“已经安装”并只读采样，架构独立读取正式安装目录四组件版本2.6.25.0及SHA全部匹配候选。Native公开状态online、Service Running/Automatic、Service/Agent各一个；公开协议字段1只是健康观测，不据此裁决当前扩展v3。已交Native继续当前10/4连接/同孩子/贡献ACK及共享读取核对，不开启执行、不重启、不绕权限。此前下条“仍安装2.6.24”是交付时历史状态，本条覆盖；正式余额/提醒/恢复及原账守恒仍未验收。
+
+远端CI外部阻塞（2026-10-04）：Native推送`eedbe7c`运行`37138554278`的changes/native-gate在启动前失败，GitHub原注释为账号付款失败或spending limit需增加；Windows/Mac jobs跳过，没有执行产品测试。插件日志BlobNotFound后以CLI只读回读run和check注释确认。本地测试/构建证据保留，远端记NOT_RUN/BILLING_BLOCKED，不重跑、降级门禁或改付款设置。既有云端运行通过证据不被冒用为本次Native SHA的CI；源码合入和实际安装验收分别保留待办。
+
+最终Native候选已交付（2026-10-04）：2.6.25一次干净构建来源`050cfe6`，后续交付文档`eedbe7ce86b197fcbef65e45a53aaa71872bfcb7`已推送现有main；无新分支/树。架构独立核对Burn119791699字节/SHA`d769b45ce34973f379885216104b1a6cc2b26f8a6cf199e7b65c32aef1b98928`、MSI61073142字节/SHA`88a51c942f63387e327e61354b594c7b907d4c028534253b21bf336bdd3d2a18`及manifest SHA`931e9ba824ec0e6c21c930946990dded8b5c102da0a59f82c1726f078bd072fd`相符；四发布组件2.6.25.0及哈希匹配交付说明。固定契约1.31.0，内部未签名/latestEligible=false。Native核对旧40发行文件及latest哈希未变；当前仍安装2.6.24，不冒称新回执已生效。唯一安装器位于`D:\Codex\TimeWhereNative\artifacts\release\windows\x64\2.6.25\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.25.exe`，按PO既有手动安装选择交付，不自动启动。
+
+最终联调剩余五项集中验收：固定孩子/截止范围逐来源核对日周余额；真实时段/硬配额/借用与单轮提醒；正式Service投递→可见ACK→继续/主动取消/超时授权→终态ACK；断线/重连/重启旧租约撤销及无重复；原始网页账与统计自然结算守恒。控件报告无未提交产品代码，fe585e0仅测试，三个既有文档草稿保留；目前真实身份/贡献ACK通过不证明余额/执行。Cloudflare现场读取因内置浏览器保存的网站权限阻止访问，未绕过、未改权限；云端现场与共享执行保持未验收/关闭，不影响本地候选交付。Mac、历史未知桶及P1仍单列。
+
+正式Agent消息路径补测`050cfe6c50acd367bfa22d938e4bf59a32816fe1`，产品源码仍`12b8c6b`；架构独立回读TRX 3/3及SHA`a936e637968cc1456b89106e82e0edfc303cba74f1f1f5998c687a42120c4e24`一致。实际调用已编译Agent的ReadReceiptsAsync/WriteAsync和Presenter，不运行Main、不显示或关闭真实应用；Service ACK为受控对端，不能称Coordinator整链通过。架构不选择为测试注入/提取Coordinator生产编排，余下认证、正式派发/接收、取消ACK及重连撤销留作一次最终实机验收。源码阶段已收口，进入既有D-114最终候选交付：Native在现有main集中准备内部2.6.25，旧版本不覆盖，只必要构建/安装器检查；不自动安装、云端发布、R2或执行启用。该阶段更新覆盖下条此前“不构建候选”的源码阶段限制。
+
+Native终态回传修复源码已完成：`12b8c6bb9c18647dbadeb6c85a07f455d2504d90`，本机工作区干净、未推送。架构核对10文件差异及5份最终TRX哈希，15项恢复用例有最终通过证据，另有真实WPF取消→持久化→生产Sender→随机管道→Service事务→ACK清队列1项通过；中间失败保留，不称单轮全绿。仅内部可选能力/回执及有界待发，公共Contracts 1.31.0、原账、统计、配额和执行开关不变。源码审计Matched；正式Coordinator/Agent消息编排、安装认证与家庭整链仍待验证，已交Native继续最小路径核对。已安装2.6.24不含本次修复；不构建中间候选、不安装部署、不启用共享执行。
+
+跨端验收续进（2026-10-04）：网页取消加载故障已确认是隔离Profile开发扩展禁用；经获准一次性隔离Profile和匹配Playwright Chromium147，定向取消真实通过。控件集中测试提交`fe585e0`，仅夹具/任务条目、未推送；原文档草稿保留。架构回读取消JSON并重算SHA`6af8cfa18a19ead628965d6e9c1690207bbbaa38b7c6459323eb7688ca5a19b5`：页面存活、session ACTIVE、分段0、日/小时0、其他页面保留。旧normal/force证据SHA`b15f3af4601cf6244289680d089f65534c3ee8ca35eeffab3e9f85ac9e007b99`，四产品源码hash全匹配当前；两关闭各一条2秒自然结算，原始=日=小时，无重跑。此前“网页取消NOT_VERIFIED”被本项更新，但Native真实授权与Service60秒整链不由夹具关闭。
+
+Native随机CurrentUserOnly双向Named Pipe测试提交`b73175c`：正常取消、visible ACK写前失败、取消结果写前失败三项最终定向通过；生产源码/协议/已安装服务未变。架构回读TRX与SHA一致：中间轮次`3ec4a3f50975dbfbf5ca4155e1e4bd39a1aca5663de8358881ea8e4dc6d70380`两负例通过/正常宿主读写顺序失败，修正后正常1/1`ca26a2141921bf0bd41aef3774e586e680ca228f00e687d8302b4ba3dfe7ec00`，旧失败保留。ACK失败不生成effect；取消结果丢失时持久effect留dispatched/result NULL，不重复Claim、不升级强制、目标存活。该恢复/诊断缺口已隔离复现，尚未修复；结果补发不能重新执行关闭。正式Service/Agent管道编排、身份认证/WTS与部分写入/收到后崩溃仍未覆盖。整体目标保持未完成，共享执行关闭，不以三项测试绿证明所有恢复行为通过。
+
+提醒组件闭环补验（2026-10-04 00:08）：Native新增生产PolicyCache/ExecutionReader/QuotaBridge/Scheduler/ReminderBridge/授权/LifecycleStore/Presenter/Closer集成，自有WPF窗口真实取消，临时存储与受控HTTP，offer→visible ACK→end_rest→当前授权→Claim→cancelled→完成1/1通过；目标存活，重复resolve/timeout/领取不重复执行或升级强制。测试提交`ff244a7`（前一夹具提交`27e8943`），生产源码不变、未推送/构建候选/安装部署。架构独立回读TRX Passed及SHA`42787b0f8f211583d39fac94ea43e1525348db03b988b309239f65e5ba6a5b9a`一致。正式Service编排/Agent主循环/Named Pipe/WTS及真人输入仍未覆盖，不冒称真机共享执行已可启用。
+
+网页关闭隔离验收暂留：旧Worker入口不匹配已证实；新增夹具版本/就绪/重载后两轮仍未进入关闭，当前取消NOT_VERIFIED，不认定产品失败。保留未提交测试修订与失败现场，不提交失败夹具、不追加产品绕过或重复安装。Content桥真实DOM补验及已有接线专项通过可保留。当前可关闭Native前台/正常取消组件缺项，正式跨端调度/网页关闭闭环仍待下一次集中验收；共享执行继续关闭。
+
+提醒批次续验（2026-10-04记录，测试发生于10/3 23:57–23:58）：Native真实WPF自有窗口前台/visible ACK通过；取消先失败于测试子进程MainModule启动竞态，仅修夹具后真实取消返回SHARED_CLOSE_CANCELLED、目标存活、后续不升级强制。架构回读TRX逐项结果并重算SHA：前台1通过/取消夹具1失败`99537e107ae174f6db9dca58f0c18b976ba719b0f0c30cfa78e9c4d0e7c710f0`，修复后取消1/1`812a8d1b806731e2bdc650d3d37bf664b3aadb626f47333b104624ce81f50e05`。旧失败保留，未重跑已通过60秒；真实自有WPF窗口及生产Presenter/Closer通过，不冒称正式Service调度或真人键鼠闭环。
+
+控件6项接线/余额/Content/生命周期/执行/关闭专项通过；旧Content桥真实证据因8b2ad14接线变化失效，已复用隔离Profile补验当前桥DOM可见ACK/滑动/重试/Escape/迟到围栏及窄屏，产品桥哈希`643f5526d45ea09165797bfa340d4d5f38b295abe4445ffce00933b9dfa26779`。此为真实DOM＋模拟Native，不等于Service整链。主动关闭宿主两次testDefaultOff未定义，已停止原样重试，交所属任务只修已定位测试入口再单跑；真实网页可取消关闭与Service授权闭环仍待验。未改产品/原候选/家庭配置/原账、未启用执行。
+
+下一批执行清单（PO“继续吧”）：①Native核对前次隔离前台捕获失败及既有实现，只验证自有提醒/应用窗口；②控件核对共享访问检查、visible ACK、60秒、主动正常结束可取消、超时end强制及未送达门；③架构对照两端调用链与真实证据集中审计。变更等级为提醒执行聚焦验收；仅直接相关缺项测试，复用已通过源码证据，不重跑无关全平台或已通过60秒流程。不得启用真实家庭限制/结束真实应用/改原账计时；涉及网页记账行为先单项批准。本批源码、隔离验收和实机覆盖分别记录，不以mock代替真实前台/取消。
+
+真实控件摘要验收（PO提供，北京时间2026-10-03 23:54）：运行1.7.42、当前连接connected、协议v3，已协商可复用孩子身份核验；当前连接同孩子identity已确认。9/28至10/3六个日期均显示当前贡献接收已确认，当前连接Native ACK分别23:53:55、:56、:57、:58、:58及23:54:03；10/3修订380、网页1944000ms，云端ACK23:54:06，当前来源与配置已核实。23:53:44曾拒绝WEB_SOURCE_PROOF_EXPIRED，随后实际接收恢复；摘要只能证明恢复，不单独证明具体续签内部步骤。本次核心同孩子核验→贡献→当前ACK链路PASS_WITH_MANUAL_EVIDENCE，不等于全部安全/重连场景实机验收或共享执行启用。9/30及10/1各360000ms历史未知桶仍不完整、单列延后；共享执行保持影子核对，强制提醒/正常关闭取消及Mac验收不由本项关闭。用户提供的摘要不含proof或凭据，未保存私密身份。
+
+实机安装续验（北京时间2026-10-03 23:49）：PO确认安装与原目录重载；架构及Native只读核验四组件均2.6.24.0，安装文件哈希与候选逐项一致，Service为Running/Automatic，安装目录Session Agent仅一实例。公开健康管道可读且有本次启动后的桥接活动，但不提供当前孩子证明及逐项贡献ACK；控件当前后台1.7.42、V2身份确认、当前贡献date/revision/hash仍待实际证据，不能以候选文件版本或历史成功代替。继续现有受支持只读诊断；不清缓存、不改ACL、不重启服务、不启用共享限制。
+
+最终候选交付：Windows2.6.24来自Native `6f8aef1`／固定Contracts1.31.0，四正式组件均2.6.24.0；MSI/Burn零警告错误，安装器结构3项通过，复用37项协议测试。架构独立复算Burn119764907bytes／`9324233f8b9afd973b3f87fe80b28312bcb2cbbca491f513778f68acdffb5ee9`、MSI61056758bytes／`91788a70b0a5a6d6ad71eea05e75d70ae954797d53bb9d15dae73f37b53cf92b`、manifest／`6514c8f71d0540e97ec9280e1b8181a9362660e9a816a9ba45ca7759676f686b`与清单一致。内部未签名、BLOCKED_BY_AUTHENTICODE_SIGNING、latestEligible=false；37项旧发布文件及本地latest未变。控件1.7.42 Native Host Development Candidate已更新原junction目标，179候选文件核对通过、原运行缓存1项保留；候选摘要`304084f9fea052081ae7f65b82cc8d52995d416e0f181dfe5d698eaf75274aa0`。架构回读原路径版本及binding/client文件哈希与受测源码一致；ID／模式／绑定不变，没有自动重载。当前Native安装仍2.6.23，真实联合核验待PO安装及原扩展重载后进行，不以发布／候选证据关闭身份或ACK问题。
+
+兼容发布结果：Production `37133833997`在精确主线`56ae43e`成功，仅两个Worker；Runtime版本`06bfc29b-9af4-4bb5-b8ed-2a01378d66d0`，Guardian版本`8dc07256-d570-4756-8a2d-43d509e20929`。manifest无Runtime/Guardian migration，shadow preparation=false；独立health200、Runtime scope/Guardian binding-v2未认证401。Cloudflare Pages未发布，R2 latest2.3.1不变。Windows2.6.24及扩展1.7.42候选进行中，未安装／重载／联调。仅部署烟测PASS，孩子核验及当前贡献ACK仍NOT_VERIFIED。
+
+上线／候选阶段授权（PO最新“进行吧”）：PR #221已合入master `56ae43ec62e22fa21a725f858b0ef98372daae9d`；精确主线App Runtime `37133559149`及Guardian集成`37133559157`成功。只部署Guardian Worker与Runtime Worker；Runtime/Main Pages、bootstrap、prepare_shadow和migration均为false，expected migrations为空。不修改密钥、共享执行开关或R2/latest。Native与控件所属会话准备唯一新候选，原扩展目录不变，安装由PO手动执行；真实联调尚未完成。此授权覆盖下方先前“源码阶段不部署”的阶段限制，不扩展到共享执行或其他遗留问题。
+
 集中集成续验：已推送现有云端分支并创建PR #221；`5c55b68`合入控件来源`d9bb02e`，仅任务板冲突保留双方证据，控件实现与原提交逐文件一致。首次CI职责声明错误已改为architecture-integration及两个精确merge来源，未放宽检查。第二次CI职责／Guardian／Console通过，Contracts旧机器控制向量仍为1.30.0，却断言等于新增1.31.0包而失败。仅修正测试：固定旧向量为上一兼容版，当前包版本仍由独立兼容测试核验；不改向量、协议或包正文／哈希。此项待聚焦复验及CI，不声明已合入或上线。
 
 职责 architecture-integration：维护契约；standard-cloud 实施 Guardian/Runtime；extension-local 与 native-local 各自适配。不新建分支/工作树。先发布源码与证据，不安装、部署、migration、R2或启用共享限制。已有未提交安装状态记录保留。
