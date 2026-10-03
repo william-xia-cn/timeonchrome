@@ -36,7 +36,7 @@ async function fact(f:Awaited<ReturnType<typeof fixture>>,id='one',session='sess
 }
 async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{empty?:boolean;classification?:string;duration?:number;
   associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string;
-  associationKey?:string;reasonCodes?:string[]}={}){
+  associationKey?:string;reasonCodes?:string[];cutoff?:number}={}){
   const duration=options.empty?0:options.duration??1501;
   const row=(kind:UsageAccountRow['kind'],hour:number|null,category:string|null=null,subjectKey:string|null=null,displayName:string|null=null,d=duration):UsageAccountRow=>
     ({kind,hour,category,subjectKey,displayName,duration:d});
@@ -44,7 +44,7 @@ async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{
   if(!options.empty){rows.push(row('category',null,options.classification??'study'),row('category',0,options.classification??'study'),
     row('subject',null,null,await sha256Hex(options.associationKey??'product:windows:test'),'测试产品'),row('subject',0,null,await sha256Hex(options.associationKey??'product:windows:test'),'测试产品'));}
   const account=await createUsageAccount({schemaVersion:1,sourceKind:'application',durationUnit:'milliseconds',timezone:'Asia/Shanghai',
-    date:'2026-09-27',revision,generatedAtMs:now,settledThroughMs:now,algorithmVersion:options.algorithm??'windows-application-v1',policyVersions:options.empty?[]:[1],
+    date:'2026-09-27',revision,generatedAtMs:options.cutoff??now,settledThroughMs:options.cutoff??now,algorithmVersion:options.algorithm??'windows-application-v1',policyVersions:options.empty?[]:[1],
     associationVersion:options.associationVersion===undefined?projection:options.associationVersion,correctionVersion:options.correctionVersion??0,
     rawFactCount:options.count??(options.empty?0:1),rawFactHash:'c'.repeat(64),complete:options.complete??true,reasonCodes:options.reasonCodes??(options.complete===false?['POLICY_HISTORY_MISSING']:[])},rows);
   const r=await beginApplicationAccount(env.RUNTIME_DB,f.machine,{localUserId:user,assignmentVersion:1,manifest:account.manifest},now);
@@ -106,6 +106,54 @@ it('raw facts arriving later permit retry without resending or changing a receiv
   // Target this receipt so the two-item cron limit does not make its retry nondeterministic.
   await fact(f);await publishApplicationAccounts(env.RUNTIME_DB,now+300001,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+});
+it('new usage after a frozen cutoff does not prevent publication of the exact earlier snapshot',async()=>{
+  const f=await fixture();await fact(f);
+  const r=await upload(f,1,{cutoff:start+10000});
+  await fact(f,'after-cutoff');
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2
+    SET start_wall_time_ms=?2,end_wall_time_ms=?2+1501,
+      start_monotonic_time_ms=21000,end_monotonic_time_ms=22501
+    WHERE machine_id=?1 AND id='after-cutoff'`).bind(f.machine.machineId,start+20000).run();
+  const before=(await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1')
+    .bind(f.machine.machineId).all()).results;
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId))
+    .toMatchObject({published:true,publicationErrorCode:null});
+  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1')
+    .bind(f.machine.machineId).all()).results).toEqual(before);
+  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
+  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  const latest=await read();expect(latest.value.totalDurationMs).toBe(3002);
+  expect(latest.statistics.producer).toBe('legacy-server'); // Frozen prefix cannot hide newer settled usage.
+});
+it('late facts within the cutoff still prevent publication even when their usage overlaps existing facts',async()=>{
+  const f=await fixture();await fact(f);const r=await upload(f,1,{cutoff:start+10000});
+  await fact(f,'late-within-cutoff','other-session');
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId))
+    .toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_FACTS_PENDING'});
+});
+it('a segment crossing the cutoff is not partially settled or clipped to satisfy a snapshot',async()=>{
+  const f=await fixture();await fact(f);const r=await upload(f,1,{cutoff:start+1000,duration:1000});
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId))
+    .toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_FACTS_PENDING'});
+});
+it('an exact mapped cutoff includes the settled fact despite later wall-clock sampling',async()=>{
+  const f=await fixture();await fact(f);
+  await env.RUNTIME_DB.prepare('UPDATE runtime_usage_segments_v2 SET end_wall_time_ms=end_wall_time_ms+13 WHERE machine_id=?1')
+    .bind(f.machine.machineId).run();
+  const r=await upload(f,1,{cutoff:start+1501});await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+});
+it('an exact empty frozen snapshot does not claim later nonzero usage was zero',async()=>{
+  const f=await fixture();const r=await upload(f,1,{cutoff:start,empty:true});await fact(f);
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
+  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  expect((await read()).value.totalDurationMs).toBe(1501);
 });
 it('valid hash does not authorize forged classification or duration',async()=>{
   const f=await fixture();await fact(f);const forged=await upload(f,1,{classification:'blocked'});await publishApplicationAccounts(env.RUNTIME_DB,now);

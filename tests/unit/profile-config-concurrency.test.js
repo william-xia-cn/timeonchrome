@@ -157,6 +157,7 @@ async function verifyOtherUsageRoute() {
   const original = { siteUsageClassificationRulesV1: [old], studyList: [], compositeList: [], unsafeList: [], restrictedEntertainmentList: [], timeQuota: { daily: {}, weekly: { restMinutes: null } }, timeWindows: { daily: {} } };
   store.prepare('INSERT INTO profiles VALUES(?,?,?,?,?)').run('child-a', 'family-a', JSON.stringify(original), 1, 1000);
   store.exec(migration);
+  let beforeBatch = null;
   const env = { JWT_SECRET: 'fixture-only', DB: {
     prepare(sql) { return { bind(...args) { return {
       sql, args,
@@ -164,8 +165,16 @@ async function verifyOtherUsageRoute() {
       async all() { return { results: store.prepare(sql).all(...args) }; },
     }; } }; },
     async batch(statements) {
+      if (beforeBatch) { const hook = beforeBatch; beforeBatch = null; hook(); }
       store.exec('BEGIN');
-      try { const results = statements.map(({ sql, args }) => ({ meta: { changes: store.prepare(sql).run(...args).changes } })); store.exec('COMMIT'); return results; }
+      try {
+        const results = statements.map(({ sql, args }) => {
+          const before = store.prepare('SELECT total_changes() AS count').get().count;
+          store.prepare(sql).run(...args);
+          return { meta: { changes: store.prepare('SELECT total_changes() AS count').get().count - before } };
+        });
+        store.exec('COMMIT'); return results;
+      }
       catch (error) { store.exec('ROLLBACK'); throw error; }
     },
   } };
@@ -209,6 +218,24 @@ async function verifyOtherUsageRoute() {
   assert.equal(response.status, 200); assert.deepStrictEqual(JSON.parse(current().config).siteUsageClassificationRulesV1, []);
   const audit = store.prepare('SELECT source_action,changed_keys_json FROM profile_config_history_v1 WHERE profile_id=? AND version=?').get('child-a', current().version);
   assert.equal(audit.source_action, 'access_config_import'); assert(JSON.parse(audit.changed_keys_json).includes('siteUsageClassificationRulesV1'));
+  const beforeShadow = JSON.parse(current().config);
+  response = await put({ sharedAccessRolloutV1: { schemaVersion: 1, stage: 'shadow' } });
+  assert.equal(response.status, 200, 'successful CAS plus history trigger must not return a false conflict');
+  const afterShadow = JSON.parse(current().config);
+  assert.deepStrictEqual(afterShadow.timeQuota, beforeShadow.timeQuota);
+  assert.deepStrictEqual(afterShadow.timeWindows, beforeShadow.timeWindows);
+  assert.deepStrictEqual(afterShadow.siteUsageClassificationRulesV1, beforeShadow.siteUsageClassificationRulesV1);
+  assert.deepStrictEqual(afterShadow.sharedAccessRolloutV1, { schemaVersion: 1, stage: 'shadow' });
+  beforeBatch = () => {
+    const latest = current();
+    const concurrent = { ...JSON.parse(latest.config), concurrentFixture: true };
+    store.prepare('UPDATE profiles SET config=?,version=?,updated_at=? WHERE id=? AND version=?')
+      .run(JSON.stringify(concurrent), latest.version + 1, Date.now(), 'child-a', latest.version);
+  };
+  response = await put({ domainQuotas: { 'should-not-apply.test': 1 } });
+  assert.equal(response.status, 409, 'zero CAS writes must still reject a concurrent version change');
+  assert.equal((await response.json()).code, 'PROFILE_CONFIG_VERSION_CONFLICT');
+  assert.equal(JSON.parse(current().config).domainQuotas['should-not-apply.test'], undefined);
   store.close(); console.log('[Other Usage Profile Route] owner/version/validation/preserve/replace/delete/audit passed');
 }
 verifyOtherUsageRoute().catch(error => { console.error(error); process.exitCode = 1; });

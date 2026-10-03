@@ -1089,7 +1089,9 @@ export const profilesRouter = {
         ]);
 
         const updated = Number((results[0] as any)?.meta?.changes || 0);
-        if (updated !== 1) {
+        // D1 includes audit-trigger writes in changes; CAS still affects at most one profile.
+        // Only zero writes proves the expectedVersion guard did not match.
+        if (!Number.isSafeInteger(updated) || updated < 1) {
           const latest = await env.DB.prepare(
             `SELECT version, updated_at FROM profiles WHERE id = ?`
           ).bind(profileId).first<{ version: number; updated_at: number }>();
