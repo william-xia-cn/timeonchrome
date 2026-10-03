@@ -8,6 +8,20 @@
 
 实现细化：事件缓存内部使用既有不可逆 scopeHash 及完整 policyIdentity 隔离（不进入 UI），实际 ACK 和覆盖摘要按贡献修订及内容摘要匹配。覆盖摘要仅在既有派生 build 已读统计的事件中生成，最多七天；诊断读接口不读取日统计或原分段。SW 冷启动未重新核实来源时旧缓存不作为当前确认；改绑、策略变更或贡献变版后失配缓存显示未知。错误码使用固定白名单，任意文本变为 unknown。新增的是 Admin↔SW 内部只读消息，不修改任何 HTTP/Native 契约。展开关闭、重新打开及销毁后的迟到响应均丢弃。
 
+真实正常界面续验发现诊断不可读：现有隐私返回入口使用 `admin/admin.html?view=system-management`，诊断监听器的整串 URL 相等校验会拒绝合法 query/fragment。只改诊断授权为相同 extension scheme/host、准确 Admin pathname 和自身 sender.id，允许 query/fragment，不接受其他页面或其他扩展。界面保留白名单错误码，区分权限拒绝、旧后台不支持、消息连接失败、响应中断，以及缓存/连接状态/共享状态/格式读取失败；不显示原始异常或 URL。该错误证据不证明真实截图全部由 URL 拒绝造成，也不证明 Host 连接失败已解决。聚焦验证合法导航、伪装 origin/path、读取失败与版本混用；不构建候选、不修改 Host 或原账。
+
+续验交接补充：摘要展示历史连接成功时间及白名单历史错误码，与当前 Port 状态分离；不能以历史成功证明当前连接正常。路由修复通过专项后，仅原地同步两份确切诊断源码到既有 1.7.41 开发候选，保留原文件备份；不重新构建，不改变版本、ID、公钥、marker，不操作原 Profile 的存储或绑定。Host 连接故障及缺日期原因仍未关闭。
+
+真实续验 `native_invalid_response` 尚不能归因到 heartbeat：该码包含负响应、非法 receivedAt、统计修订 ACK 不匹配/陈旧，以及应用响应缺失。新增有界内存拒绝摘要，只记录固定 messageType/channel、白名单分支及发生时间；在正常管理页展示，不存原响应、requestId、身份或 proof。原校验、拒绝、断开和重试行为完全不变。Host 当前响应模型使用数字 receivedAt，统计陈旧响应允许 acceptedRevision=null、stale=true；是否真实命中仍需原实例摘要，禁止放宽 validator 猜测修复。
+
+真实14:25:43证据已确认 `dailyUsageSnapshot/statistics` 的 `BROWSER_BRIDGE_MESSAGE_REJECTED` 负响应会被泛化为 `native_invalid_response` 并断开健康/共享通道。通信隔离补丁仅对匹配 requestId、有限数字 receivedAt、准确统计请求且明确业务拒绝码的帧返回 `native_snapshot_rejected`，不关闭 Port、不清除协商能力、不伪造 ACK；待同步日期和修订保留，下一正常健康周期重试。统计业务拒绝不推进健康失败冷却或覆盖健康成功状态。未知错误/非法帧/超时仍沿既有保守断开路径。诊断额外保留白名单 serviceErrorCode，不保存原文本。统计内容矛盾继续由 Native owner 定位；不修改原账或投影补差。
+
+Native owner 已用正式 2.6.19 DLL 与真实扩展生成器合成复现：权威桶2秒/区间3秒，以及权威study3秒/区间rest3秒，均产生 `EVIDENCE_TOTAL_MISMATCH` 却仍携带矛盾区间，实际 validator 拒绝。经本次交接明确批准，仅派生 BrowserBridge 快照增加 TOTAL_MISMATCH 清空 intervals 的 fail-closed 边界；保留 activeSeconds、quotaBucketSeconds、complete=false、原因及待同步修订，摘要重新计算；不改网页原始账、本地统计或正式 V2 单账。合成跨语言验证不等同于现场原实例成功。
+
+统计业务拒绝的重试至少间隔60秒，等待已有健康/生命周期触发，不新增轮询。冷却期间不进入 snapshot drain，不阻挡已排队的健康/共享请求；合法修订 ACK 后清零。持续业务拒绝保持待同步及最近拒绝摘要，不能假装健康链路故障或清空数据。
+
+360秒差额只读分析：权威投影以 domains.activeSeconds/compactedByChannel.active 得出在线量，按 targets.activeByQuotaBucket 收集所有桶，再按现有更正移动桶；派生消费者明确读取 study/composite/rest 与 other。借用Rest已读取rest，不以内容分类重算。现场仅有 LOCAL_BUCKETS_INCOMPLETE、没有 LOCAL_STATISTICS_INCOMPLETE 时，不能直接认定360秒没有桶：未知/legacy桶，或更正将已知桶移动到未知桶，也会出现同一诊断。仅有在线量高于全部桶总量则会同时产生统计不完整。添加固定合成区分夹具，不改消费者映射；现场两天缺少可信当前覆盖摘要，具体桶差额仍为P0未解决，禁止将未识别桶猜成Rest或“其他”。
+
 ## D-114 第二批终端接线（2026-10-03，本地及隔离关页验证通过，生产执行关闭）
 
 真实期限对齐：Guardian challenge的90秒是兑换窗口，签名proof的300秒是绑定有效期，不得要求proof到期早于challenge。只分别校验challenge当前可兑换、proof结构／签名来源／身份和当前有效期；Host负责真实验签及scope确认。固定回归使用90秒challenge与300秒proof，过期challenge不进入兑换。
