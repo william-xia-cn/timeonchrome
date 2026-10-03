@@ -3,7 +3,7 @@ import { webcrypto } from 'node:crypto';
 import fs from 'node:fs';
 import { sharedWebContributionHashV1, verifySharedWebContributionV1, sharedWebExecutionSourceV1,
   signSharedWebSourceBindingV1, verifySharedWebSourceBindingV1, sharedQuotaExecutionIdentityV1,
-  sharedWebLocalLeaseCurrentV1 } from './dist/shared-web-sync.js';
+  sharedWebLocalLeaseCurrentV1, signSharedWebReusableProofV2, verifySharedWebReusableProofV2 } from './dist/shared-web-sync.js';
 globalThis.crypto ??= webcrypto;
 const policyIdentity={schemaVersion:1,revision:'profile-config:8',effectiveAtMs:0,stage:'shadow',policyHash:'a'.repeat(64)};
 const base={schemaVersion:1,date:'2026-10-03',revisionOrdinal:1,statisticsRevision:'statistics-hash',correctionRevision:'correction-1',
@@ -87,3 +87,30 @@ captured.projection.days[0].usedMs.study=1;
 assert.equal(await pendingIdentity,executionIdentity,'hash captures input before awaiting');
 assert.equal(executionIdentity,vectors.executionIdentityHash,'shared cross-platform local execution identity');
 console.log('shared-web-sync: authority/precision/hash/version/privacy/source-proof/execution identity tests PASS');
+
+const machineV2={schemaVersion:2,audience:'timeonchrome:shared-web-machine-scope:v2',
+  applicationSourceKey:'b'.repeat(64),childScopeHash:'c'.repeat(64),assignmentVersion:7,issuedAtMs:1000,expiresAtMs:301000};
+const webV2={...machineV2,audience:'timeonchrome:shared-web-source:v2',webSourceKey:'web:'+'d'.repeat(64),bindingEpochHash:'e'.repeat(64)};
+const expectedV2={applicationSourceKey:machineV2.applicationSourceKey,childScopeHash:machineV2.childScopeHash,assignmentVersion:7};
+for(const candidate of [machineV2,webV2]) {
+  const signed=await signSharedWebReusableProofV2(candidate,proof.keyId,key.privateKey);
+  for(const time of [1000,2000,300999]) assert.deepEqual(
+    await verifySharedWebReusableProofV2(signed,proof.keyId,key.publicKey,expectedV2,candidate.audience,time),candidate);
+  await assert.rejects(()=>verifySharedWebReusableProofV2(signed,proof.keyId,key.publicKey,expectedV2,candidate.audience,301000),/EXPIRED/);
+  for(const change of [{childScopeHash:'f'.repeat(64)},{applicationSourceKey:'f'.repeat(64)},{assignmentVersion:8}])
+    await assert.rejects(()=>verifySharedWebReusableProofV2(signed,proof.keyId,key.publicKey,{...expectedV2,...change},candidate.audience,2000),/SCOPE_MISMATCH/);
+  const other=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},false,['sign','verify']);
+  await assert.rejects(()=>verifySharedWebReusableProofV2(signed,proof.keyId,other.publicKey,expectedV2,candidate.audience,2000),/SIGNATURE_INVALID/);
+  for(const change of [{expiresAtMs:301001},{connectionHash:'a'.repeat(64)},{childId:'private'},{deviceToken:'private'}])
+    await assert.rejects(()=>signSharedWebReusableProofV2({...candidate,...change},proof.keyId,key.privateKey));
+}
+const signedWebV2=await signSharedWebReusableProofV2(webV2,proof.keyId,key.privateKey);
+await assert.rejects(()=>verifySharedWebReusableProofV2(signedWebV2,proof.keyId,key.publicKey,expectedV2,machineV2.audience,2000));
+await assert.rejects(()=>verifySharedWebReusableProofV2({...signedWebV2,claims:{...webV2,bindingEpochHash:'f'.repeat(64)}},
+  proof.keyId,key.publicKey,expectedV2,webV2.audience,2000),/SIGNATURE_INVALID/);
+console.log('shared-web-sync v2: reusable scope/signature/isolation/expiry/audience tests PASS');
+const goldenV2=JSON.parse(fs.readFileSync(new URL('./shared-web-sync-v2.vectors.json',import.meta.url)));
+const publicV2=await crypto.subtle.importKey('jwk',goldenV2.publicJwk,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+for(const signed of [goldenV2.machineProof,goldenV2.webProof]) assert.deepEqual(
+  await verifySharedWebReusableProofV2(signed,signed.keyId,publicV2,expectedV2,signed.claims.audience,goldenV2.verificationTimeMs),
+  signed.claims,'public-only reusable cross-platform signature vector');

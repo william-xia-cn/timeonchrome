@@ -1,5 +1,13 @@
 # TimeOnChrome — 技术设计文档
 
+## D-114 可复用共享身份核验（2026-10-03）
+
+PO批准简化为本机管理范围→缓存云端来源证明→本地同孩子核验→贡献ACK。v1连接挑战保留兼容；v2证明不含challengeId/connectionHash，绑定childScopeHash、applicationSourceKey、assignmentVersion、webSourceKey及browser bindingEpochHash，期限最多300000ms。现有专用ES256密钥复用，机器/扩展令牌不经过Host。
+
+机器鉴权读取当前用户分配后，由现有受限内部接口签发短期machine-scope（applicationSourceKey、childScopeHash、assignmentVersion、issuedAtMs、expiresAtMs），仅作取得来源证明的范围输入，不授权贡献或执行。扩展以设备鉴权提交该签名scope；Guardian检查签名、同家庭/孩子和实时本机分配，再签发web-source证明。两种证明使用独立audience避免混用，不新增凭据系统或D1表。云端验证web-source时仍复核当前应用分配与网页绑定摘要，不能仅因签名有效接受已撤销来源。
+
+能力shared-web-source-reusable-v2：getSharedWebSourceScope返回机器范围，bindSharedWebSourceV2建立当前连接上下文，replaceSharedWebContributionV2复用原贡献/ACK格式并取消challengeId。当前受认证用户是范围权威，不接受Host指定另一用户。已建立本地租约沿用原语义；重新连接必须以未过期证明重新验签，不能恢复过期证明或旧租约。身份变化立即撤销上下文及在途请求。通道在线、身份verified、贡献ACK分别展示。未分配/范围不匹配/过期/验签失败/云端不可用采用固定错误码。
+
 ## D-114 正常界面的只读可观测性（2026-10-03）
 
 本地 Admin 的本地组件卡增加可展开共享同步摘要。只读扩展内部诊断请求仅接受该扩展的 Admin 页面，不发送 Native/HTTP 请求，不重算账或触发上传。显示运行版本、当前 Port 协商能力、缓存配置 revision/stage、本周逐日贡献 revision/完整性/稳定原因、历史云端 ACK、当前连接 Native 确认、失败阶段和退避，以及当前签名绑定状态枚举。未知保留 null；历史 nativeAccepted 不代表当前连接确认。

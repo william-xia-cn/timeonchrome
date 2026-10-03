@@ -1,6 +1,18 @@
 # TASK_BOARD
 
+## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
+
+职责 architecture-integration：维护契约；standard-cloud 实施 Guardian/Runtime；extension-local 与 native-local 各自适配。不新建分支/工作树。先发布源码与证据，不安装、部署、migration、R2或启用共享限制。已有未提交安装状态记录保留。
+
+实施核对：新增可跨连接复用的五分钟签名来源证明；当前本机用户唯一孩子分配与扩展可信身份相同才建立连接上下文；断开/改绑撤销上下文，未过期证明可重新核验，旧租约不能复活。能力协商保留v1，v2失败不降级为弱核验。贡献版本替换/ACK不变，明确连接、身份、贡献三个状态。
+
+最小验证：Contracts签名/篡改/到期/范围与v1兼容；云端双方鉴权、当前分配及绑定撤销；两端重连缓存、用户隔离及稳定错误。仅相关测试、typecheck、Worker dry-run、职责检查及diff；不跑无关平台/安装器/网页账本全量。真实联合验收另记，不能用源码通过宣称共享可启用。
+
+契约开发证据：1.31.0 build/typecheck、shared-web-sync v1/v2聚焦及contract-compatibility通过；首次build因沙箱EPERM未写产物，经范围内提权构建通过；兼容测试首次缺新增消息断言已修正后通过。固定本地包SHA-256 `355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395`，包含v2 schema与仅公钥黄金向量，已交Native/控件所属会话。不代表契约已发布或两端已安装。云端适配进行中。
+
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
+
+安装状态更新（2026-10-03）：PO已手动安装2.6.23。架构从正式安装目录只读核对Service／Session Agent／Manager／Native Host均为2.6.23.0，四SHA-256与已校验候选完全一致；Service为Running／Automatic，当前会话仅一个正式Session Agent。Native普通账户21:07公开健康核验通过，架构回读原证据：本次Service北京时间21:03:53启动，21:04:16有成功云端heartbeat，state=online。历史桥成功早于本次启动，public pendingUploads不含app/shared，均不作为本次共享同步证明。此前“当前安装仍2.6.22”仅为构建结束时历史状态。本次不读取凭据／原账、不提权、不重启、不恢复已挂起绑定／ACK排查、不启用共享限制。组件安装及公开健康通过不等于提醒、正常关闭取消、共享余额及原账守恒验收通过。
 
 ### 阻塞登记与非阻塞交付（2026-10-03，PO要求继续）
 
