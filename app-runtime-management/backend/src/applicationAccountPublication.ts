@@ -6,6 +6,7 @@ import { applicationStatisticsSource,applicationPublicationDirtyStatements } fro
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { mapApplicationUsageClock, APPLICATION_CLOCK_MARGIN_MS } from './applicationUsageClock';
+import { applicationAccountAlgorithm } from './applicationAccounts';
 
 interface Candidate {id:string;machine_id:string;local_user_id:string;assignment_version:number;
   account_id:string;child_id:string;date:string;revision:number;manifest_json:string}
@@ -50,7 +51,6 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
       fail('APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING');
     fail('APPLICATION_ACCOUNT_INCOMPLETE');
   }
-  if(manifest.algorithmVersion!=='windows-application-v1')fail('APPLICATION_ACCOUNT_ALGORITHM_UNSUPPORTED');
   const start=usageAccountDayStart(manifest.date),end=start+DAY;
   const assignment=await db.prepare(`SELECT a.child_id,m.account_id,m.platform,m.revoked_at_ms FROM runtime_user_assignments_v2 a
     JOIN runtime_machines_v2 m ON m.id=a.machine_id WHERE a.machine_id=?1 AND a.local_user_id=?2
@@ -58,7 +58,8 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
     .first<{child_id:string;account_id:string;platform:string;revoked_at_ms:number|null}>();
   if(!assignment||assignment.child_id!==candidate.child_id||assignment.account_id!==candidate.account_id||assignment.revoked_at_ms!=null)
     fail('APPLICATION_ACCOUNT_ASSIGNMENT_UNAVAILABLE');
-  if(assignment.platform!=='windows')fail('APPLICATION_ACCOUNT_ALGORITHM_UNSUPPORTED');
+  const expectedAlgorithm=applicationAccountAlgorithm(assignment.platform);
+  if(expectedAlgorithm===null||manifest.algorithmVersion!==expectedAlgorithm)fail('APPLICATION_ACCOUNT_ALGORITHM_UNSUPPORTED');
   const filters={machineId:candidate.machine_id,localUserId:candidate.local_user_id};
   const before=await applicationStatisticsSource(db,candidate.account_id,candidate.child_id,start,end,filters);
   const policy=await getAppPolicy(db,candidate.account_id,candidate.child_id);

@@ -7,6 +7,10 @@ import { isRecord } from './validation';
 
 const prefix = '/v2/machines/application-accounts/manifests';
 const categories = new Set(['study','composite','restrictedEntertainment','unclassified','other','blocked','historicalUnknown']);
+const applicationAccountAlgorithms = { windows:'windows-application-v1', macos:'macos-application-v1' } as const;
+export function applicationAccountAlgorithm(platform:string):string|null {
+  return platform==='windows'||platform==='macos'?applicationAccountAlgorithms[platform]:null;
+}
 interface StoredManifest {
   id: string; machine_id: string; local_user_id: string; assignment_version: number;
   account_id: string; child_id: string; date: string; revision: number;
@@ -147,7 +151,7 @@ export async function routeApplicationAccounts(request: Request, db: D1Database,
       const result=await db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${tables.map((_,i)=>`?${i+1}`).join(',')})`)
         .bind(...tables).all();
       return jsonResponse({protocol:'usage-account-v1',schemaVersion:1,enabled:result.results.length===tables.length,
-        chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,acceptedAlgorithms:['windows-application-v1']});
+        chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,acceptedAlgorithms:Object.values(applicationAccountAlgorithms)});
     }
     if (path === prefix) return request.method === 'POST'
       ? jsonResponse(await beginApplicationAccount(db, machine, await readJsonBody(request, 16384), now)) : methodNotAllowed('POST');
