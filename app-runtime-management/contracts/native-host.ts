@@ -84,6 +84,9 @@ export interface NativeHostResponse {
   /** Returned only to the verified BrowserBridge connection that created this challenge. */
   sharedWebSourceChallenge?: import('./shared-web-sync.js').SharedWebSourceChallengeV1;
   sharedWebSourceBound?: { challengeId:string;webSourceKey:string;expiresAtMs:number };
+  sharedWebSourceScope?: import('./shared-web-sync.js').SharedWebMachineScopeProofV2;
+  /** Channel connectivity is separate from child identity verification and contribution ACK. */
+  sharedWebIdentity?: { status: 'verified'; webSourceKey:string; expiresAtMs:number };
   sharedWebContributionAccepted?: { date:string;revisionOrdinal:number;contentHash:string;duplicate:boolean };
   /** Read success is not permission to enforce quota or end an application. */
   sharedQuotaStage?: 'shadow';
@@ -145,7 +148,8 @@ export interface BrowserBridgeV3Envelope<TPayload = unknown> {
   requestId: string;
   messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getSharedQuotaState' | 'reportReminderResult'
     | 'getSharedReminderState' | 'acknowledgeSharedReminderDelivery' | 'resolveSharedReminder' | 'reportBrowserActivity'
-    | 'acknowledgeBrowserExecution' | 'getSharedWebSourceChallenge' | 'bindSharedWebSource' | 'replaceSharedWebContribution';
+    | 'acknowledgeBrowserExecution' | 'getSharedWebSourceChallenge' | 'bindSharedWebSource' | 'replaceSharedWebContribution'
+    | 'getSharedWebSourceScope' | 'bindSharedWebSourceV2' | 'replaceSharedWebContributionV2';
   extensionId: string;
   profileId: string;
   sentAtMs: number;

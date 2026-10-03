@@ -9,10 +9,10 @@ import type {MachineSelfResponse} from '../src/contracts';
 import {readPersistentApplicationUsage,rebuildApplicationStatistics,type StatisticsValue} from '../src/applicationStatistics';
 const DAY=86400000,start=Date.parse('2026-09-27T00:00:00+08:00'),now=start+DAY;
 const user='a'.repeat(64),projection='b'.repeat(64);
-async function fixture(){
+async function fixture(platform:MachineSelfResponse['platform']='windows'){
   const machineId=crypto.randomUUID(),accountId=crypto.randomUUID(),child=crypto.randomUUID();
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machines_v2(id,account_id,platform,token_hash,last_seen_at_ms,created_at_ms,updated_at_ms)
-    VALUES(?1,?2,'windows',?1,0,0,0)`).bind(machineId,accountId).run();
+    VALUES(?1,?2,?3,?1,0,0,0)`).bind(machineId,accountId,platform).run();
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
     (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
     VALUES(?1,?2,1,?3,1,'default',?4,?4)`).bind(machineId,user,child,start).run();
@@ -20,8 +20,8 @@ async function fixture(){
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
     (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms) VALUES(?1,?2,1,?3,'fixture',0,0)`)
     .bind(accountId,child,JSON.stringify({...policy,productIdentityProjection:{version:projection,knowledgeVersion:1,
-      items:[{platform:'windows',runtimeIdentity:'leaf',associationKey:'product:windows:test',productId:'test',canonicalName:'测试产品',status:'confirmed',reasonCode:'APPROVED_PRODUCT'}]}})).run();
-  const machine:MachineSelfResponse={machineId,accountId,platform:'windows',displayName:null,defaultChildId:child,desiredPolicyVersion:1,
+      items:[{platform,runtimeIdentity:'leaf',associationKey:`product:${platform}:test`,productId:'test',canonicalName:'测试产品',status:'confirmed',reasonCode:'APPROVED_PRODUCT'}]}})).run();
+  const machine:MachineSelfResponse={machineId,accountId,platform,displayName:null,defaultChildId:child,desiredPolicyVersion:1,
     appliedPolicyVersion:1,policyState:'applied',revoked:false};
   return {machine,child};
 }
@@ -31,27 +31,53 @@ async function fact(f:Awaited<ReturnType<typeof fixture>>,id='one',session='sess
      start_at_ms,end_at_ms,duration_ms,end_reason,content_hash,uploaded_at_ms,accounting_schema_version,channel,clock_epoch_id,
      start_wall_time_ms,end_wall_time_ms,start_monotonic_time_ms,end_monotonic_time_ms,monotonic_duration_ms,estimated,
      app_policy_version,application_classification)
-    VALUES(?1,?2,?3,1,?4,?5,'windows','leaf','测试产品',1000,2501,1501,'fixture',?1,?6,2,'active','epoch',?7,?7+1501,1000,2501,1501,0,1,?8)`)
-    .bind(id,f.machine.machineId,user,f.child,session,start+1501,start,category).run();
+    VALUES(?1,?2,?3,1,?4,?5,?9,'leaf','测试产品',1000,2501,1501,'fixture',?1,?6,2,'active','epoch',?7,?7+1501,1000,2501,1501,0,1,?8)`)
+    .bind(id,f.machine.machineId,user,f.child,session,start+1501,start,category,f.machine.platform).run();
 }
 async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{empty?:boolean;classification?:string;duration?:number;
   associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string;
-  associationKey?:string;reasonCodes?:string[];cutoff?:number}={}){
+  associationKey?:string;reasonCodes?:string[];cutoff?:number;date?:string;hour?:number}={}){
   const duration=options.empty?0:options.duration??1501;
   const row=(kind:UsageAccountRow['kind'],hour:number|null,category:string|null=null,subjectKey:string|null=null,displayName:string|null=null,d=duration):UsageAccountRow=>
     ({kind,hour,category,subjectKey,displayName,duration:d});
-  const rows=[row('total',null),...Array.from({length:24},(_,h)=>row('total',h,null,null,null,h===0?duration:0))];
-  if(!options.empty){rows.push(row('category',null,options.classification??'study'),row('category',0,options.classification??'study'),
-    row('subject',null,null,await sha256Hex(options.associationKey??'product:windows:test'),'测试产品'),row('subject',0,null,await sha256Hex(options.associationKey??'product:windows:test'),'测试产品'));}
+  const hour=options.hour??0,key=options.associationKey??`product:${f.machine.platform}:test`;
+  const rows=[row('total',null),...Array.from({length:24},(_,h)=>row('total',h,null,null,null,h===hour?duration:0))];
+  if(!options.empty){rows.push(row('category',null,options.classification??'study'),row('category',hour,options.classification??'study'),
+    row('subject',null,null,await sha256Hex(key),'测试产品'),row('subject',hour,null,await sha256Hex(key),'测试产品'));}
+  const date=options.date??'2026-09-27',cutoff=options.cutoff??Date.parse(date+'T00:00:00+08:00')+DAY;
+  const receivedAt=Math.max(now,cutoff);
   const account=await createUsageAccount({schemaVersion:1,sourceKind:'application',durationUnit:'milliseconds',timezone:'Asia/Shanghai',
-    date:'2026-09-27',revision,generatedAtMs:options.cutoff??now,settledThroughMs:options.cutoff??now,algorithmVersion:options.algorithm??'windows-application-v1',policyVersions:options.empty?[]:[1],
+    date,revision,generatedAtMs:cutoff,settledThroughMs:cutoff,algorithmVersion:options.algorithm??`${f.machine.platform}-application-v1`,policyVersions:options.empty?[]:[1],
     associationVersion:options.associationVersion===undefined?projection:options.associationVersion,correctionVersion:options.correctionVersion??0,
     rawFactCount:options.count??(options.empty?0:1),rawFactHash:'c'.repeat(64),complete:options.complete??true,reasonCodes:options.reasonCodes??(options.complete===false?['POLICY_HISTORY_MISSING']:[])},rows);
-  const r=await beginApplicationAccount(env.RUNTIME_DB,f.machine,{localUserId:user,assignmentVersion:1,manifest:account.manifest},now);
+  const r=await beginApplicationAccount(env.RUNTIME_DB,f.machine,{localUserId:user,assignmentVersion:1,manifest:account.manifest},receivedAt);
   for(const c of account.chunks)await putApplicationAccountChunk(env.RUNTIME_DB,f.machine,r.manifestId,c.chunkIndex,{rows:c.rows,chunkHash:c.chunkHash});
-  await commitApplicationAccount(env.RUNTIME_DB,f.machine,r.manifestId,now);
+  await commitApplicationAccount(env.RUNTIME_DB,f.machine,r.manifestId,receivedAt);
   return r;
 }
+it.each(['incomplete','stale association'] as const)('cron prioritizes a complete current snapshot over older %s backlog without increasing its budget',async(kind)=>{
+  const older=[];
+  for(let i=0;i<2;i++){
+    const f=await fixture();
+    const r=await upload(f,1,{empty:true,...(kind==='incomplete'?{complete:false}:{associationVersion:'d'.repeat(64)})});
+    await env.RUNTIME_DB.prepare('UPDATE runtime_application_account_manifests_v1 SET received_at_ms=?2 WHERE id=?1')
+      .bind(r.manifestId,now-30000+i).run();
+    older.push({f,r});
+  }
+  const f=await fixture();await fact(f,crypto.randomUUID());const fresh=await upload(f);
+  const before=await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all();
+  const result=await publishApplicationAccounts(env.RUNTIME_DB,now);
+  expect(result.processed).toBeLessThanOrEqual(2);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,fresh.manifestId)).toMatchObject({published:true});
+  for(const {f:oldFixture,r} of older){
+    // Check the rejected backlog explicitly after proving the fresh cron publication.
+    // This also leaves every synthetic backlog item in cooldown in the shared test DB.
+    await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+    expect(await readApplicationAccountStatus(env.RUNTIME_DB,oldFixture.machine,r.manifestId)).toMatchObject({published:false,
+      publicationErrorCode:kind==='incomplete'?'APPLICATION_ACCOUNT_INCOMPLETE':'APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING'});
+  }
+  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(before.results);
+});
 it('receipt does not publish; exact approved source/management verification publishes separate watermark',async()=>{
   const f=await fixture();await fact(f);const r=await upload(f);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:false});
@@ -297,5 +323,65 @@ it('dirty queue interruption rolls back publication while preserving received sn
       .bind(r.manifestId).first()).toEqual({n:0});
   }finally{await env.RUNTIME_DB.prepare('DROP TRIGGER test_dirty_failure').run();}
   await publishApplicationAccounts(env.RUNTIME_DB,now+300001,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+});
+it('Mac nonzero milliseconds publish and persist through the ordinary statistics reader without changing facts',async()=>{
+  const f=await fixture('macos');await fact(f,crypto.randomUUID());
+  const before=await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all();
+  const r=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
+  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
+  expect(result.statistics.productApplications).toEqual([{key:await sha256Hex('product:macos:test'),displayName:'测试产品',durationMs:1501}]);
+  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(before.results);
+});
+it('Mac overlapping settled intervals use the common exact millisecond union rather than summed segments',async()=>{
+  const f=await fixture('macos');await fact(f,crypto.randomUUID());const second=crypto.randomUUID();await fact(f,second);
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2 SET start_wall_time_ms=?2,end_wall_time_ms=?2+1501,
+    start_monotonic_time_ms=1500,end_monotonic_time_ms=3001 WHERE id=?1`).bind(second,start+500).run();
+  const r=await upload(f,1,{duration:2001,count:2});await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+});
+it('Mac cross-day intervals retain exact 500/1001 millisecond daily and hourly clipping',async()=>{
+  const f=await fixture('macos'),id=crypto.randomUUID();await fact(f,id);
+  await env.RUNTIME_DB.prepare('UPDATE runtime_usage_segments_v2 SET start_wall_time_ms=?2,end_wall_time_ms=?2+1501 WHERE id=?1')
+    .bind(id,start+DAY-500).run();
+  const first=await upload(f,1,{duration:500,hour:23});
+  const next=await upload(f,1,{duration:1001,date:'2026-09-28'});
+  await publishApplicationAccounts(env.RUNTIME_DB,now+DAY,first.manifestId);
+  await publishApplicationAccounts(env.RUNTIME_DB,now+DAY,next.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,first.manifestId)).toMatchObject({published:true});
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,next.manifestId)).toMatchObject({published:true});
+});
+it.each([true,false])('Mac zero snapshot preserves its producer completeness: %s',async(complete)=>{
+  const f=await fixture('macos'),r=await upload(f,1,{empty:true,complete});
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:complete,
+    publicationErrorCode:complete?null:'APPLICATION_ACCOUNT_INCOMPLETE'});
+});
+it.each([
+  ['macos','windows-application-v1'],['windows','macos-application-v1'],['macos','unknown-application-v1'],
+] as const)('rejects machine/algorithm mismatch %s / %s',async(platform,algorithm)=>{
+  const f=await fixture(platform);await fact(f,crypto.randomUUID());const r=await upload(f,1,{algorithm});
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId))
+    .toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_ALGORITHM_UNSUPPORTED'});
+});
+it.each([
+  [{duration:1500},'APPLICATION_ACCOUNT_STATISTICS_MISMATCH'],
+  [{associationVersion:'d'.repeat(64)},'APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING'],
+  [{correctionVersion:1},'APPLICATION_ACCOUNT_CORRECTIONS_PENDING'],
+] as const)('Mac keeps exact statistic and management rejection: %s',async(options,error)=>{
+  const f=await fixture('macos');await fact(f,crypto.randomUUID());const r=await upload(f,1,options);
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:false,publicationErrorCode:error});
+});
+it('Mac received snapshots retry exact facts without resending and never use another machine facts',async()=>{
+  const f=await fixture('macos'),other=await fixture('macos');await fact(other,crypto.randomUUID());const r=await upload(f);
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId))
+    .toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_FACTS_PENDING'});
+  await fact(f,crypto.randomUUID());await publishApplicationAccounts(env.RUNTIME_DB,now+300001,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
 });

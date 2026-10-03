@@ -65,6 +65,11 @@ function load(relative, dependencies) {
         derivedReads++;assert.equal(scope.deviceToken,'fixture-device');
         return {challengeId};
       },
+      issueSharedWebSourceBindingV2: async (_env, scope, scopeProof) => {
+        derivedReads++;basisReads++;assert.equal(scope.accountId,'bound-owner');assert.equal(scope.deviceToken,'fixture-device');
+        if(derivedError)throw Error(derivedError);
+        return {schemaVersion:2,scopeProof};
+      },
     },
     '../services/sharedAccessState': {
       readSharedQuotaExecutionBasis: async (_env, owner, child, date, policy) => {
@@ -213,6 +218,24 @@ function load(relative, dependencies) {
   assert.equal((await deviceRouter.handle(derived('shared-web-watermark/v1'),env)).status,400);
   assert.equal((await deviceRouter.handle(derived('shared-web-source-binding/v1',{challengeId:'a'.repeat(64),deviceToken:'caller'}),env)).status,400);
   assert.equal((await deviceRouter.handle(derived('shared-web-source-binding/v1',{challengeId:'a'.repeat(64)}),env)).status,200);
+  const v2='shared-web-source-binding/v2';
+  assert.equal((await deviceRouter.handle(derived(v2,{scopeProof:{}},false),env)).status,401);
+  identity.unbound=true;assert.equal((await deviceRouter.handle(derived(v2,{scopeProof:{}}),env)).status,403);identity.unbound=false;
+  for(const body of [{challengeId:'a'.repeat(64)},{scopeProof:{},childId:'caller'},{scopeProof:{},connectionHash:'d'.repeat(64)}])
+    assert.equal((await deviceRouter.handle(derived(v2,body),env)).status,400);
+  assert.equal((await deviceRouter.handle(derived(v2+'?childId=caller',{scopeProof:{}}),env)).status,400);
+  const reusableResponse=await deviceRouter.handle(derived(v2,{scopeProof:{schemaVersion:2}}),env);
+  assert.equal(reusableResponse.status,200);assert.equal(reusableResponse.headers.get('Cache-Control'),'no-store');
+  assert.deepEqual(await reusableResponse.json(),{schemaVersion:2,scopeProof:{schemaVersion:2}});
+  for(const [code,status] of [['WEB_SOURCE_SCOPE_MISMATCH',409],['WEB_SOURCE_PROOF_EXPIRED',409],
+    ['WEB_SOURCE_PROOF_SIGNATURE_INVALID',403],['SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE',409],
+    ['SOURCE_SCOPE_LIMIT',503],['WEB_SOURCE_BINDING_UNAVAILABLE',503],['INVALID_WEB_SOURCE_BINDING',400]]){
+    derivedError=code;const response=await deviceRouter.handle(derived(v2,{scopeProof:{}}),env);
+    assert.equal(response.status,status);assert.deepEqual(await response.json(),{code});
+  }
+  derivedError='';authReads=0;bindingChanged=true;
+  assert.deepEqual(await (await deviceRouter.handle(derived(v2,{scopeProof:{}}),env)).json(),{code:'SHARED_ACCESS_BINDING_CHANGED'});
+  bindingChanged=false;
   const published=await deviceRouter.handle(derived('shared-web-contributions/v1',{revisionOrdinal:1}),env);
   assert.equal(published.status,200);assert.equal(published.headers.get('Cache-Control'),'no-store');
   for(const [code,status] of [['WEB_CONTRIBUTION_HASH_MISMATCH',400],['WEB_CONTRIBUTION_REVISION_CONFLICT',409],

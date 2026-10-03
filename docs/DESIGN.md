@@ -1,5 +1,37 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-04 应用日账发布诊断兼容补丁（Contracts 1.31.1）
+
+`UsageAccountReceipt.publicationErrorCode?: string | null`固定既有Runtime status接口返回字段，采用`^[A-Z][A-Z0-9_]{0,63}$`稳定码，不携带异常正文或身份信息。该字段可缺失，旧1.31.0响应继续有效；缺失/null仅表示没有可用拒绝诊断，不能推断published。`received_not_published`的`APPLICATION_ACCOUNT_INCOMPLETE`表示清单已接收但未通过发布检查，不是上传失败；消费者不得因此清队列、重新累加或放宽完整性。先匹配manifestId、revision及manifestHash，再采用对应版本的诊断，旧/异源状态不得覆盖当前状态。未知合法码只显示通用发布诊断，不触发执行动作。既有received/published/publishStatus、原始事实、统计算法和发布条件均不变。Native消费固定1.31.1包及校验值，由本机任务按标准交接转Mac实施和安装验收；源码通过不代表Mac已运行新版本。
+
+## D-113 Mac应用统计云端接入（2026-10-04）
+
+Mac Daemon使用公共ApplicationUsageReader与ApplicationAccountStore，采用已有单调时钟稳定锚点、当前用户/assignment范围、毫秒区间并集、本周更正及产品关联；独立算法标识为macos-application-v1。云端在既有usage-account-v1接口声明该算法，并严格要求机器platform与算法一一对应：windows/windows-application-v1、macos/macos-application-v1。其他算法或交叉标识仍拒绝；不能用更换客户端标识绕过校验。
+
+平台匹配后复用既有精确发布核对器：身份/家庭/孩子/分配、完整性、政策/更正/关联版本、原始事实范围及数量、单调时钟异常、截止时间、每个统计维度及hash均保持原条件。非零Mac清单须完整走接收→独立发布头→持久统计读取；没有会话覆盖证据的Mac日期由既有生产端标记不完整，云端不得把它发布成零。Mac与Windows均不改原账、计时或配额；不新增表、migration、协议字段、密钥或终端包。云端测试不等于Mac真实上传/发布/页面验收，生产开关仍保持影子模式。
+
+## D-114 本机提醒终态回执恢复（2026-10-04）
+
+隔离真实管道已经证明：正常取消成功后，结果写前断流会留下Service的dispatched状态。修复属于原提醒可靠性链，不改变主动结束/超时强制、原账、配额或执行开关。只补发已经生成的终态，不重发effect、不再次Claim/Close，不以结果丢失推导超时。
+
+最小内部协议沿用既有认证用户、assignment、reminder、policy/execution revision及原lease/boot范围；不新增云端身份、随机挑战或签名证明。需要定位具体派发时，从既有不可变派发字段规范化派生不透明dispatch摘要，不另建随机身份。Service发effect和双方能力协商仅增加可选回执上下文；新增本机结果ACK，不改BrowserBridge/公共Contracts。旧端明确不具备可靠回执能力，不向其发送未知消息或伪造确认。
+
+Agent为实际生成的白名单终态保存独立、有界本机待发状态，执行前预留容量，原子保存后发送；队列不存SID/账号/凭据/路径/目标PID，不混入事实、分段、云端上传或SharedReminderResult公共诊断账。最大256条/1MiB、单条4KiB、单在途、5秒ACK预算、2秒至5分钟退避。未ACK不静默逐出；满/存储不可用时拒绝该提醒关闭效果并明确报告，不影响独立硬限制路径。关闭已发生但终态提交前崩溃只报告未知，不能补造结果或重复执行。稳定摘要由规范化payload生成，不能将重传等价为新动作。
+
+队列按既有OS用户/当前Windows session隔离文件，沿用每session Agent互斥，不共享全用户JSON或新增跨进程锁/云端generation。Agent只读自己的session队列，另一活动会话的待发结果不能被本会话补发或标stale；当前session重启可恢复pending，结束会话后的旧文件保留为历史未知，不当作新session当前执行状态。内部回执如需明示session编号，由已验证连接派生，不接受指定其他会话；编号不是SID，不进入用户诊断。发送等待超时必须实际取消底层gate/pipe写入，不能只停止观察后留下迟到写任务；空队列事件唤醒，不每秒反复读完整文件。
+
+Service在已有生命周期DB事务内校验既有派发、真实pipe用户及不可变范围，保存终态/hash并完成仍当前的effect，提交后才ACK。同派发同内容幂等、不同内容冲突且保留首终态。ACK准确绑定派发和payload hash，不代表云端或账本ACK。断流/ACK丢失只重传结果；重启不恢复关闭权限。改绑/assignment/lease/boot撤销后不得更新当前效果，已保存终态只可返回原接收事实；未保存旧结果返回明确stale/revoked，Agent隔离为本机历史诊断，不能冒称当前执行已确认。不得引入泛化historical_only写入或跨孩子旧结果上报。回执接收不能改变配置、可见计时或配额。
+
+实施由Native所属会话在现有工作线完成，先核对现有范围字段可用性，缺字段集中报告，不猜测或另造身份。最小验证：实际结果断流、提交后ACK丢失、同内容重复/冲突、Agent重启、旧租约/改绑拒绝、队列满/原子写失败；均断言无第二次effect执行、取消不升级、未送达不强制。只本地源码/聚焦测试，不安装部署/构建候选/开启家庭执行；正式Service整链另记。
+
+## D-114 可复用共享身份核验（2026-10-03）
+
+PO批准简化为本机管理范围→缓存云端来源证明→本地同孩子核验→贡献ACK。v1连接挑战保留兼容；v2证明不含challengeId/connectionHash，绑定childScopeHash、applicationSourceKey、assignmentVersion、webSourceKey及browser bindingEpochHash，期限最多300000ms。现有专用ES256密钥复用，机器/扩展令牌不经过Host。
+
+机器鉴权读取当前用户分配后，由现有受限内部接口签发短期machine-scope（applicationSourceKey、childScopeHash、assignmentVersion、issuedAtMs、expiresAtMs），仅作取得来源证明的范围输入，不授权贡献或执行。扩展以设备鉴权提交该签名scope；Guardian检查签名、同家庭/孩子和实时本机分配，再签发web-source证明。两种证明使用独立audience避免混用，不新增凭据系统或D1表。云端验证web-source时仍复核当前应用分配与网页绑定摘要，不能仅因签名有效接受已撤销来源。
+
+能力shared-web-source-reusable-v2：getSharedWebSourceScope返回机器范围，bindSharedWebSourceV2建立当前连接上下文，replaceSharedWebContributionV2复用原贡献/ACK格式并取消challengeId。当前受认证用户是范围权威，不接受Host指定另一用户。已建立本地租约沿用原语义；重新连接必须以未过期证明重新验签，不能恢复过期证明或旧租约。身份变化立即撤销上下文及在途请求。通道在线、身份verified、贡献ACK分别展示。未分配/范围不匹配/过期/验签失败/云端不可用采用固定错误码。
+
 ## D-114 正常界面的只读可观测性（2026-10-03）
 
 本地 Admin 的本地组件卡增加可展开共享同步摘要。只读扩展内部诊断请求仅接受该扩展的 Admin 页面，不发送 Native/HTTP 请求，不重算账或触发上传。显示运行版本、当前 Port 协商能力、缓存配置 revision/stage、本周逐日贡献 revision/完整性/稳定原因、历史云端 ACK、当前连接 Native 确认、失败阶段和退避，以及当前签名绑定状态枚举。未知保留 null；历史 nativeAccepted 不代表当前连接确认。
@@ -1832,6 +1864,7 @@ OpenCode 在执行 Popup P0 UI 任务时，出现“等价替代 / 自行简化 
 按已批准裁决消费固定契约1.31.0（包SHA256：355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395）。能力shared-web-source-reusable-v2明确选择getSharedWebSourceScope、bindSharedWebSourceV2及replaceSharedWebContributionV2；新能力失败不降级，能力缺失保留v1。machine-scope仅作为设备鉴权取得web证明的签名范围输入；Native以可信当前分配验签，扩展不自授身份。有效web证明按本机身份与签名scope缓存，重连必须本地重新绑定；过期重连必须重新取得证明，不能延长旧租约。连接、身份或策略变化撤销在途结果及Native贡献确认；原统计、贡献队列、载荷哈希、云端ACK及执行门禁保持不变。
 
 只改终端契约消费、消息校验、身份适配及最小相关测试。通道在线、verified身份和贡献ACK仍是三个独立状态。固定错误码，不记录签名证明、凭据或原始身份；不更新候选、不安装、部署或启用家庭执行。HTTP包装须依据云端实际路由和聚焦测试核对，不能以success/count猜测确认。
+
 # 1.7.43 正式 managed 非共享发布准备
 
 本次仅提升正式源码版本并隔离 staging，不修改网页记账及配额算法。正式 marker 为 managed，不含 native-host-development、sharedBrowserCloseDevelopment 或 debugger。Native Host 使用 com.timeonchrome.nativehost；旧 com.timeonchrome.guardian 仍服务线上1.7.32消费者，不由本次扩展发布删除。共享策略在云端总闸关闭时降为 shadow，终端保持原网页执行；该部署证据不代替真实共享余额/执行验收。已安全接入原密钥完成CRX3签名和稳定ID独立验证；正式CRX及host-output一致，feed更新待架构执行。签包不等于已上线，旧候选和历史CRX不覆盖。

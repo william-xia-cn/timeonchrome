@@ -83,9 +83,13 @@ function load(file,deps){const module={exports:{}};const code=ts.transpileModule
    './sharedWebContributions':cloud});
  const key=await webcrypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
  const signing=await webcrypto.subtle.exportKey('jwk',key.privateKey);
+ // Keep challenge expiry, HTTP response checks and injected proof time on one isolated test clock.
+ const realDateNow=Date.now;Date.now=()=>now;
  const bindingEnv={...env,SHARED_WEB_CONTRIBUTIONS_ENABLED:'true',SHARED_WEB_SOURCE_BINDING_PRIVATE_JWK:JSON.stringify(signing),
    RUNTIME_COMPUTER_USAGE:{async fetch(request){const body=await request.json();
-     return Response.json({owned:await runtime.verifySharedWebSourceAssignment(adapter,body)});}}};
+     try{return Response.json({owned:await (new URL(request.url).pathname==='/verifySharedWebSourceScope'
+       ?runtime.verifySharedWebSourceScope(adapter,body):runtime.verifySharedWebSourceAssignment(adapter,body))});}
+     catch(error){return Response.json({code:error.code},{status:error.status||503});}}}};
  const challengeInput={accountId:'owner',childId:'child',machineId:'machine',localUserId:'opaque-local-user',assignmentVersion:1,
    applicationSourceKey:applicationKey,connectionHash:'d'.repeat(64)};
  await assert.rejects(()=>binding.createSharedWebSourceChallenge({...bindingEnv,SHARED_WEB_SOURCE_BINDING_PRIVATE_JWK:undefined,
@@ -134,11 +138,81 @@ function load(file,deps){const module={exports:{}};const code=ts.transpileModule
  await assert.rejects(()=>binding.issueSharedWebSourceBinding(bindingEnv,{...scope,childId:'other-child'},challenge.challengeId,now),/CHALLENGE_EXPIRED/);
  await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,proof,'owner','child',applicationKey,now+300000),/CONTEXT_CHANGED/);
  await assert.rejects(()=>binding.issueSharedWebSourceBinding(bindingEnv,scope,challenge.challengeId,now+90000),/CHALLENGE_EXPIRED/);
+ // v2 reuses a signed scope across connections, but never treats it as a web authority or lease.
+ const challengeCount=db.prepare('SELECT COUNT(*) AS n FROM shared_web_source_challenges_v1').get().n;
+ const {connectionHash,...scopeInput}=challengeInput;
+ const machineScope=await binding.createSharedWebMachineScope(bindingEnv,scopeInput,now);
+ assert.equal(machineScope.schemaVersion,2);assert.equal(machineScope.claims.audience,'timeonchrome:shared-web-machine-scope:v2');
+ assert.equal(machineScope.claims.expiresAtMs,now+300000);
+ assert.equal(Object.hasOwn(machineScope.claims,'challengeId'),false);assert.equal(Object.hasOwn(machineScope.claims,'connectionHash'),false);
+ assert.equal(Object.hasOwn(machineScope.claims,'webSourceKey'),false);
+ const reusable=await binding.issueSharedWebSourceBindingV2(bindingEnv,scope,machineScope,now);
+ await assert.rejects(()=>binding.issueSharedWebSourceBindingV2({...bindingEnv,RUNTIME_COMPUTER_USAGE:{fetch:async()=>{throw Error('private transport');}}},
+   scope,machineScope,now),/WEB_SOURCE_BINDING_UNAVAILABLE/,'transport error is a stable unavailable state, not caller evidence');
+ assert.equal(reusable.claims.webSourceKey,proof.claims.webSourceKey);
+ assert.equal(reusable.claims.bindingEpochHash,await sha('shared-web-binding\nbrowser\nfixture-token'));
+ assert.deepEqual(await binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child',applicationKey,now),reusable.claims);
+ let assignmentReads=0;
+ const racingEnv={...bindingEnv,RUNTIME_COMPUTER_USAGE:{async fetch(request){
+   const response=await bindingEnv.RUNTIME_COMPUTER_USAGE.fetch(request);
+   if(++assignmentReads===2)db.exec("UPDATE devices SET device_token='raced-token' WHERE id='browser'");
+   return response;
+ }}};
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(racingEnv,reusable,'owner','child',applicationKey,now),/SCOPE_MISMATCH/,
+   'browser epoch is checked again after the final asynchronous assignment lookup');
+ db.exec("UPDATE devices SET device_token='fixture-token' WHERE id='browser'");
+ const reconnect=await binding.issueSharedWebSourceBindingV2(bindingEnv,scope,machineScope,now+1000);
+ assert.equal(reconnect.claims.applicationSourceKey,reusable.claims.applicationSourceKey);
+ assert.equal(reconnect.claims.expiresAtMs,machineScope.claims.expiresAtMs,'reissue cannot extend a stale scope');
+ assert.deepEqual(await binding.verifyCurrentSharedWebSource(bindingEnv,reconnect,'owner','child',applicationKey,now+1000),reconnect.claims);
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM shared_web_source_challenges_v1').get().n,challengeCount,'v2 issuance/read writes no challenge');
+ const v2Header=new Request('https://fixture',{headers:{'X-Shared-Web-Source-Proof':JSON.stringify(reusable)}});
+ assert.deepEqual(await runtime.parseMachineWebSourceProof(v2Header,machine,'child',1,applicationKey),reusable);
+ await assert.rejects(()=>runtime.parseMachineWebSourceProof(v2Header,machine,'other-child',1,applicationKey),
+   error=>error.code==='WEB_SOURCE_SCOPE_MISMATCH');
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,machineScope,'owner','child',applicationKey,now),/INVALID_WEB_SOURCE_BINDING/,
+   'machine audience cannot authorize a web source');
+ await assert.rejects(()=>binding.issueSharedWebSourceBindingV2(bindingEnv,scope,reusable,now),/INVALID_WEB_SOURCE_BINDING/);
+ await assert.rejects(()=>binding.issueSharedWebSourceBindingV2(bindingEnv,{...scope,childId:'other-child'},machineScope,now),/SCOPE_MISMATCH/);
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'foreign','child',applicationKey,now),/SCOPE_MISMATCH/);
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child','f'.repeat(64),now),/SCOPE_MISMATCH/);
+ const bad={...machineScope,claims:{...machineScope.claims,expiresAtMs:machineScope.claims.expiresAtMs-1}};
+ await assert.rejects(()=>binding.issueSharedWebSourceBindingV2(bindingEnv,scope,bad,now),/SIGNATURE_INVALID/);
+ await assert.rejects(()=>binding.issueSharedWebSourceBindingV2(bindingEnv,scope,machineScope,now+300000),/PROOF_EXPIRED/);
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child',applicationKey,now+300000),/PROOF_EXPIRED/);
+ db.exec("UPDATE devices SET device_token='rotated-v2' WHERE id='browser'");
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child',applicationKey,now),/SCOPE_MISMATCH/);
+ await assert.rejects(()=>binding.issueSharedWebSourceBindingV2(bindingEnv,scope,machineScope,now),/SCOPE_MISMATCH/);
+ db.exec("UPDATE devices SET device_token='fixture-token',status='unbound' WHERE id='browser'");
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child',applicationKey,now),/SCOPE_MISMATCH/);
+ db.exec("UPDATE devices SET status='bound',profile_id='other-child' WHERE id='browser'");
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child',applicationKey,now),/SCOPE_MISMATCH/);
+ db.exec("UPDATE devices SET profile_id='child' WHERE id='browser'");
+ db.prepare('INSERT INTO runtime_user_assignments_v2 VALUES(?,?,?,?,?)').run('machine','opaque-local-user',2,'other-child',1);
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child',applicationKey,now),/ASSIGNMENT_UNAVAILABLE/);
+ await assert.rejects(()=>binding.issueSharedWebSourceBindingV2(bindingEnv,scope,machineScope,now),/ASSIGNMENT_UNAVAILABLE/);
+ db.exec("DELETE FROM runtime_user_assignments_v2 WHERE local_user_id='opaque-local-user' AND assignment_version=2");
+ db.exec("UPDATE runtime_machines_v2 SET revoked_at_ms=1 WHERE id='machine'");
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child',applicationKey,now),/ASSIGNMENT_UNAVAILABLE/);
+ db.exec("UPDATE runtime_machines_v2 SET revoked_at_ms=NULL WHERE id='machine'");
+ const internalScope={accountId:'owner',childId:'child',applicationSourceKey:applicationKey,assignmentVersion:1};
+ assert.equal(await runtime.verifySharedWebSourceScope(adapter,internalScope),true);
+ assert.equal(await runtime.verifySharedWebSourceScope(adapter,{...internalScope,accountId:'foreign'}),false);
+ assert.equal(await runtime.verifySharedWebSourceScope(adapter,{...internalScope,machineId:'caller'}),false);
+ for(let n=0;n<200;n++)db.prepare('INSERT INTO runtime_user_assignments_v2 VALUES(?,?,?,?,?)').run('machine','extra-'+n,1,'child',1);
+ await assert.rejects(()=>runtime.verifySharedWebSourceScope(adapter,internalScope),error=>error.code==='SOURCE_SCOPE_LIMIT');
+ await assert.rejects(()=>binding.issueSharedWebSourceBindingV2(bindingEnv,scope,machineScope,now),/SOURCE_SCOPE_LIMIT/);
+ db.exec("DELETE FROM runtime_user_assignments_v2 WHERE local_user_id LIKE 'extra-%'");
+ for(let n=0;n<200;n++)db.prepare('INSERT INTO devices VALUES(?,?,?,?)').run('extra-'+n,'child','token-'+n,'bound');
+ await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child',applicationKey,now),/SOURCE_SCOPE_LIMIT/);
+ db.exec("DELETE FROM devices WHERE id LIKE 'extra-%'");
+ assert.deepEqual(await binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child',applicationKey,now),reusable.claims);
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM shared_web_contribution_receipts_v1').get().n,3,'identity verification never mutates contribution receipts');
  db.exec("UPDATE devices SET status='unbound' WHERE id='browser'");
  await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,proof,'owner','child',applicationKey,now),/ASSIGNMENT_CHANGED/);
  db.exec("UPDATE devices SET status='bound' WHERE id='browser';UPDATE runtime_user_assignments_v2 SET protected=0;");
  await assert.rejects(()=>binding.verifyCurrentSharedWebSource(bindingEnv,proof,'owner','child',applicationKey,now),/ASSIGNMENT_CHANGED/);
  assert.equal(await runtime.verifySharedWebSourceAssignment(adapter,{...challengeInput,connectionHash:undefined}),false,
    'only the exact internal verification scope is accepted');
- db.close();console.log('shared-web-contributions-cloud: real SQLite publication/watermark/correction/rebind/source-proof PASS');
+ Date.now=realDateNow;db.close();console.log('shared-web-contributions-cloud: real SQLite publication/watermark/correction/rebind/source-proof v1/v2 PASS');
 })().catch(error=>{console.error(error);process.exitCode=1;});

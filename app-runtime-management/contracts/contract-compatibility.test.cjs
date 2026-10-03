@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.30.0');
+assert.equal(pkg.version, '1.31.1');
 assert(pkg.exports['./shared-web-sync']);
 const webSync=JSON.parse(fs.readFileSync(path.join(root,'shared-web-sync-v1.schema.json'),'utf8'));
 assert.equal(webSync.$defs.upload.additionalProperties,false);
@@ -123,7 +123,13 @@ assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics', 
 assert.deepEqual(nativeHostV3.properties.messageType.enum,
   ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getSharedQuotaState', 'reportReminderResult',
     'getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution',
-    'getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution']);
+    'getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution',
+    'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'replaceSharedWebContributionV2']);
+const reusableSchema=JSON.parse(fs.readFileSync(path.join(root,'shared-web-sync-v2.schema.json'),'utf8'));
+assert.equal(reusableSchema.$defs.webClaims.additionalProperties,false);
+assert(!reusableSchema.$defs.webClaims.properties.connectionHash);
+assert(!reusableSchema.$defs.webClaims.properties.challengeId);
+assert.equal(reusableSchema.$defs.webClaims.properties.schemaVersion.const,2);
 assert.equal(nativeHostV3.$defs.applicationQuery.additionalProperties, false);
 assert.deepEqual(nativeHostV3.$defs.sharedQuotaQuery.required, ['date']);
 assert.deepEqual(Object.keys(nativeHostV3.$defs.sharedQuotaQuery.properties), ['date']);

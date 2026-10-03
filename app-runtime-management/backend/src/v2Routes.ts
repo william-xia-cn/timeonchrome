@@ -516,7 +516,8 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
     url.pathname !== '/v2/machines/heartbeat' && url.pathname !== '/v2/machines/shared-quota/execution-basis'
       && !url.pathname.startsWith('/v2/machines/shared-web-source/'));
-  if(url.pathname==='/v2/machines/shared-web-source/challenge'||url.pathname==='/v2/machines/shared-web-source/verification-key')
+  if(url.pathname==='/v2/machines/shared-web-source/challenge'||url.pathname==='/v2/machines/shared-web-source/verification-key'
+    ||url.pathname==='/v2/machines/shared-web-source/scope')
     return routeSharedWebSourceBinding(request,env,machine,nowMs);
   if (url.pathname === '/v2/machines/shared-quota/execution-basis') {
     if(request.method!=='GET')return methodNotAllowed('GET');

@@ -24,12 +24,108 @@
 
 2026-10-04 应用使用日视图读取修复（extension-local，实施中）：已证实页面即使选择日也先要求整周读取成功，Service 的逐日发布／范围校验未就绪会阻断可用当天数据。日数据独立读取；周补充失败保留当天并明确周未知，保留 APPLICATION_USAGE_PENDING 错误含义。范围仅终端只读适配与错误映射，不改 Native、网页／应用原账、统计生成或配额，不绕过发布校验。最小验证：application-usage-read-model 与 Native Host 消息专项、diff 检查；真实运行候选与 Service 返回仍须实测，不凭单测关闭现场故障。既有三份文档草稿保持。
 
+2026-10-04 Mac契约补丁结果：Contracts1.31.1类型/schema/共同兼容向量已补齐；build、typecheck、usage-account聚焦测试及contract-compatibility通过，git diff --check通过。固定包timeonchrome-app-runtime-contracts-1.31.1.tgz（112916字节，SHA-256：68233d9ad0da9ebc0c9fd15017fc2aa4bd3ca9cc86625fa84b89b7b0aff4dd9f）包含类型、schema、向量和编译模块，不包含凭据。方案核对Matched：兼容可选诊断、接收/发布三态、旧版缺字段及非法诊断拒绝；Deviated/Missing/Extra为空。此处只完成契约源码与固定包；Native/Mac消费、实际发布诊断、非零日账published及页面对账仍待所属端完成，不记实机PASS。
+
+2026-10-04 Mac发布诊断契约补齐（当前架构任务）：云端status已返回publicationErrorCode，但Contracts1.31.0未定义，Native固定包无法消费。补丁1.31.1只增加可选、可空的稳定发布诊断码及schema/兼容向量；字段缺失或null表示无可用拒绝诊断，不表示已发布。received仍仅确认接收，published/publishStatus不变；消费者必须先校验manifestId/revision/manifestHash与在途版本一致，拒绝码只用于诊断，不清队列、不更改统计/校验。实施清单：usage-account类型和schema→现有共同向量与N/N-1测试→build/typecheck/聚焦usage-account和契约兼容→固定包与哈希→现有Native任务交Mac接入。只读根诊断不改两端源码；不运行Windows/Mac/安装器/网页落账/页面全量测试，不部署、不执行migration、不新增分支/工作树。
+
+2026-10-04 PO明确裁决：既有cg.163.com idle少记风险、19009秒未解释历史差额统一改为P2，状态为待后续处理、非发布阻塞。此裁决覆盖此前针对这两项的P0/发布前重复风险接受要求；不得再因相同旧记录阻断发布或重复索要豁免。两项未修复、未验收，不记PASS，不清空或改写历史账；此为两项指定问题的优先级裁决，不放宽新发现账本缺陷的报告及专项规则。自托管1.7.43已签包并合入master 4996d202，更新源仍1.7.32；当前按PO先处理Mac，未据此自动恢复部署。
+
+2026-10-04 Mac日账优先核对（PO指定）：自托管1.7.43更新源暂停，线上仍1.7.32；Mac跨账户Chrome继续延后，但独立应用日账接收/发布/页面对账继续，不整体标为DEFERRED。已读取Native报告118dc187及生产D1匿名来源核对：三Mac用户最新分配版本的已接收日清单均complete=false，无published；非零历史日期原因POLICY_HISTORY_MISSING，零事实日期SOURCE_COVERAGE_UNKNOWN，云端稳定拒绝APPLICATION_ACCOUNT_INCOMPLETE。此为上传清单状态，不能替代报告中的今日完整非零本机统计。云端status接口已返回publicationErrorCode，需Mac核对读取及显示链，并报告当前用户assignmentVersion、日期/统计revision/实际上传revision以对齐同一作用域。已通过既有Native会话转Mac标准交接；不清队列、不放宽校验、不改原账/计时/算法，不新建分支或工作树。变更等级：只读诊断与任务记录；仅Git/diff检查，无产品全量测试或生产写入。
+以下保留自托管准备时的历史记录；两项风险定级及Mac当前范围以本页顶部2026-10-04 PO裁决和Mac优先核对记录为准。
 1.7.43发布风险只读复核：cg.163.com失焦强媒体在idleStateChanged关闭网页账仍为P0/Deferred，未取得修复及真实原账验证，旧1.7.27/1.7.32豁免不能自动用于本版；实际feed发布前须由PO明确接受本版已知风险。19009秒差额仍是未解释历史对账问题，不在本次重建/改账范围，既有V2改造不证明历史差额已解决；后续合并配额和上传观察单列。Mac真实验收及共享执行不适用于本版已批准非共享范围，但保持DEFERRED而不是PASS。更新站点发布必须保留原host完整树的历史CRX路径，不能用仅新版本的小目录覆盖生产。
 
 2026-10-04 正式managed1.7.43已签包、未部署：安全接入既有仓库外原密钥后，打包器派生ID及独立CRX3签名验证均确认jdcancbiocacabbjdkngadmjpjmkdnih。CRX583415字节，SHA256为8aa4572fe060768db4da65267949bbbfc800ec1cbd261a1d67fd65d400b65c7e；175归档文件逐项匹配正式staging，Chrome仅排除.gitattributes元数据。正式marker=managed，无开发名称、debugger或sharedBrowserCloseDevelopment，保留正式Host及probe；host-output中CRX与原包哈希相同，feed及校验文件一致。旧1.7.32CRX和运行中1.7.42候选保持；没有更新线上feed、启用共享执行或读取家庭存储。相对最新origin/master产品及打包工具仅manifest版本差异，复用未变代码证据，两项managed最小测试通过。后续由架构执行更新站点部署回读，未部署不记为已上线。
 
 2026-10-04 已批准正式 managed 1.7.43 非共享发布准备：仅提升源码 manifest 并隔离生成正式 managed staging，复用现有产品及 shadow 门禁证据；不改打包工具、网页记账、原运行候选或家庭配置。正式包保留 nativeMessaging、health probe 和正式 Host，排除 debugger、native-host-development 与 sharedBrowserCloseDevelopment。线上 feed 当前仍1.7.32；共享执行总闸关闭的精确部署证据由架构提供，不代替当前 Profile 实机采样。Native2.6.26双Host注册及五项聚焦测试采用所属任务证据，旧guardian仍有1.7.32消费者，真实卸载未实测。隔离staging完成176文件，按排序后的文件SHA256及相对路径清单计算摘要c9a6c555ac4b7058bc8f42472e2dc62d5d9258e3a8ddeff507ffc895b2df910b；managed-internal-channel 16/16及managed-package-privacy-boundary三渠道矩阵通过。原签名密钥未接入，CRX不存在，不能称已签CRX或已发布。三个既有混合文档草稿保持原样，本次提交只包含该准备记录与版本。Mac实测、Windows共享余额/执行及历史未知桶继续未完成。
 
+## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
+
+PO扩大交付到实际自托管（2026-10-04）：已明确要求执行内部managed渠道更新，取代此前仅unpacked/记录交付限制；控件任务执行正式managed制品与稳定feed/CRX发布，Native只读核对正式Host/旧别名/稳定ID兼容，不用开发连接证明正式渠道。不得夹带native-host-development或shared关闭实验配置，不进入CWS、不切R2 latest、不开共享、不新分支/树。当前自托管进行中，待正式候选最小验证/来源/签名稳定ID及线上feed/CRX/hash回读；MacDEFERRED且独立回报，统计已知问题不改写PASS。主线文档PR226应随此范围更正，不能只合文档称更新源已发。
+
+非共享发布决定（2026-10-04，PO“继续完成发布，mac后补”）：Mac云端接入已发布但安装/真实能力、非零发布、页面对照及应用执行实测保持DEFERRED，不能冒充PASS；共享功能联调同样不在本版启用范围。三份现有文档集中提交并合入，代码证据及生产manifest复用，不重新部署文档SHA，不构建/安装新候选。内部非共享交付完成不代表Windows统计遗留、P1、历史桶或整体D-114关闭。
+
+非共享交付核对结果：控件1.7.42复用，七个关键文件与受测源码一致；Windows四组件2.6.26.0/SHA匹配且Service正常，Native交付记录已推69aed6a。两端shadow不启用共享执行，但并非永久禁止共享的删功能构建。生产manifest37146310947所指Guardian版本8dc07256与发布37133833997一致，发布命令明确SHARED_ACCESS_EXECUTION_ENABLED:false；源码总闸false将shared降为shadow。本次未取得新鲜Profile认证stage，不把部署证据冒充现场采样。现有已上线独立能力按PO决定作为内部非共享版集中交付，无需重装/重复部署；原账、配额、产品黑名单、R2 latest和开发目录不变。Shared联合验收及已知统计缺项保留，Mac另行回报。
+
+PO批准非共享内部交付（2026-10-04）：复用已经部署的云端master4e53525、Windows2.6.26和原目录控件1.7.42；本次不创建分支/树、重复部署同SHA、重建/安装、发布托管/CWS或切换R2 latest。交付范围为现有独立配置/管理/统计及设备能力；共享执行继续关闭，贡献仅影子核对。已交控件/Native所属任务核对shadow阶段不会触发共享访问/提醒/结束，既有独立规则和产品黑名单不被停用，回报精确候选/安装与源码证据。本轮只修改现有项目真值及任务板，必要diff检查；复用未变代码证据，不跑全平台。Windows发布收敛、P1、历史桶、共享联合验收保留未完成；Mac沿已提交任务832fe7d/Issue12单独回报，不当作Windows交付证据。
+
+Mac接入已发布（2026-10-04 03:03）：功能提交ae559af、PR #225，PR CI37146137428及master 4e53525db2dc185c3696d9fa8ee6c18ccc397216的CI37146225612通过；Production37146310947成功，仅Runtime Worker，version4ae6b678-027a-44d0-b753-01b15e854b89。日志确认No migrations to apply；公开独立smoke health200、未认证目录401、R2 latest仍2.3.1。已沿Native Issue #12发送跨机验收任务，复用Mac0.1.22和原配对、正常能力读取与补发，不重装。源码/部署完成；Mac真实认证能力、非零接收→发布及同范围页面对照仍待回报，不能宣布实机问题全部关闭。Windows未收敛另项保持待查，共享执行仍关闭。
+
+Mac接入源码验证（2026-10-04）：能力声明和核对器共用精确平台算法映射，macos只接受macos-application-v1、windows只接受windows-application-v1。两文件64/64聚焦回归通过，涵盖真实D1接收/发布/持久读取、1501毫秒、并集、跨日、零日完整性、错误统计/关联/更正拒绝、用户隔离和迟到事实；typecheck、Wrangler dry-run、源码/任务边界及git diff --check通过。审计Matched=批准源码范围与原有严格核对；Deviated/Extra=空；Missing=生产发布及真正Mac补发验收（尚未完成）。不新增契约字段或migration，不修改Native及原账；共享执行仍关闭。
+
+NOW Mac应用统计云端接入（2026-10-04，PO要求优先处理）：固定Mac来源3f9b778的Daemon使用公共ApplicationUsageReader/ApplicationAccountStore并选择macos-application-v1；现有云端仅Windows能力与算法/platform门禁，造成0.1.22可发送日账被正确暂停。任务standard-cloud，允许TASK_BOARD、docs/DESIGN、backend应用清单/发布核对及对应测试；保留当前未提交发布续验记录和原有产物。实施顺序：①记录同一统计语义与平台算法绑定；②能力声明与严格Mac核对支持；③Mac非零/零、毫秒并集/跨日、错误统计/错平台/关联/隔离/迟到事实及持久读取回归；④typecheck、dry-run、边界/diff、PR与精确SHA CI；⑤仅Runtime Worker部署，Mac真实接收/发布/页面由Mac端分别核对。无契约字段变更，不改原账、计时、配额、Native/扩展、Pages，不执行migration或安装；排除Windows/Mac全量编译、安装器和无关页面测试。只有源码与真实精确核对均存在才声明Mac能力，实机未验证不得标完成。
+
+现场未收敛（2026-10-04）：部署后同一已认证管理员窗口连续两样本（后台快照02:42:05及02:47:46）可见发布水位没有推进；10/1仍无发布，另五个可见历史日仍旧发布/新账头关联不匹配，旧冻结影子不完整。浏览器来源仍有效连接。最新未发布清单的稳定拒绝原因/完整性未自然显示，不能由旧影子推断；10/4日期及版本在截图外，保留未知。本轮两次采样结束，不继续轮询/造新包/要求滚动；排序延迟源码缺陷已修复上线，但不能认定它是现场唯一根因。下一定位必须取得当前作用域最新清单的拒绝原因，不能放宽核对、猜测分类或把未知当零。共享余额/执行及原账守恒仍未完成真实验收。
+
+发布续验（2026-10-04）：排序修复提交`8e7461d`、PR #224，相关CI `37144541010`通过，merge master `f208d00d4353721e3cb899a202e9a6d906195bd6`的精确CI `37144750785`通过；Production `37144847572`成功，仅Runtime Worker，version `089a4dbc-e8f8-4007-bd5c-97e7f675b3a9`。生产迁移检查无待执行项，apply=false；未发布Pages/Guardian，未更改R2/latest或共享执行开关。架构独立公开smoke health200、未认证目录401、latest仍2.3.1。Native正在用已安装2.6.26和既有认证管理员窗口续验实际发布/账头/影子，现场收敛尚未确认，不能将部署完成等同完整目标完成。
+
+Mac云端缺口（已有Native跨机交接）：回读固定Mac报告，0.1.22已获PO批准安装，配对/策略/可发送状态正常，但capability为APPLICATION_ACCOUNT_UNSUPPORTED、日账待上传9。当前主线能力明确仅windows-application-v1，发布核对器也拒绝Mac算法及平台；因此不能仅增加acceptedAlgorithms虚报支持。需按Mac既有权威统计完成云端精确核对适配及黄金用例，再分别验收接收/发布/页面。生产认证能力原文尚未核实，不宣称全部门槛字段已定位。Mac提醒执行仍关闭，网页来源未连接；不以Windows证据代替Mac真实验收。
+
+云端发布调度修订结果（2026-10-04）：两项真实D1固定回归在旧实现均失败，证实旧不完整/旧关联清单可占满两项预算，延迟完整且当前关联兼容的新快照。候选排序现优先完整、当前关联匹配，随后保留检查/接收顺序；预算、冷却、严格核对及定向重试不变。旧不完整与旧关联仍以原错误码拒绝，原始事实逐行对照不变。publication同文件27/27、Worker typecheck、Wrangler 4.127.1 dry-run、源码边界及diff检查通过。审计：Matched=限定排序/拒绝条件/预算/原账/最小验证；Deviated/Missing/Extra=空（仅此源码修复范围）。尚未合入/部署，不宣称全部现场发布或共享余额已恢复；完整目标仍待真实链路及提醒验收。
+
+2.6.26实际诊断续验：四安装组件版本及SHA与候选一致，Service运行；管理员界面本轮能力/政策ready，七日摘要显示部分日期冻结发布与current head关联不同、旧影子不完整，当日/10月1日本机尚无确认发布版本；循环及应用ACK继续推进。其发布序号对应此前另一匿名来源，不把两份来源结果混用，也不据此确认孩子相同。云端源码只读检查发现两项/轮的候选选择按检查时间和接收时间排序，未优先完整且当前关联兼容的快照；先用旧不完整/旧关联两项在前、有效新清单在后的固定回归验证调度延迟。实施范围仅发布候选排序（如回归证实）、同文件回归及本任务记录；核对器、原账、持久统计语义、配额、权限、批次预算及不可变收据不变。必要验证为publication聚焦回归、Worker typecheck/dry-run、路径与diff；排除页面/Native/安装器/Mac及全量测试。代码验证、合入和部署分别记录，不提前宣称现场根因已解决。
+
+必要诊断候选交付（2026-10-04）：旧2.6.25管理员接口没有七日冻结版本/影子/候选诊断，独立helper无法在不读取身份派生密钥或猜测作用域的情况下确定同用户范围，因此沿既有Service认证交付唯一内部2.6.26，不扩大数据库读取权限。构建来源`83eb1ef541df74a88092052995e841482c1bc5b2`、产品源码`f5e49dd`、交付文档提交`03877de`；固定契约1.31。首次构建NU1900经只读对照确认是沙箱网络限制，正常网络下同一NuGet地址200后仅重试一次，安全检查未关闭。架构独立核对Burn119770663字节/SHA `cbba0e910ad32b93e7c6388318979a5d55bd54db6b58a6e2f9ac3ce2cf91e9b1`、MSI61081334字节/SHA `0f47d0e4385fd9d35ac87efc4a984eba2dd4a551ad43f5df7e26937aebbf8cd8`、manifest SHA `cadd6b35728c15b18fcb82903c2e6915e3935203c0cb9951634b91c5d19ec3b2`及四发布组件2.6.26.0。安装器结构2/2，源码聚焦25/25证据复用；Native核验旧43项发行文件/latest未变。安装器位于`D:\Codex\TimeWhereNative\artifacts\release\windows\x64\2.6.26\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.26.exe`；内部未签名/latestEligible=false。当前仍安装2.6.25，按PO选择等待手动升级，无自动安装/重启/部署/执行启用；候选完成不是故障修复或全链验收完成。
+
+现场版本核对（2026-10-04）：PO提供两份只读导出；对应受保护分配最近七日的应用统计均已发布，但共享回执的统计摘要、产品关联与分类更正版本七日均不匹配当前发布版本，前六日截止时间一致、当日截止时间不一致。核验记录自身指向当前回执和发布头，不是单纯旧核验缓存；因此拒绝有依据，尚不能据此裁决贡献构造错误或发布唤醒遗漏。另一来源有独立发布/关联缺项，不假定属于同一孩子。原始记录、统计和执行开关未更改。
+
+定位推进：Native在既有管理员诊断补齐本轮能力/政策准备状态及七日冻结发布版本、当前账头、影子四字段、候选拒绝原因，集中提交并推送现有main `f5e49dd4beed5f0e53ff28e09079f3a2ce066895`；架构已只读审查并复核最终TRX 25/25、0失败/跳过，SHA-256 `b9060261c5d234272896bb48e15441e83feefed3204fac5b78e79c425c582ade`。七日元数据使用现有用户/分配/日期索引，字段不暴露身份、hash、清单正文或用量，普通账户不增加详情；不改变上传门禁、统计、权限或共享执行。源码测试通过不表示已安装或根因已修复；尚未构建下一候选。已交Native评估一次受控只读取证，不能借管理员窗口绕过提权、注入或改ACL。控件当前只读页面验收因浏览器工具拒绝访问内部页面仍NOT_VERIFIED，既有人工连接/贡献ACK证据保留但不作为当前余额证据。
+
+安装后核验更新（2026-10-04 00:58）：Native会话收到PO“已经安装”并只读采样，架构独立读取正式安装目录四组件版本2.6.25.0及SHA全部匹配候选。Native公开状态online、Service Running/Automatic、Service/Agent各一个；公开协议字段1只是健康观测，不据此裁决当前扩展v3。已交Native继续当前10/4连接/同孩子/贡献ACK及共享读取核对，不开启执行、不重启、不绕权限。此前下条“仍安装2.6.24”是交付时历史状态，本条覆盖；正式余额/提醒/恢复及原账守恒仍未验收。
+
+远端CI外部阻塞（2026-10-04）：Native推送`eedbe7c`运行`37138554278`的changes/native-gate在启动前失败，GitHub原注释为账号付款失败或spending limit需增加；Windows/Mac jobs跳过，没有执行产品测试。插件日志BlobNotFound后以CLI只读回读run和check注释确认。本地测试/构建证据保留，远端记NOT_RUN/BILLING_BLOCKED，不重跑、降级门禁或改付款设置。既有云端运行通过证据不被冒用为本次Native SHA的CI；源码合入和实际安装验收分别保留待办。
+
+最终Native候选已交付（2026-10-04）：2.6.25一次干净构建来源`050cfe6`，后续交付文档`eedbe7ce86b197fcbef65e45a53aaa71872bfcb7`已推送现有main；无新分支/树。架构独立核对Burn119791699字节/SHA`d769b45ce34973f379885216104b1a6cc2b26f8a6cf199e7b65c32aef1b98928`、MSI61073142字节/SHA`88a51c942f63387e327e61354b594c7b907d4c028534253b21bf336bdd3d2a18`及manifest SHA`931e9ba824ec0e6c21c930946990dded8b5c102da0a59f82c1726f078bd072fd`相符；四发布组件2.6.25.0及哈希匹配交付说明。固定契约1.31.0，内部未签名/latestEligible=false。Native核对旧40发行文件及latest哈希未变；当前仍安装2.6.24，不冒称新回执已生效。唯一安装器位于`D:\Codex\TimeWhereNative\artifacts\release\windows\x64\2.6.25\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.25.exe`，按PO既有手动安装选择交付，不自动启动。
+
+最终联调剩余五项集中验收：固定孩子/截止范围逐来源核对日周余额；真实时段/硬配额/借用与单轮提醒；正式Service投递→可见ACK→继续/主动取消/超时授权→终态ACK；断线/重连/重启旧租约撤销及无重复；原始网页账与统计自然结算守恒。控件报告无未提交产品代码，fe585e0仅测试，三个既有文档草稿保留；目前真实身份/贡献ACK通过不证明余额/执行。Cloudflare现场读取因内置浏览器保存的网站权限阻止访问，未绕过、未改权限；云端现场与共享执行保持未验收/关闭，不影响本地候选交付。Mac、历史未知桶及P1仍单列。
+
+正式Agent消息路径补测`050cfe6c50acd367bfa22d938e4bf59a32816fe1`，产品源码仍`12b8c6b`；架构独立回读TRX 3/3及SHA`a936e637968cc1456b89106e82e0edfc303cba74f1f1f5998c687a42120c4e24`一致。实际调用已编译Agent的ReadReceiptsAsync/WriteAsync和Presenter，不运行Main、不显示或关闭真实应用；Service ACK为受控对端，不能称Coordinator整链通过。架构不选择为测试注入/提取Coordinator生产编排，余下认证、正式派发/接收、取消ACK及重连撤销留作一次最终实机验收。源码阶段已收口，进入既有D-114最终候选交付：Native在现有main集中准备内部2.6.25，旧版本不覆盖，只必要构建/安装器检查；不自动安装、云端发布、R2或执行启用。该阶段更新覆盖下条此前“不构建候选”的源码阶段限制。
+
+Native终态回传修复源码已完成：`12b8c6bb9c18647dbadeb6c85a07f455d2504d90`，本机工作区干净、未推送。架构核对10文件差异及5份最终TRX哈希，15项恢复用例有最终通过证据，另有真实WPF取消→持久化→生产Sender→随机管道→Service事务→ACK清队列1项通过；中间失败保留，不称单轮全绿。仅内部可选能力/回执及有界待发，公共Contracts 1.31.0、原账、统计、配额和执行开关不变。源码审计Matched；正式Coordinator/Agent消息编排、安装认证与家庭整链仍待验证，已交Native继续最小路径核对。已安装2.6.24不含本次修复；不构建中间候选、不安装部署、不启用共享执行。
+
+跨端验收续进（2026-10-04）：网页取消加载故障已确认是隔离Profile开发扩展禁用；经获准一次性隔离Profile和匹配Playwright Chromium147，定向取消真实通过。控件集中测试提交`fe585e0`，仅夹具/任务条目、未推送；原文档草稿保留。架构回读取消JSON并重算SHA`6af8cfa18a19ead628965d6e9c1690207bbbaa38b7c6459323eb7688ca5a19b5`：页面存活、session ACTIVE、分段0、日/小时0、其他页面保留。旧normal/force证据SHA`b15f3af4601cf6244289680d089f65534c3ee8ca35eeffab3e9f85ac9e007b99`，四产品源码hash全匹配当前；两关闭各一条2秒自然结算，原始=日=小时，无重跑。此前“网页取消NOT_VERIFIED”被本项更新，但Native真实授权与Service60秒整链不由夹具关闭。
+
+Native随机CurrentUserOnly双向Named Pipe测试提交`b73175c`：正常取消、visible ACK写前失败、取消结果写前失败三项最终定向通过；生产源码/协议/已安装服务未变。架构回读TRX与SHA一致：中间轮次`3ec4a3f50975dbfbf5ca4155e1e4bd39a1aca5663de8358881ea8e4dc6d70380`两负例通过/正常宿主读写顺序失败，修正后正常1/1`ca26a2141921bf0bd41aef3774e586e680ca228f00e687d8302b4ba3dfe7ec00`，旧失败保留。ACK失败不生成effect；取消结果丢失时持久effect留dispatched/result NULL，不重复Claim、不升级强制、目标存活。该恢复/诊断缺口已隔离复现，尚未修复；结果补发不能重新执行关闭。正式Service/Agent管道编排、身份认证/WTS与部分写入/收到后崩溃仍未覆盖。整体目标保持未完成，共享执行关闭，不以三项测试绿证明所有恢复行为通过。
+
+提醒组件闭环补验（2026-10-04 00:08）：Native新增生产PolicyCache/ExecutionReader/QuotaBridge/Scheduler/ReminderBridge/授权/LifecycleStore/Presenter/Closer集成，自有WPF窗口真实取消，临时存储与受控HTTP，offer→visible ACK→end_rest→当前授权→Claim→cancelled→完成1/1通过；目标存活，重复resolve/timeout/领取不重复执行或升级强制。测试提交`ff244a7`（前一夹具提交`27e8943`），生产源码不变、未推送/构建候选/安装部署。架构独立回读TRX Passed及SHA`42787b0f8f211583d39fac94ea43e1525348db03b988b309239f65e5ba6a5b9a`一致。正式Service编排/Agent主循环/Named Pipe/WTS及真人输入仍未覆盖，不冒称真机共享执行已可启用。
+
+网页关闭隔离验收暂留：旧Worker入口不匹配已证实；新增夹具版本/就绪/重载后两轮仍未进入关闭，当前取消NOT_VERIFIED，不认定产品失败。保留未提交测试修订与失败现场，不提交失败夹具、不追加产品绕过或重复安装。Content桥真实DOM补验及已有接线专项通过可保留。当前可关闭Native前台/正常取消组件缺项，正式跨端调度/网页关闭闭环仍待下一次集中验收；共享执行继续关闭。
+
+提醒批次续验（2026-10-04记录，测试发生于10/3 23:57–23:58）：Native真实WPF自有窗口前台/visible ACK通过；取消先失败于测试子进程MainModule启动竞态，仅修夹具后真实取消返回SHARED_CLOSE_CANCELLED、目标存活、后续不升级强制。架构回读TRX逐项结果并重算SHA：前台1通过/取消夹具1失败`99537e107ae174f6db9dca58f0c18b976ba719b0f0c30cfa78e9c4d0e7c710f0`，修复后取消1/1`812a8d1b806731e2bdc650d3d37bf664b3aadb626f47333b104624ce81f50e05`。旧失败保留，未重跑已通过60秒；真实自有WPF窗口及生产Presenter/Closer通过，不冒称正式Service调度或真人键鼠闭环。
+
+控件6项接线/余额/Content/生命周期/执行/关闭专项通过；旧Content桥真实证据因8b2ad14接线变化失效，已复用隔离Profile补验当前桥DOM可见ACK/滑动/重试/Escape/迟到围栏及窄屏，产品桥哈希`643f5526d45ea09165797bfa340d4d5f38b295abe4445ffce00933b9dfa26779`。此为真实DOM＋模拟Native，不等于Service整链。主动关闭宿主两次testDefaultOff未定义，已停止原样重试，交所属任务只修已定位测试入口再单跑；真实网页可取消关闭与Service授权闭环仍待验。未改产品/原候选/家庭配置/原账、未启用执行。
+
+下一批执行清单（PO“继续吧”）：①Native核对前次隔离前台捕获失败及既有实现，只验证自有提醒/应用窗口；②控件核对共享访问检查、visible ACK、60秒、主动正常结束可取消、超时end强制及未送达门；③架构对照两端调用链与真实证据集中审计。变更等级为提醒执行聚焦验收；仅直接相关缺项测试，复用已通过源码证据，不重跑无关全平台或已通过60秒流程。不得启用真实家庭限制/结束真实应用/改原账计时；涉及网页记账行为先单项批准。本批源码、隔离验收和实机覆盖分别记录，不以mock代替真实前台/取消。
+
+真实控件摘要验收（PO提供，北京时间2026-10-03 23:54）：运行1.7.42、当前连接connected、协议v3，已协商可复用孩子身份核验；当前连接同孩子identity已确认。9/28至10/3六个日期均显示当前贡献接收已确认，当前连接Native ACK分别23:53:55、:56、:57、:58、:58及23:54:03；10/3修订380、网页1944000ms，云端ACK23:54:06，当前来源与配置已核实。23:53:44曾拒绝WEB_SOURCE_PROOF_EXPIRED，随后实际接收恢复；摘要只能证明恢复，不单独证明具体续签内部步骤。本次核心同孩子核验→贡献→当前ACK链路PASS_WITH_MANUAL_EVIDENCE，不等于全部安全/重连场景实机验收或共享执行启用。9/30及10/1各360000ms历史未知桶仍不完整、单列延后；共享执行保持影子核对，强制提醒/正常关闭取消及Mac验收不由本项关闭。用户提供的摘要不含proof或凭据，未保存私密身份。
+
+实机安装续验（北京时间2026-10-03 23:49）：PO确认安装与原目录重载；架构及Native只读核验四组件均2.6.24.0，安装文件哈希与候选逐项一致，Service为Running/Automatic，安装目录Session Agent仅一实例。公开健康管道可读且有本次启动后的桥接活动，但不提供当前孩子证明及逐项贡献ACK；控件当前后台1.7.42、V2身份确认、当前贡献date/revision/hash仍待实际证据，不能以候选文件版本或历史成功代替。继续现有受支持只读诊断；不清缓存、不改ACL、不重启服务、不启用共享限制。
+
+最终候选交付：Windows2.6.24来自Native `6f8aef1`／固定Contracts1.31.0，四正式组件均2.6.24.0；MSI/Burn零警告错误，安装器结构3项通过，复用37项协议测试。架构独立复算Burn119764907bytes／`9324233f8b9afd973b3f87fe80b28312bcb2cbbca491f513778f68acdffb5ee9`、MSI61056758bytes／`91788a70b0a5a6d6ad71eea05e75d70ae954797d53bb9d15dae73f37b53cf92b`、manifest／`6514c8f71d0540e97ec9280e1b8181a9362660e9a816a9ba45ca7759676f686b`与清单一致。内部未签名、BLOCKED_BY_AUTHENTICODE_SIGNING、latestEligible=false；37项旧发布文件及本地latest未变。控件1.7.42 Native Host Development Candidate已更新原junction目标，179候选文件核对通过、原运行缓存1项保留；候选摘要`304084f9fea052081ae7f65b82cc8d52995d416e0f181dfe5d698eaf75274aa0`。架构回读原路径版本及binding/client文件哈希与受测源码一致；ID／模式／绑定不变，没有自动重载。当前Native安装仍2.6.23，真实联合核验待PO安装及原扩展重载后进行，不以发布／候选证据关闭身份或ACK问题。
+
+兼容发布结果：Production `37133833997`在精确主线`56ae43e`成功，仅两个Worker；Runtime版本`06bfc29b-9af4-4bb5-b8ed-2a01378d66d0`，Guardian版本`8dc07256-d570-4756-8a2d-43d509e20929`。manifest无Runtime/Guardian migration，shadow preparation=false；独立health200、Runtime scope/Guardian binding-v2未认证401。Cloudflare Pages未发布，R2 latest2.3.1不变。Windows2.6.24及扩展1.7.42候选进行中，未安装／重载／联调。仅部署烟测PASS，孩子核验及当前贡献ACK仍NOT_VERIFIED。
+
+上线／候选阶段授权（PO最新“进行吧”）：PR #221已合入master `56ae43ec62e22fa21a725f858b0ef98372daae9d`；精确主线App Runtime `37133559149`及Guardian集成`37133559157`成功。只部署Guardian Worker与Runtime Worker；Runtime/Main Pages、bootstrap、prepare_shadow和migration均为false，expected migrations为空。不修改密钥、共享执行开关或R2/latest。Native与控件所属会话准备唯一新候选，原扩展目录不变，安装由PO手动执行；真实联调尚未完成。此授权覆盖下方先前“源码阶段不部署”的阶段限制，不扩展到共享执行或其他遗留问题。
+
+集中集成续验：已推送现有云端分支并创建PR #221；`5c55b68`合入控件来源`d9bb02e`，仅任务板冲突保留双方证据，控件实现与原提交逐文件一致。首次CI职责声明错误已改为architecture-integration及两个精确merge来源，未放宽检查。第二次CI职责／Guardian／Console通过，Contracts旧机器控制向量仍为1.30.0，却断言等于新增1.31.0包而失败。仅修正测试：固定旧向量为上一兼容版，当前包版本仍由独立兼容测试核验；不改向量、协议或包正文／哈希。此项待聚焦复验及CI，不声明已合入或上线。
+
+职责 architecture-integration：维护契约；standard-cloud 实施 Guardian/Runtime；extension-local 与 native-local 各自适配。不新建分支/工作树。先发布源码与证据，不安装、部署、migration、R2或启用共享限制。已有未提交安装状态记录保留。
+
+实施核对：新增可跨连接复用的五分钟签名来源证明；当前本机用户唯一孩子分配与扩展可信身份相同才建立连接上下文；断开/改绑撤销上下文，未过期证明可重新核验，旧租约不能复活。能力协商保留v1，v2失败不降级为弱核验。贡献版本替换/ACK不变，明确连接、身份、贡献三个状态。
+
+最小验证：Contracts签名/篡改/到期/范围与v1兼容；云端双方鉴权、当前分配及绑定撤销；两端重连缓存、用户隔离及稳定错误。仅相关测试、typecheck、Worker dry-run、职责检查及diff；不跑无关平台/安装器/网页账本全量。真实联合验收另记，不能用源码通过宣称共享可启用。
+
+契约开发证据：1.31.0 build/typecheck、shared-web-sync v1/v2聚焦及contract-compatibility通过；首次build因沙箱EPERM未写产物，经范围内提权构建通过；兼容测试首次缺新增消息断言已修正后通过。固定本地包SHA-256 `355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395`，包含v2 schema与仅公钥黄金向量，已交Native/控件所属会话。契约提交`2d054c7`，云端提交`41e455d`，两者均仅本地源码提交；两端适配及跨端源码审查已完成，提交与聚焦证据见下。不代表已发布、安装或真实连接通过。
+
+标准云端开发证据（2026-10-03）：已实现机器鉴权的`POST /v2/machines/shared-web-source/scope`、受限内部scope签发／实时分配核验及设备鉴权的`POST /device/shared-web-source-binding/v2`。成功响应均直接返回契约v2签名wrapper，无nonce、challenge或额外身份字段；既有公钥接口与v1保留。机器scope与网页proof的audience严格隔离；当前分配和浏览器token epoch持续复核，最后一次异步分配查询后再次按精确设备ID检查epoch。当前候选限定账户／孩子，最多200项，201项明确`SOURCE_SCOPE_LIMIT`拒绝，不截断后猜测；v2不写challenge表。真实内存SQLite双端签名／重用／到期／篡改／转派／解绑／令牌轮换／末尾竞态／候选上限及既有贡献记录不变通过；首次旧v1夹具固定时间与HTTP真实时钟不一致已仅统一测试时钟后通过。实际Device路由鉴权、caller范围拒绝、稳定错误与no-store通过；Backend Workers/Vitest `application-accounts.test.ts -t "shared web source"`为2项通过、22项无关跳过。根与Backend typecheck、两个Worker dry-run及diff检查通过；不运行平台／安装器／网页账本全量测试。审计：本轮云端范围Matched，未批准Deviated/Extra无；真实两端联合连接／重连及生产部署仍未验收，不表示共享执行可启用。未部署、未迁移、未修改原账／配额或线上开关。
+
+两端协议审查：V2未分配为`SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE`，连接／凭据／策略代次失效为`WEB_SOURCE_CONTEXT_CHANGED`，未绑定为`WEB_SOURCE_PROOF_REQUIRED`，过期或未来证明为`WEB_SOURCE_PROOF_EXPIRED`，范围不符为`WEB_SOURCE_SCOPE_MISMATCH`，验签失败为`WEB_SOURCE_PROOF_SIGNATURE_INVALID`，云端／请求超时不可用为`WEB_SOURCE_BINDING_UNAVAILABLE`。拒绝只确认业务失败，不等同于通道断开；ACK必须匹配实际接收的日期、修订及摘要。两端已修正日期循环、ACK拒绝处理与诊断白名单的错误泛化，首次租约验证时间及完整策略身份校验通过。Native的共享锁等待使用请求超时与连接生命周期联合取消，未获取锁不错误释放；实际dispatcher隔离用例证明断开后在途替换被拒绝。工具审批阻塞已终止，通过重新交接恢复控件源码任务；没有要求PO重载或手工读取Service Worker。
+
+两端本地交付：控件提交`d9bb02e3412713c3416ad21f188533f732d8ff33`，Windows Native提交`6f8aef1141bfd49eeb99b8aacf772b3d2c33a4f2`。控件四专项（`shared-web-reusable-binding`、`shared-web-contribution-sync`、`shared-sync-diagnostics`、`local-guardian`）及typecheck、extension-root检查通过；状态文案补验通过，明确区分通道、孩子身份确认和当前贡献接收。Native `SharedWebSyncV2Tests|SharedWebSyncTests` 37项通过，Service构建及职责／固定包检查通过；初始夹具问题和提交权限阻塞已修正，不伪报首轮全通过。架构回读最终源码、测试命令与提交，核对Native当前1.31.0／上一版1.30.0包哈希和控件1.31.0协议代码哈希一致；没有两端自行定义的新协议。Native工作区干净，控件仅保留原有任务板草稿，云端仅保留未跟踪本地契约包及原`.wrangler/`。
+
+后续启用交接（本轮不执行）：先集成并发布这批兼容Guardian Worker与Runtime Worker，复用现有Service Binding和专用签名密钥，无新migration或凭据配置；无需发布Pages。再将对应源码一次纳入Windows最终候选与原目录unpacked候选，记录新版本／SHA及哈希，不能拿已安装旧候选作为V2证据。之后核对同孩子成功、不同孩子／用户拒绝、有效证明跨连接复用、过期与改绑撤销、实际贡献ACK及原账守恒；覆盖不足时不启用共享限制。Mac保持旧能力兼容，其V2适配／编译／实机仍单列后续，不以Windows测试冒称通过。
+
+本轮审计：契约、兼容云端、控件与Windows Native源码和上述聚焦验证为Matched；未批准Deviated/Extra无。生产部署、候选更新、真实联合连接与共享执行不在本轮执行范围，均未完成且不能称“线上问题已解决”；原始账本、统计、配额、安装环境、R2和执行开关未改变。强制提醒／取消、历史未知桶及P1统计故障仍按原独立任务保留。
+## 控件关闭补验来源记录（fe585e0；过程状态以最新收口条目为准）
 2026-10-04 共享页面关闭隔离补验：前两次 `testDefaultOff` 未定义已确认是保留测试 Profile 的旧 Service Worker 缓存入口（实际仅有 testStart/testClose/testSnapshot），非产品导出缺失；磁盘入口及75模块静态链接正常。PO/架构已授权只修安全夹具：复用原隔离 Profile、明确夹具版本、入口就绪及源码身份核对，只定向验证主动关闭可取消；不修改产品/原账/正式候选/家庭配置，不重跑已通过Content DOM或60秒，不将模拟授权标记为真实Service验收。
 
 本轮定向复验仍未通过：修订夹具版本0.0.2并核对 closer 哈希后，第一轮就绪校验10秒返回空，未执行关闭；第二轮增加仅测试扩展 `runtime.reload()` 刷新，等待新测试 Worker 15秒超时，仍未执行关闭。旧缓存入口已取证，但不能断言它是当前无法重新启动的唯一根因；新模块在扩展测试页可求值、75模块静态链接通过，仅证明无静态导出缺失，不代替SW成功初始化。两次原失败及两次修订后失败保留，按失败上限停止，不新建Profile、不重复原命令、不提交失败夹具。真实主动取消和Service授权仍待验收；当前Content真实DOM模拟桥证据与IndexedDB匹配证据保持独立通过，不扩大为真实关闭通过。
@@ -46,6 +142,61 @@
 
 2026-10-03 已批准1.7.42开发候选交付完成：git fetch确认master56ae43ec62e22fa21a725f858b0ef98372daae9d，固定工作树extension及打包工具与其无差异，复用d9bb02e源码聚焦证据；开发激活5/5及managed/development/regular打包边界通过。隔离生成179文件后按公开key核对稳定ID、native-host-development及既有marker，contracts1.31包哈希和两份生成模块精确一致；原目标先备份1.7.41，再复制候选文件且manifest最后更新，旧junction和D盘目标不变，既有Chrome生成缓存仅保留不打包。复制后179文件逐项SHA256匹配，排序文件清单摘要304084f9fea052081ae7f65b82cc8d52995d416e0f181dfe5d698eaf75274aa0；本地生成证据output/release/d114-candidate-1.7.42-verification.json。正式源码manifest仍1.7.34，不产CRX/update.xml、不重载Chrome、不触碰storage/绑定/家庭开关，不推送部署。候选交付Matched，真实重新加载及云端/Service联合身份、贡献、余额和提醒仍未执行，不能记为实机通过。
 
+安装状态更新（2026-10-03）：PO已手动安装2.6.23。架构从正式安装目录只读核对Service／Session Agent／Manager／Native Host均为2.6.23.0，四SHA-256与已校验候选完全一致；Service为Running／Automatic，当前会话仅一个正式Session Agent。Native普通账户21:07公开健康核验通过，架构回读原证据：本次Service北京时间21:03:53启动，21:04:16有成功云端heartbeat，state=online。历史桥成功早于本次启动，public pendingUploads不含app/shared，均不作为本次共享同步证明。此前“当前安装仍2.6.22”仅为构建结束时历史状态。本次不读取凭据／原账、不提权、不重启、不恢复已挂起绑定／ACK排查、不启用共享限制。组件安装及公开健康通过不等于提醒、正常关闭取消、共享余额及原账守恒验收通过。
+
+### 阻塞登记与非阻塞交付（2026-10-03，PO要求继续）
+
+| 待办 | 所属工作线 | 当前状态／影响 | 恢复条件 |
+|---|---|---|---|
+| 来源签名绑定、当前网页贡献Native ACK | 架构／云端／两端 | 已由PO批准“共享连接身份核验简化”重新开启源码修复；旧安装状态未核实，仍阻挡真实共享余额及执行启用 | 完成可复用v2适配后，单列所需部署／候选更新及当前连接／分配下的有效绑定和逐来源确认；不得沿用历史ACK关闭此项 |
+| 强制提醒取得活动状态、正常关闭取消 | Native | 交互桌面验收受限；不得改安全门、重复第三次取消实验或借用用户进程 | 可安全操作的受控交互环境，验证真实显示／正常取消，无强制升级 |
+| 原账守恒及完整离线／重连联合验收 | 两端／架构 | NOT_VERIFIED；缺有效固定范围基线及真实联合通道证据 | 使用批准的固定范围采样和真实两端链路，逐项对照，不以夹具替代 |
+
+可继续项：Native从已收口main源码集中准备一个内部Windows待验候选，核对版本、固定契约、组件、Burn/MSI/manifest及哈希；已有受测代码证据复用，仅运行候选必须的编译／安装器结构检查，不重跑取消或60秒流程。不安装、不上传R2、不部署、不切latest、不启用执行；不覆盖旧产物。包必须明确标记内部未签名及尚未完成实机验收。控件保持既有原加载路径／1.7.41，不为此重建或重载。
+
+候选准备已完成（2026-10-03）：Native源码`4aed70fa0fd5551c7e4b9bf74e75d645ec0feade`包含`d9fa0ba`提醒补丁；唯一新增待验版本2.6.23，目录`D:\Codex\TimeWhereNative\artifacts\release\windows\x64\2.6.23`。构建及隔离package-probe通过，WiX零警告／错误，安装器结构5/5通过；发布六组件及MSI内四正式组件版本一致为2.6.23.0。架构独立复算Burn 119748555字节／`96d8a2105203ac39b194bd5790a4d41537bea9c496b49ed93892c58997e6cf00`、MSI 61044470字节／`b897962640cc17b82ee1a68f9b14d820b3fcb5e8062dea3f56cb7c4847c5a0fd`、manifest／`44b74c890bfad0e403d26c62aecc11a3e506391bf6e387e548eed9ab9225928b`，均一致；契约1.30.0固定包哈希一致。旧34文件逐项大小／哈希未变，本地latest未变。包未签名、BLOCKED_BY_AUTHENTICODE_SIGNING、latestEligible=false；只完成待验产物，当前安装仍2.6.22，不声明提醒或共享实机通过，无安装／部署／R2操作。
+
+提醒补丁实证更新（2026-10-03）：架构任务独立解析Native的`reminder-closure-focused.trx`为94/94通过、0失败／跳过；`isolated-reminder-ui-after-fix.trx`为6项5通过／1失败，五项包括真实可见ACK、按钮ACK前禁用、ACK失败不可操作且不启动时钟、resolve发送失败恢复及真实60秒后超时意图。取消场景第二次仍失败于自有窗口前台捕获，未进入关闭；保留两份失败记录、不降低门、不第三次重跑整套。新增过期ACK／撤销／Dispose守卫最终定向验证1/1通过，TRX哈希`f6bde4c516c7fd5d28accc8349766c8d12cc7e6bc199b30e3eb92e6ee80d3372`；最终编译通过。早轮final-focused仍含守卫及强制显示失败，不能冒称整组全绿；强制显示未取得活动窗口、正常关闭取消未取得前台，继续保留实际验收缺项。Native主体`d9fa0ba`和证据说明`4aed70f`已集中提交，工作区干净；尚未安装新补丁，不追加中间候选。原共享绑定／ACK挂起及家庭执行关闭不变。
+
+提醒实窗续验与缺项修正（2026-10-03）：Native隔离宿主首轮3项2通过／1失败：真实ContentRendered可见ACK与继续、真实单调60秒后Lifecycle超时意图通过；取消场景失败于测试自有窗口未取得前台，未进入关闭／取消，不认定产品取消失败、不移除安全门。新增已证实UI缺项：按钮缺少ACK发送前门，发送失败无恢复；由Native修正禁用／明确未送达及resolve发送失败恢复，不改Service计时。实际写入SemaphoreSlim串行，不将异步一概解释为ACK乱序。
+
+既批准强制提醒兜底的本机边界：最终采用Native内部`ForcePresentation=false`与持久`DeliveryFaultReported=false`尾部可选字段，旧JSON缺省保持普通送达；共享State、BrowserBridge契约1.30及网页实现不变。首次普通送达＋一次普通重试均失败后，end配置允许一次强制显示；browser两次失败转Native的retry2就是唯一强制显示，不再追加循环。仅尝试激活自有提醒窗口以满足已批准前台打断，遵守Windows焦点及Default交互桌面权限，不解除锁屏／伪造输入／结束用户程序。系统拒绝或最终不可见时保留delivery_failed并通过既有日志一次报告SHARED_REMINDER_NOT_DELIVERED；无visible ACK不开始60秒、不生成结束effect。新delivery/reminder实例保持round，不改变取消与强制关闭授权。Native按最小相关回归及隔离宿主集中实现，不构建新安装候选或启用家庭执行。
+
+整体续进实证（2026-10-03）：控件已实际运行现有`shared-browser-execution-persistence.js`，新建隔离Profile／Chromium149.0.7827.55的真实strict IndexedDB通过45次claim与ACK后原子回收、丢ACK保留、断线旧代次围栏、真实事务及删除中止、SW重建、浏览器重启和容量拒绝。架构任务回读`output/playwright/d114/execution-persistence.json`并重算两产品模块哈希，分别为`d50e8ba08bc173a5d7e5c52ddc072e34e5324724d5a05e07f2aa5b60d6cdcae7`／`e731b43061f7962c008440f986bdd48c7598860b60005934f896d1298aa2e4a1`，与当前源码一致。关闭“真实IndexedDB待验”；ACK由夹具注入，不关闭真实Native授权、页面关闭、隐身分区或原账守恒缺项。
+
+云端实际源码复核：父端、DeviceBearer及Runtime内部调用共用`readSharedAccessPolicyForChild`，公共配置仍来自同一孩子`profiles.config`；六导航、三配置域、四统计视图均已接入主页面。共享摘要有独立12秒预算、孩子／配置／日期／可见页签／请求代次围栏，失败清除摘要并保留编辑入口；三域导入隔离及条件更新现有实现保留。摘要及域模块相对已测已发布SHA无变化，复用原证据，不重跑产品全量。此为源码核对，不替代真实登录导入／联合执行验收。
+
+Native访问与提醒复核报告`main@ed9cf9179037a32bbc17f0ccbc60c96d46cf376c`已回读；相关八实现文件和生命周期测试与已有446项通过来源一致，受影响scope专项48项单列、不相加。真实提醒UI验收基础设施缺项已查明：正式Agent无隔离入口，测试未引用Presenter。已继续交所属任务补测试专用STA／WPF宿主、临时SQLite／自有窗口及真实单调时钟；禁止连接正式Service、改真实配置／原账或关闭用户应用。只补测试能力，不新增业务版本／候选，不绕过桌面工具限制。真实全屏打断和人与窗口交互仍须单独证据。
+
+PO挂起裁决（2026-10-03）：来源签名绑定与当前网页贡献Native ACK两项暂停排查，登记为DEFERRED／安装后恢复未核实；不将未核实写成2.6.22仍失败，也不将旧桥接成功或云端ACK替代当前Native证明。19:29实时核验四组件2.6.22及哈希、Service自动运行、单一Agent、云端心跳通过。暂不为两项追加诊断包、安装、重载或重复确认。它们不阻挡其他开发，但仍阻挡共享执行启用及完整实机通过声明。
+
+后续推进范围：先集中核对唯一配置源、六导航／三配置域／四统计视图及非执行展示；两端所属任务核对已批准的访问检查、提醒可见ACK与60秒期限、正常结束可取消、超时强制和送达失败／重启去重的现有代码及聚焦证据。缺项按完整功能批次处理，不逐零件发布；仅使用隔离验证，不启用家庭共享限制，不改变原账或未批准统计语义。Mac实机、历史未知桶及P1统计故障继续单列。
+
+安装后实时复核（2026-10-03，2.6.22）：PO确认安装后，架构任务两次读取正式安装目录，Manager／Service／Session Agent／Native Host均为2.6.22.0，四个SHA-256与已验真候选完全一致；Service为Running／Automatic，正式路径仅一个当前会话Session Agent。Native会话旧轮次的2.6.21回报已明确作废，已要求重新采样本次启动公开状态。安装及组件核验通过不等于来源签名绑定、当前Native贡献ACK、共享余额或提醒执行通过；这些仍待本次真实证据，全局共享执行保持关闭。未新增安装、重启、UAC、部署或配置变更。
+
+Native独立复验（北京时间19:17:07）：普通账户公开状态确认运行Service为2.6.22.0，本次启动后已有成功云端heartbeat。公开桥接成功时间早于本次Service启动，仅属历史，不证明当前签名绑定／贡献ACK；公开状态没有这些字段，仍NOT_VERIFIED。hasPendingUploads=false仅覆盖旧usage／media／log，不解释为应用统计及共享队列已清空。证据为Native本地`.tmp/d114-validation/postinstall-2.6.22/installed-and-public-health-20261003-191707.json`。安装运行前置条件已通过，不能据此宣称本次绑定故障已消除。
+
+2026-10-03 18:18现场及整体推进裁决（覆盖下文旧的安装／重载待办）：PO提供正常管理页证据，扩展1.7.41已连接v3，应用读取及共享相关能力已协商；当日网页修订241、1169000ms已获实际云端ACK，当前来源已核实。来源签名绑定仍未建立，getSharedWebSourceChallenge收到negative_response且无具体服务码，当前Native ACK未确认；连接健康／云端ACK不能替代本机授权绑定。Native源码核对已确认挑战不依赖历史统计完整性，故不得把历史未知桶作为本次绑定拒绝原因。继续定位当前受保护分配、连接注册及云端挑战错误，不放宽授权。
+
+非核心历史项DEFERRED：9/30、10/1分别360000ms在原统计中已属未知桶，调账前后相同、更正请求／应用／失败均0；不是总时长缺失，也不能据此断言网页原账错误。精确桶名与原生成原因未核实，禁止补入Rest或其他分类。按PO要求停止为此追加诊断包／重复重载；保留独立待办。原账指纹缺少有效安装前基线仍属验收缺项，不改写为通过。历史完整性仍影响现有整周执行准备，不为推进放宽门槛，但不阻挡配置／界面／提醒链路开发。
+
+整体推进：复用已上线六导航／四统计视图及已接入的两端消费者；控件所属任务继续整批访问检查、提醒可见ACK／60秒、正常取消与超时强制、送达失败和离线／重启核对，只补实际缺项，不逐零件PR／候选。当前任务检查云端配置、来源替换及来源挑战调用；Native所属任务定位绑定并整批核对执行准备。限定本轮状态登记为文档变更，仅diff检查；后续代码按受影响模块聚焦回归。排除无关平台／安装器全量测试、新分支树、原账／原统计修改及提前启用共享限制。真实联合余额、提醒／结束、离线恢复仍Missing，完整D-114不标记完成。
+
+整链核对进展：控件所属任务确认共享访问、单轮可见ACK、Service负责60秒、继续、正常取消、许可超时强制、送达失败与断线围栏已接入；本轮只补核shared-browser-execution-attempts固定回归通过，当前任务回读其持久登记／重启围栏测试及实际bootstrap，未发现新增终端源码缺项。真实IndexedDB／Host联合执行仍未验证，不把内存事务夹具称为实机通过。Native正在运行同版本策略／连接注册恢复及整批执行受控核对。来源绑定定位新增条件线索：当前控件将MESSAGE_REJECTED显示为service_message_rejected，而现场为negative_response；Native会透传部分WEB_/INVALID_WEB_的本地校验错误，但控件服务码白名单将其隐去。需核实原候选映射才能排除泛化HTTP路径，不能据此确定具体根因或重配密钥。
+
+核心恢复受控回归：Native确认304不会换策略对象，但重复同配置200反序列化后创建新AppliedMachinePolicy，按引用验证的连接随之失效；已编写重复真实200及Challenge失败回归，修复验证进行中，尚未称现场根因。完整策略与本机解析结果都相同时才允许保留范围；任何权限、分配、Child、产品关联、策略内容／版本或解析变化必须撤销旧范围，不修改计时边界算法。当前任务已回读回归及调用位置，要求最终证据集中返回、先不构建中间包。控件原候选／源码哈希一致，negative_response证明收到匹配请求ID的负响应，不能进一步单凭文案确认具体服务码；后续binding_unavailable只是下游结果。
+
+核心恢复测试回读：Native policy-scope-before-fix.trx为8项执行、7通过／1失败，policy-scope-after-fix.trx为13项执行、13通过／0失败／0跳过（18:33:56）；当前任务直接解析TRX并回读最终完整policy＋ApplicationResolutions结构比较，不只比较版本。新增回归使用真实200反序列化、Dispatcher／Bridge及受控连接注册，覆盖同策略保留、权限／分配／Child／能力／日志／解析变化撤销及启动无分配后新健康恢复；注册回调为夹具，不伪称真实Service场景通过。整批执行回归、最终提交与现场绑定仍未完成；当前运行2.6.21尚无此补丁，不交付重复中间候选。
+
+Native整批源码已收口：`1382fd72998bb7a6675735f410007985c4546657`提交并推现有main，工作区干净；最终新增scope及SharedWebSync合计48/48（含最终15项新增，不能与旧13或既有446累计），TRX SHA256 `365c821922bf544dd89dd7849f7468705fbc14aa628e2c574e229b94e3f2ed4c`由当前任务回读核实。Service及测试依赖编译通过；生命周期／关闭器／提醒窗口未改，复用既有精确源码的可见ACK60秒、取消、超时强制、送达失败、重启及离线撤销Passed用例。产品diff仅Service范围选择helper和调用，不改RequiresAccountingBoundary、原账或关闭执行语义；文档／测试同提交。源码Matched，未批准Deviated/Extra为空；真实绑定、Native贡献ACK、余额与窗口／进程效果仍Missing。没有构建新候选、安装、重启、启用或云端部署；旧历史项仍延后。
+
+必要集中候选交付：受测main `1382fd7`已生成唯一内部2.6.22，固定contracts1.30.0及既有包哈希；Burn/MSI零警告错误，安装结构5项通过，所属任务核验六构建／四安装组件及升级身份。当前任务独立计算Burn119711531bytes/SHA256 `39a6c479bebcfc50e47cfddd929b3181e6819b3ce549dec4c9d9727bf12fdac7`、MSI61044470bytes/SHA256 `8b7e27f45fa4bca6bcdb926f56e72eb660fb707d02dc21679401a7cacb6e90d1`均与manifest匹配；manifest SHA256 `5f3b93252bc735a34a7add7280201f5697eea1f5b1825fbf98221cb4eee901da`。路径为TimeWhereNative artifacts/release/windows/x64/2.6.22，BLOCKED_BY_AUTHENTICODE_SIGNING、latestEligible=false。旧产物及latest未变，当前机器仍2.6.21；按PO既有手动安装选择交付，不自动启动UAC／重启。本候选不是新增诊断功能，真实恢复仍待安装后证据；不把构建完成当D-114完成。
+
+交付记录已由Native推送main `57d336d09054cb9326c530e5bebcb273dabb9725`，产品源码仍1382fd7；当前任务回读交付说明与本地manifest，复核旧包／latest十三文件基线。安装前独立只读仍显示Service／Host／Agent／Manager为2.6.21.0、Service Running／Automatic，没有2.6.22安装进程；不启动用户已选择手动执行的安装，不把记录完成当作已安装。剩余推进需新版本实际运行及合法现场证据，原工具对Chrome内部页／Cloudflare的限制不绕过，旧日不完整也不被自动清零；完整目标保持未完成。
+
+安装后续验（最新）：2.6.21正式四组件版本/哈希匹配候选，Service Running/Automatic、一个正式Agent、公开健康online及本次启动后心跳通过；公开pendingUploads不含account/shared，旧376恢复与共享版本/ACK仍未验证。固定范围指纹原RunAs调用已返回USER_CANCELLED、无输出文件，不再称等待UAC，不重弹请求；没有有效安装前指纹，不宣称升级守恒。控件1220601已推送既有集成分支，任务板冲突保留双方记录后由0b470解决；精确head轻量CI37112871812通过，PR #220已合入master `221140ea30be21e42c8c55c6f5e36013733003a9`，产品四文件与1220601一致，不重复测试/部署。原1.7.41候选三个文件已同步，Chrome内部页工具不可操作，已请求一次原扩展重载，仍待现场确认；不要求SW脚本或重新绑定。两个360秒缺口、真实余额、提醒/结束/离线和原账守恒仍未完成，共享执行关闭。
+
+2026-10-03集中续进：冻结截止点修复PR #219已合入master `1a5085ed06e3387a95ad1d8d201fb9f4aa2f35f3`，精确主线CI 37110999255通过；Production 37111118202成功，仅发布Runtime Worker，版本ID `6941f507-5950-4062-963c-fe4c9d47faea`，health及未认证401烟测通过，远端迁移列表无待执行项，本次没有执行migration，其他Worker/Pages/R2未操作。Native所属任务在现有main提交 `0eefb5e1c1ae5342de22b4732a988fd1917728c0`（包含5e24038），补齐旧superseded存量在当前受保护分配内仅GET恢复、冻结清单精确核验及公平补发，最终80项聚焦测试通过；当前任务回读实现及TRX结果，未修改Native源码。唯一2.6.21本地候选来源 `56e1dd086f45315c36d2d0747a0de88c541892b8`、固定contracts1.30.0已生成，Burn119737185bytes/SHA256 `3b6abf5284f2dfff8a33e12987019d008a5052c1c771904364f02e9ebcfb1a79`，MSI61044470bytes/SHA256 `835c68cce6b25435bce1c4cc0a38a8967230aca77209d8d16d147a4d8721765f`，当前任务重新计算均匹配manifest；内部未签名、latestEligible=false。当前安装仍2.6.20，不宣称真实旧376已恢复。控件只读调查排除Rest/Other漏读，两个360000ms缺口尚不能区分原未知桶与更正后未知归属；已交所属任务补同修订的脱敏调账后桶/更正流向诊断，不改算法、贡献或原账。旧日不完整不证明今日账不完整，但现行整周执行准备不能通过；今日上传及守恒只读验收仍可继续，不放宽门槛。剩余为候选安装/重载、现场逐来源收据/版本/余额核对、网页缺口定位、提醒/结束/离线与原账守恒实验；共享执行继续关闭。此条为发布、构建及所属任务证据，非完整D-114完成。
 2026-10-03 D-114可复用来源核验终端源码收口：消费固定contracts1.31.0（源2d054c7，包SHA256355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395），按明确V2能力接入签名scope、直接proof交换、本地重新绑定及无challenge贡献替换；有效proof仅内存缓存，过期重连不能复活，同连接租约须完整policyIdentity及有效期内首次验证。V2失败不降级；旧端V1兼容。稳定身份原因经Native拒绝/日期循环/正常诊断完整保留，业务拒绝不误断Port；改绑/策略变化及ContextChanged撤销绑定与当前Native确认。绑定固定签名/HTTP、贡献同步、Native客户端和诊断四专项通过，typecheck、扩展根检查及diff检查通过。Matched＝批准源码范围；无未批准Extra/Deviated。原账/贡献内容及云端ACK算法、候选、家庭配置和共享执行门禁未改。仅本地集中提交，未推送/部署；真实云端+Service联合绑定、缓存重连及共享余额/提醒验收未执行，不能用当前安装证明V2通过。
 
 2026-10-03 D-114真实IndexedDB补验通过：旧证据的身份围栏哈希已过期，未复用；单独运行现有shared-browser-execution-persistence.js，在全新隔离Profile中加载仅含登记/围栏的测试扩展，Chromium149.0.7827.55真实strict IndexedDB完成45次claim/确认后原子回收、丢ACK登记保留、断线旧代次拒绝、真实事务及删除中止、Service Worker实际重建和同测试Profile浏览器重启防重、20条容量拒绝。两产品模块哈希与当前源码匹配，证据output/playwright/d114/execution-persistence.json；JSON中的retainedProfileReused指本轮重启复用同一新建测试Profile，并非用户Profile。执行效果关闭、无家庭凭据；ACK授权仍由夹具注入，真实Native授权、隐身分区、页面关闭与账本守恒不在此项覆盖范围。此前记录的“真实IndexedDB待验”由本项关闭，其他联合验收及DEFERRED条件不变；不改代码、候选、原账或生产。
@@ -154,9 +305,9 @@ PO 已批准三个完整功能批次；现有准备层与测试证据保留，�
 
 | 批次／调用链 | 负责人 | 验收结果 | 真实阻塞／剩余 |
 |---|---|---|---|
-| 1：设备鉴权 → 独立网页贡献／ACK 水位 → 云端逐来源依据 → 两端本机替换 → 共享余额 | 当前会话：契约、云端；控件／Native：自身消费者 | 代码集中集成；云端 shadow 已上线；两端最终候选已核验 | 真实两端尚未升级接通；当前真实读取 complete=false，明确返回来源覆盖／派生贡献缺失，不将未知填零；限制动作关闭 |
+| 1：设备鉴权 → 独立网页贡献／ACK 水位 → 云端逐来源依据 → 两端本机替换 → 共享余额 | 当前会话：契约、云端；控件／Native：自身消费者 | 云端shadow已上线；Native2.6.22四组件安装核实；扩展1.7.41既有现场连接v3，网页实际云端ACK已确认 | 来源签名绑定及当前Native贡献ACK按PO挂起，安装后恢复未核实；应用各scope恢复及真实共享余额待核实；历史未知桶独立延后，限制动作关闭 |
 | 2：共享余额 → 访问检查 → 可见提醒／正常关闭／超时强制 | 控件、Native，当前会话核对兼容及配置 | 未验收、未启用 | 必须实际关闭／取消／送达失败与原账守恒；debugger 仅隔离评估 |
-| 3：集中集成 → 指定云端及派生存储 → 唯一终端候选 → 真机联调 → 共享启用 | 当前会话及所属实现会话 | PR213集中发布与PR214实机修补已上线；专用密钥及限定派生存储已配置；唯一候选2.6.18／1.7.40就绪 | 管理员原账基线、安装／重载、完整两端联调及最终启用待完成；Mac／P1 单列，不伪报通过 |
+| 3：集中集成 → 指定云端及派生存储 → 唯一终端候选 → 真机联调 → 共享启用 | 当前会话及所属实现会话 | PR213/214集中影子发布、PR219 Runtime修复已上线；PR220控件诊断已集成；当前安装2.6.22／控件既有现场1.7.41；新提醒补丁已提交但未安装 | 原账守恒有效基线、完整两端联调及最终启用待完成；历史未知桶／Mac／P1单列，不伪报通过 |
 
 第二批执行身份：Native 实际接入发现本机替换变化未必改变云端 basisRevision，旧云端 state.revision 不能用于本机提醒／准入许可。两端统一由完整 policyIdentity、basisRevision、完整 projection 和按日期／source／sourceKey 排序的 replacementVersions 生成 SHA-256 内部执行身份；不含轮询时间或 transportStatus。连接／授权失效独立撤销，不完整不签许可；公共云端状态不被覆盖。集中补共同纯函数与向量，仍属于未发布的 1.30 开发批，不逐字段发新版本。旧固定候选包保持不可变，最终集中包与两端锁另行统一验真。
 

@@ -1,5 +1,7 @@
 import { canonicalSharedWebSync, signSharedWebSourceBindingV1, verifySharedWebSourceBindingV1,
-  validateSharedWebSourceBindingProofV1, type SharedWebSourceVerificationKeyV1 } from '@timeonchrome/app-runtime-contracts/shared-web-sync';
+  validateSharedWebSourceBindingProofV1, validateSharedWebReusableProofV2, signSharedWebReusableProofV2,
+  verifySharedWebReusableProofV2, type SharedWebSourceBindingClaimsV2,
+  type SharedWebSourceVerificationKeyV1 } from '@timeonchrome/app-runtime-contracts/shared-web-sync';
 import type { Env } from '../db/middleware';
 import { sharedWebSourceKey } from './sharedAccessState';
 import { readSharedWebJson, type SharedWebAuthenticatedScope } from './sharedWebContributions';
@@ -96,9 +98,104 @@ export async function issueSharedWebSourceBinding(env:SourceBindingEnv,scope:Sha
     childScopeHash:await sharedChildScopeHash(row.account_id,row.profile_id),assignmentVersion:row.assignment_version,
     webSourceKey:sourceKey,issuedAtMs:row.created_at,expiresAtMs:row.created_at+300000},keyId,privateKey);
 }
+/** Restricted Runtime caller supplies authenticated machine context; v2 stores no challenge. */
+export async function createSharedWebMachineScope(env:SourceBindingEnv,input:unknown,now=Date.now()) {
+  if(env.SHARED_WEB_CONTRIBUTIONS_ENABLED!=='true')throw Error('WEB_SOURCE_BINDING_UNAVAILABLE');
+  if(!fields(input,['accountId','childId','machineId','localUserId','assignmentVersion','applicationSourceKey'])
+    ||![input.accountId,input.childId,input.machineId,input.localUserId].every(text)
+    ||!Number.isSafeInteger(input.assignmentVersion)||Number(input.assignmentVersion)<1||!hex(input.applicationSourceKey))
+    throw Error('INVALID_WEB_SOURCE_SCOPE');
+  const owner=await env.DB.prepare('SELECT 1 AS owned FROM profiles WHERE id=? AND account_id=?')
+    .bind(input.childId,input.accountId).first();
+  if(!owner)throw Error('WEB_SOURCE_SCOPE_MISMATCH');
+  const row={account_id:input.accountId,profile_id:input.childId,machine_id:input.machineId,local_user_id:input.localUserId,
+    assignment_version:input.assignmentVersion,application_source_key:input.applicationSourceKey} as ChallengeRow;
+  const check=async()=>{try{await requireCurrentAssignment(env,row);}catch(error){
+    if(error instanceof Error&&error.message==='WEB_SOURCE_ASSIGNMENT_CHANGED')throw Error('SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE');throw error;}
+    if(!await env.DB.prepare('SELECT 1 AS owned FROM profiles WHERE id=? AND account_id=?').bind(input.childId,input.accountId).first())
+      throw Error('WEB_SOURCE_SCOPE_MISMATCH');};
+  await check();
+  const {privateKey,keyId}=await signingKeys(env);
+  const proof=await signSharedWebReusableProofV2({schemaVersion:2,audience:'timeonchrome:shared-web-machine-scope:v2',
+    applicationSourceKey:input.applicationSourceKey,childScopeHash:await sharedChildScopeHash(String(input.accountId),String(input.childId)),
+    assignmentVersion:Number(input.assignmentVersion),issuedAtMs:now,expiresAtMs:now+300000},keyId,privateKey);
+  await check();
+  if(proof.claims.expiresAtMs<=Date.now())throw Error('WEB_SOURCE_PROOF_EXPIRED');
+  return proof;
+}
+async function requireReusableAssignment(env:SourceBindingEnv,accountId:string,childId:string,
+  applicationSourceKey:string,assignmentVersion:number) {
+  if(!env.RUNTIME_COMPUTER_USAGE?.fetch)throw Error('WEB_SOURCE_BINDING_UNAVAILABLE');
+  let response:Response,result:unknown;
+  try{
+    response=await env.RUNTIME_COMPUTER_USAGE.fetch(new Request('https://runtime-capability/verifySharedWebSourceScope',{
+      method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId,applicationSourceKey,assignmentVersion})}));
+    result=await readSharedWebJson(response,2048);
+  }catch{throw Error('WEB_SOURCE_BINDING_UNAVAILABLE');}
+  if(!response.ok||!fields(result,['owned'])||result.owned!==true){
+    if(result&&typeof result==='object'&&'code' in result&&result.code==='SOURCE_SCOPE_LIMIT')throw Error('SOURCE_SCOPE_LIMIT');
+    throw Error('SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE');
+  }
+}
+async function requireBrowserBinding(env:Env,scope:SharedWebAuthenticatedScope) {
+  const browser=await env.DB.prepare(`SELECT 1 AS active FROM devices d JOIN profiles p ON p.id=d.profile_id
+    WHERE d.id=? AND d.profile_id=? AND p.account_id=? AND d.device_token=? AND COALESCE(d.status,'bound')='bound'`)
+    .bind(scope.deviceId,scope.childId,scope.accountId,scope.deviceToken).first();
+  if(!browser)throw Error('WEB_SOURCE_SCOPE_MISMATCH');
+}
+export async function issueSharedWebSourceBindingV2(env:SourceBindingEnv,scope:SharedWebAuthenticatedScope,input:unknown,now=Date.now()) {
+  if(env.SHARED_WEB_CONTRIBUTIONS_ENABLED!=='true')throw Error('WEB_SOURCE_BINDING_UNAVAILABLE');
+  validateSharedWebReusableProofV2(input,'timeonchrome:shared-web-machine-scope:v2');
+  const {keyId,privateKey,publicKey}=await signingKeys(env);
+  const expected={applicationSourceKey:input.claims.applicationSourceKey,assignmentVersion:input.claims.assignmentVersion,
+    childScopeHash:await sharedChildScopeHash(scope.accountId,scope.childId)};
+  const claims=await verifySharedWebReusableProofV2(input,keyId,publicKey,expected,'timeonchrome:shared-web-machine-scope:v2',now);
+  await requireReusableAssignment(env,scope.accountId,scope.childId,claims.applicationSourceKey,claims.assignmentVersion);
+  await requireBrowserBinding(env,scope);
+  const proof=await signSharedWebReusableProofV2({schemaVersion:2,audience:'timeonchrome:shared-web-source:v2',
+    ...expected,webSourceKey:await sharedWebSourceKey(scope.accountId,scope.deviceId),
+    bindingEpochHash:await sha(`shared-web-binding\n${scope.deviceId}\n${scope.deviceToken}`),
+    issuedAtMs:now,expiresAtMs:Math.min(now+300000,claims.expiresAtMs)},keyId,privateKey);
+  await requireReusableAssignment(env,scope.accountId,scope.childId,claims.applicationSourceKey,claims.assignmentVersion);
+  await requireBrowserBinding(env,scope);
+  if(proof.claims.expiresAtMs<=Date.now())throw Error('WEB_SOURCE_PROOF_EXPIRED');
+  return proof;
+}
+async function verifyCurrentSharedWebSourceV2(env:SourceBindingEnv,input:unknown,accountId:string,childId:string,
+  applicationSourceKey:string,now:number):Promise<SharedWebSourceBindingClaimsV2> {
+  if(env.SHARED_WEB_CONTRIBUTIONS_ENABLED!=='true')throw Error('WEB_SOURCE_BINDING_UNAVAILABLE');
+  validateSharedWebReusableProofV2(input,'timeonchrome:shared-web-source:v2');
+  const {keyId,publicKey}=await signingKeys(env);
+  const claims=await verifySharedWebReusableProofV2(input,keyId,publicKey,{applicationSourceKey,
+    childScopeHash:await sharedChildScopeHash(accountId,childId),assignmentVersion:input.claims.assignmentVersion},
+    'timeonchrome:shared-web-source:v2',now) as SharedWebSourceBindingClaimsV2;
+  await requireReusableAssignment(env,accountId,childId,applicationSourceKey,claims.assignmentVersion);
+  const {results}=await env.DB.prepare(`SELECT d.id,d.device_token FROM devices d JOIN profiles p ON p.id=d.profile_id
+    WHERE d.profile_id=? AND p.account_id=? AND COALESCE(d.status,'bound')='bound' ORDER BY d.id LIMIT 201`)
+    .bind(childId,accountId).all<{id:string;device_token:string}>();
+  if(results.length>200)throw Error('SOURCE_SCOPE_LIMIT');
+  let matched=false,matchedDevice:string|null=null;
+  for(const device of results){
+    if(await sharedWebSourceKey(accountId,device.id)!==claims.webSourceKey)continue;
+    matched=await sha(`shared-web-binding\n${device.id}\n${device.device_token}`)===claims.bindingEpochHash;
+    matchedDevice=device.id;
+    break;
+  }
+  if(!matched)throw Error('WEB_SOURCE_SCOPE_MISMATCH');
+  await requireReusableAssignment(env,accountId,childId,applicationSourceKey,claims.assignmentVersion);
+  const current=await env.DB.prepare(`SELECT d.device_token FROM devices d JOIN profiles p ON p.id=d.profile_id
+    WHERE d.id=? AND d.profile_id=? AND p.account_id=? AND COALESCE(d.status,'bound')='bound'`)
+    .bind(matchedDevice,childId,accountId).first<{device_token:string}>();
+  if(!current||await sha(`shared-web-binding\n${matchedDevice}\n${current.device_token}`)!==claims.bindingEpochHash)
+    throw Error('WEB_SOURCE_SCOPE_MISMATCH');
+  if(claims.expiresAtMs<=Date.now())throw Error('WEB_SOURCE_PROOF_EXPIRED');
+  return claims;
+}
 /** Cloud revalidates current browser binding and assignment, not merely a valid old signature. */
 export async function verifyCurrentSharedWebSource(env:SourceBindingEnv,input:unknown,accountId:string,childId:string,
   applicationSourceKey:string,now=Date.now()) {
+  if(input&&typeof input==='object'&&'schemaVersion' in input&&input.schemaVersion===2)
+    return verifyCurrentSharedWebSourceV2(env,input,accountId,childId,applicationSourceKey,now);
   validateSharedWebSourceBindingProofV1(input);
   const proof=JSON.parse(canonicalSharedWebSync(input)) as typeof input;
   const row=await env.DB.prepare(`SELECT * FROM shared_web_source_challenges_v1 WHERE challenge_id=? AND account_id=? AND profile_id=?`)
