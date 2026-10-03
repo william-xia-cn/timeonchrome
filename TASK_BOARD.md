@@ -8,11 +8,17 @@
 
 最小验证：Contracts签名/篡改/到期/范围与v1兼容；云端双方鉴权、当前分配及绑定撤销；两端重连缓存、用户隔离及稳定错误。仅相关测试、typecheck、Worker dry-run、职责检查及diff；不跑无关平台/安装器/网页账本全量。真实联合验收另记，不能用源码通过宣称共享可启用。
 
-契约开发证据：1.31.0 build/typecheck、shared-web-sync v1/v2聚焦及contract-compatibility通过；首次build因沙箱EPERM未写产物，经范围内提权构建通过；兼容测试首次缺新增消息断言已修正后通过。固定本地包SHA-256 `355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395`，包含v2 schema与仅公钥黄金向量，已交Native/控件所属会话。契约提交`2d054c7`，云端提交`41e455d`，两者均仅本地源码提交；不代表已发布、安装或真实连接通过。两端适配及跨端协议审查进行中。
+契约开发证据：1.31.0 build/typecheck、shared-web-sync v1/v2聚焦及contract-compatibility通过；首次build因沙箱EPERM未写产物，经范围内提权构建通过；兼容测试首次缺新增消息断言已修正后通过。固定本地包SHA-256 `355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395`，包含v2 schema与仅公钥黄金向量，已交Native/控件所属会话。契约提交`2d054c7`，云端提交`41e455d`，两者均仅本地源码提交；两端适配及跨端源码审查已完成，提交与聚焦证据见下。不代表已发布、安装或真实连接通过。
 
 标准云端开发证据（2026-10-03）：已实现机器鉴权的`POST /v2/machines/shared-web-source/scope`、受限内部scope签发／实时分配核验及设备鉴权的`POST /device/shared-web-source-binding/v2`。成功响应均直接返回契约v2签名wrapper，无nonce、challenge或额外身份字段；既有公钥接口与v1保留。机器scope与网页proof的audience严格隔离；当前分配和浏览器token epoch持续复核，最后一次异步分配查询后再次按精确设备ID检查epoch。当前候选限定账户／孩子，最多200项，201项明确`SOURCE_SCOPE_LIMIT`拒绝，不截断后猜测；v2不写challenge表。真实内存SQLite双端签名／重用／到期／篡改／转派／解绑／令牌轮换／末尾竞态／候选上限及既有贡献记录不变通过；首次旧v1夹具固定时间与HTTP真实时钟不一致已仅统一测试时钟后通过。实际Device路由鉴权、caller范围拒绝、稳定错误与no-store通过；Backend Workers/Vitest `application-accounts.test.ts -t "shared web source"`为2项通过、22项无关跳过。根与Backend typecheck、两个Worker dry-run及diff检查通过；不运行平台／安装器／网页账本全量测试。审计：本轮云端范围Matched，未批准Deviated/Extra无；真实两端联合连接／重连及生产部署仍未验收，不表示共享执行可启用。未部署、未迁移、未修改原账／配额或线上开关。
 
-两端协议审查：V2未分配为`SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE`，连接／凭据／策略代次失效为`WEB_SOURCE_CONTEXT_CHANGED`，未绑定为`WEB_SOURCE_PROOF_REQUIRED`，过期或未来证明为`WEB_SOURCE_PROOF_EXPIRED`，范围不符为`WEB_SOURCE_SCOPE_MISMATCH`，验签失败为`WEB_SOURCE_PROOF_SIGNATURE_INVALID`。拒绝只确认业务失败，不等同于通道断开；ACK必须匹配实际接收的日期、修订及摘要。已交两端集中修正：稳定码不能在日期循环或诊断白名单中被覆盖成未知；租约初次建立必须处于证明有效期，断线不能复活旧租约。Native源码适配及聚焦验证进行中。控件已有源码草稿，但其非必要Computer Use只读检查陷入工具审批等待；已要求跳过浏览器检查继续源码测试，不要求PO重载、读取Service Worker或修改正式环境。尚未收到两端最终提交及验证结果，整项保持未完成。
+两端协议审查：V2未分配为`SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE`，连接／凭据／策略代次失效为`WEB_SOURCE_CONTEXT_CHANGED`，未绑定为`WEB_SOURCE_PROOF_REQUIRED`，过期或未来证明为`WEB_SOURCE_PROOF_EXPIRED`，范围不符为`WEB_SOURCE_SCOPE_MISMATCH`，验签失败为`WEB_SOURCE_PROOF_SIGNATURE_INVALID`，云端／请求超时不可用为`WEB_SOURCE_BINDING_UNAVAILABLE`。拒绝只确认业务失败，不等同于通道断开；ACK必须匹配实际接收的日期、修订及摘要。两端已修正日期循环、ACK拒绝处理与诊断白名单的错误泛化，首次租约验证时间及完整策略身份校验通过。Native的共享锁等待使用请求超时与连接生命周期联合取消，未获取锁不错误释放；实际dispatcher隔离用例证明断开后在途替换被拒绝。工具审批阻塞已终止，通过重新交接恢复控件源码任务；没有要求PO重载或手工读取Service Worker。
+
+两端本地交付：控件提交`d9bb02e3412713c3416ad21f188533f732d8ff33`，Windows Native提交`6f8aef1141bfd49eeb99b8aacf772b3d2c33a4f2`。控件四专项（`shared-web-reusable-binding`、`shared-web-contribution-sync`、`shared-sync-diagnostics`、`local-guardian`）及typecheck、extension-root检查通过；状态文案补验通过，明确区分通道、孩子身份确认和当前贡献接收。Native `SharedWebSyncV2Tests|SharedWebSyncTests` 37项通过，Service构建及职责／固定包检查通过；初始夹具问题和提交权限阻塞已修正，不伪报首轮全通过。架构回读最终源码、测试命令与提交，核对Native当前1.31.0／上一版1.30.0包哈希和控件1.31.0协议代码哈希一致；没有两端自行定义的新协议。Native工作区干净，控件仅保留原有任务板草稿，云端仅保留未跟踪本地契约包及原`.wrangler/`。
+
+后续启用交接（本轮不执行）：先集成并发布这批兼容Guardian Worker与Runtime Worker，复用现有Service Binding和专用签名密钥，无新migration或凭据配置；无需发布Pages。再将对应源码一次纳入Windows最终候选与原目录unpacked候选，记录新版本／SHA及哈希，不能拿已安装旧候选作为V2证据。之后核对同孩子成功、不同孩子／用户拒绝、有效证明跨连接复用、过期与改绑撤销、实际贡献ACK及原账守恒；覆盖不足时不启用共享限制。Mac保持旧能力兼容，其V2适配／编译／实机仍单列后续，不以Windows测试冒称通过。
+
+本轮审计：契约、兼容云端、控件与Windows Native源码和上述聚焦验证为Matched；未批准Deviated/Extra无。生产部署、候选更新、真实联合连接与共享执行不在本轮执行范围，均未完成且不能称“线上问题已解决”；原始账本、统计、配额、安装环境、R2和执行开关未改变。强制提醒／取消、历史未知桶及P1统计故障仍按原独立任务保留。
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
