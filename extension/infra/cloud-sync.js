@@ -402,7 +402,7 @@ export async function readSharedAccessPolicyCloudScope() {
     : { ok: false, errorCode: 'shared_access_inactive' };
 }
 
-async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {}, path, body) {
+async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {}, path, body, acceptedErrorCodes = null) {
   if (typeof deviceToken !== 'string' || !deviceToken || apiBase !== getCloudApiBase()) {
     return { ok: false, errorCode: 'shared_access_identity_changed' };
   }
@@ -418,10 +418,11 @@ async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: controller.signal,
       redirect: 'error', cache: 'no-store',
     });
-    if (!response.ok) return { ok: false, errorCode: response.status === 401 ? 'shared_access_unauthorized'
+    const httpError = response.status === 401 ? 'shared_access_unauthorized'
       : response.status === 403 ? 'shared_access_unbound' : response.status === 404 ? 'shared_access_unsupported'
       : response.status === 409 ? 'shared_access_snapshot_changed'
-      : 'shared_access_unavailable' };
+      : 'shared_access_unavailable';
+    if (!response.ok && !acceptedErrorCodes) return { ok: false, errorCode: httpError };
     const reader = response.body?.getReader();
     if (!reader) return { ok: false, errorCode: 'shared_access_invalid_policy' };
     const cancelReader = () => { void reader.cancel().catch(() => {}); };
@@ -449,6 +450,7 @@ async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {
     }
     let result;
     try { result = JSON.parse(text); } catch (_) { return { ok: false, errorCode: 'shared_access_invalid_policy' }; }
+    if (!response.ok) return { ok: false, errorCode: acceptedErrorCodes.has(result?.code) ? result.code : httpError };
     return { ok: true, value: result };
   } catch (_) {
     return { ok: false, errorCode: signal?.aborted ? 'shared_access_cancelled' : 'shared_access_unavailable' };
@@ -474,6 +476,16 @@ export async function postCloudSharedWebContribution(options = {}, upload) {
 export async function requestCloudSharedWebSourceBinding(options = {}, challengeId) {
   if (!/^[a-f0-9]{64}$/.test(challengeId)) return { ok: false, errorCode: 'shared_web_invalid_challenge' };
   return readCapturedSharedDeviceJson(options, '/device/shared-web-source-binding/v1', { challengeId });
+}
+export async function requestCloudSharedWebSourceBindingV2(options = {}, scopeProof) {
+  if (!scopeProof || new TextEncoder().encode(JSON.stringify(scopeProof)).length > 1800)
+    return { ok: false, errorCode: 'INVALID_WEB_SOURCE_SCOPE' };
+  const errors = new Set(['INVALID_WEB_SOURCE_SCOPE', 'INVALID_WEB_SOURCE_PROOF', 'INVALID_WEB_SOURCE_BINDING',
+    'INVALID_WEB_SOURCE_KEY', 'WEB_SOURCE_SCOPE_MISMATCH', 'WEB_SOURCE_PROOF_EXPIRED', 'WEB_SOURCE_PROOF_SIGNATURE_INVALID',
+    'WEB_SOURCE_ASSIGNMENT_CHANGED', 'WEB_SOURCE_BINDING_CONFLICT', 'WEB_SOURCE_BINDING_UNAVAILABLE',
+    'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE', 'SHARED_ACCESS_BINDING_CHANGED', 'SHARED_ACCESS_POLICY_CHANGED',
+    'SHARED_WEB_SYNC_UNAVAILABLE', 'WEB_SOURCE_CONTEXT_CHANGED', 'WEB_SOURCE_PROOF_REQUIRED']);
+  return readCapturedSharedDeviceJson(options, '/device/shared-web-source-binding/v2', { scopeProof }, errors);
 }
 
 export async function readCloudSharedAccessPolicy(options = {}) {

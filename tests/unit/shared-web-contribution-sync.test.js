@@ -46,9 +46,11 @@ async function run() {
     .replace(/import \{ buildLocalQuotaProjectionV2 \}[^;]+;/, 'const {buildLocalQuotaProjectionV2}=globalThis.__sharedWebQuota;')
     .replace(/import \{ getBeijingWeekPeriod \}[^;]+;/, 'const {getBeijingWeekPeriod}=globalThis.__sharedWebDates;')
     .replace(/import \{ readSharedAccessPolicyContext[^;]+;/, 'const readSharedAccessPolicyContext=()=>null,readSharedAccessPolicyLkg=()=>null,SHARED_ACCESS_POLICY_LKG_KEY="policy";')
-    .replace(/import \{ readCloudSharedWebCapabilities[^;]+;/, 'const readCloudSharedWebCapabilities=()=>null,readCloudSharedWebWatermark=()=>null,postCloudSharedWebContribution=()=>null,requestCloudSharedWebSourceBinding=()=>null;')
+    .replace(/import \{ readCloudSharedWebCapabilities[^;]+;/, 'const readCloudSharedWebCapabilities=()=>null,readCloudSharedWebWatermark=()=>null,postCloudSharedWebContribution=()=>null,requestCloudSharedWebSourceBinding=()=>null,requestCloudSharedWebSourceBindingV2=()=>null;')
+    .replace(/from '(\.\/shared-web-reusable-binding.js|\.\.\/core\/shared-web-native.js)'/g,
+      (_, p) => `from '${url('extension/' + path.posix.normalize('infra/' + p))}'`)
     .replace(/import \{ requestSharedWebSync, observeSharedAccessPolicyCapability, readSharedWebLocalConnection \}[^;]+;/, 'const requestSharedWebSync=()=>null,observeSharedAccessPolicyCapability=()=>null,readSharedWebLocalConnection=()=>({connection:null,capabilityNegotiated:false});')
-    .replace(/import \{ runStorageMutation, budgetedLocalSet \}[^;]+;/, 'const runStorageMutation=()=>null,budgetedLocalSet=async()=>{};')
+    .replace(/import \{ runStorageMutation, budgetedLocalSet \}[^;]+;/, 'const runStorageMutation=()=>null,budgetedLocalSet=async v=>{globalThis.__sharedDiagnostic=structuredClone(v);};')
     .replace(/import \{ readSharedQuotaExecutionLkg \}[^;]+;/, 'const readSharedQuotaExecutionLkg=()=>null;');
   const mod = await dataModule(source);
   const policyCore = await import(url('extension/core/shared-access-policy.js'));
@@ -98,6 +100,29 @@ async function run() {
     return { store, calls, nativeCalls, heads, options, sync: mod.createSharedWebContributionSync(options),
       clock: v => { clock = v; }, connection: v => { connection = v; }, leaseCapability: v => { leaseCapability = v; },
       cap: v => { cap = v; }, fail: v => { failed = v; }, hook: v => { responseHook = v; }, context: v => { context = v; }, policy: v => { currentPolicy = v; } };
+  }
+  function reusableFixture() {
+    const f = fixture(); let clock = now, connection = {}, offline = false, scopeVersion = 1, reject = null, exchanges = 0, hook = null;
+    const proof = audience => ({ schemaVersion: 2, keyId: 'a'.repeat(64), signature: 'A'.repeat(86), claims: {
+      schemaVersion: 2, audience, applicationSourceKey: 'e'.repeat(64), childScopeHash: 'f'.repeat(64), assignmentVersion: scopeVersion,
+      issuedAtMs: clock, expiresAtMs: clock + 300000,
+      ...(audience === 'timeonchrome:shared-web-source:v2' ? { webSourceKey: sourceKey, bindingEpochHash: 'd'.repeat(64) } : {}) } });
+    f.options.now = () => clock;
+    f.options.readConnection = () => ({ connection, capabilityNegotiated: true, reusableSourceSupported: true });
+    f.options.exchangeV2 = async () => { exchanges++; return offline ? { ok: false } : { ok: true, value: proof('timeonchrome:shared-web-source:v2') }; };
+    f.options.native = async (method, payload) => {
+      f.nativeCalls.push({ method, payload: clone(payload) });
+      if (method === 'getSharedWebSourceScope') return { ok: true, value: proof('timeonchrome:shared-web-machine-scope:v2') };
+      if (hook) await hook(method);
+      if (reject) return { ok: false, errorCode: reject };
+      if (method === 'bindSharedWebSourceV2') return { ok: true, value: { status: 'verified', webSourceKey: sourceKey, expiresAtMs: payload.proof.claims.expiresAtMs } };
+      assert.equal(method, 'replaceSharedWebContributionV2');
+      return { ok: true, value: { date: payload.upload.date, revisionOrdinal: payload.upload.revisionOrdinal, contentHash: payload.upload.contentHash, duplicate: true } };
+    };
+    f.sync = mod.createSharedWebContributionSync(f.options);
+    return Object.assign(f, { offline: v => { offline = v; }, exchanges: () => exchanges,
+      clock: v => { clock = v; },
+      reconnect: () => { connection = {}; }, scope: v => { scopeVersion = v; }, reject: v => { reject = v; }, nativeHook: v => { hook = v; } });
   }
   const disabled = fixture(false); assert.equal((await disabled.sync.refresh()).ok, false); assert.equal(disabled.calls.length, 0);
   for (const [kind, buckets, corrections, expected] of [
@@ -215,6 +240,56 @@ async function run() {
   stale.sync = mod.createSharedWebContributionSync(stale.options);
   assert.equal((await stale.sync.refresh()).errorCode, 'shared_web_stale');
   assert.equal(stale.store[mod.SHARED_WEB_QUEUE_KEY].days['2026-09-28'].cloudConfirmed, false);
+  const v2 = reusableFixture(); const originals = JSON.stringify(v2.store.daily_usage_stats_v1);
+  assert.equal((await v2.sync.refresh()).ok, true);
+  assert.equal(v2.exchanges(), 1);
+  assert.equal(v2.nativeCalls.filter(c => c.method === 'replaceSharedWebContributionV2').length, 6);
+  assert.equal(JSON.stringify(v2.store.daily_usage_stats_v1), originals);
+  assert.equal((await v2.sync.readBinding()).ok, true);
+  v2.reconnect(); v2.offline(true); v2.cap(false);
+  await v2.sync.refresh();
+  assert.equal(v2.exchanges(), 1, 'new Port locally binds cached proof before cloud capability read');
+  assert.equal((await v2.sync.readBinding()).ok, true);
+  v2.clock(now + 3600000);
+  v2.store.daily_usage_stats_v1['2026-10-03'].domains['fixture.invalid'].activeSeconds++;
+  v2.store.daily_usage_stats_v1['2026-10-03'].targets.fixture.activeByQuotaBucket.rest = 1;
+  await v2.sync.refresh();
+  assert.equal((await v2.sync.readBinding()).ok, true, 'same verified Port lease survives proof expiry');
+  v2.reconnect(); await v2.sync.refresh();
+  assert.equal((await v2.sync.readBinding()).ok, false, 'expired proof cannot revive on new Port');
+  assert(v2.nativeCalls.every(c => !['getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution'].includes(c.method)));
+  const rejectedV2 = reusableFixture(); rejectedV2.reject('WEB_SOURCE_SCOPE_MISMATCH');
+  await rejectedV2.sync.refresh();
+  assert.equal(globalThis.__sharedDiagnostic[mod.SHARED_WEB_DIAGNOSTICS_KEY].nativeFailure.errorCode, 'WEB_SOURCE_SCOPE_MISMATCH', 'date loop retains stable bind reason');
+  assert.equal((await rejectedV2.sync.readBinding()).ok, false);
+  const replaceRejected = reusableFixture();
+  replaceRejected.nativeHook(async method => { if (method === 'replaceSharedWebContributionV2') replaceRejected.reject('WEB_SOURCE_CONTEXT_CHANGED'); });
+  await replaceRejected.sync.refresh();
+  assert.equal(globalThis.__sharedDiagnostic[mod.SHARED_WEB_DIAGNOSTICS_KEY].nativeFailure.errorCode, 'WEB_SOURCE_CONTEXT_CHANGED');
+  assert.equal((await replaceRejected.sync.readBinding()).ok, false);
+  const laterReject = reusableFixture(); const exchangeLater = laterReject.options.exchangeV2; let initialExchange = true;
+  laterReject.options.exchangeV2 = async (...args) => { if (initialExchange) { initialExchange = false; return { ok: false }; } return exchangeLater(...args); };
+  laterReject.nativeHook(async method => { if (method === 'replaceSharedWebContributionV2') laterReject.reject('WEB_SOURCE_CONTEXT_CHANGED'); });
+  laterReject.sync = mod.createSharedWebContributionSync(laterReject.options);
+  await laterReject.sync.refresh();
+  assert.equal(globalThis.__sharedDiagnostic[mod.SHARED_WEB_DIAGNOSTICS_KEY].nativeFailure.errorCode, 'WEB_SOURCE_CONTEXT_CHANGED', 'online date replacement preserves stable reason');
+  const partialV2 = reusableFixture(); const acceptPartial = partialV2.options.native;
+  partialV2.options.native = async (method, payload) => {
+    const result = await acceptPartial(method, payload);
+    if (method === 'replaceSharedWebContributionV2') delete result.value.contentHash;
+    return result;
+  };
+  partialV2.sync = mod.createSharedWebContributionSync(partialV2.options);
+  assert.equal((await partialV2.sync.refresh()).errorCode, 'shared_web_native_rejected');
+  assert.equal((await partialV2.sync.readBinding()).ok, false, 'partial ACK never confirms Native content');
+  const lateReplace = reusableFixture(); lateReplace.nativeHook(async method => { if (method === 'replaceSharedWebContributionV2') lateReplace.reconnect(); });
+  assert.equal((await lateReplace.sync.refresh()).errorCode, 'shared_web_identity_changed');
+  assert.equal((await lateReplace.sync.readBinding()).ok, false, 'late replacement cannot confirm on changed Port');
+  const lateV2 = reusableFixture(); lateV2.nativeHook(async method => { if (method === 'bindSharedWebSourceV2') lateV2.reconnect(); });
+  await lateV2.sync.refresh(); assert.equal((await lateV2.sync.readBinding()).ok, false, 'late response cannot restore old Port');
+  const policyV2 = reusableFixture(); await policyV2.sync.refresh();
+  policyV2.policy({ ...policy, effectiveAtMs: policy.effectiveAtMs + 1 });
+  assert.equal((await policyV2.sync.readBinding()).ok, false, 'complete policy identity invalidates lease');
   const nativeValidator = await import(url('extension/core/shared-web-native.js'));
   assert.deepEqual(nativeValidator.captureSharedQuotaPreparation(p, { date: '2026-10-03', weekStart: '2026-09-28', policyRevision: policy.revision }), p);
   assert.throws(() => nativeValidator.captureSharedQuotaPreparation({ ...p, executionEnabled: true }, { date: '2026-10-03', weekStart: '2026-09-28', policyRevision: policy.revision }));

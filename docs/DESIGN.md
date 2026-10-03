@@ -1817,3 +1817,14 @@ OpenCode 在执行 Popup P0 UI 任务时，出现“等价替代 / 自行简化 
 ### 影响范围
 - 仅文档变更，无代码逻辑改动
 - 所有 AI 执行器（Codex / OpenCode / Claude Code 等）均需遵守
+# D-114 可复用来源核验终端适配（2026-10-03）
+
+正常诊断文案分开报告三状态：当前连接只表示通道；“孩子身份确认”有效时显示“已确认（同一孩子／当前连接）”，未建立／已失效保持明确；逐日“当前贡献接收”仍只读取当前Native贡献ACK，不推断成功。新V2能力显示“可复用孩子身份核验”。仅formatter文字，不改布局、HTML/CSS或状态真假语义，沿用既有聚焦view测试，不操作正式Chrome。
+
+本批职责extension-local，仅源码、聚焦测试和本地集中提交，不改候选、不推送部署。固定包源2d054c789ded8660a138d25f0130d9d88abf8aa4。补核V2稳定身份码逐层透传，业务拒绝不关闭健康Port；当前租约须同Port、同scope及完整policyIdentity，首次verifiedAt处于proof有效期。过期仅允许既有连接租约延续，断线重连必须重新验证有效proof。验证限定绑定、贡献同步兼容、Native通道、诊断专项及typecheck；正式Chrome与联合云端/Service实机验收不在本批执行。
+
+源码验证结果：四项聚焦测试通过，含固定公钥验签/篡改/错scope/到期、缓存跨Port重验、过期断线不复活、改绑/完整策略变更、重复及缺字段ACK、迟到响应与旧端兼容；Native稳定错误仍保持健康Port，诊断显示连接与身份分离。类型、扩展根及diff检查通过，未修改HTML/CSS，不新增页面目视闸门。源码通过不等于真实Service或未部署云端已完成联合验收。
+
+按已批准裁决消费固定契约1.31.0（包SHA256：355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395）。能力shared-web-source-reusable-v2明确选择getSharedWebSourceScope、bindSharedWebSourceV2及replaceSharedWebContributionV2；新能力失败不降级，能力缺失保留v1。machine-scope仅作为设备鉴权取得web证明的签名范围输入；Native以可信当前分配验签，扩展不自授身份。有效web证明按本机身份与签名scope缓存，重连必须本地重新绑定；过期重连必须重新取得证明，不能延长旧租约。连接、身份或策略变化撤销在途结果及Native贡献确认；原统计、贡献队列、载荷哈希、云端ACK及执行门禁保持不变。
+
+只改终端契约消费、消息校验、身份适配及最小相关测试。通道在线、verified身份和贡献ACK仍是三个独立状态。固定错误码，不记录签名证明、凭据或原始身份；不更新候选、不安装、部署或启用家庭执行。HTTP包装须依据云端实际路由和聚焦测试核对，不能以success/count猜测确认。

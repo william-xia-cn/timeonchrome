@@ -1033,15 +1033,21 @@ async function run() {
   assert.strictEqual(activityRequests.length, oldHostCount);
   assert(leasesObserved.includes(null) && leasesObserved.includes('fixture-lease-2'));
   const webRequests = [], challenge = { schemaVersion: 1, challengeId: 'c'.repeat(64), connectionHash: 'd'.repeat(64), expiresAtMs: Date.now() + 300000 };
-  let webCapable = true, badWebReceipt = false, localLeaseCapable = false, fullSharedCapable = false;
+  let webCapable = true, badWebReceipt = false, localLeaseCapable = false, fullSharedCapable = false, reusableCapable = false, webError = null;
+  const machineProof = { schemaVersion: 2, keyId: 'a'.repeat(64), signature: 'A'.repeat(86), claims: {
+    schemaVersion: 2, audience: 'timeonchrome:shared-web-machine-scope:v2', applicationSourceKey: 'e'.repeat(64),
+    childScopeHash: 'f'.repeat(64), assignmentVersion: 1, issuedAtMs: challenge.expiresAtMs - 300000, expiresAtMs: challenge.expiresAtMs } };
   const webHost = await loadGuardian({ storage: {}, policy, development: true,
     connectNative: () => createPort((payload, onMessage) => {
       webRequests.push(payload);
-      queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(), requestId: payload.requestId,
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: !webError || payload.channel !== 'sharedQuota', errorCode: webError, receivedAt: Date.now(), requestId: payload.requestId,
         supportedProtocols: [3], capabilities: ['health', ...(webCapable ? ['shared-web-contribution-sync-v1'] : []),
           ...(localLeaseCapable ? ['shared-web-local-lease-v1'] : []),
+          ...(reusableCapable ? ['shared-web-source-reusable-v2'] : []),
           ...(fullSharedCapable ? ['shared-quota-state-read', 'shared-access-policy-identity-read',
             'shared-quota-execution-preparation-read-v1', 'shared-browser-activity-v1', 'shared-reminder-lifecycle-v1'] : [])],
+        ...(payload.messageType === 'getSharedWebSourceScope' ? { sharedWebSourceScope: machineProof } : {}),
+        ...(payload.messageType === 'bindSharedWebSourceV2' ? { sharedWebIdentity: { status: 'verified', webSourceKey: payload.payload.proof.claims.webSourceKey, expiresAtMs: payload.payload.proof.claims.expiresAtMs } } : {}),
         ...(payload.messageType === 'getSharedWebSourceChallenge' ? { sharedWebSourceChallenge: badWebReceipt ? { ...challenge, deviceToken: 'forbidden' } : challenge } : {}),
         ...(payload.messageType === 'bindSharedWebSource' ? { sharedWebSourceBound: { challengeId: challenge.challengeId, webSourceKey: payload.payload.proof.claims.webSourceKey, expiresAtMs: payload.payload.proof.claims.expiresAtMs } } : {}),
         ...(payload.messageType === 'replaceSharedWebContribution' ? { sharedWebContributionAccepted: {
@@ -1078,6 +1084,21 @@ async function run() {
   assert.strictEqual(webRequests.length, unsupportedCount);
   assert.strictEqual(webHost.module.readSharedWebLocalConnection().connection, null);
   assert.strictEqual(webHost.module.hasSharedAccessExecutionCapability(), false);
+  reusableCapable = true;
+  await webHost.module.requestLocalGuardianHeartbeat({ force: true });
+  assert.strictEqual(webHost.module.readSharedWebLocalConnection().reusableSourceSupported, true);
+  assert.strictEqual(webHost.module.hasSharedAccessExecutionCapability(), true, 'V2-only Host retains required execution capabilities');
+  assert.deepStrictEqual((await webHost.module.requestSharedWebSync('getSharedWebSourceScope', {})).value, machineProof);
+  const proofV2 = { ...machineProof, claims: { ...machineProof.claims, audience: 'timeonchrome:shared-web-source:v2', webSourceKey: 'web:' + 'b'.repeat(64), bindingEpochHash: 'c'.repeat(64) } };
+  assert.strictEqual((await webHost.module.requestSharedWebSync('bindSharedWebSourceV2', { proof: proofV2 })).ok, true);
+  const v2Connection = webHost.module.readSharedWebLocalConnection().connection;
+  for (const code of ['SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE', 'WEB_SOURCE_CONTEXT_CHANGED', 'WEB_SOURCE_PROOF_REQUIRED', 'WEB_SOURCE_PROOF_EXPIRED', 'WEB_SOURCE_SCOPE_MISMATCH', 'WEB_SOURCE_PROOF_SIGNATURE_INVALID']) {
+    webError = code;
+    assert.strictEqual((await webHost.module.requestSharedWebSync('bindSharedWebSourceV2', { proof: proofV2 })).errorCode, code);
+    assert.strictEqual(webHost.module.readSharedWebLocalConnection().connection, v2Connection, 'business rejection preserves healthy Port');
+    assert.strictEqual(webHost.module.readNativeHostDiagnosticState().lastResponseRejection.serviceErrorCode, code);
+  }
+  webError = null;
   console.log('[Local Guardian] passed');
   process.exit(0);
 }

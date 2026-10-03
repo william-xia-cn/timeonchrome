@@ -1,5 +1,13 @@
 import { validateSharedWebSourceBindingProofV1, verifySharedWebContributionV1 } from './shared-contracts/1.30.0/shared-web-sync.js';
 import { validateSharedAccessPolicyIdentityV1 } from './shared-quota-state.js';
+import { validateSharedWebReusableProofV2 } from './shared-contracts/1.31.0/shared-web-sync.js';
+
+export const SHARED_WEB_IDENTITY_ERRORS = new Set(['INVALID_WEB_SOURCE_SCOPE', 'INVALID_WEB_SOURCE_PROOF',
+  'INVALID_WEB_SOURCE_BINDING', 'INVALID_WEB_SOURCE_KEY', 'WEB_SOURCE_SCOPE_MISMATCH',
+  'WEB_SOURCE_PROOF_EXPIRED', 'WEB_SOURCE_PROOF_SIGNATURE_INVALID', 'WEB_SOURCE_ASSIGNMENT_CHANGED',
+  'WEB_SOURCE_BINDING_CONFLICT', 'WEB_SOURCE_BINDING_UNAVAILABLE', 'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE',
+  'SHARED_ACCESS_BINDING_CHANGED', 'SHARED_ACCESS_POLICY_CHANGED', 'SHARED_WEB_SYNC_UNAVAILABLE',
+  'WEB_SOURCE_CONTEXT_CHANGED', 'WEB_SOURCE_PROOF_REQUIRED']);
 
 const exact = (v, keys) => v && !Array.isArray(v) && Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
 const hash = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
@@ -45,8 +53,14 @@ export function captureSharedQuotaPreparation(value, expected) {
   return JSON.parse(JSON.stringify(value));
 }
 export async function captureSharedWebNativeRequest(method, value) {
-  if (method === 'getSharedWebSourceChallenge') {
+  if (method === 'getSharedWebSourceChallenge' || method === 'getSharedWebSourceScope') {
     if (!exact(value, [])) throw Error('shared_web_invalid_request');
+  } else if (method === 'bindSharedWebSourceV2') {
+    if (!exact(value, ['proof'])) throw Error('shared_web_invalid_request');
+    validateSharedWebReusableProofV2(value.proof, 'timeonchrome:shared-web-source:v2');
+  } else if (method === 'replaceSharedWebContributionV2') {
+    if (!exact(value, ['upload'])) throw Error('shared_web_invalid_request');
+    return { upload: await verifySharedWebContributionV1(value.upload) };
   } else if (method === 'bindSharedWebSource') {
     if (!exact(value, ['proof'])) throw Error('shared_web_invalid_request');
     validateSharedWebSourceBindingProofV1(value.proof);
@@ -57,6 +71,19 @@ export async function captureSharedWebNativeRequest(method, value) {
   return JSON.parse(JSON.stringify(value));
 }
 export function captureSharedWebNativeReceipt(method, ack, request, now) {
+  if (method === 'getSharedWebSourceScope') {
+    const proof = ack.sharedWebSourceScope;
+    validateSharedWebReusableProofV2(proof, 'timeonchrome:shared-web-machine-scope:v2');
+    if (proof.claims.issuedAtMs > now || proof.claims.expiresAtMs <= now) throw Error('WEB_SOURCE_PROOF_EXPIRED');
+    return JSON.parse(JSON.stringify(proof));
+  }
+  if (method === 'bindSharedWebSourceV2') {
+    const r = ack.sharedWebIdentity, c = request.proof.claims;
+    if (!exact(r, ['status', 'webSourceKey', 'expiresAtMs']) || r.status !== 'verified'
+      || r.webSourceKey !== c.webSourceKey || r.expiresAtMs !== c.expiresAtMs || r.expiresAtMs <= now)
+      throw Error('shared_web_invalid_receipt');
+    return { ...r };
+  }
   if (method === 'getSharedWebSourceChallenge') {
     const r = ack.sharedWebSourceChallenge;
     if (!exact(r, ['schemaVersion', 'challengeId', 'connectionHash', 'expiresAtMs']) || r.schemaVersion !== 1
