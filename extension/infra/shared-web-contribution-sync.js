@@ -40,6 +40,39 @@ export function summarizeStoredBucketCoverage(stats) {
   }
   return { allBucketMs: Number.isSafeInteger(all) ? all : null, knownBucketMs: Number.isSafeInteger(known) ? known : null, unknownBucketKeyCount: unknown.size };
 }
+export function summarizeProjectedBucketDiagnostics(local, corrections) {
+  try {
+    const buckets = local?.today?.byQuotaBucket;
+    if (!buckets || !Array.isArray(local.correctionIssues)) return null;
+    let allBucketMs = 0, knownBucketMs = 0, unknownBucketMs = 0, unknownBucketKeyCount = 0;
+    const bucket = key => ['study', 'composite', 'rest', 'other'].includes(key) ? key : 'unknown';
+    for (const [key, value] of Object.entries(buckets)) {
+      if (!nonnegative(value) || !Number.isSafeInteger(value * 1000)) return null;
+      allBucketMs += value * 1000;
+      if (bucket(key) === 'unknown') { unknownBucketMs += value * 1000; unknownBucketKeyCount++; }
+      else knownBucketMs += value * 1000;
+    }
+    const active = corrections.filter(v => v.channel === 'active');
+    const rejectedCount = local.correctionIssues.length;
+    if (rejectedCount > active.length) return null;
+    const flows = new Map();
+    for (const v of active) {
+      if (!nonnegative(v.durationSeconds)) return null;
+      const from = bucket(v.originalQuotaBucket || v.originalMode || 'unknown');
+      const to = bucket(v.effectiveQuotaBucket || v.effectiveMode || 'unknown');
+      const key = `${from}:${to}`, flow = flows.get(key) || { from, to, count: 0, requestedSeconds: 0 };
+      flow.count++; flow.requestedSeconds += v.durationSeconds;
+      flows.set(key, flow);
+    }
+    const failures = { local_day_missing: 0, original_bucket_too_small: 0, unknown: 0 };
+    for (const issue of local.correctionIssues) failures[Object.hasOwn(failures, issue.reason) ? issue.reason : 'unknown']++;
+    const result = { allBucketMs, knownBucketMs, unknownBucketMs, unknownBucketKeyCount,
+      corrections: { requestedCount: active.length, appliedCount: active.length - rejectedCount, rejectedCount,
+        flows: [...flows.values()].sort((a, b) => `${a.from}:${a.to}`.localeCompare(`${b.from}:${b.to}`)), failures } };
+    if (![allBucketMs, knownBucketMs, unknownBucketMs, ...result.corrections.flows.map(v => v.requestedSeconds)].every(nonnegative)) return null;
+    return result;
+  } catch (_) { return null; }
+}
 function watermark(v, date, sourceKey = null) {
   if (!exact(v, ['schemaVersion', 'sourceKey', 'date', 'revisionOrdinal', 'contentHash', 'publicationRevision'])
     || v.schemaVersion !== 1 || v.date !== date || !/^web:[a-f0-9]{64}$/.test(v.sourceKey)
@@ -122,6 +155,8 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     if (stats?.compactedByChannel?.active != null && !nonnegative(stats.compactedByChannel.active)
       || corrections.some(v => !nonnegative(v.durationSeconds))) throw Error('shared_web_statistics_invalid');
     const local = buildLocalQuotaProjectionV2({ [date]: stats }, { date, weekStart: date, weekEnd: date, deviceId: c.deviceId, corrections });
+    diagnostic.coverageByDate[date] = { ...summarizeStoredBucketCoverage(stats),
+      afterCorrections: summarizeProjectedBucketDiagnostics(local, corrections) };
     const day = local.today, buckets = Object.fromEntries(['study', 'composite', 'rest'].map(k => [k, (day.byQuotaBucket[k] || 0) * 1000]));
     const otherMs = (day.byQuotaBucket.other || 0) * 1000, activeMs = day.onlineSeconds * 1000;
     const reasons = [];
@@ -192,7 +227,7 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
         }
         q = await change(c, generation, q => { q.days[d] = item; return q; });
         if (!q) return fail('shared_web_identity_changed');
-        diagnostic.coverageByDate[d] = { ...summarizeStoredBucketCoverage(stored.daily_usage_stats_v1?.[d]),
+        diagnostic.coverageByDate[d] = { ...diagnostic.coverageByDate[d],
           revisionOrdinal: item.upload.revisionOrdinal, contentHash: item.upload.contentHash };
         diagnostic.coverageByDate = Object.fromEntries(Object.entries(diagnostic.coverageByDate)
           .filter(([date]) => date >= weekStart).slice(-7));
