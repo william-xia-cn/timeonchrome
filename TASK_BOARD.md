@@ -2,6 +2,16 @@
 
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 
+PO扩大交付到实际自托管（2026-10-04）：已明确要求执行内部managed渠道更新，取代此前仅unpacked/记录交付限制；控件任务执行正式managed制品与稳定feed/CRX发布，Native只读核对正式Host/旧别名/稳定ID兼容，不用开发连接证明正式渠道。不得夹带native-host-development或shared关闭实验配置，不进入CWS、不切R2 latest、不开共享、不新分支/树。当前自托管进行中，待正式候选最小验证/来源/签名稳定ID及线上feed/CRX/hash回读；MacDEFERRED且独立回报，统计已知问题不改写PASS。主线文档PR226应随此范围更正，不能只合文档称更新源已发。
+
+非共享发布决定（2026-10-04，PO“继续完成发布，mac后补”）：Mac云端接入已发布但安装/真实能力、非零发布、页面对照及应用执行实测保持DEFERRED，不能冒充PASS；共享功能联调同样不在本版启用范围。三份现有文档集中提交并合入，代码证据及生产manifest复用，不重新部署文档SHA，不构建/安装新候选。内部非共享交付完成不代表Windows统计遗留、P1、历史桶或整体D-114关闭。
+
+非共享交付核对结果：控件1.7.42复用，七个关键文件与受测源码一致；Windows四组件2.6.26.0/SHA匹配且Service正常，Native交付记录已推69aed6a。两端shadow不启用共享执行，但并非永久禁止共享的删功能构建。生产manifest37146310947所指Guardian版本8dc07256与发布37133833997一致，发布命令明确SHARED_ACCESS_EXECUTION_ENABLED:false；源码总闸false将shared降为shadow。本次未取得新鲜Profile认证stage，不把部署证据冒充现场采样。现有已上线独立能力按PO决定作为内部非共享版集中交付，无需重装/重复部署；原账、配额、产品黑名单、R2 latest和开发目录不变。Shared联合验收及已知统计缺项保留，Mac另行回报。
+
+PO批准非共享内部交付（2026-10-04）：复用已经部署的云端master4e53525、Windows2.6.26和原目录控件1.7.42；本次不创建分支/树、重复部署同SHA、重建/安装、发布托管/CWS或切换R2 latest。交付范围为现有独立配置/管理/统计及设备能力；共享执行继续关闭，贡献仅影子核对。已交控件/Native所属任务核对shadow阶段不会触发共享访问/提醒/结束，既有独立规则和产品黑名单不被停用，回报精确候选/安装与源码证据。本轮只修改现有项目真值及任务板，必要diff检查；复用未变代码证据，不跑全平台。Windows发布收敛、P1、历史桶、共享联合验收保留未完成；Mac沿已提交任务832fe7d/Issue12单独回报，不当作Windows交付证据。
+
+Mac接入已发布（2026-10-04 03:03）：功能提交ae559af、PR #225，PR CI37146137428及master 4e53525db2dc185c3696d9fa8ee6c18ccc397216的CI37146225612通过；Production37146310947成功，仅Runtime Worker，version4ae6b678-027a-44d0-b753-01b15e854b89。日志确认No migrations to apply；公开独立smoke health200、未认证目录401、R2 latest仍2.3.1。已沿Native Issue #12发送跨机验收任务，复用Mac0.1.22和原配对、正常能力读取与补发，不重装。源码/部署完成；Mac真实认证能力、非零接收→发布及同范围页面对照仍待回报，不能宣布实机问题全部关闭。Windows未收敛另项保持待查，共享执行仍关闭。
+
 Mac接入源码验证（2026-10-04）：能力声明和核对器共用精确平台算法映射，macos只接受macos-application-v1、windows只接受windows-application-v1。两文件64/64聚焦回归通过，涵盖真实D1接收/发布/持久读取、1501毫秒、并集、跨日、零日完整性、错误统计/关联/更正拒绝、用户隔离和迟到事实；typecheck、Wrangler dry-run、源码/任务边界及git diff --check通过。审计Matched=批准源码范围与原有严格核对；Deviated/Extra=空；Missing=生产发布及真正Mac补发验收（尚未完成）。不新增契约字段或migration，不修改Native及原账；共享执行仍关闭。
 
 NOW Mac应用统计云端接入（2026-10-04，PO要求优先处理）：固定Mac来源3f9b778的Daemon使用公共ApplicationUsageReader/ApplicationAccountStore并选择macos-application-v1；现有云端仅Windows能力与算法/platform门禁，造成0.1.22可发送日账被正确暂停。任务standard-cloud，允许TASK_BOARD、docs/DESIGN、backend应用清单/发布核对及对应测试；保留当前未提交发布续验记录和原有产物。实施顺序：①记录同一统计语义与平台算法绑定；②能力声明与严格Mac核对支持；③Mac非零/零、毫秒并集/跨日、错误统计/错平台/关联/隔离/迟到事实及持久读取回归；④typecheck、dry-run、边界/diff、PR与精确SHA CI；⑤仅Runtime Worker部署，Mac真实接收/发布/页面由Mac端分别核对。无契约字段变更，不改原账、计时、配额、Native/扩展、Pages，不执行migration或安装；排除Windows/Mac全量编译、安装器和无关页面测试。只有源码与真实精确核对均存在才声明Mac能力，实机未验证不得标完成。
