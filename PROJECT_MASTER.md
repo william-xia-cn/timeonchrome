@@ -1,5 +1,9 @@
 # PROJECT_MASTER
 
+## 共享身份V2兼容云端发布（2026-10-03）
+
+PO批准下一阶段后，PR #221合并主线`56ae43ec62e22fa21a725f858b0ef98372daae9d`；精确主线CI通过，Production `37133833997`成功。仅发布Runtime Worker `06bfc29b-9af4-4bb5-b8ed-2a01378d66d0`与Guardian Worker `8dc07256-d570-4756-8a2d-43d509e20929`，契约1.31.0。发布manifest确认两边migration均空、shadow preparation=false；独立烟测health=200及两条新V2路由未认证=401。Cloudflare Runtime/Main Pages仍分别为`43edb82f`／`1a211c0c`旧部署，R2 latest仍2.3.1。Windows2.6.24与原目录扩展1.7.42候选正在所属会话准备，尚未安装／重载或真实联合验收；共享执行继续关闭。此条仅覆盖下方源码阶段的“尚未部署”状态，不把上线兼容接口说成当前连接已核验。
+
 ## 共享连接身份核验简化：源码交付状态（2026-10-03）
 
 契约1.31.0、Guardian/Runtime兼容接口、扩展与Windows Native适配已完成本地提交及聚焦验证：契约`2d054c7`、云端`41e455d`、控件`d9bb02e`、Native`6f8aef1`。新能力采用五分钟内可跨连接复用的签名证明；每次重连核对当前用户唯一孩子分配，断开／改绑撤销连接上下文，旧租约不复活，v2失败不降级为弱身份判断。通道连接、孩子身份确认与贡献实际接收分别报告。

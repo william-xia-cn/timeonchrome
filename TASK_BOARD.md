@@ -2,6 +2,12 @@
 
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 
+最终候选交付：Windows2.6.24来自Native `6f8aef1`／固定Contracts1.31.0，四正式组件均2.6.24.0；MSI/Burn零警告错误，安装器结构3项通过，复用37项协议测试。架构独立复算Burn119764907bytes／`9324233f8b9afd973b3f87fe80b28312bcb2cbbca491f513778f68acdffb5ee9`、MSI61056758bytes／`91788a70b0a5a6d6ad71eea05e75d70ae954797d53bb9d15dae73f37b53cf92b`、manifest／`6514c8f71d0540e97ec9280e1b8181a9362660e9a816a9ba45ca7759676f686b`与清单一致。内部未签名、BLOCKED_BY_AUTHENTICODE_SIGNING、latestEligible=false；37项旧发布文件及本地latest未变。控件1.7.42 Native Host Development Candidate已更新原junction目标，179候选文件核对通过、原运行缓存1项保留；候选摘要`304084f9fea052081ae7f65b82cc8d52995d416e0f181dfe5d698eaf75274aa0`。架构回读原路径版本及binding/client文件哈希与受测源码一致；ID／模式／绑定不变，没有自动重载。当前Native安装仍2.6.23，真实联合核验待PO安装及原扩展重载后进行，不以发布／候选证据关闭身份或ACK问题。
+
+兼容发布结果：Production `37133833997`在精确主线`56ae43e`成功，仅两个Worker；Runtime版本`06bfc29b-9af4-4bb5-b8ed-2a01378d66d0`，Guardian版本`8dc07256-d570-4756-8a2d-43d509e20929`。manifest无Runtime/Guardian migration，shadow preparation=false；独立health200、Runtime scope/Guardian binding-v2未认证401。Cloudflare Pages未发布，R2 latest2.3.1不变。Windows2.6.24及扩展1.7.42候选进行中，未安装／重载／联调。仅部署烟测PASS，孩子核验及当前贡献ACK仍NOT_VERIFIED。
+
+上线／候选阶段授权（PO最新“进行吧”）：PR #221已合入master `56ae43ec62e22fa21a725f858b0ef98372daae9d`；精确主线App Runtime `37133559149`及Guardian集成`37133559157`成功。只部署Guardian Worker与Runtime Worker；Runtime/Main Pages、bootstrap、prepare_shadow和migration均为false，expected migrations为空。不修改密钥、共享执行开关或R2/latest。Native与控件所属会话准备唯一新候选，原扩展目录不变，安装由PO手动执行；真实联调尚未完成。此授权覆盖下方先前“源码阶段不部署”的阶段限制，不扩展到共享执行或其他遗留问题。
+
 集中集成续验：已推送现有云端分支并创建PR #221；`5c55b68`合入控件来源`d9bb02e`，仅任务板冲突保留双方证据，控件实现与原提交逐文件一致。首次CI职责声明错误已改为architecture-integration及两个精确merge来源，未放宽检查。第二次CI职责／Guardian／Console通过，Contracts旧机器控制向量仍为1.30.0，却断言等于新增1.31.0包而失败。仅修正测试：固定旧向量为上一兼容版，当前包版本仍由独立兼容测试核验；不改向量、协议或包正文／哈希。此项待聚焦复验及CI，不声明已合入或上线。
 
 职责 architecture-integration：维护契约；standard-cloud 实施 Guardian/Runtime；extension-local 与 native-local 各自适配。不新建分支/工作树。先发布源码与证据，不安装、部署、migration、R2或启用共享限制。已有未提交安装状态记录保留。
