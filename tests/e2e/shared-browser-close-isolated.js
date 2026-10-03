@@ -6,12 +6,21 @@ const { createHash } = require('node:crypto');
 const { chromium } = require('@playwright/test');
 const root = path.resolve(__dirname, '../..');
 async function run() {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'toc-close-isolated-'));
+  const retained = process.env.TOC_CLOSE_FIXTURE_ROOT;
+  const temp = retained ? fs.realpathSync(retained) : fs.mkdtempSync(path.join(os.tmpdir(), 'toc-close-isolated-'));
+  if (retained) {
+    assert.equal(path.dirname(temp), fs.realpathSync(os.tmpdir()));
+    assert(path.basename(temp).startsWith('toc-close-isolated-'));
+    assert(fs.existsSync(path.join(temp, 'profile')), 'Retained isolated Profile required');
+  }
+  const selectedCase = process.env.TOC_CLOSE_CASE;
+  assert(!selectedCase || ['normal', 'cancel', 'force'].includes(selectedCase), 'Known isolated case required');
+  const closerHash = createHash('sha256').update(fs.readFileSync(path.join(root, 'extension/product/shared-browser-closer.js'))).digest('hex');
   const bundle = path.join(temp, 'extension');
   fs.cpSync(path.join(root, 'extension'), bundle, { recursive: true });
   fs.writeFileSync(path.join(bundle, 'deployment-profile.json'), JSON.stringify({ mode: 'isolated-test' }));
   fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'TimeOnChrome isolated close evaluation',
-    version: '0.0.1', permissions: ['debugger', 'tabs', 'storage', 'idle', 'webNavigation', 'alarms', 'notifications'],
+    version: '0.0.2', permissions: ['debugger', 'tabs', 'storage', 'idle', 'webNavigation', 'alarms', 'notifications'],
     host_permissions: ['http://127.0.0.1/*'], background: { service_worker: 'isolation-worker.js', type: 'module' } }));
   fs.writeFileSync(path.join(bundle, 'isolation-worker.js'), `
     import {createSharedBrowserCloser} from './product/shared-browser-closer.js';
@@ -21,6 +30,7 @@ async function run() {
     import {initSignal} from './core/signal.js';
     import {dispatchTimingSignal} from './core/timing-dispatcher.js';
     import {initSession,transitionState,getSession,setCachedEffectiveMode} from './runtime/session.js';
+    globalThis.testFixtureIdentity={version:'0.0.2',closerHash:${JSON.stringify(closerHash)}};
     let watched=null, chain=Promise.resolve(), events=[], failures=[];
     initSignal(event=>{
       events.push(event._reason); chain=chain.then(()=>dispatchTimingSignal(event)).catch(e=>failures.push(e.message));
@@ -50,9 +60,32 @@ async function run() {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   let context;
   try {
-    context = await chromium.launchPersistentContext(path.join(temp, 'profile'), { headless: false,
+    context = await chromium.launchPersistentContext(path.join(temp, 'profile'), {
+      channel: 'chromium',
+      executablePath: process.env.TOC_CLOSE_CHROME, headless: process.env.TOC_CLOSE_HEADLESS === '1',
       args: [`--disable-extensions-except=${bundle}`, `--load-extension=${bundle}`, '--no-first-run'], timeout: 30000 });
-    const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
+    const ownWorker = w => w.url().endsWith('/isolation-worker.js');
+    let worker = context.serviceWorkers().find(ownWorker)
+      || await context.waitForEvent('serviceworker', { predicate: ownWorker, timeout: 15000 });
+    if (retained) {
+      // Unpacked code edits do not invalidate a retained extension's cached module graph.
+      // Reload only this fixture in its explicitly validated isolated Profile.
+      const reloaded = context.waitForEvent('serviceworker', { predicate: ownWorker, timeout: 15000 });
+      await worker.evaluate(() => chrome.runtime.reload()).catch(error => {
+        if (!/closed|destroyed/i.test(error.message)) throw error;
+      });
+      worker = await reloaded;
+    }
+    const ready = await worker.evaluate(() => new Promise(resolve => {
+      const started = performance.now();
+      const timer = setInterval(() => {
+        if (typeof testDefaultOff === 'function' && globalThis.testFixtureIdentity || performance.now() - started > 10000) {
+          clearInterval(timer);
+          resolve(globalThis.testFixtureIdentity || null);
+        }
+      }, 25);
+    }));
+    assert.deepEqual(ready, { version: '0.0.2', closerHash }, 'Current fixture and closer must initialize before evaluation');
     const defaults = await worker.evaluate(() => testDefaultOff());
     assert.equal(defaults.enabled, false); assert.equal(defaults.poll.skipped, true); assert.equal(defaults.executor.skipped, true);
     const control = context.pages()[0] || await context.newPage();
@@ -64,6 +97,7 @@ async function run() {
       ['cancel', '/protected', 'request-normal-close', 'canceled'],
       ['force', '/protected', 'force-close', 'completed'],
     ]) {
+      if (selectedCase && name !== selectedCase) continue;
       const page = await context.newPage(); await page.goto(origin + route); await page.locator('#ready').click();
       if (name === 'cancel') page.on('dialog', dialog => { void dialog.dismiss(); });
       const tabId = await worker.evaluate(async url => (await chrome.tabs.query({})).find(t => t.url === url).id, origin + route);
@@ -99,8 +133,9 @@ async function run() {
     const hashes = Object.fromEntries(files.map(file => [file, createHash('sha256').update(fs.readFileSync(path.join(root, file))).digest('hex')]));
     const evidence = { browser: await context.browser()?.version(), isolated: true,
       nativeAuthorization: 'FIXTURE_NOT_VERIFIED', idleBoundary: 'ISOLATED_FIXTURE_NOT_VERIFIED',
-      familyDataTouched: false, defaultOff: defaults, hashes, results };
-    fs.writeFileSync(path.join(temp, 'close-ledger-evidence.json'), JSON.stringify(evidence, null, 2));
+      familyDataTouched: false, retainedProfileReused: !!retained, fixtureIdentity: ready,
+      selectedCase: selectedCase || 'all', defaultOff: defaults, hashes, results };
+    fs.writeFileSync(path.join(temp, selectedCase ? `close-ledger-${selectedCase}-current.json` : 'close-ledger-evidence.json'), JSON.stringify(evidence, null, 2));
     console.log(JSON.stringify(evidence));
   } finally {
     await context?.close(); await new Promise(resolve => server.close(resolve));
