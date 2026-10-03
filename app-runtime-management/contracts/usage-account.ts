@@ -45,6 +45,8 @@ export interface UsageAccountReceipt {
   received: boolean;
   published: boolean;
   publishStatus: 'pending' | 'received_not_published' | 'published';
+  /** 可选发布诊断；缺失/null不是发布成功，不能用于清队列或改变统计。 */
+  publicationErrorCode?: string | null;
 }
 const manifestFields = ['schemaVersion','sourceKind','durationUnit','timezone','date','revision',
   'generatedAtMs','settledThroughMs','algorithmVersion','policyVersions','associationVersion',
@@ -73,6 +75,28 @@ function orderedUnique(values: unknown[], valid: (value: unknown) => boolean): b
 }
 function identifier(value: unknown): value is string {
   return typeof value === 'string' && identifierPattern.test(value);
+}
+/** 先校验回执格式；调用者仍须匹配在途manifestId/revision/hash。 */
+export function parseUsageAccountReceipt(value: unknown): UsageAccountReceipt {
+  if (!record(value) || typeof value.manifestId !== 'string' || !/^aa1_[a-f0-9]{64}$/.test(value.manifestId)
+    || !integer(value.revision, 1) || typeof value.manifestHash !== 'string' || !hashPattern.test(value.manifestHash)
+    || typeof value.received !== 'boolean' || typeof value.published !== 'boolean'
+    || typeof value.publishStatus !== 'string'
+    || !['pending', 'received_not_published', 'published'].includes(value.publishStatus))
+    fail('USAGE_ACCOUNT_INVALID_RECEIPT');
+  if ((value.publishStatus === 'pending' && (value.received || value.published))
+    || (value.publishStatus === 'received_not_published' && (!value.received || value.published))
+    || (value.publishStatus === 'published' && (!value.received || !value.published)))
+    fail('USAGE_ACCOUNT_INVALID_RECEIPT_STATE');
+  const result: UsageAccountReceipt = { manifestId: value.manifestId, revision: value.revision,
+    manifestHash: value.manifestHash, received: value.received, published: value.published,
+    publishStatus: value.publishStatus as UsageAccountReceipt['publishStatus'] };
+  if (Object.hasOwn(value, 'publicationErrorCode')) {
+    if (value.publicationErrorCode !== null && (typeof value.publicationErrorCode !== 'string'
+      || !codePattern.test(value.publicationErrorCode))) fail('USAGE_ACCOUNT_INVALID_PUBLICATION_ERROR');
+    result.publicationErrorCode = value.publicationErrorCode as string | null;
+  }
+  return result;
 }
 export function usageAccountDayStart(date: string): number {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) fail('USAGE_ACCOUNT_INVALID_DATE');

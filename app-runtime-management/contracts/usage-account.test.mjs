@@ -2,13 +2,32 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createUsageAccount, hashUsageAccountValue, canonicalUsageAccountJson,
   parseUsageAccountRows, verifyUsageAccountManifest, validateUsageAccountDimensions,
-  usageAccountDayStart } from './dist/usage-account.js';
+  usageAccountDayStart, parseUsageAccountReceipt } from './dist/usage-account.js';
 
 const vectors = JSON.parse(readFileSync(new URL('./usage-account.vectors.json', import.meta.url), 'utf8'));
 const schema = JSON.parse(readFileSync(new URL('./usage-account.schema.json', import.meta.url), 'utf8'));
 assert.equal(schema.additionalProperties, false);
 assert.equal(schema.$defs.row.additionalProperties, false);
 assert.equal(schema.properties.rowCount.maximum, 10000);
+assert(!schema.$defs.receipt.required.includes('publicationErrorCode'), 'N-1 receipt remains valid');
+assert.deepEqual(schema.$defs.receipt.properties.publicationErrorCode.type, ['string', 'null']);
+for (const v of vectors.receiptCompatibility.vectors) {
+  const value = { ...vectors.receiptCompatibility.base, ...v.patch };
+  const original = JSON.stringify(value);
+  if (!v.valid) assert.throws(() => parseUsageAccountReceipt(value), /USAGE_ACCOUNT_INVALID_/, v.id);
+  else {
+    const parsed = parseUsageAccountReceipt(value);
+    assert.deepEqual(parsed, value, v.id);
+    // N-1 consumers read the original six fields; diagnostics do not change ACK semantics.
+    const legacy = Object.fromEntries(schema.$defs.receipt.required.map(key => [key, parsed[key]]));
+    assert.equal(legacy.published, value.published);
+    assert.equal(legacy.publishStatus, value.publishStatus);
+    if (!Object.hasOwn(value, 'publicationErrorCode')) assert(!Object.hasOwn(parsed, 'publicationErrorCode'));
+  }
+  assert.equal(JSON.stringify(value), original, 'receipt validation cannot mutate ACK');
+}
+assert.deepEqual(parseUsageAccountReceipt({ ...vectors.receiptCompatibility.base, receivedChunkIndexes: [0] }),
+  vectors.receiptCompatibility.base, 'existing status metadata does not alter receipt identity');
 const start = usageAccountDayStart('2026-09-27');
 const header = { schemaVersion: 1, sourceKind: 'application', durationUnit: 'milliseconds', timezone: 'Asia/Shanghai',
   date: '2026-09-27', revision: 1, generatedAtMs: start + 86400000, settledThroughMs: start + 86400000,

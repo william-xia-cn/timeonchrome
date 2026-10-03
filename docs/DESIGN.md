@@ -1,5 +1,9 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-04 应用日账发布诊断兼容补丁（Contracts 1.31.1）
+
+`UsageAccountReceipt.publicationErrorCode?: string | null`固定既有Runtime status接口返回字段，采用`^[A-Z][A-Z0-9_]{0,63}$`稳定码，不携带异常正文或身份信息。该字段可缺失，旧1.31.0响应继续有效；缺失/null仅表示没有可用拒绝诊断，不能推断published。`received_not_published`的`APPLICATION_ACCOUNT_INCOMPLETE`表示清单已接收但未通过发布检查，不是上传失败；消费者不得因此清队列、重新累加或放宽完整性。先匹配manifestId、revision及manifestHash，再采用对应版本的诊断，旧/异源状态不得覆盖当前状态。未知合法码只显示通用发布诊断，不触发执行动作。既有received/published/publishStatus、原始事实、统计算法和发布条件均不变。Native消费固定1.31.1包及校验值，由本机任务按标准交接转Mac实施和安装验收；源码通过不代表Mac已运行新版本。
+
 ## D-113 Mac应用统计云端接入（2026-10-04）
 
 Mac Daemon使用公共ApplicationUsageReader与ApplicationAccountStore，采用已有单调时钟稳定锚点、当前用户/assignment范围、毫秒区间并集、本周更正及产品关联；独立算法标识为macos-application-v1。云端在既有usage-account-v1接口声明该算法，并严格要求机器platform与算法一一对应：windows/windows-application-v1、macos/macos-application-v1。其他算法或交叉标识仍拒绝；不能用更换客户端标识绕过校验。
