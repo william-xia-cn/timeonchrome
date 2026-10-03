@@ -5,7 +5,9 @@ import { buildLocalQuotaProjectionV2 } from '../core/quota-read-model-v2.js';
 import { getBeijingWeekPeriod } from '../core/profile-account-v2.js';
 import { readSharedAccessPolicyContext, readSharedAccessPolicyLkg, SHARED_ACCESS_POLICY_LKG_KEY } from './shared-access-policy-reader.js';
 import { readCloudSharedWebCapabilities, readCloudSharedWebWatermark, postCloudSharedWebContribution,
-  requestCloudSharedWebSourceBinding } from './cloud-sync.js';
+  requestCloudSharedWebSourceBinding, requestCloudSharedWebSourceBindingV2 } from './cloud-sync.js';
+import { createReusableSharedWebBinding } from './shared-web-reusable-binding.js';
+import { SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
 import { requestSharedWebSync, observeSharedAccessPolicyCapability, readSharedWebLocalConnection } from './native-host-client.js';
 import { runStorageMutation, budgetedLocalSet } from './storage-budget.js';
 import { readSharedQuotaExecutionLkg } from './shared-quota-execution-reader.js';
@@ -21,7 +23,8 @@ const nonnegative = v => Number.isSafeInteger(v) && v >= 0;
 const diagnosticErrors = new Set(['shared_web_identity_changed', 'shared_web_native_rejected', 'shared_web_disabled',
   'shared_web_watermark_unavailable', 'shared_web_stale', 'shared_web_upload_unavailable', 'shared_web_sync_unavailable',
   'shared_web_basis_unavailable', 'shared_web_replacement_context_changed', 'shared_web_binding_unavailable',
-  'shared_web_invalid_watermark', 'shared_web_invalid_ack', 'shared_web_context_unavailable', 'shared_web_not_prepared']);
+  'shared_web_invalid_watermark', 'shared_web_invalid_ack', 'shared_web_context_unavailable', 'shared_web_not_prepared',
+  ...SHARED_WEB_IDENTITY_ERRORS]);
 export function summarizeStoredBucketCoverage(stats) {
   const targets = stats?.targets;
   const unknownResult = () => ({ allBucketMs: null, knownBucketMs: null, unknownBucketKeyCount: null });
@@ -95,7 +98,8 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
   readContext = readSharedAccessPolicyContext, readPolicy = readSharedAccessPolicyLkg,
   readStorage = keys => chrome.storage.local.get(keys), mutate = runStorageMutation,
   capabilities = readCloudSharedWebCapabilities, readWatermark = readCloudSharedWebWatermark,
-  upload = postCloudSharedWebContribution, exchange = requestCloudSharedWebSourceBinding, native = requestSharedWebSync,
+  upload = postCloudSharedWebContribution, exchange = requestCloudSharedWebSourceBinding,
+  exchangeV2 = requestCloudSharedWebSourceBindingV2, native = requestSharedWebSync,
   readBasis = readSharedQuotaExecutionLkg, readConnection = readSharedWebLocalConnection } = {}) {
   let running = null, queued = false, epoch = 0;
   const nativeReceipts = new Map();
@@ -103,15 +107,26 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
   let preparationScope = null;
   let sourceBinding = null;
   let bindingConnection = null, localLease = null;
+  const reusableBinding = createReusableSharedWebBinding({ native, exchange: exchangeV2, now });
   let diagnosticStage = null, diagnosticDate = null;
   let diagnosticContext = null;
   let diagnostic = { lastAttemptAtMs: null, lastCompletedAtMs: null, lastErrorCode: null,
     failedStage: null, failedDate: null, cloudAckAtMsByDate: {}, cloudAckVersionsByDate: {}, coverageByDate: {} };
   const step = (stage, date = null) => { diagnosticStage = stage; diagnosticDate = date; };
+  const identityError = (result, fallback) => SHARED_WEB_IDENTITY_ERRORS.has(result?.errorCode) ? result.errorCode : fallback;
+  function clearBinding() {
+    sourceBinding = null; localLease = null; bindingConnection = null; nativeReceipts.clear();
+  }
   function bindingCurrent(c) {
     const connection = readConnection();
     if (!sourceBinding || sourceBinding.scopeHash !== c.scopeHash || localLease?.policyIdentity.policyHash !== c.policyHash
       || !bindingConnection || connection.connection !== bindingConnection) return false;
+    if (sourceBinding.protocolVersion === 2) return connection.reusableSourceSupported === true
+      && localLease?.scopeRevision === c.scopeHash
+      && canonicalSharedWebSync(localLease.policyIdentity) === canonicalSharedWebSync(c.policyIdentity)
+      && nonnegative(localLease.verifiedAtMs) && localLease.verifiedAtMs >= localLease.claims.issuedAtMs
+      && localLease.verifiedAtMs < localLease.claims.expiresAtMs && now() >= localLease.verifiedAtMs
+      && (sourceBinding.expiresAtMs > now() || connection.capabilityNegotiated === true);
     return sourceBinding.expiresAtMs > now() || sharedWebLocalLeaseCurrentV1(localLease, {
       scopeRevision: c.scopeHash, policyIdentity: c.policyIdentity, connectionLive: true,
       capabilityNegotiated: connection.capabilityNegotiated === true, nowMs: now() });
@@ -128,7 +143,9 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
   async function current(c, generation) {
     if (!enabled || generation !== epoch) return false;
     const next = await capture();
-    return enabled && generation === epoch && c.scopeHash === next.scopeHash && c.policyHash === next.policyHash;
+    const valid = enabled && generation === epoch && c.scopeHash === next.scopeHash && c.policyHash === next.policyHash;
+    if (!valid) { clearBinding(); reusableBinding.invalidate(); }
+    return valid;
   }
   async function change(c, generation, transform) {
     return mutate(async storage => {
@@ -171,7 +188,21 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     return { fingerprint, upload: { ...body, contentHash: await sharedWebContributionHashV1(body) } };
   }
   async function bind(c, generation, sourceKey) {
-    const connection = readConnection().connection;
+    const capturedConnection = readConnection(), connection = capturedConnection.connection;
+    if (capturedConnection.reusableSourceSupported === true) {
+      const result = await reusableBinding.bind(c, connection, async expected =>
+        !!expected && readConnection().connection === expected
+          && readConnection().reusableSourceSupported === true && await current(c, generation), sourceKey);
+      if (!result.ok) {
+        sourceBinding = null; localLease = null; bindingConnection = null; nativeReceipts.clear();
+        return result;
+      }
+      sourceBinding = result.binding; bindingConnection = connection;
+      localLease = { schemaVersion: 2, scopeRevision: c.scopeHash, policyIdentity: clone(c.policyIdentity),
+        claims: result.claims, verifiedAtMs: now() };
+      nativeReceipts.clear();
+      return { ok: true, expiresAtMs: result.binding.expiresAtMs };
+    }
     const challenge = await native('getSharedWebSourceChallenge', {});
     if (!challenge.ok || !await current(c, generation)) return null;
     const r = challenge.value;
@@ -196,6 +227,11 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
       claims: clone(proof.claims), verifiedAtMs: now() };
     nativeReceipts.clear();
     return { challengeId: r.challengeId, expiresAtMs: proof.claims.expiresAtMs };
+  }
+  function replaceNative(upload) {
+    return sourceBinding.protocolVersion === 2
+      ? native('replaceSharedWebContributionV2', { upload })
+      : native('replaceSharedWebContribution', { challengeId: sourceBinding.challengeId, upload });
   }
   async function perform(generation) {
     let c;
@@ -232,18 +268,27 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
         diagnostic.coverageByDate = Object.fromEntries(Object.entries(diagnostic.coverageByDate)
           .filter(([date]) => date >= weekStart).slice(-7));
       }
+      // V2 reconnect can reverify its cached proof locally before any cloud read.
+      if (!bindingCurrent(c) && readConnection().reusableSourceSupported === true) {
+        step('source_binding');
+        const bound = await bind(c, generation, null);
+        if (!bound?.ok) diagnostic.nativeFailure = { stage: 'source_binding', date: null,
+          errorCode: bound?.errorCode || 'shared_web_binding_unavailable', atMs: now() };
+      }
       // Already verified local scope continues before any network read; never send expired proofs online.
       if (bindingCurrent(c)) {
         for (const d of dates) {
           step('native_replace', d);
           const submitted = q.days[d].upload;
           if (nativeReceipts.get(d)?.hash === submitted.contentHash) continue;
-          const accepted = await native('replaceSharedWebContribution', { challengeId: sourceBinding.challengeId, upload: submitted });
+          const accepted = await replaceNative(submitted);
           if (!await current(c, generation) || !bindingCurrent(c)) return fail('shared_web_identity_changed');
           if (!accepted.ok || accepted.value?.date !== d || accepted.value.revisionOrdinal !== submitted.revisionOrdinal
             || accepted.value.contentHash !== submitted.contentHash) {
             nativeReceipts.clear(); sourceBinding = null; localLease = null; bindingConnection = null;
-            preparation = fail('shared_web_native_rejected');
+            const errorCode = identityError(accepted, 'shared_web_native_rejected');
+            diagnostic.nativeFailure = { stage: 'native_replace', date: d, errorCode, atMs: now() };
+            preparation = fail(errorCode);
             return preparation;
           }
           nativeReceipts.set(d, { hash: submitted.contentHash, atMs: now() });
@@ -274,6 +319,10 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
         if (!await current(c, generation)) return fail('shared_web_identity_changed');
         if (!response.ok) return fail(response.errorCode || 'shared_web_watermark_unavailable');
         const head = watermark(response.value, d, sourceKey); sourceKey = head.sourceKey;
+        if (bindingCurrent(c) && sourceBinding.webSourceKey !== sourceKey) {
+          sourceBinding = null; localLease = null; bindingConnection = null; nativeReceipts.clear();
+          return fail('shared_web_identity_changed');
+        }
         const previous = nonnegative(old?.upload?.revisionOrdinal) ? old.upload.revisionOrdinal : 0;
         const next = Math.max(previous, head.revisionOrdinal) + 1;
         if (!Number.isSafeInteger(next)) throw Error('shared_web_ordinal_exhausted');
@@ -294,21 +343,26 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
           step('source_binding', d);
           try { binding = await bind(c, generation, sourceKey); } catch (_) { binding = null; }
           if (!bindingCurrent(c)) diagnostic.nativeFailure = { stage: 'source_binding', date: d,
-            errorCode: 'shared_web_binding_unavailable', atMs: now() };
+            errorCode: identityError(binding, 'shared_web_binding_unavailable'), atMs: now() };
         }
         let nativeAccepted = false;
         if (bindingCurrent(c)) {
           step('native_replace', d);
           const r = nativeReceipts.get(d)?.hash === submitted.contentHash
             ? { ok: true, value: { date: d, revisionOrdinal: submitted.revisionOrdinal, contentHash: submitted.contentHash } }
-            : await native('replaceSharedWebContribution', { challengeId: sourceBinding.challengeId, upload: submitted });
+            : await replaceNative(submitted);
           nativeAccepted = r.ok === true && r.value?.date === d && r.value.revisionOrdinal === submitted.revisionOrdinal && r.value.contentHash === submitted.contentHash;
-          if (!await current(c, generation)) return fail('shared_web_identity_changed');
+          if (!await current(c, generation) || !bindingCurrent(c)) return fail('shared_web_identity_changed');
           if (nativeAccepted) {
             if (nativeReceipts.get(d)?.hash !== submitted.contentHash) nativeReceipts.set(d, { hash: submitted.contentHash, atMs: now() });
           }
-          else { nativeReceipts.delete(d); preparation = fail('shared_web_native_rejected');
-            diagnostic.nativeFailure = { stage: 'native_replace', date: d, errorCode: 'shared_web_native_rejected', atMs: now() }; }
+          else {
+            const errorCode = identityError(r, 'shared_web_native_rejected');
+            if (SHARED_WEB_IDENTITY_ERRORS.has(errorCode)) { clearBinding(); reusableBinding.invalidate(); }
+            else nativeReceipts.delete(d);
+            preparation = fail(errorCode);
+            diagnostic.nativeFailure = { stage: 'native_replace', date: d, errorCode, atMs: now() };
+          }
           if (nativeAccepted) {
             preparation = await prepare(c, generation, date, q);
             preparationScope = c.scopeHash;
@@ -408,8 +462,8 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
           [date, !item?.upload || bindingState === 'unknown' ? null : bindingState === 'valid'
             && nativeReceipts.has(date) && nativeReceipts.get(date).hash === item?.upload?.contentHash])) };
     },
-    invalidate() { epoch++; queued = false; sourceBinding = null; localLease = null; bindingConnection = null; diagnosticContext = null; nativeReceipts.clear(); preparation = fail('shared_web_identity_changed'); },
-    configure(value) { epoch++; sourceBinding = null; localLease = null; bindingConnection = null; nativeReceipts.clear(); preparation = fail('shared_web_not_prepared'); enabled = value === true; return refresh(); },
+    invalidate() { epoch++; queued = false; sourceBinding = null; localLease = null; bindingConnection = null; diagnosticContext = null; nativeReceipts.clear(); reusableBinding.invalidate(); preparation = fail('shared_web_identity_changed'); },
+    configure(value) { epoch++; sourceBinding = null; localLease = null; bindingConnection = null; nativeReceipts.clear(); reusableBinding.invalidate(); preparation = fail('shared_web_not_prepared'); enabled = value === true; return refresh(); },
     async readBinding() {
       if (!enabled) return fail('shared_web_disabled');
       const generation = epoch, c = await capture(), binding = sourceBinding;

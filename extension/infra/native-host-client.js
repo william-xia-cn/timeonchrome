@@ -12,7 +12,7 @@ import { validateSharedBrowserActivity } from '../core/shared-browser-activity.j
 import { validateSharedBrowserExecution } from '../core/shared-browser-execution.js';
 import { browserExecutionFence, browserExecutionIdentityHash } from './shared-browser-execution-fence.js';
 import { sharedBrowserExecutionAttempts } from './shared-browser-execution-attempts.js';
-import { captureSharedWebNativeRequest, captureSharedWebNativeReceipt, captureSharedQuotaPreparation } from '../core/shared-web-native.js';
+import { captureSharedWebNativeRequest, captureSharedWebNativeReceipt, captureSharedQuotaPreparation, SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
 
 export const TIMEONCHROME_NATIVE_HOST = 'com.timeonchrome.nativehost';
 export const LEGACY_LOCAL_GUARDIAN_HOST = 'com.timeonchrome.guardian';
@@ -64,6 +64,9 @@ let browserActivityObserver = null;
 let preferBrowserActivity = true;
 let sharedBridgeConfig = { enabled: false };
 const SHARED_NATIVE_CAPABILITIES = {
+  getSharedWebSourceScope: 'shared-web-source-reusable-v2',
+  bindSharedWebSourceV2: 'shared-web-source-reusable-v2',
+  replaceSharedWebContributionV2: 'shared-web-source-reusable-v2',
   getSharedWebSourceChallenge: 'shared-web-contribution-sync-v1',
   bindSharedWebSource: 'shared-web-contribution-sync-v1',
   replaceSharedWebContribution: 'shared-web-contribution-sync-v1',
@@ -101,10 +104,12 @@ function recordResponseRejection(request, reason, serviceErrorCode = null) {
   const types = ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'settledUsageSegments',
     'getSharedQuotaState', 'reportReminderResult', 'getSharedReminderState', 'acknowledgeSharedReminderDelivery',
     'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution', 'getSharedWebSourceChallenge',
-    'bindSharedWebSource', 'replaceSharedWebContribution'];
+    'bindSharedWebSource', 'replaceSharedWebContribution', 'getSharedWebSourceScope',
+    'bindSharedWebSourceV2', 'replaceSharedWebContributionV2'];
   lastResponseRejection = { atMs: safeNow(), reason,
     serviceErrorCode: ['BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
-      'NATIVE_ENVELOPE_REJECTED', 'NATIVE_MESSAGE_INVALID'].includes(serviceErrorCode) ? serviceErrorCode : null,
+      'NATIVE_ENVELOPE_REJECTED', 'NATIVE_MESSAGE_INVALID'].includes(serviceErrorCode)
+      || SHARED_WEB_IDENTITY_ERRORS.has(serviceErrorCode) ? serviceErrorCode : null,
     messageType: types.includes(request?.messageType) ? request.messageType : 'unknown',
     channel: ['health', 'statistics', 'application', 'ledger', 'sharedQuota'].includes(request?.channel) ? request.channel : 'unknown' };
 }
@@ -290,7 +295,7 @@ async function persistStatus(patch) {
 }
 
 function normalizeErrorCode(value) {
-  if (LIFECYCLE_ERRORS.has(value) || value === 'shared_reminder_invalid_state') return value;
+  if (LIFECYCLE_ERRORS.has(value) || SHARED_WEB_IDENTITY_ERRORS.has(value) || value === 'shared_reminder_invalid_state') return value;
   const allowed = new Set([
     'native_host_unavailable',
     'native_port_disconnected',
@@ -395,7 +400,8 @@ function ensureNativePort() {
         : pendingAck.sharedReminderReport && response?.errorCode === 'SHARED_REMINDER_NOT_ISSUED' ? 'shared_reminder_not_issued'
         : response?.errorCode === 'APPLICATION_USAGE_REVISION_CHANGED' ? 'application_usage_revision_changed'
         : pendingAck.applicationRead ? 'application_usage_unavailable'
-        : pendingAck.sharedWeb ? 'shared_web_native_unavailable'
+        : pendingAck.sharedWeb ? SHARED_WEB_IDENTITY_ERRORS.has(response?.errorCode)
+          ? response.errorCode : 'shared_web_native_unavailable'
         : pendingAck.sharedQuotaRead ? 'shared_quota_unavailable'
         : pendingAck.sharedReminderReport ? 'shared_reminder_unavailable' : 'native_invalid_response';
       rejectPendingAck(code);
@@ -429,6 +435,8 @@ function ensureNativePort() {
       sharedQuotaPreparation: response.sharedQuotaPreparation,
       sharedWebSourceChallenge: response.sharedWebSourceChallenge,
       sharedWebSourceBound: response.sharedWebSourceBound,
+      sharedWebSourceScope: response.sharedWebSourceScope,
+      sharedWebIdentity: response.sharedWebIdentity,
       sharedWebContributionAccepted: response.sharedWebContributionAccepted,
       sharedReminder: response.sharedReminder,
       browserActivityLeaseId: response.browserActivityLeaseId,
@@ -468,7 +476,8 @@ function postToNativeHost(payload) {
   const sharedLifecycle = payload.channel === 'sharedQuota' && ['getSharedReminderState',
     'acknowledgeSharedReminderDelivery', 'resolveSharedReminder', 'acknowledgeBrowserExecution'].includes(payload.messageType);
   const browserActivity = payload.channel === 'sharedQuota' && payload.messageType === 'reportBrowserActivity';
-  const sharedWeb = payload.channel === 'sharedQuota' && ['getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution'].includes(payload.messageType);
+  const sharedWeb = payload.channel === 'sharedQuota' && ['getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution',
+    'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'replaceSharedWebContributionV2'].includes(payload.messageType);
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
       if (!pendingAck || pendingAck.timeoutId !== timeoutId) return;
@@ -764,7 +773,8 @@ async function performSend(options) {
       const ack = await postToNativeHost(payload);
       if (nativePort !== port || ack.requestId !== payload.requestId) return { ok: false, errorCode: 'shared_web_connection_changed' };
       return { ok: true, value: captureSharedWebNativeReceipt(options.method, ack, options.payload, safeNow()) };
-    } catch (_) { return { ok: false, errorCode: 'shared_web_native_unavailable' }; }
+    } catch (error) { return { ok: false, errorCode: SHARED_WEB_IDENTITY_ERRORS.has(error?.message)
+      ? error.message : 'shared_web_native_unavailable' }; }
   }
   if (options.type === 'browserActivity') {
     if (getSharedBrowserActivityLease() !== options.payload.leaseId) return { ok: false, errorCode: 'SHARED_BROWSER_ACTIVITY_LEASE_CHANGED' };
@@ -1205,7 +1215,9 @@ export function hasSharedReminderContinuityCapability() {
 }
 // Opaque Port identity stays in memory; never serialize it into Native payloads or storage.
 export function readSharedWebLocalConnection() {
-  return { connection: sharedCapabilityAvailable('replaceSharedWebContribution') ? nativePort : null,
+  return { connection: sharedCapabilityAvailable('replaceSharedWebContributionV2')
+      || sharedCapabilityAvailable('replaceSharedWebContribution') ? nativePort : null,
+    reusableSourceSupported: sharedCapabilityAvailable('replaceSharedWebContributionV2'),
     capabilityNegotiated: sharedBridgeConfig.enabled === true && nativePort !== null && sharedNativeV3
       && sharedNativeCapabilities.has('shared-web-local-lease-v1') };
 }
@@ -1216,7 +1228,7 @@ export function readNativeHostDiagnosticState() {
   const allowed = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1',
     'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1',
     'shared-browser-activity-v1', 'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1',
-    'shared-web-local-lease-v1'];
+    'shared-web-local-lease-v1', 'shared-web-source-reusable-v2'];
   return { connected, protocolVersion: known ? 3 : null,
     capabilities: known ? allowed.filter(v => sharedNativeCapabilities.has(v)) : null,
     applicationUsageSupported: applicationUsageSupported && connected ? true : known ? false : null,
@@ -1233,7 +1245,8 @@ export function hasSharedAccessPolicyCapability() {
 }
 export function hasSharedAccessExecutionCapability() {
   return sharedBridgeConfig.enabled === true && nativePort !== null && sharedNativeV3
-    && ['shared-quota-state-read', 'shared-web-contribution-sync-v1', 'shared-access-policy-identity-read',
+    && (sharedNativeCapabilities.has('shared-web-contribution-sync-v1') || sharedNativeCapabilities.has('shared-web-source-reusable-v2'))
+    && ['shared-quota-state-read', 'shared-access-policy-identity-read',
       'shared-quota-execution-preparation-read-v1', 'shared-browser-activity-v1', 'shared-reminder-lifecycle-v1']
       .every(capability => sharedNativeCapabilities.has(capability));
 }
