@@ -1,5 +1,9 @@
 # TASK_BOARD
 
+1.7.43发布风险只读复核：cg.163.com失焦强媒体在idleStateChanged关闭网页账仍为P0/Deferred，未取得修复及真实原账验证，旧1.7.27/1.7.32豁免不能自动用于本版；实际feed发布前须由PO明确接受本版已知风险。19009秒差额仍是未解释历史对账问题，不在本次重建/改账范围，既有V2改造不证明历史差额已解决；后续合并配额和上传观察单列。Mac真实验收及共享执行不适用于本版已批准非共享范围，但保持DEFERRED而不是PASS。更新站点发布必须保留原host完整树的历史CRX路径，不能用仅新版本的小目录覆盖生产。
+
+2026-10-04 正式managed1.7.43已签包、未部署：安全接入既有仓库外原密钥后，打包器派生ID及独立CRX3签名验证均确认jdcancbiocacabbjdkngadmjpjmkdnih。CRX583415字节，SHA256为8aa4572fe060768db4da65267949bbbfc800ec1cbd261a1d67fd65d400b65c7e；175归档文件逐项匹配正式staging，Chrome仅排除.gitattributes元数据。正式marker=managed，无开发名称、debugger或sharedBrowserCloseDevelopment，保留正式Host及probe；host-output中CRX与原包哈希相同，feed及校验文件一致。旧1.7.32CRX和运行中1.7.42候选保持；没有更新线上feed、启用共享执行或读取家庭存储。相对最新origin/master产品及打包工具仅manifest版本差异，复用未变代码证据，两项managed最小测试通过。后续由架构执行更新站点部署回读，未部署不记为已上线。
+
 2026-10-04 已批准正式 managed 1.7.43 非共享发布准备：仅提升源码 manifest 并隔离生成正式 managed staging，复用现有产品及 shadow 门禁证据；不改打包工具、网页记账、原运行候选或家庭配置。正式包保留 nativeMessaging、health probe 和正式 Host，排除 debugger、native-host-development 与 sharedBrowserCloseDevelopment。线上 feed 当前仍1.7.32；共享执行总闸关闭的精确部署证据由架构提供，不代替当前 Profile 实机采样。Native2.6.26双Host注册及五项聚焦测试采用所属任务证据，旧guardian仍有1.7.32消费者，真实卸载未实测。隔离staging完成176文件，按排序后的文件SHA256及相对路径清单计算摘要c9a6c555ac4b7058bc8f42472e2dc62d5d9258e3a8ddeff507ffc895b2df910b；managed-internal-channel 16/16及managed-package-privacy-boundary三渠道矩阵通过。原签名密钥未接入，CRX不存在，不能称已签CRX或已发布。三个既有混合文档草稿保持原样，本次提交只包含该准备记录与版本。Mac实测、Windows共享余额/执行及历史未知桶继续未完成。
 
 2026-10-04 共享页面关闭隔离补验：前两次 `testDefaultOff` 未定义已确认是保留测试 Profile 的旧 Service Worker 缓存入口（实际仅有 testStart/testClose/testSnapshot），非产品导出缺失；磁盘入口及75模块静态链接正常。PO/架构已授权只修安全夹具：复用原隔离 Profile、明确夹具版本、入口就绪及源码身份核对，只定向验证主动关闭可取消；不修改产品/原账/正式候选/家庭配置，不重跑已通过Content DOM或60秒，不将模拟授权标记为真实Service验收。
