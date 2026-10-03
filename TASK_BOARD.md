@@ -7,6 +7,12 @@
 2026-10-04 PO明确裁决：既有cg.163.com idle少记风险、19009秒未解释历史差额统一改为P2，状态为待后续处理、非发布阻塞。此裁决覆盖此前针对这两项的P0/发布前重复风险接受要求；不得再因相同旧记录阻断发布或重复索要豁免。两项未修复、未验收，不记PASS，不清空或改写历史账；此为两项指定问题的优先级裁决，不放宽新发现账本缺陷的报告及专项规则。自托管1.7.43已签包并合入master 4996d202，更新源仍1.7.32；当前按PO先处理Mac，未据此自动恢复部署。
 
 2026-10-04 Mac日账优先核对（PO指定）：自托管1.7.43更新源暂停，线上仍1.7.32；Mac跨账户Chrome继续延后，但独立应用日账接收/发布/页面对账继续，不整体标为DEFERRED。已读取Native报告118dc187及生产D1匿名来源核对：三Mac用户最新分配版本的已接收日清单均complete=false，无published；非零历史日期原因POLICY_HISTORY_MISSING，零事实日期SOURCE_COVERAGE_UNKNOWN，云端稳定拒绝APPLICATION_ACCOUNT_INCOMPLETE。此为上传清单状态，不能替代报告中的今日完整非零本机统计。云端status接口已返回publicationErrorCode，需Mac核对读取及显示链，并报告当前用户assignmentVersion、日期/统计revision/实际上传revision以对齐同一作用域。已通过既有Native会话转Mac标准交接；不清队列、不放宽校验、不改原账/计时/算法，不新建分支或工作树。变更等级：只读诊断与任务记录；仅Git/diff检查，无产品全量测试或生产写入。
+以下保留自托管准备时的历史记录；两项风险定级及Mac当前范围以本页顶部2026-10-04 PO裁决和Mac优先核对记录为准。
+1.7.43发布风险只读复核：cg.163.com失焦强媒体在idleStateChanged关闭网页账仍为P0/Deferred，未取得修复及真实原账验证，旧1.7.27/1.7.32豁免不能自动用于本版；实际feed发布前须由PO明确接受本版已知风险。19009秒差额仍是未解释历史对账问题，不在本次重建/改账范围，既有V2改造不证明历史差额已解决；后续合并配额和上传观察单列。Mac真实验收及共享执行不适用于本版已批准非共享范围，但保持DEFERRED而不是PASS。更新站点发布必须保留原host完整树的历史CRX路径，不能用仅新版本的小目录覆盖生产。
+
+2026-10-04 正式managed1.7.43已签包、未部署：安全接入既有仓库外原密钥后，打包器派生ID及独立CRX3签名验证均确认jdcancbiocacabbjdkngadmjpjmkdnih。CRX583415字节，SHA256为8aa4572fe060768db4da65267949bbbfc800ec1cbd261a1d67fd65d400b65c7e；175归档文件逐项匹配正式staging，Chrome仅排除.gitattributes元数据。正式marker=managed，无开发名称、debugger或sharedBrowserCloseDevelopment，保留正式Host及probe；host-output中CRX与原包哈希相同，feed及校验文件一致。旧1.7.32CRX和运行中1.7.42候选保持；没有更新线上feed、启用共享执行或读取家庭存储。相对最新origin/master产品及打包工具仅manifest版本差异，复用未变代码证据，两项managed最小测试通过。后续由架构执行更新站点部署回读，未部署不记为已上线。
+
+2026-10-04 已批准正式 managed 1.7.43 非共享发布准备：仅提升源码 manifest 并隔离生成正式 managed staging，复用现有产品及 shadow 门禁证据；不改打包工具、网页记账、原运行候选或家庭配置。正式包保留 nativeMessaging、health probe 和正式 Host，排除 debugger、native-host-development 与 sharedBrowserCloseDevelopment。线上 feed 当前仍1.7.32；共享执行总闸关闭的精确部署证据由架构提供，不代替当前 Profile 实机采样。Native2.6.26双Host注册及五项聚焦测试采用所属任务证据，旧guardian仍有1.7.32消费者，真实卸载未实测。隔离staging完成176文件，按排序后的文件SHA256及相对路径清单计算摘要c9a6c555ac4b7058bc8f42472e2dc62d5d9258e3a8ddeff507ffc895b2df910b；managed-internal-channel 16/16及managed-package-privacy-boundary三渠道矩阵通过。原签名密钥未接入，CRX不存在，不能称已签CRX或已发布。三个既有混合文档草稿保持原样，本次提交只包含该准备记录与版本。Mac实测、Windows共享余额/执行及历史未知桶继续未完成。
 
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 

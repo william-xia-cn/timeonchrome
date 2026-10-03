@@ -1860,3 +1860,7 @@ OpenCode 在执行 Popup P0 UI 任务时，出现“等价替代 / 自行简化 
 按已批准裁决消费固定契约1.31.0（包SHA256：355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395）。能力shared-web-source-reusable-v2明确选择getSharedWebSourceScope、bindSharedWebSourceV2及replaceSharedWebContributionV2；新能力失败不降级，能力缺失保留v1。machine-scope仅作为设备鉴权取得web证明的签名范围输入；Native以可信当前分配验签，扩展不自授身份。有效web证明按本机身份与签名scope缓存，重连必须本地重新绑定；过期重连必须重新取得证明，不能延长旧租约。连接、身份或策略变化撤销在途结果及Native贡献确认；原统计、贡献队列、载荷哈希、云端ACK及执行门禁保持不变。
 
 只改终端契约消费、消息校验、身份适配及最小相关测试。通道在线、verified身份和贡献ACK仍是三个独立状态。固定错误码，不记录签名证明、凭据或原始身份；不更新候选、不安装、部署或启用家庭执行。HTTP包装须依据云端实际路由和聚焦测试核对，不能以success/count猜测确认。
+
+# 1.7.43 正式 managed 非共享发布准备
+
+本次仅提升正式源码版本并隔离 staging，不修改网页记账及配额算法。正式 marker 为 managed，不含 native-host-development、sharedBrowserCloseDevelopment 或 debugger。Native Host 使用 com.timeonchrome.nativehost；旧 com.timeonchrome.guardian 仍服务线上1.7.32消费者，不由本次扩展发布删除。共享策略在云端总闸关闭时降为 shadow，终端保持原网页执行；该部署证据不代替真实共享余额/执行验收。已安全接入原密钥完成CRX3签名和稳定ID独立验证；正式CRX及host-output一致，feed更新待架构执行。签包不等于已上线，旧候选和历史CRX不覆盖。
