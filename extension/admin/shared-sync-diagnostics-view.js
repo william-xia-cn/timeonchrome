@@ -73,6 +73,18 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
     append(section, 'p', `贡献对应当前缓存配置：${day.policyMatchesCurrentCache === true ? '是' : day.policyMatchesCurrentCache === false ? '否' : '未知'}`);
     const coverage = day.storedBucketCoverageBeforeCorrections || {};
     append(section, 'p', `原统计桶覆盖（调账前）：全部 ${text(coverage.allBucketMs)} 毫秒 · 已知 ${text(coverage.knownBucketMs)} 毫秒 · 未识别桶 ${text(coverage.unknownBucketKeyCount)} 种`);
+    const after = day.bucketCoverageAfterCorrections;
+    append(section, 'p', after
+      ? `调账后桶覆盖：全部 ${text(after.allBucketMs)} 毫秒 · 已知 ${text(after.knownBucketMs)} 毫秒 · 未识别 ${text(after.unknownBucketMs)} 毫秒（${text(after.unknownBucketKeyCount)} 种）`
+      : '调账后桶覆盖及更正摘要：未知（未采样或版本不匹配）');
+    if (after) {
+      const correction = after.corrections;
+      append(section, 'p', `更正：请求 ${correction.requestedCount} 条 · 已应用 ${correction.appliedCount} 条 · 失败 ${correction.rejectedCount} 条`);
+      const bucketNames = { study: '学习', composite: '复合', rest: '休息', other: '其他', unknown: '未知' };
+      for (const flow of correction.flows) append(section, 'p', `更正请求流向：${bucketNames[flow.from]} → ${bucketNames[flow.to]} · ${flow.count} 条 · ${flow.requestedSeconds} 秒（不代表全部成功应用）`);
+      const failureNames = { local_day_missing: '本地日期缺失', original_bucket_too_small: '原桶用量不足', unknown: '未知原因' };
+      for (const [code, count] of Object.entries(correction.failures)) if (count > 0) append(section, 'p', `更正失败：${failureNames[code]} · ${count} 条`);
+    }
     append(section, 'p', `最近实际 ACK：${time(day.cloudAckAtMs)} · 历史 Native：${confirmation(day.nativeAcceptedHistorical)}`);
     append(section, 'p', `当前连接 Native ACK：${time(day.nativeAckAtMsCurrent)}`);
     const retry = day.nextRetryAtMs == null ? '未知' : day.nextRetryAtMs === 0 ? '无冷却' : time(day.nextRetryAtMs);
