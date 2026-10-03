@@ -8,9 +8,11 @@
 
 最小验证：Contracts签名/篡改/到期/范围与v1兼容；云端双方鉴权、当前分配及绑定撤销；两端重连缓存、用户隔离及稳定错误。仅相关测试、typecheck、Worker dry-run、职责检查及diff；不跑无关平台/安装器/网页账本全量。真实联合验收另记，不能用源码通过宣称共享可启用。
 
-契约开发证据：1.31.0 build/typecheck、shared-web-sync v1/v2聚焦及contract-compatibility通过；首次build因沙箱EPERM未写产物，经范围内提权构建通过；兼容测试首次缺新增消息断言已修正后通过。固定本地包SHA-256 `355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395`，包含v2 schema与仅公钥黄金向量，已交Native/控件所属会话。不代表契约已发布或两端已安装。云端适配进行中。
+契约开发证据：1.31.0 build/typecheck、shared-web-sync v1/v2聚焦及contract-compatibility通过；首次build因沙箱EPERM未写产物，经范围内提权构建通过；兼容测试首次缺新增消息断言已修正后通过。固定本地包SHA-256 `355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395`，包含v2 schema与仅公钥黄金向量，已交Native/控件所属会话。契约提交`2d054c7`，云端提交`41e455d`，两者均仅本地源码提交；不代表已发布、安装或真实连接通过。两端适配及跨端协议审查进行中。
 
 标准云端开发证据（2026-10-03）：已实现机器鉴权的`POST /v2/machines/shared-web-source/scope`、受限内部scope签发／实时分配核验及设备鉴权的`POST /device/shared-web-source-binding/v2`。成功响应均直接返回契约v2签名wrapper，无nonce、challenge或额外身份字段；既有公钥接口与v1保留。机器scope与网页proof的audience严格隔离；当前分配和浏览器token epoch持续复核，最后一次异步分配查询后再次按精确设备ID检查epoch。当前候选限定账户／孩子，最多200项，201项明确`SOURCE_SCOPE_LIMIT`拒绝，不截断后猜测；v2不写challenge表。真实内存SQLite双端签名／重用／到期／篡改／转派／解绑／令牌轮换／末尾竞态／候选上限及既有贡献记录不变通过；首次旧v1夹具固定时间与HTTP真实时钟不一致已仅统一测试时钟后通过。实际Device路由鉴权、caller范围拒绝、稳定错误与no-store通过；Backend Workers/Vitest `application-accounts.test.ts -t "shared web source"`为2项通过、22项无关跳过。根与Backend typecheck、两个Worker dry-run及diff检查通过；不运行平台／安装器／网页账本全量测试。审计：本轮云端范围Matched，未批准Deviated/Extra无；真实两端联合连接／重连及生产部署仍未验收，不表示共享执行可启用。未部署、未迁移、未修改原账／配额或线上开关。
+
+两端协议审查：V2未分配为`SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE`，连接／凭据／策略代次失效为`WEB_SOURCE_CONTEXT_CHANGED`，未绑定为`WEB_SOURCE_PROOF_REQUIRED`，过期或未来证明为`WEB_SOURCE_PROOF_EXPIRED`，范围不符为`WEB_SOURCE_SCOPE_MISMATCH`，验签失败为`WEB_SOURCE_PROOF_SIGNATURE_INVALID`。拒绝只确认业务失败，不等同于通道断开；ACK必须匹配实际接收的日期、修订及摘要。已交两端集中修正：稳定码不能在日期循环或诊断白名单中被覆盖成未知；租约初次建立必须处于证明有效期，断线不能复活旧租约。Native源码适配及聚焦验证进行中。控件已有源码草稿，但其非必要Computer Use只读检查陷入工具审批等待；已要求跳过浏览器检查继续源码测试，不要求PO重载、读取Service Worker或修改正式环境。尚未收到两端最终提交及验证结果，整项保持未完成。
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
@@ -20,7 +22,7 @@
 
 | 待办 | 所属工作线 | 当前状态／影响 | 恢复条件 |
 |---|---|---|---|
-| 来源签名绑定、当前网页贡献Native ACK | 架构／云端／两端 | DEFERRED；安装后恢复未核实，阻挡真实共享余额及执行启用，不阻挡候选构建 | PO恢复排查后，取得当前连接／分配下的有效绑定和逐来源确认 |
+| 来源签名绑定、当前网页贡献Native ACK | 架构／云端／两端 | 已由PO批准“共享连接身份核验简化”重新开启源码修复；旧安装状态未核实，仍阻挡真实共享余额及执行启用 | 完成可复用v2适配后，单列所需部署／候选更新及当前连接／分配下的有效绑定和逐来源确认；不得沿用历史ACK关闭此项 |
 | 强制提醒取得活动状态、正常关闭取消 | Native | 交互桌面验收受限；不得改安全门、重复第三次取消实验或借用用户进程 | 可安全操作的受控交互环境，验证真实显示／正常取消，无强制升级 |
 | 原账守恒及完整离线／重连联合验收 | 两端／架构 | NOT_VERIFIED；缺有效固定范围基线及真实联合通道证据 | 使用批准的固定范围采样和真实两端链路，逐项对照，不以夹具替代 |
 
