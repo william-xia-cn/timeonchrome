@@ -2,6 +2,8 @@
 
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 
+PO扩大交付到实际自托管（2026-10-04）：已明确要求执行内部managed渠道更新，取代此前仅unpacked/记录交付限制；控件任务执行正式managed制品与稳定feed/CRX发布，Native只读核对正式Host/旧别名/稳定ID兼容，不用开发连接证明正式渠道。不得夹带native-host-development或shared关闭实验配置，不进入CWS、不切R2 latest、不开共享、不新分支/树。当前自托管进行中，待正式候选最小验证/来源/签名稳定ID及线上feed/CRX/hash回读；MacDEFERRED且独立回报，统计已知问题不改写PASS。主线文档PR226应随此范围更正，不能只合文档称更新源已发。
+
 非共享发布决定（2026-10-04，PO“继续完成发布，mac后补”）：Mac云端接入已发布但安装/真实能力、非零发布、页面对照及应用执行实测保持DEFERRED，不能冒充PASS；共享功能联调同样不在本版启用范围。三份现有文档集中提交并合入，代码证据及生产manifest复用，不重新部署文档SHA，不构建/安装新候选。内部非共享交付完成不代表Windows统计遗留、P1、历史桶或整体D-114关闭。
 
 非共享交付核对结果：控件1.7.42复用，七个关键文件与受测源码一致；Windows四组件2.6.26.0/SHA匹配且Service正常，Native交付记录已推69aed6a。两端shadow不启用共享执行，但并非永久禁止共享的删功能构建。生产manifest37146310947所指Guardian版本8dc07256与发布37133833997一致，发布命令明确SHARED_ACCESS_EXECUTION_ENABLED:false；源码总闸false将shared降为shadow。本次未取得新鲜Profile认证stage，不把部署证据冒充现场采样。现有已上线独立能力按PO决定作为内部非共享版集中交付，无需重装/重复部署；原账、配额、产品黑名单、R2 latest和开发目录不变。Shared联合验收及已知统计缺项保留，Mac另行回报。
