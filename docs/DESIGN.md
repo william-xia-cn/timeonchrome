@@ -22,6 +22,8 @@ Native owner 已用正式 2.6.19 DLL 与真实扩展生成器合成复现：权�
 
 360秒差额只读分析：权威投影以 domains.activeSeconds/compactedByChannel.active 得出在线量，按 targets.activeByQuotaBucket 收集所有桶，再按现有更正移动桶；派生消费者明确读取 study/composite/rest 与 other。借用Rest已读取rest，不以内容分类重算。现场仅有 LOCAL_BUCKETS_INCOMPLETE、没有 LOCAL_STATISTICS_INCOMPLETE 时，不能直接认定360秒没有桶：未知/legacy桶，或更正将已知桶移动到未知桶，也会出现同一诊断。仅有在线量高于全部桶总量则会同时产生统计不完整。添加固定合成区分夹具，不改消费者映射；现场两天缺少可信当前覆盖摘要，具体桶差额仍为P0未解决，禁止将未识别桶猜成Rest或“其他”。
 
+覆盖摘要读取核对：摘要先绑定 write-ahead 本地贡献修订；随后若云端 watermark 要求派生贡献使用更高 ordinal，旧摘要仍绑定原 ordinal/hash，会被诊断 UI 的严格版本校验排除。这是诊断缓存版本关联缺口，不证明权威账缺秒。仅同步该轮已冻结输入产生的覆盖摘要到最终提交贡献的 revision/hash，不重读统计、不改贡献内容/ACK/上传行为；用高水位夹具验证。冷启动、来源/策略失配、诊断低优先级写入失败仍必须显示未知，不能从云端接收时间推断覆盖已可读。
+
 ## D-114 第二批终端接线（2026-10-03，本地及隔离关页验证通过，生产执行关闭）
 
 真实期限对齐：Guardian challenge的90秒是兑换窗口，签名proof的300秒是绑定有效期，不得要求proof到期早于challenge。只分别校验challenge当前可兑换、proof结构／签名来源／身份和当前有效期；Host负责真实验签及scope确认。固定回归使用90秒challenge与300秒proof，过期challenge不进入兑换。

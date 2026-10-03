@@ -151,13 +151,15 @@ async function run() {
   const loopModule = await load(loopSource);
   const loopStore = { daily_usage_stats_v1: Object.fromEntries(model.days.map(d => [d.date, { domains: {}, targets: {} }])), guardian_config: {} };
   const sourceKey = 'web:' + 'f'.repeat(64);
+  let higherWatermark = false;
   const loop = loopModule.createSharedWebContributionSync({ enabled: true, now: () => now,
     readContext: async () => ({ apiBase: 'https://fixture.invalid', deviceId: 'private_device', childId: 'private_child', deviceToken: 'private_token' }),
     readPolicy: async () => ({ ok: true, policy }), readStorage: async () => loopStore,
     mutate: async fn => fn({ get: async () => loopStore, set: async v => Object.assign(loopStore, v) }),
     capabilities: async () => ({ ok: true, value: { schemaVersion: 1, protocol: 'shared-web-sync-v1', enabled: true } }),
     readWatermark: async (_, date) => date === '2026-10-01' ? { ok: false, errorCode: 'private_identifier' }
-      : { ok: true, value: { schemaVersion: 1, sourceKey, date, revisionOrdinal: 0, contentHash: null, publicationRevision: null } },
+      : { ok: true, value: { schemaVersion: 1, sourceKey, date, revisionOrdinal: higherWatermark ? 5 : 0,
+        contentHash: higherWatermark ? 'a'.repeat(64) : null, publicationRevision: higherWatermark ? '5:' + 'a'.repeat(64) : null } },
     native: async () => ({ ok: false }),
     upload: async (_, u) => ({ ok: true, value: { schemaVersion: 1, sourceKey, date: u.date, revisionOrdinal: u.revisionOrdinal,
       contentHash: u.contentHash, publicationRevision: `${u.revisionOrdinal}:${u.contentHash}`, status: 'accepted', submittedRevisionOrdinal: u.revisionOrdinal } }) });
@@ -169,6 +171,15 @@ async function run() {
   assert.equal(Object.keys(loopEvent.coverageByDate).length, 6);
   assert.equal(loopStore.shared_web_contribution_queue_v1.days['2026-10-03'].cloudConfirmed, undefined);
   assert(!JSON.stringify(loopEvent).includes('private_identifier'));
+  higherWatermark = true;
+  await loop.refresh();
+  const rebasedEvent = globalThis.__diagnosticWrites.at(-1).value.shared_web_sync_diagnostics_v1;
+  for (const date of ['2026-09-28', '2026-09-29', '2026-09-30']) {
+    const upload = loopStore.shared_web_contribution_queue_v1.days[date].upload;
+    assert.equal(upload.revisionOrdinal, 6);
+    assert.equal(rebasedEvent.coverageByDate[date].revisionOrdinal, upload.revisionOrdinal);
+    assert.equal(rebasedEvent.coverageByDate[date].contentHash, upload.contentHash);
+  }
   const receiptBlock = read('extension/infra/shared-web-contribution-sync.js').match(/          if \(nativeAccepted\) \{([\s\S]*?)\n          if \(nativeAccepted\) \{/)[0];
   const applyReceipt = new Function('nativeAccepted', 'nativeReceipts', 'd', 'submitted', 'now', 'diagnostic',
     'const fail=errorCode=>({errorCode});let preparation;\n' + receiptBlock.slice(0, receiptBlock.lastIndexOf('          if (nativeAccepted) {')));
