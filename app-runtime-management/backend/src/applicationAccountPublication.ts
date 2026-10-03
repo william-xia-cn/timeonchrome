@@ -128,7 +128,14 @@ export async function publishApplicationAccounts(db:D1Database,now=Date.now(),ma
     LEFT JOIN runtime_application_account_publication_checks_v1 c ON c.manifest_id=m.id
     WHERE m.state='received' AND (p.manifest_id IS NULL OR p.revision<m.revision)
       AND (c.checked_at_ms IS NULL OR c.checked_at_ms<=?1) AND (?2 IS NULL OR m.id=?2)
-    ORDER BY COALESCE(c.checked_at_ms,0),m.received_at_ms,m.id LIMIT 2`).bind(now-300000,manifestId??null).all<Candidate>();
+    ORDER BY
+      CASE WHEN json_extract(m.manifest_json,'$.complete')=1 THEN 0 ELSE 1 END,
+      CASE WHEN json_extract(m.manifest_json,'$.associationVersion')=(
+        SELECT json_extract(v.payload_json,'$.productIdentityProjection.version')
+        FROM runtime_child_app_policy_versions_v1 v
+        WHERE v.account_id=m.account_id AND v.child_id=m.child_id ORDER BY v.version DESC LIMIT 1
+      ) THEN 0 ELSE 1 END,
+      COALESCE(c.checked_at_ms,0),m.received_at_ms,m.id LIMIT 2`).bind(now-300000,manifestId??null).all<Candidate>();
   let published=0;
   for(const candidate of candidates.results){
     let revision='unverified',errorCode:string|null=null;
