@@ -57,6 +57,16 @@ Native随机CurrentUserOnly双向Named Pipe测试提交`b73175c`：正常取消�
 后续启用交接（本轮不执行）：先集成并发布这批兼容Guardian Worker与Runtime Worker，复用现有Service Binding和专用签名密钥，无新migration或凭据配置；无需发布Pages。再将对应源码一次纳入Windows最终候选与原目录unpacked候选，记录新版本／SHA及哈希，不能拿已安装旧候选作为V2证据。之后核对同孩子成功、不同孩子／用户拒绝、有效证明跨连接复用、过期与改绑撤销、实际贡献ACK及原账守恒；覆盖不足时不启用共享限制。Mac保持旧能力兼容，其V2适配／编译／实机仍单列后续，不以Windows测试冒称通过。
 
 本轮审计：契约、兼容云端、控件与Windows Native源码和上述聚焦验证为Matched；未批准Deviated/Extra无。生产部署、候选更新、真实联合连接与共享执行不在本轮执行范围，均未完成且不能称“线上问题已解决”；原始账本、统计、配额、安装环境、R2和执行开关未改变。强制提醒／取消、历史未知桶及P1统计故障仍按原独立任务保留。
+## 控件关闭补验来源记录（fe585e0；过程状态以最新收口条目为准）
+2026-10-04 共享页面关闭隔离补验：前两次 `testDefaultOff` 未定义已确认是保留测试 Profile 的旧 Service Worker 缓存入口（实际仅有 testStart/testClose/testSnapshot），非产品导出缺失；磁盘入口及75模块静态链接正常。PO/架构已授权只修安全夹具：复用原隔离 Profile、明确夹具版本、入口就绪及源码身份核对，只定向验证主动关闭可取消；不修改产品/原账/正式候选/家庭配置，不重跑已通过Content DOM或60秒，不将模拟授权标记为真实Service验收。
+
+本轮定向复验仍未通过：修订夹具版本0.0.2并核对 closer 哈希后，第一轮就绪校验10秒返回空，未执行关闭；第二轮增加仅测试扩展 `runtime.reload()` 刷新，等待新测试 Worker 15秒超时，仍未执行关闭。旧缓存入口已取证，但不能断言它是当前无法重新启动的唯一根因；新模块在扩展测试页可求值、75模块静态链接通过，仅证明无静态导出缺失，不代替SW成功初始化。两次原失败及两次修订后失败保留，按失败上限停止，不新建Profile、不重复原命令、不提交失败夹具。真实主动取消和Service授权仍待验收；当前Content真实DOM模拟桥证据与IndexedDB匹配证据保持独立通过，不扩大为真实关闭通过。
+
+后续只读定位：旧隔离Profile的开发扩展disable_reasons=16777216（Chromium DISABLE_UNSUPPORTED_DEVELOPER_EXTENSION），不是已证明的产品Worker错误。架构重新授权先核对现有测试可执行文件；不用用户Chrome，不编辑Profile Preferences或隐藏状态。若旧隔离环境无法合法复用，允许仅本次取消专项使用一个一次性隔离Profile；旧环境、失败现场与家庭数据原样保留，不跑整组、不发候选、不改产品或记账语义。
+
+2026-10-04 定向取消补验通过：使用当前Playwright正规 `channel: chromium`（包匹配Chromium147.0.7727.15）及明确授权的一次性隔离Profile，只运行 `TOC_CLOSE_CASE=cancel`。夹具版本/当前closer源码哈希/入口初始化先通过；真实debugger Page.close触发beforeunload，取消后outcome=canceled、页面仍打开、session仍ACTIVE、没有新增原始分段或日/小时统计，其他页面保留。共享执行默认关闭，Native授权和idle边界为夹具，不是实际Service或真实计时精度验收；未跑正常/强制关闭、60秒、Content整组或家庭执行。隔离证据 `close-ledger-cancel-current.json` 保留在该次临时宿主，旧失败现场未改。Matched=仅夹具和取消补验；Missing=实际Service授权闭环；本轮未提交、未构建候选、未部署。旧宿主仍NOT_VERIFIED，不用新宿主通过结论覆盖其失败记录。
+
+本轮集中交付核验：取消证据文件SHA256为6af8cfa18a19ead628965d6e9c1690207bbbaa38b7c6459323eb7688ca5a19b5。既有正常/强制关闭隔离证据文件SHA256为b15f3af4601cf6244289680d089f65534c3ee8ca35eeffab3e9f85ac9e007b99；关闭器、signal、timing-dispatcher、session四产品文件逐项匹配当前源码，因此复用、不补跑。normal/force均只自然结算一条2秒分段，原始=日=小时2秒，其他页面保留；该证据仍是夹具授权，不代替Service单调60秒和实际授权验收。仅提交本轮测试夹具及本组任务记录，不混入其他任务板或DESIGN/CHANGELOG草稿，不推送、不发PR、不发布。
 
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
