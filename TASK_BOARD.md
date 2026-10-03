@@ -1,5 +1,15 @@
 # TASK_BOARD
 
+2026-10-04 共享页面关闭隔离补验：前两次 `testDefaultOff` 未定义已确认是保留测试 Profile 的旧 Service Worker 缓存入口（实际仅有 testStart/testClose/testSnapshot），非产品导出缺失；磁盘入口及75模块静态链接正常。PO/架构已授权只修安全夹具：复用原隔离 Profile、明确夹具版本、入口就绪及源码身份核对，只定向验证主动关闭可取消；不修改产品/原账/正式候选/家庭配置，不重跑已通过Content DOM或60秒，不将模拟授权标记为真实Service验收。
+
+本轮定向复验仍未通过：修订夹具版本0.0.2并核对 closer 哈希后，第一轮就绪校验10秒返回空，未执行关闭；第二轮增加仅测试扩展 `runtime.reload()` 刷新，等待新测试 Worker 15秒超时，仍未执行关闭。旧缓存入口已取证，但不能断言它是当前无法重新启动的唯一根因；新模块在扩展测试页可求值、75模块静态链接通过，仅证明无静态导出缺失，不代替SW成功初始化。两次原失败及两次修订后失败保留，按失败上限停止，不新建Profile、不重复原命令、不提交失败夹具。真实主动取消和Service授权仍待验收；当前Content真实DOM模拟桥证据与IndexedDB匹配证据保持独立通过，不扩大为真实关闭通过。
+
+后续只读定位：旧隔离Profile的开发扩展disable_reasons=16777216（Chromium DISABLE_UNSUPPORTED_DEVELOPER_EXTENSION），不是已证明的产品Worker错误。架构重新授权先核对现有测试可执行文件；不用用户Chrome，不编辑Profile Preferences或隐藏状态。若旧隔离环境无法合法复用，允许仅本次取消专项使用一个一次性隔离Profile；旧环境、失败现场与家庭数据原样保留，不跑整组、不发候选、不改产品或记账语义。
+
+2026-10-04 定向取消补验通过：使用当前Playwright正规 `channel: chromium`（包匹配Chromium147.0.7727.15）及明确授权的一次性隔离Profile，只运行 `TOC_CLOSE_CASE=cancel`。夹具版本/当前closer源码哈希/入口初始化先通过；真实debugger Page.close触发beforeunload，取消后outcome=canceled、页面仍打开、session仍ACTIVE、没有新增原始分段或日/小时统计，其他页面保留。共享执行默认关闭，Native授权和idle边界为夹具，不是实际Service或真实计时精度验收；未跑正常/强制关闭、60秒、Content整组或家庭执行。隔离证据 `close-ledger-cancel-current.json` 保留在该次临时宿主，旧失败现场未改。Matched=仅夹具和取消补验；Missing=实际Service授权闭环；本轮未提交、未构建候选、未部署。旧宿主仍NOT_VERIFIED，不用新宿主通过结论覆盖其失败记录。
+
+本轮集中交付核验：取消证据文件SHA256为6af8cfa18a19ead628965d6e9c1690207bbbaa38b7c6459323eb7688ca5a19b5。既有正常/强制关闭隔离证据文件SHA256为b15f3af4601cf6244289680d089f65534c3ee8ca35eeffab3e9f85ac9e007b99；关闭器、signal、timing-dispatcher、session四产品文件逐项匹配当前源码，因此复用、不补跑。normal/force均只自然结算一条2秒分段，原始=日=小时2秒，其他页面保留；该证据仍是夹具授权，不代替Service单调60秒和实际授权验收。仅提交本轮测试夹具及本组任务记录，不混入其他任务板或DESIGN/CHANGELOG草稿，不推送、不发PR、不发布。
+
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
 2026-10-03 D-114可复用来源核验终端源码收口：消费固定contracts1.31.0（源2d054c7，包SHA256355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395），按明确V2能力接入签名scope、直接proof交换、本地重新绑定及无challenge贡献替换；有效proof仅内存缓存，过期重连不能复活，同连接租约须完整policyIdentity及有效期内首次验证。V2失败不降级；旧端V1兼容。稳定身份原因经Native拒绝/日期循环/正常诊断完整保留，业务拒绝不误断Port；改绑/策略变化及ContextChanged撤销绑定与当前Native确认。绑定固定签名/HTTP、贡献同步、Native客户端和诊断四专项通过，typecheck、扩展根检查及diff检查通过。Matched＝批准源码范围；无未批准Extra/Deviated。原账/贡献内容及云端ACK算法、候选、家庭配置和共享执行门禁未改。仅本地集中提交，未推送/部署；真实云端+Service联合绑定、缓存重连及共享余额/提醒验收未执行，不能用当前安装证明V2通过。
