@@ -2,6 +2,8 @@
 
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 
+安装后核验更新（2026-10-04 00:58）：Native会话收到PO“已经安装”并只读采样，架构独立读取正式安装目录四组件版本2.6.25.0及SHA全部匹配候选。Native公开状态online、Service Running/Automatic、Service/Agent各一个；公开协议字段1只是健康观测，不据此裁决当前扩展v3。已交Native继续当前10/4连接/同孩子/贡献ACK及共享读取核对，不开启执行、不重启、不绕权限。此前下条“仍安装2.6.24”是交付时历史状态，本条覆盖；正式余额/提醒/恢复及原账守恒仍未验收。
+
 远端CI外部阻塞（2026-10-04）：Native推送`eedbe7c`运行`37138554278`的changes/native-gate在启动前失败，GitHub原注释为账号付款失败或spending limit需增加；Windows/Mac jobs跳过，没有执行产品测试。插件日志BlobNotFound后以CLI只读回读run和check注释确认。本地测试/构建证据保留，远端记NOT_RUN/BILLING_BLOCKED，不重跑、降级门禁或改付款设置。既有云端运行通过证据不被冒用为本次Native SHA的CI；源码合入和实际安装验收分别保留待办。
 
 最终Native候选已交付（2026-10-04）：2.6.25一次干净构建来源`050cfe6`，后续交付文档`eedbe7ce86b197fcbef65e45a53aaa71872bfcb7`已推送现有main；无新分支/树。架构独立核对Burn119791699字节/SHA`d769b45ce34973f379885216104b1a6cc2b26f8a6cf199e7b65c32aef1b98928`、MSI61073142字节/SHA`88a51c942f63387e327e61354b594c7b907d4c028534253b21bf336bdd3d2a18`及manifest SHA`931e9ba824ec0e6c21c930946990dded8b5c102da0a59f82c1726f078bd072fd`相符；四发布组件2.6.25.0及哈希匹配交付说明。固定契约1.31.0，内部未签名/latestEligible=false。Native核对旧40发行文件及latest哈希未变；当前仍安装2.6.24，不冒称新回执已生效。唯一安装器位于`D:\Codex\TimeWhereNative\artifacts\release\windows\x64\2.6.25\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.25.exe`，按PO既有手动安装选择交付，不自动启动。
