@@ -48,7 +48,7 @@ async function run() {
     .replace(/import \{ readSharedAccessPolicyContext[^;]+;/, 'const readSharedAccessPolicyContext=()=>null,readSharedAccessPolicyLkg=()=>null,SHARED_ACCESS_POLICY_LKG_KEY="policy";')
     .replace(/import \{ readCloudSharedWebCapabilities[^;]+;/, 'const readCloudSharedWebCapabilities=()=>null,readCloudSharedWebWatermark=()=>null,postCloudSharedWebContribution=()=>null,requestCloudSharedWebSourceBinding=()=>null;')
     .replace(/import \{ requestSharedWebSync, observeSharedAccessPolicyCapability, readSharedWebLocalConnection \}[^;]+;/, 'const requestSharedWebSync=()=>null,observeSharedAccessPolicyCapability=()=>null,readSharedWebLocalConnection=()=>({connection:null,capabilityNegotiated:false});')
-    .replace(/import \{ runStorageMutation \}[^;]+;/, 'const runStorageMutation=()=>null;')
+    .replace(/import \{ runStorageMutation, budgetedLocalSet \}[^;]+;/, 'const runStorageMutation=()=>null,budgetedLocalSet=async()=>{};')
     .replace(/import \{ readSharedQuotaExecutionLkg \}[^;]+;/, 'const readSharedQuotaExecutionLkg=()=>null;');
   const mod = await dataModule(source);
   const policyCore = await import(url('extension/core/shared-access-policy.js'));
