@@ -60,9 +60,59 @@ async function run() {
   assert.equal(listener({ type: mod.SHARED_SYNC_DIAGNOSTICS_MESSAGE }, { id: 'self', url: runtime.getURL('admin/admin.html') }, v => reply = v), true);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(reply.ok, true); assert.equal(reads, 1); assert.equal(nativeReads, 1);
+  for (const suffix of ['?view=system-management', '#system-management', '?view=system-management#local']) {
+    assert.equal(listener({ type: mod.SHARED_SYNC_DIAGNOSTICS_MESSAGE }, { id: 'self', url: runtime.getURL('admin/admin.html') + suffix }, v => reply = v), true);
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(reply.ok, true);
+  }
+  for (const sender of [
+    { id: 'other', url: runtime.getURL('admin/admin.html') },
+    { id: 'self', url: 'chrome-extension://other/admin/admin.html' },
+    { id: 'self', url: runtime.getURL('popup/popup.html') },
+    { id: 'self', url: 'https://self/admin/admin.html' },
+  ]) {
+    assert.equal(listener({ type: mod.SHARED_SYNC_DIAGNOSTICS_MESSAGE }, sender, v => reply = v), false);
+    assert.equal(reply.errorCode, 'diagnostics_sender_rejected');
+  }
+  for (const [stage, options] of [
+    ['storage', { storage: { get: async () => { throw Error('private_token'); } } }],
+    ['native', { native: () => { throw Error('private_token'); } }],
+    ['shared', { live: () => { throw Error('private_token'); } }],
+  ]) {
+    mod.registerSharedSyncDiagnosticsReader({ runtime, storage: { get: async () => stored }, native: () => ({}), live: () => ({}), ...options });
+    listener({ type: mod.SHARED_SYNC_DIAGNOSTICS_MESSAGE }, { id: 'self', url: runtime.getURL('admin/admin.html') }, v => reply = v);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(reply.errorCode, `diagnostics_${stage}_read_failed`); assert(!JSON.stringify(reply).includes('private_token'));
+  }
   const nativeSource = read('extension/infra/native-host-client.js');
+  const recordBody = nativeSource.match(/function recordResponseRejection\(request, reason, serviceErrorCode = null\) \{([\s\S]*?)\n\}/)[1];
+  const record = new Function('request', 'reason', 'serviceErrorCode', `let lastResponseRejection; const safeNow=()=>123; ${recordBody}; return lastResponseRejection;`);
+  assert.deepEqual(record({ messageType: 'dailyUsageSnapshot', channel: 'statistics', requestId: 'private_id', proof: 'private_token' }, 'snapshot_stale'),
+    { atMs: 123, reason: 'snapshot_stale', serviceErrorCode: null, messageType: 'dailyUsageSnapshot', channel: 'statistics' });
+  assert.equal(record({ messageType: 'private_token', channel: 'private_id' }, 'negative_response').messageType, 'unknown');
+  const rejectionModel = mod.buildSharedSyncDiagnostics({}, { lastResponseRejection: { atMs: 123, reason: 'private_token', messageType: 'private_id', channel: 'private_channel' } }, {}, now);
+  assert(!JSON.stringify(rejectionModel).includes('private_'));
+  const callbackBody = nativeSource.slice(nativeSource.indexOf('  port.onMessage.addListener((response) => {') + '  port.onMessage.addListener((response) => {'.length,
+    nativeSource.indexOf('\n  port.onDisconnect.addListener'));
+  const callback = new Function('response', 'pendingAck', 'recordResponseRejection', 'rejectPendingAck', 'disconnectPort', 'LIFECYCLE_ERRORS', 'clearTimeout',
+    callbackBody.replace(/\n  \}\);\s*$/, ''));
+  for (const [response, expected] of [[{ ok: false, errorCode: 'BROWSER_BRIDGE_MESSAGE_REJECTED' }, 'service_message_rejected'],
+    [{ ok: false, errorCode: 'private_token' }, 'negative_response'], [{ ok: true, receivedAt: '123' }, 'received_at_invalid']]) {
+    let reason, disconnected = false;
+    callback(response, { messageType: 'heartbeat', channel: 'health' }, (_, value) => reason = value, () => {}, () => disconnected = true, new Set(), () => {});
+    assert.equal(reason, expected); assert.equal(disconnected, true);
+  }
+  for (const [response, isolated] of [
+    [{ ok: false, requestId: 'match', receivedAt: 123, errorCode: 'BROWSER_BRIDGE_MESSAGE_REJECTED' }, true],
+    [{ ok: false, requestId: 'match', receivedAt: '123', errorCode: 'BROWSER_BRIDGE_MESSAGE_REJECTED' }, false],
+    [{ ok: false, requestId: 'match', receivedAt: 123, errorCode: 'private_error' }, false],
+  ]) {
+    let rejected, disconnected = false;
+    callback(response, { requestId: 'match', messageType: 'dailyUsageSnapshot', channel: 'statistics' }, () => {}, value => rejected = value,
+      () => disconnected = true, new Set(), () => {});
+    assert.equal(disconnected, !isolated); assert.equal(rejected, isolated ? 'native_snapshot_rejected' : 'native_invalid_response');
+  }
   const body = nativeSource.match(/export function readNativeHostDiagnosticState\(\) \{([\s\S]*?)\n\}/)[1];
-  const inspect = new Function('nativePort', 'sharedNativeV3', 'sharedNativeCapabilities', 'applicationUsageSupported', body);
+  const inspect = new Function('nativePort', 'sharedNativeV3', 'sharedNativeCapabilities', 'applicationUsageSupported', 'lastResponseRejection', body);
   assert.equal(inspect({}, false, new Set(), false).applicationUsageSupported, null);
   assert.equal(inspect(null, true, new Set(), true).applicationUsageSupported, null);
   assert.equal(inspect({}, true, new Set(['private_capability', 'shared-web-local-lease-v1']), false).capabilities.length, 1);
@@ -134,6 +184,26 @@ async function run() {
   }
   const doc = { hidden: false, createElement: () => new Element(doc) };
   const container = new Element(doc), handlers = {}, pending = [];
+  const contents = element => [element.textContent, ...element.children.map(contents)].join(' ');
+  ui.renderSharedSyncDiagnostics(container, { ...model, connection: { lastSuccessAtMsHistorical: now, lastErrorCodeHistorical: 'native_port_disconnected', connectedCurrent: false } });
+  assert(contents(container).includes('历史连接成功时间')); assert(contents(container).includes('native_port_disconnected'));
+  ui.renderSharedSyncDiagnostics(container, null, 'private_token', '1.7.41');
+  assert(!contents(container).includes('private_token')); assert(contents(container).includes('1.7.41'));
+  container.replaceChildren();
+  for (const [response, code] of [
+    [{ error: 'Unknown message type' }, 'diagnostics_background_unsupported'],
+    [undefined, 'diagnostics_response_invalid'],
+    [{ ok: false, errorCode: 'diagnostics_sender_rejected' }, 'diagnostics_sender_rejected'],
+  ]) {
+    const localHandlers = {};
+    const localDetails = { open: true, addEventListener: (k, fn) => localHandlers[k] = fn, removeEventListener() {} };
+    const stop = ui.attachSharedSyncDiagnostics(localDetails, container, {
+      runtime: { getManifest: () => ({ version: '1.7.41' }), sendMessage: async () => response },
+      storage: { onChanged: { addListener() {}, removeListener() {} } }, schedule: () => 1, cancel() {} });
+    localHandlers.toggle(); await new Promise(resolve => setImmediate(resolve));
+    assert(contents(container).includes(code)); stop();
+  }
+  container.replaceChildren();
   const details = { open: false, addEventListener: (k, fn) => handlers[k] = fn, removeEventListener: k => delete handlers[k] };
   let timers = 0, cancels = 0;
   const dispose = ui.attachSharedSyncDiagnostics(details, container, {

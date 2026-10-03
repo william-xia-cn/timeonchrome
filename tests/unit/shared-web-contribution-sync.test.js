@@ -100,6 +100,28 @@ async function run() {
       cap: v => { cap = v; }, fail: v => { failed = v; }, hook: v => { responseHook = v; }, context: v => { context = v; }, policy: v => { currentPolicy = v; } };
   }
   const disabled = fixture(false); assert.equal((await disabled.sync.refresh()).ok, false); assert.equal(disabled.calls.length, 0);
+  for (const [kind, buckets, corrections, expected] of [
+    ['borrowed_rest', { study: 546, rest: 360 }, [], []],
+    ['explicit_other', { study: 546, other: 360 }, [], []],
+    ['legacy_bucket', { study: 546, legacy_unknown: 360 }, [], ['LOCAL_BUCKETS_INCOMPLETE']],
+    ['missing_bucket', { study: 546 }, [], ['LOCAL_STATISTICS_INCOMPLETE', 'LOCAL_BUCKETS_INCOMPLETE']],
+    ['correction_to_unknown', { study: 906 }, [{ date: '2026-09-30', channel: 'active', durationSeconds: 360,
+      originalQuotaBucket: 'study', effectiveQuotaBucket: 'legacy_unknown' }], ['LOCAL_BUCKETS_INCOMPLETE']],
+  ]) {
+    const sample = fixture(); sample.cap(false);
+    sample.store.daily_usage_stats_v1['2026-09-30'] = { domains: { synthetic: { activeSeconds: 906 } },
+      targets: { synthetic: { activeByQuotaBucket: buckets } } };
+    sample.store.guardian_config.usageAccountingCorrectionsV1 = corrections;
+    const original = JSON.stringify(sample.store.daily_usage_stats_v1);
+    await sample.sync.refresh();
+    const contribution = sample.store[mod.SHARED_WEB_QUEUE_KEY].days['2026-09-30'].upload;
+    assert.equal(contribution.activeMs, 906000, kind);
+    assert.deepEqual(contribution.reasonCodes, expected, kind);
+    assert.equal(JSON.stringify(sample.store.daily_usage_stats_v1), original, 'source statistics unchanged');
+    if (kind === 'legacy_bucket' || kind === 'correction_to_unknown') {
+      assert.equal(Object.values(contribution.bucketsMs).reduce((a,b)=>a+b,0) + contribution.otherMs, 546000);
+    }
+  }
   const f = fixture(); assert.equal((await f.sync.refresh()).ok, true); assert.equal(f.calls.length, 6);
   const current = f.store[mod.SHARED_WEB_QUEUE_KEY].days['2026-10-03'];
   assert.equal(current.upload.activeMs, 1200000); assert.equal(current.upload.otherMs, 600000);
