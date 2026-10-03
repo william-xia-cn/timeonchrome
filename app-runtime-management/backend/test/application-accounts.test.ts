@@ -424,14 +424,15 @@ it('bounded HTTP bodies fail before staging changes', async () => {
   expect((await api(f, `/${r.manifestId}/chunks/0`, 'PUT', { rows: [], chunkHash: 'x'.repeat(131072) })).status).toBe(413);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB, f.machine, r.manifestId)).toMatchObject({ received: false, receivedChunkIndexes: [] });
 });
-it('capabilities require machine authentication and only ready schema permits upload',async()=>{
+it.each(['windows','macos'] as const)('capabilities require %s machine authentication and only ready schema permits upload',async(platform)=>{
   const url='http://runtime.test/v2/machines/application-accounts/capabilities';
   expect((await exports.default.fetch(new Request(url))).status).toBe(401);
   const f=await fixture();
+  await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET platform=?1 WHERE id=?2').bind(platform,f.machine.machineId).run();
   const response=await exports.default.fetch(new Request(url,{headers:{authorization:`Bearer ${f.token}`}}));
   expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');
   expect(await response.json()).toEqual({protocol:'usage-account-v1',schemaVersion:1,enabled:true,
-    chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1']});
+    chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1','macos-application-v1']});
   const unavailable={prepare(){return {bind(){return {async all(){return {results:[]};}};}};}} as unknown as D1Database;
   const disabled=await routeApplicationAccounts(new Request(url),unavailable,f.machine,now);
   expect(await disabled.json()).toMatchObject({enabled:false});

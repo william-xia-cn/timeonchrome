@@ -1,5 +1,11 @@
 # TimeOnChrome — 技术设计文档
 
+## D-113 Mac应用统计云端接入（2026-10-04）
+
+Mac Daemon使用公共ApplicationUsageReader与ApplicationAccountStore，采用已有单调时钟稳定锚点、当前用户/assignment范围、毫秒区间并集、本周更正及产品关联；独立算法标识为macos-application-v1。云端在既有usage-account-v1接口声明该算法，并严格要求机器platform与算法一一对应：windows/windows-application-v1、macos/macos-application-v1。其他算法或交叉标识仍拒绝；不能用更换客户端标识绕过校验。
+
+平台匹配后复用既有精确发布核对器：身份/家庭/孩子/分配、完整性、政策/更正/关联版本、原始事实范围及数量、单调时钟异常、截止时间、每个统计维度及hash均保持原条件。非零Mac清单须完整走接收→独立发布头→持久统计读取；没有会话覆盖证据的Mac日期由既有生产端标记不完整，云端不得把它发布成零。Mac与Windows均不改原账、计时或配额；不新增表、migration、协议字段、密钥或终端包。云端测试不等于Mac真实上传/发布/页面验收，生产开关仍保持影子模式。
+
 ## D-114 本机提醒终态回执恢复（2026-10-04）
 
 隔离真实管道已经证明：正常取消成功后，结果写前断流会留下Service的dispatched状态。修复属于原提醒可靠性链，不改变主动结束/超时强制、原账、配额或执行开关。只补发已经生成的终态，不重发effect、不再次Claim/Close，不以结果丢失推导超时。
