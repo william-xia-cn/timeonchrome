@@ -252,6 +252,8 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
         q = await change(c, generation, q => { q.days[d] = { ...item, sourceKey, cloudConfirmed: alreadyConfirmed, failures: item.failures || 0, nextRetryAtMs: item.nextRetryAtMs || 0 }; return q; });
         if (!q) return fail('shared_web_identity_changed');
         const submitted = clone(q.days[d].upload);
+        diagnostic.coverageByDate[d] = { ...diagnostic.coverageByDate[d],
+          revisionOrdinal: submitted.revisionOrdinal, contentHash: submitted.contentHash };
         if (q.days[d].nextRetryAtMs > now()) continue;
         if (!bindingCurrent(c)) {
           step('source_binding', d);
