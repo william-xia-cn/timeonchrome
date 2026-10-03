@@ -1,5 +1,6 @@
 import { readNativeHostDiagnosticState } from './native-host-client.js';
 import { readSharedWebDiagnosticState } from './shared-web-contribution-sync.js';
+import { SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
 
 export const SHARED_SYNC_DIAGNOSTICS_MESSAGE = 'TIMEONCHROME_SHARED_SYNC_DIAGNOSTICS_READ';
 const integer = v => Number.isSafeInteger(v) && v >= 0 ? v : null;
@@ -13,12 +14,18 @@ const knownErrors = new Set(['native_host_unavailable', 'native_port_disconnecte
   'shared_web_invalid_watermark', 'shared_web_invalid_ack', 'shared_web_context_unavailable',
   'shared_web_queue_size_limit', 'shared_web_statistics_invalid', 'shared_web_queue_content_conflict',
   'shared_web_ordinal_exhausted', 'shared_web_native_unavailable', 'shared_web_unsupported',
-  'shared_web_connection_changed', 'shared_web_busy', 'shared_web_invalid_request']);
+  'shared_web_connection_changed', 'shared_web_busy', 'shared_web_invalid_request',
+  'shared_web_scope_unavailable', 'shared_web_proof_unavailable', 'shared_web_identity_unverified',
+  'shared_web_invalid_reusable_proof', 'INVALID_WEB_SOURCE_SCOPE', 'INVALID_WEB_SOURCE_PROOF',
+  'INVALID_WEB_SOURCE_BINDING', 'INVALID_WEB_SOURCE_KEY', 'WEB_SOURCE_SCOPE_MISMATCH', 'WEB_SOURCE_PROOF_EXPIRED',
+  'WEB_SOURCE_PROOF_SIGNATURE_INVALID', 'WEB_SOURCE_ASSIGNMENT_CHANGED', 'WEB_SOURCE_BINDING_CONFLICT',
+  'WEB_SOURCE_BINDING_UNAVAILABLE', 'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE', 'SHARED_ACCESS_BINDING_CHANGED',
+  'SHARED_ACCESS_POLICY_CHANGED', 'SHARED_WEB_SYNC_UNAVAILABLE', ...SHARED_WEB_IDENTITY_ERRORS]);
 const errorCode = v => v == null ? null : knownErrors.has(v) ? v : 'unknown';
 const dateKey = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 const stages = ['local_context', 'local_projection', 'native_replace', 'cloud_capabilities',
   'cloud_watermark', 'source_binding', 'cloud_upload', 'cloud_ack', 'local_preparation'];
-const capabilities = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1',
+const capabilities = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1', 'shared-web-source-reusable-v2',
   'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1', 'shared-browser-activity-v1',
   'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1', 'shared-web-local-lease-v1'];
 function projectedCoverage(value) {
@@ -93,6 +100,7 @@ export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, 
         atMs: integer(native.lastResponseRejection.atMs),
         serviceErrorCode: ['BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
           'NATIVE_ENVELOPE_REJECTED', 'NATIVE_MESSAGE_INVALID'].includes(native.lastResponseRejection.serviceErrorCode)
+          || SHARED_WEB_IDENTITY_ERRORS.has(native.lastResponseRejection.serviceErrorCode)
           ? native.lastResponseRejection.serviceErrorCode : null,
         reason: ['service_message_rejected', 'service_unavailable', 'negative_response', 'received_at_invalid',
           'snapshot_stale', 'snapshot_revision_mismatch', 'application_request_mismatch', 'application_payload_missing'].includes(native.lastResponseRejection.reason)
@@ -100,7 +108,8 @@ export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, 
         messageType: ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'settledUsageSegments',
           'getSharedQuotaState', 'reportReminderResult', 'getSharedReminderState', 'acknowledgeSharedReminderDelivery',
           'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution', 'getSharedWebSourceChallenge',
-          'bindSharedWebSource', 'replaceSharedWebContribution'].includes(native.lastResponseRejection.messageType) ? native.lastResponseRejection.messageType : 'unknown',
+          'bindSharedWebSource', 'replaceSharedWebContribution', 'getSharedWebSourceScope',
+          'bindSharedWebSourceV2', 'replaceSharedWebContributionV2'].includes(native.lastResponseRejection.messageType) ? native.lastResponseRejection.messageType : 'unknown',
         channel: ['health', 'statistics', 'application', 'ledger', 'sharedQuota'].includes(native.lastResponseRejection.channel) ? native.lastResponseRejection.channel : 'unknown',
       } : null },
     policy: { revision: typeof p?.policy?.revision === 'string' && /^profile-config:\d{1,16}$/.test(p.policy.revision) ? p.policy.revision : null,

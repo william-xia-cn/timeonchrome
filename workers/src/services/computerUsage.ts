@@ -11,7 +11,7 @@ import { statsRouter } from '../routes/stats';
 import { readSharedAccessPolicyForChild } from '../routes/profiles';
 import { readSharedAccessDayState, readSharedQuotaExecutionBasis, pageSharedQuotaExecutionBasis, type SharedAccessStateEnv } from './sharedAccessState';
 import { createSharedAccessPolicyIdentityV1, type SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
-import { createSharedWebSourceChallenge, readSharedWebVerificationKey, verifyCurrentSharedWebSource } from './sharedWebSourceBinding';
+import { createSharedWebSourceChallenge, createSharedWebMachineScope, readSharedWebVerificationKey, verifyCurrentSharedWebSource } from './sharedWebSourceBinding';
 
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
@@ -182,7 +182,7 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
   async fetch(request:Request):Promise<Response> {
     const operation=new URL(request.url).pathname;
     if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy','/readSharedQuotaState','/readSharedQuotaExecutionBasis',
-      '/createSharedWebSourceChallenge','/readSharedWebVerificationKey'].includes(operation))
+      '/createSharedWebSourceChallenge','/createSharedWebMachineScope','/readSharedWebVerificationKey'].includes(operation))
       return Response.json({code:'METHOD_NOT_ALLOWED'},{status:405});
     const reader=request.body?.getReader();
     if(!reader)return Response.json({code:'INVALID_SCOPE'},{status:400});
@@ -202,6 +202,9 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     try {
       if(operation==='/createSharedWebSourceChallenge'){
         return Response.json(await createSharedWebSourceChallenge(this.env,input),{headers:{'cache-control':'no-store'}});
+      }
+      if(operation==='/createSharedWebMachineScope'){
+        return Response.json(await createSharedWebMachineScope(this.env,input),{headers:{'cache-control':'no-store'}});
       }
       if(operation==='/readSharedQuotaExecutionBasis'){
         const allowed=['accountId','childId','date','ownSourceKey','offset','limit','expectedRevision'];
@@ -253,6 +256,13 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
       const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(input.childId,input.accountId).first();
       return Response.json({owned:!!owned});
     }catch(error){
+      const bindingCode=error instanceof Error?error.message:'';
+      if((operation==='/createSharedWebMachineScope'||operation==='/readSharedQuotaExecutionBasis'&&Object.hasOwn(input,'webSourceProof'))
+        &&/^(WEB_SOURCE_(SCOPE_MISMATCH|PROOF_EXPIRED|PROOF_SIGNATURE_INVALID|BINDING_UNAVAILABLE)|SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE|SOURCE_SCOPE_LIMIT|INVALID_WEB_SOURCE_(SCOPE|PROOF|BINDING|KEY))$/.test(bindingCode)){
+        const status=bindingCode.startsWith('INVALID_')?400:bindingCode==='WEB_SOURCE_PROOF_SIGNATURE_INVALID'?403
+          :['WEB_SOURCE_SCOPE_MISMATCH','WEB_SOURCE_PROOF_EXPIRED','SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'].includes(bindingCode)?409:503;
+        return Response.json({code:bindingCode},{status});
+      }
       if(operation==='/readSharedQuotaExecutionBasis'){
         const message=error instanceof Error?error.message:'';
         const status=message==='INVALID_EXECUTION_CURSOR'?400:message==='EXECUTION_BASIS_VERSION_CHANGED'?409:503;

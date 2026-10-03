@@ -7,7 +7,9 @@ for(const vector of vectors.heartbeat) assert.deepEqual(resolveRuntimeOsVersion(
 assert.equal(createHash('sha256').update(vectors.receipt.confirmationSecret).digest('hex'),vectors.receipt.confirmationSecretHash);
 assert.equal(vectors.receipt.expiredAtMs-vectors.receipt.committedAtMs,RUNTIME_UNINSTALL_RECEIPT_TTL_MS);
 assert.equal(vectors.receipt.validAtMs+1,vectors.receipt.expiredAtMs);
-assert.equal(vectors.contractVersion,JSON.parse(readFileSync(new URL('./package.json',import.meta.url),'utf8')).version);
+// 机器控制 v1 语义未变；冻结上一兼容版向量，不随新增共享身份能力改写历史夹具。
+// 当前包版本由 contract-compatibility.test.cjs 独立核验。
+assert.equal(vectors.contractVersion,'1.30.0');
 assert.deepEqual(vectors.http.commit.body,vectors.http.receipt.body);
 assert.deepEqual(Object.keys(vectors.http.receipt.body).sort(),['committedAtMs','operationId','revoked','status']);
 assert.equal(vectors.http.unavailable.status,404);

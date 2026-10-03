@@ -6,7 +6,9 @@ const root = path.resolve(__dirname, '../..');
 const read = f => fs.readFileSync(path.join(root, f), 'utf8');
 const load = s => import('data:text/javascript;base64,' + Buffer.from(s).toString('base64'));
 async function run() {
-  const mod = await load(read('extension/infra/shared-sync-diagnostics.js').replace(/^import .*;\r?\n/gm, ''));
+  const { SHARED_WEB_IDENTITY_ERRORS } = await import(pathToFileURL(path.join(root, 'extension/core/shared-web-native.js')).href);
+  globalThis.__sharedIdentityErrors = SHARED_WEB_IDENTITY_ERRORS;
+  const mod = await load('const SHARED_WEB_IDENTITY_ERRORS=globalThis.__sharedIdentityErrors;\n' + read('extension/infra/shared-sync-diagnostics.js').replace(/^import .*;\r?\n/gm, ''));
   const now = Date.parse('2026-10-03T04:00:00Z');
   const identity = { schemaVersion: 1, revision: 'profile-config:34', stage: 'shadow', effectiveAtMs: 0, policyHash: 'a'.repeat(64) };
   const upload = { revisionOrdinal: 1, contentHash: 'b'.repeat(64), complete: false,
@@ -85,12 +87,20 @@ async function run() {
   }
   const nativeSource = read('extension/infra/native-host-client.js');
   const recordBody = nativeSource.match(/function recordResponseRejection\(request, reason, serviceErrorCode = null\) \{([\s\S]*?)\n\}/)[1];
-  const record = new Function('request', 'reason', 'serviceErrorCode', `let lastResponseRejection; const safeNow=()=>123; ${recordBody}; return lastResponseRejection;`);
+  const record = new Function('request', 'reason', 'serviceErrorCode', `const SHARED_WEB_IDENTITY_ERRORS=globalThis.__sharedIdentityErrors; let lastResponseRejection; const safeNow=()=>123; ${recordBody}; return lastResponseRejection;`);
   assert.deepEqual(record({ messageType: 'dailyUsageSnapshot', channel: 'statistics', requestId: 'private_id', proof: 'private_token' }, 'snapshot_stale'),
     { atMs: 123, reason: 'snapshot_stale', serviceErrorCode: null, messageType: 'dailyUsageSnapshot', channel: 'statistics' });
   assert.equal(record({ messageType: 'private_token', channel: 'private_id' }, 'negative_response').messageType, 'unknown');
   const rejectionModel = mod.buildSharedSyncDiagnostics({}, { lastResponseRejection: { atMs: 123, reason: 'private_token', messageType: 'private_id', channel: 'private_channel' } }, {}, now);
   assert(!JSON.stringify(rejectionModel).includes('private_'));
+  for (const code of ['WEB_SOURCE_PROOF_EXPIRED', 'WEB_SOURCE_SCOPE_MISMATCH', 'WEB_SOURCE_CONTEXT_CHANGED', 'WEB_SOURCE_PROOF_REQUIRED']) {
+    const rejection = record({ messageType: 'bindSharedWebSourceV2', channel: 'sharedQuota' }, 'negative_response', code);
+    const diagnostic = mod.buildSharedSyncDiagnostics({}, { connected: true, lastResponseRejection: rejection }, { bindingState: 'expired_or_changed' }, now);
+    assert.equal(diagnostic.connection.connectedCurrent, true);
+    assert.equal(diagnostic.connection.responseRejection.serviceErrorCode, code);
+    assert.equal(diagnostic.connection.responseRejection.messageType, 'bindSharedWebSourceV2');
+    assert.equal(diagnostic.bindingState, 'expired_or_changed');
+  }
   const callbackBody = nativeSource.slice(nativeSource.indexOf('  port.onMessage.addListener((response) => {') + '  port.onMessage.addListener((response) => {'.length,
     nativeSource.indexOf('\n  port.onDisconnect.addListener'));
   const callback = new Function('response', 'pendingAck', 'recordResponseRejection', 'rejectPendingAck', 'disconnectPort', 'LIFECYCLE_ERRORS', 'clearTimeout',
@@ -123,7 +133,9 @@ async function run() {
     .replace(/import \{ buildLocalQuotaProjectionV2 \}[^;]+;/, 'const buildLocalQuotaProjectionV2=()=>{};')
     .replace(/import \{ getBeijingWeekPeriod \}[^;]+;/, 'const getBeijingWeekPeriod=()=>({weekStart:"2026-09-28"});')
     .replace(/import \{ readSharedAccessPolicyContext[^;]+;/, 'const readSharedAccessPolicyContext=()=>null,readSharedAccessPolicyLkg=()=>null,SHARED_ACCESS_POLICY_LKG_KEY="policy";')
-    .replace(/import \{ readCloudSharedWebCapabilities[^;]+;/, 'const readCloudSharedWebCapabilities=()=>null,readCloudSharedWebWatermark=()=>null,postCloudSharedWebContribution=()=>null,requestCloudSharedWebSourceBinding=()=>null;')
+    .replace(/import \{ readCloudSharedWebCapabilities[^;]+;/, 'const readCloudSharedWebCapabilities=()=>null,readCloudSharedWebWatermark=()=>null,postCloudSharedWebContribution=()=>null,requestCloudSharedWebSourceBinding=()=>null,requestCloudSharedWebSourceBindingV2=()=>null;')
+    .replace(/from '(\.\/shared-web-reusable-binding.js|\.\.\/core\/shared-web-native.js)'/g,
+      (_, p) => `from '${url('extension/' + path.posix.normalize('infra/' + p))}'`)
     .replace(/import \{ requestSharedWebSync[^;]+;/, 'const requestSharedWebSync=()=>null,observeSharedAccessPolicyCapability=()=>null,readSharedWebLocalConnection=()=>({connection:null});')
     .replace(/import \{ runStorageMutation[^;]+;/, 'const runStorageMutation=()=>null,budgetedLocalSet=async(value,options)=>globalThis.__diagnosticWrites.push({value,options});')
     .replace(/import \{ readSharedQuotaExecutionLkg[^;]+;/, 'const readSharedQuotaExecutionLkg=()=>null;');
@@ -210,7 +222,7 @@ async function run() {
   }
   const receiptBlock = read('extension/infra/shared-web-contribution-sync.js').match(/          if \(nativeAccepted\) \{([\s\S]*?)\n          if \(nativeAccepted\) \{/)[0];
   const applyReceipt = new Function('nativeAccepted', 'nativeReceipts', 'd', 'submitted', 'now', 'diagnostic',
-    'const fail=errorCode=>({errorCode});let preparation;\n' + receiptBlock.slice(0, receiptBlock.lastIndexOf('          if (nativeAccepted) {')));
+    'const r={};const reusableBinding={invalidate(){}};const identityError=(_,fallback)=>fallback;const SHARED_WEB_IDENTITY_ERRORS=new Set();const clearBinding=()=>nativeReceipts.clear();const fail=errorCode=>({errorCode});let preparation;\n' + receiptBlock.slice(0, receiptBlock.lastIndexOf('          if (nativeAccepted) {')));
   const receipts = new Map([['day', { hash: 'hash', atMs: 5 }]]);
   applyReceipt(true, receipts, 'day', { contentHash: 'hash' }, () => 10, {});
   assert.equal(receipts.get('day').atMs, 5, 'existing confirmed receipt must not be deleted or re-timestamped');
@@ -226,6 +238,18 @@ async function run() {
   const contents = element => [element.textContent, ...element.children.map(contents)].join(' ');
   ui.renderSharedSyncDiagnostics(container, { ...model, connection: { lastSuccessAtMsHistorical: now, lastErrorCodeHistorical: 'native_port_disconnected', connectedCurrent: false } });
   assert(contents(container).includes('历史连接成功时间')); assert(contents(container).includes('native_port_disconnected'));
+  for (const [bindingState, expectedText] of [
+    ['valid', '已确认（同一孩子／当前连接）'], ['unbound', '未确认'],
+    ['disconnected', '已失效（连接已断开）'], ['expired_or_changed', '已失效（已过期或身份／连接已变化）'],
+  ]) {
+    ui.renderSharedSyncDiagnostics(container, { ...model, bindingState,
+      connection: { connectedCurrent: bindingState !== 'disconnected', capabilities: ['shared-web-source-reusable-v2'] } });
+    const rendered = contents(container);
+    assert(rendered.includes('孩子身份确认')); assert(rendered.includes(expectedText));
+    assert(rendered.includes('可复用孩子身份核验')); assert(rendered.includes('当前贡献接收：未知'));
+    assert(!rendered.includes('当前签名绑定')); assert(!rendered.includes('当前 Native：'));
+    assert(!rendered.includes('shared-web-source-reusable-v2'));
+  }
   ui.renderSharedSyncDiagnostics(container, sampled);
   assert(contents(container).includes('未识别 360000 毫秒'));
   assert(contents(container).includes('学习 → 未知'));

@@ -1,5 +1,13 @@
 # TimeOnChrome — 技术设计文档
 
+## D-114 可复用共享身份核验（2026-10-03）
+
+PO批准简化为本机管理范围→缓存云端来源证明→本地同孩子核验→贡献ACK。v1连接挑战保留兼容；v2证明不含challengeId/connectionHash，绑定childScopeHash、applicationSourceKey、assignmentVersion、webSourceKey及browser bindingEpochHash，期限最多300000ms。现有专用ES256密钥复用，机器/扩展令牌不经过Host。
+
+机器鉴权读取当前用户分配后，由现有受限内部接口签发短期machine-scope（applicationSourceKey、childScopeHash、assignmentVersion、issuedAtMs、expiresAtMs），仅作取得来源证明的范围输入，不授权贡献或执行。扩展以设备鉴权提交该签名scope；Guardian检查签名、同家庭/孩子和实时本机分配，再签发web-source证明。两种证明使用独立audience避免混用，不新增凭据系统或D1表。云端验证web-source时仍复核当前应用分配与网页绑定摘要，不能仅因签名有效接受已撤销来源。
+
+能力shared-web-source-reusable-v2：getSharedWebSourceScope返回机器范围，bindSharedWebSourceV2建立当前连接上下文，replaceSharedWebContributionV2复用原贡献/ACK格式并取消challengeId。当前受认证用户是范围权威，不接受Host指定另一用户。已建立本地租约沿用原语义；重新连接必须以未过期证明重新验签，不能恢复过期证明或旧租约。身份变化立即撤销上下文及在途请求。通道在线、身份verified、贡献ACK分别展示。未分配/范围不匹配/过期/验签失败/云端不可用采用固定错误码。
+
 ## D-114 正常界面的只读可观测性（2026-10-03）
 
 本地 Admin 的本地组件卡增加可展开共享同步摘要。只读扩展内部诊断请求仅接受该扩展的 Admin 页面，不发送 Native/HTTP 请求，不重算账或触发上传。显示运行版本、当前 Port 协商能力、缓存配置 revision/stage、本周逐日贡献 revision/完整性/稳定原因、历史云端 ACK、当前连接 Native 确认、失败阶段和退避，以及当前签名绑定状态枚举。未知保留 null；历史 nativeAccepted 不代表当前连接确认。
@@ -1817,3 +1825,14 @@ OpenCode 在执行 Popup P0 UI 任务时，出现“等价替代 / 自行简化 
 ### 影响范围
 - 仅文档变更，无代码逻辑改动
 - 所有 AI 执行器（Codex / OpenCode / Claude Code 等）均需遵守
+# D-114 可复用来源核验终端适配（2026-10-03）
+
+正常诊断文案分开报告三状态：当前连接只表示通道；“孩子身份确认”有效时显示“已确认（同一孩子／当前连接）”，未建立／已失效保持明确；逐日“当前贡献接收”仍只读取当前Native贡献ACK，不推断成功。新V2能力显示“可复用孩子身份核验”。仅formatter文字，不改布局、HTML/CSS或状态真假语义，沿用既有聚焦view测试，不操作正式Chrome。
+
+本批职责extension-local，仅源码、聚焦测试和本地集中提交，不改候选、不推送部署。固定包源2d054c789ded8660a138d25f0130d9d88abf8aa4。补核V2稳定身份码逐层透传，业务拒绝不关闭健康Port；当前租约须同Port、同scope及完整policyIdentity，首次verifiedAt处于proof有效期。过期仅允许既有连接租约延续，断线重连必须重新验证有效proof。验证限定绑定、贡献同步兼容、Native通道、诊断专项及typecheck；正式Chrome与联合云端/Service实机验收不在本批执行。
+
+源码验证结果：四项聚焦测试通过，含固定公钥验签/篡改/错scope/到期、缓存跨Port重验、过期断线不复活、改绑/完整策略变更、重复及缺字段ACK、迟到响应与旧端兼容；Native稳定错误仍保持健康Port，诊断显示连接与身份分离。类型、扩展根及diff检查通过，未修改HTML/CSS，不新增页面目视闸门。源码通过不等于真实Service或未部署云端已完成联合验收。
+
+按已批准裁决消费固定契约1.31.0（包SHA256：355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395）。能力shared-web-source-reusable-v2明确选择getSharedWebSourceScope、bindSharedWebSourceV2及replaceSharedWebContributionV2；新能力失败不降级，能力缺失保留v1。machine-scope仅作为设备鉴权取得web证明的签名范围输入；Native以可信当前分配验签，扩展不自授身份。有效web证明按本机身份与签名scope缓存，重连必须本地重新绑定；过期重连必须重新取得证明，不能延长旧租约。连接、身份或策略变化撤销在途结果及Native贡献确认；原统计、贡献队列、载荷哈希、云端ACK及执行门禁保持不变。
+
+只改终端契约消费、消息校验、身份适配及最小相关测试。通道在线、verified身份和贡献ACK仍是三个独立状态。固定错误码，不记录签名证明、凭据或原始身份；不更新候选、不安装、部署或启用家庭执行。HTTP包装须依据云端实际路由和聚焦测试核对，不能以success/count猜测确认。

@@ -8,7 +8,7 @@ const capabilityNames = { 'application-usage-read': '应用用量读取', 'share
   'shared-web-contribution-sync-v1': '网页贡献同步', 'shared-access-policy-identity-read': '策略身份读取',
   'shared-quota-execution-preparation-read-v1': '执行准备读取', 'shared-browser-activity-v1': '浏览器活动',
   'shared-reminder-lifecycle-v1': '提醒生命周期', 'shared-reminder-continuity-v1': '提醒连续性',
-  'shared-web-local-lease-v1': '本地来源租约' };
+  'shared-web-local-lease-v1': '本地来源租约', 'shared-web-source-reusable-v2': '可复用孩子身份核验' };
 
 const failures = {
   diagnostics_sender_rejected: '管理页身份校验未通过',
@@ -55,8 +55,8 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
   const stage = { legacy: '旧链路', shadow: '影子核对', shared: '共享执行' }[model.policy?.stage] || '未知';
   row('缓存配置', `${text(model.policy?.revision)} · ${stage}`);
   row('配置读取时间', time(model.policy?.receivedAtMs));
-  row('当前签名绑定', { valid: '有效（当前连接）', disabled: '未建立（功能未启用）', disconnected: '失效（连接已断开）', unbound: '未建立',
-    expired_or_changed: '失效（已过期或连接已变化）' }[model.bindingState] || '无法核实');
+  row('孩子身份确认', { valid: '已确认（同一孩子／当前连接）', disabled: '未确认（功能未启用）', disconnected: '已失效（连接已断开）', unbound: '未确认',
+    expired_or_changed: '已失效（已过期或身份／连接已变化）' }[model.bindingState] || '尚无法确认');
   row('同步进度', model.running === true ? stageNames[model.stage] || '进行中' : model.running === false ? '当前无在途同步' : '未知');
   row('最近实际云端 ACK', time(Math.max(...(model.days || []).map(v => v.cloudAckAtMs || 0)) || null));
   row('诊断历史缓存', model.historyCurrent ? '对应当前来源与配置' : '无可信当前缓存（旧缓存不采用）');
@@ -68,7 +68,7 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
   for (const day of model.days || []) {
     const section = append(container, 'section', '', 'shared-sync-day');
     append(section, 'h4', `${day.date} · ${day.present ? `修订 ${text(day.revision)}` : '本地尚无贡献记录'}`);
-    append(section, 'p', `完整性：${day.complete === true ? '完整' : day.complete === false ? '不完整' : '未知'} · 云端历史 ACK：${confirmation(day.cloudConfirmedHistorical)} · 当前 Native：${confirmation(day.nativeConfirmedCurrent)}`);
+    append(section, 'p', `完整性：${day.complete === true ? '完整' : day.complete === false ? '不完整' : '未知'} · 云端历史 ACK：${confirmation(day.cloudConfirmedHistorical)} · 当前贡献接收：${confirmation(day.nativeConfirmedCurrent)}`);
     append(section, 'p', `原因：${day.reasonCodes == null ? '未知' : day.reasonCodes.join('、') || '无'} · 网页 ${text(day.activeMs)} 毫秒 · 三桶 ${text(day.bucketTotalMs)} 毫秒 · 其他 ${text(day.otherMs)} 毫秒`);
     append(section, 'p', `贡献对应当前缓存配置：${day.policyMatchesCurrentCache === true ? '是' : day.policyMatchesCurrentCache === false ? '否' : '未知'}`);
     const coverage = day.storedBucketCoverageBeforeCorrections || {};

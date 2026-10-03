@@ -9,7 +9,7 @@
     "protocolVersion": { "const": 3 },
     "channel": { "enum": ["health", "statistics", "application", "sharedQuota"] },
     "requestId": { "type": "string", "format": "uuid" },
-    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity", "acknowledgeBrowserExecution", "getSharedWebSourceChallenge", "bindSharedWebSource", "replaceSharedWebContribution"] },
+    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity", "acknowledgeBrowserExecution", "getSharedWebSourceChallenge", "bindSharedWebSource", "replaceSharedWebContribution", "getSharedWebSourceScope", "bindSharedWebSourceV2", "replaceSharedWebContributionV2"] },
     "extensionId": { "type": "string", "minLength": 1 },
     "profileId": { "type": "string", "format": "uuid" },
     "sentAtMs": { "type": "integer", "minimum": 0 },
@@ -31,7 +31,7 @@
     {
       "if": { "properties": { "channel": { "const": "sharedQuota" } }, "required": ["channel"] },
       "then": {
-        "properties": { "messageType": { "enum": ["getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity", "acknowledgeBrowserExecution", "getSharedWebSourceChallenge", "bindSharedWebSource", "replaceSharedWebContribution"] } },
+        "properties": { "messageType": { "enum": ["getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity", "acknowledgeBrowserExecution", "getSharedWebSourceChallenge", "bindSharedWebSource", "replaceSharedWebContribution", "getSharedWebSourceScope", "bindSharedWebSourceV2", "replaceSharedWebContributionV2"] } },
         "allOf": [
           { "if": { "properties": { "messageType": { "const": "getSharedQuotaState" } } },
             "then": { "properties": { "payload": { "$ref": "#/$defs/sharedQuotaQuery" } } } },
@@ -47,6 +47,12 @@
             "then": { "properties": { "payload": { "$ref": "shared-reminder-lifecycle-v1.schema.json#/$defs/browserActivity" } } } },
           { "if": { "properties": { "messageType": { "const": "acknowledgeBrowserExecution" } } },
             "then": { "properties": { "payload": { "$ref": "shared-reminder-lifecycle-v1.schema.json#/$defs/browserExecutionAck" } } } },
+          { "if": { "properties": { "messageType": { "const": "getSharedWebSourceScope" } } },
+            "then": { "properties": { "payload": { "type": "object", "additionalProperties": false, "maxProperties": 0 } } } },
+          { "if": { "properties": { "messageType": { "const": "bindSharedWebSourceV2" } } },
+            "then": { "properties": { "payload": { "$ref": "shared-web-sync-v2.schema.json#/$defs/bindQuery" } } } },
+          { "if": { "properties": { "messageType": { "const": "replaceSharedWebContributionV2" } } },
+            "then": { "properties": { "payload": { "$ref": "shared-web-sync-v2.schema.json#/$defs/replaceQuery" } } } },
           { "if": { "properties": { "messageType": { "const": "getSharedWebSourceChallenge" } } },
             "then": { "properties": { "payload": { "type": "object", "additionalProperties": false, "maxProperties": 0 } } } },
           { "if": { "properties": { "messageType": { "const": "bindSharedWebSource" } } },
