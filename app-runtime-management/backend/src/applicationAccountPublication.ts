@@ -5,7 +5,7 @@ import { correctUsageRows,loadUsageCorrections } from './applicationUsageCorrect
 import { applicationStatisticsSource,applicationPublicationDirtyStatements } from './applicationStatistics';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
-import { normalizeApplicationUsageClock, APPLICATION_CLOCK_MARGIN_MS } from './applicationUsageClock';
+import { mapApplicationUsageClock, APPLICATION_CLOCK_MARGIN_MS } from './applicationUsageClock';
 
 interface Candidate {id:string;machine_id:string;local_user_id:string;assignment_version:number;
   account_id:string;child_id:string;date:string;revision:number;manifest_json:string}
@@ -76,10 +76,16 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
     ORDER BY s.id LIMIT 10001`).bind(candidate.account_id,candidate.child_id,candidate.machine_id,candidate.local_user_id,
       candidate.assignment_version,start-APPLICATION_CLOCK_MARGIN_MS,end+APPLICATION_CLOCK_MARGIN_MS).all<Record<string,unknown>>();
   if(source.results.length>10000)fail('APPLICATION_ACCOUNT_SOURCE_LIMIT');
-  if(source.results.length!==manifest.rawFactCount)fail('APPLICATION_ACCOUNT_FACTS_PENDING');
+  const mapped=await mapApplicationUsageClock(db,candidate.machine_id,candidate.local_user_id,source.results);
+  // A live-day snapshot was frozen before later segments settled. Never clip a
+  // later segment into that earlier snapshot or compare its count to the live day.
+  // Closed-day snapshots retain the existing expanded day-boundary source window.
+  const frozen=manifest.settledThroughMs!<end
+    ?mapped.filter(row=>Number(row.end_wall_time_ms)<=manifest.settledThroughMs!):mapped;
+  if(frozen.length!==manifest.rawFactCount)fail('APPLICATION_ACCOUNT_FACTS_PENDING');
   // 不把 rawFactHash 当服务端字节证明；源 shape、政策及每个维度均精确对照。
   const versions=new Set<number>();
-  for(const row of source.results){
+  for(const row of frozen){
     if(Number(row.accounting_schema_version)!==2||row.app_policy_version==null)fail('APPLICATION_ACCOUNT_POLICY_HISTORY_MISSING');
     versions.add(Number(row.app_policy_version));
   }
@@ -87,7 +93,9 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
     fail('APPLICATION_ACCOUNT_POLICY_SET_MISMATCH');
   const projected=new Map(policy.productIdentityProjection?.items.map(p=>[`${p.platform}\n${p.runtimeIdentity}`,p])??[]);
   const spans:Span[]=[];
-  const normalized=await normalizeApplicationUsageClock(db,candidate.machine_id,candidate.local_user_id,source.results,start,end);
+  const normalized=frozen.filter(row=>Number(row.start_wall_time_ms)<end&&Number(row.end_wall_time_ms)>start)
+    .map(row=>({...row,start_wall_time_ms:Math.max(start,Number(row.start_wall_time_ms)),
+      end_wall_time_ms:Math.min(end,Number(row.end_wall_time_ms))}));
   if(normalized.some(row=>Number(row.end_wall_time_ms)>manifest.settledThroughMs!))fail('APPLICATION_ACCOUNT_CUTOFF_MISMATCH');
   for(const row of correctUsageRows(normalized,corrections,start,end)){
     const identity=`${row.platform}\n${row.runtime_identity}`,product=projected.get(identity);
@@ -104,7 +112,12 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
   if(rows.length!==manifest.rowCount||await hashUsageAccountValue(rows)!==manifest.rowsHash)fail('APPLICATION_ACCOUNT_STATISTICS_MISMATCH');
   if((await applicationStatisticsSource(db,candidate.account_id,candidate.child_id,start,end,filters)).revision!==before.revision)
     fail('APPLICATION_ACCOUNT_SOURCE_CHANGED');
-  return {sourceRevision:before.revision,rows};
+  // Do not advertise an earlier frozen subset as covering the current full day.
+  // The existing reader's exact source watermark/count guards remain fail-closed.
+  const sourceRevision=frozen.length===mapped.length?before.revision:await sha256Hex(canonicalUsageAccountJson({
+    sourceRevision:before.revision,settledThroughMs:manifest.settledThroughMs,rowsHash:manifest.rowsHash,coverage:'frozen-subset',
+  }));
+  return {sourceRevision,rows};
 }
 /** Receipt is immutable; publication has a separate monotonic head and retry diagnosis. */
 export async function publishApplicationAccounts(db:D1Database,now=Date.now(),manifestId?:string) {
