@@ -1,5 +1,7 @@
 # TASK_BOARD
 
+2026-10-04 控件1.7.44发布完成：实现提交21e19e8、PR #229、合入master 97d8bd41cad22d754931174d73ed91575962b310。精确PR CI37153413233的app-runtime-gate通过；合入后构建既有contracts产物并typecheck通过，源码工作区干净。原密钥签名、CRX3独立验签及稳定ID核验通过，CRX586032字节、SHA256 7f68f977a23737389d80ef190d390500f390d66c92460aa72bccc49359ecb308。Wrangler4.127.1部署timeonchrome-update/master，生产deployment 53cbe046；稳定域名与deployment域名feed/CRX/SHA256逐项回读匹配，20份CRX归档保留。范围审计Matched，无Deviated/Missing/Extra（本次发布范围）；真实Chrome恢复、Mac和共享联合验收仍未通过，不混作已修复。未部署业务云端、迁移或安装Native，未动家庭开关；终端升级另行观察，unpacked不会自动升级。先前发布中及未托管记录由本条覆盖。
+
 2026-10-04 PO批准控件发布并托管（extension-local／release）：本轮正式managed 1.7.44取代未托管1.7.43准备包，包含应用日周读取故障隔离、旧Port延迟事件隔离、Admin导航拆分和标题区本机休息摘要。线上feed只读仍1.7.32；不复用缺少本轮补丁的旧CRX。范围为本线源码、测试、发布文档与更新站点，保留旧CRX；不改Worker/Pages业务、Native安装、D1、家庭配置、计时或配额，不启用共享执行。最小发布验证：既有局部截图证据复用，local-guardian/application-usage/rest-summary/admin-nav/managed边界、typecheck、扩展根目录及diff；固定分支提交并PR合入经验证主线后签包托管。原密钥环境未配置，已请求本机路径，不生成新密钥。真实Chrome应用恢复仍未完成，Mac及其他既有遗留不伪报通过。
 
 2026-10-04 标题摘要同行排版完成：桌面今日／本周各合计与分量同行、分量12px/400；390px两项上下且各自分量紧随后，原状态和明细保留。隔离真实HTML mock视觉测试1/1及diff检查通过，已目视核对desktop／partial-mobile，证据ignored .tmp/rest-title-summary-GWiUzn。Matched，无Deviated/Missing/Extra；仅样式，数据口径不变。已备份原子同步当前开发候选admin.html并核对哈希，无版本／数据／绑定变更，未提交部署托管。
