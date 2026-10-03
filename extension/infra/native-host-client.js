@@ -310,6 +310,7 @@ function normalizeErrorCode(value) {
     'heartbeat_build_failed',
     'application_usage_revision_changed',
     'application_usage_unavailable',
+    'application_usage_pending',
     'shared_quota_unavailable',
     'shared_quota_invalid_state',
     'shared_quota_stale_state',
@@ -375,6 +376,7 @@ function ensureNativePort() {
 
   nativePort = port;
   port.onMessage.addListener((response) => {
+    if (nativePort !== port) return;
     if (!pendingAck) return;
     // A delayed v3 response cannot consume the ACK slot of a different request.
     if (response?.requestId && pendingAck.requestId && response.requestId !== pendingAck.requestId) return;
@@ -399,6 +401,7 @@ function ensureNativePort() {
           ? response.errorCode : 'shared_reminder_unavailable'
         : pendingAck.sharedReminderReport && response?.errorCode === 'SHARED_REMINDER_NOT_ISSUED' ? 'shared_reminder_not_issued'
         : response?.errorCode === 'APPLICATION_USAGE_REVISION_CHANGED' ? 'application_usage_revision_changed'
+        : pendingAck.applicationRead && response?.errorCode === 'APPLICATION_USAGE_PENDING' ? 'application_usage_pending'
         : pendingAck.applicationRead ? 'application_usage_unavailable'
         : pendingAck.sharedWeb ? SHARED_WEB_IDENTITY_ERRORS.has(response?.errorCode)
           ? response.errorCode : 'shared_web_native_unavailable'
@@ -447,6 +450,8 @@ function ensureNativePort() {
     });
   });
   port.onDisconnect.addListener(() => {
+    // A retired connection cannot mutate or reject its replacement's request.
+    if (nativePort !== port) return;
     if (nativePort === port) {
       browserExecutionFence.invalidate();
       nativePort = null;

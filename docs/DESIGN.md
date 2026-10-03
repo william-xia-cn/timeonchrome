@@ -1819,6 +1819,10 @@ OpenCode 在执行 Popup P0 UI 任务时，出现“等价替代 / 自行简化 
 - 所有 AI 执行器（Codex / OpenCode / Claude Code 等）均需遵守
 # D-114 可复用来源核验终端适配（2026-10-03）
 
+后续已批准开发候选交付：以master56ae43ec62e22fa21a725f858b0ef98372daae9d已合入的终端源码生成1.7.42 unpacked staging；extension及打包工具与该SHA逐文件核对相同，复用d9bb02e聚焦证据。从现有候选读取公开key，先隔离生成并校验，再保留旧包备份且向原目标复制；不删除运行目录，不改变junction、ID、开发marker或sharedBrowserCloseDevelopment既有值。不重载用户Chrome、不触碰storage/绑定、不生成CRX/update.xml、不启用共享执行；正式manifest版本不变。
+
+候选核验完成：179文件源码匹配、固定契约包及模块哈希匹配、公开key派生ID与旧包一致；仅manifest候选版本/名称和既有deployment marker由staging生成。原目标出现的Chrome生成规则缓存不属候选源码，保留原样且不进入包摘要。备份旧包后复制，逐项核验原目标与隔离包一致；文件清单摘要304084f9fea052081ae7f65b82cc8d52995d416e0f181dfe5d698eaf75274aa0。仅交付，不代替用户重载或真实联合验收。
+
 正常诊断文案分开报告三状态：当前连接只表示通道；“孩子身份确认”有效时显示“已确认（同一孩子／当前连接）”，未建立／已失效保持明确；逐日“当前贡献接收”仍只读取当前Native贡献ACK，不推断成功。新V2能力显示“可复用孩子身份核验”。仅formatter文字，不改布局、HTML/CSS或状态真假语义，沿用既有聚焦view测试，不操作正式Chrome。
 
 本批职责extension-local，仅源码、聚焦测试和本地集中提交，不改候选、不推送部署。固定包源2d054c789ded8660a138d25f0130d9d88abf8aa4。补核V2稳定身份码逐层透传，业务拒绝不关闭健康Port；当前租约须同Port、同scope及完整policyIdentity，首次verifiedAt处于proof有效期。过期仅允许既有连接租约延续，断线重连必须重新验证有效proof。验证限定绑定、贡献同步兼容、Native通道、诊断专项及typecheck；正式Chrome与联合云端/Service实机验收不在本批执行。

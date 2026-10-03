@@ -108,6 +108,25 @@ async function run() {
   await refreshPageByNav.call(ctx, 'rules', 3);
   expectTrue('rules refresh failure triggers error handler', errorMessage.includes('config unavailable'));
 
+  ctx.adminPageRefreshSeq = 4;
+  ctx.sendMsg = async msg => {
+    expectEqual('sites refresh sends GET_CONFIG', msg.type, 'GET_CONFIG');
+    return { marker: 'sites-new' };
+  };
+  ctx.renderRulesPage = () => { renderRulesCalled++; };
+  await refreshPageByNav.call(ctx, 'sites', 4);
+  expectEqual('sites refresh updates config', ctx.config.marker, 'sites-new');
+  expectEqual('sites refresh renders shared read-only content', renderRulesCalled, 2);
+  ctx.adminPageRefreshSeq = 5;
+  ctx.sendMsg = async () => { throw new Error('sites config unavailable'); };
+  await refreshPageByNav.call(ctx, 'sites', 5);
+  expectTrue('sites failure uses same explicit error handler', errorMessage.includes('sites config unavailable'));
+  let staleSites = 0;
+  ctx.renderRulesPage = () => { staleSites++; };
+  ctx.sendMsg = async () => ({ marker: 'old-sites' });
+  await refreshPageByNav.call(ctx, 'sites', 4);
+  expectEqual('stale sites response does not render', staleSites, 0);
+
   const total = passed + failed;
   console.log(`\n[Admin Nav Refresh] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

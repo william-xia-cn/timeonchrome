@@ -18,7 +18,19 @@ function page(offset = 0, count = 2) {
     nextOffset: null };
 }
 async function load(handler) {
-  global.chrome = { runtime: { sendMessage: handler } };
+  global.chrome = { runtime: { sendMessage: async message => {
+    const response = await handler(message);
+    if (response?.ok && message.query.fromDate === message.query.toDate) {
+      const p = structuredClone(response.applicationUsage);
+      p.fromDate = message.query.fromDate; p.toDate = message.query.toDate;
+      p.days = p.days.filter(day => day.date === p.fromDate);
+      p.totalMs = p.days.reduce((sum, day) => sum + day.totalMs, 0);
+      p.applications = p.applications.map(row => ({ ...row,
+        totalMs: row.dailyMs[p.fromDate] || 0, dailyMs: { [p.fromDate]: row.dailyMs[p.fromDate] || 0 } }));
+      return { ...response, applicationUsage: p };
+    }
+    return response;
+  } } };
   return import(`data:text/javascript;base64,${Buffer.from(source + '\n// ' + Math.random()).toString('base64')}`);
 }
 async function main() {
@@ -35,8 +47,8 @@ async function main() {
     assert.equal(view.targetRows.find(r => r.label === 'Fixture 0').categoryLabel, '复合');
     assert.equal(view.chartSeries[1].categories.app_composite, 1.501);
     assert.match(view.meta.syncLabel, /旧版服务未提供/);
-    await adapter.getAdminApplicationUsageAnalysisView(); assert.equal(calls, 1);
-    await adapter.getAdminApplicationUsageAnalysisView({ force: true }); assert.equal(calls, 2);
+    await adapter.getAdminApplicationUsageAnalysisView(); assert.equal(calls, 2);
+    await adapter.getAdminApplicationUsageAnalysisView({ force: true }); assert.equal(calls, 4);
     assert.doesNotMatch(source, /usage_segments_v1|quota-read-model|chrome\.storage|setInterval/);
 
     const attributionPending = await load(async () => ({ ok:true, applicationUsage: { ...page(),
@@ -65,7 +77,7 @@ async function main() {
       if (!query.offset) { restarted++; const p = page(0, 100); p.nextOffset = restarted === 1 ? 100 : null; return { ok: true, applicationUsage: p }; }
       return { ok: false, errorCode: 'application_usage_revision_changed' };
     });
-    await changed.getAdminApplicationUsageAnalysisView(); assert.equal(restarted, 2);
+    await changed.getAdminApplicationUsageAnalysisView(); assert.equal(restarted, 3);
 
     const incomplete = await load(async () => {
       const p = page(); p.complete = false; p.reasonCodes = ['APPLICATION_CLOCK_AMBIGUOUS'];
@@ -95,6 +107,16 @@ async function main() {
 
     const invalid = page(); invalid.totalMs++;
     assert.throws(() => adapter.validateApplicationUsagePage(invalid, invalid.fromDate, invalid.toDate), /native_invalid_response/);
+    const weekPending = await load(async ({ query }) => query.fromDate === query.toDate
+      ? { ok: true, applicationUsage: page() }
+      : { ok: false, errorCode: 'application_usage_pending' });
+    const independentDay = await weekPending.getAdminApplicationUsageAnalysisView();
+    assert.equal(independentDay.totalSeconds, 2.501);
+    assert.equal(independentDay.targetRows[0].weekSeconds, null);
+    assert.equal(independentDay.targetRows.reduce((n, row) => n + row.todaySeconds, 0), 3.501);
+    assert.ok(independentDay.weekSummarySeries.every(row => row.totalSeconds === null));
+    assert.match(independentDay.warning, /尚未完成发布或校验/);
+    await assert.rejects(() => weekPending.getAdminApplicationUsageAnalysisView({ mode: 'week' }), { message: 'application_usage_pending' });
     if (process.argv[2]) {
       const nativeSnapshot = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
       adapter.validateApplicationUsagePage(nativeSnapshot, nativeSnapshot.fromDate, nativeSnapshot.toDate);
