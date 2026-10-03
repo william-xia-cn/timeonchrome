@@ -52,6 +52,29 @@ async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{
   await commitApplicationAccount(env.RUNTIME_DB,f.machine,r.manifestId,now);
   return r;
 }
+it.each(['incomplete','stale association'] as const)('cron prioritizes a complete current snapshot over older %s backlog without increasing its budget',async(kind)=>{
+  const older=[];
+  for(let i=0;i<2;i++){
+    const f=await fixture();
+    const r=await upload(f,1,{empty:true,...(kind==='incomplete'?{complete:false}:{associationVersion:'d'.repeat(64)})});
+    await env.RUNTIME_DB.prepare('UPDATE runtime_application_account_manifests_v1 SET received_at_ms=?2 WHERE id=?1')
+      .bind(r.manifestId,now-30000+i).run();
+    older.push({f,r});
+  }
+  const f=await fixture();await fact(f,crypto.randomUUID());const fresh=await upload(f);
+  const before=await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all();
+  const result=await publishApplicationAccounts(env.RUNTIME_DB,now);
+  expect(result.processed).toBeLessThanOrEqual(2);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,fresh.manifestId)).toMatchObject({published:true});
+  for(const {f:oldFixture,r} of older){
+    // Check the rejected backlog explicitly after proving the fresh cron publication.
+    // This also leaves every synthetic backlog item in cooldown in the shared test DB.
+    await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+    expect(await readApplicationAccountStatus(env.RUNTIME_DB,oldFixture.machine,r.manifestId)).toMatchObject({published:false,
+      publicationErrorCode:kind==='incomplete'?'APPLICATION_ACCOUNT_INCOMPLETE':'APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING'});
+  }
+  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(before.results);
+});
 it('receipt does not publish; exact approved source/management verification publishes separate watermark',async()=>{
   const f=await fixture();await fact(f);const r=await upload(f);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:false});
