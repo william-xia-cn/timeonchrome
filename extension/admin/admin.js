@@ -21,6 +21,7 @@ import { computeOnlineWindowsForDay } from '../core/time-windows.js';
 import { getPrivacyConsentPageUrl } from '../core/privacy-consent.js';
 import { canUseChromeIdentityForAdmin, resolveActivationState } from '../core/activation-gate.js';
 import { readNativeHostDeploymentMarker } from '../core/deployment-mode.js';
+import { attachSharedSyncDiagnostics } from './shared-sync-diagnostics-view.js';
 import { getAdminApplicationUsageAnalysisView, applicationUsageErrorMessage,
   APPLICATION_CATEGORY_LABELS } from '../stats/application-usage-read-model.js';
 
@@ -2502,6 +2503,11 @@ async function renderNativeHostStatus() {
   card.hidden = !expected;
   card.style.display = expected ? '' : 'none';
   if (!expected) return;
+  const details = document.getElementById('shared-sync-diagnostics');
+  if (details && !details.dataset.attached) {
+    details.dataset.attached = 'true';
+    attachSharedSyncDiagnostics(details, document.getElementById('shared-sync-diagnostics-content'));
+  }
   const stored = await chrome.storage.local.get('local_guardian_status_v1').catch(() => ({}));
   const status = stored?.local_guardian_status_v1 || {};
   const names = {

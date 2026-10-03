@@ -1176,6 +1176,18 @@ export function readSharedWebLocalConnection() {
     capabilityNegotiated: sharedBridgeConfig.enabled === true && nativePort !== null && sharedNativeV3
       && sharedNativeCapabilities.has('shared-web-local-lease-v1') };
 }
+
+export function readNativeHostDiagnosticState() {
+  const connected = nativePort !== null;
+  const known = connected && sharedNativeV3;
+  const allowed = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1',
+    'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1',
+    'shared-browser-activity-v1', 'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1',
+    'shared-web-local-lease-v1'];
+  return { connected, protocolVersion: known ? 3 : null,
+    capabilities: known ? allowed.filter(v => sharedNativeCapabilities.has(v)) : null,
+    applicationUsageSupported: applicationUsageSupported && connected ? true : known ? false : null };
+}
 function notifyBrowserActivityLease() {
   try { Promise.resolve(browserActivityObserver?.(getSharedBrowserActivityLease())).catch(() => {}); } catch (_) {}
   for (const observer of sharedPolicyObservers) {
