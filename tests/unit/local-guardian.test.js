@@ -716,6 +716,43 @@ async function run() {
       onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(),
         supportedProtocols: [1, 2, 3], capabilities: ['health', 'authoritative-daily-snapshot'] })))) });
   assert.strictEqual((await appOldService.module.requestApplicationUsage(query)).errorCode, 'application_usage_unsupported');
+  const pendingPayloads = [];
+  const appPending = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => {
+      pendingPayloads.push(payload);
+      queueMicrotask(() =>
+      onMessage.listeners.forEach(listener => listener({
+        ok: payload.messageType !== 'getApplicationUsage', receivedAt: Date.now(), requestId: payload.requestId,
+        supportedProtocols: [1, 2, 3], capabilities: ['health', 'application-usage-read'],
+        ...(payload.messageType === 'getApplicationUsage' ? { errorCode: 'APPLICATION_USAGE_PENDING' } : {})
+      })));
+    }) });
+  await waitFor(() => pendingPayloads.length > 0);
+  assert.strictEqual((await appPending.module.requestApplicationUsage(query)).errorCode, 'application_usage_pending');
+  const reconnectPorts = [], reconnectReplies = [];
+  const reconnect = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => {
+      const port = createPort((payload, onMessage) => {
+        const reply = () => onMessage.listeners.forEach(listener => listener({ ok: true,
+          receivedAt: Date.now(), requestId: payload.requestId,
+          supportedProtocols: [1, 2, 3], capabilities: ['health', 'application-usage-read'],
+          ...(payload.messageType === 'getApplicationUsage' ? { applicationUsage: { revision: payload.requestId } } : {}) }));
+        if (payload.messageType === 'getApplicationUsage') reconnectReplies.push(reply);
+        else queueMicrotask(reply);
+      });
+      reconnectPorts.push(port);
+      return port;
+    } });
+  assert.strictEqual((await reconnect.module.requestLocalGuardianHeartbeat({ type: 'heartbeat', force: true })).ok, true);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  reconnectPorts[0].disconnect();
+  assert.strictEqual((await reconnect.module.requestLocalGuardianHeartbeat({ type: 'heartbeat', force: true })).ok, true);
+  assert.strictEqual(reconnectPorts.length, 2);
+  const reconnectedRead = reconnect.module.requestApplicationUsage(query);
+  await waitFor(() => reconnectReplies.length === 1);
+  reconnectPorts[0].disconnect(); // A late event from the old port cannot reject the new request.
+  reconnectReplies[0]();
+  assert.strictEqual((await reconnectedRead).ok, true, 'old port disconnect must not reject the new application read');
   const serializedRequests = [], appResolvers = [];
   const serialized = await loadGuardian({ storage: {}, policy, development: true,
     connectNative: () => createPort((payload, onMessage) => {

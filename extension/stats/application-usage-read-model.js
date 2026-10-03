@@ -17,6 +17,8 @@ export function applicationUsageErrorMessage(code) {
     native_response_timeout: '读取应用用量超时，请重试。',
     application_usage_revision_changed: '应用统计版本发生变化，请重新读取。',
     application_usage_busy: '应用统计正在读取，请稍后重试。',
+    application_usage_pending: '应用统计尚未完成发布或校验，请稍后刷新；不代表零用量。',
+    native_invalid_response: '本地组件返回的应用统计未通过校验，请检查组件版本及诊断信息。',
   })[code] || '应用用量暂时无法读取，请重试。';
 }
 function invalid() { throw new Error('native_invalid_response'); }
@@ -92,7 +94,7 @@ async function send(query, recheck = false) {
   return response.applicationUsage;
 }
 async function readWeek(dates, force, recheck) {
-  const from = dates[0], to = dates[6], key = from;
+  const from = dates[0], to = dates.at(-1), key = `${from}/${to}`;
   const previous = cache.get(key);
   if (!force && previous && Date.now() - previous.readAtMs < 30_000) return previous;
   if (inFlight.has(key)) return inFlight.get(key);
@@ -118,7 +120,7 @@ async function readWeek(dates, force, recheck) {
         } while (offset !== null);
         if (previous && snapshot.computedAtMs < previous.computedAtMs) invalid();
         const complete = { ...snapshot, applications: rows, readAtMs: Date.now() };
-        if (cache.size >= 2 && !cache.has(key)) cache.delete(cache.keys().next().value);
+        if (cache.size >= 4 && !cache.has(key)) cache.delete(cache.keys().next().value);
         cache.set(key, complete); // Only publish a fully validated, single-revision response.
         return complete;
       } catch (error) {
@@ -134,30 +136,42 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
   const today = dateKey(Date.now()), selected = date || today;
   const selectedDates = weekDates(selected), currentDates = weekDates(today);
   let snapshot, current, warning = null;
+  const primaryDates = mode === 'week' ? selectedDates : [selected];
+  const cachedRange = dates => cache.get(`${dates[0]}/${dates.at(-1)}`);
   try {
-    snapshot = await readWeek(selectedDates, force, recheck);
-    current = selectedDates[0] === currentDates[0] ? snapshot : await readWeek(currentDates, force, false);
+    snapshot = await readWeek(primaryDates, force, recheck);
   } catch (error) {
-    snapshot = cache.get(selectedDates[0]); current = cache.get(currentDates[0]);
-    if (!snapshot || !current) throw error;
+    snapshot = cachedRange(primaryDates);
+    if (!snapshot) throw error;
     warning = applicationUsageErrorMessage(error.message);
   }
+  let selectedWeek;
+  try {
+    selectedWeek = mode === 'week' ? snapshot : await readWeek(selectedDates, force, false);
+    current = selectedDates[0] === currentDates[0] ? selectedWeek : await readWeek(currentDates, force, false);
+  } catch (error) {
+    selectedWeek ||= cachedRange(selectedDates);
+    current = cachedRange(currentDates);
+    warning = [warning, `本周补充数据暂不可用：${applicationUsageErrorMessage(error.message)}`].filter(Boolean).join(' ');
+  }
+  const todaySnapshot = current || (selected === today ? snapshot : null);
   const selectedDays = mode === 'week' ? snapshot.days : snapshot.days.filter(d => d.date === selected);
   const unavailable = selectedDays.some(d => !d.complete);
   const categoryTotals = {};
   for (const day of selectedDays) for (const [key, value] of Object.entries(day.categoriesMs)) {
     categoryTotals[uiKey(key)] = (categoryTotals[uiKey(key)] || 0) + value / 1000;
   }
-  const knownRows = new Map([...current.applications, ...snapshot.applications].map(row => [row.key, row]));
+  const knownRows = new Map([...(current?.applications || []), ...snapshot.applications].map(row => [row.key, row]));
   const targetRows = [...knownRows.values()].map(row => {
     const chosen = snapshot.applications.find(r => r.key === row.key);
-    const thisWeek = current.applications.find(r => r.key === row.key);
+    const thisWeek = current?.applications.find(r => r.key === row.key);
+    const todayRow = todaySnapshot?.applications.find(r => r.key === row.key);
     const labels = (chosen || row).classifications.map(c => APPLICATION_CATEGORY_LABELS[c]);
     return { key: row.key, label: row.name, category: uiKey((chosen || row).classifications[0] || 'unknown'),
       categoryLabel: labels.join('／'), categoryKeys: (chosen || row).classifications.map(uiKey),
       managedTargetType: '应用', rangeSeconds: unavailable ? null : selectedDays.reduce((n, d) => n + (chosen?.dailyMs[d.date] || 0), 0) / 1000,
-      todaySeconds: current.days.find(d => d.date === today)?.complete ? (thisWeek?.dailyMs[today] || 0) / 1000 : null,
-      weekSeconds: current.complete ? (thisWeek?.totalMs || 0) / 1000 : null,
+      todaySeconds: todaySnapshot?.days.find(d => d.date === today)?.complete ? (todayRow?.dailyMs[today] || 0) / 1000 : null,
+      weekSeconds: current?.complete ? (thisWeek?.totalMs || 0) / 1000 : null,
       limitLabel: '不适用', status: '独立应用统计，不计网页配额' };
   }).filter(row => (row.rangeSeconds || row.todaySeconds || row.weekSeconds)).sort((a, b) => (b.rangeSeconds || 0) - (a.rangeSeconds || 0));
   const series = days => days.map(d => ({ label: d.date.slice(5), categories: d.complete ? uiCategories(d.categoriesMs) : {},
@@ -175,8 +189,8 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
     categoryRows: Object.entries(APPLICATION_CATEGORY_LABELS).map(([key, label]) => ({ key: uiKey(key), label,
       seconds: unavailable ? null : (categoryTotals[uiKey(key)] || 0), limitLabel: '不适用', status: '独立应用统计，不计网页配额' })),
     targetRows, chartSeries: mode === 'week' ? series(snapshot.days) : selectedDays[0].hours.map(h => ({ label: `${h.hour}`, categories: unavailable ? {} : uiCategories(h.categoriesMs), totalSeconds: unavailable ? null : h.totalMs / 1000 })),
-    weekSummarySeries: series(snapshot.days), targetColumnLabel: '应用', categoryColumnLabel: '历史管理分类',
+    weekSummarySeries: selectedWeek ? series(selectedWeek.days) : selectedDates.map(date => ({ label: date.slice(5), categories: {}, totalSeconds: null })), targetColumnLabel: '应用', categoryColumnLabel: '历史管理分类',
     limitColumnLabel: '网页配额', searchTargetPlaceholder: '搜索应用名称',
-    warning, incompleteDates: incomplete, attribution,
+    warning, weekUnavailable: !selectedWeek, incompleteDates: incomplete, attribution,
     meta: { syncLabel: `${warning ? '缓存／连接中断 · ' : ''}本机当前 Windows 用户 · 最近读取 ${new Date(snapshot.readAtMs).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} · 已结算至 ${settled}${incomplete ? ' · 不完整日期：' + incomplete : ''} · ${attributionLabel}${associationLabel}` } };
 }
