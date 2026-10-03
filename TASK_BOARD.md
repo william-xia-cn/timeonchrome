@@ -2,6 +2,10 @@
 
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 
+提醒组件闭环补验（2026-10-04 00:08）：Native新增生产PolicyCache/ExecutionReader/QuotaBridge/Scheduler/ReminderBridge/授权/LifecycleStore/Presenter/Closer集成，自有WPF窗口真实取消，临时存储与受控HTTP，offer→visible ACK→end_rest→当前授权→Claim→cancelled→完成1/1通过；目标存活，重复resolve/timeout/领取不重复执行或升级强制。测试提交`ff244a7`（前一夹具提交`27e8943`），生产源码不变、未推送/构建候选/安装部署。架构独立回读TRX Passed及SHA`42787b0f8f211583d39fac94ea43e1525348db03b988b309239f65e5ba6a5b9a`一致。正式Service编排/Agent主循环/Named Pipe/WTS及真人输入仍未覆盖，不冒称真机共享执行已可启用。
+
+网页关闭隔离验收暂留：旧Worker入口不匹配已证实；新增夹具版本/就绪/重载后两轮仍未进入关闭，当前取消NOT_VERIFIED，不认定产品失败。保留未提交测试修订与失败现场，不提交失败夹具、不追加产品绕过或重复安装。Content桥真实DOM补验及已有接线专项通过可保留。当前可关闭Native前台/正常取消组件缺项，正式跨端调度/网页关闭闭环仍待下一次集中验收；共享执行继续关闭。
+
 提醒批次续验（2026-10-04记录，测试发生于10/3 23:57–23:58）：Native真实WPF自有窗口前台/visible ACK通过；取消先失败于测试子进程MainModule启动竞态，仅修夹具后真实取消返回SHARED_CLOSE_CANCELLED、目标存活、后续不升级强制。架构回读TRX逐项结果并重算SHA：前台1通过/取消夹具1失败`99537e107ae174f6db9dca58f0c18b976ba719b0f0c30cfa78e9c4d0e7c710f0`，修复后取消1/1`812a8d1b806731e2bdc650d3d37bf664b3aadb626f47333b104624ce81f50e05`。旧失败保留，未重跑已通过60秒；真实自有WPF窗口及生产Presenter/Closer通过，不冒称正式Service调度或真人键鼠闭环。
 
 控件6项接线/余额/Content/生命周期/执行/关闭专项通过；旧Content桥真实证据因8b2ad14接线变化失效，已复用隔离Profile补验当前桥DOM可见ACK/滑动/重试/Escape/迟到围栏及窄屏，产品桥哈希`643f5526d45ea09165797bfa340d4d5f38b295abe4445ffce00933b9dfa26779`。此为真实DOM＋模拟Native，不等于Service整链。主动关闭宿主两次testDefaultOff未定义，已停止原样重试，交所属任务只修已定位测试入口再单跑；真实网页可取消关闭与Service授权闭环仍待验。未改产品/原候选/家庭配置/原账、未启用执行。
