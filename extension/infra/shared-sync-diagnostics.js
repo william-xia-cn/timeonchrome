@@ -21,6 +21,23 @@ const stages = ['local_context', 'local_projection', 'native_replace', 'cloud_ca
 const capabilities = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1',
   'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1', 'shared-browser-activity-v1',
   'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1', 'shared-web-local-lease-v1'];
+function projectedCoverage(value) {
+  const bucketNames = ['study', 'composite', 'rest', 'other', 'unknown'];
+  const fields = ['allBucketMs', 'knownBucketMs', 'unknownBucketMs', 'unknownBucketKeyCount'];
+  const c = value?.corrections;
+  if (!value || fields.some(k => integer(value[k]) === null) || !c
+    || ['requestedCount', 'appliedCount', 'rejectedCount'].some(k => integer(c[k]) === null)
+    || c.requestedCount !== c.appliedCount + c.rejectedCount || !Array.isArray(c.flows) || c.flows.length > 25
+    || value.allBucketMs !== value.knownBucketMs + value.unknownBucketMs
+    || c.flows.some(v => !bucketNames.includes(v?.from) || !bucketNames.includes(v?.to)
+      || integer(v.count) === null || integer(v.requestedSeconds) === null)) return null;
+  const failures = Object.fromEntries(['local_day_missing', 'original_bucket_too_small', 'unknown'].map(k => [k, integer(c.failures?.[k])]));
+  if (Object.values(failures).some(v => v === null) || Object.values(failures).reduce((a,b) => a+b, 0) !== c.rejectedCount
+    || c.flows.reduce((sum, v) => sum + v.count, 0) !== c.requestedCount) return null;
+  return { ...Object.fromEntries(fields.map(k => [k, value[k]])), corrections: {
+    requestedCount: c.requestedCount, appliedCount: c.appliedCount, rejectedCount: c.rejectedCount,
+    flows: c.flows.map(v => ({ from: v.from, to: v.to, count: v.count, requestedSeconds: v.requestedSeconds })), failures } };
+}
 function samePolicy(identity, cached) {
   if (!identity || !cached?.policy || identity.schemaVersion !== 1
     || typeof identity.policyHash !== 'string' || !/^[a-f0-9]{64}$/.test(identity.policyHash)
@@ -53,6 +70,7 @@ export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, 
     days.push({ date, present: !!item, revision: integer(u?.revisionOrdinal), complete: boolean(u?.complete),
       storedBucketCoverageBeforeCorrections: { allBucketMs: integer(coverage?.allBucketMs), knownBucketMs: integer(coverage?.knownBucketMs),
         unknownBucketKeyCount: integer(coverage?.unknownBucketKeyCount) },
+      bucketCoverageAfterCorrections: projectedCoverage(coverage?.afterCorrections),
       reasonCodes: Array.isArray(u?.reasonCodes) ? [...new Set(u.reasonCodes.slice(0, 32).map(v =>
         ['LOCAL_STATISTICS_MISSING', 'LOCAL_STATISTICS_INCOMPLETE', 'LOCAL_BUCKETS_INCOMPLETE'].includes(v) ? v : 'UNKNOWN_REASON'))] : null,
       activeMs: integer(u?.activeMs), bucketTotalMs: total, otherMs: integer(u?.otherMs),

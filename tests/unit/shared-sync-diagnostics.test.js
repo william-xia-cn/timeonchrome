@@ -129,6 +129,33 @@ async function run() {
     .replace(/import \{ readSharedQuotaExecutionLkg[^;]+;/, 'const readSharedQuotaExecutionLkg=()=>null;');
   globalThis.__diagnosticWrites = [];
   const syncModule = await load(syncSource);
+  const projectionModule = await load(read('extension/core/quota-read-model-v2.js').replace(/^import .*;\r?\n/gm, ''));
+  const stats = { domains: { private_domain: { activeSeconds: 906 } },
+    targets: { private_target: { activeByQuotaBucket: { study: 906 } } } };
+  const corrections = [
+    { id: 'private_id', date: '2026-09-30', channel: 'active', durationSeconds: 360, originalQuotaBucket: 'study', effectiveQuotaBucket: 'private_bucket' },
+    { id: 'private_rejected', date: '2026-09-30', channel: 'active', durationSeconds: 900, originalQuotaBucket: 'rest', effectiveQuotaBucket: 'other' },
+    { date: '2026-09-30', channel: 'backgroundMedia', durationSeconds: 500, originalQuotaBucket: 'study', effectiveQuotaBucket: 'rest' },
+  ];
+  const frozen = JSON.stringify({stats, corrections});
+  const projected = projectionModule.buildLocalQuotaProjectionV2({ '2026-09-30': stats },
+    { date: '2026-09-30', weekStart: '2026-09-30', weekEnd: '2026-09-30', corrections });
+  const after = syncModule.summarizeProjectedBucketDiagnostics(projected, corrections);
+  assert.deepEqual(after, { allBucketMs: 906000, knownBucketMs: 546000, unknownBucketMs: 360000, unknownBucketKeyCount: 1,
+    corrections: { requestedCount: 2, appliedCount: 1, rejectedCount: 1,
+      flows: [{from: 'rest', to: 'other', count: 1, requestedSeconds: 900}, {from: 'study', to: 'unknown', count: 1, requestedSeconds: 360}],
+      failures: {local_day_missing: 0, original_bucket_too_small: 1, unknown: 0} } });
+  assert.equal(JSON.stringify({stats, corrections}), frozen);
+  assert(!JSON.stringify(after).includes('private'));
+  stored.shared_web_sync_diagnostics_v1.coverageByDate['2026-09-30'].afterCorrections = { ...after, privateToken: 'private_token' };
+  const sampled = mod.buildSharedSyncDiagnostics(stored, {}, { cacheScopeCurrent: true }, now);
+  assert.deepEqual(sampled.days[2].bucketCoverageAfterCorrections, after);
+  assert(!JSON.stringify(sampled).includes('private'));
+  assert.equal(mod.buildSharedSyncDiagnostics(advanced, {}, {cacheScopeCurrent: true}, now).days[2].bucketCoverageAfterCorrections, null);
+  const invalidCoverage = structuredClone(stored);
+  invalidCoverage.shared_web_sync_diagnostics_v1.coverageByDate['2026-09-30'].afterCorrections.corrections.flows[0].from = 'private_bucket';
+  assert.equal(mod.buildSharedSyncDiagnostics(invalidCoverage, {}, {cacheScopeCurrent: true}, now).days[2].bucketCoverageAfterCorrections, null);
+  assert.equal(syncModule.summarizeProjectedBucketDiagnostics({}, corrections), null);
   assert.deepEqual(syncModule.summarizeStoredBucketCoverage({ targets: { private_target: { activeByQuotaBucket: { rest: 606, private_bucket: 300 } } } }),
     { allBucketMs: 906000, knownBucketMs: 606000, unknownBucketKeyCount: 1 });
   assert.equal(syncModule.summarizeStoredBucketCoverage({}).allBucketMs, null);
@@ -179,6 +206,7 @@ async function run() {
     assert.equal(upload.revisionOrdinal, 6);
     assert.equal(rebasedEvent.coverageByDate[date].revisionOrdinal, upload.revisionOrdinal);
     assert.equal(rebasedEvent.coverageByDate[date].contentHash, upload.contentHash);
+    assert.equal(rebasedEvent.coverageByDate[date].afterCorrections.allBucketMs, 0);
   }
   const receiptBlock = read('extension/infra/shared-web-contribution-sync.js').match(/          if \(nativeAccepted\) \{([\s\S]*?)\n          if \(nativeAccepted\) \{/)[0];
   const applyReceipt = new Function('nativeAccepted', 'nativeReceipts', 'd', 'submitted', 'now', 'diagnostic',
@@ -198,6 +226,11 @@ async function run() {
   const contents = element => [element.textContent, ...element.children.map(contents)].join(' ');
   ui.renderSharedSyncDiagnostics(container, { ...model, connection: { lastSuccessAtMsHistorical: now, lastErrorCodeHistorical: 'native_port_disconnected', connectedCurrent: false } });
   assert(contents(container).includes('历史连接成功时间')); assert(contents(container).includes('native_port_disconnected'));
+  ui.renderSharedSyncDiagnostics(container, sampled);
+  assert(contents(container).includes('未识别 360000 毫秒'));
+  assert(contents(container).includes('学习 → 未知'));
+  assert(contents(container).includes('已应用 1 条 · 失败 1 条'));
+  assert(!contents(container).includes('private'));
   ui.renderSharedSyncDiagnostics(container, null, 'private_token', '1.7.41');
   assert(!contents(container).includes('private_token')); assert(contents(container).includes('1.7.41'));
   container.replaceChildren();
