@@ -2,6 +2,16 @@
 
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 
+提醒批次续验（2026-10-04记录，测试发生于10/3 23:57–23:58）：Native真实WPF自有窗口前台/visible ACK通过；取消先失败于测试子进程MainModule启动竞态，仅修夹具后真实取消返回SHARED_CLOSE_CANCELLED、目标存活、后续不升级强制。架构回读TRX逐项结果并重算SHA：前台1通过/取消夹具1失败`99537e107ae174f6db9dca58f0c18b976ba719b0f0c30cfa78e9c4d0e7c710f0`，修复后取消1/1`812a8d1b806731e2bdc650d3d37bf664b3aadb626f47333b104624ce81f50e05`。旧失败保留，未重跑已通过60秒；真实自有WPF窗口及生产Presenter/Closer通过，不冒称正式Service调度或真人键鼠闭环。
+
+控件6项接线/余额/Content/生命周期/执行/关闭专项通过；旧Content桥真实证据因8b2ad14接线变化失效，已复用隔离Profile补验当前桥DOM可见ACK/滑动/重试/Escape/迟到围栏及窄屏，产品桥哈希`643f5526d45ea09165797bfa340d4d5f38b295abe4445ffce00933b9dfa26779`。此为真实DOM＋模拟Native，不等于Service整链。主动关闭宿主两次testDefaultOff未定义，已停止原样重试，交所属任务只修已定位测试入口再单跑；真实网页可取消关闭与Service授权闭环仍待验。未改产品/原候选/家庭配置/原账、未启用执行。
+
+下一批执行清单（PO“继续吧”）：①Native核对前次隔离前台捕获失败及既有实现，只验证自有提醒/应用窗口；②控件核对共享访问检查、visible ACK、60秒、主动正常结束可取消、超时end强制及未送达门；③架构对照两端调用链与真实证据集中审计。变更等级为提醒执行聚焦验收；仅直接相关缺项测试，复用已通过源码证据，不重跑无关全平台或已通过60秒流程。不得启用真实家庭限制/结束真实应用/改原账计时；涉及网页记账行为先单项批准。本批源码、隔离验收和实机覆盖分别记录，不以mock代替真实前台/取消。
+
+真实控件摘要验收（PO提供，北京时间2026-10-03 23:54）：运行1.7.42、当前连接connected、协议v3，已协商可复用孩子身份核验；当前连接同孩子identity已确认。9/28至10/3六个日期均显示当前贡献接收已确认，当前连接Native ACK分别23:53:55、:56、:57、:58、:58及23:54:03；10/3修订380、网页1944000ms，云端ACK23:54:06，当前来源与配置已核实。23:53:44曾拒绝WEB_SOURCE_PROOF_EXPIRED，随后实际接收恢复；摘要只能证明恢复，不单独证明具体续签内部步骤。本次核心同孩子核验→贡献→当前ACK链路PASS_WITH_MANUAL_EVIDENCE，不等于全部安全/重连场景实机验收或共享执行启用。9/30及10/1各360000ms历史未知桶仍不完整、单列延后；共享执行保持影子核对，强制提醒/正常关闭取消及Mac验收不由本项关闭。用户提供的摘要不含proof或凭据，未保存私密身份。
+
+实机安装续验（北京时间2026-10-03 23:49）：PO确认安装与原目录重载；架构及Native只读核验四组件均2.6.24.0，安装文件哈希与候选逐项一致，Service为Running/Automatic，安装目录Session Agent仅一实例。公开健康管道可读且有本次启动后的桥接活动，但不提供当前孩子证明及逐项贡献ACK；控件当前后台1.7.42、V2身份确认、当前贡献date/revision/hash仍待实际证据，不能以候选文件版本或历史成功代替。继续现有受支持只读诊断；不清缓存、不改ACL、不重启服务、不启用共享限制。
+
 最终候选交付：Windows2.6.24来自Native `6f8aef1`／固定Contracts1.31.0，四正式组件均2.6.24.0；MSI/Burn零警告错误，安装器结构3项通过，复用37项协议测试。架构独立复算Burn119764907bytes／`9324233f8b9afd973b3f87fe80b28312bcb2cbbca491f513778f68acdffb5ee9`、MSI61056758bytes／`91788a70b0a5a6d6ad71eea05e75d70ae954797d53bb9d15dae73f37b53cf92b`、manifest／`6514c8f71d0540e97ec9280e1b8181a9362660e9a816a9ba45ca7759676f686b`与清单一致。内部未签名、BLOCKED_BY_AUTHENTICODE_SIGNING、latestEligible=false；37项旧发布文件及本地latest未变。控件1.7.42 Native Host Development Candidate已更新原junction目标，179候选文件核对通过、原运行缓存1项保留；候选摘要`304084f9fea052081ae7f65b82cc8d52995d416e0f181dfe5d698eaf75274aa0`。架构回读原路径版本及binding/client文件哈希与受测源码一致；ID／模式／绑定不变，没有自动重载。当前Native安装仍2.6.23，真实联合核验待PO安装及原扩展重载后进行，不以发布／候选证据关闭身份或ACK问题。
 
 兼容发布结果：Production `37133833997`在精确主线`56ae43e`成功，仅两个Worker；Runtime版本`06bfc29b-9af4-4bb5-b8ed-2a01378d66d0`，Guardian版本`8dc07256-d570-4756-8a2d-43d509e20929`。manifest无Runtime/Guardian migration，shadow preparation=false；独立health200、Runtime scope/Guardian binding-v2未认证401。Cloudflare Pages未发布，R2 latest2.3.1不变。Windows2.6.24及扩展1.7.42候选进行中，未安装／重载／联调。仅部署烟测PASS，孩子核验及当前贡献ACK仍NOT_VERIFIED。
