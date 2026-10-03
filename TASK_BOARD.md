@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+2026-10-04 Mac契约补丁结果：Contracts1.31.1类型/schema/共同兼容向量已补齐；build、typecheck、usage-account聚焦测试及contract-compatibility通过，git diff --check通过。固定包timeonchrome-app-runtime-contracts-1.31.1.tgz（112916字节，SHA-256：68233d9ad0da9ebc0c9fd15017fc2aa4bd3ca9cc86625fa84b89b7b0aff4dd9f）包含类型、schema、向量和编译模块，不包含凭据。方案核对Matched：兼容可选诊断、接收/发布三态、旧版缺字段及非法诊断拒绝；Deviated/Missing/Extra为空。此处只完成契约源码与固定包；Native/Mac消费、实际发布诊断、非零日账published及页面对账仍待所属端完成，不记实机PASS。
+
+2026-10-04 Mac发布诊断契约补齐（当前架构任务）：云端status已返回publicationErrorCode，但Contracts1.31.0未定义，Native固定包无法消费。补丁1.31.1只增加可选、可空的稳定发布诊断码及schema/兼容向量；字段缺失或null表示无可用拒绝诊断，不表示已发布。received仍仅确认接收，published/publishStatus不变；消费者必须先校验manifestId/revision/manifestHash与在途版本一致，拒绝码只用于诊断，不清队列、不更改统计/校验。实施清单：usage-account类型和schema→现有共同向量与N/N-1测试→build/typecheck/聚焦usage-account和契约兼容→固定包与哈希→现有Native任务交Mac接入。只读根诊断不改两端源码；不运行Windows/Mac/安装器/网页落账/页面全量测试，不部署、不执行migration、不新增分支/工作树。
+
+2026-10-04 PO明确裁决：既有cg.163.com idle少记风险、19009秒未解释历史差额统一改为P2，状态为待后续处理、非发布阻塞。此裁决覆盖此前针对这两项的P0/发布前重复风险接受要求；不得再因相同旧记录阻断发布或重复索要豁免。两项未修复、未验收，不记PASS，不清空或改写历史账；此为两项指定问题的优先级裁决，不放宽新发现账本缺陷的报告及专项规则。自托管1.7.43已签包并合入master 4996d202，更新源仍1.7.32；当前按PO先处理Mac，未据此自动恢复部署。
+
+2026-10-04 Mac日账优先核对（PO指定）：自托管1.7.43更新源暂停，线上仍1.7.32；Mac跨账户Chrome继续延后，但独立应用日账接收/发布/页面对账继续，不整体标为DEFERRED。已读取Native报告118dc187及生产D1匿名来源核对：三Mac用户最新分配版本的已接收日清单均complete=false，无published；非零历史日期原因POLICY_HISTORY_MISSING，零事实日期SOURCE_COVERAGE_UNKNOWN，云端稳定拒绝APPLICATION_ACCOUNT_INCOMPLETE。此为上传清单状态，不能替代报告中的今日完整非零本机统计。云端status接口已返回publicationErrorCode，需Mac核对读取及显示链，并报告当前用户assignmentVersion、日期/统计revision/实际上传revision以对齐同一作用域。已通过既有Native会话转Mac标准交接；不清队列、不放宽校验、不改原账/计时/算法，不新建分支或工作树。变更等级：只读诊断与任务记录；仅Git/diff检查，无产品全量测试或生产写入。
+
 ## NOW：共享连接身份核验简化（2026-10-03，PO已批准）
 
 PO扩大交付到实际自托管（2026-10-04）：已明确要求执行内部managed渠道更新，取代此前仅unpacked/记录交付限制；控件任务执行正式managed制品与稳定feed/CRX发布，Native只读核对正式Host/旧别名/稳定ID兼容，不用开发连接证明正式渠道。不得夹带native-host-development或shared关闭实验配置，不进入CWS、不切R2 latest、不开共享、不新分支/树。当前自托管进行中，待正式候选最小验证/来源/签名稳定ID及线上feed/CRX/hash回读；MacDEFERRED且独立回报，统计已知问题不改写PASS。主线文档PR226应随此范围更正，不能只合文档称更新源已发。

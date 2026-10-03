@@ -32,6 +32,25 @@
     { "if": { "properties": { "complete": { "const": true } } }, "then": { "properties": { "reasonCodes": { "maxItems": 0 }, "settledThroughMs": { "type": "integer" } } }, "else": { "properties": { "reasonCodes": { "minItems": 1 } } } }
   ],
   "$defs": {
+    "receipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["manifestId", "revision", "manifestHash", "received", "published", "publishStatus"],
+      "properties": {
+        "manifestId": { "type": "string", "pattern": "^aa1_[a-f0-9]{64}$" },
+        "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "manifestHash": { "$ref": "#/$defs/hash" },
+        "received": { "type": "boolean" },
+        "published": { "type": "boolean" },
+        "publishStatus": { "enum": ["pending", "received_not_published", "published"] },
+        "publicationErrorCode": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+        "receivedChunkIndexes": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "integer", "minimum": 0, "maximum": 99 } }
+      },
+      "allOf": [
+        { "if": { "properties": { "publishStatus": { "const": "pending" } } }, "then": { "properties": { "received": { "const": false }, "published": { "const": false } } } },
+        { "if": { "properties": { "publishStatus": { "const": "received_not_published" } } }, "then": { "properties": { "received": { "const": true }, "published": { "const": false } } } },
+        { "if": { "properties": { "publishStatus": { "const": "published" } } }, "then": { "properties": { "received": { "const": true }, "published": { "const": true } } } }
+      ]
+    },
     "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$" },
     "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "row": {

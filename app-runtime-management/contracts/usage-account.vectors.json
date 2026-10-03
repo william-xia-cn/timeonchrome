@@ -1,6 +1,21 @@
 {
   "schemaVersion": 1,
   "timezone": "Asia/Shanghai",
+  "receiptCompatibility": {
+    "base": { "manifestId": "aa1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "revision": 7, "manifestHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "received": true, "published": false, "publishStatus": "received_not_published" },
+    "vectors": [
+      { "id": "n-minus-one-absent-code", "patch": {}, "valid": true },
+      { "id": "no-check-diagnostic", "patch": { "publicationErrorCode": null }, "valid": true },
+      { "id": "incomplete-received-not-published", "patch": { "publicationErrorCode": "APPLICATION_ACCOUNT_INCOMPLETE" }, "valid": true },
+      { "id": "future-stable-diagnostic-not-action", "patch": { "publicationErrorCode": "APPLICATION_ACCOUNT_FUTURE_REASON" }, "valid": true },
+      { "id": "published-status", "patch": { "published": true, "publishStatus": "published", "publicationErrorCode": null }, "valid": true },
+      { "id": "pending-status", "patch": { "received": false, "publishStatus": "pending" }, "valid": true },
+      { "id": "raw-error-text-rejected", "patch": { "publicationErrorCode": "error: private/path" }, "valid": false },
+      { "id": "diagnostic-object-rejected", "patch": { "publicationErrorCode": { "code": "APPLICATION_ACCOUNT_INCOMPLETE" } }, "valid": false },
+      { "id": "received-not-published-contradiction", "patch": { "published": true }, "valid": false },
+      { "id": "invalid-receipt-hash", "patch": { "manifestHash": "bad" }, "valid": false }
+    ]
+  },
   "vectors": [
     { "id": "application-milliseconds", "sourceKind": "application", "durationUnit": "milliseconds", "hour": 3, "duration": 1501, "categories": [{ "category": "study", "duration": 1501 }, { "category": "composite", "duration": 1501 }], "expectedTotal": 1501 },
     { "id": "web-integer-seconds", "sourceKind": "web", "durationUnit": "seconds", "hour": 23, "duration": 61, "categories": [{ "category": "study", "duration": 61 }], "expectedTotal": 61 },
