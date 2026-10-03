@@ -42,6 +42,8 @@ import { getQuotaUsageForConfig, getQuotaAccountingVersion, buildQuotaStateFromU
 import { configureRestUsageReminder, evaluateRestUsageReminder as evaluateLegacyRestUsageReminder, handleRestUsageReminderAction, restoreRestUsageReminderForTab, suspendLegacyRestUsageReminder, REST_USAGE_REMINDER_DEADLINE_ALARM, REST_USAGE_REMINDER_RETRY_ALARM } from './product/rest-usage-reminder.js';
 import { isSharedAccessRuntimeEnabled } from './product/shared-access-runtime.js';
 import { pollSharedAccessIntegration, initSharedAccessIntegration } from './product/shared-access-integration.js';
+import { registerSharedSyncDiagnosticsReader } from './infra/shared-sync-diagnostics.js';
+registerSharedSyncDiagnosticsReader();
 
 function evaluateRestUsageReminder(options) {
   return isSharedAccessRuntimeEnabled() ? pollSharedAccessIntegration() : evaluateLegacyRestUsageReminder(options);
@@ -1601,6 +1603,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // notification). Do not race its asynchronous response with generic routing.
   if (msg?.type === 'TIMEONCHROME_LOCAL_HEALTH_PROBE'
     || msg?.type === 'TIMEONCHROME_LOCAL_HEALTH_RECHECK'
+    || msg?.type === 'TIMEONCHROME_SHARED_SYNC_DIAGNOSTICS_READ'
     || msg?.type === 'TIMEONCHROME_APPLICATION_USAGE_READ'
     || msg?.type === 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE'
     || msg?.type === 'SHARED_REMINDER_ACTION' || msg?.type === 'SHARED_REMINDER_DISMISSED') return false;
