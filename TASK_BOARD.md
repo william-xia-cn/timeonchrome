@@ -10,6 +10,8 @@
 
 契约开发证据：1.31.0 build/typecheck、shared-web-sync v1/v2聚焦及contract-compatibility通过；首次build因沙箱EPERM未写产物，经范围内提权构建通过；兼容测试首次缺新增消息断言已修正后通过。固定本地包SHA-256 `355c558784807b43e2e02f0b12c8ab221ecf9ffa38330f8ae48c644507c55395`，包含v2 schema与仅公钥黄金向量，已交Native/控件所属会话。不代表契约已发布或两端已安装。云端适配进行中。
 
+标准云端开发证据（2026-10-03）：已实现机器鉴权的`POST /v2/machines/shared-web-source/scope`、受限内部scope签发／实时分配核验及设备鉴权的`POST /device/shared-web-source-binding/v2`。成功响应均直接返回契约v2签名wrapper，无nonce、challenge或额外身份字段；既有公钥接口与v1保留。机器scope与网页proof的audience严格隔离；当前分配和浏览器token epoch持续复核，最后一次异步分配查询后再次按精确设备ID检查epoch。当前候选限定账户／孩子，最多200项，201项明确`SOURCE_SCOPE_LIMIT`拒绝，不截断后猜测；v2不写challenge表。真实内存SQLite双端签名／重用／到期／篡改／转派／解绑／令牌轮换／末尾竞态／候选上限及既有贡献记录不变通过；首次旧v1夹具固定时间与HTTP真实时钟不一致已仅统一测试时钟后通过。实际Device路由鉴权、caller范围拒绝、稳定错误与no-store通过；Backend Workers/Vitest `application-accounts.test.ts -t "shared web source"`为2项通过、22项无关跳过。根与Backend typecheck、两个Worker dry-run及diff检查通过；不运行平台／安装器／网页账本全量测试。审计：本轮云端范围Matched，未批准Deviated/Extra无；真实两端联合连接／重连及生产部署仍未验收，不表示共享执行可启用。未部署、未迁移、未修改原账／配额或线上开关。
+
 ## NOW：D-114 统一访问管理、其他时间与电脑使用汇总（2026-10-02）
 
 安装状态更新（2026-10-03）：PO已手动安装2.6.23。架构从正式安装目录只读核对Service／Session Agent／Manager／Native Host均为2.6.23.0，四SHA-256与已校验候选完全一致；Service为Running／Automatic，当前会话仅一个正式Session Agent。Native普通账户21:07公开健康核验通过，架构回读原证据：本次Service北京时间21:03:53启动，21:04:16有成功云端heartbeat，state=online。历史桥成功早于本次启动，public pendingUploads不含app/shared，均不作为本次共享同步证明。此前“当前安装仍2.6.22”仅为构建结束时历史状态。本次不读取凭据／原账、不提权、不重启、不恢复已挂起绑定／ACK排查、不启用共享限制。组件安装及公开健康通过不等于提醒、正常关闭取消、共享余额及原账守恒验收通过。

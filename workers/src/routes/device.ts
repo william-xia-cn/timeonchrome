@@ -7,7 +7,7 @@ import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest 
 import { readSharedAccessPolicyForChild } from './profiles';
 import { pageSharedQuotaExecutionBasis, readSharedQuotaExecutionBasis, sharedWebSourceKey, type SharedAccessStateEnv } from '../services/sharedAccessState';
 import { publishSharedWebContribution, readSharedWebWatermark, readSharedWebJson } from '../services/sharedWebContributions';
-import { issueSharedWebSourceBinding } from '../services/sharedWebSourceBinding';
+import { issueSharedWebSourceBinding, issueSharedWebSourceBindingV2 } from '../services/sharedWebSourceBinding';
 import { createSharedAccessPolicyIdentityV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 
 type DeviceIdentityLinkBody = {
@@ -392,14 +392,15 @@ export const deviceRouter = {
       const response=json({schemaVersion:1,protocol:'shared-web-sync-v1',enabled});response.headers.set('Cache-Control','no-store');return response;
     }
     if (path === '/device/shared-web-contributions/v1' || path === '/device/shared-web-watermark/v1'
-      || path === '/device/shared-web-source-binding/v1') {
+      || path === '/device/shared-web-source-binding/v1' || path === '/device/shared-web-source-binding/v2') {
       try {
         const identity = await verifyDeviceTokenFromRequest(request,env);
         if (!identity) return json({code:'INVALID_DEVICE_TOKEN'},401);
         if (identity.unbound) return deviceUnboundResponse(identity.deviceId);
         if (!identity.deviceId) return json({code:'SHARED_SOURCE_BINDING_UNAVAILABLE'},403);
         if (env.SHARED_WEB_CONTRIBUTIONS_ENABLED !== 'true') return json({code:'SHARED_WEB_SYNC_UNAVAILABLE'},503);
-        const isUpload = path === '/device/shared-web-contributions/v1', isBinding = path === '/device/shared-web-source-binding/v1';
+        const isUpload = path === '/device/shared-web-contributions/v1', isBindingV2=path === '/device/shared-web-source-binding/v2',
+          isBinding = path === '/device/shared-web-source-binding/v1'||isBindingV2;
         if (request.method !== (isUpload || isBinding ? 'POST' : 'GET')) return json({code:'METHOD_NOT_ALLOWED'},405);
         if ([...url.searchParams.keys()].some(key => key !== 'date' || isUpload || isBinding || url.searchParams.getAll(key).length !== 1))
           return json({code:'INVALID_WEB_CONTRIBUTION'},400);
@@ -414,9 +415,11 @@ export const deviceRouter = {
         let result:unknown;
         if(isBinding) {
           const body=await readSharedWebJson(request,2048);
-          if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||!Object.hasOwn(body,'challengeId'))
-            return json({code:'INVALID_WEB_SOURCE_CHALLENGE'},400);
-          result=await issueSharedWebSourceBinding(env,scope,(body as {challengeId:unknown}).challengeId);
+          const field=isBindingV2?'scopeProof':'challengeId';
+          if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||!Object.hasOwn(body,field))
+            return json({code:isBindingV2?'INVALID_WEB_SOURCE_SCOPE':'INVALID_WEB_SOURCE_CHALLENGE'},400);
+          result=isBindingV2?await issueSharedWebSourceBindingV2(env,scope,(body as {scopeProof:unknown}).scopeProof)
+            :await issueSharedWebSourceBinding(env,scope,(body as {challengeId:unknown}).challengeId);
         } else result = isUpload ? await publishSharedWebContribution(env,scope,await readSharedWebJson(request),policy)
           : await readSharedWebWatermark(env,scope,url.searchParams.get('date') || '');
         const current = await verifyDeviceTokenFromRequest(request,env);
@@ -428,10 +431,12 @@ export const deviceRouter = {
         const response = json(result); response.headers.set('Cache-Control','no-store'); return response;
       } catch (error) {
         const code = error instanceof Error ? error.message : '';
-        const invalid = /^(INVALID_WEB_SOURCE_CHALLENGE|INVALID_WEB_CONTRIBUTION(_DATE)?|INVALID_SHARED_ACCESS_POLICY_IDENTITY|WEB_CONTRIBUTION_(TOTAL_MISMATCH|HASH_MISMATCH|FROM_FUTURE))$/.test(code);
-        const conflict = /^(WEB_SOURCE_(CHALLENGE_EXPIRED|ASSIGNMENT_CHANGED|BINDING_CONFLICT)|WEB_CONTRIBUTION_REVISION_CONFLICT|SHARED_ACCESS_(POLICY_CHANGED|BINDING_CHANGED))$/.test(code);
-        return json({code:invalid || conflict || code === 'WEB_CONTRIBUTION_BODY_TOO_LARGE' ? code : 'SHARED_WEB_SYNC_UNAVAILABLE'},
-          invalid ? 400 : conflict ? 409 : code === 'WEB_CONTRIBUTION_BODY_TOO_LARGE' ? 413 : 503);
+        const invalid = /^(INVALID_WEB_SOURCE_(CHALLENGE|SCOPE|PROOF|BINDING|KEY)|INVALID_WEB_CONTRIBUTION(_DATE)?|INVALID_SHARED_ACCESS_POLICY_IDENTITY|WEB_CONTRIBUTION_(TOTAL_MISMATCH|HASH_MISMATCH|FROM_FUTURE))$/.test(code);
+        const conflict = /^(WEB_SOURCE_(CHALLENGE_EXPIRED|ASSIGNMENT_CHANGED|BINDING_CONFLICT|SCOPE_MISMATCH|PROOF_EXPIRED)|WEB_CONTRIBUTION_REVISION_CONFLICT|SHARED_ACCESS_(POLICY_CHANGED|BINDING_CHANGED|ASSIGNMENT_UNAVAILABLE))$/.test(code);
+        const signature=code==='WEB_SOURCE_PROOF_SIGNATURE_INVALID';
+        const unavailable=code==='SOURCE_SCOPE_LIMIT'||code==='WEB_SOURCE_BINDING_UNAVAILABLE';
+        return json({code:invalid || conflict || signature || unavailable || code === 'WEB_CONTRIBUTION_BODY_TOO_LARGE' ? code : 'SHARED_WEB_SYNC_UNAVAILABLE'},
+          invalid ? 400 : signature ? 403 : conflict ? 409 : code === 'WEB_CONTRIBUTION_BODY_TOO_LARGE' ? 413 : 503);
       }
     }
 

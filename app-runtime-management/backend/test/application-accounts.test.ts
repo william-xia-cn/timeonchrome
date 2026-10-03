@@ -9,6 +9,7 @@ import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota,
   readCoveredChromeDeduction, applicationSharedQuotaUploadReady,
   readApplicationSharedQuotaContributions, applicationSharedQuotaSourceKey } from '../src/applicationSharedQuota';
 import type { MachineSelfResponse } from '../src/contracts';
+import { signSharedWebReusableProofV2 } from '@timeonchrome/app-runtime-contracts/shared-web-sync';
 
 const start = usageAccountDayStart('2026-09-27');
 const now = start + 86400000;
@@ -106,6 +107,43 @@ it('shared web source challenge authenticates machine context without caller Chi
   expect(body.connectionHash).toBe('d'.repeat(64));
   const activity=await env.RUNTIME_DB.prepare('SELECT last_seen_at_ms FROM runtime_machines_v2 WHERE id=?1')
     .bind(f.machine.machineId).first<{last_seen_at_ms:number}>();expect(activity?.last_seen_at_ms).toBe(start);
+  rebind=true;await expect(read()).rejects.toMatchObject({status:409,code:'SHARED_ACCESS_BINDING_CHANGED'});
+  await expect(read()).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});
+});
+it('shared web source scope derives v2 reusable identity from machine auth and rechecks current assignment without writes',async()=>{
+  const f=await fixture(),own=await applicationSharedQuotaSourceKey(f.machine.machineId,localUserId,1);
+  const keys=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},false,['sign','verify']);
+  let calls=0,rebind=false,wrongScope=false;
+  const guardian={fetch:async(request:Request)=>{
+    calls++;expect(new URL(request.url).pathname).toBe('/createSharedWebMachineScope');
+    expect(await request.json()).toEqual({accountId:f.machine.accountId,childId:f.childId,machineId:f.machine.machineId,
+      localUserId,assignmentVersion:1,applicationSourceKey:own});
+    if(rebind)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+      VALUES (?1,?2,2,?3,1,'override',?4,?4)`).bind(f.machine.machineId,localUserId,f.childId,now).run();
+    const issuedAtMs=Date.now();
+    return Response.json(await signSharedWebReusableProofV2({schemaVersion:2,audience:'timeonchrome:shared-web-machine-scope:v2',
+      applicationSourceKey:wrongScope?'f'.repeat(64):own,assignmentVersion:1,
+      childScopeHash:await sha256Hex(`shared-web-child\n${f.machine.accountId}\n${f.childId}`),issuedAtMs,expiresAtMs:issuedAtMs+300000},
+      'a'.repeat(64),keys.privateKey));
+  }} as typeof env.GUARDIAN_COMPUTER_USAGE;
+  const read=(patch:Record<string,unknown>={},token=f.token,query='')=>routeV2(new Request('http://runtime.test/v2/machines/shared-web-source/scope'+query,{
+    method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
+    body:JSON.stringify({localUserId,assignmentVersion:1,...patch})}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now);
+  await expect(read({},randomToken(''))).rejects.toMatchObject({status:401});
+  for(const patch of [{childId:'caller'},{machineId:'caller'},{connectionHash:'d'.repeat(64)},{challengeId:'c'.repeat(64)}])
+    await expect(read(patch)).rejects.toMatchObject({status:400,code:'INVALID_WEB_SOURCE_SCOPE'});
+  await expect(read({},f.token,'?childId=caller')).rejects.toMatchObject({status:400});
+  expect(calls).toBe(0);
+  const response=await read();expect(response?.status).toBe(200);expect(response?.headers.get('cache-control')).toBe('no-store');
+  const body=await response?.json() as {schemaVersion:number;claims:Record<string,unknown>};
+  expect(body.schemaVersion).toBe(2);expect(Object.keys(body)).toHaveLength(4);
+  expect(body.claims.applicationSourceKey).toBe(own);expect(body.claims.audience).toBe('timeonchrome:shared-web-machine-scope:v2');
+  expect(body.claims).not.toHaveProperty('connectionHash');expect(body.claims).not.toHaveProperty('webSourceKey');
+  expect(JSON.stringify(body)).not.toContain(f.machine.machineId);expect(JSON.stringify(body)).not.toContain(localUserId);
+  const activity=await env.RUNTIME_DB.prepare('SELECT last_seen_at_ms FROM runtime_machines_v2 WHERE id=?1')
+    .bind(f.machine.machineId).first<{last_seen_at_ms:number}>();expect(activity?.last_seen_at_ms).toBe(start);
+  wrongScope=true;await expect(read()).rejects.toMatchObject({status:503,code:'WEB_SOURCE_BINDING_UNAVAILABLE'});wrongScope=false;
   rebind=true;await expect(read()).rejects.toMatchObject({status:409,code:'SHARED_ACCESS_BINDING_CHANGED'});
   await expect(read()).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});
 });

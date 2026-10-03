@@ -7,7 +7,7 @@ import { readPersistentApplicationUsage } from './applicationStatistics';
 import { loadUsageCorrections } from './applicationUsageCorrections';
 import { CHROME_DISPLAY_RULES } from './specialApplications';
 import { readApplicationSharedQuotaContributions } from './applicationSharedQuota';
-import { verifySharedWebSourceAssignment } from './sharedWebSourceBinding';
+import { verifySharedWebSourceAssignment, verifySharedWebSourceScope } from './sharedWebSourceBinding';
 
 /** Capability-bound entrypoint; this is never exposed by the public fetch router. */
 export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
@@ -29,11 +29,12 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
   async fetch(request:Request):Promise<Response> {
     const operation=new URL(request.url).pathname.slice(1);
     if(request.method!=='POST'||!['applicationEvidenceRevision','readApplicationEvidence','getApplicationUsage',
-      'readApplicationSharedQuotaContributions','verifySharedWebSourceAssignment'].includes(operation))
+      'readApplicationSharedQuotaContributions','verifySharedWebSourceAssignment','verifySharedWebSourceScope'].includes(operation))
       return jsonResponse({code:'METHOD_NOT_ALLOWED'},{status:405});
     try {
       const input=await readJsonBody(request,2048) as Record<string,unknown>;
       if(operation==='verifySharedWebSourceAssignment')return jsonResponse({owned:await verifySharedWebSourceAssignment(this.env.RUNTIME_DB,input)});
+      if(operation==='verifySharedWebSourceScope')return jsonResponse({owned:await verifySharedWebSourceScope(this.env.RUNTIME_DB,input)});
       if(!input||['accountId','childId','fromDate','toDate'].some(key=>typeof input[key]!=='string'||String(input[key]).length>200))
         throw new HttpError(400,'INVALID_SCOPE','Read scope is invalid.');
       const args=[input.accountId,input.childId,input.fromDate,input.toDate] as [string,string,string,string];
