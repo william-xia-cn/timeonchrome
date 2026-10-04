@@ -1,5 +1,7 @@
 # TASK_BOARD
 
+2026-10-04 1.7.45托管完成：PR #235合入master d65c54448b495bdebdeae16bb6c1ae959e28c8b0，精确SHA CI 37198428287通过；首轮PR缺Task-Role元数据已修正。原签名密钥、CRX3签名、稳定ID、177个包文件及历史归档核验通过。更新源deployment 682f7f15，稳定与deployment双域名feed/CRX/SHA256SUMS一致；589015字节，SHA256 c881933effb517389114922bbdb70944723be4e883bc19412546017034880856，21个CRX归档保留。发布范围Matched，无Deviated/Extra；Mac实机双通道/迁移仍DEFERRED，readiness=false未动，终端安装待观察。未部署业务云端、Native或家庭配置，未启用恢复/共享执行。
+
 2026-10-04 PO明确批准1.7.45托管发布：在既有Mac双健康链路提交a6e8b2c基础上仅提升manifest与发布文档，提交/推送/PR合入后用原密钥签正式managed包，验证稳定ID、产物边界、签名和线上双域名feed/CRX/SHA256；保留旧CRX。复用已通过两健康专项与typecheck，合入变化时按实际范围复核；最小发布门为managed渠道/隐私边界、根目录、typecheck及diff/精确SHA CI。不改业务云端/Native/Mac安装/家庭配置/账本/配额，不启用恢复或共享执行。Mac实机双通道与迁移验收未通过，extension-readiness=false不动；源码发布不代表备用接管可用。
 
 2026-10-04 Mac独立健康源码与隔离验证完成（未发布）：新增mac-guardian-health客户端，native-host-client仅接线、共享UUID初始化单次在途及bootstrap状态通知；Windows/Linux/平台未知/非managed均跳过旧Host。两专项通过，覆盖Native心跳卡住、Native业务卡住、Guardian失败不阻塞新健康/业务、同Profile UUID、不同Profile隔离、真实状态枚举、timeout/缺Host/无效响应/重连/旧Port延迟事件/同步触发去重/优先probe有界队列/脱敏字段。原专项首轮失败仅因新增监听器数量断言，保留原处理器顺序并更新断言后通过；新集成用例亦通过。typecheck及diff检查通过。范围Matched；无Deviated/Extra；真实Mac双通道和迁移验收Missing/DEFERRED，readiness=false未改。版本仍1.7.44；候选、正式feed、Mac安装及业务配置均未动。准备向Architect回报，不能以模拟结果启用接管。

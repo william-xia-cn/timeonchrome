@@ -1,11 +1,12 @@
 # Changelog
 
-## [1.7.45 正式 managed 版] — 发布中
+## [1.7.45 正式 managed 版] — 2026-10-04 已托管
 
 - 仅macOS增加独立com.timeonchrome.guardian健康通道；现有nativehost健康/业务保留，Windows不连接旧Host。
 - 两条链路独立调度、超时和重连，共用既有Profile UUID与实际本地监控状态；健康ACK不替代配对、能力或账本确认。
 - Native心跳/业务卡住与Guardian断线的隔离模拟专项通过；未完成Mac真实双通道、守护迁移或长期验收，readiness门继续关闭。
 - 不修改网页记账、统计、配额、家庭配置，不启用恢复或共享执行；不安装Native或发布Chrome Web Store。
+- 原密钥签名及稳定ID验证通过；更新源deployment `682f7f15`，稳定和部署地址回读一致。CRX为589015字节，SHA256 `c881933effb517389114922bbdb70944723be4e883bc19412546017034880856`；旧CRX保留。终端安装待观察，unpacked不自动升级。
 
 ## [1.7.44 正式 managed 非共享版] — 2026-10-04 已托管
 
