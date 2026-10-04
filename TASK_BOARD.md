@@ -1,5 +1,6 @@
 # TASK_BOARD
 
+阶段更新：角色证据补丁已集中提交至既有codex/cloud-management并建立PR237；最新主线的扩展1.7.45及发布记录保留。代码聚焦验证已通过，当前等待精确PR CI；未部署、未刷新生产策略，真实共享验收未完成。以下“未提交”描述为先前本地测试时状态，由本条更新。
 NOW 2026-10-04 共享角色证据生产者最小修补：已核对云端applicationIdentityProjection只输出Chrome true，已确认非Chrome遗漏false；Native按既有契约将缺失视为未知，因而可能产生CHROME_ROLE_UNCONFIRMED并拒绝共享入队。Checklist：可信已审核且唯一的非Chrome产品输出显式false；Chrome强证据true保持；未知/冲突/弱Chrome不猜false；投影内容hash随实际字段变化。仅修改云端投影及其聚焦测试，不改变契约字段、Native判定、分类/原账/配额，不追P1旧595。最小验证：identity-projection与special-applications测试、Worker typecheck/dry-run/diff；CI仅相关Worker，生产smoke留待另行发布；不运行平台/安装器/扩展/网页全量。仅本地实现，不部署或直接刷新生产策略，现场shadow原因仍未直接读出，不把本缺口作为唯一现场归因。
 
 结果：云端投影已补显式false，仅限唯一已审核非Chrome产品；unknown/conflict/弱Chrome仍无角色字段，强证据Chrome维持true。application-identity-projection 12/12、computer-usage-evidence 14/14、typecheck/dry-run/diff通过。Native现有Reader对照2/2（1693f9e，只测试提交）证明相同人工区间缺角色时普通account完整但共享Chrome证据不完整，显式false可完整；产品判定未改，无需新Native候选。审计Matched：角色三态、既有版本hash、最小测试和边界；Deviated/Missing/Extra无。当前仅本地源码及隔离验证，未提交本补丁、未部署/生产刷新或真实shared验收；历史P1及真实未确认产品角色仍保留，不保证本补丁解决全部不完整来源。
@@ -42,6 +43,15 @@ NOW 2026-10-04 已发布Native统计采纳修复（延续已批准读取范围�
 
 2026-10-04 应用统计对齐集中交付：源码 PR #231/#232 已合入 master `d41d5d18f59867ac68aa1bb577bc925215025129`，Contracts 1.31.2 包 SHA256 `cd5958a1e44431a3bb955b7b564a2b2983b67fbec4614b393679e40118cf6f97`。云端94项相关回归、补充74项并行回归、契约及页面测试/桌面移动mock、typecheck/dry-run/边界/diff通过；精确主线 Runtime CI 37190793238、主控制台 CI 37190809384 成功。Runtime production 37190871584 成功：Worker `0dafe2d9-74c8-4901-bb65-0547a94ad44e`、独立 Pages `4f3350bd-4e09-45e1-80f6-2f258ae953f1`，health/401 smoke通过，线上renderer归一换行后与源码一致。自动Pages成功不等于实际主控制台更新，回读主地址仍旧脚本，已单独启动主Pages补发37191019757；尚待回读，不冒认通过。Native main `4d17e0de2755cd2345b0897de0f8e733b5923ddc`：Windows两版契约统计各97/97、管道19/19；Mac增量便携各102/102和Daemon编译通过，Swift及Mac实机另列。唯一内部未签名2.6.27候选已核验组件/安装器及哈希，路径 `D:\Codex\TimeWhereNative\artifacts\release\windows\x64\2.6.27\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.27.exe`，SHA256 `1b2166024c795145c8a65235c31d48da6cc24b8767e8b007e0a18e3319ac2b8a`；Mac标准交接Issue12已送达，未有实机回执。当前仍未安装2.6.27，今日新统计发布→真实页面同截止核对未完成。旧不完整清单与原账保留，不执行migration/Guardian/R2 latest/共享启用，不把测试或候选称为端到端完成。
 以下保留远端已合入的同日过程记录，当前状态以本页顶部新记录为准。
+以下保留主线的扩展发布及云端过程记录：
+2026-10-04 1.7.45托管完成：PR #235合入master d65c54448b495bdebdeae16bb6c1ae959e28c8b0，精确SHA CI 37198428287通过；首轮PR缺Task-Role元数据已修正。原签名密钥、CRX3签名、稳定ID、177个包文件及历史归档核验通过。更新源deployment 682f7f15，稳定与deployment双域名feed/CRX/SHA256SUMS一致；589015字节，SHA256 c881933effb517389114922bbdb70944723be4e883bc19412546017034880856，21个CRX归档保留。发布范围Matched，无Deviated/Extra；Mac实机双通道/迁移仍DEFERRED，readiness=false未动，终端安装待观察。未部署业务云端、Native或家庭配置，未启用恢复/共享执行。
+
+2026-10-04 PO明确批准1.7.45托管发布：在既有Mac双健康链路提交a6e8b2c基础上仅提升manifest与发布文档，提交/推送/PR合入后用原密钥签正式managed包，验证稳定ID、产物边界、签名和线上双域名feed/CRX/SHA256；保留旧CRX。复用已通过两健康专项与typecheck，合入变化时按实际范围复核；最小发布门为managed渠道/隐私边界、根目录、typecheck及diff/精确SHA CI。不改业务云端/Native/Mac安装/家庭配置/账本/配额，不启用恢复或共享执行。Mac实机双通道与迁移验收未通过，extension-readiness=false不动；源码发布不代表备用接管可用。
+
+2026-10-04 Mac独立健康源码与隔离验证完成（未发布）：新增mac-guardian-health客户端，native-host-client仅接线、共享UUID初始化单次在途及bootstrap状态通知；Windows/Linux/平台未知/非managed均跳过旧Host。两专项通过，覆盖Native心跳卡住、Native业务卡住、Guardian失败不阻塞新健康/业务、同Profile UUID、不同Profile隔离、真实状态枚举、timeout/缺Host/无效响应/重连/旧Port延迟事件/同步触发去重/优先probe有界队列/脱敏字段。原专项首轮失败仅因新增监听器数量断言，保留原处理器顺序并更新断言后通过；新集成用例亦通过。typecheck及diff检查通过。范围Matched；无Deviated/Extra；真实Mac双通道和迁移验收Missing/DEFERRED，readiness=false未改。版本仍1.7.44；候选、正式feed、Mac安装及业务配置均未动。准备向Architect回报，不能以模拟结果启用接管。
+
+2026-10-04 CHROME-GUARDIAN-TRANSITION-20261004（PO明确授权，实施中）：仅macOS增加com.timeonchrome.guardian独立健康端口，保留现有nativehost健康/业务。先文档、独立客户端、生命周期接线及隔离测试；Windows不连接旧Host，不执行恢复。来源固定Mac接口46f2361228453d625163130ab04d05f15097d88b与交接4371bea7c25248f2738182381efecf0be4854197。变更等级为本地健康协议跨模块；最小验证mac-guardian-health、local-guardian、typecheck及diff；不跑安装/实机故障注入/全量/E2E。不改变身份、隐私、账本、配额、版本、候选或部署；Mac extension-readiness=false保持，模拟通过不代表真实双通道验收。无安装、接管或发布授权。
+
 2026-10-04 页面真实续验：03676de/f3026d08已仅发布Runtime Worker，今日请求200，仍旧兼容缓存；查明附带整周任务的历史关联失败占用同scope两个构建槽。最小补丁优先当前查看日期，普通cron顺序、每次最多两项、退避和精确核验不变；历史队列保留不修。聚焦61/61、typecheck/dry-run/diff通过；standard-cloud审计Matched，无原账/计时/上传/配额变更，无Native安装或新分支工作树。真实Native页面采纳继续核对，不把部署成功冒认验收。
 
 2026-10-04 今日应用统计核心链路：已安装2.6.28；当前认证用户冻结542 complete=true、545条事实，云端18:16:40接收/18:17:26发布；两端manifest/rowsHash一致，Native日/小时总量及逐分类守恒通过。旧536迟到范围、Mac、共享及P1单列，不阻塞今日收口。

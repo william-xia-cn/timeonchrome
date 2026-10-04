@@ -1,5 +1,11 @@
 # PROJECT_MASTER
 
+## 控件1.7.45托管发布（2026-10-04，PO明确授权，已完成）
+
+仅发布已验证的macOS独立Guardian健康链路：保留nativehost健康/业务，旧guardian只健康，Windows不接旧Host；不修改计时、账本、配额、身份、隐私规则或家庭配置。Mac实机双通道与守护迁移未验收、extension-readiness=false，不能以发布扩展启用接管。沿原密钥签名与稳定ID，保留历史CRX；线上版本以feed/CRX/SHA256回读为准，本轮不安装Native、部署业务云端或启用恢复。
+
+发布证据：PR #235合入master `d65c54448b495bdebdeae16bb6c1ae959e28c8b0`；CI `37198428287`通过，首轮仅缺少PR的Task-Role声明，补齐后复验通过。原密钥CRX3独立验签及稳定ID核验通过，安装包589015字节，SHA256 `c881933effb517389114922bbdb70944723be4e883bc19412546017034880856`。更新源deployment为 `https://682f7f15.timeonchrome-update.pages.dev`；稳定域名与deployment域名的feed、CRX及SHA256SUMS均回读一致，21个CRX归档保留。托管完成不代表终端已安装；unpacked开发候选不会自动升级。
+
 ## 控件1.7.44内部managed发布（2026-10-04，PO授权）
 
 本轮将已完成的应用读取／连接隔离修复、本地Admin导航与休息摘要纳入正式非共享控件，版本1.7.44。此前1.7.43只签包未托管且不包含本轮修订，不以旧包代替。仅发布扩展和更新源，网页计时、账本、配额、云端业务及家庭开关不变；共享执行继续关闭。最小专项和typecheck／根目录／diff检查已通过，截图为隔离数据证据；当前Chrome应用连接恢复和Mac等既有遗留仍未完成。不因本次发布将其标记为通过。
