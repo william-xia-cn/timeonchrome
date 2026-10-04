@@ -191,8 +191,14 @@ it('new usage after a frozen cutoff does not prevent publication of the exact ea
     .bind(f.machine.machineId).all()).results).toEqual(before);
   const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
   await read().catch(()=>{});await drainFixtureStatistics(f);
-  const latest=await read();expect(latest.value.totalDurationMs).toBe(3002);
-  expect(latest.statistics.producer).toBe('legacy-server'); // Frozen prefix cannot hide newer settled usage.
+  const latest=await read();expect(latest.value.totalDurationMs).toBe(1501);
+  expect(latest.statistics.producer).toBe('native');
+  expect(latest.statistics.stale).toBe(true);
+  expect(latest.statistics.settledThroughByDate).toEqual([{date:'2026-09-27',settledThroughMs:start+10000}]);
+  expect(latest.value.categories.find(c=>c.classification==='study')?.durationMs).toBe(1501);
+  // Use the exact verified prefix, never claim that it covers the later fact.
+  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1')
+    .bind(f.machine.machineId).all()).results).toEqual(before);
 });
 it('late facts within the cutoff still prevent publication even when their usage overlaps existing facts',async()=>{
   const f=await fixture();await fact(f);const r=await upload(f,1,{cutoff:start+10000});
@@ -323,8 +329,14 @@ it('Native publication replaces one producer for a Child day and is never added 
   const value=await read();expect(value.value.totalDurationMs).toBe(1501);expect(value.statistics.producer).toBe('native');
   expect(value.statistics.productApplications).toEqual([{key:await sha256Hex('product:windows:test'),displayName:'测试产品',durationMs:1501}]);
   await fact(f,'late','other-session');await read();await drainFixtureStatistics(f);
-  const late=await read();expect(late.value.totalDurationMs).toBe(3002);expect(late.statistics.producer).toBe('legacy-server');
-  expect(late.statistics.productApplications).toBeNull();
+  const late=await read();expect(late.value.totalDurationMs).toBe(1501);expect(late.statistics.producer).toBe('native');
+  expect(late.statistics.stale).toBe(true);
+  expect(late.statistics.productApplications).toEqual(value.statistics.productApplications);
+  // A newly discovered fact inside the frozen range fails exact revalidation.
+  // Keep the previously verified cache as updating, never promote the new range.
+  expect((await env.RUNTIME_DB.prepare(`SELECT DISTINCT error_code FROM runtime_application_statistics_queue_v1
+    WHERE account_id=?1 AND child_id=?2`).bind(f.machine.accountId,f.child).all()).results)
+    .toEqual([{error_code:'APPLICATION_ACCOUNT_FACTS_PENDING'}]);
 });
 it('child aggregation adds devices; identical wall times on two machines are not globally unioned',async()=>{
   const f=await fixture();await fact(f);const one=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,one.manifestId);
