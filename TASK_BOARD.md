@@ -1,5 +1,49 @@
 # TASK_BOARD
 
+阶段更新：角色证据补丁已集中提交至既有codex/cloud-management并建立PR237；最新主线的扩展1.7.45及发布记录保留。代码聚焦验证已通过，当前等待精确PR CI；未部署、未刷新生产策略，真实共享验收未完成。以下“未提交”描述为先前本地测试时状态，由本条更新。
+NOW 2026-10-04 共享角色证据生产者最小修补：已核对云端applicationIdentityProjection只输出Chrome true，已确认非Chrome遗漏false；Native按既有契约将缺失视为未知，因而可能产生CHROME_ROLE_UNCONFIRMED并拒绝共享入队。Checklist：可信已审核且唯一的非Chrome产品输出显式false；Chrome强证据true保持；未知/冲突/弱Chrome不猜false；投影内容hash随实际字段变化。仅修改云端投影及其聚焦测试，不改变契约字段、Native判定、分类/原账/配额，不追P1旧595。最小验证：identity-projection与special-applications测试、Worker typecheck/dry-run/diff；CI仅相关Worker，生产smoke留待另行发布；不运行平台/安装器/扩展/网页全量。仅本地实现，不部署或直接刷新生产策略，现场shadow原因仍未直接读出，不把本缺口作为唯一现场归因。
+
+结果：云端投影已补显式false，仅限唯一已审核非Chrome产品；unknown/conflict/弱Chrome仍无角色字段，强证据Chrome维持true。application-identity-projection 12/12、computer-usage-evidence 14/14、typecheck/dry-run/diff通过。Native现有Reader对照2/2（1693f9e，只测试提交）证明相同人工区间缺角色时普通account完整但共享Chrome证据不完整，显式false可完整；产品判定未改，无需新Native候选。审计Matched：角色三态、既有版本hash、最小测试和边界；Deviated/Missing/Extra无。当前仅本地源码及隔离验证，未提交本补丁、未部署/生产刷新或真实shared验收；历史P1及真实未确认产品角色仍保留，不保证本补丁解决全部不完整来源。
+
+## P1：应用冻结统计与云端事实范围不一致（2026-10-04，PO批准挂起）
+
+状态：待后续处理；暂停旧595版本精确差集追查，不阻塞非共享功能及其他独立验证。固定595清单声明600条，云端相同截止候选601条，发布拒绝APPLICATION_ACCOUNT_FACTS_PENDING；新版关联/更正已更新，连接、孩子身份、能力及配置读取正常。当前日Service统计完整，日总量与小时总量、各分类日/小时汇总一致；没有证据证明全天时长算错，但尚未量化595差异的区间并集边际时长，不记零影响或修复通过。PO允许适度偏差；尚未确定数值阈值，不擅自修改原账、统计口径或容差放行。影响主要为云端新统计发布滞后及共享贡献收敛；共享余额完整实机验收及执行启用仍未通过，不把挂起等同启用批准。恢复时以日总账/分类/共享余额的实质影响为重点，不以条数绝对一致反复构建安装。
+
+NEXT：复用已有准确性/版本替换/可靠性测试证据，继续独立核对应用共享shadow不完整的稳定原因及Chrome/other排除依据；只读诊断优先，无法归因则如实保留，不猜补身份。随后验证同来源替换、断线/重连缓存和当前连接ACK；受P1阻挡的真实余额明确标待验收，不重复追595。不创建分支/工作树、不安装部署/migration/R2、不改网页账或启用共享执行。
+
+此前管理员摘要权限待批记录已过时：PO已在Native会话提供正式只读摘要，后续无需重复请求同一UAC或要求用户抄Service Worker。
+
+2026-10-04 共享真实诊断权限缺口：Native main 70d2c6e报告两组隔离测试212/212通过，现行2.6.28独立贡献调用链已实现且影子发送不受强制执行开关阻止；当前最高已发布冻结版本可用于追赶，不需head停止增长。普通用户control/adminStatus及脱敏持久诊断文件均拒绝访问，publicStatus只确认Service在线。云端45秒有界tail观察共享policy GET200/outcomeok但无目标scope证据，不冒认目标HTTP成功；目标Guardian配置34/shadow已只读确认。尚不能确定无receipt的具体原因，已集中请求一次UAC只读生成/入队/发送/ACK摘要；批准前不执行，不抄Service Worker、不修改生产或盲改代码。此为当前日共享核心缺口，真实逐来源已用/剩余及连接ACK尚未通过；非核心历史/Mac/P1仍单列。
+
+2026-10-04 共享准确性首轮结果（未完成实机共享验收）：Runtime生产只读查询rows_written=0；目标Windows assignment1当前日统计publication562完整，但同日应用共享贡献receipt缺失，不能以另一assignment21的零贡献verified1代替。Guardian当前日网页派生贡献完整、回执/头hash匹配，目标影子配置profile-config:34的三桶可读；不因应用缺失清空网页，也不把缺失当零。已执行application-accounts 25/25、Guardian共享状态、真实隔离SQLite网页贡献/水位/更正/改绑/证明、共享配额投影与执行分页共同向量、只读配置缓存/重启测试，均通过；10分钟网页+10分钟非Chrome应用=20分钟、other不扣额度、新版本下降替换及其他设备保留已获固定用例证据。Native获直接用户原文核验后正在执行实际生成/入队/发送/ACK及离线隔离调查；未确认根因，不冒认Native故障。当前云端不需为模拟通过而部署，不修改原账/生产队列或开启共享执行；真实余额与当前连接ACK仍待贡献链路贯通后对照。
+
+NOW 2026-10-04 PO批准继续Windows共享准确性与可靠性核对：共享执行保持关闭。Checklist：①固定当前孩子/北京时间今日/配置和来源版本，核对网页与应用持久贡献、Chrome/other排除及共享余额；②验证同来源版本替换、下降更正、旧/重复ACK与其他设备保留；③隔离验证断线/重启/重连及离线新增衔接，真实验证不以模拟代替。职责runtime-cloud-contract；当前会话只读生产贡献与核验状态、契约/云端聚焦测试，Native所属会话负责本机隔离与认证读取；不要求用户到Service Worker抄数据。最小测试为application-accounts共享相关及Guardian共享贡献/余额测试，复用未变证据；仅有新代码才追加相关typecheck/dry-run/CI，发布smoke本轮不适用。排除产品全量、Macguardian、历史P2、独立P1、真实停服故障注入、安装/部署/migration/R2及共享开关。发现核心差异保留精确原因，先定位，不用解除家庭/用户/来源校验填平。三项完成状态分别记录，不能把统计发布通过冒称共享完整通过。
+
+2026-10-04 Windows今日应用统计核心链路验收通过：实际安装2.6.28.0；冻结清单542在本机独立重算与云端发布核对一致，随后发布562由持久读模型及真实登录主控制台采用。页面响应200、producer=native；固定562范围的总时长、各分类、24小时分布及结算截止全部精确一致，更新中标记明确且保留有效读数，不将实时新增记录冒认为已覆盖。PR233（冻结截止采纳）与PR234（请求日构建优先）已合入，发布master 1abf9f50d623d26b8a4817edb063be219e6c8ce0，Runtime Worker版本6dfb47b1-2e62-48cb-8f60-a9bf45b82cad；聚焦测试61/61及typecheck/dry-run/边界/diff通过，生产运行37196333296成功。仅部署Runtime Worker，无migration/其他云资源/重装/R2/共享启用；没有修改原账、计时及配额。旧536冻结范围差异、历史缺项、独立P1读取故障及Mac实机继续单列，不再阻塞本次当前日端到端收口；本轮不宣称所有历史或共享执行已通过。来源代码已合并，真实验收证据记于此及PR234；本地既有未提交工作保留。
+
+2026-10-04 真实页面采纳续核：Runtime Worker修复已发布f3026d08，今日请求200但仍旧缓存；同scope读取会排整周任务，两个构建槽被历史关联失败反复占据。最小续修只令页面请求日期优先于附带周日期，维持每次最多两个、原退避/核验/范围隔离/原账及配额；cron普通队列不变。新增聚焦回归证明读今日时今日Native物化优先，旧日期仍保留队列而非放宽或清除。仅既有cloud分支集中提交及Runtime Worker，不安装或修历史。
+
+NOW 2026-10-04 已发布Native统计采纳修复（延续已批准读取范围）：实机542已received/published，manifest/rowsHash与本机冻结结果匹配；孩子今日仅一来源且已有发布，页面却仍legacy-server。原因是读模型以实时全日factCount/sourceRevision必须等于冻结清单作为采纳前提，新增原账即回退。Checklist：①解除实时全量相等对冻结快照的排斥，仍调用现有发布核验器精确检查截止内事实/分类/关联/更正/行hash；②来源已推进以stale=true及已结算截止明确表达，不把旧快照冒认覆盖全部新增记录；③回归发布后新增截止外记录仍读Native快照且标更新中，事实/来源不匹配继续拒绝；④提交/发布只Runtime Worker，实际页面复验。职责runtime-cloud-contract；仅application-account-publication/application-statistics聚焦测试、typecheck/dry-run/diff，CI为Worker相关；排除Native/扩展/页面代码/安装器/Mac及网页落账（均无改动）。不改原账/统计口径/配额/发布核验标准，不追旧536范围差异或独立P1，不建分支工作树/migration/R2/shared启用。
+
+2026-10-04 2.6.28安装后核心验收：实际Service/Agent/Host均2.6.28.0。Native以当前Host认证调用者匹配持久统计，受保护assignment1，complete=true/reasons空/parity MATCHED/dirty0；行hash、持久SourceRevision及总量/分类匹配均true。今日head535完整，启动后生成仍pending/attempt0，待原五分钟下一轮；同scope历史10/2、10/3新清单已received，旧publication_check同时推进，不能用全局published ACK冒认今日通过。真实主页面刷新出现既有503，保持旧有效缓存，单列P1不堵塞发送/发布验收；页面采用新Native仍待确认。用户要求非核心问题不阻塞，本轮不追历史缺口/Mac、不重建或部署、不改频率/生产队列/原账/配额。
+
+2026-10-04 补发最终候选2.6.28已生成：来源 `b13274491b8d8f5a21c695d386b7529bc77676e5`，Contracts1.31.2及既有包hash不变；Burn `D:\Codex\TimeWhereNative\artifacts\release\windows\x64\2.6.28\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.28.exe`，SHA256 `e0a5e91c752b5e58846dd23717cd2b853d2787515045dac0c7011b43d601fdb3`，119807717字节；MSI SHA256 `f3847731d9150e1c297d60817e9ae2115064022e6004e82ec5707d7b09e4b9df`，61085430字节。Native已核验五组件、MSI升级身份；架构独立回读manifest及Burn/MSI哈希匹配。内部未签名、latestEligible=false，未安装或上传R2。下一步用户按既有手动安装方式原地升级，再核对新清单实际送达/云端发布/页面同结果；候选交付不等于端到端通过，不要求重新配对或更换扩展目录。
+
+2026-10-04 补发调度源码完成：Native集中提交并推送main `b13274491b8d8f5a21c695d386b7529bc77676e5`。17项调度用例含持续旧复查、今日head替代、多当前受保护来源轮转、空due回退、退避及北京时间边界；Contracts1.31.2/1.31.1各103/103，Service/Manager编译零警告错误。前三槽分别今日/历史/复查，剩余五槽Any；同scope/day最近attempt保留轮转，维持五分钟八项和原eligibility/ACK/身份停止。唯一最终2.6.28候选正在固定提交构建（尚未核验、安装）；现有2.6.27不自动获得源码修补。云端不重复部署，真实新统计送达/发布/页面核对仍未通过；原账、原Segment上传、计时、分类及配额不变。
+
+2026-10-04 补发调度继续实施：Native 已用隔离回归复现持续替换的今日清单被旧复查挤占，12轮中3轮未获得发送机会。最小修补为今日上传、历史上传、发布复查各保留一项机会，剩余五项沿用普通队列；空类别回退，仍每五分钟最多八项，不绕过退避、用户分配、脏范围或逐项ACK。Native回报103项聚焦测试及Service编译通过，兼容核对/集中提交/唯一最终候选仍进行中；架构只读审查确认仅派生统计调度，不改原Segment上传。实时云端仍最新旧382（14:37:45接收，不完整且未发布），当前安装2.6.27不含本次调度修补，端到端尚未完成。无新分支/工作树、生产队列操作、部署、安装或共享启用。
+
+2026-10-04 17:33补发阻塞精确核对：最后只读UAC已完成，不再等待用户确认。Native实际安装2.6.27 Reader独立重算：最新head505完整，原账范围hash/SourceRevision一致，冻结行hash和持久全值hash匹配均true；旧501正常superseded且冻结验收hash保持。505 pending/attempt0，按真实NextUpload门rank41/41，前8为本scope四项旧publication_check和四个历史pending。无dirty/身份/原账完整性阻断；旧发布复查与新上传共5分钟×8项额度，持续新head更新updatedAt向队尾移动，存在饥饿风险，不能据rank承诺等待时间。已交Native在既有统计修复范围重现并最小公平调度修补，保持频率/批额/退避/分配/ACK/不可变清单，不改原Segment上传或生产队列、不自动安装、不出中间候选。端到端仍未完成，历史兼容展示及既有P1分别保留。
+
+2026-10-04 安装后分层验收更新：Native正常只读UAC锁定当前调用者、受保护assignment1，今日新清单501完整且无reasonCodes，持久快照同源、parity MATCHED/dirty=0；行hash重算及总量/分类匹配均true，rowsHash `e9f34bb9175d1e65d4f7aaa7ac9623d20438c73ec652dc542629b83a5b4e77b5`，manifestHash `087e896355d8df2585b6563e7e0521cd42f340a5d7052d28dee449820a4f4ef2`，固定截止1791106103311。51.125秒缺旧版本记录唯一存在/时长和缺字段保持/在截止内均true；缺全payload升级前字节基线，不冒称全账逐字守恒。旧382仍不完整且原行hash保持。501仍pending/attempt0/无服务器引用，补发门继续查，云端发布未通过。真实页面17:28:35已恢复有效读数并明确标“旧云端兼容统计（非最新Service统计）/更新中”，设备列表实机独立可用；首次503仍保留为P1，不等同彻底消除。各层状态分别登记，不安装第二候选、不改队列或原账。
+
+2026-10-04 2.6.27安装后只读验收进行中：用户确认已安装，云端心跳已为2.6.27.0；Native确认运行Service状态、Agent和Host均2.6.27.0，当前认证调用者今日持久统计complete=true且非零，无POLICY_HISTORY_MISSING，仅产品归属未确认另列。尚未锁定同截止冻结清单，云端17:24观察仍是旧rev382/372不完整清单，没有新版发布证据。真实家长主页面刷新后应用独立读取503/COMPUTER_USAGE_UNAVAILABLE，旧页面所示51.125秒及旧云端兼容统计不能当新版发布通过。继续由Native正常只读UAC核对原账不变、模型重物化、新清单生成/发送门，并以脱敏状态/哈希匹配回报；统计读取P1保留，不用反复安装/部署替代定位。未改配对/分类/原账/ACL/共享开关；当前未完成端到端，不伪报通过。
+
+2026-10-04 主控制台补发完成：production37191019757成功，仅主Pages，部署短ID `7f1a14a3`；实际 `timeonchrome-console.pages.dev/computer-usage-view.js` 回读与受测源码归一换行后完全一致。至此三项修改资源均已发布，Guardian/migration/R2/shared未操作。以下记录中的主Pages“尚待回读”已关闭；2.6.27安装及今日新统计→真实页面固定截止验收仍待完成，Mac实机单列。
+
+2026-10-04 应用统计对齐集中交付：源码 PR #231/#232 已合入 master `d41d5d18f59867ac68aa1bb577bc925215025129`，Contracts 1.31.2 包 SHA256 `cd5958a1e44431a3bb955b7b564a2b2983b67fbec4614b393679e40118cf6f97`。云端94项相关回归、补充74项并行回归、契约及页面测试/桌面移动mock、typecheck/dry-run/边界/diff通过；精确主线 Runtime CI 37190793238、主控制台 CI 37190809384 成功。Runtime production 37190871584 成功：Worker `0dafe2d9-74c8-4901-bb65-0547a94ad44e`、独立 Pages `4f3350bd-4e09-45e1-80f6-2f258ae953f1`，health/401 smoke通过，线上renderer归一换行后与源码一致。自动Pages成功不等于实际主控制台更新，回读主地址仍旧脚本，已单独启动主Pages补发37191019757；尚待回读，不冒认通过。Native main `4d17e0de2755cd2345b0897de0f8e733b5923ddc`：Windows两版契约统计各97/97、管道19/19；Mac增量便携各102/102和Daemon编译通过，Swift及Mac实机另列。唯一内部未签名2.6.27候选已核验组件/安装器及哈希，路径 `D:\Codex\TimeWhereNative\artifacts\release\windows\x64\2.6.27\TimeOnChrome-AppRuntime-Setup-win-x64-2.6.27.exe`，SHA256 `1b2166024c795145c8a65235c31d48da6cc24b8767e8b007e0a18e3319ac2b8a`；Mac标准交接Issue12已送达，未有实机回执。当前仍未安装2.6.27，今日新统计发布→真实页面同截止核对未完成。旧不完整清单与原账保留，不执行migration/Guardian/R2 latest/共享启用，不把测试或候选称为端到端完成。
+以下保留远端已合入的同日过程记录，当前状态以本页顶部新记录为准。
+以下保留主线的扩展发布及云端过程记录：
 2026-10-04 1.7.45托管完成：PR #235合入master d65c54448b495bdebdeae16bb6c1ae959e28c8b0，精确SHA CI 37198428287通过；首轮PR缺Task-Role元数据已修正。原签名密钥、CRX3签名、稳定ID、177个包文件及历史归档核验通过。更新源deployment 682f7f15，稳定与deployment双域名feed/CRX/SHA256SUMS一致；589015字节，SHA256 c881933effb517389114922bbdb70944723be4e883bc19412546017034880856，21个CRX归档保留。发布范围Matched，无Deviated/Extra；Mac实机双通道/迁移仍DEFERRED，readiness=false未动，终端安装待观察。未部署业务云端、Native或家庭配置，未启用恢复/共享执行。
 
 2026-10-04 PO明确批准1.7.45托管发布：在既有Mac双健康链路提交a6e8b2c基础上仅提升manifest与发布文档，提交/推送/PR合入后用原密钥签正式managed包，验证稳定ID、产物边界、签名和线上双域名feed/CRX/SHA256；保留旧CRX。复用已通过两健康专项与typecheck，合入变化时按实际范围复核；最小发布门为managed渠道/隐私边界、根目录、typecheck及diff/精确SHA CI。不改业务云端/Native/Mac安装/家庭配置/账本/配额，不启用恢复或共享执行。Mac实机双通道与迁移验收未通过，extension-readiness=false不动；源码发布不代表备用接管可用。
@@ -42,6 +86,24 @@ NOW 2026-10-04 应用统计与网页模型对齐（PO已批准）：移除原记
 2026-10-04 应用日视图修复结果：只读适配、Native 错误映射及允许列表已修复，日数据／周数据分别缓存和校验；周失败保留日结果并显示未知。application-usage-read-model、获准第三次复验的local-guardian、extension-root及diff检查通过；前两次Native专项失败是新增错误码遗漏允许列表，已补齐，不隐去失败。当前1.7.42开发候选仅原子替换admin.js、native-host-client.js、application-usage-read-model.js，三个旧文件保存在ignored dist备份；manifest、部署标记、key及所有存储不变。隔离目视预览因浏览器连接超时未完成，测试进程已关闭；真实Chrome重载和Service当天返回尚未核实，不能将本轮视为现场应用统计恢复验收。未提交、部署或重签1.7.43；已有1.7.43产物不包含本补丁，不能误报包含。
 
 2026-10-04 应用使用日视图读取修复（extension-local，实施中）：已证实页面即使选择日也先要求整周读取成功，Service 的逐日发布／范围校验未就绪会阻断可用当天数据。日数据独立读取；周补充失败保留当天并明确周未知，保留 APPLICATION_USAGE_PENDING 错误含义。范围仅终端只读适配与错误映射，不改 Native、网页／应用原账、统计生成或配额，不绕过发布校验。最小验证：application-usage-read-model 与 Native Host 消息专项、diff 检查；真实运行候选与 Service 返回仍须实测，不凭单测关闭现场故障。既有三份文档草稿保持。
+
+2026-10-04 PO纠正T.xia现象并要求继续调查：是Chrome退出后自动重新启动，必须分开核对退出原因和重新启动者，黑名单关闭能力不单独解释重启。架构只读核查固定Mac f6ef78e的Runtime/Manager/安装配置：TimeWhereLauncher的open -a及manager-ui启动目标均为TimeWhere.app，daemon/session-agent KeepAlive只守护本程序；已查范围未发现关闭Chrome后主动重开的实现。扩展源码只读检索未发现runtime.restart/restartAfterDelay/Browser.close等调用，不等于目标安装扩展已验收。旧外部Guardian Host在既有Mac报告中仍保留，外部守护行为未核实；已交Native把旧桥、0.1.24源码归属、Chrome自身更新/外部恢复作为已有材料调查项，不猜测根因。不要求现场、不改策略、不复现、不操作进程或文件；当前仍无法证明退出/再启动由谁触发。
+
+2026-10-04 PO调查T.xia电脑Chrome频繁重启/疑似误终止：准确云端机器为macos、Service0.1.24.0，12:38:25心跳，machinePolicy8118/8118已应用。云端该机终端日志策略未开启、上传日志总数0，不以无日志排除误终止；当前应用策略168对盘点Google Chrome三个技术身份精确匹配没有明确分类条目，未发现这些身份被直接列blocked，不代表其他变体/历史策略/本机缓存已经排除。Native对固定Mac f6ef78e静态审查确认黑名单关闭路径可forceTerminate，protectedBundles不含Chrome；共享Chrome保护不覆盖产品黑名单，不能因共享关闭而断言不会终止Chrome。未取得0.1.24安装文件来源比对、目标实际命中及重启时刻对应，根因未知。PO在Native会话说明不能现场核查，本轮只用已上传云端证据、已推送源码和现有报告；不要求复现、不改策略/加Chrome豁免、不启停进程、不安装/重启/删除文件。无已证实文件删除动作；查的是进程终止与崩溃/更新的区别。仅查询/文档diff，不跑产品测试、不新建分支工作树。
+
+2026-10-04 05:45 Windows队列实际匿名证据：Native通过正常UAC取得本机当日3个scope/3heads、dirty=0、parity MATCHED=3；有1项合法且到期pending、attempts=0、无服务端清单引用，另有5项到期publication_check等。此为allLocalScopes匿名汇总，currentUserScopeVerified=false，不冒认目标用户；可排除本机所有今日队列均被dirty/parity挡住，尚不能确认轮询排序是根因。架构复查当前受保护非零assignmentVersion1今日清单仍无；assignmentVersion21的零事实清单received/published=21、05:37:50接收，不代替目标通过。追加前8到期候选排序诊断已由Native启动，当前等待Windows只读UAC确认；不为诊断安装新版本、不读密钥、不改ACL/原账/队列。方案核对只读边界Matched；具体发送门及截图实际失败响应仍未确认。
+
+2026-10-04 05:42 PO要求检查Windows今日统计清单未送达：重新只读核对最新受保护assignmentVersion=1，截至05:41:50有效原事实331条，当日日清单仍0，未到received而非云端拒绝published。PO截图显示应用使用页签报COMPUTER_USAGE_UNAVAILABLE；源码核对应用页签通过source=application调用独立应用读取，公共路由把未列明的异常归为该泛化码，截图本身不能证明与Native发送问题同根。Native已启动既有UAC路径调查；精确当前用户队列scope外部派生会涉及身份密钥，因此禁止读取密钥/猜用户，改查本机匿名队列元数据汇总（dirty/parity/stage/due/attempts/error），不以其他用户成功代替当前用户验收。尚未取得具体发送门实时证据，保持未完成；不为诊断升级、清队列、重启或部署。
+
+2026-10-04 PO明确裁决：Windows 2026-10-01单条3.015秒应用事实缺少appPolicyVersion（POLICY_HISTORY_MISSING），登记为P2、搁置，不作为本轮交付阻塞；开发过程历史数据不要求追求绝对完整一致。此条覆盖下方该指定历史缺口的未定级状态，不表示已修复或验收通过，不补造策略版本、不改原账、不清除完整性诊断、不把缺失当零，也不自动放宽共享执行。当前日统计清单未送达是独立现行链路问题，继续调查，不因这条历史记录搁置而一起关闭。仅维护现有任务板，git diff --check；不运行产品测试、不创建分支/工作树、不安装部署。
+
+2026-10-04 05:17 Windows当前日只读续核：限定当前受保护Windows用户最新assignmentVersion=1，截至05:16:30有效应用事实308条，统计日清单数量仍0；原事实通道持续上传，不是机器鉴权或网络完全断开。结合05:11管理员摘要当前日head301/pending23，阻挡点尚待本机dirty/parity/outbox stage、到期时间和尝试记录确认，不能仅凭云端无清单指定根因或再次部署。五个已发布历史日仍按此前核验保留成功；本机旧published水位不据此倒推云端失败。Native所属会话最新直接PO指令为先完成Mac，精确Windows队列诊断暂未执行；本架构不覆盖另一会话的直接优先级、不代改Native、不把待取证写成已修复。10/1单条3.015秒缺策略版本继续独立登记，不补造历史证据。查询rows_written=0，仅文档diff检查，无安装、部署、迁移、重启、清队列或共享启用。
+
+2026-10-04 Windows生产只读核对新证据：2.6.26非零应用来源最近一周中9/28、9/29、9/30、10/2、10/3最新received修订均与published相等，关联版本与当前策略一致，发布拒绝码为空；此前笼统“关联版本未收敛”已不符合这五天现状。10/1最新清单仍complete=false/POLICY_HISTORY_MISSING，被APPLICATION_ACCOUNT_INCOMPLETE拒绝；云端已定位一条约3秒schema2原事实app_policy_version为空，其余所引用策略历史存在。这是应用策略历史缺口，不是PO已定P2的网页历史未知桶，未据此降级或补造证据。今日非零来源已有299条有效事实、策略版本无缺失但尚无对应日清单；另一个账户的零清单已发布不作为本账户通过证据。Native已接续同作用域本机冻结统计/dirty/outbox诊断；仅上述云端事实核对完成，当前日发布及页面实机仍未验收。查询rows_written=0，无生产写入或测试数据注入，不重复部署同一代码。
+
+2026-10-04 PO优先处理Windows新统计发布水位/版本关联未收敛：先只读固定当前Windows来源、日期、分配/统计/关联/更正版本及截止范围，对照本机冻结清单、云端received/published和最新发布拒绝码，区分接收/核验/发布/读取阶段；Native负责本机诊断，架构负责云端核对。未确认错误前不改原账、计时、队列或统计校验，不重装/重启、不执行migration或启用共享，不新增分支/工作树。只读阶段仅运行版本/查询/文档diff检查；确认云端代码缺陷后按实际最小范围定义聚焦回归，不跑无关Windows/Mac/安装器全量测试。Mac已交接任务保留，不能用旧冻结影子或不同用户状态代替当前事实。
+
+2026-10-04 PO明确裁决：2026-09-30、2026-10-01网页派生贡献各360000毫秒的历史未知桶（LOCAL_BUCKETS_INCOMPLETE）登记为P2、待后续处理，不作为本轮非共享发布阻塞；未修复、未验收，不记PASS。不补造分类、不将未知视为零、不修改原账或贡献完整性标记；共享启用时仍如实呈现对应周期的覆盖状态，本次定级不等于放宽核对或批准启用共享。仅更新问题优先级记录，文档变更只运行git diff --check，不运行产品测试、不创建分支/工作树、不部署。
 
 2026-10-04 Mac契约补丁结果：Contracts1.31.1类型/schema/共同兼容向量已补齐；build、typecheck、usage-account聚焦测试及contract-compatibility通过，git diff --check通过。固定包timeonchrome-app-runtime-contracts-1.31.1.tgz（112916字节，SHA-256：68233d9ad0da9ebc0c9fd15017fc2aa4bd3ca9cc86625fa84b89b7b0aff4dd9f）包含类型、schema、向量和编译模块，不包含凭据。方案核对Matched：兼容可选诊断、接收/发布三态、旧版缺字段及非法诊断拒绝；Deviated/Missing/Extra为空。此处只完成契约源码与固定包；Native/Mac消费、实际发布诊断、非零日账published及页面对账仍待所属端完成，不记实机PASS。
 

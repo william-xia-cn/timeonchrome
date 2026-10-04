@@ -104,6 +104,9 @@ export function productIdentityItems(evidence: AppEvidence[], knowledge: Applica
       reasonCode: conflict ? 'IDENTITY_CONFLICT' : product ? 'APPROVED_PRODUCT' : associated ? 'VERIFIED_LEAF_ALIAS' : 'IDENTITY_UNRESOLVED' };
     if (product?.id === CHROME_SPECIAL_PRODUCT && members.some(member => isConfirmedChrome(member,
       { ...projectedItem, runtimeIdentity: member.runtimeIdentity }, knowledge))) projectedItem.isChromeContainer = true;
+    // Missing is an unconfirmed role, not a negative claim. Only a unique,
+    // approved non-Chrome product can supply explicit negative evidence.
+    else if (product && product.id !== CHROME_SPECIAL_PRODUCT) projectedItem.isChromeContainer = false;
     return projectedItem;
   });
   return projected;
