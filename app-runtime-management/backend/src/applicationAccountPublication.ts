@@ -1,7 +1,7 @@
 import { hashUsageAccountValue, canonicalUsageAccountJson, verifyUsageAccountManifest,usageAccountDayStart,
   type UsageAccountManifest,type UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
 import { getAppPolicy,refreshHistoricalProductIdentityProjection } from './appPolicy';
-import { correctUsageRows,loadUsageCorrections } from './applicationUsageCorrections';
+import { applyCurrentWeekClassification,correctUsageRows,loadUsageCorrections } from './applicationUsageCorrections';
 import { applicationStatisticsSource,applicationPublicationDirtyStatements } from './applicationStatistics';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
@@ -43,7 +43,7 @@ function project(spans:Span[],start:number):UsageAccountRow[] {
   return rows.sort((a,b)=>canonicalUsageAccountJson(a)<canonicalUsageAccountJson(b)?-1:canonicalUsageAccountJson(a)>canonicalUsageAccountJson(b)?1:0);
 }
 /** Bounded, fixed-date verification oracle; NEVER used on the ordinary statistics GET. */
-export async function verifyApplicationAccountPublication(db:D1Database,candidate:Candidate,manifest:UsageAccountManifest) {
+export async function verifyApplicationAccountPublication(db:D1Database,candidate:Candidate,manifest:UsageAccountManifest,now=Date.now()) {
   if(!manifest.complete){
     // Old producers conflated a product-recognition gap with usage completeness.
     // Diagnose the cause, but never promote an immutable incomplete receipt.
@@ -84,21 +84,17 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
   const frozen=manifest.settledThroughMs!<end
     ?mapped.filter(row=>Number(row.end_wall_time_ms)<=manifest.settledThroughMs!):mapped;
   if(frozen.length!==manifest.rawFactCount)fail('APPLICATION_ACCOUNT_FACTS_PENDING');
-  // 不把 rawFactHash 当服务端字节证明；源 shape、政策及每个维度均精确对照。
-  const versions=new Set<number>();
+  // policyVersions仅兼容诊断；事实schema和统计维度仍必须精确核对。
   for(const row of frozen){
-    if(Number(row.accounting_schema_version)!==2||row.app_policy_version==null)fail('APPLICATION_ACCOUNT_POLICY_HISTORY_MISSING');
-    versions.add(Number(row.app_policy_version));
+    if(Number(row.accounting_schema_version)!==2)fail('APPLICATION_ACCOUNT_SCHEMA_UNSUPPORTED');
   }
-  if(canonicalUsageAccountJson([...versions].sort((a,b)=>a-b))!==canonicalUsageAccountJson(manifest.policyVersions))
-    fail('APPLICATION_ACCOUNT_POLICY_SET_MISMATCH');
   const projected=new Map(policy.productIdentityProjection?.items.map(p=>[`${p.platform}\n${p.runtimeIdentity}`,p])??[]);
   const spans:Span[]=[];
   const normalized=frozen.filter(row=>Number(row.start_wall_time_ms)<end&&Number(row.end_wall_time_ms)>start)
     .map(row=>({...row,start_wall_time_ms:Math.max(start,Number(row.start_wall_time_ms)),
       end_wall_time_ms:Math.min(end,Number(row.end_wall_time_ms))}));
   if(normalized.some(row=>Number(row.end_wall_time_ms)>manifest.settledThroughMs!))fail('APPLICATION_ACCOUNT_CUTOFF_MISMATCH');
-  for(const row of correctUsageRows(normalized,corrections,start,end)){
+  for(const row of applyCurrentWeekClassification(correctUsageRows(normalized,corrections,start,end),policy,now)){
     const identity=`${row.platform}\n${row.runtime_identity}`,product=projected.get(identity);
     if(!product||product.status==='conflict')fail('APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING');
     // Exact standalone identity is not an approved product association. Keep its
@@ -118,7 +114,9 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
   const sourceRevision=frozen.length===mapped.length?before.revision:await sha256Hex(canonicalUsageAccountJson({
     sourceRevision:before.revision,settledThroughMs:manifest.settledThroughMs,rowsHash:manifest.rowsHash,coverage:'frozen-subset',
   }));
-  return {sourceRevision,rows};
+  const subjectClassifications:Record<string,string[]>={};
+  for(const span of spans)subjectClassifications[span.subject]=[...new Set([...(subjectClassifications[span.subject]??[]),span.category])].sort();
+  return {sourceRevision,rows,subjectClassifications};
 }
 /** Receipt is immutable; publication has a separate monotonic head and retry diagnosis. */
 export async function publishApplicationAccounts(db:D1Database,now=Date.now(),manifestId?:string) {
@@ -144,7 +142,7 @@ export async function publishApplicationAccounts(db:D1Database,now=Date.now(),ma
       // A normal immutable policy refresh; never mutate or promote an old receipt.
       await refreshHistoricalProductIdentityProjection(db,candidate.account_id,candidate.child_id,now);
       const manifest=await verifyUsageAccountManifest(JSON.parse(candidate.manifest_json));
-      const verified=await verifyApplicationAccountPublication(db,candidate,manifest);revision=verified.sourceRevision;
+      const verified=await verifyApplicationAccountPublication(db,candidate,manifest,now);revision=verified.sourceRevision;
       const result=await db.batch([
         db.prepare(`INSERT INTO runtime_application_account_publications_v1
           (machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_id,source_revision,published_at_ms)

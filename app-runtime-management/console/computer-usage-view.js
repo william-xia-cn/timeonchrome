@@ -87,22 +87,25 @@ pending.set(key,request);return request;
 }
 function independentSummary(snapshot){
 const title={application:'应用使用',web:'网页使用',media:'网页媒体使用'}[snapshot.source];
+const stats=snapshot.source==='application'?snapshot.statistics:null;
+const sourceLabel={native:'Service 已发布持久化统计','legacy-server':'旧云端兼容统计（非最新 Service 统计）',mixed:'混合来源（部分为旧云端兼容统计）'};
+const sourceInfo=snapshot.source==='application'?'<p>统计来源：'+esc(sourceLabel[stats?.producer]||'旧接口未报告来源，不能确认最新 Service 统计')+' · '+esc(stats?.stale?'更新中，保留已有有效读数':'已读取')+'</p><p>统计更新时间：'+esc(Number.isSafeInteger(stats?.computedAtMs)?time(stats.computedAtMs):'未报告')+' · 结算截止：'+esc(stats?.settledThroughByDate?.length?stats.settledThroughByDate.map(item=>item.date+' '+(Number.isSafeInteger(item.settledThroughMs)?time(item.settledThroughMs):'未能确认')).join('；'):'未能确认')+'</p>':'';
 return '<style>.computer-view{display:grid;gap:16px}.computer-view[hidden]{display:none!important}.computer-toolbar,.computer-category-list{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.computer-view section,.computer-metric{padding:18px;background:#fff;border:1px solid #dce7e3;border-radius:12px}.computer-metric strong{display:block;font-size:24px;margin-top:8px}.computer-view button{min-height:44px;padding:9px 14px;border:1px solid #c9ddd6;border-radius:10px;background:#fff;font:inherit;cursor:pointer}.computer-view ul{padding:0;list-style:none}.computer-view li{padding:10px 0;border-bottom:1px solid #e7eeeb;overflow-wrap:anywhere}.computer-view p,.computer-view small{color:#697d78;line-height:1.6}</style><div class="computer-toolbar"><b>'+esc(title)+' · '+esc(snapshot.fromDate)+' — '+esc(snapshot.toDate)+'</b><button data-independent-retry>刷新</button></div>'+
-(snapshot.readDisplay?'<p>'+esc(snapshot.readDisplay)+'</p>':'')+'<div class="computer-metrics"><article class="computer-metric"><small>'+esc(title)+'时间</small><strong>'+duration(snapshot.totalDurationMs)+'</strong></article></div>'+
+(snapshot.readDisplay?'<p>'+esc(snapshot.readDisplay)+'</p>':'')+sourceInfo+'<div class="computer-metrics"><article class="computer-metric"><small>'+esc(title)+'时间</small><strong>'+duration(snapshot.totalDurationMs)+'</strong></article></div>'+
 '<section><h3>分类明细</h3><p>独立来源原口径；明细可能重叠，不相加生成总量。</p><div class="computer-category-list">'+snapshot.categories.map(item=>'<p><b>'+esc(labels[item.classification]||item.classification)+'</b><br>'+duration(item.durationMs)+'</p>').join('')+'</div></section>'+
 '<section><h3>时间分布</h3><ul>'+snapshot.buckets.map(item=>'<li>'+esc(item.label||time(item.startAtMs))+' · '+duration(item.durationMs)+'</li>').join('')+'</ul></section>'+
-'<section><h3>'+esc(snapshot.source==='application'?'应用明细':'网站明细')+'</h3><ul>'+snapshot.applications.map(item=>'<li><strong>'+esc(item.displayName)+'</strong> · '+esc(labels[item.classification]||item.classification)+' · '+duration(item.durationMs)+'</li>').join('')+'</ul></section>';
+'<section><h3>'+esc(snapshot.source==='application'?'应用明细':'网站明细')+'</h3><ul>'+snapshot.applications.map(item=>'<li><strong>'+esc(item.displayName)+'</strong> · '+esc(item.classifications?.length?item.classifications.map(category=>labels[category]||category).join('／'):labels[item.classification]||item.classification)+' · '+duration(item.durationMs)+'</li>').join('')+'</ul></section>';
 }
 function createIndependent(host,read,onRange){
-let generation=0;
+let generation=0,lastMarkup='';
 host.classList.add('computer-view');
 async function load(refresh=false){
 const token=++generation;host.innerHTML='<p>正在读取独立使用统计…</p>';
-try{const result=await read({refresh});if(token===generation){host.innerHTML=independentSummary(result);if(onRange)host.querySelector('.computer-toolbar').insertAdjacentHTML('beforeend','<button data-independent-period="previous">上一周期</button><button data-independent-period="today">今天</button><button data-independent-period="next">下一周期</button>');}}
-catch(error){if(token===generation)host.innerHTML='<section><h3>使用统计暂不可用</h3><p>其他统计和设备管理不受影响。</p><small>'+esc(error?.code||'SOURCE_UNAVAILABLE')+'</small><button data-independent-retry>重试</button></section>';}
+try{const result=await read({refresh});if(token===generation){host.innerHTML=independentSummary(result);if(onRange)host.querySelector('.computer-toolbar').insertAdjacentHTML('beforeend','<button data-independent-period="previous">上一周期</button><button data-independent-period="today">今天</button><button data-independent-period="next">下一周期</button>');lastMarkup=result.source==='application'?host.innerHTML:'';}}
+catch(error){if(token===generation)host.innerHTML=lastMarkup?lastMarkup+'<section><p>更新失败，以下为上次有效统计，不代表当前已同步；截止见来源信息。</p><small>'+esc(error?.code||'SOURCE_UNAVAILABLE')+'</small><button data-independent-retry>重试</button></section>':'<section><h3>使用统计暂不可用</h3><p>其他统计和设备管理不受影响。</p><small>'+esc(error?.code||'SOURCE_UNAVAILABLE')+'</small><button data-independent-retry>重试</button></section>';}
 }
 host.addEventListener('click',event=>{if(event.target.closest('[data-independent-retry]'))void load(true);const direction=event.target.closest('[data-independent-period]')?.dataset.independentPeriod;if(direction&&onRange)onRange(direction);});
-return{load,invalidate(){generation++;host.innerHTML='';}};
+return{load,invalidate(){generation++;lastMarkup='';host.innerHTML='';}};
 }
 const api={create,createIndependent,createReadCache,summary,independentSummary,detailRows,duration};if(typeof module==='object')module.exports=api;else root.ComputerUsageView=api;
 })(typeof globalThis==='object'?globalThis:this);

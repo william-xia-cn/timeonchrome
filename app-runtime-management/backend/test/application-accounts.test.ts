@@ -332,7 +332,7 @@ it('receipt transaction interruption rolls back manifest state and watermark tog
   } finally { await env.RUNTIME_DB.prepare('DROP TRIGGER test_account_receipt_failure').run(); }
   expect(await commitApplicationAccount(env.RUNTIME_DB, f.machine, r.manifestId, now)).toMatchObject({ received: true });
 });
-it('route rejects tampered hashes, private fields, wrong source and unknown policy versions', async () => {
+it('route rejects tampered hashes, private fields and wrong source; policy history is not a receiving condition', async () => {
   const f = await fixture(), a = await account();
   const altered = { ...a.manifest, revision: 2 };
   expect((await api(f, '', 'POST', { ...input(a), manifest: altered })).status).toBe(400);
@@ -342,8 +342,8 @@ it('route rejects tampered hashes, private fields, wrong source and unknown poli
   expect((await api(f, '', 'POST', { ...input(a), manifest: { ...header, manifestHash: await hashUsageAccountValue(header) } })).status).toBe(400);
   const { manifestHash: ignoredPolicy, ...policyHeader } = { ...a.manifest, policyVersions: [7] };
   const response = await api(f, '', 'POST', { ...input(a), manifest: { ...policyHeader, manifestHash: await hashUsageAccountValue(policyHeader) } });
-  expect(response.status).toBe(409);
-  expect(await response.json()).toMatchObject({ error: { code: 'APPLICATION_ACCOUNT_UNKNOWN_POLICY_VERSION' } });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ received: false, published: false });
 });
 it('chunk hash/count/index and immutable replay conflicts are rejected', async () => {
   const f = await fixture(), a = await account(), r = await upload(f, a);

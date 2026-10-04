@@ -1,11 +1,12 @@
 import {parseUsageAccountRows,type UsageAccountRow,type UsageAccountManifest} from '@timeonchrome/app-runtime-contracts/usage-account';
 import type {StatisticsValue} from './applicationStatistics';
 import { normalizeApplicationUsageClock } from './applicationUsageClock';
+import { verifyApplicationAccountPublication } from './applicationAccountPublication';
 type Filters={machineId?:string;localUserId?:string;platform?:string};
 const DAY=86400000,OFFSET=8*3600000;
 /** One producer per complete scope/day. Native and legacy are NEVER added together. */
 export async function selectNativeApplicationStatistics(db:D1Database,account:string,child:string,from:number,to:number,filters:Filters,
-  original:StatisticsValue,source:(machineId:string,user:string)=>Promise<string>):Promise<UsageAccountRow[]|null> {
+  original:StatisticsValue,source:(machineId:string,user:string)=>Promise<string>,now=Date.now()):Promise<{rows:UsageAccountRow[];settledThroughMs:number|null;subjectClassifications:Record<string,string[]>}|null> {
   if((from+OFFSET)%DAY!==0||to-from!==DAY)return null;
   const legacy=await db.prepare(`SELECT COUNT(*) AS n FROM runtime_usage_segments s JOIN runtime_devices d ON d.id=s.device_id
     WHERE d.account_id=?1 AND d.child_id=?2 AND s.start_at_ms<?4 AND s.end_at_ms>?3
@@ -41,6 +42,8 @@ export async function selectNativeApplicationStatistics(db:D1Database,account:st
       ends.set(assignment,Math.max(ends.get(assignment)??0,Number(span.end_wall_time_ms)));}
   }
   const date=new Date(from+OFFSET).toISOString().slice(0,10),merged=new Map<string,UsageAccountRow>();let count=0;
+  const cutoffs:Array<number|null>=[];
+  const subjectClassifications:Record<string,string[]>={};
   for(const part of partitions.results){
     const p=await db.prepare(`SELECT p.manifest_id,p.source_revision,m.manifest_json FROM runtime_application_account_publications_v1 p
       JOIN runtime_application_account_manifests_v1 m ON m.id=p.manifest_id WHERE p.account_id=?1 AND p.child_id=?2
@@ -50,6 +53,14 @@ export async function selectNativeApplicationStatistics(db:D1Database,account:st
     if(!p||p.source_revision!==await source(part.machine_id,part.local_user_id))return null;
     const manifest=JSON.parse(p.manifest_json) as UsageAccountManifest;
     if(!manifest.complete||manifest.rawFactCount!==Number(part.n))return null;
+    // Background materialization only: derive category labels from the exact
+    // verified scope; ordinary reads use the resulting persistent JSON.
+    const verified=await verifyApplicationAccountPublication(db,{id:p.manifest_id,account_id:account,child_id:child,date,
+      machine_id:part.machine_id,local_user_id:part.local_user_id,assignment_version:part.assignment_version,
+      revision:manifest.revision,manifest_json:p.manifest_json},manifest,now);
+    for(const [key,categories] of Object.entries(verified.subjectClassifications))
+      subjectClassifications[key]=[...new Set([...(subjectClassifications[key]??[]),...categories])].sort();
+    cutoffs.push(manifest.settledThroughMs);
     const chunks=await db.prepare(`SELECT rows_json FROM runtime_application_account_chunks_v1
       WHERE manifest_id=?1 ORDER BY chunk_index LIMIT 100`).bind(p.manifest_id).all<{rows_json:string}>();
     const rows=parseUsageAccountRows(chunks.results.flatMap(c=>JSON.parse(c.rows_json)));
@@ -57,5 +68,5 @@ export async function selectNativeApplicationStatistics(db:D1Database,account:st
     for(const row of rows){const key=JSON.stringify([row.kind,row.hour,row.category,row.subjectKey]),old=merged.get(key);
       if(old)old.duration+=row.duration;else merged.set(key,{...row});}
   }
-  return [...merged.values()];
+  return {rows:[...merged.values()],settledThroughMs:cutoffs.every((v):v is number=>v!==null)?Math.min(...cutoffs):null,subjectClassifications};
 }

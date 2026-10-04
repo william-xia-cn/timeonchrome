@@ -1,6 +1,6 @@
 import {env} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
-import {createUsageAccount,type UsageAccountRow} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {createUsageAccount,hashUsageAccountValue,type UsageAccountRow} from '@timeonchrome/app-runtime-contracts/usage-account';
 import {beginApplicationAccount,putApplicationAccountChunk,commitApplicationAccount,readApplicationAccountStatus} from '../src/applicationAccounts';
 import {publishApplicationAccounts} from '../src/applicationAccountPublication';
 import {getAppPolicy,queryAppUsage,refreshHistoricalProductIdentityProjection} from '../src/appPolicy';
@@ -19,7 +19,7 @@ async function fixture(platform:MachineSelfResponse['platform']='windows'){
   const policy=await getAppPolicy(env.RUNTIME_DB,accountId,child);
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
     (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms) VALUES(?1,?2,1,?3,'fixture',0,0)`)
-    .bind(accountId,child,JSON.stringify({...policy,productIdentityProjection:{version:projection,knowledgeVersion:1,
+    .bind(accountId,child,JSON.stringify({...policy,classifications:[{platform,runtimeIdentity:'leaf',displayName:null,classification:'study'}],productIdentityProjection:{version:projection,knowledgeVersion:1,
       items:[{platform,runtimeIdentity:'leaf',associationKey:`product:${platform}:test`,productId:'test',canonicalName:'测试产品',status:'confirmed',reasonCode:'APPROVED_PRODUCT'}]}})).run();
   const machine:MachineSelfResponse={machineId,accountId,platform,displayName:null,defaultChildId:child,desiredPolicyVersion:1,
     appliedPolicyVersion:1,policyState:'applied',revoked:false};
@@ -36,7 +36,7 @@ async function fact(f:Awaited<ReturnType<typeof fixture>>,id='one',session='sess
 }
 async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{empty?:boolean;classification?:string;duration?:number;
   associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string;
-  associationKey?:string;reasonCodes?:string[];cutoff?:number;date?:string;hour?:number}={}){
+  associationKey?:string;reasonCodes?:string[];cutoff?:number;date?:string;hour?:number;policyVersions?:number[]}={}){
   const duration=options.empty?0:options.duration??1501;
   const row=(kind:UsageAccountRow['kind'],hour:number|null,category:string|null=null,subjectKey:string|null=null,displayName:string|null=null,d=duration):UsageAccountRow=>
     ({kind,hour,category,subjectKey,displayName,duration:d});
@@ -47,7 +47,7 @@ async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{
   const date=options.date??'2026-09-27',cutoff=options.cutoff??Date.parse(date+'T00:00:00+08:00')+DAY;
   const receivedAt=Math.max(now,cutoff);
   const account=await createUsageAccount({schemaVersion:1,sourceKind:'application',durationUnit:'milliseconds',timezone:'Asia/Shanghai',
-    date,revision,generatedAtMs:cutoff,settledThroughMs:cutoff,algorithmVersion:options.algorithm??`${f.machine.platform}-application-v1`,policyVersions:options.empty?[]:[1],
+    date,revision,generatedAtMs:cutoff,settledThroughMs:cutoff,algorithmVersion:options.algorithm??`${f.machine.platform}-application-v1`,policyVersions:options.policyVersions??(options.empty?[]:[1]),
     associationVersion:options.associationVersion===undefined?projection:options.associationVersion,correctionVersion:options.correctionVersion??0,
     rawFactCount:options.count??(options.empty?0:1),rawFactHash:'c'.repeat(64),complete:options.complete??true,reasonCodes:options.reasonCodes??(options.complete===false?['POLICY_HISTORY_MISSING']:[])},rows);
   const r=await beginApplicationAccount(env.RUNTIME_DB,f.machine,{localUserId:user,assignmentVersion:1,manifest:account.manifest},receivedAt);
@@ -78,6 +78,36 @@ it.each(['incomplete','stale association'] as const)('cron prioritizes a complet
   }
   expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(before.results);
 });
+it.each(['windows','macos'] as const)('missing policy version retains real 51.125 seconds with latest current-week classification: %s',async(platform)=>{
+  const f=await fixture(platform);await fact(f,crypto.randomUUID());
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2 SET app_policy_version=NULL,application_classification=NULL,
+    duration_ms=51125,end_at_ms=start_at_ms+51125,end_wall_time_ms=start_wall_time_ms+51125,
+    end_monotonic_time_ms=start_monotonic_time_ms+51125,monotonic_duration_ms=51125 WHERE machine_id=?1`)
+    .bind(f.machine.machineId).run();
+  const before=(await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results;
+  const old=await upload(f,1,{duration:51125,complete:false,policyVersions:[]});
+  await publishApplicationAccounts(env.RUNTIME_DB,start+60000,old.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,old.manifestId))
+    .toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_INCOMPLETE'});
+  for(const [i,classification] of ['study','composite','unclassified'].entries()){
+    await env.RUNTIME_DB.prepare(`UPDATE runtime_child_app_policy_versions_v1 SET payload_json=json_set(payload_json,'$.classifications',json(?3))
+      WHERE account_id=?1 AND child_id=?2`).bind(f.machine.accountId,f.child,JSON.stringify(classification==='unclassified'?[]:
+        [{platform,runtimeIdentity:'leaf',displayName:null,classification}])).run();
+    const current=await upload(f,i+2,{duration:51125,classification,policyVersions:i===0?[]:[98765]});
+    await publishApplicationAccounts(env.RUNTIME_DB,start+60000+i,current.manifestId);
+    expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,current.manifestId)).toMatchObject({published:true});
+  }
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,old.manifestId)).toMatchObject({published:false});
+  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(before);
+});
+it('historical missing classification remains unknown with valid milliseconds; current policy is not applied retroactively',async()=>{
+  const f=await fixture();await fact(f,crypto.randomUUID());
+  await env.RUNTIME_DB.prepare('UPDATE runtime_usage_segments_v2 SET app_policy_version=NULL,application_classification=NULL WHERE machine_id=?1')
+    .bind(f.machine.machineId).run();
+  const r=await upload(f,1,{classification:'historicalUnknown',policyVersions:[]});
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+});
 it('receipt does not publish; exact approved source/management verification publishes separate watermark',async()=>{
   const f=await fixture();await fact(f);const r=await upload(f);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:false});
@@ -99,9 +129,13 @@ it('complete standalone usage publishes without pretending product identity is c
   const r=await upload(f,1,{associationKey:'windows\nleaf'});await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:true});
   const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await read().catch(()=>{});
+  const scope=await hashUsageAccountValue([f.machine.accountId,f.child,{machineId:null,localUserId:null,platform:null},0,DAY]);
+  for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now,scope);
+  expect((await env.RUNTIME_DB.prepare('SELECT date,error_code FROM runtime_application_statistics_queue_v1 WHERE account_id=?1 AND error_code IS NOT NULL').bind(f.machine.accountId).all()).results).toEqual([]);
   const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
   expect(result.statistics.productApplications).toEqual([{key:await sha256Hex('windows\nleaf'),displayName:'测试产品',durationMs:1501}]);
+  expect(result.statistics.productClassifications).toEqual({[await sha256Hex('windows\nleaf')]:['study']});
   expect((await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child)).productIdentityProjection?.items[0])
     .toMatchObject({status:'unresolved',productId:null,associationKey:'windows\nleaf'});
   expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results)
@@ -334,6 +368,7 @@ it('Mac nonzero milliseconds publish and persist through the ordinary statistics
   await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
   const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
   expect(result.statistics.productApplications).toEqual([{key:await sha256Hex('product:macos:test'),displayName:'测试产品',durationMs:1501}]);
+  expect(result.statistics.settledThroughByDate).toEqual([{date:'2026-09-27',settledThroughMs:now}]);
   expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(before.results);
 });
 it('Mac overlapping settled intervals use the common exact millisecond union rather than summed segments',async()=>{

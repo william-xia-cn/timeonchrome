@@ -39,7 +39,8 @@ for (const v of vectors.vectors) {
   const rows = [row('total', null, v.duration), ...Array.from({ length: 24 }, (_, h) => row('total', h, h === v.hour ? v.duration : 0)),
     ...v.categories.flatMap(c => [row('category', null, c.duration, c.category), row('category', v.hour, c.duration, c.category)])];
   const original = JSON.stringify(rows);
-  const account = await createUsageAccount({ ...header, sourceKind: v.sourceKind, durationUnit: v.durationUnit }, rows);
+  const account = await createUsageAccount({ ...header, sourceKind: v.sourceKind, durationUnit: v.durationUnit,
+    policyVersions: v.policyVersions ?? header.policyVersions }, rows);
   assert.equal(validateUsageAccountDimensions(account.rows).total, v.expectedTotal, v.id);
   assert.equal(JSON.stringify(rows), original, 'producer facts not mutated');
   assert.deepEqual(await verifyUsageAccountManifest(account.manifest), account.manifest);
