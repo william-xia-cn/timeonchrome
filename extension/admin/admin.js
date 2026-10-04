@@ -24,6 +24,7 @@ import { readNativeHostDeploymentMarker } from '../core/deployment-mode.js';
 import { attachSharedSyncDiagnostics } from './shared-sync-diagnostics-view.js';
 import { getAdminApplicationUsageAnalysisView, applicationUsageErrorMessage,
   APPLICATION_CATEGORY_LABELS } from '../stats/application-usage-read-model.js';
+import { readRestUsageSummary } from '../stats/rest-usage-summary.js';
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -123,7 +124,12 @@ let mediaSettlementRows = [];
 let mediaSettlementRange = 'today';
 let mediaSettlementLabel = '今日';
 let systemManagementActiveTab = 'device-status';
-let rulesActiveTab = 'site-management';
+let rulesActiveSection = 'rules';
+const rulesSectionTabs = {
+  rules: ['quota-management', 'autonomy-management', 'schedule-management'],
+  sites: ['site-management', 'classification-requests'],
+};
+const rulesSelectedTabs = { rules: 'quota-management', sites: 'site-management' };
 let rulesSiteActivePolicy = 'study';
 let adminSiteClassificationRecords = [];
 let isLocalReadOnlyMode = false;
@@ -1287,7 +1293,14 @@ function setClientLogsPageError(message) {
 }
 
 function syncRulesTabs() {
+  const rulesActiveTab = rulesSelectedTabs[rulesActiveSection];
+  const tabs = rulesSectionTabs[rulesActiveSection];
+  const title = rulesActiveSection === 'sites' ? '网站管理' : '访问管理';
+  const heading = document.getElementById('rules-page-title');
+  if (heading) heading.textContent = title;
+  document.querySelector('.rules-tabs')?.setAttribute('aria-label', `${title}功能`);
   document.querySelectorAll('[data-rules-tab]').forEach(btn => {
+    btn.hidden = !tabs.includes(btn.dataset.rulesTab);
     btn.classList.toggle('active', btn.dataset.rulesTab === rulesActiveTab);
   });
   document.querySelectorAll('[data-rules-panel]').forEach(panel => {
@@ -1394,7 +1407,7 @@ function isLatestAdminRefreshRequest(requestSeq) {
 
 async function refreshPageByNav(page, requestSeq) {
   try {
-    if (page === 'rules') {
+    if (page === 'rules' || page === 'sites') {
       const useLocalReadModel = typeof isChildView !== 'undefined' && isChildView;
       config = useLocalReadModel
         ? await readLocalGuardianConfig()
@@ -1423,7 +1436,7 @@ async function refreshPageByNav(page, requestSeq) {
   } catch (error) {
     if (!isLatestAdminRefreshRequest(requestSeq)) return;
     const message = error?.message || '未知错误';
-    if (page === 'rules') setRulesPageError(message);
+    if (page === 'rules' || page === 'sites') setRulesPageError(message);
     else if (page === 'stats') setStatsPageError(message);
     else if (page === 'system-management') setSystemManagementPageError(message);
     else if (page === 'devices') setDevicesPageError(message);
@@ -1441,7 +1454,12 @@ function setupNavigation() {
       item.classList.add('active');
 
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-      document.getElementById(`page-${page}`)?.classList.add('active');
+      const rulesPage = page === 'rules' || page === 'sites';
+      document.getElementById(`page-${rulesPage ? 'rules' : page}`)?.classList.add('active');
+      if (rulesPage) {
+        rulesActiveSection = page;
+        syncRulesTabs();
+      }
 
       const requestSeq = ++adminPageRefreshSeq;
       await refreshPageByNav(page, requestSeq);
@@ -1464,8 +1482,10 @@ function setupNavigation() {
   });
   document.querySelectorAll('[data-rules-tab]').forEach(btn => {
     btn.addEventListener('click', () => {
-      rulesActiveTab = btn.dataset.rulesTab || 'site-management';
-      const navItem = document.querySelector('.nav-item[data-page="rules"]');
+      const tab = btn.dataset.rulesTab;
+      if (!rulesSectionTabs[rulesActiveSection].includes(tab)) return;
+      rulesSelectedTabs[rulesActiveSection] = tab;
+      const navItem = document.querySelector(`.nav-item[data-page="${rulesActiveSection}"]`);
       if (navItem && !navItem.classList.contains('active')) {
         document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
         navItem.classList.add('active');
@@ -3554,6 +3574,9 @@ function setupUsageAnalysisControls() {
   });
   document.getElementById('usage-analysis-app-refresh')?.addEventListener('click', () => renderStatsPage({ force: true, recheck: true }));
   setInterval(() => {
+    if (document.visibilityState === 'visible' && document.getElementById('page-stats')?.classList.contains('active')) {
+      void renderRestUsageSummary({ force: true });
+    }
     if (usageAnalysisState.ledger === 'application' && !applicationStatsReading
       && document.visibilityState === 'visible' && document.getElementById('page-stats')?.getClientRects().length
       && document.getElementById('page-stats')?.classList.contains('active')) {
@@ -3561,11 +3584,18 @@ function setupUsageAnalysisControls() {
     }
   }, 60_000);
   document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && document.getElementById('page-stats')?.classList.contains('active')) {
+      void renderRestUsageSummary({ force: true });
+    }
     if (document.visibilityState === 'visible' && usageAnalysisState.ledger === 'application'
       && document.getElementById('page-stats')?.getClientRects().length
       && document.getElementById('page-stats')?.classList.contains('active')) renderStatsPage({ force: true, retain: true });
   });
   chrome.runtime.onMessage.addListener((message, sender) => {
+    if (message?.type === 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE' && sender?.id === chrome.runtime.id
+      && document.visibilityState === 'visible' && document.getElementById('page-stats')?.classList.contains('active')) {
+      void renderRestUsageSummary({ force: true });
+    }
     if (message?.type === 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE' && sender?.id === chrome.runtime.id
       && usageAnalysisState.ledger === 'application' && !applicationStatsReading
       && document.visibilityState === 'visible' && document.getElementById('page-stats')?.getClientRects().length
@@ -3936,15 +3966,39 @@ function renderUsageAnalysisView(view) {
     if (notice) notice.textContent = `${view.warning || ''} 独立应用统计，不计网页配额；仅含已结算记录，明细可能重叠，不相加生成总量。${view.incompleteDates ? '不完整日期：' + view.incompleteDates + '，对应图表空白不代表零用量。' : ''}`;
   }
   const incompleteApp = view.kind === 'application' && view.totalSeconds == null;
-  renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: incompleteApp ? '应用统计证据不完整，不代表零用量' : '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
+  renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: view.weekUnavailable ? '本周应用统计尚不可用，不代表零用量' : incompleteApp ? '应用统计证据不完整，不代表零用量' : '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
   renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: incompleteApp ? '应用统计证据不完整，不代表零用量' : view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: usageCategoryKeys(view) });
   renderUsageLegend(view);
   renderUsageAnalysisList(view);
 }
 
 let statsReadSequence = 0;
+let restSummaryReadSequence = 0;
+let restSummaryDate = null;
+async function renderRestUsageSummary(options = {}) {
+  if (!document.getElementById('usage-rest-today-total')) return;
+  const requestedDate = new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
+  if (restSummaryDate !== requestedDate) {
+    restSummaryDate = requestedDate;
+    for (const key of ['today', 'week']) {
+      document.getElementById(`usage-rest-${key}-total`).textContent = '读取中…';
+      document.getElementById(`usage-rest-${key}-parts`).textContent = '网页未知＋应用未知';
+    }
+  }
+  const sequence = ++restSummaryReadSequence;
+  const summary = await readRestUsageSummary(options).catch(() => null);
+  if (sequence !== restSummaryReadSequence) return;
+  const date = new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
+  if (summary && summary.date !== date) return;
+  const time = value => typeof value === 'number' && Number.isFinite(value) ? formatSeconds(Math.floor(value)) : '未知';
+  for (const [key, values] of [['today', summary?.today], ['week', summary?.week]]) {
+    document.getElementById(`usage-rest-${key}-total`).textContent = values?.totalSeconds == null ? '暂不完整' : time(values.totalSeconds);
+    document.getElementById(`usage-rest-${key}-parts`).textContent = `网页${time(values?.webSeconds)}＋应用${time(values?.applicationSeconds)}`;
+  }
+}
 let applicationStatsReading = false;
 async function renderStatsPage({ force = false, retain = false, recheck = false } = {}) {
+  void renderRestUsageSummary({ force, recheck });
   const sequence = ++statsReadSequence;
   const application = usageAnalysisState.ledger === 'application';
   document.getElementById('page-stats')?.classList.toggle('usage-app-view', application);
