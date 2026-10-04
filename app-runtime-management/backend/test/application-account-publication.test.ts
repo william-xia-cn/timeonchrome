@@ -338,6 +338,22 @@ it('Native publication replaces one producer for a Child day and is never added 
     WHERE account_id=?1 AND child_id=?2`).bind(f.machine.accountId,f.child).all()).results)
     .toEqual([{error_code:'APPLICATION_ACCOUNT_FACTS_PENDING'}]);
 });
+it('a live page rebuild prioritizes its requested Native day over incidental weekly history',async()=>{
+  const f=await fixture();await fact(f,crypto.randomUUID());const r=await upload(f);
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  const work:Promise<unknown>[]=[];
+  await readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},job=>work.push(job),now).catch(()=>{});
+  await Promise.all(work);
+  const days=await env.RUNTIME_DB.prepare(`SELECT date,producer,value_json FROM runtime_application_statistics_days_v1
+    WHERE account_id=?1 AND child_id=?2`).bind(f.machine.accountId,f.child).all<{date:string;producer:string;value_json:string}>();
+  expect(days.results).toHaveLength(2); // Same bounded work budget, not a full-week rebuild.
+  const current=days.results.find(d=>d.date==='2026-09-27');
+  expect(current?.producer).toBe('native');
+  expect(JSON.parse(current!.value_json).totalDurationMs).toBe(1501);
+  expect((await env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS n FROM runtime_application_statistics_queue_v1
+    WHERE account_id=?1 AND child_id=?2 AND date<'2026-09-27'`).bind(f.machine.accountId,f.child).first<{n:number}>())?.n)
+    .toBeGreaterThan(0);
+});
 it('child aggregation adds devices; identical wall times on two machines are not globally unioned',async()=>{
   const f=await fixture();await fact(f);const one=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,one.manifestId);
   const second=crypto.randomUUID();await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machines_v2(id,account_id,platform,token_hash,last_seen_at_ms,created_at_ms,updated_at_ms)

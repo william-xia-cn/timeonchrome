@@ -138,9 +138,10 @@ export async function applicationPublicationDirtyStatements(db:D1Database,candid
       .bind(candidate.id,now,defaultScope,candidate.account_id,candidate.child_id,candidate.date,from,from+DAY)];
 }
 /** At most two bounded day rebuilds; source changes never publish a mixed day. */
-export async function rebuildApplicationStatistics(db:D1Database,now=Date.now(),scopeKey?:string) {
+export async function rebuildApplicationStatistics(db:D1Database,now=Date.now(),scopeKey?:string,preferredDate?:string) {
   const work=await db.prepare(`SELECT * FROM runtime_application_statistics_queue_v1 WHERE retry_at_ms<=?1
-    AND (?2 IS NULL OR scope_key=?2) ORDER BY requested_at_ms,scope_key,date LIMIT 2`).bind(now,scopeKey??null).all<Scope>();
+    AND (?2 IS NULL OR scope_key=?2) ORDER BY CASE WHEN date=?3 THEN 0 ELSE 1 END,requested_at_ms,scope_key,date LIMIT 2`)
+    .bind(now,scopeKey??null,preferredDate??null).all<Scope>();
   let built=0;
   for(const s of work.results)try {
     const filters:Filters=JSON.parse(s.filters_json);
@@ -227,7 +228,8 @@ export async function readPersistentApplicationUsage(db:D1Database,account:strin
   }
   for(let offset=0;offset<queued.length;offset+=7)await db.batch(queued.slice(offset,offset+7));
   if(pending&&defer)defer((async()=>{
-    for(const scopeKey of new Set([...unique.values()].map(s=>s.scope_key)))await rebuildApplicationStatistics(db,now,scopeKey);
+    for(const scopeKey of new Set([...unique.values()].map(s=>s.scope_key)))
+      await rebuildApplicationStatistics(db,now,scopeKey,requested.find(s=>s.scope_key===scopeKey)?.date);
   })());
   if(missing)throw new HttpError(503,'APPLICATION_STATISTICS_PENDING','应用统计正在后台生成，请稍后刷新；这不代表零用量。');
   const get=(s:Scope)=>JSON.parse(loaded.get(`${s.scope_key}/${s.date}`)!.value_json) as StatisticsValue;
