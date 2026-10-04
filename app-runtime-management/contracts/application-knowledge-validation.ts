@@ -37,9 +37,10 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
       || !list(value.products) || !list(value.rules) || !list(value.bindings, 100)) reject('INVALID_APPLICATION_KNOWLEDGE');
   const productIds: string[] = [], ruleIds: string[] = [], childIds: string[] = [];
   for (const product of value.products) {
-    if (!object(product) || !keys(product, ['id', 'name', 'type', 'selectors', 'suspectedMatchers']) || !id(product.id)
+    if (!object(product) || !keys(product, ['id', 'name', 'type', 'catalogGroup', 'selectors', 'suspectedMatchers']) || !id(product.id)
         || !text(product.name) || !oneOf(product.type, types) || !list(product.selectors, 64)
         || product.selectors.length === 0
+        || (product.catalogGroup !== undefined && product.catalogGroup !== 'specialApplication')
         || (product.suspectedMatchers !== undefined && (value.schemaVersion !== 3 || !list(product.suspectedMatchers, 16)))) reject('INVALID_PRODUCT');
     productIds.push(product.id);
     for (const hint of product.suspectedMatchers ?? []) {

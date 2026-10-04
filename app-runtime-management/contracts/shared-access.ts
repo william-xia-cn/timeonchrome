@@ -87,8 +87,10 @@ export interface SharedQuotaContributionV1 {
   /** Application source reports pre-borrow composite and unclassified separately. */
   applicationClassesMs?: Readonly<Record<'study' | 'composite' | 'restrictedEntertainment' | 'unclassified' | 'other', number>>;
   /** Application union contribution excluded from shared quota, supported by a confirmed Chrome product. */
+  /** 兼容wire名：特殊应用的独立区间并集，不是电脑总量的直接扣除值。 */
   chromeExcludedMs?: number;
   /** Distinct display deduction: marginal Chrome duration included in the app total's own union. */
+  /** 兼容wire名：产品catalogGroup=specialApplication在应用总并集中的边际贡献；仅据已核验统计。 */
   chromeIncludedInApplicationMs?: number | null;
 }
 

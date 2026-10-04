@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { resolveApplication, safeAutomatic, associateApplicationEvidence } from './dist/application-classification.js';
+import { resolveApplication, safeAutomatic, associateApplicationEvidence, isSpecialApplicationProduct } from './dist/application-classification.js';
 import { parseApplicationKnowledge, parseAppEvidence } from './dist/application-knowledge-validation.js';
 const vectors = JSON.parse(readFileSync(new URL('./application-classification.vectors.json', import.meta.url)));
 const legacyShape = result => ({productId:result.productId,classification:result.classification,status:result.status,ruleIds:result.ruleIds,suggestions:result.suggestions});
@@ -14,6 +14,17 @@ const confirmedBlock={schemaVersion:3,version:1,products:[{id:'firefox',name:'Fi
   suspectedMatchers:[{platform:'windows',signerKey:'b'.repeat(64),productName:'Firefox'}]}],rules:[],
   bindings:[{childId:'child',products:[{productId:'firefox',classification:'blocked',enhancedBlocking:true}],ruleIds:[]}]};
 assert.deepEqual(parseApplicationKnowledge(confirmedBlock),confirmedBlock);
+const specialKnowledge = {...confirmedBlock,products:[
+  {...confirmedBlock.products[0],catalogGroup:'specialApplication'},
+  {...confirmedBlock.products[0],id:'second-browser',catalogGroup:'specialApplication'},
+  {...confirmedBlock.products[0],id:'ordinary-other'},
+]};
+assert.deepEqual(parseApplicationKnowledge(specialKnowledge),specialKnowledge);
+assert.equal(isSpecialApplicationProduct('firefox',specialKnowledge),true);
+assert.equal(isSpecialApplicationProduct('second-browser',specialKnowledge),true);
+assert.equal(isSpecialApplicationProduct('ordinary-other',specialKnowledge),false);
+assert.equal(isSpecialApplicationProduct(null,specialKnowledge),false);
+assert.throws(()=>parseApplicationKnowledge({...confirmedBlock,products:[{...confirmedBlock.products[0],catalogGroup:'other'}]}),/INVALID_PRODUCT/);
 assert.throws(()=>parseApplicationKnowledge({...confirmedBlock,products:[{...confirmedBlock.products[0],suspectedMatchers:[{platform:'windows',signerKey:'not-a-hash',productName:'Firefox'}]}]}),/INVALID_SUSPECTED_MATCHER/);
 assert.throws(()=>parseApplicationKnowledge({...confirmedBlock,bindings:[{childId:'child',products:[{productId:'firefox',classification:'study',enhancedBlocking:true}],ruleIds:[]}]}),/INVALID_PRODUCT_BINDING/);
 assert.throws(()=>parseApplicationKnowledge({...confirmedBlock,schemaVersion:2}),/INVALID_PRODUCT/);
