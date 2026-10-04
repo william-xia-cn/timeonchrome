@@ -6,7 +6,7 @@ type Filters={machineId?:string;localUserId?:string;platform?:string};
 const DAY=86400000,OFFSET=8*3600000;
 /** One producer per complete scope/day. Native and legacy are NEVER added together. */
 export async function selectNativeApplicationStatistics(db:D1Database,account:string,child:string,from:number,to:number,filters:Filters,
-  original:StatisticsValue,source:(machineId:string,user:string)=>Promise<string>,now=Date.now()):Promise<{rows:UsageAccountRow[];settledThroughMs:number|null;subjectClassifications:Record<string,string[]>}|null> {
+  original:StatisticsValue,source:(machineId:string,user:string)=>Promise<string>,now=Date.now()):Promise<{rows:UsageAccountRow[];settledThroughMs:number|null;subjectClassifications:Record<string,string[]>;stale:boolean}|null> {
   if((from+OFFSET)%DAY!==0||to-from!==DAY)return null;
   const legacy=await db.prepare(`SELECT COUNT(*) AS n FROM runtime_usage_segments s JOIN runtime_devices d ON d.id=s.device_id
     WHERE d.account_id=?1 AND d.child_id=?2 AND s.start_at_ms<?4 AND s.end_at_ms>?3
@@ -42,7 +42,7 @@ export async function selectNativeApplicationStatistics(db:D1Database,account:st
       ends.set(assignment,Math.max(ends.get(assignment)??0,Number(span.end_wall_time_ms)));}
   }
   const date=new Date(from+OFFSET).toISOString().slice(0,10),merged=new Map<string,UsageAccountRow>();let count=0;
-  const cutoffs:Array<number|null>=[];
+  const cutoffs:Array<number|null>=[];let stale=false;
   const subjectClassifications:Record<string,string[]>={};
   for(const part of partitions.results){
     const p=await db.prepare(`SELECT p.manifest_id,p.source_revision,m.manifest_json FROM runtime_application_account_publications_v1 p
@@ -50,9 +50,15 @@ export async function selectNativeApplicationStatistics(db:D1Database,account:st
       AND p.machine_id=?3 AND p.local_user_id=?4 AND p.assignment_version=?5 AND p.date=?6`)
       .bind(account,child,part.machine_id,part.local_user_id,part.assignment_version,date)
       .first<{manifest_id:string;source_revision:string;manifest_json:string}>();
-    if(!p||p.source_revision!==await source(part.machine_id,part.local_user_id))return null;
+    if(!p)return null;
+    // A published snapshot is frozen at its cutoff, not at the current live
+    // ledger head. New facts mark it as updating; the exact verifier below
+    // still rejects invalid facts, policy/correction changes or row hashes.
+    stale ||= p.source_revision!==await source(part.machine_id,part.local_user_id);
     const manifest=JSON.parse(p.manifest_json) as UsageAccountManifest;
-    if(!manifest.complete||manifest.rawFactCount!==Number(part.n))return null;
+    if(!manifest.complete)return null;
+    // An initialized empty prefix must not replace already known nonzero usage.
+    if(manifest.rawFactCount===0&&Number(part.n)>0)return null;
     // Background materialization only: derive category labels from the exact
     // verified scope; ordinary reads use the resulting persistent JSON.
     const verified=await verifyApplicationAccountPublication(db,{id:p.manifest_id,account_id:account,child_id:child,date,
@@ -68,5 +74,5 @@ export async function selectNativeApplicationStatistics(db:D1Database,account:st
     for(const row of rows){const key=JSON.stringify([row.kind,row.hour,row.category,row.subjectKey]),old=merged.get(key);
       if(old)old.duration+=row.duration;else merged.set(key,{...row});}
   }
-  return {rows:[...merged.values()],settledThroughMs:cutoffs.every((v):v is number=>v!==null)?Math.min(...cutoffs):null,subjectClassifications};
+  return {rows:[...merged.values()],settledThroughMs:cutoffs.every((v):v is number=>v!==null)?Math.min(...cutoffs):null,subjectClassifications,stale};
 }

@@ -14,6 +14,20 @@ const choice = (runtimeIdentity: string, classification: 'study' | 'composite' |
 const key = (identity: string) => `windows\n${identity}`;
 
 describe('trusted application identity projection', () => {
+  it('emits explicit non-Chrome evidence only for a unique approved product', async () => {
+    const items=[evidence('editor',{binaryHash:'approved-editor'}),
+      evidence('unknown',{binaryHash:'unknown'}),evidence('conflict',{binaryHash:'conflict'}),
+      evidence('weak-chrome',{runtimeIdentity:'weak-chrome'})];
+    const product=(id:string,field:'binaryHash'|'runtimeIdentity',value:string)=>({id,name:'Same name',type:'other' as const,
+      selectors:[{platform:'windows' as const,match:{operator:'all' as const,conditions:[{field,value}]}}]});
+    const knowledge={schemaVersion:2 as const,version:1,products:[product('editor','binaryHash','approved-editor'),
+      product('one','binaryHash','conflict'),product('two','binaryHash','conflict'),
+      product(chromeRules.productId,'runtimeIdentity','weak-chrome')],rules:[],bindings:[]};
+    const projection=await buildProductIdentityProjection(items,knowledge);
+    expect(projection.items.find(item=>item.runtimeIdentity==='editor')).toMatchObject({status:'confirmed',isChromeContainer:false});
+    for(const id of ['unknown','conflict','weak-chrome'])
+      expect(projection.items.find(item=>item.runtimeIdentity===id)?.isChromeContainer).toBeUndefined();
+  });
   it('marks only reviewed Chrome product identities, never a same-name application', async () => {
     const items=[evidence('chrome-approved',{fileSeriesKey:chromeRules.windows.fileSeriesKey,
       signerKey:chromeRules.windows.signerKey}),evidence('same-name-third-party',{binaryHash:'unrelated'})];
