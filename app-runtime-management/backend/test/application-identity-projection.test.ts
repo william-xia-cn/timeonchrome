@@ -3,6 +3,7 @@ import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classifica
 import { buildProductIdentityProjection, leafApplicationAssociations, projectExplicitApplicationClassifications } from '../src/applicationIdentityProjection';
 import { promoteProductClassifications, resolvePolicyApplications, validateRepairWeek } from '../src/applicationKnowledge';
 import chromeRules from '../src/chrome-display-rules.json';
+import { isConfirmedSpecialApplication } from '../src/specialApplications';
 
 const evidence = (runtimeIdentity: string, values: AppEvidence['values'], discovery?: AppEvidence['discovery']): AppEvidence => ({
   platform: 'windows', runtimeIdentity, displayName: 'Same name', values,
@@ -14,6 +15,25 @@ const choice = (runtimeIdentity: string, classification: 'study' | 'composite' |
 const key = (identity: string) => `windows\n${identity}`;
 
 describe('trusted application identity projection', () => {
+  it('uses one product directory for any special browser and invalidates association when it changes', async () => {
+    const products=['first-browser','second-browser','ordinary-other'].map(id=>({id,name:id,type:'other' as const,
+      ...(id==='ordinary-other'?{}:{catalogGroup:'specialApplication' as const}),
+      selectors:[{platform:'windows' as const,match:{operator:'all' as const,
+        conditions:[{field:'binaryHash' as const,value:id}]}}]}));
+    const knowledge={schemaVersion:2 as const,version:1,products,rules:[],bindings:[]};
+    const items=products.map(product=>evidence(product.id,{binaryHash:product.id}));
+    items.push(evidence('unknown',{binaryHash:'unreviewed'}));
+    const projection=await buildProductIdentityProjection(items,knowledge);
+    for(const id of ['first-browser','second-browser'])
+      expect(isConfirmedSpecialApplication(projection.items.find(item=>item.runtimeIdentity===id),knowledge)).toBe(true);
+    for(const id of ['ordinary-other','unknown'])
+      expect(isConfirmedSpecialApplication(projection.items.find(item=>item.runtimeIdentity===id),knowledge)).toBe(false);
+    expect(isConfirmedSpecialApplication({...projection.items[0]!,status:'conflict'},knowledge)).toBe(false);
+    const changed={...knowledge,products:products.map(product=>product.id==='second-browser'
+      ? {...product,catalogGroup:undefined}:product)};
+    expect((await buildProductIdentityProjection(items,changed)).version).not.toBe(projection.version);
+    expect((await buildProductIdentityProjection(items,{...knowledge,products:[...products].reverse()})).version).toBe(projection.version);
+  });
   it('emits explicit non-Chrome evidence only for a unique approved product', async () => {
     const items=[evidence('editor',{binaryHash:'approved-editor'}),
       evidence('unknown',{binaryHash:'unknown'}),evidence('conflict',{binaryHash:'conflict'}),
@@ -25,13 +45,14 @@ describe('trusted application identity projection', () => {
       product(chromeRules.productId,'runtimeIdentity','weak-chrome')],rules:[],bindings:[]};
     const projection=await buildProductIdentityProjection(items,knowledge);
     expect(projection.items.find(item=>item.runtimeIdentity==='editor')).toMatchObject({status:'confirmed',isChromeContainer:false});
-    for(const id of ['unknown','conflict','weak-chrome'])
+    for(const id of ['unknown','conflict'])
       expect(projection.items.find(item=>item.runtimeIdentity===id)?.isChromeContainer).toBeUndefined();
+    expect(projection.items.find(item=>item.runtimeIdentity==='weak-chrome')?.isChromeContainer).toBe(false);
   });
   it('marks only reviewed Chrome product identities, never a same-name application', async () => {
     const items=[evidence('chrome-approved',{fileSeriesKey:chromeRules.windows.fileSeriesKey,
       signerKey:chromeRules.windows.signerKey}),evidence('same-name-third-party',{binaryHash:'unrelated'})];
-    const knowledge={schemaVersion:2 as const,version:1,products:[{id:chromeRules.productId,name:'Chrome',type:'other' as const,
+    const knowledge={schemaVersion:2 as const,version:1,products:[{id:chromeRules.productId,name:'Chrome',type:'other' as const,catalogGroup:'specialApplication' as const,
       selectors:[{platform:'windows' as const,match:{operator:'all' as const,
         conditions:[{field:'fileSeriesKey' as const,value:chromeRules.windows.fileSeriesKey}]}}]}],rules:[],bindings:[]};
     const projection=await buildProductIdentityProjection(items,knowledge);

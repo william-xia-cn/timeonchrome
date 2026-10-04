@@ -3,7 +3,9 @@ import { env, exports } from 'cloudflare:workers';
 import { readComputerApplicationEvidence as readEvidence } from '../src/computerUsageEvidence';
 import { readPersistentApplicationUsage,rebuildApplicationStatistics } from '../src/applicationStatistics';
 import { queryAppUsage } from '../src/appPolicy';
-import { isConfirmedChrome } from '../src/specialApplications';
+import { isConfirmedSpecialApplication } from '../src/specialApplications';
+import { putApplicationKnowledge, effectiveApplicationKnowledge } from '../src/applicationKnowledge';
+import { buildProductIdentityProjection } from '../src/applicationIdentityProjection';
 import { CHROME_DISPLAY_RULES } from '../src/specialApplications';
 import { RuntimeComputerUsageService } from '../src/computerUsageService';
 import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
@@ -130,6 +132,8 @@ for(const identity of ['strong-leaf','name-only'])await env.RUNTIME_DB.prepare(`
 VALUES (?1,'legacy-chrome-device','session','windows',?1,'Chrome',?2,?2+1501,1501,'fixture',?1,?2+1501)`).bind(identity,day).run();
 await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_v1 VALUES ('legacy-chrome-machine','user','windows','strong-leaf','名称不同',?1,'installed',0,1)`)
 .bind(JSON.stringify({platform:'windows',runtimeIdentity:'strong-leaf',displayName:'名称不同',values:CHROME_DISPLAY_RULES.windows,verifiedFields:['fileSeriesKey','signerKey']})).run();
+await putApplicationKnowledge(env.RUNTIME_DB,'legacy-chrome-account',['legacy-chrome-child'],'"application-knowledge-v0"',
+  {schemaVersion:2,version:0,products:[],rules:[],bindings:[]},day);
 const before=await queryAppUsage(env.RUNTIME_DB,'legacy-chrome-account','legacy-chrome-child',day,day+86400000,{});
 const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'legacy-chrome-account','legacy-chrome-child','2026-10-01','2026-10-01');
 const history=sources.find(source=>source.historyQuality==='bestEffort');expect(history?.intervals.filter(row=>row.special)).toHaveLength(1);expect(history?.totalMs).toBe(1501);
@@ -141,6 +145,8 @@ await usage('chrome-machine','chrome-child','chrome-v1',day,day+1000);await usag
 await env.RUNTIME_DB.prepare("UPDATE runtime_usage_segments_v2 SET runtime_identity='second-leaf',display_name='旧产品标签' WHERE id='chrome-v2'").run();
 for(const identity of ['leaf','second-leaf'])await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_v1 VALUES ('chrome-machine','opaque-user','windows',?1,'不同版本名称',?2,'installed',0,1)`)
 .bind(identity,JSON.stringify({platform:'windows',runtimeIdentity:identity,displayName:'不同版本名称',values:CHROME_DISPLAY_RULES.windows,verifiedFields:['fileSeriesKey','signerKey']})).run();
+await putApplicationKnowledge(env.RUNTIME_DB,'chrome-account',['chrome-child'],'"application-knowledge-v0"',
+  {schemaVersion:2,version:0,products:[],rules:[],bindings:[]},day);
 const before=await queryAppUsage(env.RUNTIME_DB,'chrome-account','chrome-child',day,day+86400000,{machineId:'chrome-machine'});
 const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'chrome-account','chrome-child','2026-10-01','2026-10-01');
 expect(sources[0]?.intervals.every(item=>item.special&&item.label==='Chrome')).toBe(true);
@@ -188,19 +194,18 @@ SELECT 'budget-'||i,'budget-machine','user',1,'budget-child','session','windows'
 const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'budget-account','budget-child','2026-10-01','2026-10-01');
 expect(sources[0]?.totalMs).toBeNull();expect(sources[0]?.reasons).toContain('APPLICATION_EVIDENCE_LIMIT');expect(sources[0]?.intervals).toHaveLength(10000);
 });
-it('requires approved Chrome leaf plus matching verified strong selectors, never a name or reserved ID alone',()=>{
+it('uses only the approved product association, never a name or separate display matcher',async()=>{
 const reviewed:AppEvidence={platform:'windows',runtimeIdentity:'different-version',displayName:'Unrelated label',values:CHROME_DISPLAY_RULES.windows,verifiedFields:['fileSeriesKey','signerKey']};
-expect(isConfirmedChrome(reviewed)).toBe(true);
-expect(isConfirmedChrome({...reviewed,values:{...reviewed.values,signerKey:'different'}})).toBe(false);
-expect(isConfirmedChrome({...reviewed,verifiedFields:['fileSeriesKey']})).toBe(false);
-const evidence:AppEvidence={platform:'windows',runtimeIdentity:'leaf',displayName:'Chrome',values:{fileSeriesKey:'reviewed-chrome-series'},verifiedFields:['fileSeriesKey']};
-const projection={platform:'windows' as const,runtimeIdentity:'leaf',associationKey:'product:chrome',productId:'builtin.browser.chrome',canonicalName:'Chrome',status:'confirmed' as const,reasonCode:'APPROVED_PRODUCT' as const};
-const knowledge={schemaVersion:2 as const,version:1,products:[{id:'builtin.browser.chrome',name:'Chrome',type:'other' as const,selectors:[{platform:'windows' as const,match:{operator:'all' as const,conditions:[{field:'fileSeriesKey' as const,value:'reviewed-chrome-series'}]}}]}],rules:[],bindings:[]};
-expect(isConfirmedChrome(evidence,projection,knowledge)).toBe(true);
-expect(isConfirmedChrome({...evidence,verifiedFields:[]},projection,knowledge)).toBe(false);
-expect(isConfirmedChrome({...evidence,values:{fileSeriesKey:'different'}},projection,knowledge)).toBe(false);
-expect(isConfirmedChrome(undefined,projection,knowledge)).toBe(false);
-expect(isConfirmedChrome({...evidence,platform:'macos',values:{packageId:'com.google.Chrome'},verifiedFields:['packageId']})).toBe(false);
-expect(isConfirmedChrome({...evidence,platform:'macos',values:{packageId:'com.google.Chrome'},verifiedFields:[]})).toBe(false);
+const knowledge=effectiveApplicationKnowledge({schemaVersion:2,version:1,products:[],rules:[],bindings:[]});
+for(const [item,expected] of [
+  [reviewed,true],
+  [{...reviewed,values:{...reviewed.values,signerKey:'different'}},false],
+  [{...reviewed,verifiedFields:['fileSeriesKey']},false],
+  [{...reviewed,platform:'macos',values:{packageId:'com.google.Chrome'},verifiedFields:['packageId']},false],
+] as Array<[AppEvidence,boolean]>) {
+  const projection=await buildProductIdentityProjection([item],knowledge);
+  expect(isConfirmedSpecialApplication(projection.items[0],knowledge)).toBe(expected);
+}
+expect(isConfirmedSpecialApplication(undefined,knowledge)).toBe(false);
 });
 });

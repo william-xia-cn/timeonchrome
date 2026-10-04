@@ -6,10 +6,13 @@ import {publishApplicationAccounts} from '../src/applicationAccountPublication';
 import {getAppPolicy,queryAppUsage,refreshHistoricalProductIdentityProjection} from '../src/appPolicy';
 import {sha256Hex} from '../src/crypto';
 import {CHROME_SPECIAL_PRODUCT} from '../src/specialApplications';
+import {effectiveApplicationKnowledge} from '../src/applicationKnowledge';
+import {productIdentityProjectionVersion} from '../src/applicationIdentityProjection';
+import type {ProductIdentityProjection} from '@timeonchrome/app-runtime-contracts/classification';
 import type {MachineSelfResponse} from '../src/contracts';
 import {readPersistentApplicationUsage,rebuildApplicationStatistics,type StatisticsValue} from '../src/applicationStatistics';
 const DAY=86400000,start=Date.parse('2026-09-27T00:00:00+08:00'),now=start+DAY;
-const user='a'.repeat(64),projection='b'.repeat(64);
+const user='a'.repeat(64);
 async function fixture(platform:MachineSelfResponse['platform']='windows'){
   const machineId=crypto.randomUUID(),accountId=crypto.randomUUID(),child=crypto.randomUUID();
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machines_v2(id,account_id,platform,token_hash,last_seen_at_ms,created_at_ms,updated_at_ms)
@@ -18,13 +21,16 @@ async function fixture(platform:MachineSelfResponse['platform']='windows'){
     (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
     VALUES(?1,?2,1,?3,1,'default',?4,?4)`).bind(machineId,user,child,start).run();
   const policy=await getAppPolicy(env.RUNTIME_DB,accountId,child);
+  const knowledge=effectiveApplicationKnowledge({schemaVersion:2,version:1,products:[],rules:[],bindings:[]});
+  const content:Omit<ProductIdentityProjection,'version'>={knowledgeVersion:1,
+    items:[{platform,runtimeIdentity:'leaf',associationKey:`product:${platform}:test`,productId:'test',canonicalName:'测试产品',status:'confirmed',reasonCode:'APPROVED_PRODUCT',isChromeContainer:false}]};
+  const projection=await productIdentityProjectionVersion(content,knowledge);
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
     (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms) VALUES(?1,?2,1,?3,'fixture',0,0)`)
-    .bind(accountId,child,JSON.stringify({...policy,classifications:[{platform,runtimeIdentity:'leaf',displayName:null,classification:'study'}],productIdentityProjection:{version:projection,knowledgeVersion:1,
-      items:[{platform,runtimeIdentity:'leaf',associationKey:`product:${platform}:test`,productId:'test',canonicalName:'测试产品',status:'confirmed',reasonCode:'APPROVED_PRODUCT',isChromeContainer:false}]}})).run();
+    .bind(accountId,child,JSON.stringify({...policy,applicationKnowledge:knowledge,classifications:[{platform,runtimeIdentity:'leaf',displayName:null,classification:'study'}],productIdentityProjection:{version:projection,...content}})).run();
   const machine:MachineSelfResponse={machineId,accountId,platform,displayName:null,defaultChildId:child,desiredPolicyVersion:1,
     appliedPolicyVersion:1,policyState:'applied',revoked:false};
-  return {machine,child};
+  return {machine,child,projection};
 }
 async function fact(f:Awaited<ReturnType<typeof fixture>>,id='one',session='session',category='study'){
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_usage_segments_v2
@@ -56,7 +62,7 @@ async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{
   const receivedAt=Math.max(now,cutoff);
   const account=await createUsageAccount({schemaVersion:1,sourceKind:'application',durationUnit:'milliseconds',timezone:'Asia/Shanghai',
     date,revision,generatedAtMs:cutoff,settledThroughMs:cutoff,algorithmVersion:options.algorithm??`${f.machine.platform}-application-v1`,policyVersions:options.policyVersions??(options.empty?[]:[1]),
-    associationVersion:options.associationVersion===undefined?projection:options.associationVersion,correctionVersion:options.correctionVersion??0,
+    associationVersion:options.associationVersion===undefined?f.projection:options.associationVersion,correctionVersion:options.correctionVersion??0,
     rawFactCount:options.count??(options.empty?0:1),rawFactHash:'c'.repeat(64),complete:options.complete??true,reasonCodes:options.reasonCodes??(options.complete===false?['POLICY_HISTORY_MISSING']:[])},rows);
   const r=await beginApplicationAccount(env.RUNTIME_DB,f.machine,{localUserId:user,assignmentVersion:1,manifest:account.manifest},receivedAt);
   for(const c of account.chunks)await putApplicationAccountChunk(env.RUNTIME_DB,f.machine,r.manifestId,c.chunkIndex,{rows:c.rows,chunkHash:c.chunkHash});
@@ -125,11 +131,13 @@ it('receipt does not publish; exact approved source/management verification publ
 });
 async function setIdentity(f:Awaited<ReturnType<typeof fixture>>,status:'unresolved'|'conflict',associationKey='windows\nleaf',productId:string|null=null){
   const policy=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child);
+  const content:Omit<ProductIdentityProjection,'version'>={knowledgeVersion:1,
+    items:[{platform:'windows',runtimeIdentity:'leaf',associationKey,productId,canonicalName:'测试产品',status,
+      reasonCode:status==='conflict'?'IDENTITY_CONFLICT':'IDENTITY_UNRESOLVED'}]};
+  f.projection=await productIdentityProjectionVersion(content,policy.applicationKnowledge!);
   await env.RUNTIME_DB.prepare(`UPDATE runtime_child_app_policy_versions_v1 SET payload_json=?3
     WHERE account_id=?1 AND child_id=?2 AND version=1`)
-    .bind(f.machine.accountId,f.child,JSON.stringify({...policy,productIdentityProjection:{version:projection,knowledgeVersion:1,
-      items:[{platform:'windows',runtimeIdentity:'leaf',associationKey,productId,canonicalName:'测试产品',status,
-        reasonCode:status==='conflict'?'IDENTITY_CONFLICT':'IDENTITY_UNRESOLVED'}]}})).run();
+    .bind(f.machine.accountId,f.child,JSON.stringify({...policy,productIdentityProjection:{version:f.projection,...content}})).run();
 }
 it('complete standalone usage publishes without pretending product identity is confirmed or changing source facts',async()=>{
   const f=await fixture();await fact(f);await setIdentity(f,'unresolved');
@@ -314,7 +322,8 @@ it('refreshes stored confirmed non-Chrome role once without inventory upload or 
   const after=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child);
   expect(after.version).toBe(before.version+1);
   expect(after.productIdentityProjection?.items[0]).toEqual({...before.productIdentityProjection!.items[0],isChromeContainer:false});
-  expect(after.productIdentityProjection?.items.slice(1)).toEqual(before.productIdentityProjection?.items.slice(1));
+  expect(after.productIdentityProjection?.items.slice(1,4)).toEqual(before.productIdentityProjection?.items.slice(1,4));
+  expect(after.productIdentityProjection?.items[4]).toEqual({...before.productIdentityProjection!.items[4],isChromeContainer:true});
   expect(after.productIdentityProjection?.version).not.toBe(before.productIdentityProjection?.version);
   for(const field of ['classifications','quotas','timeWindows','weekReclassification','resolvedApplications'] as const)
     expect(after[field]).toEqual(before[field]);
@@ -337,6 +346,9 @@ it('historical wixstdba receives standalone projection through immutable policy 
   expect(await refreshHistoricalProductIdentityProjection(env.RUNTIME_DB,f.machine.accountId,f.child,now+1)).toBe(false);
   const foreign=await fixture();
   expect(await refreshHistoricalProductIdentityProjection(env.RUNTIME_DB,foreign.machine.accountId,foreign.child,now)).toBe(false);
+  expect((await getAppPolicy(env.RUNTIME_DB,foreign.machine.accountId,foreign.child)).productIdentityProjection?.items
+    .some(item=>item.runtimeIdentity==='wixstdba-fixture')).toBe(false);
+  expect(await refreshHistoricalProductIdentityProjection(env.RUNTIME_DB,foreign.machine.accountId,foreign.child,now+1)).toBe(false);
 });
 it('publication transaction failure keeps receipt and previous head intact',async()=>{
   const f=await fixture();await fact(f);const r=await upload(f);

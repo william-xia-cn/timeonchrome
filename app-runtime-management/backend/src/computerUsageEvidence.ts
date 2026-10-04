@@ -5,8 +5,8 @@ import { applyCurrentWeekClassification, correctUsageRows, loadUsageCorrections 
 import { sha256Hex } from './crypto';
 import { readCoveredChromeDeduction } from './applicationSharedQuota';
 import { HttpError } from './http';
-import { isConfirmedChrome, CHROME_DISPLAY_VERSION, CHROME_SPECIAL_PRODUCT } from './specialApplications';
-import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
+import { isConfirmedSpecialApplication, CHROME_DISPLAY_VERSION } from './specialApplications';
+import { effectiveApplicationKnowledge } from './applicationKnowledge';
 
 const MAX_EVIDENCE = 10000;
 type Usage = { totalDurationMs: number; categories: Array<{classification:string;durationMs:number}> };
@@ -35,6 +35,7 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
     .bind(accountId,childId,fromMs,toMs).all<{id:string;display_name:string}>();
   if ((machines.results?.length ?? 0) > 100) throw new HttpError(422,'COMPUTER_USAGE_SOURCE_LIMIT','电脑来源过多，请缩小查询范围。');
   const policy = await getAppPolicy(db,accountId,childId);
+  const knowledge = effectiveApplicationKnowledge(policy.applicationKnowledge ?? {schemaVersion:2,version:0,products:[],rules:[],bindings:[]});
   const projection = new Map((policy.productIdentityProjection?.items ?? []).map(item=>[`${item.platform}\n${item.runtimeIdentity}`,item]));
   const corrections = await loadUsageCorrections(db,accountId,childId,fromMs,toMs);
   const sources: ComputerApplicationSource[] = [];
@@ -64,30 +65,20 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
     }catch(error){
       if(error instanceof HttpError)reasons.push(error.code);else throw error;
     }
-    const retainedIdentities=[...new Map(rows.slice(0,remaining).map(row=>[row.platform+'\n'+row.runtime_identity,{platform:row.platform,identity:row.runtime_identity}])).values()];
-    const retainedEvidence=await db.prepare(`SELECT i.evidence_json FROM runtime_application_inventory_v1 i
-      WHERE i.machine_id=?1 AND EXISTS (SELECT 1 FROM json_each(?2) k
-        WHERE json_extract(k.value,'$.platform')=i.platform AND json_extract(k.value,'$.identity')=i.runtime_identity)
-      ORDER BY i.last_seen_at_ms DESC LIMIT 10001`)
-      .bind(machine.id,JSON.stringify(retainedIdentities))
-      .all<{evidence_json:string}>();
-    const evidenceByIdentity=new Map<string,AppEvidence>();
-    for(const item of retainedEvidence.results??[]){const evidence=JSON.parse(item.evidence_json) as AppEvidence;
-      const key=evidence.platform+'\n'+evidence.runtimeIdentity;if(!evidenceByIdentity.has(key))evidenceByIdentity.set(key,evidence);}
     const intervals: ComputerApplicationSource['intervals']=[];
     const keys=new Map<string,string>();
     const corrected=correctUsageRows(rows.slice(0,remaining),corrections,fromMs,toMs);
     for(const row of nativeAuthority?applyCurrentWeekClassification(corrected,policy,Date.now()):corrected) {
       const identity=`${row.platform}\n${row.runtime_identity}`, projected=projection.get(identity);
-      const special=isConfirmedChrome(evidenceByIdentity.get(identity),projected,policy.applicationKnowledge);
-      const stable=special?`${row.platform}\n${CHROME_SPECIAL_PRODUCT}`
+      const special=isConfirmedSpecialApplication(projected,knowledge);
+      const stable=special?`${row.platform}\n${projected!.productId}`
         :projected?.status==='confirmed'||projected?.status==='associated' ? projected.associationKey : identity;
       let subjectKey=keys.get(stable);
       if(!subjectKey){subjectKey=await sha256Hex(`${accountId}\napplication\n${stable}`);keys.set(stable,subjectKey);}
       // No local label/name inference. Only an explicitly approved product is special.
       intervals.push({startMs:Number(row.start_wall_time_ms),endMs:Number(row.end_wall_time_ms),
         classification:String(row.classification ?? 'historicalUnknown'),subjectKey,
-        label:special?'Chrome':projected?.canonicalName || String(row.display_name ?? '未知应用'),special});
+        label:projected?.canonicalName || String(row.display_name ?? '未知应用'),special});
     }
     remaining-=Math.min(rows.length,remaining);
     const computerKey=await sha256Hex(`${accountId}\ncomputer\n${machine.id}`);
@@ -118,18 +109,6 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
         WHERE d.account_id=?1 AND d.child_id=?2 AND d.id=?3 AND s.start_at_ms<?5 AND s.end_at_ms>?4
         ORDER BY s.start_at_ms,s.end_at_ms,s.id LIMIT ?6`).bind(accountId,childId,device.id,fromMs,toMs,remaining+1).all<Record<string,unknown>>();
       const rows=records.results??[],limited=rows.length>remaining;
-      const legacyEvidence=new Map<string,AppEvidence>();
-      // Existing retained strong evidence may corroborate the exact old leaf;
-      // this does not assert a legacy-device/current-machine relationship.
-      try {
-        const identities=[...new Map(rows.slice(0,remaining).map(row=>[row.platform+'\n'+row.runtime_identity,{platform:row.platform,identity:row.runtime_identity}])).values()];
-        const retained=await db.prepare(`SELECT i.evidence_json FROM runtime_application_inventory_v1 i JOIN runtime_machines_v2 m ON m.id=i.machine_id
-          WHERE m.account_id=?1 AND EXISTS (SELECT 1 FROM runtime_user_assignments_v2 a WHERE a.machine_id=i.machine_id AND a.local_user_id=i.local_user_id AND a.child_id=?2 AND a.protected=1)
-          AND EXISTS (SELECT 1 FROM json_each(?3) k WHERE json_extract(k.value,'$.platform')=i.platform AND json_extract(k.value,'$.identity')=i.runtime_identity)
-          ORDER BY i.last_seen_at_ms DESC LIMIT 10001`).bind(accountId,childId,JSON.stringify(identities)).all<{evidence_json:string}>();
-        for(const item of retained.results??[]){const evidence=JSON.parse(item.evidence_json) as AppEvidence;
-          const identity=evidence.platform+'\n'+evidence.runtimeIdentity;if(!legacyEvidence.has(identity))legacyEvidence.set(identity,evidence);}
-      }catch{ /* Uncorroborated legacy names remain ordinary applications. */ }
       const groups=new Map<string,Array<[number,number]>>(),categories=new Map<string,Map<string,Array<[number,number]>>>();
       const intervals:ComputerApplicationSource['intervals']=[];
       for(const row of correctUsageRows(rows.slice(0,remaining),corrections,fromMs,toMs)){
@@ -139,10 +118,10 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
         const categoryGroups=categories.get(category)??new Map<string,Array<[number,number]>>();
         const categoryRanges=categoryGroups.get(lane)??[];categoryRanges.push([start,end]);categoryGroups.set(lane,categoryRanges);categories.set(category,categoryGroups);
         const identity=`${row.platform}\n${row.runtime_identity}`,projected=projection.get(identity);
-        const special=isConfirmedChrome(legacyEvidence.get(identity),projected,policy.applicationKnowledge);
-        const stable=special?`${row.platform}\n${CHROME_SPECIAL_PRODUCT}`:projected?.status==='confirmed'||projected?.status==='associated'?projected.associationKey:identity;
+        const special=isConfirmedSpecialApplication(projected,knowledge);
+        const stable=special?`${row.platform}\n${projected!.productId}`:projected?.status==='confirmed'||projected?.status==='associated'?projected.associationKey:identity;
         intervals.push({startMs:start,endMs:end,classification:category,subjectKey:await sha256Hex(`${accountId}\napplication\n${stable}`),
-          label:special?'Chrome':projected?.canonicalName||String(row.display_name??'未知应用'),special});
+          label:projected?.canonicalName||String(row.display_name??'未知应用'),special});
       }
       remaining-=Math.min(remaining,rows.length);
       sources.push({key,computerKey:null,computerName:device.display_name||'旧版电脑',revision:await sha256Hex(JSON.stringify({device,rows})),
