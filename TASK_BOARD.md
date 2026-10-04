@@ -1,5 +1,9 @@
 # TASK_BOARD
 
+2026-10-04 Mac独立健康源码与隔离验证完成（未发布）：新增mac-guardian-health客户端，native-host-client仅接线、共享UUID初始化单次在途及bootstrap状态通知；Windows/Linux/平台未知/非managed均跳过旧Host。两专项通过，覆盖Native心跳卡住、Native业务卡住、Guardian失败不阻塞新健康/业务、同Profile UUID、不同Profile隔离、真实状态枚举、timeout/缺Host/无效响应/重连/旧Port延迟事件/同步触发去重/优先probe有界队列/脱敏字段。原专项首轮失败仅因新增监听器数量断言，保留原处理器顺序并更新断言后通过；新集成用例亦通过。typecheck及diff检查通过。范围Matched；无Deviated/Extra；真实Mac双通道和迁移验收Missing/DEFERRED，readiness=false未改。版本仍1.7.44；候选、正式feed、Mac安装及业务配置均未动。准备向Architect回报，不能以模拟结果启用接管。
+
+2026-10-04 CHROME-GUARDIAN-TRANSITION-20261004（PO明确授权，实施中）：仅macOS增加com.timeonchrome.guardian独立健康端口，保留现有nativehost健康/业务。先文档、独立客户端、生命周期接线及隔离测试；Windows不连接旧Host，不执行恢复。来源固定Mac接口46f2361228453d625163130ab04d05f15097d88b与交接4371bea7c25248f2738182381efecf0be4854197。变更等级为本地健康协议跨模块；最小验证mac-guardian-health、local-guardian、typecheck及diff；不跑安装/实机故障注入/全量/E2E。不改变身份、隐私、账本、配额、版本、候选或部署；Mac extension-readiness=false保持，模拟通过不代表真实双通道验收。无安装、接管或发布授权。
+
 2026-10-04 控件1.7.44发布完成：实现提交21e19e8、PR #229、合入master 97d8bd41cad22d754931174d73ed91575962b310。精确PR CI37153413233的app-runtime-gate通过；合入后构建既有contracts产物并typecheck通过，源码工作区干净。原密钥签名、CRX3独立验签及稳定ID核验通过，CRX586032字节、SHA256 7f68f977a23737389d80ef190d390500f390d66c92460aa72bccc49359ecb308。Wrangler4.127.1部署timeonchrome-update/master，生产deployment 53cbe046；稳定域名与deployment域名feed/CRX/SHA256逐项回读匹配，20份CRX归档保留。范围审计Matched，无Deviated/Missing/Extra（本次发布范围）；真实Chrome恢复、Mac和共享联合验收仍未通过，不混作已修复。未部署业务云端、迁移或安装Native，未动家庭开关；终端升级另行观察，unpacked不会自动升级。先前发布中及未托管记录由本条覆盖。
 
 2026-10-04 PO批准控件发布并托管（extension-local／release）：本轮正式managed 1.7.44取代未托管1.7.43准备包，包含应用日周读取故障隔离、旧Port延迟事件隔离、Admin导航拆分和标题区本机休息摘要。线上feed只读仍1.7.32；不复用缺少本轮补丁的旧CRX。范围为本线源码、测试、发布文档与更新站点，保留旧CRX；不改Worker/Pages业务、Native安装、D1、家庭配置、计时或配额，不启用共享执行。最小发布验证：既有局部截图证据复用，local-guardian/application-usage/rest-summary/admin-nav/managed边界、typecheck、扩展根目录及diff；固定分支提交并PR合入经验证主线后签包托管。原密钥环境未配置，已请求本机路径，不生成新密钥。真实Chrome应用恢复仍未完成，Mac及其他既有遗留不伪报通过。
