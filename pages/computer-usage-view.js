@@ -94,7 +94,7 @@ return '<style>.computer-view{display:grid;gap:16px}.computer-view[hidden]{displ
 (snapshot.readDisplay?'<p>'+esc(snapshot.readDisplay)+'</p>':'')+sourceInfo+'<div class="computer-metrics"><article class="computer-metric"><small>'+esc(title)+'时间</small><strong>'+duration(snapshot.totalDurationMs)+'</strong></article></div>'+
 '<section><h3>分类明细</h3><p>独立来源原口径；明细可能重叠，不相加生成总量。</p><div class="computer-category-list">'+snapshot.categories.map(item=>'<p><b>'+esc(labels[item.classification]||item.classification)+'</b><br>'+duration(item.durationMs)+'</p>').join('')+'</div></section>'+
 '<section><h3>时间分布</h3><ul>'+snapshot.buckets.map(item=>'<li>'+esc(item.label||time(item.startAtMs))+' · '+duration(item.durationMs)+'</li>').join('')+'</ul></section>'+
-'<section><h3>'+esc(snapshot.source==='application'?'应用明细':'网站明细')+'</h3><ul>'+snapshot.applications.map(item=>'<li><strong>'+esc(item.displayName)+'</strong> · '+esc(labels[item.classification]||item.classification)+' · '+duration(item.durationMs)+'</li>').join('')+'</ul></section>';
+'<section><h3>'+esc(snapshot.source==='application'?'应用明细':'网站明细')+'</h3><ul>'+snapshot.applications.map(item=>'<li><strong>'+esc(item.displayName)+'</strong> · '+esc(item.classifications?.length?item.classifications.map(category=>labels[category]||category).join('／'):labels[item.classification]||item.classification)+' · '+duration(item.durationMs)+'</li>').join('')+'</ul></section>';
 }
 function createIndependent(host,read,onRange){
 let generation=0,lastMarkup='';

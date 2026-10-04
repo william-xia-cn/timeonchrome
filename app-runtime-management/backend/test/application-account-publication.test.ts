@@ -1,6 +1,6 @@
 import {env} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
-import {createUsageAccount,type UsageAccountRow} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {createUsageAccount,hashUsageAccountValue,type UsageAccountRow} from '@timeonchrome/app-runtime-contracts/usage-account';
 import {beginApplicationAccount,putApplicationAccountChunk,commitApplicationAccount,readApplicationAccountStatus} from '../src/applicationAccounts';
 import {publishApplicationAccounts} from '../src/applicationAccountPublication';
 import {getAppPolicy,queryAppUsage,refreshHistoricalProductIdentityProjection} from '../src/appPolicy';
@@ -129,9 +129,13 @@ it('complete standalone usage publishes without pretending product identity is c
   const r=await upload(f,1,{associationKey:'windows\nleaf'});await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:true});
   const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await read().catch(()=>{});
+  const scope=await hashUsageAccountValue([f.machine.accountId,f.child,{machineId:null,localUserId:null,platform:null},0,DAY]);
+  for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now,scope);
+  expect((await env.RUNTIME_DB.prepare('SELECT date,error_code FROM runtime_application_statistics_queue_v1 WHERE account_id=?1 AND error_code IS NOT NULL').bind(f.machine.accountId).all()).results).toEqual([]);
   const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
   expect(result.statistics.productApplications).toEqual([{key:await sha256Hex('windows\nleaf'),displayName:'测试产品',durationMs:1501}]);
+  expect(result.statistics.productClassifications).toEqual({[await sha256Hex('windows\nleaf')]:['study']});
   expect((await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child)).productIdentityProjection?.items[0])
     .toMatchObject({status:'unresolved',productId:null,associationKey:'windows\nleaf'});
   expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results)

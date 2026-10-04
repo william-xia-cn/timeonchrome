@@ -114,7 +114,9 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
   const sourceRevision=frozen.length===mapped.length?before.revision:await sha256Hex(canonicalUsageAccountJson({
     sourceRevision:before.revision,settledThroughMs:manifest.settledThroughMs,rowsHash:manifest.rowsHash,coverage:'frozen-subset',
   }));
-  return {sourceRevision,rows};
+  const subjectClassifications:Record<string,string[]>={};
+  for(const span of spans)subjectClassifications[span.subject]=[...new Set([...(subjectClassifications[span.subject]??[]),span.category])].sort();
+  return {sourceRevision,rows,subjectClassifications};
 }
 /** Receipt is immutable; publication has a separate monotonic head and retry diagnosis. */
 export async function publishApplicationAccounts(db:D1Database,now=Date.now(),manifestId?:string) {

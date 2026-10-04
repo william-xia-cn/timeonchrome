@@ -72,5 +72,10 @@ currentScope='child-a|week';await cachedReader.load();assert.equal(viewCalls,4,'
 assert.ok(controller.includes('computerReader.load({refresh})'),'outer refresh passes through to summary reader');
 let failedCalls=0;const failedReader=view.create(cleanHost,async()=>{failedCalls++;return {...snapshot,reasons:['APPLICATION_SOURCE_UNAVAILABLE']};});
 await failedReader.load();await failedReader.load();assert.equal(failedCalls,2,'partial source failures do not become successful memory cache entries');
+const productMarkup=view.independentSummary({source:'application',fromDate:'2026-10-04',toDate:'2026-10-04',
+  totalDurationMs:51125,categories:[],buckets:[],applications:[{displayName:'同一产品',classification:'historicalUnknown',
+    classifications:['study','composite'],durationMs:51125}],statistics:{producer:'native'}});
+assert.ok(productMarkup.includes('学习／复合'));
+assert.ok(productMarkup.includes('51秒 125毫秒')||productMarkup.includes('51秒')||productMarkup.includes('51秒'));
 console.log('PASS renderer/cache: child summary, precision, source isolation, TTL, refresh, single-flight, eviction, failure, stale response');
 }).catch(error=>{console.error(error);process.exitCode=1;});

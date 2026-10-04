@@ -65,7 +65,11 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
     return {source:'application',fromDate,toDate,totalDurationMs:value.totalDurationMs,statistics,
       categories:value.categories.map(({classification,durationMs})=>({classification,durationMs})),
       buckets:value.buckets.map(({startAtMs,durationMs})=>({startAtMs,durationMs})),
-      applications:value.applications.map(({displayName,classification,durationMs})=>({displayName,classification,durationMs}))};
+      applications:statistics.productApplications
+        ?statistics.productApplications.map(({key,displayName,durationMs})=>({displayName,durationMs,
+          classifications:statistics.productClassifications[key]??[],
+          classification:statistics.productClassifications[key]?.length===1?statistics.productClassifications[key]![0]:'historicalUnknown'}))
+        :value.applications.map(({displayName,classification,durationMs})=>({displayName,classification,durationMs}))};
   }
   async applicationEvidenceRevision(accountId:string,childId:string,fromDate:string,toDate:string) {
     await this.requireChildScope(accountId,childId);
