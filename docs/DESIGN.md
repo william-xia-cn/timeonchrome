@@ -1876,3 +1876,6 @@ OpenCode 在执行 Popup P0 UI 任务时，出现“等价替代 / 自行简化 
 # 1.7.43 正式 managed 非共享发布准备
 
 本次仅提升正式源码版本并隔离 staging，不修改网页记账及配额算法。正式 marker 为 managed，不含 native-host-development、sharedBrowserCloseDevelopment 或 debugger。Native Host 使用 com.timeonchrome.nativehost；旧 com.timeonchrome.guardian 仍服务线上1.7.32消费者，不由本次扩展发布删除。共享策略在云端总闸关闭时降为 shadow，终端保持原网页执行；该部署证据不代替真实共享余额/执行验收。已安全接入原密钥完成CRX3签名和稳定ID独立验证；正式CRX及host-output一致，feed更新待架构执行。签包不等于已上线，旧候选和历史CRX不覆盖。
+# Mac Guardian独立健康链路（2026-10-04，实施范围）
+
+仅runtime.getPlatformInfo().os为mac且现有managed/native-host部署标记有效时启用独立com.timeonchrome.guardian端口。其alarm、内存定时器、超时、重连、在途请求与有界诊断状态均与nativehost隔离；不等待Native健康/业务或V3账本状态。两个通道共用既有持久Profile UUID及本地bootstrap/activation/monitoring状态，UUID初始化采用单次在途初始化，失败后可重试。旧请求只含type、extensionId、profile、version、monitoringStatus、policyHash；响应仅健康ACK，绝不用于配对、能力或账本确认。平台未知、Windows或非managed构建静默跳过。Host故障不改变本地监控状态；独立健康发送不包含token、URL、标题或账号。只读健康探测并行发送，原探测响应仍由现有Native链路负责。无浏览器关闭、启动或恢复动作；Mac迁移readiness仍关闭，必须另行签名与真实验收。

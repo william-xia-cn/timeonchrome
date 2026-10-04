@@ -3,6 +3,7 @@
 import { MANAGED_POLICY_KEYS, readManagedActivationPolicy } from '../core/activation-gate.js';
 import { readNativeHostDeploymentMarker, readNativeHostDevelopmentMarker } from '../core/deployment-mode.js';
 import { budgetedLocalSet } from './storage-budget.js';
+import { createMacGuardianHealthClient, MAC_GUARDIAN_STATUS_KEY } from './mac-guardian-health.js';
 import { registerPersistedUsageSegmentObserver } from '../core/usage-segments.js';
 import { readCurrentWeekBrowserSnapshots } from './browser-bridge-v3-snapshot.js';
 import { validateSharedQuotaStateV1, validateSharedAccessPolicyIdentityV1 } from '../core/shared-quota-state.js';
@@ -241,7 +242,16 @@ export function configureLocalGuardianStateProvider(provider) {
   stateProvider = typeof provider === 'function' ? provider : stateProvider;
 }
 
+let profileInitialization = null;
 async function getOrCreateProfileUuid() {
+  if (profileInitialization) return profileInitialization;
+  const task = initializeProfileUuid();
+  profileInitialization = task;
+  try { return await task; }
+  finally { if (profileInitialization === task) profileInitialization = null; }
+}
+
+async function initializeProfileUuid() {
   const stored = await chrome.storage.local.get(LOCAL_GUARDIAN_PROFILE_KEY);
   if (validUuid(stored?.[LOCAL_GUARDIAN_PROFILE_KEY])) return stored[LOCAL_GUARDIAN_PROFILE_KEY];
 
@@ -1123,6 +1133,7 @@ export async function mirrorPersistedUsageSegments(segments) {
 }
 
 export function notifyLocalGuardianBootstrapResult(bootstrapState, trigger = 'bootstrap_result') {
+  macGuardianHealth.request({ trigger, force: true }).catch(() => {});
   const monitoringStatus = bootstrapState === 'failed' ? 'degraded' : undefined;
   return requestLocalGuardianHeartbeat({
     trigger,
@@ -1404,6 +1415,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   requestLocalGuardianHeartbeat({ type: 'probe', trigger: 'health_probe', force: true })
     .then(sendResponse, () => sendResponse({ ok: false, errorCode: 'heartbeat_build_failed' }));
   return true;
+});
+
+const macGuardianHealth = createMacGuardianHealthClient({
+  runtime: chrome.runtime,
+  alarms: chrome.alarms,
+  enabled: readNativeHostDeploymentMarker,
+  readContext: async () => {
+    const profile = await getOrCreateProfileUuid();
+    const development = await readNativeHostDevelopmentMarker();
+    const managed = development ? { available: true, raw: {} }
+      : await readManagedActivationPolicy().catch(() => ({ available: false, raw: {} }));
+    let snapshot;
+    try { snapshot = await Promise.resolve(stateProvider()); }
+    catch (_) { snapshot = { bootstrapState: 'ready', healthReadFailed: true }; }
+    return { profile,
+      monitoringStatus: resolveLocalGuardianMonitoringStatus({ ...snapshot,
+        healthReadFailed: snapshot?.healthReadFailed === true || managed?.available !== true }),
+      policyHash: development ? null : await hashManagedPolicy(managed.raw || {}) };
+  },
+  saveStatus: status => budgetedLocalSet({ [MAC_GUARDIAN_STATUS_KEY]: status }, {
+    priority: 'diagnostic', source: 'mac_guardian_health',
+  }),
 });
 
 Promise.resolve().then(async () => {

@@ -36,6 +36,7 @@ function createPort(onPost) {
 
 function moduleSource(instance) {
   return originalSource
+    .replace(/from '\.\/mac-guardian-health.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/infra/mac-guardian-health.js')).href}'`)
     .replace(/from '\.\.\/core\/shared-web-native.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-web-native.js')).href}'`)
     .replace(/import \{ MANAGED_POLICY_KEYS, readManagedActivationPolicy \} from '\.\.\/core\/activation-gate\.js';/, `const MANAGED_POLICY_KEYS = globalThis.__guardianPolicyKeys;\nconst readManagedActivationPolicy = (...args) => globalThis.__guardianReadPolicy(...args);`)
     .replace(/import \{ readNativeHostDeploymentMarker, readNativeHostDevelopmentMarker \} from '\.\.\/core\/deployment-mode\.js';/, 'const readNativeHostDeploymentMarker = (...args) => globalThis.__guardianReadMarker(...args);\nconst readNativeHostDevelopmentMarker = (...args) => globalThis.__guardianReadDevelopmentMarker(...args);')
@@ -59,13 +60,14 @@ function moduleSource(instance) {
     + `\nexport const executionFenceForTest = browserExecutionFence; export const retirementEvidenceForTest = retirementEvidence; export const expireSnapshotRetryForTest=()=>{snapshotRetryAtMs=0;};\n// test-instance-${instance}`;
 }
 
-async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [] } = {}) {
+async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [], platform = 'win' } = {}) {
   const alarms = { onAlarm: createEvent(), created: [] };
   alarms.get = async () => null;
   alarms.create = async (name, options) => { alarms.created.push({ name, options }); };
   const runtime = {
     id: 'jdcancbiocacabbjdkngadmjpjmkdnih',
     getManifest: () => ({ version: '1.7.25' }),
+    getPlatformInfo: async () => ({ os: platform }),
     getURL: (value) => `chrome-extension://jdcancbiocacabbjdkngadmjpjmkdnih/${value}`,
     connectNative,
     onStartup: createEvent(),
@@ -142,10 +144,10 @@ async function run() {
   });
   await waitFor(() => payloads.length >= 1);
 
-  assert.strictEqual(alarms.onAlarm.listeners.length, 1);
-  assert.strictEqual(runtime.onStartup.listeners.length, 1);
-  assert.strictEqual(runtime.onInstalled.listeners.length, 1);
-  assert.strictEqual(runtime.onMessage.listeners.length, 1);
+  assert.strictEqual(alarms.onAlarm.listeners.length, 2);
+  assert.strictEqual(runtime.onStartup.listeners.length, 2);
+  assert.strictEqual(runtime.onInstalled.listeners.length, 2);
+  assert.strictEqual(runtime.onMessage.listeners.length, 2);
   assert.strictEqual(alarms.created.some((entry) => entry.name === 'timeonchromeLocalGuardianHeartbeat' && entry.options.periodInMinutes === 1), true);
   assert.strictEqual(alarms.created.some((entry) => entry.name === 'timeonchromeBrowserBridgeReconcile' && entry.options.periodInMinutes === 60), true);
 
@@ -1136,6 +1138,70 @@ async function run() {
     assert.strictEqual(webHost.module.readNativeHostDiagnosticState().lastResponseRejection.serviceErrorCode, code);
   }
   webError = null;
+  // Both real clients share identity, but not Port, pending ACK or business queue.
+  const dualStorage = {}, dualMessages = [], dualPorts = {};
+  let holdNative = true, holdGuardian = false, holdApplication = false, releaseApplication;
+  const dual = await loadGuardian({ storage: dualStorage, policy, platform: 'mac',
+    connectNative(host) {
+      const port = createPort((payload, onMessage) => {
+        dualMessages.push({ host, payload });
+        if ((host === 'com.timeonchrome.nativehost' && holdNative)
+          || (host === 'com.timeonchrome.guardian' && holdGuardian)) return;
+        const reply = () => onMessage.listeners.forEach(fn => fn({ ok: true, receivedAt: 1787160000,
+          ...(host === 'com.timeonchrome.nativehost' ? { requestId: payload.requestId,
+            supportedProtocols: [1, 2, 3], capabilities: ['health', 'application-usage-read'],
+            ...(payload.messageType === 'getApplicationUsage' ? { applicationUsage: { revision: payload.requestId } } : {}),
+            acceptedIds: [], duplicateIds: [], rejected: [] } : {}) }));
+        if (payload.messageType === 'getApplicationUsage' && holdApplication) releaseApplication = reply;
+        else queueMicrotask(reply);
+      });
+      dualPorts[host] = port;
+      return port;
+    } });
+  await waitFor(() => dualStorage.mac_guardian_health_status_v1?.lastSuccessAt > 0);
+  await waitFor(() => dualMessages.some(x => x.host === 'com.timeonchrome.nativehost'));
+  const oldBoot = dualMessages.find(x => x.host === 'com.timeonchrome.guardian').payload;
+  const newBoot = dualMessages.find(x => x.host === 'com.timeonchrome.nativehost').payload;
+  assert.strictEqual(oldBoot.profile, newBoot.profileId, 'first-run UUID must be identical across both clients');
+  assert.strictEqual(oldBoot.monitoringStatus, 'booting');
+  assert.strictEqual(dualStorage.local_guardian_status_v1?.lastSuccessAt ?? null, null,
+    'Guardian health must never synthesize Native ACK');
+  dual.module.configureLocalGuardianStateProvider(() => ({ bootstrapState: 'ready',
+    activationState: { activated: true }, monitoringEnabled: 1 }));
+  const ready = dual.module.notifyLocalGuardianBootstrapResult('ready');
+  await waitFor(() => dualMessages.some(x => x.host === 'com.timeonchrome.guardian'
+    && x.payload.monitoringStatus === 'active'));
+  assert.strictEqual(dualStorage.mac_guardian_health_status_v1.lastErrorCode, null,
+    'Native hang must not degrade independent local health');
+  holdNative = false;
+  dualPorts['com.timeonchrome.nativehost'].onMessage.listeners.forEach(fn => fn({ ok: true,
+    receivedAt: 1787160000, requestId: newBoot.requestId, supportedProtocols: [1], capabilities: ['health'] }));
+  await ready;
+  await waitFor(() => dualStorage.local_guardian_status_v1?.lastSuccessAt > 0);
+  await new Promise(resolve => setTimeout(resolve, 5));
+  holdGuardian = true;
+  const nativeBefore = dualMessages.filter(x => x.host === 'com.timeonchrome.nativehost').length;
+  assert.strictEqual((await dual.module.notifyLocalGuardianBootstrapResult('ready', 'independence')).ok, true);
+  await waitFor(() => dualMessages.filter(x => x.host === 'com.timeonchrome.nativehost').length > nativeBefore);
+  dualPorts['com.timeonchrome.guardian'].disconnect();
+  await waitFor(() => dualStorage.mac_guardian_health_status_v1?.lastErrorCode === 'guardian_port_disconnected');
+  assert.strictEqual(dualStorage.local_guardian_status_v1.lastErrorCode, null);
+  assert.strictEqual(dual.module.readNativeHostDiagnosticState().connected, true);
+  assert.strictEqual((await dual.module.requestApplicationUsage(query)).ok, true,
+    'Guardian failure cannot block Native business');
+  holdGuardian = false; holdApplication = true;
+  const business = dual.module.requestApplicationUsage(query);
+  await waitFor(() => releaseApplication);
+  const oldBefore = dualMessages.filter(x => x.host === 'com.timeonchrome.guardian').length;
+  // Request a probe on both listeners: the Native probe queues behind its business read.
+  for (const listener of dual.runtime.onMessage.listeners) listener({ type: 'TIMEONCHROME_LOCAL_HEALTH_PROBE' },
+    { id: dual.runtime.id, url: dual.runtime.getURL('health-probe.html') }, () => {});
+  await waitFor(() => dualMessages.filter(x => x.host === 'com.timeonchrome.guardian').length > oldBefore);
+  assert.strictEqual(dualMessages.filter(x => x.host === 'com.timeonchrome.guardian').at(-1).payload.type, 'probe');
+  releaseApplication(); assert.strictEqual((await business).ok, true);
+  await waitFor(() => dualStorage.mac_guardian_health_status_v1.lastErrorCode === null);
+  assert.deepStrictEqual(Object.keys(dualStorage).filter(key => key === 'usage_segments_v1'), [],
+    'health tests must not create an authoritative ledger');
   console.log('[Local Guardian] passed');
   process.exit(0);
 }
