@@ -21,6 +21,7 @@ export interface StatisticsValue {
   mediaPlaybackTotalMs:number;
   nativeRows?:UsageAccountRow[];
   nativeSettledThroughMs?:number|null;
+  nativeSourcePending?:boolean;
   nativeSubjectClassifications?:Record<string,string[]>;
   legacyQuotaCategoryDurations?:Record<string,number>;
   legacyComparison?:{totalDurationMs:number;nativeDeltaMs:number};
@@ -155,6 +156,7 @@ export async function rebuildApplicationStatistics(db:D1Database,now=Date.now(),
       value.legacyQuotaCategoryDurations=Object.fromEntries(value.categories.map(c=>[c.classification,c.durationMs]));
       value.nativeRows=native;
       value.nativeSettledThroughMs=nativeProjection!.settledThroughMs;
+      value.nativeSourcePending=nativeProjection!.stale;
       value.nativeSubjectClassifications=nativeProjection!.subjectClassifications;
       value.totalDurationMs=total;
       const prior=new Map(value.categories.map(c=>[c.classification,c]));
@@ -278,7 +280,7 @@ export async function readPersistentApplicationUsage(db:D1Database,account:strin
     const old=products.get(r.subjectKey!);if(old)old.durationMs+=r.duration;
     else products.set(r.subjectKey!,{key:r.subjectKey!,displayName:r.displayName!,durationMs:r.duration});}
   return {value,cacheStatus:'persistent' as const,statistics:{revision:await hashUsageAccountValue([...loaded].map(([id,d])=>[id,d.source_revision])),
-    stale:pending,producer:producers.size===1?[...producers][0]!:'mixed',
+    stale:pending||days.some(d=>d.nativeSourcePending===true),producer:producers.size===1?[...producers][0]!:'mixed',
     settledThroughByDate:requested.map((s,i)=>({date:s.date,settledThroughMs:days[i]!.nativeSettledThroughMs??null})),
     productStatisticsComplete,productClassifications,productApplications:productStatisticsComplete?[...products.values()].sort((a,b)=>b.durationMs-a.durationMs):null,
     computedAtMs:Math.min(...requested.map(s=>loaded.get(`${s.scope_key}/${s.date}`)!.computed_at_ms))}};
