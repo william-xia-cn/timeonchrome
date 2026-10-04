@@ -1175,6 +1175,7 @@
       gap: 18px;
       margin-bottom: 4px;
     }
+    .usage-analysis-title { min-width: 0; }
     .usage-analysis-title h2 {
       font-size: 24px;
       line-height: 1.2;
@@ -1219,6 +1220,13 @@
       width: max-content;
       margin-bottom: 16px;
     }
+    .usage-rest-summary { display: flex; gap: 24px; flex-wrap: wrap; margin: 10px 0 4px; }
+    .usage-rest-summary-item { display: flex; align-items: baseline; gap: 4px 8px; flex-wrap: wrap; min-width: 0; }
+    .usage-rest-summary-total { font-size: 16px; font-weight: 600; }
+    .usage-rest-summary-parts, .usage-rest-summary-note { color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    .usage-rest-summary-parts { font-weight: 400; }
+    .usage-rest-summary-note { margin: 0 0 6px; }
+    .rules-tabs button[hidden] { display: none; }
     .rules-panel {
       display: none;
     }
@@ -1495,6 +1503,7 @@
       background: rgba(0,184,148,0.04);
     }
     @media (max-width: 720px) {
+      .usage-rest-summary { flex-direction: column; gap: 10px; }
       body { min-width: 0; }
       #main-screen { width: 100%; }
       .sidebar {
@@ -1946,6 +1955,9 @@
     <div class="nav-item" data-page="rules">
       <span class="nav-icon"><img src="../icons/ui/rules.svg" alt=""></span> 访问管理
     </div>
+    <div class="nav-item" data-page="sites">
+      <span class="nav-icon"><img src="../icons/ui/rules.svg" alt=""></span> 网站管理
+    </div>
     <div class="nav-item" data-page="system-management">
       <span class="nav-icon"><img src="../icons/ui/settings.svg" alt=""></span> 系统管理
     </div>
@@ -1963,7 +1975,7 @@
     <!-- 访问管理（只读） -->
     <div class="page" id="page-rules">
       <div class="page-header">
-        <h2>访问管理</h2>
+        <h2 id="rules-page-title">访问管理</h2>
         <p id="rules-mode-desc">当前规则由家长在云端设定，本设备仅展示当前生效规则</p>
       </div>
 
@@ -1976,14 +1988,14 @@
       </div>
 
       <div class="usage-segmented rules-tabs" aria-label="访问管理功能">
-        <button type="button" class="active" data-rules-tab="site-management">网站管理</button>
-        <button type="button" data-rules-tab="quota-management">时间配额</button>
+        <button type="button" data-rules-tab="site-management" hidden>网站清单</button>
+        <button type="button" class="active" data-rules-tab="quota-management">时间配额</button>
         <button type="button" data-rules-tab="autonomy-management">自主度配置</button>
         <button type="button" data-rules-tab="schedule-management">时间段管理</button>
-        <button type="button" data-rules-tab="classification-requests">网站归类记录</button>
+        <button type="button" data-rules-tab="classification-requests" hidden>网站归类记录</button>
       </div>
 
-      <div class="rules-panel active" data-rules-panel="site-management">
+      <div class="rules-panel" data-rules-panel="site-management">
         <div class="rules-readonly-shell">
           <aside class="rules-policy-nav" id="admin-rules-policy-nav" aria-label="网站管理策略目录">
             <!-- rendered by admin.js -->
@@ -2002,7 +2014,7 @@
           </div>
         </div>
       </div>
-      <div class="rules-panel" data-rules-panel="quota-management">
+      <div class="rules-panel active" data-rules-panel="quota-management">
         <div class="card">
           <div class="card-header">
             <div>
@@ -2138,6 +2150,17 @@
         <div class="usage-analysis-topbar">
           <div class="usage-analysis-title">
             <h2>使用分析</h2>
+            <div class="usage-rest-summary" aria-label="这台电脑休息时长" aria-live="polite">
+              <div class="usage-rest-summary-item">
+                <div class="usage-rest-summary-total">今日休息 <span id="usage-rest-today-total">读取中…</span></div>
+                <div class="usage-rest-summary-parts" id="usage-rest-today-parts">网页未知＋应用未知</div>
+              </div>
+              <div class="usage-rest-summary-item">
+                <div class="usage-rest-summary-total">本周休息 <span id="usage-rest-week-total">读取中…</span></div>
+                <div class="usage-rest-summary-parts" id="usage-rest-week-parts">网页未知＋应用未知</div>
+              </div>
+            </div>
+            <div class="usage-rest-summary-note">简单相加，未去重 · 这台电脑</div>
             <p id="usage-analysis-sync-label">本机数据：加载中...</p>
           </div>
           <div class="usage-analysis-controls">

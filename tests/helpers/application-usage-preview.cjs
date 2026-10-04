@@ -12,6 +12,7 @@ const formatter = admin.slice(admin.indexOf('function formatSeconds(secs)'), adm
 const bootstrap = `
 import { getAdminApplicationUsageAnalysisView, applicationUsageErrorMessage, APPLICATION_CATEGORY_LABELS }
   from '/extension/stats/application-usage-read-model.js';
+import { readRestUsageSummary } from '/extension/stats/rest-usage-summary.js';
 const usageAnalysisState = { ledger:'application', mode:'day', date:null, listMode:'targets', query:'', detail:null };
 let usageAnalysisLastView = null, config = {};
 const DAY_NAMES = ['周日','周一','周二','周三','周四','周五','周六'];
@@ -31,8 +32,9 @@ window.chrome = { runtime: { id:'mock-preview', onMessage: {addListener: listene
   window.previewQueryCount++;
   if (window.mockAppMode === 'missing') return {ok:false,errorCode:'native_host_unavailable'};
   if (window.mockAppMode === 'offline') return {ok:false,errorCode:'runtime_service_unavailable'};
+  if (window.mockAppMode === 'week-pending' && query.fromDate !== query.toDate) return {ok:false,errorCode:'application_usage_pending'};
   if (window.mockAppMode === 'slow') await new Promise(resolve => setTimeout(resolve, 250));
-  const dates = Array.from({length:7}, (_, i) => new Date(Date.parse(query.fromDate+'T00:00:00+08:00')+i*86400000+8*3600000).toISOString().slice(0,10));
+  const dates = Array.from({length:(Date.parse(query.toDate+'T00:00:00+08:00')-Date.parse(query.fromDate+'T00:00:00+08:00'))/86400000+1}, (_, i) => new Date(Date.parse(query.fromDate+'T00:00:00+08:00')+i*86400000+8*3600000).toISOString().slice(0,10));
   const active = dates.includes('2026-09-26');
   const values = active ? {study:300000,composite:1200501,restrictedEntertainment:2400000,unclassified:60000,unknown:2000} : {};
   const total = Object.values(values).reduce((n,v)=>n+v,0);
@@ -48,7 +50,7 @@ window.chrome = { runtime: { id:'mock-preview', onMessage: {addListener: listene
     complete:true,reasonCodes:[],totalMs:total,days,applications,nextOffset:null,
     attribution:{complete:window.mockAppMode!=='attribution-pending',productAssociationVersion:'b'.repeat(64),classificationCorrectionVersion:3,
       reasonCodes:window.mockAppMode==='attribution-pending'?['PRODUCT_IDENTITY_UNRESOLVED']:[]}}};
-} } };
+} }, storage: { local: { get: async () => ({ daily_usage_stats_v1: {} }) } } };
 ${renderer}
 document.querySelector('#login-screen').style.display='none';
 document.querySelector('#main-screen').style.display='block';
