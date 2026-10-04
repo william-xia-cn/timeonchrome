@@ -1,5 +1,7 @@
 # TASK_BOARD
 
+2026-10-05 最终交付CI核对：PR #239已建立，Native2.6.30候选已校验。Worker CI唯一失败为游戏默认分类用例硬编码旧策略版本2：现行保存已包含完整产品知识，同一盘点无需再生成内容等价版本，实际合法版本为1；各游戏分类断言均通过。修订该用例验证盘点不重复升版，并让上传使用实际下发版本，不改变游戏规则、生产版本或原账。仅补跑该聚焦用例、diff与范围检查，再复用CI发布Runtime Worker；安装和真实ACK仍待验收，共享执行保持关闭。
+
 2026-10-05 本批源码收口：契约61da90c、云端82c9e4c已在既有cloud-management提交；Native main@5c6617a2629b0992b9115a8ee249e28b3036ad97已提交推送、工作区干净，固定消费1.32.0（SHA256 60de68295a7491ad1395900b8e5b0fc6ab5eada58aaa4cfd33a22f0c0f5be7bf），上一1.31.2哈希保持核验。特殊应用仅由可信productId对应catalogGroup决定；普通未关联身份不再需要逐条非Chrome证明，真实冲突/危险alias/上下文缺失仍诊断。属性参与统计模型摘要，变化触发重物化；旧模型候选和出队不复用。云端89项、Native135项聚焦测试通过，契约build/typecheck/26向量/兼容检查、Worker typecheck/dry-run、Native公共库net8.0编译及范围/diff检查通过。审计Matched：单一属性、第二特殊产品、普通other保留总量、版本替换及原账不变；本批无未批准Extra/Deviated。尚未部署、构建安装候选、安装或实机新日账/贡献ACK验收；安装2.6.29不含本批。共享执行保持关闭；提醒执行target旧角色筛选未改，属后续执行路径核对，不将统计源码收口宣称全部旧字段已删除。无需用户抄Service Worker或重新配对；生产发布、最终候选及现场核对分别登记，不执行migration/R2操作。
 
 NOW 2026-10-05 PO批准立即实施网页模型对齐修复：契约1.32.0增加AppProduct.catalogGroup='specialApplication'单一产品属性，技术身份只关联productId；页面消费同一关联、不再扫描安装证据重新判断Chrome，旧isChromeContainer仅兼容。目录属性参与关联版本，历史独立身份刷新保持幂等及家庭隔离。契约build/typecheck、分类26黄金用例/新特殊产品断言、兼容检查及Worker typecheck通过；产品关联/电脑来源/统计45项与发布44项通过。发布夹具已由固定假关联hash改为实际版本生成器，没有放宽验证。Native已收到实施任务，最终固定包随后交付；本机适配、实际安装和贡献ACK仍待完成，当前不部署/安装/migration/R2/shared启用。此条为源码实施证据，不冒称实机修复完成。
