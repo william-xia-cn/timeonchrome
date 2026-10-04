@@ -5,6 +5,7 @@ import {beginApplicationAccount,putApplicationAccountChunk,commitApplicationAcco
 import {publishApplicationAccounts} from '../src/applicationAccountPublication';
 import {getAppPolicy,queryAppUsage,refreshHistoricalProductIdentityProjection} from '../src/appPolicy';
 import {sha256Hex} from '../src/crypto';
+import {CHROME_SPECIAL_PRODUCT} from '../src/specialApplications';
 import type {MachineSelfResponse} from '../src/contracts';
 import {readPersistentApplicationUsage,rebuildApplicationStatistics,type StatisticsValue} from '../src/applicationStatistics';
 const DAY=86400000,start=Date.parse('2026-09-27T00:00:00+08:00'),now=start+DAY;
@@ -20,7 +21,7 @@ async function fixture(platform:MachineSelfResponse['platform']='windows'){
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
     (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms) VALUES(?1,?2,1,?3,'fixture',0,0)`)
     .bind(accountId,child,JSON.stringify({...policy,classifications:[{platform,runtimeIdentity:'leaf',displayName:null,classification:'study'}],productIdentityProjection:{version:projection,knowledgeVersion:1,
-      items:[{platform,runtimeIdentity:'leaf',associationKey:`product:${platform}:test`,productId:'test',canonicalName:'测试产品',status:'confirmed',reasonCode:'APPROVED_PRODUCT'}]}})).run();
+      items:[{platform,runtimeIdentity:'leaf',associationKey:`product:${platform}:test`,productId:'test',canonicalName:'测试产品',status:'confirmed',reasonCode:'APPROVED_PRODUCT',isChromeContainer:false}]}})).run();
   const machine:MachineSelfResponse={machineId,accountId,platform,displayName:null,defaultChildId:child,desiredPolicyVersion:1,
     appliedPolicyVersion:1,policyState:'applied',revoked:false};
   return {machine,child};
@@ -295,6 +296,30 @@ it('rejects clock jumps instead of using the clock margin as a statistics tolera
   const r=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId))
     .toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_CLOCK_ANCHOR_MISSING'});
+});
+it('refreshes stored confirmed non-Chrome role once without inventory upload or configuration changes',async()=>{
+  const f=await fixture();await fact(f);
+  const stored=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child);
+  const {isChromeContainer:_,...leaf}=stored.productIdentityProjection!.items[0]!;
+  stored.productIdentityProjection!.items=[leaf,
+    {...leaf,runtimeIdentity:'unknown',productId:null,status:'unresolved',reasonCode:'IDENTITY_UNRESOLVED'},
+    {...leaf,runtimeIdentity:'conflict',status:'conflict',reasonCode:'IDENTITY_CONFLICT'},
+    {...leaf,runtimeIdentity:'alias',productId:null,status:'associated',reasonCode:'VERIFIED_LEAF_ALIAS'},
+    {...leaf,runtimeIdentity:'weak-chrome',productId:CHROME_SPECIAL_PRODUCT}];
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_child_app_policy_versions_v1 SET payload_json=?3
+    WHERE account_id=?1 AND child_id=?2 AND version=1`).bind(f.machine.accountId,f.child,JSON.stringify(stored)).run();
+  const before=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child);
+  const raw=await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all();
+  expect(await refreshHistoricalProductIdentityProjection(env.RUNTIME_DB,f.machine.accountId,f.child,now)).toBe(true);
+  const after=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child);
+  expect(after.version).toBe(before.version+1);
+  expect(after.productIdentityProjection?.items[0]).toEqual({...before.productIdentityProjection!.items[0],isChromeContainer:false});
+  expect(after.productIdentityProjection?.items.slice(1)).toEqual(before.productIdentityProjection?.items.slice(1));
+  expect(after.productIdentityProjection?.version).not.toBe(before.productIdentityProjection?.version);
+  for(const field of ['classifications','quotas','timeWindows','weekReclassification','resolvedApplications'] as const)
+    expect(after[field]).toEqual(before[field]);
+  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(raw.results);
+  expect(await refreshHistoricalProductIdentityProjection(env.RUNTIME_DB,f.machine.accountId,f.child,now+1)).toBe(false);
 });
 it('historical wixstdba receives standalone projection through immutable policy refresh, without configuration changes',async()=>{
   const f=await fixture();await fact(f);

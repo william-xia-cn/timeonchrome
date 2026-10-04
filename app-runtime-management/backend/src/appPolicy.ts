@@ -470,7 +470,16 @@ export async function putAppPolicy(
 export async function refreshHistoricalProductIdentityProjection(database:D1Database,accountId:string,childId:string,nowMs:number) {
   const current=await getAppPolicy(database,accountId,childId);
   if(!current.productIdentityProjection)return false;
-  const projection=await includeHistoricalStandaloneIdentities(database,accountId,childId,current.productIdentityProjection,nowMs);
+  // Existing cloud-confirmed products are authoritative too: a deployment does
+  // not force another inventory scan. Enrich role metadata, never reclassify or
+  // infer an unknown/alias/Chrome identity from its name.
+  const items=current.productIdentityProjection.items.map(item=>item.isChromeContainer===undefined
+    && item.status==='confirmed' && item.reasonCode==='APPROVED_PRODUCT'
+    && item.productId && item.productId!==CHROME_SPECIAL_PRODUCT ? {...item,isChromeContainer:false} : item);
+  const content={knowledgeVersion:current.productIdentityProjection.knowledgeVersion,items};
+  const base=items.some((item,index)=>item!==current.productIdentityProjection!.items[index])
+    ? {...content,version:await sha256Hex(JSON.stringify(content))} : current.productIdentityProjection;
+  const projection=await includeHistoricalStandaloneIdentities(database,accountId,childId,base,nowMs);
   if(projection.version===current.productIdentityProjection.version)return false;
   const payload=normalizeStoredPolicy(current);
   payload.productIdentityProjection=projection;
