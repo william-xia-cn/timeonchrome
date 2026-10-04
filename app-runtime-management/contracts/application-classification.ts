@@ -23,7 +23,7 @@ export interface ProductIdentityProjectionItem {
   canonicalName: string;
   status: 'confirmed' | 'associated' | 'unresolved' | 'conflict';
   reasonCode: 'APPROVED_PRODUCT' | 'VERIFIED_LEAF_ALIAS' | 'IDENTITY_UNRESOLVED' | 'IDENTITY_CONFLICT';
-  /** Cloud-reviewed product role; absent means unconfirmed, never infer from the label. */
+  /** @deprecated 仅供旧客户端兼容；新版从所属AppProduct.catalogGroup读取，不作为完整性条件。 */
   isChromeContainer?: boolean;
 }
 export interface ApplicationDiscoverySummary {
@@ -147,9 +147,17 @@ export interface AppProduct {
   id: string;
   name: string;
   type: AppType;
+  /** 单一产品目录属性；与管理分类other、quotaBucket独立。 */
+  catalogGroup?: 'specialApplication';
   selectors: Array<{ platform: AppPlatform; match: MatchExpression }>;
   /** Explicitly reviewed, non-authoritative execution hints. Never establish product identity. */
   suspectedMatchers?: Array<{ platform: 'windows'; signerKey: string; productName: string }>;
+}
+/** 只消费可信产品关联；未关联普通对象不需要额外的“非浏览器”资格。 */
+export function isSpecialApplicationProduct(productId: string | null | undefined,
+  knowledge: ApplicationKnowledge | undefined): boolean {
+  return Boolean(productId && knowledge?.products.some(product =>
+    product.id === productId && product.catalogGroup === 'specialApplication'));
 }
 export interface ClassificationRule {
   id: string;

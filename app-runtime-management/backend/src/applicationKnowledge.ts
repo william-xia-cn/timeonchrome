@@ -10,10 +10,23 @@ import { isRecord } from './validation';
 import { controlledProducts, systemToolPackageIds } from './productCatalogRules';
 import { buildProductIdentityProjection, includeHistoricalStandaloneIdentities, productIdentityItems, productProjectionEvidence, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
 import { buildProductBlockPolicy } from './productBlockPolicy';
+import chromeDisplayRules from './chrome-display-rules.json';
 
 export const knowledgeEtag = (version: number) => `"application-knowledge-v${version}"`;
 export function effectiveApplicationKnowledge(value: ApplicationKnowledge): ApplicationKnowledge {
-  const products = value.products.filter(item=>!controlledProducts.some(builtin=>builtin.id===item.id)).concat(controlledProducts);
+  const products = value.products.filter(item=>!controlledProducts.some(builtin=>builtin.id===item.id)).concat(controlledProducts)
+    .map(product => product.id === chromeDisplayRules.productId
+      ? { ...product, catalogGroup: 'specialApplication' as const } : product);
+  // Reviewed identity evidence belongs in the product matcher, not a second UI matcher.
+  if (!products.some(product => product.id === chromeDisplayRules.productId)) products.push({
+    id: chromeDisplayRules.productId, name: chromeDisplayRules.canonicalName, type: 'other',
+    catalogGroup: 'specialApplication', selectors: [{ platform: 'windows', match: {
+      operator: 'all', conditions: [
+        { field: 'fileSeriesKey', value: chromeDisplayRules.windows.fileSeriesKey },
+        { field: 'signerKey', value: chromeDisplayRules.windows.signerKey },
+      ],
+    } }],
+  });
   return {...value,schemaVersion:value.schemaVersion >= 3 ? 3 : 2,products};
 }
 
@@ -141,7 +154,7 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
     const enabled = new Set(binding.flatMap(item => item.ruleIds));
     const scoped = { ...effectiveKnowledge, bindings: binding, rules: effectiveKnowledge.rules.filter(rule => enabled.has(rule.id)) };
     const productIdentityProjection = await includeHistoricalStandaloneIdentities(db,accountId,childId,
-      await buildProductIdentityProjection(evidence, scoped, classifications),nowMs);
+      await buildProductIdentityProjection(evidence, scoped, classifications),nowMs,scoped);
     const productBlockPolicy = buildProductBlockPolicy(scoped, childId, productIdentityProjection.version);
     if (!repairWeekStart && current.productIdentityProjection?.version === productIdentityProjection.version
         && canonical(current.classifications) === canonical(classifications)

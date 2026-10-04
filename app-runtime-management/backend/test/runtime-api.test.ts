@@ -1410,8 +1410,10 @@ describe('Application knowledge and installed inventory', () => {
         scan:{...scan,batchIndex:1,completed:true}})});
     expect(scanCompletion.status).toBe(200);
     await expect(scanCompletion.json()).resolves.toMatchObject({status:'accepted'});
+    // The saved policy already contains effective product knowledge; replaying
+    // the same inventory must not create another content-equivalent version.
     await expect(env.RUNTIME_DB.prepare(`SELECT MAX(version) AS version FROM runtime_child_app_policy_versions_v1
-      WHERE child_id='child-a'`).first<number>('version')).resolves.toBe(2);
+      WHERE child_id='child-a'`).first<number>('version')).resolves.toBe(1);
     const machinePolicy=await (await call('/v2/machines/policy',{headers:bearer(enrolled.machineToken)})).json<{
       appPolicies:Array<{childId:string;policy:{version:number;classifications:Array<{runtimeIdentity:string;classification:string}>;
         resolvedApplications:Array<{runtimeIdentity:string;classification:string}>}}>;
@@ -1424,7 +1426,7 @@ describe('Application knowledge and installed inventory', () => {
       expect.objectContaining({runtimeIdentity:'solitaire',classification:'restrictedEntertainment'}),
     ])});
     const usage=await accountingUsage({runtimeIdentity:'ea-product-1',channel:'active',basis:'foregroundInteraction',start:0,end:60_000});
-    usage.policySnapshot={assignmentVersion:2,appPolicyVersion:2,
+    usage.policySnapshot={assignmentVersion:2,appPolicyVersion:childPolicy.version,
       applicationClassification:'restrictedEntertainment',quotaBucket:'restrictedEntertainment'};
     usage.id=await accountingUsageId(usage);
     const upload=await call('/v2/segments:upload',{method:'POST',headers:bearer(enrolled.machineToken),

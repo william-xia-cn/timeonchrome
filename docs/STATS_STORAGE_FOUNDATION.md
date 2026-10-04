@@ -1,5 +1,33 @@
 # Stats Storage Foundation（V1 用量统计存储基础架构）
 
+## 2026-10-05 网页实现对照复核与PO批准实施
+
+### PO批准实施：单一产品目录属性
+
+实施清单：①在现有AppProduct定义中增加可选catalogGroup=特殊应用（wire: specialApplication），只在产品上保存一次；②技术身份仍只通过productId关联产品，旧isChromeContainer仅为旧客户端兼容投影，不作新版资格依据；③已审核Chrome选择器进入现有产品知识匹配，不在页面重新验一次；④Native按同一产品属性计算特殊应用排除贡献，普通未确认身份不阻断整日贡献；⑤测试确认增加第二个特殊产品无需新增Chrome/Edge布尔，other普通应用仍计入总量，原账/毫秒并集及权限不变。契约/产品关联/云端识别为本轮最小测试范围，不运行网页账本或安装器全量测试。
+
+旧schema客户端严格拒绝未知产品属性：源码兼容消费与部署兼容分开记录；在Native消费新版固定契约完成前不部署新产品属性，不把旧字段删除当作兼容。不改变产品分类配置或共享执行开关。产品目录属性变化必须参与产品关联版本摘要，不能因knowledge.version未变化而复用旧统计。
+
+本轮固定契约版本1.32.0。贡献wire沿用chromeExcludedMs（特殊应用独立并集）、chromeIncludedInApplicationMs（特殊应用在应用总并集中的边际贡献），不新增重复数值字段；名称仅为旧wire兼容，不作为Chrome专属判断。Native的ChromeEvidenceComplete等旧内部名应消除逐身份资格，实际产品目录/关联版本缺失仍可明确诊断；普通未关联身份不造成该缺失。MachinePolicy沿用applicationKnowledge.products承载产品目录，无新增顶层策略字段。
+
+PO要求以网页现有实现为基准，不另建应用模型；任何新差异须先解释并确认。本次仅对照源码和记录结果，不新增字段/schema/契约版本，不修改网页或Native产品代码。此前拟议usageKind等字段尚未实施，不作为固定接口。
+
+| 环节 | 实际网页基准 | 应用侧对齐要求/当前偏差 |
+|---|---|---|
+| 配置 | 云端Profile配置只读下发，分类与公共配额独立 | 孩子公共访问配置保持单一源；应用对象配置保留，但旧应用公共值不得供新共享或页面使用 |
+| 分类 | effective规则解析；未归类合法；other独立于运行mode/扣费桶 | 使用孩子最新有效产品分类及已批准本周更正；不要求原记录旧策略版本；特殊应用属性不能与other混用 |
+| 原账 | usage-segments保留已结算事实及当时归属；不借配置变更直接覆写事实 | 保留应用原始记录、计时/结算/上传边界；产品关联/分类变化仅作用派生有效统计 |
+| 本机统计 | 日/小时/domain/target持久结果，原账与有效更正分别消费 | 日/小时/产品/分类同层持久统计；不同读入口不能另算权威值 |
+| 冻结版本 | device-account-v2依统计/事实hash和完整性生成单调revision；相同内容复用状态 | 相同规则：内容替换、旧版本不覆盖；诊断字段不得成为额外业务资格；统计与原账ACK分别确认 |
+| 上传/发布 | manifest/chunk/commit/reconcile，版本hash一致，持久失败状态可恢复 | 已有应用account链路同层对应，不额外制造角色资格；真正来源/事实/时钟/权限失败保留具体原因 |
+| 配额 | 读取有效持久统计并消费已批准更正；分类与实际扣费桶不混同 | 共享消费两端权威贡献，不从展示总量反算；other不扣三类额度；原网页配额实现不改 |
+| 特殊应用 | 网页无“确认每个对象不是浏览器”的对应判定 | isChromeContainer及其全局未知阻断是应用额外设计；页面独立Chrome识别与统计布尔判断也是双路径，需收敛到唯一产品关联，不另造冗余字段 |
+| 展示 | 读取云端发布/本地有效版本，明确来源与更新状态 | 电脑=网页+应用-特殊应用在应用总量中的贡献；保留来源失败下有效分量；页面不另结算 |
+
+已批准并保留的差异仅为网页整数秒/应用整数毫秒、网站目标/应用产品身份、应用现有用户内区间并集和操作系统身份隔离。不能把应用明细直接相加当总量，也不能借“抄网页”改变任一来源原始时长语义。特殊应用产品配置的确切接口表达须先完成现有产品/目录配置对照，不把任何新增字段当作既定方案。权限证明、来源版本/截止/ACK及离线快照并非第二配置源，本次不得随冗余清理删除。
+
+核对位置：extension/core/site-classification.js、usage-segments.js、device-account-v2.js、quota-read-model-v2.js；workers/src/routes/deviceAccountsV2.ts及services/usageAccountingCorrections.ts；Native ApplicationUsageReader/ApplicationAccountStore/ApplicationQuotaContribution；contracts usage-account/application-classification。修复及对应真实验收未完成；此次不运行产品测试、不安装/部署/migration/R2或改生产配置。
+
 ## 2026-10-01 跨来源统一统计结构（D-113，已确认设计，实施待完成）
 
 本节是网页与应用共同的结构设计；下文网页已批准的计时、落账、V1/V2 同步及切换边界保持原状，不因本节获得重构或产品切换授权。应用必须补齐同层结构，而不是用更多页面缓存代替统计模型。实施状态以根 TASK_BOARD 的 D-113 项为准。
