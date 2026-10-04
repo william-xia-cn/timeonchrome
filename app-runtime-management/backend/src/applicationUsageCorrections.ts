@@ -21,6 +21,22 @@ export function buildWeekReclassification(policy: Pick<AppPolicyDocument, 'class
 }
 
 export type UsageClassificationCorrection = RuntimeWeekReclassification & { version: number };
+
+/** 只重解释当前北京时间周的分类；原时长/原字段不变，旧周沿用已批准更正。 */
+export function applyCurrentWeekClassification(rows: Record<string, unknown>[],
+  policy: Pick<AppPolicyDocument, 'classifications' | 'resolvedApplications'>, nowMs: number): Record<string, unknown>[] {
+  const current = buildWeekReclassification(policy, nowMs);
+  const categories = new Map(current.applications.map(app => [`${app.platform}\n${app.runtimeIdentity}`, app.classification]));
+  return rows.flatMap(row => {
+    const start = Number(row.start_wall_time_ms), end = Number(row.end_wall_time_ms);
+    const points = [...new Set([start, end, ...[current.fromMs, current.toMs].filter(p => p > start && p < end)])]
+      .sort((a, b) => a - b);
+    return points.slice(0, -1).map((left, i) => ({ ...row, start_wall_time_ms: left, end_wall_time_ms: points[i + 1]!,
+      classification: left >= current.fromMs && left < current.toMs
+        ? categories.get(`${row.platform}\n${row.runtime_identity}`) ?? 'unclassified'
+        : row.classification ?? 'historicalUnknown' }));
+  });
+}
 export async function loadUsageCorrections(db: D1Database, accountId: string, childId: string,
   fromMs: number, toMs: number): Promise<UsageClassificationCorrection[]> {
   // Walk the indexed immutable version history instead of expanding every version

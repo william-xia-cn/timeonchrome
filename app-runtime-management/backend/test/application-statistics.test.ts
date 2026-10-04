@@ -103,7 +103,7 @@ it('watermarks count only facts for requested date and filter, preserving applic
   expect((await applicationStatisticsSource(env.RUNTIME_DB,f.id,f.child,day,day+DAY,{})).rawRows).toBe(1);
   expect((await applicationStatisticsSource(env.RUNTIME_DB,f.id,f.child,day,day+DAY,{platform:'macos'})).rawRows).toBe(0);
 });
-it('one-date source batching keeps the original five-head and publication hash model exactly',async()=>{
+it('rule revision invalidates old derived statistics without changing the five source heads or publication hash',async()=>{
   const f=await fixture();await segment(f,'same-watermark');
   const outputs:D1Result[][]=[];
   const db={prepare:env.RUNTIME_DB.prepare.bind(env.RUNTIME_DB),batch:async(statements:D1PreparedStatement[])=>{
@@ -111,9 +111,10 @@ it('one-date source batching keeps the original five-head and publication hash m
   }} as D1Database;
   const source=await applicationStatisticsSource(db,f.id,f.child,day,day+DAY,{machineId:f.id,localUserId:'user',platform:'windows'});
   expect(outputs).toHaveLength(1);expect(outputs[0]).toHaveLength(6);
-  expect(source).toEqual({revision:await hashUsageAccountValue({model:'application-statistics-day-v2',
+  expect(source).toEqual({revision:await hashUsageAccountValue({model:'application-statistics-day-v3-current-week-classification',
     heads:outputs[0]!.slice(0,5).map(r=>r.results)}),rawRows:1,
     publicationRevision:await hashUsageAccountValue(outputs[0]![5]!.results)});
+  expect(source.revision).not.toBe(await hashUsageAccountValue({model:'application-statistics-day-v2',heads:outputs[0]!.slice(0,5).map(r=>r.results)}));
 });
 it('daily persisted read checks all seven quota days in one bounded source round trip',async()=>{
   const f=await fixture();await segment(f,'batch-day');await build(f);

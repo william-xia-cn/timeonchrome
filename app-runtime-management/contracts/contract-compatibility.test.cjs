@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.31.1');
+assert.equal(pkg.version, '1.31.2');
 assert(pkg.exports['./shared-web-sync']);
 const webSync=JSON.parse(fs.readFileSync(path.join(root,'shared-web-sync-v1.schema.json'),'utf8'));
 assert.equal(webSync.$defs.upload.additionalProperties,false);
