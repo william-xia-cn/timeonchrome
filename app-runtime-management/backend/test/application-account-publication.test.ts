@@ -34,6 +34,13 @@ async function fact(f:Awaited<ReturnType<typeof fixture>>,id='one',session='sess
     VALUES(?1,?2,?3,1,?4,?5,?9,'leaf','测试产品',1000,2501,1501,'fixture',?1,?6,2,'active','epoch',?7,?7+1501,1000,2501,1501,0,1,?8)`)
     .bind(id,f.machine.machineId,user,f.child,session,start+1501,start,category,f.machine.platform).run();
 }
+async function drainFixtureStatistics(f:Awaited<ReturnType<typeof fixture>>) {
+  // Parallel test files share the fixture DB: drain only this account/child's
+  // scopes instead of spending its six batches on unrelated fixture queues.
+  const scopes=await env.RUNTIME_DB.prepare('SELECT DISTINCT scope_key FROM runtime_application_statistics_queue_v1 WHERE account_id=?1 AND child_id=?2')
+    .bind(f.machine.accountId,f.child).all<{scope_key:string}>();
+  for(const scope of scopes.results)for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now,scope.scope_key);
+}
 async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{empty?:boolean;classification?:string;duration?:number;
   associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string;
   associationKey?:string;reasonCodes?:string[];cutoff?:number;date?:string;hour?:number;policyVersions?:number[]}={}){
@@ -183,7 +190,7 @@ it('new usage after a frozen cutoff does not prevent publication of the exact ea
   expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1')
     .bind(f.machine.machineId).all()).results).toEqual(before);
   const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await read().catch(()=>{});await drainFixtureStatistics(f);
   const latest=await read();expect(latest.value.totalDurationMs).toBe(3002);
   expect(latest.statistics.producer).toBe('legacy-server'); // Frozen prefix cannot hide newer settled usage.
 });
@@ -212,7 +219,7 @@ it('an exact empty frozen snapshot does not claim later nonzero usage was zero',
   await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
   const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await read().catch(()=>{});await drainFixtureStatistics(f);
   expect((await read()).value.totalDurationMs).toBe(1501);
 });
 it('valid hash does not authorize forged classification or duration',async()=>{
@@ -245,7 +252,7 @@ it('Service user-level union is authoritative across sessions; legacy quota rema
   const original=await queryAppUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{}) as StatisticsValue;
   expect(original.totalDurationMs).toBe(3002);
   const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await read().catch(()=>{});await drainFixtureStatistics(f);
   const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
   expect(result.value.categories[0]?.quota).toEqual(original.categories[0]?.quota);
   expect(result.value.categories[0]?.quota.remainingMs).toBe(60000-3002);
@@ -312,10 +319,10 @@ it('publication transaction failure keeps receipt and previous head intact',asyn
 it('Native publication replaces one producer for a Child day and is never added to legacy totals',async()=>{
   const f=await fixture();await fact(f);const r=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
   const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await read().catch(()=>{});await drainFixtureStatistics(f);
   const value=await read();expect(value.value.totalDurationMs).toBe(1501);expect(value.statistics.producer).toBe('native');
   expect(value.statistics.productApplications).toEqual([{key:await sha256Hex('product:windows:test'),displayName:'测试产品',durationMs:1501}]);
-  await fact(f,'late','other-session');await read();for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await fact(f,'late','other-session');await read();await drainFixtureStatistics(f);
   const late=await read();expect(late.value.totalDurationMs).toBe(3002);expect(late.statistics.producer).toBe('legacy-server');
   expect(late.statistics.productApplications).toBeNull();
 });
@@ -328,7 +335,7 @@ it('child aggregation adds devices; identical wall times on two machines are not
     VALUES(?1,?2,1,?3,1,'default',?4,?4)`).bind(second,user,f.child,start).run();
   const other={...f,machine:{...f.machine,machineId:second}};await fact(other);const two=await upload(other);await publishApplicationAccounts(env.RUNTIME_DB,now,two.manifestId);
   const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await read().catch(()=>{});await drainFixtureStatistics(f);
   const result=await read();expect(result.value.totalDurationMs).toBe(3002);expect(result.statistics.producer).toBe('native');
   expect(result.statistics.productApplications?.[0]?.durationMs).toBe(3002);
 });
@@ -336,13 +343,13 @@ it('publication transaction queues Child day and existing filtered scopes withou
   const f=await fixture();await fact(f);
   const filters={machineId:f.machine.machineId};
   await readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,filters,undefined,now).catch(()=>{});
-  for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await drainFixtureStatistics(f);
   const r=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
   const dirty=await env.RUNTIME_DB.prepare(`SELECT source_revision,filters_json FROM runtime_application_statistics_queue_v1
     WHERE account_id=?1 AND child_id=?2 AND date='2026-09-27' ORDER BY filters_json`).bind(f.machine.accountId,f.child).all();
   expect(dirty.results).toHaveLength(2);
   expect(dirty.results.every(d=>d.source_revision==='publication:'+r.manifestId)).toBe(true);
-  for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await drainFixtureStatistics(f);
   const persisted=await env.RUNTIME_DB.prepare(`SELECT producer FROM runtime_application_statistics_days_v1
     WHERE account_id=?1 AND child_id=?2 AND date='2026-09-27'`).bind(f.machine.accountId,f.child).all();
   expect(persisted.results).toHaveLength(2);expect(persisted.results.every(d=>d.producer==='native')).toBe(true);
@@ -365,7 +372,7 @@ it('Mac nonzero milliseconds publish and persist through the ordinary statistics
   const r=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
   const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now);
+  await read().catch(()=>{});await drainFixtureStatistics(f);
   const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
   expect(result.statistics.productApplications).toEqual([{key:await sha256Hex('product:macos:test'),displayName:'测试产品',durationMs:1501}]);
   expect(result.statistics.settledThroughByDate).toEqual([{date:'2026-09-27',settledThroughMs:now}]);
