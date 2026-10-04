@@ -1,6 +1,6 @@
 import { canonicalUsageAccountJson, hashUsageAccountValue, parseUsageAccountRows,
   verifyUsageAccountManifest, validateUsageAccountDimensions, UsageAccountError,
-  USAGE_ACCOUNT_CHUNK_ROWS, USAGE_ACCOUNT_MAX_ROWS, type UsageAccountManifest, type UsageAccountReceipt } from '@timeonchrome/app-runtime-contracts/usage-account';
+  USAGE_ACCOUNT_CHUNK_ROWS, USAGE_ACCOUNT_MAX_ROWS, type UsageAccountReceipt } from '@timeonchrome/app-runtime-contracts/usage-account';
 import type { MachineSelfResponse } from './contracts';
 import { HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http';
 import { isRecord } from './validation';
@@ -42,17 +42,6 @@ async function load(db: D1Database, machine: MachineSelfResponse, id: string): P
   if (!stored) fail(404, 'APPLICATION_ACCOUNT_NOT_FOUND');
   return stored;
 }
-async function checkPolicies(db: D1Database, machine: MachineSelfResponse, child: string, manifest: UsageAccountManifest) {
-  const versions = manifest.policyVersions.filter(v => v !== 0);
-  // 查询有界；不加载历史策略 payload，也不把存在性当成分类正确性的证明。
-  for (let start = 0; start < versions.length; start += 50) {
-    const group = versions.slice(start, start + 50);
-    const result = await db.prepare(`SELECT version FROM runtime_child_app_policy_versions_v1
-      WHERE account_id=?1 AND child_id=?2 AND version IN (${group.map((_, i) => `?${i + 3}`).join(',')})`)
-      .bind(machine.accountId, child, ...group).all<{ version: number }>();
-    if (result.results.length !== group.length) fail(409, 'APPLICATION_ACCOUNT_UNKNOWN_POLICY_VERSION');
-  }
-}
 export async function beginApplicationAccount(db: D1Database, machine: MachineSelfResponse, value: unknown, now: number) {
   const v = body(value, ['localUserId','assignmentVersion','manifest']);
   if (typeof v.localUserId !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(v.localUserId)
@@ -65,7 +54,6 @@ export async function beginApplicationAccount(db: D1Database, machine: MachineSe
     WHERE machine_id=?1 AND local_user_id=?2 AND assignment_version=?3 AND protected=1 AND child_id IS NOT NULL`)
     .bind(machine.machineId, v.localUserId, v.assignmentVersion).first<{ child_id: string }>();
   if (!assignment) fail(403, 'APPLICATION_ACCOUNT_ASSIGNMENT_UNAVAILABLE');
-  await checkPolicies(db, machine, assignment.child_id, manifest);
   const id = 'aa1_' + await hashUsageAccountValue([machine.machineId, v.localUserId, v.assignmentVersion, manifest.date, manifest.revision]);
   const scope = [machine.machineId, v.localUserId, v.assignmentVersion, manifest.date];
   // 条件 INSERT 保证并发新水位不能被旧的开始请求绕过；同版本只允许相同 hash。
@@ -113,7 +101,6 @@ export async function commitApplicationAccount(db: D1Database, machine: MachineS
   if (rows.length !== manifest.rowCount || await hashUsageAccountValue(rows) !== manifest.rowsHash)
     fail(409, 'APPLICATION_ACCOUNT_ROWS_HASH_MISMATCH');
   validateUsageAccountDimensions(rows);
-  await checkPolicies(db, machine, stored.child_id, manifest);
   // D1 batch 原子提交接收状态和水位；不存在发布头，不能用于配额或页面。
   await db.batch([
     db.prepare(`UPDATE runtime_application_account_manifests_v1 SET state='received',received_at_ms=?2

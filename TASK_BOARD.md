@@ -6,6 +6,15 @@
 
 2026-10-04 CHROME-GUARDIAN-TRANSITION-20261004（PO明确授权，实施中）：仅macOS增加com.timeonchrome.guardian独立健康端口，保留现有nativehost健康/业务。先文档、独立客户端、生命周期接线及隔离测试；Windows不连接旧Host，不执行恢复。来源固定Mac接口46f2361228453d625163130ab04d05f15097d88b与交接4371bea7c25248f2738182381efecf0be4854197。变更等级为本地健康协议跨模块；最小验证mac-guardian-health、local-guardian、typecheck及diff；不跑安装/实机故障注入/全量/E2E。不改变身份、隐私、账本、配额、版本、候选或部署；Mac extension-readiness=false保持，模拟通过不代表真实双通道验收。无安装、接管或发布授权。
 
+2026-10-04 页面真实续验：03676de/f3026d08已仅发布Runtime Worker，今日请求200，仍旧兼容缓存；查明附带整周任务的历史关联失败占用同scope两个构建槽。最小补丁优先当前查看日期，普通cron顺序、每次最多两项、退避和精确核验不变；历史队列保留不修。聚焦61/61、typecheck/dry-run/diff通过；standard-cloud审计Matched，无原账/计时/上传/配额变更，无Native安装或新分支工作树。真实Native页面采纳继续核对，不把部署成功冒认验收。
+
+2026-10-04 今日应用统计核心链路：已安装2.6.28；当前认证用户冻结542 complete=true、545条事实，云端18:16:40接收/18:17:26发布；两端manifest/rowsHash一致，Native日/小时总量及逐分类守恒通过。旧536迟到范围、Mac、共享及P1单列，不阻塞今日收口。
+
+NOW 已发布Native采纳修复（standard-cloud）：实时原账增长不再排斥冻结清单，截止内事实/归属/时钟/分类/关联/更正/行hash仍精确核验；以stale和截止时间显示更新，核验失败保留有效缓存，空初始化快照不遮住已知非零。聚焦60/60、typecheck、dry-run、边界及diff通过；Matched，无额外产品语义改动。仅Runtime Worker待发布及真实页面验收，不改原账/计时/上传/配额、两端/UI，不建分支工作树、不迁移/R2或启用共享。
+
+2026-10-04 应用统计修订已合入PR231/master b1e8bc9；未部署。主线CI的209项中一项夹具在并行共用DB时误消费其他作用域队列，固定为只处理当前账户/孩子的scope，不改产品调度。应用发布/统计/电脑证据74项并行回归通过，原账/配额无改动。Native两版统计回归各97项、界面管道19项、Mac增量便携两版各102项及Daemon编译已回报通过，唯一2.6.27候选正在构建；Mac实机和今日发布→真实页面仍未验收。
+
+NOW 2026-10-04 应用统计与网页模型对齐（PO已批准）：移除原记录旧策略版本依赖；本周最新分类、未归类合法、更早历史不追溯，原账不变。检查表：①决策/契约与共同向量；②Native公共Reader/日账/贡献及派生缓存修订；③云端接收/发布移除旧版本门并保持精确核对；④页面来源/截止/状态；⑤真实51.125秒回归、分类变化/跨周/迟到/重复/隔离/错误统计拒绝；⑥集中集成、兼容云端、一个Native候选、当前日新统计发布→页面实机核对。变更等级：Contracts+Worker统计读模型+云端页面+Native统计；必要测试仅相应聚焦回归/编译/typecheck/dry-run/边界/diff及页面视觉；CI按路径路由；发布smoke为health/401和固定范围真实统计。排除网页/媒体原账测试（无修改）、无关Agent/Mac全量/WiX，Mac实机单列。复用既有工作线，无新分支/工作树/migration/共享启用。源码进度：云端接收/核验、当前周分类覆盖及派生模型摘要已修订；Contracts1.31.2集中说明及共同向量完成，固定包SHA256 cd5958a1e44431a3bb955b7b564a2b2983b67fbec4614b393679e40118cf6f97。Worker四个聚焦文件94/94、typecheck、契约build/typecheck/向量/兼容、页面renderer回归及桌面/移动mock目视、dry-run、源码边界和diff检查通过。页面新增Service/旧云端来源、逐日截止及刷新失败保留有效读数；Native正在实施公共Reader/模型失效和同向量回归。尚未部署、安装和当日端到端验收；电脑时间线及产品明细一致性继续核对，不将源码通过写成最终修复完成。
 2026-10-04 控件1.7.44发布完成：实现提交21e19e8、PR #229、合入master 97d8bd41cad22d754931174d73ed91575962b310。精确PR CI37153413233的app-runtime-gate通过；合入后构建既有contracts产物并typecheck通过，源码工作区干净。原密钥签名、CRX3独立验签及稳定ID核验通过，CRX586032字节、SHA256 7f68f977a23737389d80ef190d390500f390d66c92460aa72bccc49359ecb308。Wrangler4.127.1部署timeonchrome-update/master，生产deployment 53cbe046；稳定域名与deployment域名feed/CRX/SHA256逐项回读匹配，20份CRX归档保留。范围审计Matched，无Deviated/Missing/Extra（本次发布范围）；真实Chrome恢复、Mac和共享联合验收仍未通过，不混作已修复。未部署业务云端、迁移或安装Native，未动家庭开关；终端升级另行观察，unpacked不会自动升级。先前发布中及未托管记录由本条覆盖。
 
 2026-10-04 PO批准控件发布并托管（extension-local／release）：本轮正式managed 1.7.44取代未托管1.7.43准备包，包含应用日周读取故障隔离、旧Port延迟事件隔离、Admin导航拆分和标题区本机休息摘要。线上feed只读仍1.7.32；不复用缺少本轮补丁的旧CRX。范围为本线源码、测试、发布文档与更新站点，保留旧CRX；不改Worker/Pages业务、Native安装、D1、家庭配置、计时或配额，不启用共享执行。最小发布验证：既有局部截图证据复用，local-guardian/application-usage/rest-summary/admin-nav/managed边界、typecheck、扩展根目录及diff；固定分支提交并PR合入经验证主线后签包托管。原密钥环境未配置，已请求本机路径，不生成新密钥。真实Chrome应用恢复仍未完成，Mac及其他既有遗留不伪报通过。

@@ -1,7 +1,7 @@
 import type { ComputerApplicationSource } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import { getAppPolicy } from './appPolicy';
 import { readPersistentApplicationUsage } from './applicationStatistics';
-import { correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
+import { applyCurrentWeekClassification, correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
 import { sha256Hex } from './crypto';
 import { readCoveredChromeDeduction } from './applicationSharedQuota';
 import { HttpError } from './http';
@@ -76,7 +76,8 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
       const key=evidence.platform+'\n'+evidence.runtimeIdentity;if(!evidenceByIdentity.has(key))evidenceByIdentity.set(key,evidence);}
     const intervals: ComputerApplicationSource['intervals']=[];
     const keys=new Map<string,string>();
-    for(const row of correctUsageRows(rows.slice(0,remaining),corrections,fromMs,toMs)) {
+    const corrected=correctUsageRows(rows.slice(0,remaining),corrections,fromMs,toMs);
+    for(const row of nativeAuthority?applyCurrentWeekClassification(corrected,policy,Date.now()):corrected) {
       const identity=`${row.platform}\n${row.runtime_identity}`, projected=projection.get(identity);
       const special=isConfirmedChrome(evidenceByIdentity.get(identity),projected,policy.applicationKnowledge);
       const stable=special?`${row.platform}\n${CHROME_SPECIAL_PRODUCT}`

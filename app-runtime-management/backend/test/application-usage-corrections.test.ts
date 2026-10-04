@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildWeekReclassification, correctUsageRows, loadUsageCorrections } from '../src/applicationUsageCorrections';
+import { applyCurrentWeekClassification,buildWeekReclassification, correctUsageRows, loadUsageCorrections } from '../src/applicationUsageCorrections';
 import { env } from 'cloudflare:workers';
+import accountVectors from '../../contracts/usage-account.vectors.json';
 
 const monday = Date.parse('2026-09-21T00:00:00+08:00');
 const week = 7 * 86_400_000;
@@ -8,6 +9,29 @@ const entry = (runtimeIdentity: string, classification: 'study' | 'unclassified'
   ({ platform: 'windows' as const, runtimeIdentity, classification });
 
 describe('current-week application attribution', () => {
+  it.each(accountVectors.classificationCases)('common Native/cloud classification vector: $id', vector => {
+    const row={platform:'windows',runtime_identity:'A',classification:vector.rawClassification,app_policy_version:vector.appPolicyVersion,
+      start_wall_time_ms:vector.startMs,end_wall_time_ms:vector.startMs+vector.durationMs};
+    const policy={classifications:vector.currentClassification===null?[]:
+      [{...entry('A',vector.currentClassification as 'study'),displayName:null}]};
+    const result=applyCurrentWeekClassification([row],policy,vector.nowMs);
+    expect(result).toHaveLength(1);expect(result[0]?.classification).toBe(vector.expectedClassification);
+    expect(Number(result[0]?.end_wall_time_ms)-Number(result[0]?.start_wall_time_ms)).toBe(vector.durationMs);
+    expect(row.classification).toBe(vector.rawClassification);
+  });
+  it('latest classification and revocation do not require a raw policy version; old week duration stays valid', () => {
+    const rows = [{platform:'windows',runtime_identity:'A',classification:null,
+      start_wall_time_ms:monday-125,end_wall_time_ms:monday+51000,app_policy_version:null}];
+    const before=JSON.stringify(rows);
+    for(const category of ['study','composite','unclassified'] as const){
+      const policy={classifications:category==='unclassified'?[]:[{...entry('A',category),displayName:null}]};
+      const values=applyCurrentWeekClassification(rows,policy,monday+100000);
+      expect(values.map(r=>[r.classification,Number(r.end_wall_time_ms)-Number(r.start_wall_time_ms)]))
+        .toEqual([['historicalUnknown',125],[category,51000]]);
+      expect(values.reduce((n,r)=>n+Number(r.end_wall_time_ms)-Number(r.start_wall_time_ms),0)).toBe(51125);
+    }
+    expect(JSON.stringify(rows)).toBe(before);
+  });
   it('pages immutable history with the same latest week/identity attribution as complete history', async () => {
     const account = 'paged-correction-fixture';
     const versions = Array.from({ length: 25 }, (_, i) => ({ version: i + 1,

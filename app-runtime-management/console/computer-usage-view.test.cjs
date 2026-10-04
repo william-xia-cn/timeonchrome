@@ -31,10 +31,22 @@ assert.ok(page.includes('.computer-view[hidden]'),'hidden root beats display:gri
 }
 const independent=view.independentSummary({source:'web',fromDate:'2026-10-01',toDate:'2026-10-01',totalDurationMs:5134000,categories:[{classification:'study',durationMs:5134000}],buckets:[],applications:[]});
 assert.ok(independent.includes('1小时 25分 34秒'));assert.ok(!independent.includes('电脑总用量'));
+const appSnapshot={source:'application',fromDate:'2026-10-04',toDate:'2026-10-04',totalDurationMs:51125,categories:[{classification:'unclassified',durationMs:51125}],buckets:[],applications:[],statistics:{producer:'native',stale:true,computedAtMs:1791100800000,settledThroughByDate:[{date:'2026-10-04',settledThroughMs:1791100700000}]}};
+assert.ok(view.independentSummary(appSnapshot).includes('Service 已发布持久化统计'));
+assert.ok(view.independentSummary(appSnapshot).includes('结算截止'));
+assert.ok(view.independentSummary(appSnapshot).includes('更新中，保留已有有效读数'));
+assert.ok(view.independentSummary({...appSnapshot,statistics:{producer:'legacy-server'}}).includes('非最新 Service 统计'));
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 const pending=deferred(),events={},host={innerHTML:'',classList:{add(){}},addEventListener(name,fn){events[name]=fn;},querySelector(){return null;}};
 const reader=view.create(host,()=>pending.promise);const work=reader.load();reader.invalidate();pending.resolve(snapshot);
 work.then(async()=>{
+let unavailable=false;
+const independentHost={...host,innerHTML:''},independentReader=view.createIndependent(independentHost,async()=>{if(unavailable)throw Object.assign(Error('pending'),{code:'APPLICATION_STATISTICS_PENDING'});return appSnapshot;});
+await independentReader.load();unavailable=true;await independentReader.load(true);
+assert.ok(independentHost.innerHTML.includes('51秒 125毫秒'),'failure preserves previous valid value, never fake zero');
+assert.ok(independentHost.innerHTML.includes('上次有效统计'));
+independentReader.invalidate();await independentReader.load();
+assert.ok(!independentHost.innerHTML.includes('51秒 125毫秒'),'selection invalidation must not retain another scope');
 assert.equal(host.innerHTML,'','invalidated selection clears old data and late response cannot paint');
 let clock=0,calls=0;const cache=view.createReadCache({now:()=>clock,maxEntries:2,ttlMs:30}),loader=async()=>({total:++calls});
 const first=await cache.read('child-a|day',loader);assert.equal(first.cached,false);
@@ -60,5 +72,10 @@ currentScope='child-a|week';await cachedReader.load();assert.equal(viewCalls,4,'
 assert.ok(controller.includes('computerReader.load({refresh})'),'outer refresh passes through to summary reader');
 let failedCalls=0;const failedReader=view.create(cleanHost,async()=>{failedCalls++;return {...snapshot,reasons:['APPLICATION_SOURCE_UNAVAILABLE']};});
 await failedReader.load();await failedReader.load();assert.equal(failedCalls,2,'partial source failures do not become successful memory cache entries');
+const productMarkup=view.independentSummary({source:'application',fromDate:'2026-10-04',toDate:'2026-10-04',
+  totalDurationMs:51125,categories:[],buckets:[],applications:[{displayName:'同一产品',classification:'historicalUnknown',
+    classifications:['study','composite'],durationMs:51125}],statistics:{producer:'native'}});
+assert.ok(productMarkup.includes('学习／复合'));
+assert.ok(productMarkup.includes('51秒 125毫秒')||productMarkup.includes('51秒')||productMarkup.includes('51秒'));
 console.log('PASS renderer/cache: child summary, precision, source isolation, TTL, refresh, single-flight, eviction, failure, stale response');
 }).catch(error=>{console.error(error);process.exitCode=1;});

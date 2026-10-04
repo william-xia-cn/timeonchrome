@@ -15,7 +15,7 @@
     "generatedAtMs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
     "settledThroughMs": { "type": ["integer","null"], "minimum": 0, "maximum": 9007199254740991 },
     "algorithmVersion": { "$ref": "#/$defs/identifier" },
-    "policyVersions": { "type": "array", "maxItems": 512, "uniqueItems": true, "items": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 } },
+    "policyVersions": { "description": "兼容诊断摘要，不要求旧策略存在或事实版本集合一致，不作为完整性和发布条件。", "type": "array", "maxItems": 512, "uniqueItems": true, "items": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 } },
     "associationVersion": { "anyOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }] },
     "correctionVersion": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
     "rawFactCount": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },

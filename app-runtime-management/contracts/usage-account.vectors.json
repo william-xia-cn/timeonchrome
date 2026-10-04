@@ -1,6 +1,12 @@
 {
   "schemaVersion": 1,
   "timezone": "Asia/Shanghai",
+  "classificationCases": [
+    { "id": "current-week-missing-policy-latest-study", "nowMs": 1791086400000, "startMs": 1791086400000, "durationMs": 51125, "rawClassification": null, "appPolicyVersion": null, "currentClassification": "study", "expectedClassification": "study" },
+    { "id": "current-week-no-configuration-is-unclassified", "nowMs": 1791086400000, "startMs": 1791086400000, "durationMs": 51125, "rawClassification": "study", "appPolicyVersion": null, "currentClassification": null, "expectedClassification": "unclassified" },
+    { "id": "previous-week-unknown-keeps-time", "nowMs": 1791086400000, "startMs": 1790481600000, "durationMs": 51125, "rawClassification": null, "appPolicyVersion": null, "currentClassification": "study", "expectedClassification": "historicalUnknown" },
+    { "id": "previous-week-does-not-use-current-study", "nowMs": 1791086400000, "startMs": 1790481600000, "durationMs": 51125, "rawClassification": "composite", "appPolicyVersion": 7, "currentClassification": "study", "expectedClassification": "composite" }
+  ],
   "receiptCompatibility": {
     "base": { "manifestId": "aa1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "revision": 7, "manifestHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "received": true, "published": false, "publishStatus": "received_not_published" },
     "vectors": [
@@ -17,6 +23,9 @@
     ]
   },
   "vectors": [
+    { "id": "missing-policy-version-51125-ms", "sourceKind": "application", "durationUnit": "milliseconds", "hour": 12, "duration": 51125, "policyVersions": [], "categories": [{ "category": "study", "duration": 51125 }], "expectedTotal": 51125 },
+    { "id": "unclassified-is-valid", "sourceKind": "application", "durationUnit": "milliseconds", "hour": 12, "duration": 51125, "policyVersions": [], "categories": [{ "category": "unclassified", "duration": 51125 }], "expectedTotal": 51125 },
+    { "id": "historical-unknown-keeps-duration", "sourceKind": "application", "durationUnit": "milliseconds", "hour": 12, "duration": 51125, "policyVersions": [], "categories": [{ "category": "historicalUnknown", "duration": 51125 }], "expectedTotal": 51125 },
     { "id": "application-milliseconds", "sourceKind": "application", "durationUnit": "milliseconds", "hour": 3, "duration": 1501, "categories": [{ "category": "study", "duration": 1501 }, { "category": "composite", "duration": 1501 }], "expectedTotal": 1501 },
     { "id": "web-integer-seconds", "sourceKind": "web", "durationUnit": "seconds", "hour": 23, "duration": 61, "categories": [{ "category": "study", "duration": 61 }], "expectedTotal": 61 },
     { "id": "complete-zero", "sourceKind": "application", "durationUnit": "milliseconds", "hour": 0, "duration": 0, "categories": [], "expectedTotal": 0 }

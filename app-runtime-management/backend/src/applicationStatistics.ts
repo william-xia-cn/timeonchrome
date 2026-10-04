@@ -20,6 +20,9 @@ export interface StatisticsValue {
   outsideTimeWindows:{durationMs:number;segmentCount:number;applications:Array<Omit<AppRow,'classification'|'classifications'|'quota'>>};
   mediaPlaybackTotalMs:number;
   nativeRows?:UsageAccountRow[];
+  nativeSettledThroughMs?:number|null;
+  nativeSourcePending?:boolean;
+  nativeSubjectClassifications?:Record<string,string[]>;
   legacyQuotaCategoryDurations?:Record<string,number>;
   legacyComparison?:{totalDurationMs:number;nativeDeltaMs:number};
   materialization?:{estimatedFactKeys:string[];outsideFactKeys:string[];applicationLastEnds:Record<string,number>};
@@ -88,7 +91,7 @@ async function sourceRanges(db:D1Database,account:string,child:string,ranges:Arr
   }
   return Promise.all(ranges.map(async(_,index)=>{
     const heads=results.slice(index*6,index*6+5),publications=results[index*6+5]!;
-    return {revision:await hashUsageAccountValue({model:'application-statistics-day-v2',heads:heads.map(r=>r.results)}),
+    return {revision:await hashUsageAccountValue({model:'application-statistics-day-v3-current-week-classification',heads:heads.map(r=>r.results)}),
       rawRows:heads.reduce((sum,result)=>sum+Number((result.results[0] as {n?:number})?.n??0),0),
       publicationRevision:await hashUsageAccountValue(publications.results)};
   }));
@@ -135,22 +138,27 @@ export async function applicationPublicationDirtyStatements(db:D1Database,candid
       .bind(candidate.id,now,defaultScope,candidate.account_id,candidate.child_id,candidate.date,from,from+DAY)];
 }
 /** At most two bounded day rebuilds; source changes never publish a mixed day. */
-export async function rebuildApplicationStatistics(db:D1Database,now=Date.now(),scopeKey?:string) {
+export async function rebuildApplicationStatistics(db:D1Database,now=Date.now(),scopeKey?:string,preferredDate?:string) {
   const work=await db.prepare(`SELECT * FROM runtime_application_statistics_queue_v1 WHERE retry_at_ms<=?1
-    AND (?2 IS NULL OR scope_key=?2) ORDER BY requested_at_ms,scope_key,date LIMIT 2`).bind(now,scopeKey??null).all<Scope>();
+    AND (?2 IS NULL OR scope_key=?2) ORDER BY CASE WHEN date=?3 THEN 0 ELSE 1 END,requested_at_ms,scope_key,date LIMIT 2`)
+    .bind(now,scopeKey??null,preferredDate??null).all<Scope>();
   let built=0;
   for(const s of work.results)try {
     const filters:Filters=JSON.parse(s.filters_json);
     const before=await applicationStatisticsSource(db,s.account_id,s.child_id,s.from_ms,s.to_ms,filters);
     if(before.rawRows>ROW_LIMIT)throw new HttpError(503,'APPLICATION_STATISTICS_ROW_LIMIT','该日期记录超过后台单批限制。');
     const value=await queryAppUsage(db,s.account_id,s.child_id,s.from_ms,s.to_ms,filters,{dayOnly:true}) as StatisticsValue;
-    const native=await selectNativeApplicationStatistics(db,s.account_id,s.child_id,s.from_ms,s.to_ms,filters,value,
-      async(machineId,localUserId)=>(await applicationStatisticsSource(db,s.account_id,s.child_id,s.from_ms,s.to_ms,{machineId,localUserId})).revision);
+    const nativeProjection=await selectNativeApplicationStatistics(db,s.account_id,s.child_id,s.from_ms,s.to_ms,filters,value,
+      async(machineId,localUserId)=>(await applicationStatisticsSource(db,s.account_id,s.child_id,s.from_ms,s.to_ms,{machineId,localUserId})).revision,now);
+    const native=nativeProjection?.rows;
     if(native){
       const total=native.find(r=>r.kind==='total'&&r.hour==null)!.duration;
       value.legacyComparison={totalDurationMs:value.totalDurationMs,nativeDeltaMs:total-value.totalDurationMs};
       value.legacyQuotaCategoryDurations=Object.fromEntries(value.categories.map(c=>[c.classification,c.durationMs]));
       value.nativeRows=native;
+      value.nativeSettledThroughMs=nativeProjection!.settledThroughMs;
+      value.nativeSourcePending=nativeProjection!.stale;
+      value.nativeSubjectClassifications=nativeProjection!.subjectClassifications;
       value.totalDurationMs=total;
       const prior=new Map(value.categories.map(c=>[c.classification,c]));
       value.categories=native.filter(r=>r.kind==='category'&&r.hour==null).map(r=>({
@@ -220,7 +228,8 @@ export async function readPersistentApplicationUsage(db:D1Database,account:strin
   }
   for(let offset=0;offset<queued.length;offset+=7)await db.batch(queued.slice(offset,offset+7));
   if(pending&&defer)defer((async()=>{
-    for(const scopeKey of new Set([...unique.values()].map(s=>s.scope_key)))await rebuildApplicationStatistics(db,now,scopeKey);
+    for(const scopeKey of new Set([...unique.values()].map(s=>s.scope_key)))
+      await rebuildApplicationStatistics(db,now,scopeKey,requested.find(s=>s.scope_key===scopeKey)?.date);
   })());
   if(missing)throw new HttpError(503,'APPLICATION_STATISTICS_PENDING','应用统计正在后台生成，请稍后刷新；这不代表零用量。');
   const get=(s:Scope)=>JSON.parse(loaded.get(`${s.scope_key}/${s.date}`)!.value_json) as StatisticsValue;
@@ -266,11 +275,15 @@ export async function readPersistentApplicationUsage(db:D1Database,account:strin
     mediaPlaybackTotalMs:days.reduce((s,d)=>s+d.mediaPlaybackTotalMs,0)};
   const producers=new Set(requested.map(s=>loaded.get(`${s.scope_key}/${s.date}`)!.producer)),products=new Map<string,{key:string;displayName:string;durationMs:number}>();
   const productStatisticsComplete=days.every(d=>Boolean(d.nativeRows));
+  const productClassifications:Record<string,string[]>={};
+  for(const d of days)for(const [subject,categories] of Object.entries(d.nativeSubjectClassifications??{}))
+    productClassifications[subject]=[...new Set([...(productClassifications[subject]??[]),...categories])].sort();
   if(productStatisticsComplete)for(const d of days)for(const r of d.nativeRows!.filter(r=>r.kind==='subject'&&r.hour==null)){
     const old=products.get(r.subjectKey!);if(old)old.durationMs+=r.duration;
     else products.set(r.subjectKey!,{key:r.subjectKey!,displayName:r.displayName!,durationMs:r.duration});}
   return {value,cacheStatus:'persistent' as const,statistics:{revision:await hashUsageAccountValue([...loaded].map(([id,d])=>[id,d.source_revision])),
-    stale:pending,producer:producers.size===1?[...producers][0]!:'mixed',
-    productStatisticsComplete,productApplications:productStatisticsComplete?[...products.values()].sort((a,b)=>b.durationMs-a.durationMs):null,
-    computedAtMs:Math.min(...[...loaded.values()].map(d=>d.computed_at_ms))}};
+    stale:pending||days.some(d=>d.nativeSourcePending===true),producer:producers.size===1?[...producers][0]!:'mixed',
+    settledThroughByDate:requested.map((s,i)=>({date:s.date,settledThroughMs:days[i]!.nativeSettledThroughMs??null})),
+    productStatisticsComplete,productClassifications,productApplications:productStatisticsComplete?[...products.values()].sort((a,b)=>b.durationMs-a.durationMs):null,
+    computedAtMs:Math.min(...requested.map(s=>loaded.get(`${s.scope_key}/${s.date}`)!.computed_at_ms))}};
 }

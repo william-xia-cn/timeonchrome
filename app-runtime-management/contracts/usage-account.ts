@@ -21,6 +21,7 @@ export interface UsageAccountManifest {
   generatedAtMs: number;
   settledThroughMs: number | null;
   algorithmVersion: string;
+  /** 兼容诊断摘要；缺旧策略不影响有效时长、完整性或发布，不作为分类依据。 */
   policyVersions: number[];
   associationVersion: string | null;
   correctionVersion: number;
