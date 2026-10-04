@@ -1,6 +1,8 @@
 # TASK_BOARD
 
-阶段更新：角色证据补丁已集中提交至既有codex/cloud-management并建立PR237；最新主线的扩展1.7.45及发布记录保留。代码聚焦验证已通过，当前等待精确PR CI；未部署、未刷新生产策略，真实共享验收未完成。以下“未提交”描述为先前本地测试时状态，由本条更新。
+NOW 2026-10-04 角色证据发布后的存量投影刷新：实机与源码证明部署不触发Agent重扫，旧不可变策略仍224且无角色字段。最小续修复用现有后台不可变策略刷新，为云端原已confirmed/APPROVED_PRODUCT的非Chrome产品补充false并更新内容hash；未知、冲突、关联但未确认及Chrome不猜补。保持原产品关系、分类、更正、账本和配额，正常机器policy轮询接收新版本，不增加GET写入或强制重扫。验证application-account-publication及identity-projection、Worker typecheck/dry-run/diff；排除Native/扩展/安装器/平台全量；随后仅Runtime Worker兼容发布与真实来源/ACK核对，P1冻结差集继续挂起。
+
+阶段更新：角色证据补丁PR237已通过CI37199981933并合入master 894edee7c96776cf60ea6a217d8589a6f9c01fdd；精确主线CI37200063341通过。Runtime Worker已由生产运行37200164777发布，版本009523e7-27c0-4130-9973-4d68e6c51a75，health/未认证401 smoke通过。已核实无待执行迁移，未应用migration、部署其他资源、安装或启用共享；生产环境保护保留并完成本范围审核。PR职责声明修正为standard-cloud，未改门禁。只读策略仍224且未带新角色字段，目标今日发布579仍无共享回执；不能把代码上线冒认现场收敛。Native正跟踪正常盘点/策略刷新，无强制重扫、直接DB写入或重新安装。下一步核对新关联、真实贡献及ACK；P1旧595继续挂起，共享执行关闭。以下“未提交/未部署”描述为先前状态，由本条更新。
 NOW 2026-10-04 共享角色证据生产者最小修补：已核对云端applicationIdentityProjection只输出Chrome true，已确认非Chrome遗漏false；Native按既有契约将缺失视为未知，因而可能产生CHROME_ROLE_UNCONFIRMED并拒绝共享入队。Checklist：可信已审核且唯一的非Chrome产品输出显式false；Chrome强证据true保持；未知/冲突/弱Chrome不猜false；投影内容hash随实际字段变化。仅修改云端投影及其聚焦测试，不改变契约字段、Native判定、分类/原账/配额，不追P1旧595。最小验证：identity-projection与special-applications测试、Worker typecheck/dry-run/diff；CI仅相关Worker，生产smoke留待另行发布；不运行平台/安装器/扩展/网页全量。仅本地实现，不部署或直接刷新生产策略，现场shadow原因仍未直接读出，不把本缺口作为唯一现场归因。
 
 结果：云端投影已补显式false，仅限唯一已审核非Chrome产品；unknown/conflict/弱Chrome仍无角色字段，强证据Chrome维持true。application-identity-projection 12/12、computer-usage-evidence 14/14、typecheck/dry-run/diff通过。Native现有Reader对照2/2（1693f9e，只测试提交）证明相同人工区间缺角色时普通account完整但共享Chrome证据不完整，显式false可完整；产品判定未改，无需新Native候选。审计Matched：角色三态、既有版本hash、最小测试和边界；Deviated/Missing/Extra无。当前仅本地源码及隔离验证，未提交本补丁、未部署/生产刷新或真实shared验收；历史P1及真实未确认产品角色仍保留，不保证本补丁解决全部不完整来源。
