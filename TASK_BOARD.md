@@ -10,7 +10,7 @@
 
 ### 本轮实施审计与验收缺口
 
-契约提交 `c26235f94a72667d5a626263227829e27b46ae14`，固定1.36.0包哈希如上。Native本轮集中提交并推送 `5d629e3026a642e21c7ea798f2b3736247ca9495`，工作区干净；具体命令及TRX位置见Native仓 `agents/windows/APPLICATION-RAW-LEDGER-V3-2026-10-05.md`。以下结果来自实际TRX和隔离观察摘要，不代表已安装Service已采用v3；本机仍运行2.6.34.0。
+契约提交 `c26235f94a72667d5a626263227829e27b46ae14`，固定1.36.0包哈希如上。Native原账提交 `5d629e3026a642e21c7ea798f2b3736247ca9495`；快照切换修复提交并推送 `9afff6f0c37791130fe18ede43361ea1e05ead46`，只改状态机、聚焦测试和既有实施记录。具体命令及TRX位置见Native仓 `agents/windows/APPLICATION-RAW-LEDGER-V3-2026-10-05.md`。以下结果来自实际TRX和隔离观察摘要，不代表已安装Service已采用v3；本机仍运行2.6.34.0。
 
 | 要求 | 证据与判断 |
 |---|---|
@@ -18,11 +18,13 @@
 | 180秒切片／正常迟到留尾／90秒恢复 | Matched（隔离）：连续5小时合成时钟生成100个180秒段；失败、缺段、重启和日／小时共同向量通过。真实关闭／改绑不全补长失联区间。 |
 | 改绑原子提交／失败不串账 | Matched（隔离）：旧段、待发、新边界和策略恢复journal同事务；失败回滚、重放及冻结旧孩子恢复通过。 |
 | 旧账／网页／媒体边界 | Matched（本轮源码及回归）：旧v2 schema不变，网页只读；媒体保留原60秒／恢复30秒路径，实际probe失败输入隔离回归通过。 |
-| Native契约消费与最小验证 | Matched：锁包SHA及来源c26235f一致；1.36 TRX为98/98、1.35为97/97；最新112条合成producer/SQLite wire经固定JS契约核对通过。Service编译通过。 |
-| 真实Windows原账 | Missing：200031ms真实探针观察只有4次观察、0个已确认ACTIVE样本、0段，结论为real-active-capture-not-proven，不能证明真实周期落账或真实零量；执行身份限制与活动条件不足尚未区分。 |
+| Native契约消费与最小验证 | Matched：锁包SHA及来源c26235f一致；修后1.36 TRX为103/103、1.35为102/102；114条合成producer/SQLite wire经固定JS契约核对通过。Service及原隔离采样器编译零警告／错误，采样器Core DLL哈希与修后源码构建一致。 |
+| 真实Windows原账 | Matched（本次正常应用切换场景）：9afff6f修后默认桌面真实采样200015ms，4个确认ACTIVE、2个应用／2段合计199秒；有效跨度及并集均199922ms，重叠0。A的0～121016ms落121秒，B从121016ms续至199922ms落78秒，均非估算；Child固定、契约hash有效。旧5d629e3样本4段259秒／重复60016ms保留作失败证据；前两次空采样已定位沙箱前台不可见及idle。此次未出现180秒周期段，多用户登录、真实改绑／锁屏／休眠等系统矩阵仍缺实机证据，不能称全部原账场景通过。 |
 | Mac源码／实机 | Missing：须按同一固定契约适配，Windows证据不能代替。 |
 
-新v3原账持久待发（awaiting_receiver），不冒充旧格式上传；新账尚未投影时旧毫秒Reader标明SOURCE_COVERAGE_UNKNOWN，不把缺口当完整零量。未安装、部署、migration或启用共享；原始段验收未完整通过，因此不进入统计→上传→云端读取。Deviated：审查发现的长失联全补和媒体失败输入影响已在本轮修正并回归；Extra：无业务扩展。既有native-host／秒读取草稿和混合未提交审核内容仍保留，不进入本轮固定包，也不将混合工作区当作发布基线。
+新v3原账持久待发（awaiting_receiver），不冒充旧格式上传；新账尚未投影时旧毫秒Reader标明SOURCE_COVERAGE_UNKNOWN，不把缺口当完整零量。未安装、部署、migration或启用共享；快照应用切换重复覆盖已在9afff6f最小修复并通过一次真实隔离复验，其余系统矩阵和Mac缺口保留，不宣称全部原账验收完成，也不自动进入统计→上传→云端读取。Extra：无业务扩展。既有native-host／秒读取草稿和混合未提交审核内容仍保留，不进入本轮固定包，也不将混合工作区当作发布基线。
+
+2026-10-05 PO明确批准修复：直接位置为Native `ApplicationAccountingV3.cs:135`，新目标没有lane时，原Checkpoint均按`max(bindingStart, previous, now-90s)`补开，未区分Snapshot已确认的应用切换。4段契约解析／canonical hash均有效，说明传输校验不能发现这类跨段错误；旧98项及112条合成wire漏掉普通Snapshot切换，不能替代实机准确性。补测后旧代码5项中2失败，真实Snapshot→Projector→Session→SQLite单项也失败，错误精确为重复60016ms／259秒。9afff6f将已有前台段的替换从当前确认边界开段；真正缺段90秒、180秒尾段、PiP、媒体、Child和契约不变。修后同输入2段合计199整数秒、重叠0，不使用统计并集掩盖原账错误。旧失败TRX保留。23:52起按新SHA重建原隔离采样器，Core DLL SHA256 `1fd03b94af7371a58b7a68ffae2b080f1bc6766e7a12b5b22a2628ef7c9c5655`与源码构建一致；真实切换复验两段121＋78秒、边界衔接及重叠0，stderr空。脱敏摘要为Native本地`.tmp/application-raw-v3/fixed-f523ba5ee2ef4c9c873e210cbb1aebf9-stdout.log`；真实身份只留隔离临时库，不上传或写入文档。Matched＝本次切换修复／自动回归／隔离真实复验；Missing＝其余系统矩阵及Mac；Deviated／Extra＝本次无新增。不能推断旧安装2.6.34亦有相同错误。
 
 ### 当前全链状态：定秒口径已批准，继续生产生成与调用接线（2026-10-05）
 
