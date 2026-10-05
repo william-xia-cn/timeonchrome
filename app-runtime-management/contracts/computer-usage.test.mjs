@@ -1,6 +1,56 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { mergeComputerUsage, withComputerUsageRevision, computerUsagePage, computerUsageReadPage, exactComputerUsageOverlap } from './dist/computer-usage.js';
+import { mergeComputerUsage, withComputerUsageRevision, computerUsagePage, computerUsageReadPage, exactComputerUsageOverlap,
+  projectComputerUsageStatisticsV2 } from './dist/computer-usage.js';
+
+{
+const secondsSource=(duration,categories={study:duration})=>({durationUnit:'seconds',revision:'source-r1',complete:true,
+  totalDuration:duration,availableTotalDuration:duration,categories:Object.entries(categories).map(([classification,duration])=>({classification,duration}))});
+const applicationSeconds={...secondsSource(15,{study:10,other:10}),applicationUsage:{nonSpecialTotal:10,
+  nonSpecialCategories:{study:10},specialTotal:10,complete:true,reasonCodes:[]}};
+const secondsInput={fromDate:'2026-10-05',toDate:'2026-10-05',web:secondsSource(10),application:applicationSeconds};
+const frozenSeconds=JSON.stringify(secondsInput),secondsSummary=projectComputerUsageStatisticsV2(secondsInput);
+assert.equal(secondsSummary.totals.computer,20,'web10 + non-special10 =20, not 15 despite independent special union10');
+assert.equal(secondsSummary.totals.specialIncluded,5,'deduct marginal special contribution actually in app union');
+assert.deepEqual(secondsSummary.categories,{study:20});
+assert.deepEqual(secondsSummary.sourceCategories.application,{study:10,other:10});
+assert.equal(JSON.stringify(secondsInput),frozenSeconds,'read projection cannot mutate authority');
+assert.equal(JSON.stringify(secondsSummary).includes('Ms'),false,'new duration result does not duplicate milliseconds');
+assert.deepEqual(projectComputerUsageStatisticsV2(secondsInput),secondsSummary,'repeat read is not additive');
+const lower=projectComputerUsageStatisticsV2({...secondsInput,application:{...secondsSource(5),revision:'source-r2',
+  applicationUsage:{nonSpecialTotal:5,nonSpecialCategories:{study:5},specialTotal:0,complete:true,reasonCodes:[]}}});
+assert.equal(lower.totals.computer,15,'correction may lower usage');
+const missing=projectComputerUsageStatisticsV2({...secondsInput,application:null});
+assert.equal(missing.totals.computer,null);assert.equal(missing.totals.web,10);assert.equal(missing.totals.application,null);
+const noPublished=projectComputerUsageStatisticsV2({...secondsInput,application:{...secondsSource(0,{}),complete:false,
+  totalDuration:null,availableTotalDuration:null}});
+assert(noPublished.reasonCodes.includes('APPLICATION_STATISTICS_UNAVAILABLE'));
+assert(!noPublished.reasonCodes.includes('APPLICATION_STATISTICS_INVALID'),'missing publication is not corrupt statistics');
+const unknownSpecial=projectComputerUsageStatisticsV2({...secondsInput,application:{...applicationSeconds,applicationUsage:null}});
+assert.equal(unknownSpecial.totals.application,15);assert.equal(unknownSpecial.totals.computer,null);
+assert(unknownSpecial.reasonCodes.includes('APPLICATION_NON_SPECIAL_STATISTICS_UNAVAILABLE'));
+const partial=projectComputerUsageStatisticsV2({...secondsInput,web:{...secondsSource(10),complete:false,totalDuration:null}});
+assert.equal(partial.totals.web,10);assert.equal(partial.totals.computer,null);assert.equal(partial.sourceStatus.web,'partial');
+const zero=projectComputerUsageStatisticsV2({...secondsInput,web:secondsSource(0),application:{...secondsSource(0),
+  applicationUsage:{nonSpecialTotal:0,nonSpecialCategories:{},specialTotal:0,complete:true,reasonCodes:[]}}});
+assert.equal(zero.totals.computer,0);assert.equal(zero.complete,true);
+const ordinaryOther=projectComputerUsageStatisticsV2({...secondsInput,application:{...secondsSource(10,{other:10}),
+  applicationUsage:{nonSpecialTotal:10,nonSpecialCategories:{other:10},specialTotal:0,complete:true,reasonCodes:[]}}});
+assert.equal(ordinaryOther.totals.computer,20,'ordinary other time is not excluded from computer use');
+assert.deepEqual(ordinaryOther.categories,{study:10,other:10});
+const overlappingCategories=projectComputerUsageStatisticsV2({...secondsInput,application:{...applicationSeconds,
+  applicationUsage:{...applicationSeconds.applicationUsage,nonSpecialCategories:{study:10,composite:10}}}});
+assert.equal(overlappingCategories.totals.computer,20,'overlapping classification details are not the total authority');
+assert.deepEqual(overlappingCategories.categories,{study:20,composite:10});
+const partialContribution=projectComputerUsageStatisticsV2({...secondsInput,application:{...applicationSeconds,
+  applicationUsage:{...applicationSeconds.applicationUsage,complete:false,reasonCodes:['SOURCE_PARTIAL']}}});
+assert.equal(partialContribution.totals.computer,null);assert.equal(partialContribution.totals.application,15);
+assert(partialContribution.reasonCodes.includes('SOURCE_PARTIAL'));
+for(const duration of [1.5,-1,Number.MAX_SAFE_INTEGER+1])assert.equal(projectComputerUsageStatisticsV2({
+  ...secondsInput,web:secondsSource(duration)}).sourceStatus.web,'unavailable');
+assert.equal(projectComputerUsageStatisticsV2({...secondsInput,web:{...secondsSource(10),durationUnit:'milliseconds'}}).totals.web,null);
+assert.throws(()=>projectComputerUsageStatisticsV2({...secondsInput,web:secondsSource(Number.MAX_SAFE_INTEGER)}),/DURATION_OVERFLOW/);
+}
 const day = '2026-09-27', start = Date.parse(`${day}T00:00:00+08:00`);
 const base = { computerKey:'opaque-computer-a', computerName:'Fixture computer', revision:'v1', correctionRevision:'c1',
   settledAtMs:start + 1000000, complete:true, reasons:[] };

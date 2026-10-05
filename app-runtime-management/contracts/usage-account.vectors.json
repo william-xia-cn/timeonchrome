@@ -1,6 +1,15 @@
 {
   "schemaVersion": 1,
   "timezone": "Asia/Shanghai",
+  "secondAllocationCases": [
+    { "id": "equal-remainder-start-order", "totalSeconds": 1, "slices": [{ "startMs": 0, "endMs": 600 }, { "startMs": 600, "endMs": 1200 }], "expected": [1, 0] },
+    { "id": "largest-remainder-not-independent-floor", "totalSeconds": 2, "slices": [{ "startMs": 0, "endMs": 1400 }, { "startMs": 1400, "endMs": 2200 }], "expected": [1, 1] },
+    { "id": "less-than-a-second", "totalSeconds": 0, "slices": [{ "startMs": 0, "endMs": 600 }], "expected": [0] },
+    { "id": "cross-hour-no-loss", "totalSeconds": 1, "slices": [{ "startMs": 3599700, "endMs": 3600000 }, { "startMs": 3600000, "endMs": 3600900 }], "expected": [0, 1] },
+    { "id": "cross-bjt-day-no-loss", "totalSeconds": 1, "slices": [{ "startMs": 1791215999600, "endMs": 1791216000000 }, { "startMs": 1791216000000, "endMs": 1791216000800 }], "expected": [0, 1] },
+    { "id": "restore-input-order", "totalSeconds": 1, "slices": [{ "startMs": 600, "endMs": 1200 }, { "startMs": 0, "endMs": 600 }], "expected": [0, 1] },
+    { "id": "zero-width-never-gains-time", "totalSeconds": 1, "slices": [{ "startMs": 0, "endMs": 0 }, { "startMs": 0, "endMs": 1000 }], "expected": [0, 1] }
+  ],
   "classificationCases": [
     { "id": "current-week-missing-policy-latest-study", "nowMs": 1791086400000, "startMs": 1791086400000, "durationMs": 51125, "rawClassification": null, "appPolicyVersion": null, "currentClassification": "study", "expectedClassification": "study" },
     { "id": "current-week-no-configuration-is-unclassified", "nowMs": 1791086400000, "startMs": 1791086400000, "durationMs": 51125, "rawClassification": "study", "appPolicyVersion": null, "currentClassification": null, "expectedClassification": "unclassified" },
