@@ -1,5 +1,17 @@
 # Stats Storage Foundation（V1 用量统计存储基础架构）
 
+## 2026-10-05 PO批准：统计与配额核算分层，应用统计一次同步
+
+应用统计只生成实际用量，独立配额模块结合公共配置实时计算消耗、剩余和借用；统计不得读取额度上限或保存余额。特殊应用由产品catalogGroup唯一确定，不新增Chrome角色布尔。使用同一已结算区间生成非特殊应用总并集、非特殊应用各分类并集及特殊应用总并集，不能从已聚合明细简单相减。此投影作为application manifest可选applicationUsage属性，继承该manifest的日期、截止、关联、更正、修订和哈希；不另设投影版本、政策版本或独立贡献发布生命周期。
+
+旧manifest继续按原接口接受；新增能力协商后Native才发送附属投影。云端在原发布核对中精确验证投影，发布后直接读取为共享来源；本机使用当前完整统计，不等待自身云端发布，并替换共享依据中的自身副本。旧端无附属投影仍使用旧贡献兼容路径，不伪报新版覆盖。不重构网页既有落账/统计/上传，不修改原始应用账或计时、公共配额/借用/提醒算法，不执行migration、安装、部署或启用共享。
+
+实施检查：契约可选字段/能力与旧数据兼容；云端同版精确核验和共享读取；Native同版生成、缓存、上传及本机替换；重叠/毫秒/分类更正/篡改/来源隔离聚焦回归。源码、安装和真实验收分别记录。
+
+兼容读取中的publicationRevision固定为`application-statistics:<manifest.revision>:<manifest.manifestHash>`，revisionOrdinal直接取统计修订，不另建贡献序号。来源键仍由已鉴权机器/用户分配生成；只有新版统计依据可被本机同源最新完整统计替换，旧贡献依据须先取得新版依据，两个序号域不得混比。兼容wire的policyRevision仅由配额模块在读取时绑定当前公共配置，不写进applicationUsage。能力入口沿用`GET /v2/machines/application-accounts/capabilities`，`enabled=true`且capabilities包含`application-usage-projection-v1`才发送新版。
+
+电脑使用汇总的特殊应用扣除同样读取已发布manifest中的实际用量：原应用总并集减非特殊总并集得到边际扣除，不等待旧贡献回执。旧manifest仍按已核验旧回执读取；新manifest不完整时不回退陈旧值。不改变电脑汇总公式、网页来源或原应用统计。
+
 ## 2026-10-05 网页实现对照复核与PO批准实施
 
 ### PO批准实施：单一产品目录属性

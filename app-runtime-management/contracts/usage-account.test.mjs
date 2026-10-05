@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createUsageAccount, hashUsageAccountValue, canonicalUsageAccountJson,
   parseUsageAccountRows, verifyUsageAccountManifest, validateUsageAccountDimensions,
-  usageAccountDayStart, parseUsageAccountReceipt } from './dist/usage-account.js';
+  usageAccountDayStart, parseUsageAccountReceipt, parseApplicationUsageProjection } from './dist/usage-account.js';
 
 const vectors = JSON.parse(readFileSync(new URL('./usage-account.vectors.json', import.meta.url), 'utf8'));
 const schema = JSON.parse(readFileSync(new URL('./usage-account.schema.json', import.meta.url), 'utf8'));
@@ -52,6 +52,25 @@ assert.equal(canonicalUsageAccountJson(vectors.unicodeHashVector.input), vectors
 assert.equal(await hashUsageAccountValue(vectors.unicodeHashVector.input), vectors.unicodeHashVector.sha256);
 const totals = [row('total', null, 0), ...Array.from({ length: 24 }, (_, h) => row('total', h, 0))];
 const base = await createUsageAccount(header, totals);
+const projection = { nonSpecialTotalMs: 0, nonSpecialCategoryMs: { study: 0, other: 0 },
+  specialTotalMs: 0, complete: true, reasonCodes: [] };
+const attached = await createUsageAccount({ ...header, applicationUsage: projection }, totals);
+assert.deepEqual(attached.manifest.applicationUsage, projection);
+assert.deepEqual(attached.rows, base.rows, '附属视图不得改变原有统计行');
+assert.notEqual(attached.manifest.manifestHash, base.manifest.manifestHash, '视图必须随同一清单签入哈希');
+assert(!Object.hasOwn(base.manifest, 'applicationUsage'), '旧统计不猜补为零投影');
+await assert.rejects(verifyUsageAccountManifest({ ...attached.manifest,
+  applicationUsage: { ...projection, specialTotalMs: 1 } }), /HASH_MISMATCH/);
+await assert.rejects(createUsageAccount({ ...header, sourceKind: 'web', durationUnit: 'seconds',
+  applicationUsage: projection }, totals), /INVALID_APPLICATION_USAGE/);
+assert.throws(() => parseApplicationUsageProjection({ ...projection, remainingMs: 0 }), /INVALID_FIELDS/);
+assert.throws(() => parseApplicationUsageProjection({ ...projection, nonSpecialTotalMs: 0.5 }), /INVALID_APPLICATION_USAGE/);
+assert.throws(() => parseApplicationUsageProjection({ ...projection, nonSpecialCategoryMs: { study: 1 } }), /INVALID_APPLICATION_USAGE/);
+assert.throws(() => parseApplicationUsageProjection({ ...projection, complete: false }), /INVALID_APPLICATION_USAGE/);
+assert.deepEqual(parseApplicationUsageProjection({ nonSpecialTotalMs: 10,
+  nonSpecialCategoryMs: { study: 10, restrictedEntertainment: 10 }, specialTotalMs: 10,
+  complete: true, reasonCodes: [] }).nonSpecialCategoryMs,
+  { study: 10, restrictedEntertainment: 10 }, '分类有重叠，不能把类别相加作为总量');
 await assert.rejects(verifyUsageAccountManifest({ ...base.manifest, revision: 2 }), /HASH_MISMATCH/);
 await assert.rejects(verifyUsageAccountManifest({ ...base.manifest, childId: 'forged' }), /INVALID_FIELDS/);
 await assert.rejects(createUsageAccount({ ...header, durationUnit: 'seconds' }, totals), /INVALID_SCHEMA/);

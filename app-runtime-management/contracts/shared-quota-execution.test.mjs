@@ -86,6 +86,15 @@ const entry = old.days[1].sources[1];
 const scope = {source:'application',sourceKey:entry.contribution.sourceKey,date:old.toDate};
 const replacement = {basisRevision:old.revision,expectedPublicationRevision:entry.publicationRevision,
   revisionOrdinal:2,contribution:clone(entry.contribution)};
+const statisticsBasis=clone(old), statisticsEntry=statisticsBasis.days[1].sources[1];
+statisticsEntry.publicationRevision='application-statistics:3:statistics-hash';
+statisticsEntry.contribution.revision=statisticsEntry.publicationRevision;
+const statisticsReplacement={...replacement,expectedPublicationRevision:statisticsEntry.publicationRevision,revisionOrdinal:4,
+  contribution:{...clone(statisticsEntry.contribution),revision:'application-statistics:4:new-statistics-hash'}};
+assert.equal(projectLocalSharedQuotaExecution(policy,statisticsBasis,[statisticsReplacement],[scope]).complete,true,
+  'latest local statistics can replace its own older cloud statistics without a separate publication ordinal');
+assert.throws(()=>projectLocalSharedQuotaExecution(policy,old,[{...statisticsReplacement,expectedPublicationRevision:entry.publicationRevision}],[scope]),
+  /EXECUTION_SOURCE_VERSION_DOMAIN_CHANGED/,'legacy contribution ordinal is never compared with a statistics ordinal');
 assert.throws(() => projectLocalSharedQuotaExecution(policy,old,[replacement],[scope]),/EXECUTION_SOURCE_CONTEXT_CHANGED/);
 assert.throws(() => projectLocalSharedQuotaExecution(policy,old,[{...replacement,revisionOrdinal:4},{...replacement,revisionOrdinal:4}],[scope]),/DUPLICATE_EXECUTION_REPLACEMENT/);
 assert.throws(() => projectLocalSharedQuotaExecution(policy,original,[],[{...scope,childId:'other'}]),/INVALID_EXECUTION_SCOPE/);

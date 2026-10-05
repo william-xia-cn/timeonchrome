@@ -125,7 +125,8 @@ export function sharedQuotaReminderContinuityV1(previous: {
     const latest = new Map(next.sources.map(entry => [key(entry.contribution),entry]));
     return previous.sources.every(old => {
       const entry = latest.get(key(old.contribution));
-      if (!entry || entry.revisionOrdinal < old.revisionOrdinal) return false;
+      if (!entry || entry.revisionOrdinal < old.revisionOrdinal
+        || entry.publicationRevision.startsWith('application-statistics:') !== old.publicationRevision.startsWith('application-statistics:')) return false;
       const a = old.contribution, b = entry.contribution;
       if (a.correctionRevision !== b.correctionRevision || a.productAssociationVersion !== b.productAssociationVersion
         || (a.settledAtMs !== null && (b.settledAtMs === null || b.settledAtMs < a.settledAtMs))) return false;
@@ -249,6 +250,9 @@ export function projectLocalSharedQuotaExecution(policy: UnifiedChildAccessPolic
     if (!old || old.publicationRevision !== replacement.expectedPublicationRevision) throw new Error('EXECUTION_SOURCE_VERSION_CHANGED');
     if (changed.has(scopeKey)) throw new Error('DUPLICATE_EXECUTION_REPLACEMENT');
     validateContribution(replacement.contribution, policy.revision, old.contribution.date);
+    if (replacement.contribution.source === 'application'
+      && replacement.contribution.revision.startsWith('application-statistics:') !== old.publicationRevision.startsWith('application-statistics:'))
+      throw new Error('EXECUTION_SOURCE_VERSION_DOMAIN_CHANGED');
     if (!replacement.contribution.complete || replacement.revisionOrdinal < old.revisionOrdinal
       || replacement.contribution.correctionRevision !== old.contribution.correctionRevision
       || replacement.contribution.productAssociationVersion !== old.contribution.productAssociationVersion) {

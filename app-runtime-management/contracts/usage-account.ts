@@ -3,6 +3,14 @@ export const USAGE_ACCOUNT_CHUNK_ROWS = 100;
 export const USAGE_ACCOUNT_MAX_ROWS = 10_000;
 export type UsageAccountSource = 'application' | 'web' | 'webMedia';
 export type UsageAccountUnit = 'milliseconds' | 'seconds';
+/** 同版实际用量视图；不含配置、配额余额、借用或第二个发布版本。 */
+export interface ApplicationUsageProjection {
+  nonSpecialTotalMs: number;
+  nonSpecialCategoryMs: Record<string, number>;
+  specialTotalMs: number;
+  complete: boolean;
+  reasonCodes: string[];
+}
 export interface UsageAccountRow {
   kind: 'total' | 'category' | 'subject';
   hour: number | null;
@@ -33,6 +41,7 @@ export interface UsageAccountManifest {
   complete: boolean;
   reasonCodes: string[];
   manifestHash: string;
+  applicationUsage?: ApplicationUsageProjection;
 }
 export interface UsageAccountChunk {
   chunkIndex: number;
@@ -119,7 +128,8 @@ export async function hashUsageAccountValue(value: unknown): Promise<string> {
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 export function parseUsageAccountManifest(value: unknown): UsageAccountManifest {
-  const v = exact(value, manifestFields);
+  const v = exact(value, record(value) && Object.hasOwn(value, 'applicationUsage')
+    ? [...manifestFields, 'applicationUsage'] : manifestFields);
   if (v.schemaVersion !== 1 || v.timezone !== 'Asia/Shanghai'
     || (v.sourceKind !== 'application' && v.sourceKind !== 'web' && v.sourceKind !== 'webMedia')
     || v.durationUnit !== (v.sourceKind === 'application' ? 'milliseconds' : 'seconds'))
@@ -146,7 +156,7 @@ export function parseUsageAccountManifest(value: unknown): UsageAccountManifest 
     || !orderedUnique(v.reasonCodes, item => typeof item === 'string' && codePattern.test(item))
     || (v.complete && (v.reasonCodes.length > 0 || v.settledThroughMs === null))
     || (!v.complete && v.reasonCodes.length === 0)) fail('USAGE_ACCOUNT_INVALID_COMPLETENESS');
-  return {
+  const result: UsageAccountManifest = {
     schemaVersion: 1, sourceKind: v.sourceKind, durationUnit: v.sourceKind === 'application' ? 'milliseconds' : 'seconds', timezone: 'Asia/Shanghai',
     date: v.date, revision: v.revision, generatedAtMs: v.generatedAtMs,
     settledThroughMs: v.settledThroughMs === null ? null : Number(v.settledThroughMs),
@@ -156,6 +166,25 @@ export function parseUsageAccountManifest(value: unknown): UsageAccountManifest 
     chunkCount: v.chunkCount, rowsHash: String(v.rowsHash), complete: v.complete,
     reasonCodes: v.reasonCodes.map(String), manifestHash: String(v.manifestHash),
   };
+  if (Object.hasOwn(v, 'applicationUsage')) {
+    if (v.sourceKind !== 'application') fail('USAGE_ACCOUNT_INVALID_APPLICATION_USAGE');
+    result.applicationUsage = parseApplicationUsageProjection(v.applicationUsage);
+  }
+  return result;
+}
+export function parseApplicationUsageProjection(value: unknown): ApplicationUsageProjection {
+  const v = exact(value, ['nonSpecialTotalMs', 'nonSpecialCategoryMs', 'specialTotalMs', 'complete', 'reasonCodes']);
+  if (!integer(v.nonSpecialTotalMs) || v.nonSpecialTotalMs > 86_400_000
+    || !integer(v.specialTotalMs) || v.specialTotalMs > 86_400_000
+    || !record(v.nonSpecialCategoryMs) || Object.keys(v.nonSpecialCategoryMs).length > 16
+    || Object.entries(v.nonSpecialCategoryMs).some(([category, duration]) =>
+      !identifier(category) || !integer(duration) || duration > Number(v.nonSpecialTotalMs))
+    || typeof v.complete !== 'boolean' || !Array.isArray(v.reasonCodes) || v.reasonCodes.length > 16
+    || !orderedUnique(v.reasonCodes, code => typeof code === 'string' && codePattern.test(code))
+    || (v.complete ? v.reasonCodes.length !== 0 : v.reasonCodes.length === 0))
+    fail('USAGE_ACCOUNT_INVALID_APPLICATION_USAGE');
+  return { nonSpecialTotalMs: v.nonSpecialTotalMs, nonSpecialCategoryMs: { ...v.nonSpecialCategoryMs } as Record<string, number>,
+    specialTotalMs: v.specialTotalMs, complete: v.complete, reasonCodes: v.reasonCodes.map(String) };
 }
 export async function verifyUsageAccountManifest(value: unknown): Promise<UsageAccountManifest> {
   const manifest = parseUsageAccountManifest(value);

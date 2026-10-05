@@ -7,6 +7,7 @@ import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { mapApplicationUsageClock, APPLICATION_CLOCK_MARGIN_MS } from './applicationUsageClock';
 import { applicationAccountAlgorithm } from './applicationAccounts';
+import { isConfirmedSpecialApplication } from './specialApplications';
 
 interface Candidate {id:string;machine_id:string;local_user_id:string;assignment_version:number;
   account_id:string;child_id:string;date:string;revision:number;manifest_json:string}
@@ -89,6 +90,7 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
     if(Number(row.accounting_schema_version)!==2)fail('APPLICATION_ACCOUNT_SCHEMA_UNSUPPORTED');
   }
   const projected=new Map(policy.productIdentityProjection?.items.map(p=>[`${p.platform}\n${p.runtimeIdentity}`,p])??[]);
+  const specialSubjects=new Set<string>();
   const spans:Span[]=[];
   const normalized=frozen.filter(row=>Number(row.start_wall_time_ms)<end&&Number(row.end_wall_time_ms)>start)
     .map(row=>({...row,start_wall_time_ms:Math.max(start,Number(row.start_wall_time_ms)),
@@ -101,12 +103,26 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
     // own key and classification; never guess aliases or merge by display name.
     if(product.status==='unresolved'&&(product.productId!==null||product.associationKey!==identity))
       fail('APPLICATION_ACCOUNT_ASSOCIATIONS_PENDING');
+    const subject=await sha256Hex(product.associationKey);
+    if(isConfirmedSpecialApplication(product,policy.applicationKnowledge))specialSubjects.add(subject);
     spans.push({start:Number(row.start_wall_time_ms),end:Number(row.end_wall_time_ms),
       lane:`${row.runtime_session_id}\n${row.clock_epoch_id}`,category:String(row.classification??'historicalUnknown'),
-      subject:await sha256Hex(product.associationKey),name:safeName(product.canonicalName||String(row.display_name??'未命名应用'))});
+      subject,name:safeName(product.canonicalName||String(row.display_name??'未命名应用'))});
   }
   const rows=project(spans,start);
   if(rows.length!==manifest.rowCount||await hashUsageAccountValue(rows)!==manifest.rowsHash)fail('APPLICATION_ACCOUNT_STATISTICS_MISMATCH');
+  if(manifest.applicationUsage) {
+    const ordinary=spans.filter(span=>!specialSubjects.has(span.subject));
+    const categories=Object.fromEntries([...new Set(ordinary.map(span=>span.category))].sort()
+      .map(category=>[category,union(ordinary.filter(span=>span.category===category),start,end)]));
+    const known=new Set(['study','composite','unclassified','restrictedEntertainment','other','blocked']);
+    const complete=ordinary.every(span=>known.has(span.category));
+    const expected={nonSpecialTotalMs:union(ordinary,start,end),nonSpecialCategoryMs:categories,
+      specialTotalMs:union(spans.filter(span=>specialSubjects.has(span.subject)),start,end),
+      complete,reasonCodes:complete?[]:['APPLICATION_CLASSIFICATION_UNKNOWN']};
+    if(canonicalUsageAccountJson(expected)!==canonicalUsageAccountJson(manifest.applicationUsage))
+      fail('APPLICATION_ACCOUNT_USAGE_PROJECTION_MISMATCH');
+  }
   if((await applicationStatisticsSource(db,candidate.account_id,candidate.child_id,start,end,filters)).revision!==before.revision)
     fail('APPLICATION_ACCOUNT_SOURCE_CHANGED');
   // Do not advertise an earlier frozen subset as covering the current full day.

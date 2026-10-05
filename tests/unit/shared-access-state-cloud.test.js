@@ -19,7 +19,7 @@ const application={schemaVersion:1,source:'application',sourceKey:'app:opaque',d
  correctionRevision:'corr-app',productAssociationVersion:'assoc-3',policyRevision:policy.revision,settledAtMs:start+1000,complete:true,reasonCodes:[],
  bucketsMs:{study:0,composite:0,rest:0},applicationClassesMs:{study:600000,composite:0,restrictedEntertainment:60000,unclassified:0,other:3600000},chromeExcludedMs:0};
 function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=false,webUnavailable=false,unboundWithHistory=false,
- derived=false,derivedMissing=false}={}){
+ derived=false,derivedMissing=false,statisticsBacked=false}={}){
  const manifestScopes=new Map();
  const account={profileId:'child',deviceId:'browser',date,revision:2,statsHash:'web-hash',generatedAt:start+5000,complete:true,lossCount:0,
   rows:[{kind:'daily_target',channel:'active',quotaBucket:'study',durationSeconds:600,targetKey:'x'},
@@ -53,12 +53,20 @@ function fixture({legacy=false,appCoverage=true,expectedAppScopes=1,noDevice=fal
  const env={DB:db,RUNTIME_COMPUTER_USAGE:{fetch:async request=>{const body=await request.json();
   const current={...application,date:body.fromDate,revision:`raw-app-${body.fromDate}`,statisticsRevision:`hash-app-${body.fromDate}`};
   return Response.json({complete:appCoverage,expectedScopeCount:expectedAppScopes,verifiedScopeCount:appCoverage?1:0,
-    reasonCodes:appCoverage?[]:['APPLICATION_ACCOUNT_NOT_PUBLISHED'],contributions:appCoverage?[{sourceKey:application.sourceKey,revision:`4:${body.fromDate}`,contribution:current}]:[]});}}};
+    reasonCodes:appCoverage?[]:['APPLICATION_ACCOUNT_NOT_PUBLISHED'],contributions:appCoverage?[{sourceKey:application.sourceKey,
+      revision:statisticsBacked?`application-statistics:4:${body.fromDate}`:`4:${body.fromDate}`,
+      ...(statisticsBacked?{statisticsBacked:true}:{}),contribution:{...current,...(statisticsBacked?{policyRevision:'statistics-only'}:{})}}]:[]});}}};
  if(derived)env.SHARED_WEB_CONTRIBUTIONS_ENABLED='true';
  return{service,env};
 }
 (async()=>{
  const {service,env}=fixture();
+ const backed=fixture({statisticsBacked:true});
+ const backedBasis=await backed.service.readSharedQuotaExecutionBasis(backed.env,'account','child',date,policy);
+ const backedApp=backedBasis.days.at(-1).sources.find(item=>item.contribution.source==='application');
+ assert.equal(backedApp.revisionOrdinal,4);
+ assert.equal(backedApp.publicationRevision,`application-statistics:4:${date}`);
+ assert.equal(backedApp.contribution.policyRevision,policy.revision,'quota module binds current policy on read, not in statistics');
  const result=await service.readSharedAccessDayState(env,'account','child',date,policy);
  assert.equal(result.complete,true,'complete app and web source coverage can produce a complete shadow projection');
  assert.equal(result.day.usedMs.study,1200000,'web and application study contributions are combined');
