@@ -17,6 +17,8 @@ import type {MachineSelfResponse} from '../src/contracts';
 import {readPersistentApplicationUsage,rebuildApplicationStatistics,type StatisticsValue} from '../src/applicationStatistics';
 import {readNativeApplicationStatisticsSeconds,readNativeApplicationStatisticsRangeSeconds} from '../src/applicationStatisticsNative';
 import {routeV2} from '../src/v2Routes';
+// 从隔离Native原账→物化测试导出，不复制C#生成算法或真实家庭数据。
+import nativeGenerated from './application-seconds-native-generated.json';
 const DAY=86400000,start=Date.parse('2026-09-27T00:00:00+08:00'),now=start+DAY;
 const user='a'.repeat(64);
 async function fixture(platform:MachineSelfResponse['platform']='windows',scope?:{accountId:string;child:string}){
@@ -110,6 +112,37 @@ it.each(['windows','macos'] as const)('v2 %s producer seconds and product classi
   expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,foreign.child,'2026-09-27')).toBeNull();
   expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-26')).toBeNull();
   expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27',{machineId:foreign.machine.machineId})).toBeNull();
+  expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
+    .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
+});
+it.each(['generated','boundary'] as const)('actual C# %s output crosses authenticated upload, persistent read and page adapter',async(kind)=>{
+  const value=nativeGenerated[kind],f=await fixture('windows'),token=crypto.randomUUID();
+  const receivedAt=value.manifest.generatedAtMs+1;
+  await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET token_hash=?1 WHERE id=?2')
+    .bind(await sha256Hex(token),f.machine.machineId).run();
+  const call=async(path:string,method:string,body?:unknown)=>{
+    const response=await routeV2(new Request('https://runtime.test/v2/machines/application-accounts/'+path,{method,
+      headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})}),env,receivedAt);
+    expect(response?.status).toBe(200);return response!.json() as Promise<Record<string,unknown>>;
+  };
+  const before=JSON.stringify(value);
+  const receipt=await call('manifests','POST',{localUserId:user,assignmentVersion:1,manifest:value.manifest});
+  for(const chunk of value.chunks)await call(`manifests/${receipt.manifestId}/chunks/${chunk.chunkIndex}`,'PUT',
+    {rows:chunk.rows,chunkHash:chunk.chunkHash});
+  expect(await call(`manifests/${receipt.manifestId}/commit`,'POST')).toMatchObject({published:true,
+    manifestHash:value.manifest.manifestHash,revision:value.manifest.revision});
+  const fromMs=Date.parse(value.manifest.date+'T00:00:00+08:00');
+  const source=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,fromMs,fromMs+DAY);
+  const expected=kind==='generated'?52:1;
+  expect(source).toMatchObject({complete:true,totalDuration:expected,applicationUsage:value.manifest.applicationUsage});
+  const view=AppRuntimeTime.applicationSecondsView(source,'day');
+  expect(view).toMatchObject({durationUnit:'seconds',complete:true,totalDurationSeconds:expected,
+    settledThroughMs:value.manifest.settledThroughMs});
+  if(kind==='boundary'){
+    expect(source.days[0].hours.find(row=>row.kind==='total'&&row.hour===0)?.duration).toBe(0);
+    expect(source.days[0].hours.find(row=>row.kind==='category'&&row.category==='study'&&row.hour===0)?.duration).toBe(1);
+  }
+  expect(JSON.stringify(value)).toBe(before);
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
     .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
 });
