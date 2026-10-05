@@ -26,13 +26,21 @@
 
 2026-10-05 PO明确批准修复：直接位置为Native `ApplicationAccountingV3.cs:135`，新目标没有lane时，原Checkpoint均按`max(bindingStart, previous, now-90s)`补开，未区分Snapshot已确认的应用切换。4段契约解析／canonical hash均有效，说明传输校验不能发现这类跨段错误；旧98项及112条合成wire漏掉普通Snapshot切换，不能替代实机准确性。补测后旧代码5项中2失败，真实Snapshot→Projector→Session→SQLite单项也失败，错误精确为重复60016ms／259秒。9afff6f将已有前台段的替换从当前确认边界开段；真正缺段90秒、180秒尾段、PiP、媒体、Child和契约不变。修后同输入2段合计199整数秒、重叠0，不使用统计并集掩盖原账错误。旧失败TRX保留。23:52起按新SHA重建原隔离采样器，Core DLL SHA256 `1fd03b94af7371a58b7a68ffae2b080f1bc6766e7a12b5b22a2628ef7c9c5655`与源码构建一致；真实切换复验两段121＋78秒、边界衔接及重叠0，stderr空。脱敏摘要为Native本地`.tmp/application-raw-v3/fixed-f523ba5ee2ef4c9c873e210cbb1aebf9-stdout.log`；真实身份只留隔离临时库，不上传或写入文档。Matched＝本次切换修复／自动回归／隔离真实复验；Missing＝其余系统矩阵及Mac；Deviated／Extra＝本次无新增。不能推断旧安装2.6.34亦有相同错误。
 
-### Windows原账最小收口验收（2026-10-06，PO批准执行）
+### Windows原账最小收口验收（2026-10-06，发现阶段；后续修复结果见下）
 
 只补一次固定9afff6f源码的200秒同应用前台隔离采样：要求真实ACTIVE、180秒周期段及衔接尾段、原始重叠0、固定合成Child和逐段整数秒；若活动条件不足或发生应用切换，本场景记未验证，不自动重采。既有切换实测及103／102项证据复用。Native所属任务核对Service分配→开段→策略改绑→事务→恢复的实际调用及既有覆盖；缺Service入口证据时只补对应隔离回归，不以底层Session测试冒充已接线。发现错误先回报原因和最小修复，不顺手改产品。允许路径为既有任务记录及Native所属测试；根任务不代改本机源码。最小检查为本次隔离SQLite／固定契约／哈希、必要新增入口回归及diff；不跑全量或重复已有矩阵。未安装、部署、迁移或启用共享，新v3仍待接收端兼容。当前：本轮采样及接线审查已完成，周期场景通过，Service归属竞态未修复，因此核心原账收口未通过；系统矩阵和Mac单列。
 
 Service接线Deviated（源码竞态／下层可执行后果已复现）：`RuntimeServiceCoordinator.cs:1638–1639`在stateGate前读取旧assignment／rawAssignment；`SyncPolicyOnceAsync`在同锁内提交新分配并更新appliedPolicy。等待中的事实随后可能用旧捕获A覆盖已生效B；事实时间晚于改绑边界时，stale边界保护不能排除这条路径，且SnapshotFor会混用新policy与旧assignment。影响为改绑后新段可能回属旧孩子，或撤销保护后旧判断继续有效；不能作为历史P2搁置。Native仅测试及既有实施记录提交 `6dbad888dafcbfa41a3ea2f635c390e21f751b38`，业务源码未改。两项诊断用例2/2表示复现缺陷：150000ms提交B／版本2（另一项撤销保护），150001ms按旧捕获A／版本1回绑，330001ms已在A新增180秒，restore仍A／1而journal保存新策略。证据为`service-binding-stale-reproduction-final.trx`；不是完整Service线程调度或生产已发生故障的证明。最小建议是拿锁后捕获同一policy并解析分配及Snapshot。完整Service构造固定机器路径，现有下层测试不能证明完整实例接线；安全隔离测试入口需覆盖全部存储依赖路径与可控API／时钟，经正常构造执行单次事实／策略／恢复，不启动WTS、pipe或后台循环。修复及该测试入口属于下一步业务源码范围，本轮只报告，不能用未初始化反射替代或触碰真实服务。
 
 周期实测Matched：2026-10-06 00:03起，唯一一次200032ms采样取得4个确认ACTIVE、同一应用的2段。固定契约直接核对：`[0,180000]`落180秒periodicSnapshot；`[180000,199938]`尾段落19秒sessionUnavailable，两段均非估算，边界连续；原始span／union199938ms、重复0、逐段floor一致、Child固定、canonical/hash有效，outbox两项均awaiting_receiver。摘要为Native本地`.tmp/application-raw-v3/periodic-274283c162b24c4a8f550ea39ac92e3c-stdout.log`，stderr空；采样器Core哈希与9afff6f一致，不改运行服务／真实账本，无网络。最终本轮审计：Matched＝一次180秒周期＋尾段实测及旧正确性证据复用；Deviated＝Service分配锁前捕获竞态；Missing＝完整隔离Service入口及该竞态修复后验证，系统矩阵／Mac另列；Extra＝无。尚不推进统计上传、云端接收或共享。
+
+### Service孩子分配竞态最小修复（2026-10-06，源码与目标入口回归完成，未安装）
+
+本次最小修复获PO明确批准（“修复吧”），Native集中提交并推送 `78d0bb672fd88839160d7ec16a87fb65f66d8984`。仅改RuntimeServiceCoordinator、新增ServiceApplicationBindingTests及既有原账实施记录。事实入口先取得stateGate再检查ledger／appliedPolicy，捕获同一currentPolicy用于assignment、rawAssignment和SnapshotFor；不会因等待锁前的旧捕获值回绑旧孩子。生产无参构造、路径和默认时钟不变；内部测试注入在全部存储依赖创建前生效。
+
+根任务直接核对前后TRX与源码：真实Coordinator三入口（ApplyFactAsync／SyncPolicyOnceAsync／InitializeLedgerAsync）以正常构造及确定性屏障执行。旧实现6项中2失败，确认为A→B后仍A及撤销保护后旧会话未清；修后原6项通过，补直接必要的未分配／defaultChild不回补并加强journal恢复后新段归属，最终7/7通过。旧A payload与outbox逐项保持，用户及同孩子不同来源独立；无实际网络，全部存储路径在临时根，无WTS、pipe、StartAsync或后台循环。证据为Native本地`.tmp/application-raw-v3/service-binding-entry-before-fix.trx`和`service-binding-entry-fixed-final.trx`；准确命令在既有实施记录。Service编译0警告／错误，职责检查与diff通过；复用此前103／102及180秒真实周期证据，不重复全量或实测。
+
+本次审计：Matched＝锁内同策略修复、目标Service入口隔离回归、旧账保持及最小编译；Deviated／Extra＝无；Missing＝真实升级后的多用户／改绑、完整运行生命周期和Mac实机等尚未验收项目。原竞态不再是源码阻塞，但不等于运行服务已更新或全部原账场景通过。本轮无出包、安装、部署、migration或共享启用；状态机、秒分配、180／90秒、媒体、契约与历史账未改，统计→上传→云端读取仍属下一步。
 
 ### 当前全链状态：定秒口径已批准，继续生产生成与调用接线（2026-10-05）
 
