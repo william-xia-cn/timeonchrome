@@ -138,7 +138,8 @@ export async function routeApplicationAccounts(request: Request, db: D1Database,
       const result=await db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${tables.map((_,i)=>`?${i+1}`).join(',')})`)
         .bind(...tables).all();
       return jsonResponse({protocol:'usage-account-v1',schemaVersion:1,enabled:result.results.length===tables.length,
-        chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,acceptedAlgorithms:Object.values(applicationAccountAlgorithms)});
+        chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,acceptedAlgorithms:Object.values(applicationAccountAlgorithms),
+        capabilities:['application-usage-projection-v1']});
     }
     if (path === prefix) return request.method === 'POST'
       ? jsonResponse(await beginApplicationAccount(db, machine, await readJsonBody(request, 16384), now)) : methodNotAllowed('POST');

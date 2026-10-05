@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.32.0');
+assert.equal(pkg.version, '1.33.0');
 const productSchema=JSON.parse(fs.readFileSync(path.join(root,'application-knowledge.schema.json'),'utf8')).$defs.product;
 assert.equal(productSchema.properties.catalogGroup.const,'specialApplication');
 assert(!productSchema.required.includes('catalogGroup'),'旧产品定义无需补字段');

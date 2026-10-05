@@ -1,6 +1,7 @@
 import {env} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
-import {createUsageAccount,hashUsageAccountValue,type UsageAccountRow} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {createUsageAccount,hashUsageAccountValue,type UsageAccountRow,type ApplicationUsageProjection} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {readApplicationSharedQuotaContributions,readCoveredChromeDeduction} from '../src/applicationSharedQuota';
 import {beginApplicationAccount,putApplicationAccountChunk,commitApplicationAccount,readApplicationAccountStatus} from '../src/applicationAccounts';
 import {publishApplicationAccounts} from '../src/applicationAccountPublication';
 import {getAppPolicy,queryAppUsage,refreshHistoricalProductIdentityProjection} from '../src/appPolicy';
@@ -50,7 +51,7 @@ async function drainFixtureStatistics(f:Awaited<ReturnType<typeof fixture>>) {
 }
 async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{empty?:boolean;classification?:string;duration?:number;
   associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string;
-  associationKey?:string;reasonCodes?:string[];cutoff?:number;date?:string;hour?:number;policyVersions?:number[]}={}){
+  associationKey?:string;reasonCodes?:string[];cutoff?:number;date?:string;hour?:number;policyVersions?:number[];applicationUsage?:ApplicationUsageProjection;extraSubjectKey?:string}={}){
   const duration=options.empty?0:options.duration??1501;
   const row=(kind:UsageAccountRow['kind'],hour:number|null,category:string|null=null,subjectKey:string|null=null,displayName:string|null=null,d=duration):UsageAccountRow=>
     ({kind,hour,category,subjectKey,displayName,duration:d});
@@ -58,17 +59,65 @@ async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{
   const rows=[row('total',null),...Array.from({length:24},(_,h)=>row('total',h,null,null,null,h===hour?duration:0))];
   if(!options.empty){rows.push(row('category',null,options.classification??'study'),row('category',hour,options.classification??'study'),
     row('subject',null,null,await sha256Hex(key),'测试产品'),row('subject',hour,null,await sha256Hex(key),'测试产品'));}
+  if(options.extraSubjectKey)rows.push(row('subject',null,null,await sha256Hex(options.extraSubjectKey),'测试产品'),
+    row('subject',hour,null,await sha256Hex(options.extraSubjectKey),'测试产品'));
   const date=options.date??'2026-09-27',cutoff=options.cutoff??Date.parse(date+'T00:00:00+08:00')+DAY;
   const receivedAt=Math.max(now,cutoff);
   const account=await createUsageAccount({schemaVersion:1,sourceKind:'application',durationUnit:'milliseconds',timezone:'Asia/Shanghai',
     date,revision,generatedAtMs:cutoff,settledThroughMs:cutoff,algorithmVersion:options.algorithm??`${f.machine.platform}-application-v1`,policyVersions:options.policyVersions??(options.empty?[]:[1]),
     associationVersion:options.associationVersion===undefined?f.projection:options.associationVersion,correctionVersion:options.correctionVersion??0,
-    rawFactCount:options.count??(options.empty?0:1),rawFactHash:'c'.repeat(64),complete:options.complete??true,reasonCodes:options.reasonCodes??(options.complete===false?['POLICY_HISTORY_MISSING']:[])},rows);
+    rawFactCount:options.count??(options.empty?0:1),rawFactHash:'c'.repeat(64),complete:options.complete??true,reasonCodes:options.reasonCodes??(options.complete===false?['POLICY_HISTORY_MISSING']:[]),
+    ...(options.applicationUsage?{applicationUsage:options.applicationUsage}:{})},rows);
   const r=await beginApplicationAccount(env.RUNTIME_DB,f.machine,{localUserId:user,assignmentVersion:1,manifest:account.manifest},receivedAt);
   for(const c of account.chunks)await putApplicationAccountChunk(env.RUNTIME_DB,f.machine,r.manifestId,c.chunkIndex,{rows:c.rows,chunkHash:c.chunkHash});
   await commitApplicationAccount(env.RUNTIME_DB,f.machine,r.manifestId,receivedAt);
   return r;
 }
+it('published statistics supply actual application usage without a second contribution receipt',async()=>{
+  const f=await fixture();await fact(f,crypto.randomUUID());
+  const original=(await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results;
+  const r=await upload(f,8,{applicationUsage:{nonSpecialTotalMs:1501,nonSpecialCategoryMs:{study:1501},specialTotalMs:0,complete:true,reasonCodes:[]}});
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+  const shared=await readApplicationSharedQuotaContributions(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27');
+  expect(shared).toMatchObject({complete:true,verifiedScopeCount:1});
+  expect(shared.contributions[0]).toMatchObject({statisticsBacked:true,contribution:{applicationClassesMs:{study:1501},chromeIncludedInApplicationMs:0}});
+  expect(shared.contributions[0].revision).toMatch(/^application-statistics:8:[a-f0-9]{64}$/);
+  expect((await readApplicationSharedQuotaContributions(env.RUNTIME_DB,crypto.randomUUID(),f.child,'2026-09-27')).contributions).toEqual([]);
+  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(original);
+});
+it('rejects a forged actual-usage projection even when original statistics rows are correct',async()=>{
+  const f=await fixture();await fact(f,crypto.randomUUID());
+  const r=await upload(f,1,{applicationUsage:{nonSpecialTotalMs:1500,nonSpecialCategoryMs:{study:1500},specialTotalMs:1,complete:true,reasonCodes:[]}});
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_USAGE_PROJECTION_MISMATCH'});
+});
+it.each([false,true])('special product exclusion preserves the total and uses interval unions, ordinary overlap=%s',async(overlap)=>{
+  const f=await fixture();await fact(f,crypto.randomUUID());
+  const policy=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child);
+  policy.applicationKnowledge!.products.push({id:'test',name:'测试产品',type:'other',catalogGroup:'specialApplication',selectors:[]});
+  if(overlap) {
+    const id=crypto.randomUUID();await fact(f,id,'ordinary-session');
+    await env.RUNTIME_DB.prepare("UPDATE runtime_usage_segments_v2 SET runtime_identity='ordinary' WHERE id=?1").bind(id).run();
+    policy.productIdentityProjection!.items.push({platform:'windows',runtimeIdentity:'ordinary',associationKey:'windows\nordinary',
+      productId:null,canonicalName:'测试产品',status:'unresolved',reasonCode:'IDENTITY_UNRESOLVED'});
+  }
+  const {version:_,...content}=policy.productIdentityProjection!;
+  f.projection=await productIdentityProjectionVersion(content,policy.applicationKnowledge!);
+  policy.productIdentityProjection!.version=f.projection;
+  await env.RUNTIME_DB.prepare('UPDATE runtime_child_app_policy_versions_v1 SET payload_json=?3 WHERE account_id=?1 AND child_id=?2 AND version=1')
+    .bind(f.machine.accountId,f.child,JSON.stringify(policy)).run();
+  const r=await upload(f,1,{count:overlap?2:1,...(overlap?{extraSubjectKey:'windows\nordinary'}:{}),
+    applicationUsage:{nonSpecialTotalMs:overlap?1501:0,nonSpecialCategoryMs:overlap?{study:1501}:{},specialTotalMs:1501,complete:true,reasonCodes:[]}});
+  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
+  const shared=await readApplicationSharedQuotaContributions(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27');
+  expect(shared.contributions[0].contribution).toMatchObject({applicationClassesMs:{study:overlap?1501:0},chromeIncludedInApplicationMs:overlap?0:1501});
+  expect(await readCoveredChromeDeduction(env.RUNTIME_DB,f.machine.accountId,f.child,f.machine.machineId,'2026-09-27','2026-09-27',1501)).toBe(overlap?0:1501);
+  const chunk=await env.RUNTIME_DB.prepare('SELECT rows_json FROM runtime_application_account_chunks_v1 WHERE manifest_id=?1').bind(r.manifestId).first<{rows_json:string}>();
+  expect(JSON.parse(chunk!.rows_json)).toContainEqual(expect.objectContaining({kind:'total',hour:null,duration:1501}));
+  expect(JSON.parse(chunk!.rows_json)).toContainEqual(expect.objectContaining({kind:'category',hour:null,category:'study',duration:1501}));
+});
 it.each(['incomplete','stale association'] as const)('cron prioritizes a complete current snapshot over older %s backlog without increasing its budget',async(kind)=>{
   const older=[];
   for(let i=0;i<2;i++){

@@ -432,7 +432,7 @@ it.each(['windows','macos'] as const)('capabilities require %s machine authentic
   const response=await exports.default.fetch(new Request(url,{headers:{authorization:`Bearer ${f.token}`}}));
   expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');
   expect(await response.json()).toEqual({protocol:'usage-account-v1',schemaVersion:1,enabled:true,
-    chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1','macos-application-v1']});
+    chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1','macos-application-v1'],capabilities:['application-usage-projection-v1']});
   const unavailable={prepare(){return {bind(){return {async all(){return {results:[]};}};}};}} as unknown as D1Database;
   const disabled=await routeApplicationAccounts(new Request(url),unavailable,f.machine,now);
   expect(await disabled.json()).toMatchObject({enabled:false});

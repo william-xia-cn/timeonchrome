@@ -1,5 +1,6 @@
 import type { ApplicationSharedQuotaUploadV1, SharedQuotaContributionV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { canonicalUsageAccountJson, parseUsageAccountRows, verifyUsageAccountManifest } from '@timeonchrome/app-runtime-contracts/usage-account';
+import type { UsageAccountManifest } from '@timeonchrome/app-runtime-contracts/usage-account';
 import type { MachineSelfResponse } from './contracts';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
@@ -12,6 +13,39 @@ const string = (value: unknown) => typeof value === 'string' && value.length > 0
 const fail = (code: string): never => { throw new HttpError(400, code, code); };
 const categoryKeys = ['study','composite','restrictedEntertainment','unclassified','other'] as const;
 const bucketKeys = ['study','composite','rest'] as const;
+
+async function readPublishedApplicationTotal(db:D1Database,manifestId:string,manifest:UsageAccountManifest) {
+  const usage=manifest.applicationUsage;
+  if(!usage||!manifest.complete)throw new HttpError(409,'APPLICATION_USAGE_PROJECTION_INCOMPLETE','实际用量视图不完整。');
+  const chunks=await db.prepare(`SELECT rows_json FROM runtime_application_account_chunks_v1
+    WHERE manifest_id=?1 ORDER BY chunk_index LIMIT 100`).bind(manifestId).all<{rows_json:string}>();
+  const rows=parseUsageAccountRows(chunks.results.flatMap(chunk=>JSON.parse(chunk.rows_json)));
+  const total=rows.find(row=>row.kind==='total'&&row.hour===null)?.duration;
+  if(!validInteger(total)||usage.nonSpecialTotalMs>total||usage.specialTotalMs>total
+    ||usage.nonSpecialTotalMs+usage.specialTotalMs<total)
+    throw new HttpError(409,'APPLICATION_USAGE_PROJECTION_INVALID','实际用量视图与统计不一致。');
+  return total;
+}
+
+/** 兼容读取形状，不持久化另一份贡献；版本/ACK唯一属于统计清单。 */
+export async function readStatisticsBackedApplicationContribution(db:D1Database,manifestId:string,
+  manifest:UsageAccountManifest,sourceKey:string) {
+  const usage=manifest.applicationUsage;
+  if(!usage)return null;
+  if(!usage.complete)throw new HttpError(409,'APPLICATION_USAGE_PROJECTION_INCOMPLETE','实际用量分类不完整。');
+  const total=await readPublishedApplicationTotal(db,manifestId,manifest);
+  const classes=Object.fromEntries(categoryKeys.map(category=>[category,usage.nonSpecialCategoryMs[category]??0])) as Record<typeof categoryKeys[number],number>;
+  const revision=`application-statistics:${manifest.revision}:${manifest.manifestHash}`;
+  const contribution:SharedQuotaContributionV1={schemaVersion:1,source:'application',sourceKey,date:manifest.date,
+    revision,statisticsRevision:manifest.manifestHash,correctionRevision:String(manifest.correctionVersion),
+    ...(manifest.associationVersion?{productAssociationVersion:manifest.associationVersion}:{}),
+    // No policy is stored with statistics. The owning quota module binds its current policy on read.
+    policyRevision:'statistics-only',settledAtMs:manifest.settledThroughMs,complete:true,reasonCodes:[],
+    applicationClassesMs:classes,bucketsMs:{study:classes.study,composite:classes.composite+classes.unclassified,
+      rest:classes.restrictedEntertainment},chromeExcludedMs:usage.specialTotalMs,
+    chromeIncludedInApplicationMs:total-usage.nonSpecialTotalMs};
+  return {sourceKey,revision,statisticsBacked:true as const,contribution};
+}
 
 function parseDate(value: unknown): string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) fail('SHARED_QUOTA_INVALID_DATE');
@@ -182,8 +216,8 @@ export async function readApplicationSharedQuotaContributions(db:D1Database,acco
       LEFT JOIN runtime_application_shared_quota_verified_v1 v
         ON v.machine_id=r.machine_id AND v.local_user_id=r.local_user_id AND v.assignment_version=r.assignment_version AND v.date=r.date
       LEFT JOIN runtime_application_account_publications_v1 p
-        ON p.machine_id=r.machine_id AND p.local_user_id=r.local_user_id AND p.assignment_version=r.assignment_version AND p.date=r.date
-          AND p.account_id=r.account_id AND p.child_id=r.child_id
+        ON p.machine_id=a.machine_id AND p.local_user_id=a.local_user_id AND p.assignment_version=a.assignment_version AND p.date=?5
+          AND p.account_id=machine.account_id AND p.child_id=a.child_id
       LEFT JOIN runtime_application_account_manifests_v1 manifest ON manifest.id=p.manifest_id
       WHERE machine.account_id=?1 AND (machine.revoked_at_ms IS NULL OR machine.revoked_at_ms>=?2)
         AND a.child_id=?3 AND a.protected=1 AND a.effective_at_ms<?4
@@ -204,6 +238,22 @@ export async function readApplicationSharedQuotaContributions(db:D1Database,acco
     const contributions:Array<{sourceKey:string;revision:string;contribution:SharedQuotaContributionV1}>=[];
     const reasons=new Set<string>();
     for(const scope of expected.results) {
+      // A new published statistic is sufficient; an old/missing independent receipt cannot block it.
+      if(scope.manifest_id&&scope.manifest_json&&scope.manifest_hash) {
+        try {
+          const manifest=await verifyUsageAccountManifest(JSON.parse(scope.manifest_json));
+          if(manifest.applicationUsage) {
+            if(manifest.manifestHash!==scope.manifest_hash||manifest.sourceKind!=='application'||manifest.date!==date)
+              throw new HttpError(409,'APPLICATION_ACCOUNT_SOURCE_MISMATCH','统计来源不一致。');
+            const sourceKey=await applicationSharedQuotaSourceKey(scope.machine_id,scope.local_user_id,scope.assignment_version);
+            const source=await readStatisticsBackedApplicationContribution(db,scope.manifest_id,manifest,sourceKey);
+            if(source)contributions.push(source);
+            continue;
+          }
+        } catch(error) {
+          reasons.add(error instanceof HttpError?error.code:'SHARED_QUOTA_SOURCE_INVALID');continue;
+        }
+      }
       if(!scope.source_key||scope.revision_ordinal===null||!scope.payload_hash||!scope.payload_json) {
         reasons.add('SHARED_QUOTA_RECEIPT_MISSING');continue;
       }
@@ -323,10 +373,9 @@ export async function readCoveredChromeDeduction(db:D1Database,accountId:string,
   const matched=`v.source_verified=1 AND v.chrome_included_ms IS NOT NULL
     AND v.statistics_manifest_hash=m.manifest_hash
     AND v.revision_ordinal=r.revision_ordinal AND v.payload_hash=r.payload_hash`;
-  let coverage:{expected:number;verified:number|null;included_ms:number|null}|null;
-  try { coverage=await db.prepare(`SELECT COUNT(*) AS expected,
-      SUM(CASE WHEN ${matched} THEN 1 ELSE 0 END) AS verified,
-      SUM(CASE WHEN ${matched} THEN v.chrome_included_ms ELSE 0 END) AS included_ms
+  try {
+    const coverage=await db.prepare(`SELECT p.manifest_id,m.manifest_hash,m.manifest_json,
+      CASE WHEN ${matched} THEN v.chrome_included_ms ELSE NULL END AS included_ms
     FROM runtime_application_account_publications_v1 p
     JOIN runtime_application_account_manifests_v1 m ON m.id=p.manifest_id
     LEFT JOIN runtime_application_shared_quota_receipts_v1 r
@@ -337,12 +386,24 @@ export async function readCoveredChromeDeduction(db:D1Database,accountId:string,
       ON v.machine_id=r.machine_id AND v.local_user_id=r.local_user_id
       AND v.assignment_version=r.assignment_version AND v.date=r.date
     WHERE p.account_id=?1 AND p.child_id=?2 AND p.machine_id=?3
-      AND p.date>=?4 AND p.date<=?5`)
+      AND p.date>=?4 AND p.date<=?5 ORDER BY p.local_user_id,p.assignment_version,p.date LIMIT 513`)
     .bind(accountId,childId,machineId,fromDate,toDate)
-    .first<{expected:number;verified:number|null;included_ms:number|null}>();
+    .all<{manifest_id:string;manifest_hash:string;manifest_json:string;included_ms:number|null}>();
+    if(coverage.results.length>512)return null;
+    if(!coverage.results.length)return totalMs===0?0:null;
+    let included=0;
+    for(const scope of coverage.results) {
+      const manifest=await verifyUsageAccountManifest(JSON.parse(scope.manifest_json));
+      if(manifest.manifestHash!==scope.manifest_hash)return null;
+      if(manifest.applicationUsage) {
+        // 分类缺口影响共享额度，不使已核验的实际总量变成不可用。
+        const total=await readPublishedApplicationTotal(db,scope.manifest_id,manifest);
+        included+=total-manifest.applicationUsage.nonSpecialTotalMs;
+      } else {
+        if(!validInteger(scope.included_ms))return null;
+        included+=scope.included_ms;
+      }
+    }
+    return validInteger(included)&&included<=totalMs?included:null;
   } catch { return null; }
-  const expected=Number(coverage?.expected??0),verified=Number(coverage?.verified??0),
-    included=Number(coverage?.included_ms??0);
-  if(expected===0)return totalMs===0?0:null;
-  return expected===verified&&validInteger(included)&&included<=totalMs?included:null;
 }
