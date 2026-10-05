@@ -8,6 +8,22 @@
 
 架构交付：新增application-ledger.ts／v3 schema／共同vectors及聚焦测试，Contracts候选1.36.0；typecheck、构建、原账哈希／单位／孩子篡改拒绝、8项直接读取网页纯函数对照、旧契约兼容、源码边界与diff检查通过。候选只从be39f0c已跟踪契约基线＋本轮7个契约文件组装，不包含既有native-host和秒读取未提交草稿。固定包位于本地81a1的.tmp/application-ledger-contract-candidate-1.36.0/timeonchrome-app-runtime-contracts-1.36.0.tgz，129158字节，SHA256 `eca40857e7d3c5ca738bdb70210f1fd3d038ae7e415fbacb244ce35267c53f08`。旧v2 schema SHA256 `b2c30e86d6d5f7d995a547165a275f93631cf91926d08e8de9f963daa765a739`未变；网页对照源SHA256 `f82ad3d9752cb90e4a271b4d12a1fc6aa9c8f623a8685908082da17e6ad5f87e`。Native已接收执行交接并在实施，不代表源码／实机验收完成；checkpoint/repair/ownership/reassignment向量必须由Native真实入口与SQLite测试覆盖。
 
+### 本轮实施审计与验收缺口
+
+契约提交 `c26235f94a72667d5a626263227829e27b46ae14`，固定1.36.0包哈希如上。Native本轮集中提交并推送 `5d629e3026a642e21c7ea798f2b3736247ca9495`，工作区干净；具体命令及TRX位置见Native仓 `agents/windows/APPLICATION-RAW-LEDGER-V3-2026-10-05.md`。以下结果来自实际TRX和隔离观察摘要，不代表已安装Service已采用v3；本机仍运行2.6.34.0。
+
+| 要求 | 证据与判断 |
+|---|---|
+| 固定Child ID／整数秒／内容幂等 | Matched：共同契约与真实SQLite测试；归属和秒量进入canonical hash，不依赖旧分类版本。 |
+| 180秒切片／正常迟到留尾／90秒恢复 | Matched（隔离）：连续5小时合成时钟生成100个180秒段；失败、缺段、重启和日／小时共同向量通过。真实关闭／改绑不全补长失联区间。 |
+| 改绑原子提交／失败不串账 | Matched（隔离）：旧段、待发、新边界和策略恢复journal同事务；失败回滚、重放及冻结旧孩子恢复通过。 |
+| 旧账／网页／媒体边界 | Matched（本轮源码及回归）：旧v2 schema不变，网页只读；媒体保留原60秒／恢复30秒路径，实际probe失败输入隔离回归通过。 |
+| Native契约消费与最小验证 | Matched：锁包SHA及来源c26235f一致；1.36 TRX为98/98、1.35为97/97；最新112条合成producer/SQLite wire经固定JS契约核对通过。Service编译通过。 |
+| 真实Windows原账 | Missing：200031ms真实探针观察只有4次观察、0个已确认ACTIVE样本、0段，结论为real-active-capture-not-proven，不能证明真实周期落账或真实零量；执行身份限制与活动条件不足尚未区分。 |
+| Mac源码／实机 | Missing：须按同一固定契约适配，Windows证据不能代替。 |
+
+新v3原账持久待发（awaiting_receiver），不冒充旧格式上传；新账尚未投影时旧毫秒Reader标明SOURCE_COVERAGE_UNKNOWN，不把缺口当完整零量。未安装、部署、migration或启用共享；原始段验收未完整通过，因此不进入统计→上传→云端读取。Deviated：审查发现的长失联全补和媒体失败输入影响已在本轮修正并回归；Extra：无业务扩展。既有native-host／秒读取草稿和混合未提交审核内容仍保留，不进入本轮固定包，也不将混合工作区当作发布基线。
+
 ### 当前全链状态：定秒口径已批准，继续生产生成与调用接线（2026-10-05）
 
 - 最新收口：Native已提交并推送`08c51331a077dc2884abdb1da5bf6348901b1b33`，实际原账→日边界定秒→同事务versions/head/outbox→冻结补发→内部同版秒读取已接通，新旧契约1.35／1.34最终TRX各175/175，工作区干净；不是旧37项调度证据。云端实际生成fixture链路提交`c96b1c5`，70/70及typecheck；最新Runtime dry-run通过，510.52 KiB（gzip104.61 KiB），未上传。缺口已收窄为外部Bridge／Manager秒消费者、生产能力与匹配安装版本及真实当日页面；Mac平台接线独立回报。Native正只读评估旧Ms接口在秒head启用后的影响，未经消费者核对不得把内部读取或云端fixture称终端完整可用。此前下方“Native生产生成未实施”是阶段记录，由本条覆盖。
