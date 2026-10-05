@@ -1,7 +1,9 @@
 import {env,exports} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
 import {createUsageAccount,createUsageAccountV2,hashUsageAccountValue,type UsageAccountRow,type ApplicationUsageProjection,
-  type ApplicationUsageSeconds} from '@timeonchrome/app-runtime-contracts/usage-account';
+  type ApplicationUsageSeconds,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
+// @ts-expect-error Browser UMD intentionally has no TypeScript declaration; exercise the production adapter.
+import AppRuntimeTime from '../../console/app-runtime-time.js';
 import {readApplicationSharedQuotaContributions,readCoveredChromeDeduction} from '../src/applicationSharedQuota';
 import {beginApplicationAccount,putApplicationAccountChunk,commitApplicationAccount,readApplicationAccountStatus,routeApplicationAccounts} from '../src/applicationAccounts';
 import {publishApplicationAccounts,verifyApplicationAccountPublication} from '../src/applicationAccountPublication';
@@ -120,10 +122,13 @@ it.each(['windows','macos'] as const)('authenticated %s seconds transport publis
     expect(response?.status).toBe(200);return response!.json() as Promise<Record<string,unknown>>;
   };
   const send=async(revision:number,duration:number)=>{
-    const rows:UsageAccountRow[]=[{kind:'total',hour:null,category:null,subjectKey:null,displayName:null,duration},
+    const subjectKey=await sha256Hex(`product:${platform}:test`);
+    const rows:UsageAccountRowV2[]=[{kind:'total',hour:null,category:null,subjectKey:null,displayName:null,duration},
       ...Array.from({length:24},(_,hour)=>({kind:'total' as const,hour,category:null,subjectKey:null,displayName:null,duration:hour===0?duration:0})),
       {kind:'category',hour:null,category:'study',subjectKey:null,displayName:null,duration},
-      {kind:'category',hour:0,category:'study',subjectKey:null,displayName:null,duration}];
+      {kind:'category',hour:0,category:'study',subjectKey:null,displayName:null,duration},
+      {kind:'subject',hour:null,category:null,subjectKey,displayName:'测试产品',duration,classifications:['study']},
+      {kind:'subject',hour:0,category:null,subjectKey,displayName:'测试产品',duration,classifications:['study']}];
     const account=await createUsageAccountV2({schemaVersion:2,sourceKind:'application',durationUnit:'seconds',timezone:'Asia/Shanghai',
       date:'2026-09-27',revision,generatedAtMs:now,settledThroughMs:now,algorithmVersion:`${platform}-application-seconds-v2`,
       policyVersions:[],associationVersion:f.projection,correctionVersion:0,rawFactCount:1,rawFactHash:'c'.repeat(64),complete:true,reasonCodes:[],
@@ -135,10 +140,23 @@ it.each(['windows','macos'] as const)('authenticated %s seconds transport publis
   };
   const first=await send(1,51),rpc=exports.RuntimeComputerUsageService;
   expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27',true)).toMatchObject({durationUnit:'seconds',totalDuration:51});
+  const assertPageRead=async(expected:number)=>{
+    const source=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,now);
+    const before=JSON.stringify(source),view=AppRuntimeTime.applicationSecondsView(source,'day');
+    expect(view).toMatchObject({durationUnit:'seconds',complete:true,totalDurationSeconds:expected,
+      availableTotalDurationSeconds:expected,settledThroughMs:now,missingDates:[]});
+    expect(view.categories).toEqual([{classification:'study',durationSeconds:expected}]);
+    expect(view.applications[0]).toMatchObject({displayName:'测试产品',durationSeconds:expected,classifications:['study']});
+    expect(view.buckets).toHaveLength(24);expect(view.buckets[0].durationSeconds).toBe(expected);
+    expect(Object.hasOwn(view,'totalDurationMs')).toBe(false);expect(JSON.stringify(source)).toBe(before);
+    expect(AppRuntimeTime.formatSeconds(view.totalDurationSeconds)).toBe(`${expected}秒`);
+  };
+  await assertPageRead(51);
   const newer=await send(2,20);
   await call(`manifests/${newer.manifestId}/commit`,'POST');
   await call(`manifests/${first.manifestId}/commit`,'POST');
   expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27',true)).toMatchObject({durationUnit:'seconds',totalDuration:20});
+  await assertPageRead(20);
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
   await expect(routeV2(new Request('https://runtime.test/v2/machines/application-accounts/manifests/'+newer.manifestId+'/status'),env,now))
     .rejects.toMatchObject({status:401,code:'UNAUTHORIZED'});

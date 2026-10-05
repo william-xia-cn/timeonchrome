@@ -1,5 +1,11 @@
 # TASK_BOARD
 
+### 当前验证：实际持久化秒响应与页面适配器对接（2026-10-05）
+
+现有覆盖分别证明上传持久化与页面秒夹具可用，尚未在同一回归直接将实际读取响应交给生产页面适配器。本轮只补这条测试连接：复用现有机器鉴权上传及更正替换场景，将实际app-usage秒响应输入现有applicationSecondsView，核对51秒、20秒更正、明细／分类／小时、原响应不被修改和无毫秒副本。只改Runtime聚焦测试及任务板，最小publication测试与typecheck；不增加产品算法、不改Native或生产。该测试仍是隔离D1调用链，不是实机生成／上传验收。
+
+结果：原生产UMD适配器被测试直接引用，无复制算法或手工构造读取响应。Windows／Mac协议输入通过实际routeV2机器鉴权begin/chunk/commit后，读取实际持久化秒范围，再交给页面适配器；51秒、更正20秒及旧版重放、分类／产品／24小时桶、结算截止、无毫秒副本、原响应保持不变全部通过。publication 66/66、backend typecheck及diff通过。Matched＝来源上传到页面适配数据连接；Missing＝Native原始记录生成秒统计及真机运行、生产部署，Mac此项只是平台契约输入，不是Mac实机。无需重跑页面布局／dry-run，因只修改测试和任务板；不安装或部署，不新建分支／工作树。
+
 ### 当前收口：秒统计云端及页面消费者集中提交前审计（2026-10-05）
 
 职责standard-cloud，仅现有Guardian只读来源／路由、两套云端renderer、Runtime页面和相关文档／回归；`tests/unit/computer-usage-cloud.test.js`为精确任务级路径例外，验证Guardian云端读取而非扩展本地实现。审计Matched＝整数秒请求、持久化来源读取、非特殊贡献直接展示、失败保留有效来源、孩子／日期／版本隔离及原入口；Deviated／Extra＝无。Missing＝Native生成上传、秒产品／时间线和真实全链，不能发布为完整已验收。最小验证root typecheck、两个页面JS语法、computer-usage-cloud／renderer／app-runtime-time（8/8）、App Runtime源码边界及diff均通过；复用前轮同代码独立应用及电脑组件桌面／移动mock证据，不称真实登录通过。未改扩展、Native、原账、配额或生产；不推送／部署／migration／安装，未跟踪旧包与.wrangler原地保留。
