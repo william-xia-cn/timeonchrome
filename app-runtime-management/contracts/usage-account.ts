@@ -241,6 +241,14 @@ export function parseUsageAccountRows(value: unknown, maximum = USAGE_ACCOUNT_MA
   });
 }
 export function validateUsageAccountDimensions(rows: UsageAccountRow[]): { total: number } {
+  return validateDimensions(rows, false);
+}
+/** 日内独立定秒的各维度自身守恒；小时分配不要求跨维度父子上界。 */
+export function validateUsageAccountDimensionsV2(rows: UsageAccountRowV2[]): { total: number } {
+  parseUsageAccountRowsV2(rows);
+  return validateDimensions(rows, true);
+}
+function validateDimensions(rows: UsageAccountRow[], independentHourlySeconds: boolean): { total: number } {
   // 日／小时在各自维度守恒；跨应用／分类的重叠不能被简单加总。
   const groups = new Map<string, { daily?: number; hourly: number; hours: Set<number>; label: string | null }>();
   for (const row of rows) {
@@ -265,7 +273,7 @@ export function validateUsageAccountDimensions(rows: UsageAccountRow[]): { total
   }
   const hourlyTotals = new Map(rows.filter(r => r.kind === 'total' && r.hour !== null).map(r => [r.hour, r.duration]));
   for (const row of rows) {
-    if (row.hour !== null && row.duration > (hourlyTotals.get(row.hour) ?? 0))
+    if (!independentHourlySeconds && row.hour !== null && row.duration > (hourlyTotals.get(row.hour) ?? 0))
       fail('USAGE_ACCOUNT_HOUR_EXCEEDS_TOTAL');
   }
   return { total: total.daily };
@@ -367,7 +375,7 @@ export async function createUsageAccountV2(
     const left = canonicalUsageAccountJson(a), right = canonicalUsageAccountJson(b);
     return left < right ? -1 : left > right ? 1 : 0;
   });
-  parseUsageAccountRowsV2(rows); validateUsageAccountDimensions(rows);
+  validateUsageAccountDimensionsV2(rows);
   if (rows.some(row => row.duration > (row.hour === null ? 86400 : 3600))) fail('USAGE_ACCOUNT_INVALID_ROW');
   const base = { ...header, rowCount: rows.length, chunkCount: Math.ceil(rows.length / USAGE_ACCOUNT_CHUNK_ROWS),
     rowsHash: await hashUsageAccountValue(rows) };

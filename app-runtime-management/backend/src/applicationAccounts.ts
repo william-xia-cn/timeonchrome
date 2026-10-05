@@ -1,5 +1,5 @@
 import { canonicalUsageAccountJson, hashUsageAccountValue, parseApplicationAccountRows,
-  verifyApplicationAccountManifest, validateUsageAccountDimensions, UsageAccountError,
+  verifyApplicationAccountManifest, validateUsageAccountDimensions, validateUsageAccountDimensionsV2, UsageAccountError,
   USAGE_ACCOUNT_CHUNK_ROWS, USAGE_ACCOUNT_MAX_ROWS, type UsageAccountReceipt } from '@timeonchrome/app-runtime-contracts/usage-account';
 import type { MachineSelfResponse } from './contracts';
 import { HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http';
@@ -102,7 +102,7 @@ export async function commitApplicationAccount(db: D1Database, machine: MachineS
   const rows = parseApplicationAccountRows(chunks.results.flatMap(c => JSON.parse(c.rows_json)), manifest.schemaVersion);
   if (rows.length !== manifest.rowCount || await hashUsageAccountValue(rows) !== manifest.rowsHash)
     fail(409, 'APPLICATION_ACCOUNT_ROWS_HASH_MISMATCH');
-  validateUsageAccountDimensions(rows);
+  if(manifest.schemaVersion===2)validateUsageAccountDimensionsV2(rows);else validateUsageAccountDimensions(rows);
   // D1 batch 原子提交接收状态和水位；不存在发布头，不能用于配额或页面。
   await db.batch([
     db.prepare(`UPDATE runtime_application_account_manifests_v1 SET state='received',received_at_ms=?2

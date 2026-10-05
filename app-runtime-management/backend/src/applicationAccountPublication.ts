@@ -1,5 +1,5 @@
 import { hashUsageAccountValue, canonicalUsageAccountJson, verifyUsageAccountManifest,usageAccountDayStart,
-  parseUsageAccountRows,parseApplicationAccountRows,verifyApplicationAccountManifest,validateUsageAccountDimensions,UsageAccountError,
+  parseUsageAccountRows,parseApplicationAccountRows,verifyApplicationAccountManifest,validateUsageAccountDimensions,validateUsageAccountDimensionsV2,UsageAccountError,
   type UsageAccountManifest,type UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
 import { getAppPolicy } from './appPolicy';
 import { applyCurrentWeekClassification,correctUsageRows,loadUsageCorrections } from './applicationUsageCorrections';
@@ -163,7 +163,7 @@ export async function validateApplicationAccountSnapshot(db:D1Database,candidate
   parseApplicationAccountRows(rows,manifest.schemaVersion);
   if(rows.length!==manifest.rowCount||await hashUsageAccountValue(rows)!==manifest.rowsHash)
     fail('APPLICATION_ACCOUNT_ROWS_HASH_MISMATCH');
-  const {total}=validateUsageAccountDimensions(rows);
+  const {total}=manifest.schemaVersion===2?validateUsageAccountDimensionsV2(rows):validateUsageAccountDimensions(rows);
   const categories=new Set(['study','composite','restrictedEntertainment','unclassified','other','blocked','historicalUnknown']);
   const divisor=manifest.durationUnit==='seconds'?1000:1;
   if(rows.some(row=>row.duration>(row.hour===null?DAY:HOUR)/divisor

@@ -1,4 +1,4 @@
-import {parseUsageAccountRows,parseUsageAccountRowsV2,verifyUsageAccountManifestV2,validateUsageAccountDimensions,
+import {parseUsageAccountRows,parseUsageAccountRowsV2,verifyUsageAccountManifestV2,validateUsageAccountDimensions,validateUsageAccountDimensionsV2,
   hashUsageAccountValue,type UsageAccountRow,type UsageAccountManifest,type UsageAccountRowV2,type ApplicationUsageSeconds} from '@timeonchrome/app-runtime-contracts/usage-account';
 import {HttpError} from './http';
 import type {StatisticsValue} from './applicationStatistics';
@@ -53,7 +53,7 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
     const rows=parseUsageAccountRowsV2(chunks.results.flatMap(chunk=>JSON.parse(chunk.rows_json)));
     if(rows.length!==manifest.rowCount||await hashUsageAccountValue(rows)!==manifest.rowsHash)
       throw new HttpError(503,'APPLICATION_STATISTICS_HASH_MISMATCH','已发布统计完整性校验失败。');
-    validateUsageAccountDimensions(rows);
+    validateUsageAccountDimensionsV2(rows);
     count+=rows.length;
     if(count>10000)throw new HttpError(503,'APPLICATION_STATISTICS_ROW_LIMIT','统计行超过单次读取限制。');
     references.push({manifestId:head.manifest_id,revision:head.revision,hash:head.manifest_hash,settledThroughMs:manifest.settledThroughMs});

@@ -57,14 +57,15 @@ async function drainFixtureStatistics(f:Awaited<ReturnType<typeof fixture>>) {
 async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{empty?:boolean;classification?:string;duration?:number;
   associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string;
   associationKey?:string;reasonCodes?:string[];cutoff?:number;date?:string;hour?:number;policyVersions?:number[];applicationUsage?:ApplicationUsageProjection;extraSubjectKey?:string;deferCommit?:boolean;
-  seconds?:boolean;secondsProjection?:ApplicationUsageSeconds}={}){
+  seconds?:boolean;secondsProjection?:ApplicationUsageSeconds;detailHour?:number}={}){
   const duration=options.empty?0:options.duration??1501;
   const row=(kind:UsageAccountRow['kind'],hour:number|null,category:string|null=null,subjectKey:string|null=null,displayName:string|null=null,d=duration):UsageAccountRow=>
     ({kind,hour,category,subjectKey,displayName,duration:d});
   const hour=options.hour??0,key=options.associationKey??`product:${f.machine.platform}:test`;
   const rows=[row('total',null),...Array.from({length:24},(_,h)=>row('total',h,null,null,null,h===hour?duration:0))];
-  if(!options.empty){rows.push(row('category',null,options.classification??'study'),row('category',hour,options.classification??'study'),
-    row('subject',null,null,await sha256Hex(key),'测试产品'),row('subject',hour,null,await sha256Hex(key),'测试产品'));}
+  const detailHour=options.detailHour??hour;
+  if(!options.empty){rows.push(row('category',null,options.classification??'study'),row('category',detailHour,options.classification??'study'),
+    row('subject',null,null,await sha256Hex(key),'测试产品'),row('subject',detailHour,null,await sha256Hex(key),'测试产品'));}
   if(options.extraSubjectKey)rows.push(row('subject',null,null,await sha256Hex(options.extraSubjectKey),'测试产品'),
     row('subject',hour,null,await sha256Hex(options.extraSubjectKey),'测试产品'));
   const date=options.date??'2026-09-27',cutoff=options.cutoff??Date.parse(date+'T00:00:00+08:00')+DAY;
@@ -111,6 +112,16 @@ it.each(['windows','macos'] as const)('v2 %s producer seconds and product classi
   expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27',{machineId:foreign.machine.machineId})).toBeNull();
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
     .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
+});
+it.each(['windows','macos'] as const)('v2 %s independent hourly allocation publishes without changing daily statistics',async(platform)=>{
+  const f=await fixture(platform),receipt=await upload(f,1,{seconds:true,duration:1,hour:1,detailHour:0,deferCommit:true,
+    secondsProjection:{nonSpecialTotal:1,nonSpecialCategories:{study:1},specialTotal:0,complete:true,reasonCodes:[]}});
+  expect(await (await commitRequest(f,receipt.manifestId)).json()).toMatchObject({published:true,publicationErrorCode:null});
+  const read=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,now);
+  expect(read).toMatchObject({complete:true,totalDuration:1,applicationUsage:{nonSpecialTotal:1,specialTotal:0}});
+  expect(read.days[0].hours.find(row=>row.kind==='total'&&row.hour===0)?.duration).toBe(0);
+  expect(read.days[0].hours.find(row=>row.kind==='category'&&row.hour===0)?.duration).toBe(1);
+  expect(read.categories[0].duration).toBe(1);expect(read.products[0].duration).toBe(1);
 });
 it.each(['windows','macos'] as const)('authenticated %s seconds transport publishes, reads and replaces without raw-ledger prerequisites',async(platform)=>{
   const f=await fixture(platform,{accountId:`seconds-transport-${platform}`,child:`seconds-transport-child-${platform}`}),token=crypto.randomUUID();

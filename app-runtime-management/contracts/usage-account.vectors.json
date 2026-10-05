@@ -1,6 +1,11 @@
 {
   "schemaVersion": 1,
   "timezone": "Asia/Shanghai",
+  "secondGenerationRule": { "dayBoundary": "Asia/Shanghai", "union": "overlap-and-adjacent-per-dimension", "quantization": "floor-each-continuous-span-after-day-split", "hourAllocation": "largest-remainder-start-order", "crossDimensionHourlyUpperBound": false },
+  "secondDimensionCases": [
+    { "id": "independent-hour-boundary", "totalSeconds": 1, "totalSlices": [{ "startMs": 3599100, "endMs": 3600000 }, { "startMs": 3600000, "endMs": 3600950 }], "subsetSeconds": 1, "subsetSlices": [{ "startMs": 3599100, "endMs": 3600000 }, { "startMs": 3600000, "endMs": 3600100 }], "expectedTotal": [0, 1], "expectedSubset": [1, 0] },
+    { "id": "midnight-day-split-accepted-subsecond-loss", "boundaryMs": 1791216000000, "interval": { "startMs": 1791215999600, "endMs": 1791216000800 }, "expectedDailySeconds": [0, 0] }
+  ],
   "secondAllocationCases": [
     { "id": "equal-remainder-start-order", "totalSeconds": 1, "slices": [{ "startMs": 0, "endMs": 600 }, { "startMs": 600, "endMs": 1200 }], "expected": [1, 0] },
     { "id": "largest-remainder-not-independent-floor", "totalSeconds": 2, "slices": [{ "startMs": 0, "endMs": 1400 }, { "startMs": 1400, "endMs": 2200 }], "expected": [1, 1] },
