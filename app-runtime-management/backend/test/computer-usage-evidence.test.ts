@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { env, exports } from 'cloudflare:workers';
+import { routeV2 } from '../src/v2Routes';
+import { sha256Hex } from '../src/crypto';
 import { readComputerApplicationEvidence as readEvidence } from '../src/computerUsageEvidence';
 import { readPersistentApplicationUsage,rebuildApplicationStatistics } from '../src/applicationStatistics';
 import { queryAppUsage } from '../src/appPolicy';
@@ -30,6 +32,25 @@ await env.RUNTIME_DB.prepare(`INSERT INTO runtime_usage_segments_v2(id,machine_i
 VALUES (?1,?2,'opaque-user',1,?3,'session','windows','leaf','已确认应用',?4,?5,?5-?4,'fixture',?1,?5,2,'active','epoch',?4,?5,?6,?7)`).bind(id,machine,child,start,end,estimated,classification).run();
 }
 describe('computer application evidence real D1 read adapter',()=>{
+it('existing Runtime browser route forwards seconds without recomputing or crossing Child scope',async()=>{
+  const token='s'.repeat(43),now=Date.now(),revision='computer-v2:'+ 'a'.repeat(64);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
+    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms)
+    VALUES (?1,'seconds-proxy-account',?2,?3,?4,?3)`).bind(await sha256Hex(token),JSON.stringify([{id:'seconds-proxy-child',name:'测试孩子'}]),now,now+60000).run();
+  let reads=0;
+  const snapshot={schemaVersion:2,durationUnit:'seconds',revision,fromDate:'2026-10-01',toDate:'2026-10-01',totals:{computer:13,web:3,application:15,specialIncluded:5}};
+  const scopedEnv={...env,GUARDIAN_COMPUTER_USAGE:{...env.GUARDIAN_COMPUTER_USAGE,getComputerUsageStatisticsSeconds:async(account:string,child:string,from:string,to:string)=>{
+    expect([account,child,from,to]).toEqual(['seconds-proxy-account','seconds-proxy-child','2026-10-01','2026-10-01']);reads++;return snapshot;
+  }}};
+  const request=(extra:Record<string,string>={})=>new Request('https://runtime.test/v2/module/computer-usage?'+new URLSearchParams({childId:'seconds-proxy-child',from:'2026-10-01',to:'2026-10-01',durationUnit:'seconds',...extra}),{headers:{authorization:`RuntimeSession ${token}`}});
+  const response=await routeV2(request(),scopedEnv,now);
+  expect(response?.status).toBe(200);expect(await response?.json()).toEqual(snapshot);
+  await expect(routeV2(request({childId:'foreign-child'}),scopedEnv,now)).rejects.toMatchObject({status:404,code:'CHILD_NOT_FOUND'});
+  expect(reads).toBe(1);
+  await expect(routeV2(request({durationUnit:'minutes'}),scopedEnv,now)).rejects.toMatchObject({status:400,code:'INVALID_DURATION_UNIT'});
+  await expect(routeV2(request({revision:'computer-v2:'+ 'b'.repeat(64)}),scopedEnv,now)).rejects.toMatchObject({status:409,code:'COMPUTER_USAGE_VERSION_CHANGED'});
+  await expect(routeV2(request({detail:'products',revision}),scopedEnv,now)).rejects.toMatchObject({status:503,code:'COMPUTER_USAGE_DETAIL_NOT_READY'});
+});
 it('pending evidence changes revision after materialization without changing raw facts',async()=>{
   await seed('persistent-account','persistent-machine','persistent-child');await usage('persistent-machine','persistent-child','persistent-pending',day,day+1501);
   const args=['persistent-account','persistent-child','2026-10-01','2026-10-01'] as const,rpc=exports.RuntimeComputerUsageService;

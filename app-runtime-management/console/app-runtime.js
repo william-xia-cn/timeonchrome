@@ -202,7 +202,7 @@
     $('[data-independent-app-usage]').hidden=state.usageKind!=='application';
     $('#runtime-web-usage').hidden=!['web','media'].includes(state.usageKind);
     ['machine-filter','user-filter','platform-filter'].forEach(id=>{const control=$('#'+id);control.disabled=state.usageKind!=='application';control.hidden=computer;});
-    $('#application-read-note').textContent=state.usageReadInfo?`${state.usageReadInfo.cached?'缓存 · ':''}读取于 ${time(state.usageReadInfo.readAtMs)}（手动刷新可重新读取）`:'';
+    $('#application-read-note').textContent=state.usageReadInfo?`${state.usageReadInfo.legacy?'旧版兼容统计 · ':''}${state.usageReadInfo.cached?'缓存 · ':''}读取于 ${time(state.usageReadInfo.readAtMs)}（手动刷新可重新读取）`:'';
     if(state.usageKind!=='application')return;
     if (!mock && (state.usageLoading || state.usageError || !state.usage)) {
       const message = state.usageLoading ? '正在读取使用统计…' : state.usageError || '使用统计尚未加载';
@@ -219,6 +219,7 @@
       return;
     }
     const usage = state.usage || {};
+    if(usage.durationUnit==='seconds'){renderSecondsUsage(usage);return;}
     $('#outside-window-summary').textContent = `本周期时段外使用 ${duration(usage.outsideTimeWindows?.durationMs || 0)}`;
     $('#total-time').textContent = duration(usage.totalDurationMs);
     $('#last-sync').textContent = time(Math.max(0, ...state.machines.map((item) => Number(item.lastUploadAtMs || item.lastSeenAtMs || 0))));
@@ -242,6 +243,26 @@
     $('#category-ranking').innerHTML = (usage.categories || []).map((item) => `<button class="category-row" data-usage-category="${escape(item.classification)}"><span class="app-icon">${categoryLabels[item.classification]?.slice(0, 1) || '?'}</span><div><strong>${categoryLabels[item.classification]}</strong><small>${item.quota?.limitMs == null ? '无限制' : `额度 ${duration(item.quota.limitMs)}`}</small></div><strong>${duration(item.durationMs)}</strong></button>`).join('') || '暂无分类记录';
   }
 
+  function renderSecondsUsage(usage) {
+    const fmt=AppRuntimeTime.formatSeconds,label=category=>categoryLabels[category]||(category==='historicalUnknown'?'历史分类未知':'未知分类');
+    $('#total-time').textContent=fmt(usage.totalDurationSeconds);
+    $('#quota-state').textContent='独立统计，配额另行核算';
+    $('#quota-state').classList.remove('danger-text');
+    $('#policy-version').textContent='Service 权威秒统计';
+    $('#last-sync').textContent=time(usage.settledThroughMs);
+    $('#outside-window-summary').textContent=usage.complete?'已结算应用统计；分类明细可能重叠，不相加生成总量。'
+      :`部分统计可用：${fmt(usage.availableTotalDurationSeconds)}；不完整日期：${usage.missingDates.join('、')}。空白不代表零用量。`;
+    const max=Math.max(1,...usage.buckets.map(item=>item.durationSeconds??0));
+    $('#usage-chart').innerHTML=usage.buckets.map(item=>{
+      const caption=state.period==='day'?AppRuntimeTime.beijingHourLabel(item.startAtMs):new Date(item.startAtMs).toLocaleDateString('zh-CN',{weekday:'short',timeZone:'Asia/Shanghai'});
+      return `<div class="bar" title="${fmt(item.durationSeconds)}" style="height:${item.durationSeconds===null?0:Math.max(2,item.durationSeconds/max*100)}%">${item.durationSeconds>0?'<i class="bar-part" style="height:100%;background:var(--green)"></i>':''}<span class="bar-label">${escape(caption)}</span></div>`;
+    }).join('');
+    $('#category-legend').innerHTML=usage.categories.map(item=>`<span><i style="background:${categoryColors[item.classification]||categoryColors.unclassified}"></i>${escape(label(item.classification))} ${fmt(item.durationSeconds)}</span>`).join('');
+    $('#app-ranking').className='list';
+    $('#app-ranking').innerHTML=usage.applications.map((item,index)=>`<button class="app-row" data-usage-app="${index}"><span class="app-icon">${index+1}</span><div class="app-meta"><strong>${escape(item.displayName||'未知应用')}</strong><small>${escape(item.classifications.map(label).join('／'))}</small></div><div><strong>${fmt(item.durationSeconds)}</strong><small>独立应用统计</small></div></button>`).join('')||(usage.complete?'暂无使用记录':'尚无可用应用明细');
+    $('#category-ranking').className='list';
+    $('#category-ranking').innerHTML=usage.categories.map(item=>`<button class="category-row" data-usage-category="${escape(item.classification)}"><span class="app-icon">${escape(label(item.classification).slice(0,1))}</span><div><strong>${escape(label(item.classification))}</strong><small>分类明细可能重叠</small></div><strong>${fmt(item.durationSeconds)}</strong></button>`).join('')||(usage.complete?'暂无分类记录':'尚无可用分类明细');
+  }
   function observedApps() {
     const applications = new Map();
     const directory=(state.catalog.items || []).flatMap(item=>item.runtimeImplementations?.length?item.runtimeImplementations.map(implementation=>({...item,...implementation})):[item]);
@@ -403,7 +424,10 @@
   }
   function openDrawer(machineId) { const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(AppRuntimeDevices.syncAt(machine))}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>${escape(AppRuntimeDevices.productBlockStatus(machine))}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${AppRuntimeDevices.accountStatus(user)} · ${policyLabel(user.policyState)}</small></label>`).join('') || '<p>已配对；等待本机服务首次上报账户。</p>'}</div><div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
   function closeDrawer() { $('#device-drawer').classList.remove('open'); $('#device-drawer').setAttribute('aria-hidden', 'true'); $('#mobile-backdrop').hidden = true; }
-  function openUsageDetail(kind, value) { const item = kind === 'app' ? state.usage.applications?.[Number(value)] : state.usage.categories?.find((entry) => entry.classification === value); if (!item) return; const title = kind === 'app' ? item.displayName || '未知应用' : categoryLabels[item.classification]; $('#drawer-content').innerHTML = `<h2>${escape(title)}</h2><p>${kind === 'app' ? `${escape(item.platform)} · ${categoryLabels[item.classification] || '未归类'}` : '分类使用详情'}</p><div class="drawer-section"><h3>本周期主使用</h3><p class="detail-duration">${duration(item.durationMs)}</p><p>${item.quota?.limitMs == null ? '配额：无限制' : `配额：${duration(item.quota.limitMs)}<br>剩余：${duration(item.quota.remainingMs)}<br>状态：${item.quota.exceeded ? '已超额' : '未超额'}`}</p></div><div class="notice warning"><span>统计只读取主账本区间并集；辅助媒体不进入此详情或配额。</span></div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
+  function openUsageDetail(kind, value) { const item = kind === 'app' ? state.usage.applications?.[Number(value)] : state.usage.categories?.find((entry) => entry.classification === value); if (!item) return; const title = kind === 'app' ? item.displayName || '未知应用' : categoryLabels[item.classification]||'历史分类未知';
+    if(state.usage.durationUnit==='seconds'){
+      $('#drawer-content').innerHTML=`<h2>${escape(title)}</h2><div class="drawer-section"><h3>本周期主使用</h3><p class="detail-duration">${AppRuntimeTime.formatSeconds(item.durationSeconds)}</p><p>Service 权威统计；配额由独立模块核算。</p></div><div class="notice warning"><span>明细可能重叠，不相加生成总量；${state.usage.complete?'范围完整':'当前仅部分来源可用'}。</span></div>`;
+    }else $('#drawer-content').innerHTML = `<h2>${escape(title)}</h2><p>${kind === 'app' ? `${escape(item.platform)} · ${categoryLabels[item.classification] || '未归类'}` : '分类使用详情'}</p><div class="drawer-section"><h3>本周期主使用</h3><p class="detail-duration">${duration(item.durationMs)}</p><p>${item.quota?.limitMs == null ? '配额：无限制' : `配额：${duration(item.quota.limitMs)}<br>剩余：${duration(item.quota.remainingMs)}<br>状态：${item.quota.exceeded ? '已超额' : '未超额'}`}</p></div><div class="notice warning"><span>统计只读取主账本区间并集；辅助媒体不进入此详情或配额。</span></div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
 
   async function loadMachineState() {
     const response = await runtime('/v2/module/machines');
@@ -471,19 +495,27 @@
   let usageRequestVersion = 0;
   async function loadUsage({refresh=false}={}) {
     const requestVersion = ++usageRequestVersion;
+    const requestedPeriod=state.period;
     computerReader.invalidate();independentReader.invalidate();
     if(state.usageKind==='computer'){renderUsage();await computerReader.load({refresh});return;}
     if(['web','media'].includes(state.usageKind)){renderUsage();await independentReader.load();return;}
     if (mock) return;
     const period = range();
-    const query = new URLSearchParams({ childId: state.childId, fromMs: String(period.from), toMs: String(period.to) });
+    const query = new URLSearchParams({ childId: state.childId, fromMs: String(period.from), toMs: String(period.to), durationUnit:'seconds' });
     if ($('#machine-filter').value) query.set('machineId', $('#machine-filter').value);
     if ($('#user-filter').value) query.set('userId', $('#user-filter').value);
     if ($('#platform-filter').value) query.set('platform', $('#platform-filter').value);
     state.usage = null; state.usageReadInfo=null; state.usageError = null; state.usageLoading = true; renderUsage();
     try {
-      const read=await applicationReadCache.read(`/v2/module/app-usage?${query}`,()=>runtime(`/v2/module/app-usage?${query}`),{refresh});
-      if (requestVersion === usageRequestVersion) {state.usage=read.value;state.usageReadInfo=read;}
+      let read=await applicationReadCache.read(`/v2/module/app-usage?${query}`,()=>runtime(`/v2/module/app-usage?${query}`),{refresh});
+      if(requestVersion!==usageRequestVersion)return;
+      let value=AppRuntimeTime.applicationSecondsView(read.value,requestedPeriod);
+      if(value.availableTotalDurationSeconds===null){
+        query.set('durationUnit','milliseconds');
+        read=await applicationReadCache.read(`/v2/module/app-usage?${query}`,()=>runtime(`/v2/module/app-usage?${query}`),{refresh});
+        value=read.value;read={...read,legacy:true};
+      }
+      if (requestVersion === usageRequestVersion) {state.usage=value;state.usageReadInfo=read;}
     } catch (error) {
       if (requestVersion !== usageRequestVersion) return;
       state.usageError = `使用统计暂不可用：${AppRuntimeNetwork.friendlyError(error).message}`;

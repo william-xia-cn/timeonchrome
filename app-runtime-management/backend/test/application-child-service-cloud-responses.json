@@ -1,0 +1,58 @@
+{
+  "synthetic": true,
+  "contractsVersion": "1.37.0",
+  "requestManifestHash": "0ea981aec70e2f81ad0563d07559e59cba3251a0cfbf7f55adb03c6a5c0de006",
+  "capability": {
+    "protocol": "usage-account-v1",
+    "schemaVersion": 1,
+    "enabled": true,
+    "chunkRows": 100,
+    "maxRows": 10000,
+    "acceptedAlgorithms": ["windows-application-v1", "macos-application-v1", "windows-application-seconds-v2", "macos-application-seconds-v2"],
+    "capabilities": ["application-usage-projection-v1", "application-statistics-seconds-v2", "application-statistics-child-scope-v1"]
+  },
+  "begin": {
+    "manifestId": "aa1_b9d5513099711d18bdb2bbc74c616d4e139d2d85083c925088055ffb77ba40bd",
+    "revision": 1,
+    "manifestHash": "0ea981aec70e2f81ad0563d07559e59cba3251a0cfbf7f55adb03c6a5c0de006",
+    "received": false,
+    "published": false,
+    "publishStatus": "pending"
+  },
+  "pendingStatus": {
+    "manifestId": "aa1_b9d5513099711d18bdb2bbc74c616d4e139d2d85083c925088055ffb77ba40bd",
+    "revision": 1,
+    "manifestHash": "0ea981aec70e2f81ad0563d07559e59cba3251a0cfbf7f55adb03c6a5c0de006",
+    "received": false,
+    "published": false,
+    "publishStatus": "pending",
+    "receivedChunkIndexes": [],
+    "publicationErrorCode": null
+  },
+  "chunks": [{
+    "manifestId": "aa1_b9d5513099711d18bdb2bbc74c616d4e139d2d85083c925088055ffb77ba40bd",
+    "chunkIndex": 0,
+    "chunkHash": "7a33ac4c50be44e936553a1115360296087be63a0b3b5e1f06fda68693c06f18",
+    "received": true,
+    "published": false
+  }],
+  "commit": {
+    "manifestId": "aa1_b9d5513099711d18bdb2bbc74c616d4e139d2d85083c925088055ffb77ba40bd",
+    "revision": 1,
+    "manifestHash": "0ea981aec70e2f81ad0563d07559e59cba3251a0cfbf7f55adb03c6a5c0de006",
+    "received": true,
+    "published": true,
+    "publishStatus": "published",
+    "publicationErrorCode": null
+  },
+  "publishedStatus": {
+    "manifestId": "aa1_b9d5513099711d18bdb2bbc74c616d4e139d2d85083c925088055ffb77ba40bd",
+    "revision": 1,
+    "manifestHash": "0ea981aec70e2f81ad0563d07559e59cba3251a0cfbf7f55adb03c6a5c0de006",
+    "received": true,
+    "published": true,
+    "publishStatus": "published",
+    "receivedChunkIndexes": [0],
+    "publicationErrorCode": null
+  }
+}

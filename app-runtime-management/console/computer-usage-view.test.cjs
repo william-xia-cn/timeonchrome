@@ -61,7 +61,7 @@ assert.equal((await cache.read('forgotten',loader)).cached,false);
 await assert.rejects(cache.read('error',async()=>{throw Error('offline');}));assert.equal((await cache.read('error',loader)).cached,false);
 await cache.read('one',loader);await cache.read('two',loader);assert.equal((await cache.read('forgotten',loader)).cached,false);
 const queries=[],cleanHost={...host,innerHTML:''};await view.create(cleanHost,async(query)=>{queries.push(query);return snapshot;}).load();
-assert.deepEqual(queries,[{detail:'summary'}]);assert.ok(!cleanHost.innerHTML.includes('<select'));
+assert.deepEqual(queries,[{detail:'summary',durationUnit:'seconds'}]);assert.ok(!cleanHost.innerHTML.includes('<select'));
 let currentScope='child-a|day',viewCalls=0;
 const successfulSnapshot={...snapshot,reasons:[]};
 const cachedReader=view.create(cleanHost,async()=>{viewCalls++;return successfulSnapshot;},null,()=>currentScope);
@@ -77,5 +77,34 @@ const productMarkup=view.independentSummary({source:'application',fromDate:'2026
     classifications:['study','composite'],durationMs:51125}],statistics:{producer:'native'}});
 assert.ok(productMarkup.includes('学习／复合'));
 assert.ok(productMarkup.includes('51秒 125毫秒')||productMarkup.includes('51秒')||productMarkup.includes('51秒'));
+const secondsMarkup=view.independentSummary({source:'application',fromDate:'2026-10-05',toDate:'2026-10-06',durationUnit:'seconds',complete:false,
+  totalDuration:null,availableTotalDuration:51,categories:[{classification:'study',duration:51}],buckets:[{startAtMs:1,duration:51},{startAtMs:2,duration:null}],
+  applications:[{displayName:'测试产品',classifications:['study','other'],duration:51}],statistics:{producer:'native',missingDates:['2026-10-06']}});
+assert.ok(secondsMarkup.includes('0分 51秒'));assert.ok(secondsMarkup.includes('部分统计可用'));assert.ok(secondsMarkup.includes('2026-10-06'));
+assert.ok(secondsMarkup.includes('学习／其他'));assert.ok(secondsMarkup.includes('不可用'));assert.ok(!secondsMarkup.includes('毫秒'));
+assert.throws(()=>view.independentSummary({source:'application',durationUnit:'seconds',totalDuration:1.5,categories:[],applications:[],buckets:[]}),/INVALID_STATISTICS_SECONDS/);
+const computerSeconds={schemaVersion:2,durationUnit:'seconds',revision:'computer-v2:test',fromDate:'2026-10-05',toDate:'2026-10-05',complete:true,
+  sourceStatus:{web:'complete',application:'complete'},sourceVersions:{web:'web-revision',application:'app-revision'},
+  totals:{computer:13,web:3,application:15,specialIncluded:5},categories:{study:13,other:2},
+  sourceCategories:{web:{study:3},application:{study:10,other:5}},reasonCodes:[]};
+const computerSecondsHtml=view.summary(computerSeconds);
+assert.ok(computerSecondsHtml.includes('0分 13秒'));assert.ok(computerSecondsHtml.includes('0分 15秒'));
+assert.ok(computerSecondsHtml.includes('特殊应用 容器扣除'));assert.ok(computerSecondsHtml.includes('0分 5秒'));
+assert.ok(computerSecondsHtml.includes('权威来源整数秒统计'));assert.ok(!computerSecondsHtml.includes('毫秒'));
+assert.ok(computerSecondsHtml.includes('查看产品'));assert.ok(computerSecondsHtml.includes('查看时间线'));
+assert.ok(!computerSecondsHtml.includes('<select'));
+const partialSecondsHtml=view.summary({...computerSeconds,complete:false,sourceStatus:{web:'complete',application:'unavailable'},
+  totals:{computer:null,web:3,application:null,specialIncluded:null},reasonCodes:['APPLICATION_STATISTICS_UNAVAILABLE']});
+assert.ok(partialSecondsHtml.includes('0分 3秒'));assert.ok(partialSecondsHtml.includes('当前仅显示可用部分'));
+assert.ok(partialSecondsHtml.includes('APPLICATION_STATISTICS_UNAVAILABLE'));
+assert.throws(()=>view.summary({...computerSeconds,totals:{...computerSeconds.totals,computer:13.1}}),/INVALID_STATISTICS_SECONDS/);
+assert.throws(()=>view.summary({...computerSeconds,durationUnit:'milliseconds'}),/INVALID_STATISTICS_SECONDS/);
+const secondQueries=[],secondsHost={...host,innerHTML:''};
+await view.create(secondsHost,async query=>{secondQueries.push(query);return computerSeconds;}).load();
+assert.deepEqual(secondQueries,[{detail:'summary',durationUnit:'seconds'}]);assert.ok(secondsHost.innerHTML.includes('0分 13秒'));
+let secondsFailureCalls=0;
+const secondsFailureReader=view.create(secondsHost,async()=>{secondsFailureCalls++;return {...computerSeconds,reasonCodes:['APPLICATION_STATISTICS_UNAVAILABLE']};});
+await secondsFailureReader.load();await secondsFailureReader.load();
+assert.equal(secondsFailureCalls,2,'seconds source failures are not cached as a current success');
 console.log('PASS renderer/cache: child summary, precision, source isolation, TTL, refresh, single-flight, eviction, failure, stale response');
 }).catch(error=>{console.error(error);process.exitCode=1;});

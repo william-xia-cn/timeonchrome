@@ -2,13 +2,23 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createUsageAccount, hashUsageAccountValue, canonicalUsageAccountJson,
   parseUsageAccountRows, verifyUsageAccountManifest, validateUsageAccountDimensions,
-  usageAccountDayStart, parseUsageAccountReceipt, parseApplicationUsageProjection } from './dist/usage-account.js';
+  usageAccountDayStart, parseUsageAccountReceipt, parseApplicationUsageProjection,
+  createUsageAccountV2, verifyUsageAccountManifestV2, parseApplicationUsageSeconds,
+  allocateUsageAccountSeconds,parseUsageAccountRowsV2,validateUsageAccountDimensionsV2,
+  APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY } from './dist/usage-account.js';
 
 const vectors = JSON.parse(readFileSync(new URL('./usage-account.vectors.json', import.meta.url), 'utf8'));
 const schema = JSON.parse(readFileSync(new URL('./usage-account.schema.json', import.meta.url), 'utf8'));
 assert.equal(schema.additionalProperties, false);
 assert.equal(schema.$defs.row.additionalProperties, false);
 assert.equal(schema.properties.rowCount.maximum, 10000);
+assert.equal(schema.$defs.manifestV2.properties.schemaVersion.const, 2);
+assert.equal(schema.$defs.manifestV2.properties.durationUnit.const, 'seconds');
+assert.equal(schema.$defs.manifestV2.additionalProperties, false);
+assert.equal(APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY,'application-statistics-child-scope-v1');
+assert.equal(schema.$defs.manifestV2.properties.childId.$ref,'#/$defs/identifier');
+assert(!schema.$defs.manifestV2.required.includes('childId'),'旧秒清单仍兼容');
+assert.equal(schema.$defs.applicationUsageSeconds.properties.nonSpecialTotal.maximum, 86400);
 assert(!schema.$defs.receipt.required.includes('publicationErrorCode'), 'N-1 receipt remains valid');
 assert.deepEqual(schema.$defs.receipt.properties.publicationErrorCode.type, ['string', 'null']);
 for (const v of vectors.receiptCompatibility.vectors) {
@@ -91,4 +101,89 @@ const many = [...totals, ...Array.from({ length: 60 }, (_, n) =>
 const chunked = await createUsageAccount(header, many);
 assert.deepEqual(chunked.chunks.map(c => c.rows.length), [100, 45]);
 assert.throws(() => parseUsageAccountRows(Array(10001).fill(totals[0])), /INVALID_ROWS/);
+for (const v of vectors.secondAllocationCases) {
+  const before = JSON.stringify(v.slices);
+  const assigned = allocateUsageAccountSeconds(v.slices, v.totalSeconds);
+  assert.deepEqual(assigned, v.expected, v.id);
+  assert.equal(assigned.reduce((a, b) => a + b, 0), v.totalSeconds, v.id);
+  assert.equal(JSON.stringify(v.slices), before, '秒分配不修改原区间');
+}
+for(const v of vectors.secondDimensionCases){
+  if(v.totalSlices){
+    assert.deepEqual(allocateUsageAccountSeconds(v.totalSlices,v.totalSeconds),v.expectedTotal,v.id);
+    assert.deepEqual(allocateUsageAccountSeconds(v.subsetSlices,v.subsetSeconds),v.expectedSubset,v.id);
+  }else{
+    assert.deepEqual([Math.floor((v.boundaryMs-v.interval.startMs)/1000),
+      Math.floor((v.interval.endMs-v.boundaryMs)/1000)],v.expectedDailySeconds,v.id);
+  }
+}
+assert.throws(() => allocateUsageAccountSeconds([{startMs:0,endMs:600}], 0.6), /INVALID_SECOND_SLICES/);
+assert.throws(() => allocateUsageAccountSeconds([{startMs:600,endMs:0}], 0), /INVALID_SECOND_SLICES/);
+assert.throws(() => allocateUsageAccountSeconds([{startMs:0,endMs:1500}], 0), /INVALID_SECOND_TOTAL/);
+assert.throws(() => allocateUsageAccountSeconds([{startMs:0,endMs:500}], 2), /INVALID_SECOND_TOTAL/);
+const secondHeader = {...header, schemaVersion:2, durationUnit:'seconds', algorithmVersion:'application-seconds-v2'};
+const secondRows = [row('total',null,51), ...Array.from({length:24},(_,h)=>row('total',h,h===12?51:0)),
+  row('category',null,51,'study'), row('category',12,51,'study'),
+  row('category',null,51,'composite'), row('category',12,51,'composite')];
+const secondProjection = {nonSpecialTotal:51,nonSpecialCategories:{study:51,composite:51},
+  specialTotal:0,complete:true,reasonCodes:[]};
+const secondAccount = await createUsageAccountV2({...secondHeader,applicationUsage:secondProjection},secondRows);
+for(const vector of vectors.childScopeCases){
+  const input={...secondHeader,...vector.patch},before=JSON.stringify(input);
+  if(!vector.valid)await assert.rejects(createUsageAccountV2(input,secondRows),/INVALID_CHILD_SCOPE/,vector.id);
+  else{
+    const scoped=await createUsageAccountV2(input,secondRows);
+    assert.deepEqual(await verifyUsageAccountManifestV2(scoped.manifest),scoped.manifest,vector.id);
+    assert.equal(Object.hasOwn(scoped.manifest,'childId'),Object.hasOwn(vector.patch,'childId'),vector.id);
+    if(Object.hasOwn(vector.patch,'childId')){
+      assert.equal(scoped.manifest.childId,vector.patch.childId);
+      await assert.rejects(verifyUsageAccountManifestV2({...scoped.manifest,childId:'changed-child'}),/HASH_MISMATCH/);
+      const {childId,...removed}=scoped.manifest;
+      await assert.rejects(verifyUsageAccountManifestV2(removed),/HASH_MISMATCH/,'冻结孩子不能被移除后复用哈希');
+    }
+  }
+  assert.equal(JSON.stringify(input),before,'校验不改清单归属');
+}
+// 日内总段900/950ms与子段900/100ms，独立定秒后的小时位置不同。
+const boundaryTotal=allocateUsageAccountSeconds([{startMs:0,endMs:900},{startMs:900,endMs:1850}],1);
+const boundaryCategory=allocateUsageAccountSeconds([{startMs:0,endMs:900},{startMs:900,endMs:1000}],1);
+assert.deepEqual(boundaryTotal,[0,1]);assert.deepEqual(boundaryCategory,[1,0]);
+const boundaryRows=[row('total',null,1),...Array.from({length:24},(_,h)=>row('total',h,boundaryTotal[h]??0)),
+  row('category',null,1,'study'),row('category',0,1,'study'),
+  {...row('subject',null,1,null,'boundary-product','边界产品'),classifications:['study']},
+  {...row('subject',0,1,null,'boundary-product','边界产品'),classifications:['study']}];
+const boundaryAccount=await createUsageAccountV2(secondHeader,boundaryRows);
+assert.equal(validateUsageAccountDimensionsV2(boundaryAccount.rows).total,1);
+assert.throws(()=>validateUsageAccountDimensions(boundaryAccount.rows),/HOUR_EXCEEDS_TOTAL/,'v1保留小时上界');
+await assert.rejects(createUsageAccountV2(secondHeader,boundaryRows.map(r=>r.kind==='category'?{...r,duration:2}:r)),
+  /DIMENSION_EXCEEDS_TOTAL/,'v2保留日级上界');
+await assert.rejects(createUsageAccountV2(secondHeader,boundaryRows.map(r=>r.kind==='category'&&r.hour===null?{...r,duration:0}:r)),
+  /DIMENSION_MISMATCH/,'v2保留自身日小时守恒');
+assert.equal(validateUsageAccountDimensions(secondAccount.rows).total,51);
+assert.deepEqual(secondAccount.manifest.applicationUsage,secondProjection,'分类允许重叠，不保存余额');
+assert.equal(secondAccount.manifest.generatedAtMs,header.generatedAtMs,'时间戳不转换为秒');
+assert.deepEqual(await verifyUsageAccountManifestV2(secondAccount.manifest),secondAccount.manifest);
+await assert.rejects(verifyUsageAccountManifest(secondAccount.manifest), /INVALID_SCHEMA/,'旧端拒绝秒清单');
+await assert.rejects(verifyUsageAccountManifestV2(base.manifest), /INVALID_SCHEMA/,'新端不得静默误读旧毫秒');
+await assert.rejects(verifyUsageAccountManifestV2({...secondAccount.manifest,revision:2}), /HASH_MISMATCH/);
+await assert.rejects(createUsageAccountV2({...secondHeader,durationUnit:'milliseconds'},secondRows), /INVALID_SCHEMA/);
+await assert.rejects(createUsageAccountV2(secondHeader,secondRows.map(r=>({...r,duration:r.duration+0.125}))), /INVALID_ROW/);
+await assert.rejects(createUsageAccountV2(secondHeader,[row('total',null,3601),
+  ...Array.from({length:24},(_,h)=>row('total',h,h===0?3601:0))]), /INVALID_ROW/);
+assert.throws(()=>parseApplicationUsageSeconds({...secondProjection,nonSpecialTotalMs:51000}), /INVALID_FIELDS/);
+assert.throws(()=>parseApplicationUsageSeconds({...secondProjection,remainingSeconds:1}), /INVALID_FIELDS/);
+assert.throws(()=>parseApplicationUsageSeconds({...secondProjection,nonSpecialTotal:51.125}), /INVALID_APPLICATION_USAGE/);
+assert(!Object.hasOwn((await createUsageAccountV2(secondHeader,secondRows)).manifest,'applicationUsage'),
+  '缺失实际用量投影不猜补为零');
+const secondChunked=await createUsageAccountV2(secondHeader,many.map(r=>r.kind==='subject'
+  ?{...r,classifications:['historicalUnknown']}:r));
+assert.deepEqual(secondChunked.chunks.map(c=>c.rows.length),[100,45]);
+const subjectSeconds={...row('subject',null,51,null,'product-test','测试产品'),classifications:['composite','study']};
+assert.deepEqual(parseUsageAccountRowsV2([subjectSeconds]),[subjectSeconds]);
+assert.throws(()=>parseUsageAccountRows([subjectSeconds]), /INVALID_FIELDS/,'v1不能误读v2产品明细');
+assert.throws(()=>parseUsageAccountRowsV2([row('subject',null,51,null,'product-test','测试产品')]), /INVALID_FIELDS/);
+assert.throws(()=>parseUsageAccountRowsV2([{...subjectSeconds,classifications:['study','study']}]), /INVALID_SUBJECT_CLASSIFICATIONS/);
+assert.throws(()=>parseUsageAccountRowsV2([{...subjectSeconds,classifications:['not-a-category']}]), /INVALID_SUBJECT_CLASSIFICATIONS/);
+assert.throws(()=>parseUsageAccountRowsV2([{...subjectSeconds,classifications:['study','composite']}]), /INVALID_SUBJECT_CLASSIFICATIONS/);
+assert.throws(()=>parseUsageAccountRowsV2([{...row('total',null,51),classifications:['study']}]), /INVALID_FIELDS/);
 console.log('usage-account: golden vectors and compatibility/integrity checks passed');

@@ -10,7 +10,13 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.33.0');
+assert.equal(pkg.version, '1.37.0');
+assert(pkg.exports['./application-ledger'], '固定孩子原账契约必须独立导出');
+const applicationLedger = JSON.parse(fs.readFileSync(path.join(root, 'application-ledger-v3.schema.json'), 'utf8'));
+assert.equal(applicationLedger.properties.schemaVersion.const, 3);
+assert(applicationLedger.required.includes('childId'));
+assert(applicationLedger.required.includes('durationSeconds'));
+assert(!applicationLedger.required.includes('policySnapshot'));
 const productSchema=JSON.parse(fs.readFileSync(path.join(root,'application-knowledge.schema.json'),'utf8')).$defs.product;
 assert.equal(productSchema.properties.catalogGroup.const,'specialApplication');
 assert(!productSchema.required.includes('catalogGroup'),'旧产品定义无需补字段');
@@ -162,4 +168,5 @@ assert.equal(nativeHostV3.$defs.applicationQuery.properties.offset.maximum, 2000
 assert.equal(nativeHostV3.$defs.dailySnapshot.properties.activeSeconds.type, 'integer');
 assert(nativeHostV3.$defs.dailySnapshot.required.includes('correctionRevision'));
 assert(nativeHostV3.$defs.dailySnapshot.required.includes('snapshotRevision'));
+require('node:child_process').execFileSync(process.execPath, [path.join(root, 'application-ledger.test.mjs')], { stdio: 'inherit' });
 console.log('app-runtime contract compatibility: PASS');

@@ -4,6 +4,7 @@ import { HttpError, jsonResponse, readJsonBody } from './http';
 import { sha256Hex } from './crypto';
 import { getAppPolicy } from './appPolicy';
 import { readPersistentApplicationUsage } from './applicationStatistics';
+import { readNativeApplicationStatisticsRangeSeconds } from './applicationStatisticsNative';
 import { loadUsageCorrections } from './applicationUsageCorrections';
 import { CHROME_DISPLAY_RULES } from './specialApplications';
 import { readApplicationSharedQuotaContributions } from './applicationSharedQuota';
@@ -38,10 +39,12 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       if(!input||['accountId','childId','fromDate','toDate'].some(key=>typeof input[key]!=='string'||String(input[key]).length>200))
         throw new HttpError(400,'INVALID_SCOPE','Read scope is invalid.');
       const args=[input.accountId,input.childId,input.fromDate,input.toDate] as [string,string,string,string];
+      if(input.secondsOnly!==undefined&&(operation!=='getApplicationUsage'||typeof input.secondsOnly!=='boolean'))
+        throw new HttpError(400,'INVALID_SCOPE','Read mode is invalid.');
       const value=operation==='applicationEvidenceRevision'?await this.applicationEvidenceRevision(...args)
         :operation==='readApplicationEvidence'?await this.readApplicationEvidence(...args)
           :operation==='readApplicationSharedQuotaContributions'?await this.readSharedQuotaApplicationContributions(...args)
-            :await this.getApplicationUsage(...args);
+            :await this.getApplicationUsage(...args,input.secondsOnly===true);
       return jsonResponse(value);
     }catch(error){
       const message=error instanceof Error?error.message:'';
@@ -52,17 +55,29 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       return jsonResponse({code},{status:error instanceof HttpError?error.status:503});
     }
   }
-  async getApplicationUsage(accountId:string,childId:string,fromDate:string,toDate:string) {
+  async getApplicationUsage(accountId:string,childId:string,fromDate:string,toDate:string,secondsOnly=false) {
     await this.requireChildScope(accountId,childId);
     const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)||!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to-86400000+8*3600000).toISOString().slice(0,10)!==toDate)throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
+    const seconds=await readNativeApplicationStatisticsRangeSeconds(this.env.RUNTIME_DB,accountId,childId,from,to);
+    if(seconds.availableTotalDuration!==null||secondsOnly)return {source:'application',fromDate,toDate,durationUnit:'seconds',
+      complete:seconds.complete,totalDuration:seconds.totalDuration,availableTotalDuration:seconds.availableTotalDuration,
+      applicationUsage:seconds.applicationUsage,
+      categories:seconds.categories.map(row=>({classification:row.category,duration:row.duration})),
+      applications:seconds.products.map(row=>({displayName:row.displayName,duration:row.duration,classifications:row.classifications})),
+      buckets:seconds.days.flatMap(day=>fromDate===toDate?day.hours.filter(row=>row.kind==='total').map(row=>({
+        startAtMs:Date.parse(`${day.date}T00:00:00+08:00`)+row.hour!*3600000,duration:row.duration}))
+        :[{startAtMs:Date.parse(`${day.date}T00:00:00+08:00`),duration:day.totalDuration}]),
+      statistics:{producer:'native',revision:seconds.revision,stale:!seconds.complete,
+        settledThroughByDate:seconds.days.map(day=>({date:day.date,settledThroughMs:day.settledThroughMs})),
+        missingDates:seconds.days.filter(day=>!day.complete).map(day=>day.date)}};
     const {value:result,statistics}=await readPersistentApplicationUsage(this.env.RUNTIME_DB,accountId,childId,from,to,{},work=>this.ctx.waitUntil(work));
     const value=result as {
       totalDurationMs:number;categories:Array<{classification:string;durationMs:number}>;
       buckets:Array<{startAtMs:number;durationMs:number}>;
       applications:Array<{displayName:string|null;classification:string;durationMs:number}>};
-    return {source:'application',fromDate,toDate,totalDurationMs:value.totalDurationMs,statistics,
+    return {source:'application',fromDate,toDate,durationUnit:'milliseconds',compatibility:'legacy',totalDurationMs:value.totalDurationMs,statistics,
       categories:value.categories.map(({classification,durationMs})=>({classification,durationMs})),
       buckets:value.buckets.map(({startAtMs,durationMs})=>({startAtMs,durationMs})),
       applications:statistics.productApplications
@@ -97,11 +112,25 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
         AND json_extract(filters_json,'$.localUserId') IS NULL AND json_extract(filters_json,'$.platform') IS NULL
         AND (from_ms+28800000)%86400000=0 AND to_ms-from_ms=86400000
       ORDER BY scope_key,date LIMIT 708`).bind(accountId,childId,fromDate,toDate).all();
-    const [head,machines,inventory,policy,legacy,corrections,statistics]=await Promise.all([
-      headRead,machinesRead,inventoryRead,policyRead,legacyRead,correctionsRead,statisticsRead,
+    // Publication is the readable source head, independent of raw-fact arrival.
+    // Include both compatible units so a producer replacement invalidates the
+    // display cache even when no raw record or old materialization changed.
+    const publicationsRead=this.env.RUNTIME_DB.prepare(`SELECT p.date,p.manifest_id,p.revision,s.manifest_hash
+      FROM runtime_application_account_publications_v1 p
+      JOIN runtime_application_account_manifests_v1 s ON s.id=p.manifest_id
+      JOIN runtime_machines_v2 m ON m.id=p.machine_id
+      WHERE p.account_id=?1 AND p.child_id=?2 AND p.date>=?3 AND p.date<=?4 AND m.account_id=?1
+        AND s.account_id=p.account_id AND s.child_id=p.child_id AND s.date=p.date
+        AND s.machine_id=p.machine_id AND s.local_user_id=p.local_user_id
+        AND s.assignment_version=p.assignment_version AND s.revision=p.revision
+      ORDER BY p.date,p.machine_id,p.local_user_id,p.assignment_version LIMIT 701`)
+      .bind(accountId,childId,fromDate,toDate).all();
+    const [head,machines,inventory,policy,legacy,corrections,statistics,publications]=await Promise.all([
+      headRead,machinesRead,inventoryRead,policyRead,legacyRead,correctionsRead,statisticsRead,publicationsRead,
     ]);
-    if(statistics.results.length>707)throw new HttpError(422,'COMPUTER_USAGE_SOURCE_LIMIT','统计来源范围过多。');
-    return sha256Hex(JSON.stringify({model:'readable-history-v3-persistent',head,machines:machines.results,legacy,inventory,statistics:statistics.results,
+    if(statistics.results.length>707||publications.results.length>700)throw new HttpError(422,'COMPUTER_USAGE_SOURCE_LIMIT','统计来源范围过多。');
+    return sha256Hex(JSON.stringify({model:'readable-history-v4-published',head,machines:machines.results,legacy,inventory,statistics:statistics.results,
+      publications:publications.results,
       displayRules:CHROME_DISPLAY_RULES,policyVersion:policy.version,projection:policy.productIdentityProjection?.version,corrections}));
   }
   async readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string) {
