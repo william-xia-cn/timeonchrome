@@ -2,6 +2,7 @@
 
 ### 当前全链状态：定秒口径已批准，继续生产生成与调用接线（2026-10-05）
 
+- 最新收口：Native已提交并推送`08c51331a077dc2884abdb1da5bf6348901b1b33`，实际原账→日边界定秒→同事务versions/head/outbox→冻结补发→内部同版秒读取已接通，新旧契约1.35／1.34最终TRX各175/175，工作区干净；不是旧37项调度证据。云端实际生成fixture链路提交`c96b1c5`，70/70及typecheck；最新Runtime dry-run通过，510.52 KiB（gzip104.61 KiB），未上传。缺口已收窄为外部Bridge／Manager秒消费者、生产能力与匹配安装版本及真实当日页面；Mac平台接线独立回报。Native正只读评估旧Ms接口在秒head启用后的影响，未经消费者核对不得把内部读取或云端fixture称终端完整可用。此前下方“Native生产生成未实施”是阶段记录，由本条覆盖。
 - 边界冲突已集中裁决：PO明确采用北京时间日边界定秒，接受跨午夜不足秒两侧可能共少1秒。日内独立并集定秒、小时按网页余数分配；日级父子上界与各维度日／小时守恒保留，v2取消跨维度小时上界，v1不变。实施仅现有usage-account契约／黄金回归、Runtime发布与秒读取校验、Native生成及接线；共同候选集中为1.35.0，保留1.34固定包。最小验证为契约build／固定回归、实际发布与读取聚焦测试、typecheck及diff；不改原账、网页、页面布局、配额、安装、部署或migration。1864f0f仅调度修复，37项不能算生成主链完成。
 - 该边界云端源码结果：新增显式validateUsageAccountDimensionsV2，接通清单创建、实际commit、发布、持久读取四处；v1校验保持不变。实际Windows／Mac协议上传及读取小时错位用例通过，publication共68/68、backend typecheck通过；契约build、usage-account固定用例通过。首轮遗漏commit旧校验被真实上传测试抓到并修复；compatibility首次因固定包版本断言仍1.34失败，已同步1.35后复验。Matched＝已批准校验及云端上传读取；Missing＝Native生产生成、安装／生产全链；不以本地D1测试称实机完成。
 - 本段源码已提交88bb96fa36f291692bd8d47360d6d9bb22e2e12a（现有云端分支，未推送／部署）。集中候选output/contracts-seconds-candidate/timeonchrome-app-runtime-contracts-1.35.0.tgz，121950字节、SHA-256 `5f700b86f4af4c216cb1054e8c41b749a96a5762d8d4d1a276280dbce231acf6`；package元数据、usage-account源码／vectors／schema／JS／声明六文件与源码逐字节匹配，实际包V2校验导出可用。1.34旧包未覆盖，新候选已交Native消费；Native实际文件差异已包含ApplicationSecondsProjector、ApplicationAccountStore物化分支与Service能力接线，尚在测试，不标记完成。
