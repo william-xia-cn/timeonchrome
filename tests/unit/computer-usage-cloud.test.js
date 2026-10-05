@@ -37,7 +37,7 @@ const db={
 const load=loader({'./profileAccountsV2':{readManifestAccountV2:async(_db,manifest)=>{if(webFailure||manifest.split('|')[1]===failedDate)throw Error('private DB detail');return {...account,date:manifest.split('|')[1]||date,revision:heads};}},
 './compositePageCorrections':{readCompositeCorrections:async()=>({revision:'c1',items:[]}),projectCompositeDailyRows:()=>account.rows.filter(row=>row.kind==='daily_target')},
 './usageAccountingCorrections':{listUsageAccountingCorrections:async()=>[],applyCorrectionsToV1StatsRows:rows=>rows},
-'../db/middleware':{generateToken:async()=> 'test-internal'},'../routes/stats':{statsRouter:{handle:async request=>Response.json({stats:new URL(request.url).pathname.includes('hourly')?publicStats.map(row=>({...row,hour:0})):publicStats})}},
+'../db/middleware':{generateToken:async()=> 'test-internal',verifyAccountToken:async request=>request.headers.get('authorization')==='Bearer fixture'?'family':null,json:(body,status=200)=>Response.json(body,{status})},'../routes/stats':{statsRouter:{handle:async request=>Response.json({stats:new URL(request.url).pathname.includes('hourly')?publicStats.map(row=>({...row,hour:0})):publicStats})}},
 '../routes/profiles':{readSharedAccessPolicyForChild:async(_db,accountId,childId)=>{
   if(accountId!=='current-account'||childId!=='current-child')return null;
   const value=structuredClone(fullPolicy);policyReads++;
@@ -67,6 +67,61 @@ return {load,env:{DB:db,CONFIG_CACHE:{get:async key=>store.has(key)?JSON.parse(s
 }
 (async()=>{
 let f=fixture(),service=f.load('workers/src/services/computerUsage.ts');
+const secondsFixture=fixture(),secondsService=secondsFixture.load('workers/src/services/computerUsage.ts');
+let secondsCalls=0;
+secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=async(accountId,childId,from,to,secondsOnly)=>{
+  secondsCalls++;
+  assert.equal(accountId,'family');assert.equal(childId,'child');assert.equal(from,date);assert.equal(to,date);
+  assert.equal(secondsOnly,true,'new display never requests raw-ledger legacy fallback');
+  return {source:'application',durationUnit:'seconds',fromDate:from,toDate:to,complete:true,totalDuration:15,availableTotalDuration:15,
+    categories:[{classification:'study',duration:10},{classification:'other',duration:10}],
+    applicationUsage:{nonSpecialTotal:10,nonSpecialCategories:{study:10},specialTotal:10,complete:true,reasonCodes:[]},statistics:{revision:'native-seconds-r1'}};
+};
+const sourceSeconds=await secondsService.readComputerWebStatisticsSeconds(secondsFixture.env,'family','child',date,date);
+assert.equal(sourceSeconds.totalDuration,3,'web source uses authoritative seconds once');
+assert.equal(secondsFixture.reads(),0,'summary does not load web raw intervals');
+const combinedSeconds=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
+assert.equal(combinedSeconds.totals.computer,13);assert.equal(combinedSeconds.totals.specialIncluded,5);
+assert.deepEqual(JSON.parse(JSON.stringify(combinedSeconds.categories)),{study:13});
+assert.equal(combinedSeconds.sourceVersions.application,'native-seconds-r1');
+assert.equal(secondsFixture.reads(),0);assert.equal(secondsFixture.appReads(),0,'new summary does not call old application evidence');
+assert.equal(secondsCalls,1);
+assert.deepEqual(JSON.parse(JSON.stringify(await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date))),JSON.parse(JSON.stringify(combinedSeconds)));
+const route=secondsFixture.load('workers/src/routes/computerUsage.ts').handleComputerUsage;
+const requestSeconds=(extra={},authorized=true)=>new Request('https://fixture/computer-usage?'+new URLSearchParams({from:date,to:date,durationUnit:'seconds',...extra}),{headers:authorized?{authorization:'Bearer fixture'}:{}});
+const publicSecondsResponse=await route(requestSeconds(),secondsFixture.env,'child');
+assert.equal(publicSecondsResponse.status,200);
+const publicSeconds=await publicSecondsResponse.json();
+assert.equal(publicSeconds.totals.computer,13);assert.equal(publicSeconds.durationUnit,'seconds');
+assert.match(publicSeconds.revision,/^computer-v2:[a-f0-9]{64}$/);
+assert.equal((await route(requestSeconds({revision:publicSeconds.revision}),secondsFixture.env,'child')).status,200);
+assert.equal((await route(requestSeconds({},false),secondsFixture.env,'child')).status,401);
+assert.equal((await route(requestSeconds({durationUnit:'minutes'}),secondsFixture.env,'child')).status,400);
+assert.equal((await route(requestSeconds({to:'2026-10-08'}),secondsFixture.env,'child')).status,400);
+assert.equal((await route(requestSeconds({revision:'computer-v2:'+ '0'.repeat(64)}),secondsFixture.env,'child')).status,409);
+const detailNotReady=await route(requestSeconds({detail:'products',revision:publicSeconds.revision}),secondsFixture.env,'child');
+assert.equal(detailNotReady.status,503);assert.equal((await detailNotReady.json()).code,'COMPUTER_USAGE_DETAIL_NOT_READY');
+assert.equal((await route(requestSeconds({source:'web'}),secondsFixture.env,'child')).status,400);
+assert.equal(secondsFixture.reads(),0,'public seconds endpoint never reloads raw web intervals');
+const bindingSeconds=await new secondsService.ComputerUsageService({},secondsFixture.env).getComputerUsageStatisticsSeconds('family','child',date,date);
+assert.equal(bindingSeconds.revision,publicSeconds.revision,'existing binding and browser route share the same authority');
+secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=async()=>{throw Error('APPLICATION_SOURCE_UNAVAILABLE');};
+const appMissing=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
+assert.equal(appMissing.totals.web,3);assert.equal(appMissing.totals.application,null);assert.equal(appMissing.totals.computer,null);
+assert(appMissing.reasonCodes.includes('APPLICATION_SOURCE_UNAVAILABLE'));
+secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=async()=>{throw Error('APPLICATION_DATABASE_MEMORY_LIMIT');};
+assert((await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date)).reasonCodes.includes('APPLICATION_DATABASE_MEMORY_LIMIT'));
+const webMissingFixture=fixture({webFailure:true}),webMissingService=webMissingFixture.load('workers/src/services/computerUsage.ts');
+webMissingFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=async()=>({durationUnit:'seconds',fromDate:date,toDate:date,complete:true,totalDuration:5,availableTotalDuration:5,
+  categories:[{classification:'unclassified',duration:5}],applicationUsage:{nonSpecialTotal:5,nonSpecialCategories:{unclassified:5},specialTotal:0,complete:true,reasonCodes:[]},statistics:{revision:'r2'}});
+const webMissing=await webMissingService.readComputerUsageStatisticsSummarySeconds(webMissingFixture.env,'family','child',date,date);
+assert.equal(webMissing.totals.web,null);assert.equal(webMissing.totals.application,5);assert.equal(webMissing.totals.computer,null);
+const legacySecondsFixture=fixture({legacy:true}),legacySecondsService=legacySecondsFixture.load('workers/src/services/computerUsage.ts');
+assert.equal((await legacySecondsService.readComputerWebStatisticsSeconds(legacySecondsFixture.env,'family','child',date,date)).totalDuration,5134);
+assert.equal(legacySecondsFixture.reads(),0,'legacy statistics also avoid raw intervals');
+const deniedSecondsFixture=fixture({owned:false}),deniedSecondsService=deniedSecondsFixture.load('workers/src/services/computerUsage.ts');
+await assert.rejects(()=>deniedSecondsService.readComputerUsageStatisticsSummarySeconds(deniedSecondsFixture.env,'foreign','child',date,date),/CHILD_NOT_FOUND/);
+assert.equal(deniedSecondsFixture.reads(),0);assert.equal(deniedSecondsFixture.appReads(),0);
 const scoped=new service.ComputerUsageService({}, {DB:{prepare(sql){assert.equal(sql,'SELECT id FROM profiles WHERE id=? AND account_id=?');return {bind(child,account){return {first:async()=>child==='current-child'&&account==='current-account'?{id:child}:null};}};}}});
 const scopeRequest=(accountId,childId)=>new Request('https://private-capability/verifyChildAccess',{method:'POST',body:JSON.stringify({accountId,childId})});
 assert.deepEqual(await (await scoped.fetch(scopeRequest('current-account','current-child'))).json(),{owned:true});

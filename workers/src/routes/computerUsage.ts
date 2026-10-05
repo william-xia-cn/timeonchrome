@@ -1,5 +1,5 @@
 import { json,verifyAccountToken } from '../db/middleware';
-import { readComputerUsage,readIndependentUsage,type ComputerUsageEnv } from '../services/computerUsage';
+import { readComputerUsage,readIndependentUsage,readComputerUsageStatisticsSummarySeconds,type ComputerUsageEnv } from '../services/computerUsage';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 
 export async function handleComputerUsage(request:Request,env:ComputerUsageEnv,childId:string):Promise<Response> {
@@ -8,7 +8,10 @@ export async function handleComputerUsage(request:Request,env:ComputerUsageEnv,c
   if(!accountId)return json({code:'UNAUTHORIZED'},401);
   const url=new URL(request.url);
   try {
+    const unit=url.searchParams.get('durationUnit');
+    if(unit!==null&&!['seconds','milliseconds'].includes(unit))return json({code:'INVALID_DURATION_UNIT'},400);
     const source=url.searchParams.get('source');
+    if(source&&unit==='seconds')return json({code:'INVALID_SOURCE'},400);
     if(source)return json(await readIndependentUsage(env,accountId,childId,url.searchParams.get('from')||'',url.searchParams.get('to')||'',source));
     const expected=url.searchParams.get('revision');
     const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||100);
@@ -16,7 +19,14 @@ export async function handleComputerUsage(request:Request,env:ComputerUsageEnv,c
     const detail=url.searchParams.get('detail')||'summary';
     if(!['summary','timeline','products'].includes(detail)||detail!=='summary'&&!expected||offset>0&&!expected)return json({code:'INVALID_CURSOR'},400);
     const product=url.searchParams.get('product');
-    if(expected&&!/^computer-v1:[a-f0-9]{64}$/.test(expected)||product&&detail!=='timeline')return json({code:'INVALID_CURSOR'},400);
+    const revisionPattern=unit==='seconds'?/^computer-v2:[a-f0-9]{64}$/:/^computer-v1:[a-f0-9]{64}$/;
+    if(expected&&!revisionPattern.test(expected)||product&&detail!=='timeline')return json({code:'INVALID_CURSOR'},400);
+    if(unit==='seconds'){
+      const snapshot=await readComputerUsageStatisticsSummarySeconds(env,accountId,childId,url.searchParams.get('from')||'',url.searchParams.get('to')||'');
+      if(expected&&expected!==snapshot.revision)return json({code:'COMPUTER_USAGE_VERSION_CHANGED'},409);
+      if(detail!=='summary'||offset!==0)return json({code:'COMPUTER_USAGE_DETAIL_NOT_READY'},503);
+      return json(snapshot);
+    }
     const snapshot=await readComputerUsage(env,accountId,childId,url.searchParams.get('from')||'',url.searchParams.get('to')||'',url.searchParams.get('computer')||undefined,detail==='summary');
     if(expected&&expected!==snapshot.revision)return json({code:'COMPUTER_USAGE_VERSION_CHANGED'},409);
     return json(computerUsageReadPage(snapshot,detail as 'summary'|'timeline'|'products',expected||undefined,offset,limit,product||undefined));
