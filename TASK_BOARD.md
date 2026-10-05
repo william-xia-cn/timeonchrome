@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## 当前第一步：应用原始落账修订（2026-10-05，PO已逐项批准）
+
+本节取代下节“先贯通派生统计到云端”的执行顺序。当前只保证新应用原账：开段固定Child ID，业务键Child ID＋Segment ID，Windows用户／机器／分配版本为来源属性；时长整数秒、北京时间日边界及小时分配对照网页；180秒主使用切片、90秒估算及正常延迟尾段保留。改绑先持久结束旧孩子段再开新孩子段，失败不得丢失旧会话。旧毫秒原账不可变，不猜补归属；新格式接收端未兼容前持久待发送。
+
+职责／清单：architecture-integration修改既有决策、原账契约、共同向量和最小契约测试；Native所属会话实施Windows状态机／SQLite／恢复及直接消费者。网页只读、媒体辅助账不改。最小验证为契约、Child隔离与改绑、5小时切片、延迟／确认失败／恢复、跨日秒分配、持久化失败及重复重放；实机另记。复用分支和工作树，不安装、不部署、不执行生产migration、不启用共享。当前为实施中；此前原账已对齐结论失效。
+
+架构交付：新增application-ledger.ts／v3 schema／共同vectors及聚焦测试，Contracts候选1.36.0；typecheck、构建、原账哈希／单位／孩子篡改拒绝、8项直接读取网页纯函数对照、旧契约兼容、源码边界与diff检查通过。候选只从be39f0c已跟踪契约基线＋本轮7个契约文件组装，不包含既有native-host和秒读取未提交草稿。固定包位于本地81a1的.tmp/application-ledger-contract-candidate-1.36.0/timeonchrome-app-runtime-contracts-1.36.0.tgz，129158字节，SHA256 `eca40857e7d3c5ca738bdb70210f1fd3d038ae7e415fbacb244ce35267c53f08`。旧v2 schema SHA256 `b2c30e86d6d5f7d995a547165a275f93631cf91926d08e8de9f963daa765a739`未变；网页对照源SHA256 `f82ad3d9752cb90e4a271b4d12a1fc6aa9c8f623a8685908082da17e6ad5f87e`。Native已接收执行交接并在实施，不代表源码／实机验收完成；checkpoint/repair/ownership/reassignment向量必须由Native真实入口与SQLite测试覆盖。
+
 ### 当前全链状态：定秒口径已批准，继续生产生成与调用接线（2026-10-05）
 
 - 最新收口：Native已提交并推送`08c51331a077dc2884abdb1da5bf6348901b1b33`，实际原账→日边界定秒→同事务versions/head/outbox→冻结补发→内部同版秒读取已接通，新旧契约1.35／1.34最终TRX各175/175，工作区干净；不是旧37项调度证据。云端实际生成fixture链路提交`c96b1c5`，70/70及typecheck；最新Runtime dry-run通过，510.52 KiB（gzip104.61 KiB），未上传。缺口已收窄为外部Bridge／Manager秒消费者、生产能力与匹配安装版本及真实当日页面；Mac平台接线独立回报。Native正只读评估旧Ms接口在秒head启用后的影响，未经消费者核对不得把内部读取或云端fixture称终端完整可用。此前下方“Native生产生成未实施”是阶段记录，由本条覆盖。

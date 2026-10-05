@@ -1,5 +1,11 @@
 # TimeOnChrome — 技术设计文档
 
+## 应用原账v3（2026-10-05，PO批准实施）
+
+当前优先落地原始段，不继续此前派生统计／共享接线。application-ledger-v3以childId固定业务归属，source仅记录machineId、localUserId（不透明ID，非原始SID／用户名）、runtimeSessionId、assignmentVersion。应用技术身份保持兼容，不依赖旧appPolicyVersion；新段用durationSeconds，原始时钟时间戳仍为Ms。主使用180秒切片、90秒估算；正常延迟保留切片边界之后的开段尾巴。北京时间每个日段独立floor后按网页既有小时最大余数规则分配，不把小时独立取整之和反算日秒数。
+
+Native开段／重启／改绑都消费该段已固定的孩子，不用最新policy重新给旧段找孩子。SQLite新版本段＋outbox＋开段状态原子持久，改绑失败保留旧上下文并可恢复；取消绑定后旧段仍旧孩子，未分配期间仅可产生非用量诊断。repair只在当前活动已确认且现有访问允许时估算，不能早于该孩子分配生效边界，未知归属不补记。v2 schema和记录不变，单位通过schemaVersion明确隔离。新契约在本轮只用于本地生成与固定包消费；接收端未声明application-ledger-v3能力前，不发送到旧v2接收接口。本轮不改网页、媒体辅助账、云端统计算法及共享，不部署或安装。
+
 ### 2026-10-05 电脑汇总页面秒消费者（本地实现）
 
 两套相同computer-usage-view渲染器的汇总请求显式携带durationUnit=seconds；schemaVersion=2直接显示totals、categories及sourceCategories整数秒，不在页面归集、再次取整或转换为毫秒副本。来源版本来自对象映射，旧格式仍保留兼容渲染。新版来源失败reasonCodes参与缓存判定，不将失败结果缓存为当前成功。产品／时间线入口和日期导航保留，秒明细请求保持同版同单位；尚未接通时显示稳定错误，不用旧毫秒明细填平。组件桌面／移动隔离截图已目视核对，13秒、缺来源有效部分及合法零值、格式拒绝和缓存回归通过；真实登录／Native端到端未验收，秒产品／时间线仍未完成。

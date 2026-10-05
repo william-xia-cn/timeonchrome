@@ -10,5 +10,5 @@
     "rootDir": ".",
     "skipLibCheck": true
   },
-  "include": ["app-runtime-control.ts", "application-classification.ts", "application-knowledge-validation.ts", "native-host.ts", "computer-usage.ts", "usage-account.ts", "shared-access.ts", "shared-quota-execution.ts", "shared-reminder-lifecycle.ts", "shared-web-sync.ts"]
+  "include": ["app-runtime-control.ts", "application-classification.ts", "application-knowledge-validation.ts", "native-host.ts", "computer-usage.ts", "usage-account.ts", "shared-access.ts", "shared-quota-execution.ts", "shared-reminder-lifecycle.ts", "shared-web-sync.ts", "application-ledger.ts"]
 }
