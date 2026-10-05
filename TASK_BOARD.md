@@ -4,6 +4,7 @@
 
 - 边界冲突已集中裁决：PO明确采用北京时间日边界定秒，接受跨午夜不足秒两侧可能共少1秒。日内独立并集定秒、小时按网页余数分配；日级父子上界与各维度日／小时守恒保留，v2取消跨维度小时上界，v1不变。实施仅现有usage-account契约／黄金回归、Runtime发布与秒读取校验、Native生成及接线；共同候选集中为1.35.0，保留1.34固定包。最小验证为契约build／固定回归、实际发布与读取聚焦测试、typecheck及diff；不改原账、网页、页面布局、配额、安装、部署或migration。1864f0f仅调度修复，37项不能算生成主链完成。
 - 该边界云端源码结果：新增显式validateUsageAccountDimensionsV2，接通清单创建、实际commit、发布、持久读取四处；v1校验保持不变。实际Windows／Mac协议上传及读取小时错位用例通过，publication共68/68、backend typecheck通过；契约build、usage-account固定用例通过。首轮遗漏commit旧校验被真实上传测试抓到并修复；compatibility首次因固定包版本断言仍1.34失败，已同步1.35后复验。Matched＝已批准校验及云端上传读取；Missing＝Native生产生成、安装／生产全链；不以本地D1测试称实机完成。
+- 本段源码已提交88bb96fa36f291692bd8d47360d6d9bb22e2e12a（现有云端分支，未推送／部署）。集中候选output/contracts-seconds-candidate/timeonchrome-app-runtime-contracts-1.35.0.tgz，121950字节、SHA-256 `5f700b86f4af4c216cb1054e8c41b749a96a5762d8d4d1a276280dbce231acf6`；package元数据、usage-account源码／vectors／schema／JS／声明六文件与源码逐字节匹配，实际包V2校验导出可用。1.34旧包未覆盖，新候选已交Native消费；Native实际文件差异已包含ApplicationSecondsProjector、ApplicationAccountStore物化分支与Service能力接线，尚在测试，不标记完成。
 
 - 云端／契约／页面源码已本地提交4afdfd0／234f5ad／fdb5dbe／5b50690，未部署。固定1.34.0候选哈希不变；Native已直接核对既有人类授权，重复授权要求撤销，不再作为阻塞。
 - Native提交d3144b1eac8e7ec84605b8915c7ba2bd0cfca8f2：显式秒wire、平台能力门、单位隔离；修复begin确认ID后分块失败覆盖空ID的补发缺陷。
