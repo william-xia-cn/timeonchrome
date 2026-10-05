@@ -1,6 +1,7 @@
 /** 版本化派生统计；不负责生成 Segment、重新分类或计算区间并集。 */
 export const USAGE_ACCOUNT_CHUNK_ROWS = 100;
 export const USAGE_ACCOUNT_MAX_ROWS = 10_000;
+export const APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY = 'application-statistics-child-scope-v1' as const;
 export type UsageAccountSource = 'application' | 'web' | 'webMedia';
 export type UsageAccountUnit = 'milliseconds' | 'seconds';
 /** 同版实际用量视图；不含配置、配额余额、借用或第二个发布版本。 */
@@ -54,6 +55,8 @@ export interface ApplicationUsageSeconds {
 export interface UsageAccountManifestV2 extends Omit<UsageAccountManifest, 'schemaVersion' | 'durationUnit' | 'applicationUsage'> {
   schemaVersion: 2;
   durationUnit: 'seconds';
+  /** 新v3生产者开账时固定的孩子；缺省只兼容旧秒清单，不由当前分配补写。 */
+  childId?: string;
   applicationUsage?: ApplicationUsageSeconds;
 }
 export interface UsageAccountRowV2 extends UsageAccountRow {
@@ -300,15 +303,19 @@ export async function createUsageAccount(
 
 /** v2不隐式接受v1毫秒数据；兼容适配必须由调用者显式完成。 */
 export function parseUsageAccountManifestV2(value: unknown): UsageAccountManifestV2 {
-  const v = exact(value, record(value) && Object.hasOwn(value, 'applicationUsage')
-    ? [...manifestFields, 'applicationUsage'] : manifestFields);
+  const optional = ['applicationUsage', 'childId'].filter(key => record(value) && Object.hasOwn(value, key));
+  const v = exact(value, [...manifestFields, ...optional]);
   if (v.schemaVersion !== 2 || v.durationUnit !== 'seconds') fail('USAGE_ACCOUNT_INVALID_SCHEMA');
-  const { applicationUsage, ...header } = v;
+  const { applicationUsage, childId, ...header } = v;
   // 复用原有非用量字段校验，不转换或重算时长，不复用v1哈希。
   const checked = parseUsageAccountManifest({ ...header, schemaVersion: 1,
     durationUnit: v.sourceKind === 'application' ? 'milliseconds' : 'seconds' });
   const { applicationUsage: _legacyUsage, ...checkedHeader } = checked;
   const result: UsageAccountManifestV2 = { ...checkedHeader, schemaVersion: 2, durationUnit: 'seconds' };
+  if (Object.hasOwn(v, 'childId')) {
+    if (v.sourceKind !== 'application' || !identifier(childId)) fail('USAGE_ACCOUNT_INVALID_CHILD_SCOPE');
+    result.childId = childId;
+  }
   if (Object.hasOwn(v, 'applicationUsage')) {
     if (v.sourceKind !== 'application') fail('USAGE_ACCOUNT_INVALID_APPLICATION_USAGE');
     result.applicationUsage = parseApplicationUsageSeconds(applicationUsage);

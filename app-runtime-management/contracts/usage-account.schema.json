@@ -61,6 +61,7 @@
       "properties": {
         "schemaVersion": { "const": 2 },
         "durationUnit": { "const": "seconds" },
+        "childId": { "$ref": "#/$defs/identifier", "description": "新应用原账冻结的孩子；缺省仅供旧秒清单兼容，参与manifestHash。" },
         "sourceKind": { "$ref": "#/properties/sourceKind" },
         "timezone": { "$ref": "#/properties/timezone" },
         "date": { "$ref": "#/properties/date" },
@@ -82,6 +83,7 @@
         "applicationUsage": { "$ref": "#/$defs/applicationUsageSeconds" }
       },
       "allOf": [
+        { "if": { "required": ["childId"] }, "then": { "properties": { "sourceKind": { "const": "application" } } } },
         { "if": { "required": ["applicationUsage"] }, "then": { "properties": { "sourceKind": { "const": "application" } } } },
         { "if": { "properties": { "complete": { "const": true } } }, "then": { "properties": { "reasonCodes": { "maxItems": 0 }, "settledThroughMs": { "type": "integer" } } }, "else": { "properties": { "reasonCodes": { "minItems": 1 } } } }
       ]

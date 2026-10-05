@@ -1,6 +1,15 @@
 {
   "schemaVersion": 1,
   "timezone": "Asia/Shanghai",
+  "childScopeCases": [
+    { "id": "legacy-seconds-omitted-child", "patch": {}, "valid": true },
+    { "id": "frozen-child-a", "patch": { "childId": "child-a" }, "valid": true },
+    { "id": "frozen-child-b", "patch": { "childId": "child-b" }, "valid": true },
+    { "id": "empty-child-rejected", "patch": { "childId": "" }, "valid": false },
+    { "id": "null-child-rejected", "patch": { "childId": null }, "valid": false },
+    { "id": "path-is-not-child", "patch": { "childId": "C:/Users/fixture" }, "valid": false },
+    { "id": "web-cannot-claim-app-child", "patch": { "sourceKind": "web", "childId": "child-a" }, "valid": false }
+  ],
   "secondGenerationRule": { "dayBoundary": "Asia/Shanghai", "union": "overlap-and-adjacent-per-dimension", "quantization": "floor-each-continuous-span-after-day-split", "hourAllocation": "largest-remainder-start-order", "crossDimensionHourlyUpperBound": false },
   "secondDimensionCases": [
     { "id": "independent-hour-boundary", "totalSeconds": 1, "totalSlices": [{ "startMs": 3599100, "endMs": 3600000 }, { "startMs": 3600000, "endMs": 3600950 }], "subsetSeconds": 1, "subsetSlices": [{ "startMs": 3599100, "endMs": 3600000 }, { "startMs": 3600000, "endMs": 3600100 }], "expectedTotal": [0, 1], "expectedSubset": [1, 0] },

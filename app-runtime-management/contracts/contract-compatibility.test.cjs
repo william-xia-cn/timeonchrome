@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.36.0');
+assert.equal(pkg.version, '1.37.0');
 assert(pkg.exports['./application-ledger'], '固定孩子原账契约必须独立导出');
 const applicationLedger = JSON.parse(fs.readFileSync(path.join(root, 'application-ledger-v3.schema.json'), 'utf8'));
 assert.equal(applicationLedger.properties.schemaVersion.const, 3);

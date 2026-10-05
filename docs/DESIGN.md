@@ -1,5 +1,15 @@
 # TimeOnChrome — 技术设计文档
 
+## 应用孩子统计同步接入（2026-10-06，已批准实施，非共享）
+
+契约1.37.0实施：UsageAccountManifestV2可选childId只允许application来源，必须是非空不透明ID且纳入manifestHash；缺省仅供旧秒生产者兼容，新v3原账生产者须填写。能力application-statistics-child-scope-v1声明接收支持；未支持时新清单留在本机队列，不降级丢弃孩子。云端begin及发布使用现有精确历史分配核验声明孩子，读取再校验清单孩子与查询范围，稳定冲突码APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH。不要求当前分配仍等于旧分配，不增加身份体系／数据库结构，不改变原账及定秒规则。
+
+Native由application-ledger-v3的固定childId与durationSeconds生成孩子范围及独立来源统计。user／machine／assignment仅隔离来源、核验授权，不用当前分配重新解释旧账。统计与原段分别持久化及确认，统计不等待原段云端重算。
+
+usage-account秒清单增加可选childId，进入同一manifestHash；支持方声明application-statistics-child-scope-v1。旧格式省略该字段兼容，新v3生成清单必须携带固定孩子，仅能力确认后发送。接收及采用用机器凭据、localUserId和精确历史assignmentVersion核对声明孩子，冲突拒绝。已有云端分配表保留历史，不新增鉴权体系或生产migration。
+
+新版本按同来源替换、不累加，允许分类更正下降；已发布统计及页面秒读取复用。旧毫秒原账、网页、配额均不修改。隔离回归须从真实v3持久化入口开始，覆盖改绑旧队列及新账→统计→HTTP→云端可读结果。新原段接收另行接入，不作为派生统计可用前提。
+
 ## 应用原账v3（2026-10-05，PO批准实施）
 
 当前优先落地原始段，不继续此前派生统计／共享接线。application-ledger-v3以childId固定业务归属，source仅记录machineId、localUserId（不透明ID，非原始SID／用户名）、runtimeSessionId、assignmentVersion。应用技术身份保持兼容，不依赖旧appPolicyVersion；新段用durationSeconds，原始时钟时间戳仍为Ms。主使用180秒切片、90秒估算；正常延迟保留切片边界之后的开段尾巴。北京时间每个日段独立floor后按网页既有小时最大余数规则分配，不把小时独立取整之和反算日秒数。
