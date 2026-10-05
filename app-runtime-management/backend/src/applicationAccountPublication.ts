@@ -139,6 +139,8 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
 export async function validateApplicationAccountSnapshot(db:D1Database,candidate:Candidate) {
   const manifest=await verifyApplicationAccountManifest(JSON.parse(candidate.manifest_json));
   if(!manifest.complete)fail('APPLICATION_ACCOUNT_INCOMPLETE');
+  if(manifest.schemaVersion===2&&manifest.childId!==undefined&&manifest.childId!==candidate.child_id)
+    fail('APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH');
   const assignment=await db.prepare(`SELECT a.child_id,m.account_id,m.platform,m.revoked_at_ms FROM runtime_user_assignments_v2 a
     JOIN runtime_machines_v2 m ON m.id=a.machine_id WHERE a.machine_id=?1 AND a.local_user_id=?2
       AND a.assignment_version=?3 AND a.protected=1`).bind(candidate.machine_id,candidate.local_user_id,candidate.assignment_version)

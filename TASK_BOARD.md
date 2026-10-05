@@ -1,5 +1,35 @@
 # TASK_BOARD
 
+
+# TASK_BOARD
+
+## 持续目标恢复：修正应用统计同步并集中测试（2026-10-06）
+
+只读审核已完成，持续目标“制定方案修改并测试”恢复实施。保留审核发现及全部工作现场，先完成固定Child清单／云端范围核验／共同兼容测试，再交Native接冻结及发送入口，并用真实v3生成的脱敏清单经鉴权HTTP核对云端持久读数。未提交Host秒读取草稿不混入本次固定包；对应独立兼容失败继续登记，不改其协议内容来凑通过。原账上传缺口、应用真实重叠规则及历史分类缺口分别保留，不把统计局部通过当完整同步通过。
+
+checklist／允许路径：usage-account契约、schema、共同向量、版本及固定包；applicationAccounts／Publication／StatisticsNative范围核验与对应隔离回归；现有TASK_BOARD／DESIGN。本次先修已证实的能力断言及新增孩子范围篡改回归。Native只由所属会话处理，旧policy或产品关联不得自动否定有效原始时长。最小测试为本任务契约、两组Worker统计、typecheck、diff，干净候选仅隔离组装编译（不是新worktree）；不修改网页、不安装部署、不执行migration、不启用共享、不运行全平台。接收／读取测试须证明旧A补发、两用户及家庭隔离、重复／下降替换；真实v3发送和正式页面证据缺失仍保持未完成。
+
+### 本轮已取得的同步证据（2026-10-06，非生产验收）
+
+固定契约1.37.0已本地提交`97326bc26fc02960a66119e8e221600de710d84e`。从该SHA已跟踪文件隔离编译打包，未包含Host秒读取草稿；包SHA-256为`0fcb0ac08129f1ee0301cf4a6aca4f3271697482599da73db508650c40c619a7`。共同向量及干净兼容检查PASS，包含8项网页现行日／小时纯函数对照。完整工作现场中的Host草稿兼容失败不被此结果掩盖。两组Worker统计100/100、typecheck、Wrangler4.127.1 dry-run和源码边界PASS；未部署。
+
+真实Native生成的合成请求已纳入`backend/test/application-child-native-generated.json`；源为同一SQLite的180秒周期段＋10秒改绑尾段、固定孩子A，通过现有上传器捕获begin／PUT原请求，而非另造统计。`application-account-publication.test.ts`直接发送该begin／chunks，经机器鉴权HTTP→发布→持久读取→RuntimeComputerUsageService→正式页面秒适配均为190秒，当前分配B未收到A用量、重放不累加、无旧原段／旧策略历史前提。applicationUsage的角色归属缺口保持独立不完整，不抹掉有效总量。输入JSON逐字段保持不变；首次RPC失败为隔离Guardian替身未登记固定合成家庭/孩子，补固定测试pair后通过，生产权限逻辑未修改。该证据不是线上页面或生产上传验收。
+
+Native集中交付已核对`main@3cd5a1052504b0c187d89a68080106fc332da174`且工作区干净；当前1.37／上一兼容1.36矩阵TRX各116/116，最终`child-submission-137.trx`21/21，均0失败，Service编译通过。固定合成原请求文件`agents/windows/tests/TimeOnChrome.AppRuntime.Core.Tests/Fixtures/application-child-v3-wire.json`SHA-256为`60f338b663558a8d708547203c3e8c8ac7aabadf7797ec66df21a4e16f670736`；云端副本仅加结束换行，JSON字段及统计hash均一致。正式Manager及Mac v3接线不据此宣称通过。
+
+| 对照项 | 网页实际入口／证据 | 应用实际入口／证据 | 判断 |
+|---|---|---|---|
+| 孩子与来源归属 | 网页设备凭据与profile关联；profileAccountsV2按profile读取设备head | begin按机器凭据＋精确历史用户分配核对冻结childId；发布／读取再次核对；HTTP回归A→B旧A补发和两用户隔离通过 | 云端Matched；本机新发送链待贯通 |
+| 同版冻结、分块、ACK | cloud-sync上传device account manifest／chunks／commit并核对revision | 复用ApplicationAccountUploader已有begin／status／chunks／commit；新v3实际生成请求及云端100项回归通过 | Matched，仅源码／隔离证据 |
+| 替换与更正下降 | profileAccountsV2按来源head替换并生成孩子日／周版本 | applicationAccountPublication按来源revision替换；51→40及旧commit重放不回退、不累加 | 云端Matched |
+| 原账不阻塞完整统计 | 网页统计清单发布与原账诊断分离 | validateApplicationAccountSnapshot核对结构／hash／授权，不要求旧策略版本或原段到齐 | Matched；不等于新原段上传已实现 |
+| 孩子日／周持久读模型 | profileAccountsV2发布事务写day／week generation及head | 应用来源快照已持久化；applicationStatisticsNative仍在查询时按来源／日期归集 | Deviated，未在本轮顺手重构 |
+| 新原账→新统计→HTTP→页面 | 网页已有正式调用链，现行实现不变 | 纯v3实际生产器／发送器请求到云端及页面正式适配器均190秒；真实运行机器及线上界面尚未验证 | 隔离链Matched；实机证据Missing |
+
+PO再次明确确认继续Windows统计接线，已恢复Native所属会话执行，仅代码与隔离测试、不含Mac守护、不安装部署。旧原账v3的awaiting_receiver与派生统计发送分开：原段接收缺口不能伪装完成，也不能再次成为有效派生统计发布前置。实机多用户、真实改绑、锁屏／休眠、完整Service重启及Mac验收沿用已登记延期；不反复要求安装。
+
+仍未完成：同日V2/V3完整兼容、真实重叠秒并集、孩子日／周持久汇总以及原段v3云端接收。Native已加入同源修订接续及混合源覆盖保护：新修订续旧持久水位；有有效旧事实／非零旧head时不允许仅v3子集替换，保留旧值并标明缺口；合法90秒估算只作诊断，不否定已确认原时长。保护成功不等于混合统计实现，不能宣称整体已对齐。共享、历史还原和Mac均不顺带推进。
+
 ## 当前第一步：应用原始落账修订（2026-10-05，PO已逐项批准）
 
 本节取代下节“先贯通派生统计到云端”的执行顺序。当前只保证新应用原账：开段固定Child ID，业务键Child ID＋Segment ID，Windows用户／机器／分配版本为来源属性；时长整数秒、北京时间日边界及小时分配对照网页；180秒主使用切片、90秒估算及正常延迟尾段保留。改绑先持久结束旧孩子段再开新孩子段，失败不得丢失旧会话。旧毫秒原账不可变，不猜补归属；新格式接收端未兼容前持久待发送。

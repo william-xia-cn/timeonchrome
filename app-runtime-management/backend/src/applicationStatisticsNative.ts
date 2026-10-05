@@ -42,6 +42,8 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
     const value=JSON.parse(head.manifest_json);
     if(value.schemaVersion!==2){legacySourceCount++;continue;}
     const manifest=await verifyUsageAccountManifestV2(value);
+    if(manifest.childId!==undefined&&manifest.childId!==child)
+      throw new HttpError(503,'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH','统计清单孩子与读取范围不一致。');
     if(!manifest.complete||manifest.date!==date||manifest.sourceKind!=='application'
       ||manifest.revision!==head.revision||manifest.manifestHash!==head.manifest_hash)
       throw new HttpError(503,'APPLICATION_STATISTICS_INVALID_PUBLICATION','已发布统计范围无效。');

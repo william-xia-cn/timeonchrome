@@ -40,7 +40,9 @@ export default defineConfig({
             ['persistent-account','persistent-child'],['seconds-source-account','seconds-source-child'],
             ['seconds-cache-account','seconds-cache-child'],
             ['seconds-transport-windows','seconds-transport-child-windows'],
-            ['seconds-transport-macos','seconds-transport-child-macos']];
+            ['seconds-transport-macos','seconds-transport-child-macos'],
+            // 合成v3生产者的固定家庭/孩子；非通配许可，跨家庭仍拒绝。
+            ['child-native-transport-windows','synthetic-child-a']];
           return Response.json({owned:children.some(([account,child])=>scope.accountId===account&&scope.childId===child)});
         } },
         bindings: {

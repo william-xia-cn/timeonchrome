@@ -1,6 +1,7 @@
 import { canonicalUsageAccountJson, hashUsageAccountValue, parseApplicationAccountRows,
   verifyApplicationAccountManifest, validateUsageAccountDimensions, validateUsageAccountDimensionsV2, UsageAccountError,
-  USAGE_ACCOUNT_CHUNK_ROWS, USAGE_ACCOUNT_MAX_ROWS, type UsageAccountReceipt } from '@timeonchrome/app-runtime-contracts/usage-account';
+  USAGE_ACCOUNT_CHUNK_ROWS, USAGE_ACCOUNT_MAX_ROWS, APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY,
+  type UsageAccountReceipt } from '@timeonchrome/app-runtime-contracts/usage-account';
 import type { MachineSelfResponse } from './contracts';
 import { HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http';
 import { isRecord } from './validation';
@@ -56,6 +57,8 @@ export async function beginApplicationAccount(db: D1Database, machine: MachineSe
     WHERE machine_id=?1 AND local_user_id=?2 AND assignment_version=?3 AND protected=1 AND child_id IS NOT NULL`)
     .bind(machine.machineId, v.localUserId, v.assignmentVersion).first<{ child_id: string }>();
   if (!assignment) fail(403, 'APPLICATION_ACCOUNT_ASSIGNMENT_UNAVAILABLE');
+  if (manifest.schemaVersion === 2 && manifest.childId !== undefined && manifest.childId !== assignment.child_id)
+    fail(403, 'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH');
   const id = 'aa1_' + await hashUsageAccountValue([machine.machineId, v.localUserId, v.assignmentVersion, manifest.date, manifest.revision]);
   const scope = [machine.machineId, v.localUserId, v.assignmentVersion, manifest.date];
   // 条件 INSERT 保证并发新水位不能被旧的开始请求绕过；同版本只允许相同 hash。
@@ -142,7 +145,7 @@ export async function routeApplicationAccounts(request: Request, db: D1Database,
       return jsonResponse({protocol:'usage-account-v1',schemaVersion:1,enabled:result.results.length===tables.length,
         chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,acceptedAlgorithms:[...Object.values(applicationAccountAlgorithms),
           applicationAccountAlgorithm('windows',2),applicationAccountAlgorithm('macos',2)],
-        capabilities:['application-usage-projection-v1','application-statistics-seconds-v2']});
+        capabilities:['application-usage-projection-v1','application-statistics-seconds-v2',APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY]});
     }
     if (path === prefix) return request.method === 'POST'
       ? jsonResponse(await beginApplicationAccount(db, machine, await readJsonBody(request, 16384), now)) : methodNotAllowed('POST');

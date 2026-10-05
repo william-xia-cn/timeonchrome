@@ -19,15 +19,17 @@ import {readNativeApplicationStatisticsSeconds,readNativeApplicationStatisticsRa
 import {routeV2} from '../src/v2Routes';
 // 从隔离Native原账→物化测试导出，不复制C#生成算法或真实家庭数据。
 import nativeGenerated from './application-seconds-native-generated.json';
+// 原始请求由真实v3 Session/SQLite→孩子统计→现有发送器捕获，不能在此重造统计或哈希。
+import childNativeGenerated from './application-child-native-generated.json';
 const DAY=86400000,start=Date.parse('2026-09-27T00:00:00+08:00'),now=start+DAY;
 const user='a'.repeat(64);
-async function fixture(platform:MachineSelfResponse['platform']='windows',scope?:{accountId:string;child:string}){
-  const machineId=crypto.randomUUID(),accountId=scope?.accountId??crypto.randomUUID(),child=scope?.child??crypto.randomUUID();
+async function fixture(platform:MachineSelfResponse['platform']='windows',scope?:{accountId:string;child:string;machineId?:string;localUserId?:string}){
+  const machineId=scope?.machineId??crypto.randomUUID(),accountId=scope?.accountId??crypto.randomUUID(),child=scope?.child??crypto.randomUUID();
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machines_v2(id,account_id,platform,token_hash,last_seen_at_ms,created_at_ms,updated_at_ms)
     VALUES(?1,?2,?3,?1,0,0,0)`).bind(machineId,accountId,platform).run();
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
     (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
-    VALUES(?1,?2,1,?3,1,'default',?4,?4)`).bind(machineId,user,child,start).run();
+    VALUES(?1,?2,1,?3,1,'default',?4,?4)`).bind(machineId,scope?.localUserId??user,child,start).run();
   const policy=await getAppPolicy(env.RUNTIME_DB,accountId,child);
   const knowledge=effectiveApplicationKnowledge({schemaVersion:2,version:1,products:[],rules:[],bindings:[]});
   const content:Omit<ProductIdentityProjection,'version'>={knowledgeVersion:1,
@@ -207,6 +209,140 @@ it.each(['windows','macos'] as const)('authenticated %s seconds transport publis
   const denied=await rpc.fetch(new Request('https://runtime-capability/getApplicationUsage',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({accountId:'foreign-account',childId:f.child,fromDate:'2026-09-27',toDate:'2026-09-27',secondsOnly:true})}));
   expect(denied.status).toBe(404);expect(await denied.json()).toEqual({code:'CHILD_NOT_FOUND'});
+});
+it('real v3 SQLite producer requests publish frozen child seconds and reach the cloud page adapter unchanged',async()=>{
+  const generated=childNativeGenerated,{begin,chunks,rawSegments}=generated;
+  expect(generated).toMatchObject({synthetic:true,contractsVersion:'1.37.0'});
+  expect(rawSegments).toHaveLength(2);
+  expect(rawSegments.every(segment=>segment.schemaVersion===3&&segment.childId===begin.manifest.childId
+    &&segment.source.localUserId===begin.localUserId&&segment.source.assignmentVersion===begin.assignmentVersion)).toBe(true);
+  expect(rawSegments.map(segment=>segment.durationSeconds)).toEqual([180,10]);
+  const inputBefore=JSON.stringify(generated),source=rawSegments[0].source,token=crypto.randomUUID();
+  const f=await fixture('windows',{accountId:'child-native-transport-windows',child:begin.manifest.childId,
+    machineId:source.machineId,localUserId:begin.localUserId});
+  await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET token_hash=?1 WHERE id=?2')
+    .bind(await sha256Hex(token),f.machine.machineId).run();
+  // 最新分配已经是B，但捕获的A清单与原180秒段及10秒尾段仍保持原孩子。
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+    (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+    VALUES(?1,?2,2,'synthetic-child-b',1,'override',?3,?3)`)
+    .bind(f.machine.machineId,begin.localUserId,rawSegments[1].endWallTimeMs).run();
+  const call=async(path:string,method:string,body?:unknown)=>{
+    const response=await routeV2(new Request('https://runtime.test/v2/machines/application-accounts/'+path,{method,
+      headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
+      ...(body===undefined?{}:{body:JSON.stringify(body)})}),env,begin.manifest.generatedAtMs);
+    expect(response?.status).toBe(200);return response!.json() as Promise<Record<string,unknown>>;
+  };
+  expect((await call('capabilities','GET')).capabilities).toContain('application-statistics-child-scope-v1');
+  const receipt=await call('manifests','POST',begin);
+  for(const chunk of chunks)await call(`manifests/${receipt.manifestId}/chunks/${chunk.chunkIndex}`,'PUT',chunk.body);
+  expect(await call(`manifests/${receipt.manifestId}/commit`,'POST')).toMatchObject({received:true,published:true,
+    manifestHash:begin.manifest.manifestHash,revision:begin.manifest.revision});
+  // 重放原请求不累加；没有原段云端接收、旧策略历史或云端重算前提。
+  expect(await call('manifests','POST',begin)).toMatchObject({manifestId:receipt.manifestId,received:true});
+  await call(`manifests/${receipt.manifestId}/commit`,'POST');
+  const date=begin.manifest.date,from=Date.parse(date+'T00:00:00+08:00');
+  const cloud=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,from,from+DAY);
+  expect(cloud).toMatchObject({complete:true,durationUnit:'seconds',totalDuration:190,availableTotalDuration:190,
+    applicationUsage:{complete:false,nonSpecialTotal:190}});
+  expect(cloud.categories.map(row=>({category:row.category,duration:row.duration}))).toEqual([{category:'unclassified',duration:190}]);
+  expect(cloud.products[0]).toMatchObject({duration:190,classifications:['unclassified']});
+  expect(await exports.RuntimeComputerUsageService.getApplicationUsage(f.machine.accountId,f.child,date,date,true))
+    .toMatchObject({durationUnit:'seconds',totalDuration:190});
+  const view=AppRuntimeTime.applicationSecondsView(cloud,'day');
+  expect(view).toMatchObject({durationUnit:'seconds',complete:true,totalDurationSeconds:190,
+    availableTotalDurationSeconds:190,settledThroughMs:rawSegments[1].endWallTimeMs,missingDates:[]});
+  expect(view.categories).toEqual([{classification:'unclassified',durationSeconds:190}]);
+  expect(view.applications[0]).toMatchObject({durationSeconds:190,classifications:['unclassified']});
+  const stored=await env.RUNTIME_DB.prepare('SELECT manifest_json FROM runtime_application_account_manifests_v1 WHERE id=?1')
+    .bind(receipt.manifestId).first<{manifest_json:string}>();
+  expect(JSON.parse(stored!.manifest_json)).toEqual(begin.manifest);
+  expect(await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,'synthetic-child-b',from,from+DAY))
+    .toMatchObject({totalDuration:null,availableTotalDuration:null});
+  expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
+    .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
+  expect(JSON.stringify(generated)).toBe(inputBefore);
+});
+it('child-scoped HTTP snapshots retain historical assignments, isolate users, and replace rather than accumulate',async()=>{
+  const a=await fixture(),b=await fixture('windows',{accountId:a.machine.accountId,child:crypto.randomUUID()});
+  const otherUser='b'.repeat(64),token=crypto.randomUUID();
+  await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET token_hash=?1 WHERE id=?2')
+    .bind(await sha256Hex(token),a.machine.machineId).run();
+  // A→B保留原A历史行；旧A统计补发不依赖当前B。
+  await env.RUNTIME_DB.batch([
+    env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+      VALUES(?1,?2,2,?3,1,'override',?4,?4)`).bind(a.machine.machineId,user,b.child,start+DAY/2),
+    env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+      VALUES(?1,?2,1,?3,1,'override',?4,?4)`).bind(a.machine.machineId,otherUser,b.child,start),
+  ]);
+  const call=async(path:string,method:string,body?:unknown)=>{
+    const response=await routeV2(new Request('https://runtime.test/v2/machines/application-accounts/'+path,{method,
+      headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})}),env,now);
+    expect(response?.status).toBe(200);return response!.json() as Promise<Record<string,unknown>>;
+  };
+  const make=(childId:string,revision:number,duration:number)=>createUsageAccountV2({schemaVersion:2,sourceKind:'application',
+    durationUnit:'seconds',timezone:'Asia/Shanghai',childId,date:'2026-09-27',revision,generatedAtMs:now,settledThroughMs:now,
+    algorithmVersion:'windows-application-seconds-v2',policyVersions:[],associationVersion:null,correctionVersion:0,
+    rawFactCount:1,rawFactHash:'c'.repeat(64),complete:true,reasonCodes:[]},[
+      {kind:'total',hour:null,category:null,subjectKey:null,displayName:null,duration},
+      ...Array.from({length:24},(_,hour)=>({kind:'total' as const,hour,category:null,subjectKey:null,displayName:null,duration:hour===0?duration:0})),
+    ]);
+  const send=async(localUserId:string,assignmentVersion:number,childId:string,revision:number,duration:number)=>{
+    const account=await make(childId,revision,duration);
+    const receipt=await call('manifests','POST',{localUserId,assignmentVersion,manifest:account.manifest});
+    for(const chunk of account.chunks)await call(`manifests/${receipt.manifestId}/chunks/${chunk.chunkIndex}`,'PUT',
+      {rows:chunk.rows,chunkHash:chunk.chunkHash});
+    expect(await call(`manifests/${receipt.manifestId}/commit`,'POST')).toMatchObject({published:true,revision});
+    return receipt;
+  };
+  expect((await call('capabilities','GET')).capabilities).toContain('application-statistics-child-scope-v1');
+  const old=await send(user,1,a.child,1,51);await send(user,2,b.child,1,20);await send(otherUser,1,b.child,1,7);
+  const read=(child:string)=>readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,a.machine.accountId,child,start,now);
+  expect(await read(a.child)).toMatchObject({complete:true,totalDuration:51});
+  expect(await read(b.child)).toMatchObject({complete:true,totalDuration:27});
+  await send(user,1,a.child,2,40);await call(`manifests/${old.manifestId}/commit`,'POST');
+  expect(await read(a.child)).toMatchObject({totalDuration:40});
+  expect(await read(b.child)).toMatchObject({totalDuration:27});
+  const forged=await make(b.child,3,40);
+  await expect(call('manifests','POST',{localUserId:user,assignmentVersion:1,manifest:forged.manifest}))
+    .rejects.toMatchObject({status:403,code:'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH'});
+  await expect(call('manifests','POST',{localUserId:otherUser,assignmentVersion:1,manifest:(await make(a.child,2,7)).manifest}))
+    .rejects.toMatchObject({status:403,code:'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH'});
+  const tampered={...forged.manifest,childId:a.child};
+  await expect(call('manifests','POST',{localUserId:user,assignmentVersion:1,manifest:tampered}))
+    .rejects.toMatchObject({status:400,code:'USAGE_ACCOUNT_MANIFEST_HASH_MISMATCH'});
+  expect(await read(a.child)).toMatchObject({totalDuration:40});
+});
+it('hash-valid frozen child conflicts cannot publish or replace the previous readable head',async()=>{
+  const f=await fixture(),first=await upload(f,1,{seconds:true,duration:51,deferCommit:true});
+  expect(await (await commitRequest(f,first.manifestId)).json()).toMatchObject({published:true});
+  const next=await upload(f,2,{seconds:true,duration:40,deferCommit:true});
+  const stored=await env.RUNTIME_DB.prepare('SELECT manifest_json FROM runtime_application_account_manifests_v1 WHERE id=?1')
+    .bind(next.manifestId).first<{manifest_json:string}>();
+  const {manifestHash:_old,...header}=JSON.parse(stored!.manifest_json);
+  // 可变数据库／接收后损坏亦须核对冻结孩子，不能只依赖 begin 校验。
+  const altered={...header,childId:crypto.randomUUID()};
+  const manifestHash=await hashUsageAccountValue(altered);
+  await env.RUNTIME_DB.prepare('UPDATE runtime_application_account_manifests_v1 SET manifest_json=?2,manifest_hash=?3 WHERE id=?1')
+    .bind(next.manifestId,JSON.stringify({...altered,manifestHash}),manifestHash).run();
+  expect(await (await commitRequest(f,next.manifestId)).json()).toMatchObject({received:true,published:false,
+    publicationErrorCode:'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH'});
+  expect(await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,now))
+    .toMatchObject({complete:true,totalDuration:51});
+});
+it('persistent seconds reads reject hash-valid child conflicts in an already published snapshot',async()=>{
+  const f=await fixture(),receipt=await upload(f,1,{seconds:true,duration:51,deferCommit:true});
+  expect(await (await commitRequest(f,receipt.manifestId)).json()).toMatchObject({published:true});
+  const stored=await env.RUNTIME_DB.prepare('SELECT manifest_json FROM runtime_application_account_manifests_v1 WHERE id=?1')
+    .bind(receipt.manifestId).first<{manifest_json:string}>();
+  const {manifestHash:_old,...header}=JSON.parse(stored!.manifest_json);
+  const altered={...header,childId:crypto.randomUUID()},manifestHash=await hashUsageAccountValue(altered);
+  await env.RUNTIME_DB.prepare('UPDATE runtime_application_account_manifests_v1 SET manifest_json=?2,manifest_hash=?3 WHERE id=?1')
+    .bind(receipt.manifestId,JSON.stringify({...altered,manifestHash}),manifestHash).run();
+  await expect(readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,now))
+    .rejects.toMatchObject({status:503,code:'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH'});
 });
 it('v2 seconds reject legacy algorithms and invalid projections without replacing the valid head',async()=>{
   const f=await fixture(),first=await upload(f,1,{seconds:true,duration:51,deferCommit:true});
