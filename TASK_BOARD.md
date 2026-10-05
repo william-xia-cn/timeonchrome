@@ -9,7 +9,35 @@
 
 checklist／允许路径：usage-account契约、schema、共同向量、版本及固定包；applicationAccounts／Publication／StatisticsNative范围核验与对应隔离回归；现有TASK_BOARD／DESIGN。本次先修已证实的能力断言及新增孩子范围篡改回归。Native只由所属会话处理，旧policy或产品关联不得自动否定有效原始时长。最小测试为本任务契约、两组Worker统计、typecheck、diff，干净候选仅隔离组装编译（不是新worktree）；不修改网页、不安装部署、不执行migration、不启用共享、不运行全平台。接收／读取测试须证明旧A补发、两用户及家庭隔离、重复／下降替换；真实v3发送和正式页面证据缺失仍保持未完成。
 
+### 正常切换墙钟漂移误判（2026-10-06，继续已批准的 Windows 统计接线）
+
+只读复核 `Native main@3cd5a10` 后确认：ChildReader 按墙钟检测所有原段重叠，但原账按单调时钟生成时长。真实 Projector 对不超过 2000 毫秒的墙钟差异不切 epoch；同 runtime／epoch 的 A→B 正常切换只要墙钟落后 1 毫秒，就可能出现单调区间不重叠、墙钟区间交叠，随后整日统计 `APPLICATION_RAW_OVERLAP_UNRESOLVED`。已回读真实 Projector→Session→SQLite 的 `wall-drift-before.trx`：1/1 失败，单调交叠0毫秒、墙钟交叠1毫秒、原账360秒，但 Reader 完整性失败；这是隔离复现，不宣称现场已发生。Native 所属会话已接续最小修复：使用已有可信单调依据判断同 runtime／epoch 的真实重叠，保持原账、既定秒和小时分配不变。初稿将全部多 runtime／epoch 无条件拒绝，会新增正常重启后统计停住的退化，已要求回正：不同组仍保留旧实现明确不相交范围的处理，只有跨组墙钟交叠且无法确定关系时单列缺口；不引入容差或新的时间映射／并集算法。只运行受影响聚焦回归／必要编译，不安装部署。
+
+同日旧／新格式混用另列：旧 V2 通常没有冻结 Child，本地当前策略和恢复 journal 不能冒充完整历史归属表；混合保护暂停新清单，旧生产者也不能补齐新 v3 用量，因此旧云端完整读数会暂时保留。按 PO“开发修复期间版本差异不纠缠”的决定，不扩展历史迁移或猜补归属；纯新格式当日链路独立推进。PIP 虽有 Core 资格逻辑，当前原装 Windows Agent／Projector 未找到实际 PIP 生产入口，不能将函数存在说成实机已发生；多会话、跨 epoch 仍保留验证缺口。
+
 ### 本轮已取得的同步证据（2026-10-06，非生产验收）
+
+跨端回执闭环补验（2026-10-06）：当前Native上传测试使用模拟成功回执，云端真实路由已接收原始请求，但尚未证明真实路由的响应能被正式Native API／上传器消费。本次仅在已有三项真实v3回归中核对capabilities、begin、pending status、chunk、commit、published status与重放响应，保存180秒固定合成请求对应的实际云端响应夹具，交Native所属会话补正式客户端／上传器隔离回归（成功确认、commit回执丢失后恢复、不重复累计）。允许已有publication测试、固定合成JSON、本任务板；不修改生产协议／鉴权／原账，不引入新分支或安装包。不运行浏览器或生产操作，最小验证为三项过滤回归、typecheck、diff及Native对应聚焦用例。
+
+云端回执补验完成：3/3真实v3回归、typecheck与diff通过；固定 application-child-service-cloud-responses.json SHA256为152f13594bb63a2a0ed8e5a963d65b50795fdc5934c1623715f46590fe69d4fe，所有字段逐项等于实际机器鉴权HTTP路由响应，不包含token或真实身份。仅首次测试启动因沙箱临时目录写入受限退出；工具批准后隔离验证通过。已交Native继续正式客户端／上传器的ACK及丢回执恢复验证，结果尚待回读。Native新回报其同实例代码已推送main@8c212ca2047f60a0b47c8bdf48bf87092d2e6190并已向Mac标准交接；未据此推断云端已推送／部署或Mac完成。范围Matched，无生产代码／协议／原账变更；真实安装与页面证据仍Missing。
+
+Native回执补验已独立回读：提交064df81，工作区换行兼容补充3f3fc4223f6ff58a73a81e2ac5ab3c50c8b39a02；cloud-response-interop.trx实际执行2/2、0失败，响应JSON哈希与云端一致。固定原段经Session／SQLite重建、同Coordinator物化／正式上传；begin与chunk请求规范化逐字段等于原固定请求，原样云端JSON由MachineRuntimeApiClient消费。丢commit响应时保留begin ID且不确认，冷却后仅GET能力和published status恢复received；begin／chunk／commit各一次，再轮不上传，原段及冻结清单不变。生成事实入口另复用fe36c66，不把本次固定runtime重建说成新的系统观测；生产代码未修改，实机仍未验收。
+
+正式运行入口再次只读核对（2026-10-06）：`RuntimeServiceCoordinator.StartAsync` 启动 applicationAccountProjection／applicationAccountUpload，已配对时 InitializeLedgerAsync 初始化孩子统计存储；生产物化调用 MaterializeChildStatisticsOnceAsync，上传循环调用与隔离用例相同的 UploadApplicationAccountsRoundAsync。新 child-scope 能力只控制发送，新统计保持持久待发；上传器逐项校验 manifest／chunk 回执后更新同一冻结版。当前运行 Service 文件仍为2.6.34.0，不能作为 fe36c66 新接线的实机证据；Native 固定1.37包哈希本次实读仍为0fcb0ac08129f1ee0301cf4a6aca4f3271697482599da73db508650c40c619a7。源码／隔离已通过，推送、主线合入、部署、匹配安装及真实页面仍未完成。本次未运行新产品测试，复用未变精确源码证据，未安装或部署。
+
+非核心治理遗漏单列：`tools/timewhere-native-contract-lock.json` 仍锁1.30.0；其实际消费者仅为 TimeWhereNative Artifact Gate 的候选／不可变R2校验，不是 Runtime Worker 的统计接收或部署前置。本轮不修改该锁，不把它升级成统计链路阻塞；最终 Native 产物发布前再按明确产物版本同步。生产迁移待处理状态本次未核实，不能依据旧文档自动执行。
+
+集中补齐同一Service入口证据：Native所属会话使用同一隔离Coordinator的ApplyFactAsync、物化及生产上传round，已初验缺child能力时持久pending、开放能力后实际发送180整数秒和对应ACK、再轮无重复上传。云端将这份原样捕获作为第三项参数纳入已有贯通测试，覆盖实际接收／持久读取／页面HTTP；允许已有publication测试、新合成JSON、本任务板及vitest.config.ts中固定合成家庭/孩子的单个白名单pair，不拓宽生产权限。只运行这三项过滤回归及typecheck／diff，复用未变代码证据；不安装、部署、共享或历史重构。真实机器证据仍Missing。
+
+同实例结果已回读：Native本地提交fe36c661405647406a432be57702e1eb19feda77（未推送）；固定application-child-service-instance-wire.json SHA-256 8223fd8417fd07dfcfbedd5f909272456c9eb996ef08094ae9ffa7bee286b0d1。service-instance-regression.trx为9/9、0失败；编译0警告／0错误由所属会话回报。缺child能力只读取能力且pending完全不变；开放后begin/status/PUT/commit收到180秒revision1精确回执，再轮只GET能力，冻结manifest/chunks、原账不变。云端将固定原请求纳入第三项后，实际接收→发布→持久读取→RPC→页面鉴权HTTP→秒适配3/3通过，typecheck通过。生产循环实际调用同一round；默认UTC、15秒能力超时、8槽/停止条件/等待节拍不变，诊断调用位置已对照原提交确认未变，不因diff缩进误判改变代码。范围Matched，线上部署／安装／实机仍Missing；新原段云端接收、真实重叠、混合旧账及孩子日周持久汇总仍单列，不假称整项目对齐。
+
+正式页面请求补验：沿用现有190／360秒真实Native合成发送夹具，在同一隔离数据库创建有明确孩子范围的测试浏览器会话，实际调用页面的 `/v2/module/app-usage?durationUnit=seconds`；逐字段核对响应与已发布持久统计一致，再交正式页面适配器读取，错误孩子请求拒绝。只改已有 application-account-publication.test.ts 和本任务板，运行该两项过滤回归及typecheck／diff；不改页面、生产权限或统计语义，不运行浏览器、不安装部署。页面实际请求已只读核对：秒请求异常不走旧统计回退；无秒来源时的兼容结果明确显示“旧版兼容统计”。实机页面采用仍需另行验收。
+
+补验结果：上述实际页面HTTP回归2/2通过（其余73项未运行），响应逐字段等于同一已发布持久统计，错误孩子返回CHILD_NOT_FOUND；typecheck与git diff --check通过。首次测试在启动前因沙箱无法写node_modules/.vite-temp而退出，获工具权限后隔离复验通过，未访问生产。范围审计Matched：只补已有测试及任务证据，无产品代码／原账／网页改动，无新增分支或工作树；补验纳入同主题本地回归提交，保留既有其他未提交内容，不单独制作候选包。正式页面实际渲染由app-runtime.js的renderSecondsUsage及openUsageDetail秒分支消费durationSeconds，不走旧毫秒字段；此为源码接线证据，未进行本轮浏览器目视或线上验收。
+
+本次墙钟误判修复的云端补验只增加实际 `child-wall-drift-wire.json` 合成发送夹具及已有全链回归参数：固定 360 秒／学习分类／两个产品各 180 秒，从原 begin/chunks 经鉴权接收、发布、持久读取、RPC及页面适配返回同值。允许路径为 backend/test/application-account-publication.test.ts、该固定 JSON 和本任务板；不修改生产源码、配置或身份替身，不重算 fixture/hash。最小命令仅该真实 v3 用例过滤、typecheck、diff；其他云端100项及dry-run未受影响部分复用，不部署。
+
+完成证据：Native `873d8330809c351c7e066294cd19e071b8dd63ed` 已提交，回读工作区干净、`wall-drift-final.trx` 27/27；Service 编译0警告／0错误由Native回报。固定夹具 SHA-256 `e3d9450c7e440e910261ad7458f8c20d45afdcf21eeb3d6c51ead81903ad1e01`，云端副本只加结束换行，字段及hash不改。云端过滤真实v3回归2/2，190秒与360秒均经鉴权发布／读取／RPC／正式页面适配通过，typecheck和diff通过；总360秒、学习360秒、两个产品各180秒、截止一致，重放不累加。首次360秒回归因两个合成请求共用固定来源、隔离数据库残留导致主键冲突，仅清理本用例固定合成家庭／机器数据后通过；不修改生产数据或权限。初稿所有多epoch拒绝已经回正；跨组明确分离仍完整、实际交叠缺依据仍保留缺口，检测排序扫描，不两两比较。本轮没有安装、生产部署或真实页面验收；未完成项不据此关闭。
 
 固定契约1.37.0已本地提交`97326bc26fc02960a66119e8e221600de710d84e`。从该SHA已跟踪文件隔离编译打包，未包含Host秒读取草稿；包SHA-256为`0fcb0ac08129f1ee0301cf4a6aca4f3271697482599da73db508650c40c619a7`。共同向量及干净兼容检查PASS，包含8项网页现行日／小时纯函数对照。完整工作现场中的Host草稿兼容失败不被此结果掩盖。两组Worker统计100/100、typecheck、Wrangler4.127.1 dry-run和源码边界PASS；未部署。
 
@@ -19,7 +47,7 @@ Native集中交付已核对`main@3cd5a1052504b0c187d89a68080106fc332da174`且工
 
 | 对照项 | 网页实际入口／证据 | 应用实际入口／证据 | 判断 |
 |---|---|---|---|
-| 孩子与来源归属 | 网页设备凭据与profile关联；profileAccountsV2按profile读取设备head | begin按机器凭据＋精确历史用户分配核对冻结childId；发布／读取再次核对；HTTP回归A→B旧A补发和两用户隔离通过 | 云端Matched；本机新发送链待贯通 |
+| 孩子与来源归属 | 网页设备凭据与profile关联；profileAccountsV2按profile读取设备head | begin按机器凭据＋精确历史用户分配核对冻结childId；发布／读取再次核对；实际v3生产器／发送器及HTTP回归A→B旧A补发和两用户隔离通过 | 隔离链Matched；真实机器证据Missing |
 | 同版冻结、分块、ACK | cloud-sync上传device account manifest／chunks／commit并核对revision | 复用ApplicationAccountUploader已有begin／status／chunks／commit；新v3实际生成请求及云端100项回归通过 | Matched，仅源码／隔离证据 |
 | 替换与更正下降 | profileAccountsV2按来源head替换并生成孩子日／周版本 | applicationAccountPublication按来源revision替换；51→40及旧commit重放不回退、不累加 | 云端Matched |
 | 原账不阻塞完整统计 | 网页统计清单发布与原账诊断分离 | validateApplicationAccountSnapshot核对结构／hash／授权，不要求旧策略版本或原段到齐 | Matched；不等于新原段上传已实现 |

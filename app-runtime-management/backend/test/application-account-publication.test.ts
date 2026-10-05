@@ -21,6 +21,10 @@ import {routeV2} from '../src/v2Routes';
 import nativeGenerated from './application-seconds-native-generated.json';
 // 原始请求由真实v3 Session/SQLite→孩子统计→现有发送器捕获，不能在此重造统计或哈希。
 import childNativeGenerated from './application-child-native-generated.json';
+import childWallDriftGenerated from './application-child-wall-drift-native-generated.json';
+// 同一正式Service实例从事实入口到上传round捕获，非独立Session／Uploader拼接。
+import childServiceGenerated from './application-child-service-native-generated.json';
+import childServiceCloudResponses from './application-child-service-cloud-responses.json';
 const DAY=86400000,start=Date.parse('2026-09-27T00:00:00+08:00'),now=start+DAY;
 const user='a'.repeat(64);
 async function fixture(platform:MachineSelfResponse['platform']='windows',scope?:{accountId:string;child:string;machineId?:string;localUserId?:string}){
@@ -210,50 +214,92 @@ it.each(['windows','macos'] as const)('authenticated %s seconds transport publis
     body:JSON.stringify({accountId:'foreign-account',childId:f.child,fromDate:'2026-09-27',toDate:'2026-09-27',secondsOnly:true})}));
   expect(denied.status).toBe(404);expect(await denied.json()).toEqual({code:'CHILD_NOT_FOUND'});
 });
-it('real v3 SQLite producer requests publish frozen child seconds and reach the cloud page adapter unchanged',async()=>{
-  const generated=childNativeGenerated,{begin,chunks,rawSegments}=generated;
+it.each([
+  {generated:childNativeGenerated,total:190,durations:[180,10],category:'unclassified',usageComplete:false,productDurations:[190]},
+  {generated:childWallDriftGenerated,total:360,durations:[180,180],category:'study',usageComplete:true,productDurations:[180,180]},
+  {generated:childServiceGenerated,total:180,durations:[180],category:'study',usageComplete:true,productDurations:[180]},
+])('real v3 SQLite producer requests publish $total frozen child seconds and reach the cloud page adapter unchanged',async({generated,total,durations,category,usageComplete,productDurations})=>{
+  const {begin,chunks,rawSegments}=generated;
   expect(generated).toMatchObject({synthetic:true,contractsVersion:'1.37.0'});
-  expect(rawSegments).toHaveLength(2);
+  expect(rawSegments).toHaveLength(durations.length);
   expect(rawSegments.every(segment=>segment.schemaVersion===3&&segment.childId===begin.manifest.childId
     &&segment.source.localUserId===begin.localUserId&&segment.source.assignmentVersion===begin.assignmentVersion)).toBe(true);
-  expect(rawSegments.map(segment=>segment.durationSeconds)).toEqual([180,10]);
+  expect(rawSegments.map(segment=>segment.durationSeconds)).toEqual(durations);
+  const lastSegment=rawSegments[rawSegments.length-1];
   const inputBefore=JSON.stringify(generated),source=rawSegments[0].source,token=crypto.randomUUID();
+  // 三份真实捕获使用同一合成来源；只清理该固定测试家庭，保持原请求和哈希不变。
+  await env.RUNTIME_DB.prepare('DELETE FROM runtime_machines_v2 WHERE id=?1 AND account_id=?2')
+    .bind(source.machineId,'child-native-transport-windows').run();
+  await env.RUNTIME_DB.prepare('DELETE FROM runtime_child_app_policy_versions_v1 WHERE account_id=?1 AND child_id=?2')
+    .bind('child-native-transport-windows',begin.manifest.childId).run();
   const f=await fixture('windows',{accountId:'child-native-transport-windows',child:begin.manifest.childId,
     machineId:source.machineId,localUserId:begin.localUserId});
   await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET token_hash=?1 WHERE id=?2')
     .bind(await sha256Hex(token),f.machine.machineId).run();
-  // 最新分配已经是B，但捕获的A清单与原180秒段及10秒尾段仍保持原孩子。
+  // 最新分配已经是B，但真实生产器捕获的A清单和原段仍保持原孩子。
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
     (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
     VALUES(?1,?2,2,'synthetic-child-b',1,'override',?3,?3)`)
-    .bind(f.machine.machineId,begin.localUserId,rawSegments[1].endWallTimeMs).run();
+    .bind(f.machine.machineId,begin.localUserId,lastSegment.endWallTimeMs).run();
   const call=async(path:string,method:string,body?:unknown)=>{
     const response=await routeV2(new Request('https://runtime.test/v2/machines/application-accounts/'+path,{method,
       headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
       ...(body===undefined?{}:{body:JSON.stringify(body)})}),env,begin.manifest.generatedAtMs);
     expect(response?.status).toBe(200);return response!.json() as Promise<Record<string,unknown>>;
   };
-  expect((await call('capabilities','GET')).capabilities).toContain('application-statistics-child-scope-v1');
+  const capability=await call('capabilities','GET');
+  expect(capability.capabilities).toContain('application-statistics-child-scope-v1');
   const receipt=await call('manifests','POST',begin);
-  for(const chunk of chunks)await call(`manifests/${receipt.manifestId}/chunks/${chunk.chunkIndex}`,'PUT',chunk.body);
-  expect(await call(`manifests/${receipt.manifestId}/commit`,'POST')).toMatchObject({received:true,published:true,
+  expect(receipt).toMatchObject({received:false,published:false,revision:begin.manifest.revision,
+    manifestHash:begin.manifest.manifestHash,publishStatus:'pending'});
+  const pendingStatus=await call(`manifests/${receipt.manifestId}/status`,'GET');
+  expect(pendingStatus).toEqual({...receipt,receivedChunkIndexes:[],publicationErrorCode:null});
+  const chunkReceipts=[];
+  for(const chunk of chunks){
+    const response=await call(`manifests/${receipt.manifestId}/chunks/${chunk.chunkIndex}`,'PUT',chunk.body);
+    expect(response).toEqual({manifestId:receipt.manifestId,chunkIndex:chunk.chunkIndex,
+      chunkHash:chunk.body.chunkHash,received:true,published:false});
+    chunkReceipts.push(response);
+  }
+  const commit=await call(`manifests/${receipt.manifestId}/commit`,'POST');
+  expect(commit).toMatchObject({received:true,published:true,
     manifestHash:begin.manifest.manifestHash,revision:begin.manifest.revision});
+  const publishedStatus=await call(`manifests/${receipt.manifestId}/status`,'GET');
+  expect(publishedStatus).toEqual({...commit,receivedChunkIndexes:chunks.map(chunk=>chunk.chunkIndex)});
+  if(total===180)expect({synthetic:true,
+    contractsVersion:generated.contractsVersion,requestManifestHash:begin.manifest.manifestHash,
+    capability,begin:receipt,pendingStatus,chunks:chunkReceipts,commit,publishedStatus}).toEqual(childServiceCloudResponses);
   // 重放原请求不累加；没有原段云端接收、旧策略历史或云端重算前提。
   expect(await call('manifests','POST',begin)).toMatchObject({manifestId:receipt.manifestId,received:true});
   await call(`manifests/${receipt.manifestId}/commit`,'POST');
   const date=begin.manifest.date,from=Date.parse(date+'T00:00:00+08:00');
   const cloud=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,from,from+DAY);
-  expect(cloud).toMatchObject({complete:true,durationUnit:'seconds',totalDuration:190,availableTotalDuration:190,
-    applicationUsage:{complete:false,nonSpecialTotal:190}});
-  expect(cloud.categories.map(row=>({category:row.category,duration:row.duration}))).toEqual([{category:'unclassified',duration:190}]);
-  expect(cloud.products[0]).toMatchObject({duration:190,classifications:['unclassified']});
+  expect(cloud).toMatchObject({complete:true,durationUnit:'seconds',totalDuration:total,availableTotalDuration:total,
+    applicationUsage:{complete:usageComplete,nonSpecialTotal:total}});
+  expect(cloud.categories.map(row=>({category:row.category,duration:row.duration}))).toEqual([{category,duration:total}]);
+  expect(cloud.products.map(row=>row.duration).sort((a,b)=>a-b)).toEqual(productDurations);
+  expect(cloud.products.every(row=>row.classifications?.length===1&&row.classifications[0]===category)).toBe(true);
   expect(await exports.RuntimeComputerUsageService.getApplicationUsage(f.machine.accountId,f.child,date,date,true))
-    .toMatchObject({durationUnit:'seconds',totalDuration:190});
-  const view=AppRuntimeTime.applicationSecondsView(cloud,'day');
-  expect(view).toMatchObject({durationUnit:'seconds',complete:true,totalDurationSeconds:190,
-    availableTotalDurationSeconds:190,settledThroughMs:rawSegments[1].endWallTimeMs,missingDates:[]});
-  expect(view.categories).toEqual([{classification:'unclassified',durationSeconds:190}]);
-  expect(view.applications[0]).toMatchObject({durationSeconds:190,classifications:['unclassified']});
+    .toMatchObject({durationUnit:'seconds',totalDuration:total});
+  // 正式页面使用的鉴权HTTP入口也必须读取同一冻结孩子统计，而非只测试内部函数。
+  const browserToken='test-browser-session-'+crypto.randomUUID().replaceAll('-','');
+  const readAt=begin.manifest.generatedAtMs;
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
+    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms) VALUES(?1,?2,?3,?4,?5,?4)`)
+    .bind(await sha256Hex(browserToken),f.machine.accountId,JSON.stringify([{id:f.child,name:'测试孩子'}]),readAt,readAt+60000).run();
+  const pageRequest=(childId=f.child)=>new Request(`https://runtime.test/v2/module/app-usage?childId=${childId}&fromMs=${from}&toMs=${from+DAY}&durationUnit=seconds`,
+    {headers:{authorization:`RuntimeSession ${browserToken}`}});
+  const pageResponse=await routeV2(pageRequest(),env,readAt);
+  expect(pageResponse?.status).toBe(200);
+  const pageSource=await pageResponse!.json();
+  expect(pageSource).toEqual(cloud);
+  await expect(routeV2(pageRequest('synthetic-child-b'),env,readAt)).rejects.toMatchObject({code:'CHILD_NOT_FOUND'});
+  const view=AppRuntimeTime.applicationSecondsView(pageSource,'day');
+  expect(view).toMatchObject({durationUnit:'seconds',complete:true,totalDurationSeconds:total,
+    availableTotalDurationSeconds:total,settledThroughMs:lastSegment.endWallTimeMs,missingDates:[]});
+  expect(view.categories).toEqual([{classification:category,durationSeconds:total}]);
+  expect(view.applications.map((row:{durationSeconds:number})=>row.durationSeconds).sort((a:number,b:number)=>a-b)).toEqual(productDurations);
+  expect(view.applications.every((row:{classifications:string[]})=>row.classifications.length===1&&row.classifications[0]===category)).toBe(true);
   const stored=await env.RUNTIME_DB.prepare('SELECT manifest_json FROM runtime_application_account_manifests_v1 WHERE id=?1')
     .bind(receipt.manifestId).first<{manifest_json:string}>();
   expect(JSON.parse(stored!.manifest_json)).toEqual(begin.manifest);
