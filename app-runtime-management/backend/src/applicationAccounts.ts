@@ -1,15 +1,17 @@
-import { canonicalUsageAccountJson, hashUsageAccountValue, parseUsageAccountRows,
-  verifyUsageAccountManifest, validateUsageAccountDimensions, UsageAccountError,
+import { canonicalUsageAccountJson, hashUsageAccountValue, parseApplicationAccountRows,
+  verifyApplicationAccountManifest, validateUsageAccountDimensions, UsageAccountError,
   USAGE_ACCOUNT_CHUNK_ROWS, USAGE_ACCOUNT_MAX_ROWS, type UsageAccountReceipt } from '@timeonchrome/app-runtime-contracts/usage-account';
 import type { MachineSelfResponse } from './contracts';
 import { HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http';
 import { isRecord } from './validation';
+import { publishApplicationAccounts } from './applicationAccountPublication';
 
 const prefix = '/v2/machines/application-accounts/manifests';
 const categories = new Set(['study','composite','restrictedEntertainment','unclassified','other','blocked','historicalUnknown']);
 const applicationAccountAlgorithms = { windows:'windows-application-v1', macos:'macos-application-v1' } as const;
-export function applicationAccountAlgorithm(platform:string):string|null {
-  return platform==='windows'||platform==='macos'?applicationAccountAlgorithms[platform]:null;
+export function applicationAccountAlgorithm(platform:string,schemaVersion:1|2=1):string|null {
+  if(platform!=='windows'&&platform!=='macos')return null;
+  return schemaVersion===2?`${platform}-application-seconds-v2`:applicationAccountAlgorithms[platform];
 }
 interface StoredManifest {
   id: string; machine_id: string; local_user_id: string; assignment_version: number;
@@ -47,7 +49,7 @@ export async function beginApplicationAccount(db: D1Database, machine: MachineSe
   if (typeof v.localUserId !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(v.localUserId)
     || typeof v.assignmentVersion !== 'number' || !Number.isSafeInteger(v.assignmentVersion) || v.assignmentVersion < 1)
     fail(400, 'APPLICATION_ACCOUNT_INVALID_SCOPE');
-  const manifest = await verifyUsageAccountManifest(v.manifest);
+  const manifest = await verifyApplicationAccountManifest(v.manifest);
   if (manifest.sourceKind !== 'application' || manifest.generatedAtMs > now + 300000)
     fail(400, 'APPLICATION_ACCOUNT_INVALID_SOURCE');
   const assignment = await db.prepare(`SELECT child_id FROM runtime_user_assignments_v2
@@ -71,10 +73,10 @@ export async function beginApplicationAccount(db: D1Database, machine: MachineSe
   return receipt(await load(db,machine,id));
 }
 export async function putApplicationAccountChunk(db: D1Database, machine: MachineSelfResponse, id: string, index: number, value: unknown) {
-  const stored = await load(db, machine, id), manifest = await verifyUsageAccountManifest(JSON.parse(stored.manifest_json));
+  const stored = await load(db, machine, id), manifest = await verifyApplicationAccountManifest(JSON.parse(stored.manifest_json));
   const v = body(value, ['rows','chunkHash']);
   if (!Number.isSafeInteger(index) || index < 0 || index >= manifest.chunkCount) fail(400, 'APPLICATION_ACCOUNT_INVALID_CHUNK_INDEX');
-  const rows = parseUsageAccountRows(v.rows, USAGE_ACCOUNT_CHUNK_ROWS);
+  const rows = parseApplicationAccountRows(v.rows, manifest.schemaVersion, USAGE_ACCOUNT_CHUNK_ROWS);
   const expectedCount = Math.min(USAGE_ACCOUNT_CHUNK_ROWS, manifest.rowCount - index * USAGE_ACCOUNT_CHUNK_ROWS);
   if (rows.length !== expectedCount) fail(400, 'APPLICATION_ACCOUNT_CHUNK_COUNT_MISMATCH');
   if (rows.some(r => r.kind === 'category' && !categories.has(r.category!))) fail(400, 'APPLICATION_ACCOUNT_INVALID_CATEGORY');
@@ -92,12 +94,12 @@ export async function putApplicationAccountChunk(db: D1Database, machine: Machin
 export async function commitApplicationAccount(db: D1Database, machine: MachineSelfResponse, id: string, now: number) {
   const stored = await load(db, machine, id);
   if (stored.state === 'received') return receipt(stored);
-  const manifest = await verifyUsageAccountManifest(JSON.parse(stored.manifest_json));
+  const manifest = await verifyApplicationAccountManifest(JSON.parse(stored.manifest_json));
   const chunks = await db.prepare(`SELECT chunk_index,rows_json FROM runtime_application_account_chunks_v1
     WHERE manifest_id=?1 ORDER BY chunk_index LIMIT 100`).bind(id).all<{ chunk_index: number; rows_json: string }>();
   if (chunks.results.length !== manifest.chunkCount || chunks.results.some((c, i) => c.chunk_index !== i))
     fail(409, 'APPLICATION_ACCOUNT_CHUNKS_MISSING');
-  const rows = parseUsageAccountRows(chunks.results.flatMap(c => JSON.parse(c.rows_json)));
+  const rows = parseApplicationAccountRows(chunks.results.flatMap(c => JSON.parse(c.rows_json)), manifest.schemaVersion);
   if (rows.length !== manifest.rowCount || await hashUsageAccountValue(rows) !== manifest.rowsHash)
     fail(409, 'APPLICATION_ACCOUNT_ROWS_HASH_MISMATCH');
   validateUsageAccountDimensions(rows);
@@ -138,8 +140,9 @@ export async function routeApplicationAccounts(request: Request, db: D1Database,
       const result=await db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${tables.map((_,i)=>`?${i+1}`).join(',')})`)
         .bind(...tables).all();
       return jsonResponse({protocol:'usage-account-v1',schemaVersion:1,enabled:result.results.length===tables.length,
-        chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,acceptedAlgorithms:Object.values(applicationAccountAlgorithms),
-        capabilities:['application-usage-projection-v1']});
+        chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,acceptedAlgorithms:[...Object.values(applicationAccountAlgorithms),
+          applicationAccountAlgorithm('windows',2),applicationAccountAlgorithm('macos',2)],
+        capabilities:['application-usage-projection-v1','application-statistics-seconds-v2']});
     }
     if (path === prefix) return request.method === 'POST'
       ? jsonResponse(await beginApplicationAccount(db, machine, await readJsonBody(request, 16384), now)) : methodNotAllowed('POST');
@@ -147,7 +150,17 @@ export async function routeApplicationAccounts(request: Request, db: D1Database,
     if (!match) fail(404, 'APPLICATION_ACCOUNT_NOT_FOUND');
     const id = match[1], action = match[2];
     if (action === 'status') return request.method === 'GET' ? jsonResponse(await readApplicationAccountStatus(db, machine, id)) : methodNotAllowed('GET');
-    if (action === 'commit') return request.method === 'POST' ? jsonResponse(await commitApplicationAccount(db, machine, id, now)) : methodNotAllowed('POST');
+    if (action === 'commit') {
+      if (request.method !== 'POST') return methodNotAllowed('POST');
+      await commitApplicationAccount(db, machine, id, now);
+      // Await bounded snapshot validation/publication, not raw-ledger reconstruction.
+      // A retry also recovers receipt -> readable-head failures after receipt commit.
+      await publishApplicationAccounts(db, now, id);
+      const status = await readApplicationAccountStatus(db, machine, id);
+      return jsonResponse({manifestId:status.manifestId,revision:status.revision,manifestHash:status.manifestHash,
+        received:status.received,published:status.published,publishStatus:status.publishStatus,
+        publicationErrorCode:status.publicationErrorCode});
+    }
     return request.method === 'PUT' ? jsonResponse(await putApplicationAccountChunk(db, machine, id, Number(match[3]), await readJsonBody(request, 131072))) : methodNotAllowed('PUT');
   } catch (error) {
     if (error instanceof UsageAccountError) throw new HttpError(400, error.code, error.code);

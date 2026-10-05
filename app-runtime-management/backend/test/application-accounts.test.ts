@@ -16,7 +16,7 @@ const now = start + 86400000;
 const localUserId = 'u'.repeat(64);
 const row = (kind: UsageAccountRow['kind'], hour: number | null, duration: number,
   category: string | null = null): UsageAccountRow => ({ kind, hour, duration, category, subjectKey: null, displayName: null });
-async function account(revision = 1, duration = 1501, extra = false) {
+async function account(revision = 1, duration = 1501, extra = false, algorithmVersion = 'app-union-v1') {
   const rows = [row('total', null, duration), ...Array.from({ length: 24 }, (_, h) => row('total', h, h === 3 ? duration : 0)),
     row('category', null, duration, 'study'), row('category', 3, duration, 'study'),
     row('category', null, duration, 'composite'), row('category', 3, duration, 'composite')];
@@ -24,7 +24,7 @@ async function account(revision = 1, duration = 1501, extra = false) {
     duration: 0, category: null, subjectKey: `p-${n}`, displayName: `Product ${n}` }, { kind: 'subject' as const,
     hour: 0, duration: 0, category: null, subjectKey: `p-${n}`, displayName: `Product ${n}` }]).flat());
   return createUsageAccount({ schemaVersion: 1, sourceKind: 'application', durationUnit: 'milliseconds', timezone: 'Asia/Shanghai',
-    date: '2026-09-27', revision, generatedAtMs: now, settledThroughMs: now, algorithmVersion: 'app-union-v1',
+    date: '2026-09-27', revision, generatedAtMs: now, settledThroughMs: now, algorithmVersion,
     policyVersions: [0], associationVersion: null, correctionVersion: 0, rawFactCount: 1, rawFactHash: 'a'.repeat(64), complete: true, reasonCodes: [] }, rows);
 }
 async function fixture() {
@@ -51,6 +51,17 @@ async function api(f: Awaited<ReturnType<typeof fixture>>, suffix = '', method =
     method, headers: { authorization: `Bearer ${f.token}`, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body),
   }));
 }
+it('authenticated machine commit returns the newly readable statistics without raw uploads or scheduled publication',async()=>{
+  const f=await fixture(),snapshot=await account(1,1501,false,'windows-application-v1');
+  const pending=await upload(f,snapshot);
+  const response=await api(f,`/${pending.manifestId}/commit`);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({manifestId:pending.manifestId,revision:1,
+    received:true,published:true,publishStatus:'published',publicationErrorCode:null});
+  expect(await (await api(f,`/${pending.manifestId}/status`,'GET')).json()).toMatchObject({published:true});
+  const other=await fixture();
+  expect((await api(other,`/${pending.manifestId}/commit`)).status).toBe(404);
+});
 it('advertises shared contribution upload only to an authenticated machine with both storage tables', async () => {
   const f=await fixture();
   const url='http://runtime.test/v2/machines/shared-quota/capabilities';
@@ -432,7 +443,7 @@ it.each(['windows','macos'] as const)('capabilities require %s machine authentic
   const response=await exports.default.fetch(new Request(url,{headers:{authorization:`Bearer ${f.token}`}}));
   expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');
   expect(await response.json()).toEqual({protocol:'usage-account-v1',schemaVersion:1,enabled:true,
-    chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1','macos-application-v1'],capabilities:['application-usage-projection-v1']});
+    chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1','macos-application-v1','windows-application-seconds-v2','macos-application-seconds-v2'],capabilities:['application-usage-projection-v1','application-statistics-seconds-v2']});
   const unavailable={prepare(){return {bind(){return {async all(){return {results:[]};}};}};}} as unknown as D1Database;
   const disabled=await routeApplicationAccounts(new Request(url),unavailable,f.machine,now);
   expect(await disabled.json()).toMatchObject({enabled:false});

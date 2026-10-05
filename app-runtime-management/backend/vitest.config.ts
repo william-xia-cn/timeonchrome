@@ -37,7 +37,10 @@ export default defineConfig({
           const scope=await request.json() as {accountId:string;childId:string};
           if(scope.accountId==='scope-unavailable')return Response.json({code:'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});
           const children=[['rpc-boundary-account','rpc-boundary-child'],['rpc-account','rpc-child'],['empty-account','empty-child'],
-            ['persistent-account','persistent-child']];
+            ['persistent-account','persistent-child'],['seconds-source-account','seconds-source-child'],
+            ['seconds-cache-account','seconds-cache-child'],
+            ['seconds-transport-windows','seconds-transport-child-windows'],
+            ['seconds-transport-macos','seconds-transport-child-macos']];
           return Response.json({owned:children.some(([account,child])=>scope.accountId===account&&scope.childId===child)});
         } },
         bindings: {

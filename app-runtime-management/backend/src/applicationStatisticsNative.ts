@@ -1,9 +1,113 @@
-import {parseUsageAccountRows,type UsageAccountRow,type UsageAccountManifest} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {parseUsageAccountRows,parseUsageAccountRowsV2,verifyUsageAccountManifestV2,validateUsageAccountDimensions,
+  hashUsageAccountValue,type UsageAccountRow,type UsageAccountManifest,type UsageAccountRowV2,type ApplicationUsageSeconds} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {HttpError} from './http';
 import type {StatisticsValue} from './applicationStatistics';
 import { normalizeApplicationUsageClock } from './applicationUsageClock';
 import { verifyApplicationAccountPublication } from './applicationAccountPublication';
 type Filters={machineId?:string;localUserId?:string;platform?:string};
 const DAY=86400000,OFFSET=8*3600000;
+function mergeApplicationUsage(values:Array<ApplicationUsageSeconds|undefined|null>):ApplicationUsageSeconds|null {
+  if(!values.length||values.some(value=>!value))return null;
+  const sum=(a:number,b:number)=>{const value=a+b;if(!Number.isSafeInteger(value))throw new HttpError(503,'APPLICATION_STATISTICS_DURATION_OVERFLOW','统计时长超出安全范围。');return value;};
+  const result:ApplicationUsageSeconds={nonSpecialTotal:0,nonSpecialCategories:{},specialTotal:0,complete:true,reasonCodes:[]};
+  for(const value of values){
+    result.nonSpecialTotal=sum(result.nonSpecialTotal,value!.nonSpecialTotal);
+    result.specialTotal=sum(result.specialTotal,value!.specialTotal);
+    for(const [category,duration]of Object.entries(value!.nonSpecialCategories))result.nonSpecialCategories[category]=sum(result.nonSpecialCategories[category]??0,duration);
+    result.complete=result.complete&&value!.complete;result.reasonCodes.push(...value!.reasonCodes);
+  }
+  result.reasonCodes=[...new Set(result.reasonCodes)].sort();return result;
+}
+/** 持久化来源统计读取；不加载原账，不调用云端统计重算器。 */
+export async function readNativeApplicationStatisticsSeconds(db:D1Database,account:string,child:string,date:string,filters:Filters={}) {
+  const heads=await db.prepare(`SELECT p.manifest_id,p.revision,p.machine_id,p.local_user_id,p.assignment_version,
+      snapshot.manifest_json,snapshot.manifest_hash FROM runtime_application_account_publications_v1 p
+    JOIN runtime_application_account_manifests_v1 snapshot ON snapshot.id=p.manifest_id
+    JOIN runtime_machines_v2 machine ON machine.id=p.machine_id
+    WHERE p.account_id=?1 AND p.child_id=?2 AND p.date=?3 AND machine.account_id=?1
+      AND snapshot.account_id=?1 AND snapshot.child_id=?2 AND snapshot.date=?3
+      AND snapshot.machine_id=p.machine_id AND snapshot.local_user_id=p.local_user_id
+      AND snapshot.assignment_version=p.assignment_version AND snapshot.revision=p.revision
+      AND (?4 IS NULL OR p.machine_id=?4) AND (?5 IS NULL OR p.local_user_id=?5)
+      AND (?6 IS NULL OR machine.platform=?6)
+    ORDER BY p.machine_id,p.local_user_id,p.assignment_version LIMIT 101`)
+    .bind(account,child,date,filters.machineId??null,filters.localUserId??null,filters.platform??null)
+    .all<{manifest_id:string;revision:number;machine_id:string;local_user_id:string;assignment_version:number;
+      manifest_json:string;manifest_hash:string}>();
+  if(heads.results.length>100)throw new HttpError(503,'APPLICATION_STATISTICS_SOURCE_LIMIT','统计来源超过单次读取限制。');
+  const merged=new Map<string,UsageAccountRowV2>(),references:Array<{manifestId:string;revision:number;hash:string;settledThroughMs:number|null}>=[];
+  let count=0,legacySourceCount=0;
+  const applicationUsage:Array<ApplicationUsageSeconds|undefined>=[];
+  for(const head of heads.results){
+    const value=JSON.parse(head.manifest_json);
+    if(value.schemaVersion!==2){legacySourceCount++;continue;}
+    const manifest=await verifyUsageAccountManifestV2(value);
+    if(!manifest.complete||manifest.date!==date||manifest.sourceKind!=='application'
+      ||manifest.revision!==head.revision||manifest.manifestHash!==head.manifest_hash)
+      throw new HttpError(503,'APPLICATION_STATISTICS_INVALID_PUBLICATION','已发布统计范围无效。');
+    const chunks=await db.prepare(`SELECT chunk_index,rows_json FROM runtime_application_account_chunks_v1
+      WHERE manifest_id=?1 ORDER BY chunk_index LIMIT 100`).bind(head.manifest_id)
+      .all<{chunk_index:number;rows_json:string}>();
+    if(chunks.results.length!==manifest.chunkCount||chunks.results.some((chunk,index)=>chunk.chunk_index!==index))
+      throw new HttpError(503,'APPLICATION_STATISTICS_CHUNKS_MISSING','已发布统计分块不完整。');
+    const rows=parseUsageAccountRowsV2(chunks.results.flatMap(chunk=>JSON.parse(chunk.rows_json)));
+    if(rows.length!==manifest.rowCount||await hashUsageAccountValue(rows)!==manifest.rowsHash)
+      throw new HttpError(503,'APPLICATION_STATISTICS_HASH_MISMATCH','已发布统计完整性校验失败。');
+    validateUsageAccountDimensions(rows);
+    count+=rows.length;
+    if(count>10000)throw new HttpError(503,'APPLICATION_STATISTICS_ROW_LIMIT','统计行超过单次读取限制。');
+    references.push({manifestId:head.manifest_id,revision:head.revision,hash:head.manifest_hash,settledThroughMs:manifest.settledThroughMs});
+    applicationUsage.push(manifest.applicationUsage);
+    for(const row of rows){
+      const key=JSON.stringify([row.kind,row.hour,row.category,row.subjectKey]),prior=merged.get(key);
+      if(prior){prior.duration+=row.duration;
+        if(!Number.isSafeInteger(prior.duration))throw new HttpError(503,'APPLICATION_STATISTICS_DURATION_OVERFLOW','统计时长超出安全范围。');
+        if(row.kind==='subject')prior.classifications=[...new Set([...(prior.classifications??[]),...row.classifications!])].sort();
+      }else merged.set(key,{...row,...(row.classifications?{classifications:[...row.classifications]}:{})});
+    }
+  }
+  if(references.length===0)return null;
+  return {durationUnit:'seconds' as const,rows:[...merged.values()],references,legacySourceCount,
+    applicationUsage:legacySourceCount?null:mergeApplicationUsage(applicationUsage),
+    complete:legacySourceCount===0,revision:await hashUsageAccountValue(references)};
+}
+/** 日／周统计只归集来源秒统计；缺日期不等于零，余额由独立配额模块计算。 */
+export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,account:string,child:string,
+  fromMs:number,toMs:number,filters:Filters={}) {
+  if(!Number.isSafeInteger(fromMs)||!Number.isSafeInteger(toMs)||fromMs<0||toMs<=fromMs
+    ||(fromMs+OFFSET)%DAY!==0||(toMs+OFFSET)%DAY!==0||toMs-fromMs>7*DAY)
+    throw new HttpError(400,'INVALID_RANGE','秒统计仅支持最多七个北京时间完整日期。');
+  const days:Array<{date:string;snapshot:Awaited<ReturnType<typeof readNativeApplicationStatisticsSeconds>>}>=[];
+  for(let cursor=fromMs;cursor<toMs;cursor+=DAY){
+    const date=new Date(cursor+OFFSET).toISOString().slice(0,10);
+    days.push({date,snapshot:await readNativeApplicationStatisticsSeconds(db,account,child,date,filters)});
+  }
+  const merged=new Map<string,UsageAccountRowV2>();
+  for(const day of days)for(const row of day.snapshot?.rows??[]){
+    if(row.hour!==null)continue;
+    const key=JSON.stringify([row.kind,row.category,row.subjectKey]),prior=merged.get(key);
+    if(prior){
+      prior.duration+=row.duration;
+      if(!Number.isSafeInteger(prior.duration))throw new HttpError(503,'APPLICATION_STATISTICS_DURATION_OVERFLOW','统计时长超出安全范围。');
+      if(row.kind==='subject')prior.classifications=[...new Set([...(prior.classifications??[]),...row.classifications!])].sort();
+    }else merged.set(key,{...row,...(row.classifications?{classifications:[...row.classifications]}:{})});
+  }
+  const complete=days.every(day=>day.snapshot?.complete===true);
+  const rows=[...merged.values()];
+  const availableTotal=rows.find(row=>row.kind==='total')?.duration??null;
+  const applicationUsage=mergeApplicationUsage(days.map(day=>day.snapshot?.applicationUsage));
+  return {durationUnit:'seconds' as const,complete,totalDuration:complete?availableTotal:null,
+    applicationUsage,
+    availableTotalDuration:availableTotal,
+    categories:rows.filter(row=>row.kind==='category'),products:rows.filter(row=>row.kind==='subject'),
+    days:days.map(({date,snapshot})=>({date,complete:snapshot?.complete===true,
+      reasonCodes:!snapshot?['APPLICATION_STATISTICS_NOT_AVAILABLE']:snapshot.legacySourceCount>0?['LEGACY_STATISTICS_UNIT']:[],
+      totalDuration:snapshot?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration??null,
+      hours:snapshot?.rows.filter(row=>row.hour!==null)??[],
+      settledThroughMs:snapshot?.references.every(ref=>ref.settledThroughMs!==null)
+        ?Math.min(...snapshot.references.map(ref=>ref.settledThroughMs!)):null})),
+    revision:await hashUsageAccountValue(days.map(day=>[day.date,day.snapshot?.revision??null]))};
+}
 /** One producer per complete scope/day. Native and legacy are NEVER added together. */
 export async function selectNativeApplicationStatistics(db:D1Database,account:string,child:string,from:number,to:number,filters:Filters,
   original:StatisticsValue,source:(machineId:string,user:string)=>Promise<string>,now=Date.now()):Promise<{rows:UsageAccountRow[];settledThroughMs:number|null;subjectClassifications:Record<string,string[]>;stale:boolean}|null> {

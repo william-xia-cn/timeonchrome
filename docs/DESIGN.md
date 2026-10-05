@@ -1,5 +1,11 @@
 # TimeOnChrome — 技术设计文档
 
+### 2026-10-05 应用来源统计接收、发布与读取的云端收口
+
+完整生产端清单通过既有机器／孩子／用户分配校验、平台算法协商、分块与行哈希、统计结构及版本校验后，直接更新持久化可读头；原始事实到齐及旧策略历史不再是发布条件。上传commit路径等待有界接收核验和发布，重试可恢复收据已提交而可读头尚未更新的中断；两步不是同一个事务，不宣称跨事务原子性。更高版本可降低时长，重复／迟到版本不累加或覆盖新版本。不完整清单保留最近有效结果。
+
+秒读取只读取已发布清单／分块并按来源归集，不重新结算原账或存储配额余额。缺日期／旧单位保留可用部分并标记范围不完整，不填假零；秒与旧毫秒不得相加。现有受限电脑汇总调用可要求secondsOnly以避免旧格式混入。来源发布版本进入缓存依据。应用机器上传、读取及内部调用的三个聚焦文件合计107/107通过，类型检查与dry-run作为本地源码证据；Native实际秒生产、页面全部消费者、生产发布及实机核对仍独立待完成。
+
 ### 2026-10-05 应用秒清单的接收能力协商
 
 沿用机器鉴权GET /v2/machines/application-accounts/capabilities。响应protocol=usage-account-v1、schemaVersion=1仍表示旧兼容传输／能力响应格式，不表示清单只能schemaVersion=1。新增capabilities成员application-statistics-seconds-v2，并在acceptedAlgorithms中声明windows-application-seconds-v2与macos-application-seconds-v2；原毫秒能力／算法保留。新版Native发送秒清单须同时核对enabled=true、protocol=usage-account-v1、响应schemaVersion=1、新能力存在及本平台秒算法存在，随后清单采用schemaVersion=2、durationUnit=seconds。缺任一条件不向旧云端发送秒清单，不将秒伪装成旧毫秒，不改变本机已生成统计。本能力只证明云端接收／读取实现，不代表Native、页面、安装或共享执行已完成。生产当前未声明新能力，须按明确发布流程部署后才可实际发送。
