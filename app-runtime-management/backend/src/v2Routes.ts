@@ -10,6 +10,8 @@ import { machineUsageCorrections } from './applicationUsageCorrections';
 import { readPersistentApplicationUsage } from './applicationStatistics';
 import { readNativeApplicationStatisticsRangeSeconds } from './applicationStatisticsNative';
 import { requireApplicationLegacyEnabled, readApplicationLedgerRetirement } from './applicationLedgerRetirement';
+import { SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsQuery, validateSourceStatisticsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
+import { readApplicationSourceStatistics } from './sourceStatistics';
 import { getApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
   putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
   applyKnowledgeOperation } from './applicationKnowledge';
@@ -550,7 +552,40 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
   }
   const machine = await requireMachine(request, env.RUNTIME_DB, nowMs,
     url.pathname !== '/v2/machines/heartbeat' && url.pathname !== '/v2/machines/shared-quota/execution-basis'
+      && url.pathname !== '/v2/machines/source-statistics'
       && !url.pathname.startsWith('/v2/machines/shared-web-source/'));
+  if(url.pathname==='/v2/machines/source-statistics'){
+    if(request.method!=='POST')return methodNotAllowed('POST');
+    const localUserId=url.searchParams.get('localUserId')??'',text=url.searchParams.get('assignmentVersion')??'',assignmentVersion=Number(text);
+    if([...url.searchParams.keys()].some(k=>!['localUserId','assignmentVersion'].includes(k))||url.searchParams.getAll('localUserId').length!==1
+      ||url.searchParams.getAll('assignmentVersion').length!==1||!/^[A-Za-z0-9_-]{32,128}$/.test(localUserId)||!/^[1-9][0-9]*$/.test(text)||!Number.isSafeInteger(assignmentVersion))
+      throw new HttpError(400,'SOURCE_STATISTICS_INVALID','统计范围无效。');
+    const readAssignment=()=>env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
+      WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3 AND a.protected=1 AND a.child_id IS NOT NULL
+      AND NOT EXISTS(SELECT 1 FROM runtime_user_assignments_v2 n WHERE n.machine_id=a.machine_id AND n.local_user_id=a.local_user_id AND n.assignment_version>a.assignment_version)`)
+      .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
+    const assignment=await readAssignment();if(!assignment)throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','当前用户没有有效孩子分配。');
+    let query;try{query=validateSourceStatisticsQuery(await readJsonBody(request,2048));}catch{throw new HttpError(400,'SOURCE_STATISTICS_INVALID','统计查询无效。');}
+    const ownKey=await applicationSharedQuotaSourceKey(machine.machineId,localUserId,assignmentVersion);
+    if(query.source==='web'&&query.scope!=='all'||query.scope==='other'&&(query.ownSourceKeys?.length!==1||query.ownSourceKeys[0]!==ownKey))
+      throw new HttpError(403,'SOURCE_STATISTICS_SCOPE_MISMATCH','只能排除本机实际包含的来源。');
+    let value:unknown;
+    if(query.source==='application')value=await readApplicationSourceStatistics(env.RUNTIME_DB,machine.accountId,assignment.child_id,query,nowMs);
+    else{
+      const response=await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSourceStatistics',{
+        method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:machine.accountId,childId:assignment.child_id,query})}));
+      if(!response.ok)throw new HttpError(503,'SOURCE_STATISTICS_UNAVAILABLE','网页统计暂不可读。');
+      // 复用有界JSON读取，Service Binding也不能接受无上界响应。
+      const reader=response.body?.getReader();if(!reader)throw new HttpError(503,'SOURCE_STATISTICS_UNAVAILABLE','网页统计暂不可读。');
+      const chunks:Uint8Array[]=[];let size=0;while(true){const c=await reader.read();if(c.done)break;size+=c.value.byteLength;
+        if(size>65536){await reader.cancel();throw new HttpError(503,'SOURCE_STATISTICS_RESPONSE_LIMIT','统计响应过大。');}chunks.push(c.value);}
+      const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.byteLength;}value=JSON.parse(new TextDecoder().decode(bytes));
+    }
+    const current=await readAssignment();const currentMachine=await requireMachine(request,env.RUNTIME_DB,nowMs,false);
+    if(current?.child_id!==assignment.child_id||currentMachine.machineId!==machine.machineId||currentMachine.accountId!==machine.accountId)
+      throw new HttpError(409,'SOURCE_STATISTICS_CONTEXT_CHANGED','读取期间孩子分配已变化。');
+    return jsonResponse(validateSourceStatisticsSnapshot(value,{source:query.source,childId:assignment.child_id,fromDate:query.fromDate,toDate:query.toDate}));
+  }
   if(url.pathname==='/v2/machines/shared-web-source/challenge'||url.pathname==='/v2/machines/shared-web-source/verification-key'
     ||url.pathname==='/v2/machines/shared-web-source/scope')
     return routeSharedWebSourceBinding(request,env,machine,nowMs);
@@ -659,6 +694,7 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
   if (url.pathname === '/v2/machines/shared-quota/capabilities') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
     return jsonResponse({protocol:'application-shared-quota-v1',schemaVersion:1,
+      capabilities:[SOURCE_STATISTICS_READ_CAPABILITY],
       enabled:await applicationSharedQuotaUploadReady(env.RUNTIME_DB)});
   }
   if (url.pathname === '/v2/machines/shared-quota/application-contributions') {

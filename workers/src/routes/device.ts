@@ -9,6 +9,8 @@ import { pageSharedQuotaExecutionBasis, readSharedQuotaExecutionBasis, sharedWeb
 import { publishSharedWebContribution, readSharedWebWatermark, readSharedWebJson } from '../services/sharedWebContributions';
 import { issueSharedWebSourceBinding, issueSharedWebSourceBindingV2 } from '../services/sharedWebSourceBinding';
 import { createSharedAccessPolicyIdentityV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
+import {validateSourceStatisticsQuery,validateSourceStatisticsSnapshot} from '@timeonchrome/app-runtime-contracts/source-statistics';
+import {readWebSourceStatistics,readSourceStatisticsResponse} from '../services/sourceStatistics';
 
 type DeviceIdentityLinkBody = {
   chromeIdentityId?: string;
@@ -248,6 +250,32 @@ export const deviceRouter = {
   async handle(request: Request, env: Env): Promise<Response> {
     const url  = new URL(request.url);
     const path = url.pathname;
+
+    if(path==='/device/source-statistics'){
+      if(request.method!=='POST')return json({code:'METHOD_NOT_ALLOWED'},405);
+      const identity=await verifyDeviceTokenFromRequest(request,env);
+      if(!identity)return json({code:'UNAUTHORIZED'},401);
+      if(identity.unbound)return deviceUnboundResponse(identity.deviceId);
+      try{
+        const reader=request.body?.getReader();if(!reader)return json({code:'SOURCE_STATISTICS_INVALID'},400);
+        const chunks:Uint8Array[]=[];let size=0;while(true){const c=await reader.read();if(c.done)break;size+=c.value.byteLength;
+          if(size>2048){await reader.cancel();return json({code:'SOURCE_STATISTICS_INVALID'},400);}chunks.push(c.value);}
+        const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.byteLength;}
+        const query=validateSourceStatisticsQuery(JSON.parse(new TextDecoder().decode(bytes)));
+        if(query.ownSourceKeys!==undefined||query.source==='application'&&query.scope!=='all')return json({code:'SOURCE_STATISTICS_INVALID'},400);
+        const owner=await env.DB.prepare('SELECT account_id FROM profiles WHERE id=?').bind(identity.profileId).first<{account_id:string}>();
+        if(!owner)return json({code:'CHILD_NOT_FOUND'},404);
+        const binding=env as import('../services/computerUsage').ComputerUsageEnv;
+        const value=query.source==='web'?await readWebSourceStatistics(env,owner.account_id,identity.profileId,query,identity.deviceId)
+          :binding.RUNTIME_COMPUTER_USAGE?.fetch?await readSourceStatisticsResponse(await binding.RUNTIME_COMPUTER_USAGE.fetch(new Request(
+            'https://runtime-capability/getApplicationSourceStatistics',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:owner.account_id,childId:identity.profileId,query})})))
+          :null;
+        if(!value)throw new Error('SOURCE_STATISTICS_UNAVAILABLE');
+        const current=await verifyDeviceTokenFromRequest(request,env);
+        if(!current||current.unbound||current.profileId!==identity.profileId||current.deviceId!==identity.deviceId)return json({code:'SOURCE_STATISTICS_CONTEXT_CHANGED'},409);
+        return json(validateSourceStatisticsSnapshot(value,{source:query.source,childId:identity.profileId,fromDate:query.fromDate,toDate:query.toDate}));
+      }catch(error){const code=error instanceof Error&&error.message==='SOURCE_STATISTICS_INVALID'?'SOURCE_STATISTICS_INVALID':'SOURCE_STATISTICS_UNAVAILABLE';return json({code},code==='SOURCE_STATISTICS_INVALID'?400:503);}
+    }
 
     // POST /device/bind - 绑定设备（需要 account_token）
     if (request.method === 'POST' && path === '/device/bind') {
