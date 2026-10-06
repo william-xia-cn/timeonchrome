@@ -61,3 +61,12 @@ test('seconds view preserves source units, missing days and overlapping product 
   assert.throws(()=>formatSeconds(1.5));assert.throws(()=>applicationSecondsView({...snapshot,durationUnit:'milliseconds'},'week'));
   assert.throws(()=>applicationSecondsView({...snapshot,totalDuration:51},'week'));
 });
+
+test('无新版记录保持未知秒数，明确标记日期而不是旧账回退或零',()=>{
+  const {applicationSecondsView}=require('./app-runtime-time.js');
+  const view=applicationSecondsView({durationUnit:'seconds',complete:false,totalDuration:null,availableTotalDuration:null,
+    revision:'retired-test',categories:[],products:[],days:[{date:'2026-10-07',complete:false,totalDuration:null,
+      settledThroughMs:null,hours:[],reasonCodes:['APPLICATION_V3_RECORDS_NOT_AVAILABLE']}]},'day');
+  assert.equal(view.totalDurationSeconds,null);assert.equal(view.availableTotalDurationSeconds,null);
+  assert.deepEqual(view.noNewRecordDates,['2026-10-07']);assert.ok(view.buckets.every(row=>row.durationSeconds===null));
+});

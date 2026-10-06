@@ -15,6 +15,7 @@ import { exchangeBrowserSession, revokeBrowserSession } from './browserSessions'
 import { rebuildApplicationStatistics } from './applicationStatistics';
 import { publishApplicationAccounts } from './applicationAccountPublication';
 import { reconcileApplicationSharedQuotaEvidence } from './applicationSharedQuota';
+import { requireApplicationLegacyEnabled } from './applicationLedgerRetirement';
 export { RuntimeComputerUsageService } from './computerUsageService';
 
 interface WindowsV2ReleaseManifest {
@@ -208,6 +209,7 @@ async function route(request: Request, env: Env, defer?:(work:Promise<unknown>)=
     }
     const device = await requireDevice(request, env.RUNTIME_DB, nowMs);
     const upload = parseUploadRequest(await readJsonBody(request));
+    if(device.accountId)await requireApplicationLegacyEnabled(env.RUNTIME_DB,device.accountId);
     const validations = upload.rawSegments.map((segment, index) =>
       validateSegment(segment, device.platform, index));
     return jsonResponse(await persistSegments(env.RUNTIME_DB, device, validations, nowMs));

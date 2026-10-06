@@ -9,6 +9,7 @@ import { HttpError } from './http';
 import { mapApplicationUsageClock, APPLICATION_CLOCK_MARGIN_MS } from './applicationUsageClock';
 import { applicationAccountAlgorithm } from './applicationAccounts';
 import { isConfirmedSpecialApplication } from './specialApplications';
+import { requireCurrentApplicationManifest, isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
 
 interface Candidate {id:string;machine_id:string;local_user_id:string;assignment_version:number;
   account_id:string;child_id:string;date:string;revision:number;manifest_json:string}
@@ -145,6 +146,8 @@ export function isReadableApplicationAccountSnapshot(manifest:{schemaVersion:num
 /** Validate the authenticated producer's snapshot, not a second cloud calculation. */
 export async function validateApplicationAccountSnapshot(db:D1Database,candidate:Candidate) {
   const manifest=await verifyApplicationAccountManifest(JSON.parse(candidate.manifest_json));
+  const retirement=await requireCurrentApplicationManifest(db,candidate.account_id,candidate.child_id,manifest);
+  if(retirement&&!manifest.complete)fail('APPLICATION_ACCOUNT_INCOMPLETE');
   if(!isReadableApplicationAccountSnapshot(manifest))fail('APPLICATION_ACCOUNT_INCOMPLETE');
   if(manifest.schemaVersion===2&&manifest.childId!==undefined&&manifest.childId!==candidate.child_id)
     fail('APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH');
@@ -154,7 +157,9 @@ export async function validateApplicationAccountSnapshot(db:D1Database,candidate
     .first<{child_id:string;account_id:string;platform:string;revoked_at_ms:number|null}>();
   if(!assignment||assignment.child_id!==candidate.child_id||assignment.account_id!==candidate.account_id||assignment.revoked_at_ms!=null)
     fail('APPLICATION_ACCOUNT_ASSIGNMENT_UNAVAILABLE');
-  if(manifest.algorithmVersion!==applicationAccountAlgorithm(assignment.platform,manifest.schemaVersion))fail('APPLICATION_ACCOUNT_ALGORITHM_UNSUPPORTED');
+  const v3Algorithm=`${assignment.platform}-application-v3-only-seconds-v1`;
+  if(manifest.algorithmVersion!==applicationAccountAlgorithm(assignment.platform,manifest.schemaVersion)
+    && !(manifest.algorithmVersion===v3Algorithm&&isV3OnlyApplicationManifest(manifest,candidate.child_id)))fail('APPLICATION_ACCOUNT_ALGORITHM_UNSUPPORTED');
   if(manifest.date!==candidate.date||manifest.revision!==candidate.revision||manifest.sourceKind!=='application')
     fail('APPLICATION_ACCOUNT_INVALID_SOURCE');
   const chunks=await db.prepare(`SELECT chunk_index,chunk_hash,rows_json FROM runtime_application_account_chunks_v1

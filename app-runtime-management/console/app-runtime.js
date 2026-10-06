@@ -250,7 +250,9 @@
     $('#quota-state').classList.remove('danger-text');
     $('#policy-version').textContent='Service 权威秒统计';
     $('#last-sync').textContent=time(usage.settledThroughMs);
-    $('#outside-window-summary').textContent=usage.complete?'已结算应用统计；分类明细可能重叠，不相加生成总量。'
+    $('#outside-window-summary').textContent=usage.noNewRecordDates?.length
+      ?`无新版应用记录：${usage.noNewRecordDates.join('、')}；旧应用账已退出，空白不代表零用量。`
+      :usage.complete?'已结算应用统计；分类明细可能重叠，不相加生成总量。'
       :`部分统计可用：${fmt(usage.availableTotalDurationSeconds)}；不完整日期：${usage.missingDates.join('、')}。空白不代表零用量。`;
     const max=Math.max(1,...usage.buckets.map(item=>item.durationSeconds??0));
     $('#usage-chart').innerHTML=usage.buckets.map(item=>{
@@ -510,7 +512,7 @@
       let read=await applicationReadCache.read(`/v2/module/app-usage?${query}`,()=>runtime(`/v2/module/app-usage?${query}`),{refresh});
       if(requestVersion!==usageRequestVersion)return;
       let value=AppRuntimeTime.applicationSecondsView(read.value,requestedPeriod);
-      if(value.availableTotalDurationSeconds===null){
+      if(value.availableTotalDurationSeconds===null&&!value.noNewRecordDates?.length){
         query.set('durationUnit','milliseconds');
         read=await applicationReadCache.read(`/v2/module/app-usage?${query}`,()=>runtime(`/v2/module/app-usage?${query}`),{refresh});
         value=read.value;read={...read,legacy:true};

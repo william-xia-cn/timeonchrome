@@ -349,7 +349,9 @@ it.each([
   expect(publishedStatus).toEqual({...commit,receivedChunkIndexes:chunks.map(chunk=>chunk.chunkIndex)});
   if(total===180)expect({synthetic:true,
     contractsVersion:generated.contractsVersion,requestManifestHash:begin.manifest.manifestHash,
-    capability,begin:receipt,pendingStatus,chunks:chunkReceipts,commit,publishedStatus}).toEqual(childServiceCloudResponses);
+    // 原跨仓捕获不可改写；只剔除本轮新增的能力声明，统计/ACK仍逐字段等于原证据。
+    capability:{...capability,acceptedAlgorithms:(capability.acceptedAlgorithms as string[]).filter(value=>!value.includes('v3-only'))},
+    begin:receipt,pendingStatus,chunks:chunkReceipts,commit,publishedStatus}).toEqual(childServiceCloudResponses);
   // 重放原请求不累加；没有原段云端接收、旧策略历史或云端重算前提。
   expect(await call('manifests','POST',begin)).toMatchObject({manifestId:receipt.manifestId,received:true});
   await call(`manifests/${receipt.manifestId}/commit`,'POST');

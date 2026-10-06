@@ -79,6 +79,7 @@
     return {durationUnit:'seconds',complete:snapshot.complete===true,totalDurationSeconds:total,
       availableTotalDurationSeconds:available,categories,applications,buckets,
       missingDates:snapshot.days.filter(day=>!day.complete).map(day=>day.date),
+      noNewRecordDates:snapshot.days.filter(day=>day.reasonCodes?.includes('APPLICATION_V3_RECORDS_NOT_AVAILABLE')).map(day=>day.date),
       settledThroughMs:snapshot.days.every(day=>day.settledThroughMs!==null)
         ?Math.min(...snapshot.days.map(day=>day.settledThroughMs)):null,revision:snapshot.revision};
   }
