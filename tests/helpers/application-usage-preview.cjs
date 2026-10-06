@@ -28,8 +28,24 @@ window.setInterval = (fn, delay) => { if (delay === 60000) { window.previewTick 
 const originalNow = Date.now;
 const now = Date.parse('2026-09-26T12:00:00+08:00'); Date.now = () => now;
 window.previewRuntimeListeners = [];
-window.chrome = { runtime: { id:'mock-preview', onMessage: {addListener: listener => window.previewRuntimeListeners.push(listener)}, sendMessage: async ({query}) => {
+const secondsSnapshot = query => {
+  const dates = Array.from({length:(Date.parse(query.toDate+'T00:00:00+08:00')-Date.parse(query.fromDate+'T00:00:00+08:00'))/86400000+1}, (_, i) => new Date(Date.parse(query.fromDate+'T00:00:00+08:00')+i*86400000+8*3600000).toISOString().slice(0,10));
+  const days = dates.map(date => date === '2026-09-26'
+    ? {date,status:'incomplete',generatedAtMs:now,settledThroughMs:now-60000,complete:false,reasonCodes:['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING'],
+      totalSeconds:6,categoriesSeconds:{study:4},hours:Array.from({length:24},(_,hour)=>({hour,totalSeconds:hour===10?6:0,categoriesSeconds:hour===10?{study:4}:{}}))}
+    : {date,status:'unknown',generatedAtMs:null,settledThroughMs:null,complete:false,reasonCodes:['APPLICATION_SECONDS_VERSION_MISSING'],
+      totalSeconds:null,categoriesSeconds:{},hours:[]});
+  return {ok:true,readUnit:'seconds',contextId:'preview-fixed-context',applicationUsageSeconds:{schemaVersion:2,durationUnit:'seconds',fromDate:query.fromDate,toDate:query.toDate,
+    revision:'preview:partial-seconds-1',computedAtMs:now,lastSettledAtMs:now-60000,complete:false,
+    reasonCodes:['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING'],totalSeconds:null,knownTotalSeconds:6,knownCategoriesSeconds:{study:4},days,
+    applications:[{key:'product:word',name:'Word',classifications:['study'],totalSeconds:null,knownTotalSeconds:4,
+      dailySeconds:Object.fromEntries(dates.map(date=>[date,date==='2026-09-26'?4:null]))}],nextOffset:null}};
+};
+window.previewSecondsSnapshot = secondsSnapshot;
+window.chrome = { runtime: { id:'mock-preview', onMessage: {addListener: listener => window.previewRuntimeListeners.push(listener)}, sendMessage: async ({query,contextOnly}) => {
+  if (contextOnly) return {ok:true,readUnit:window.mockAppMode==='partial-seconds'?'seconds':'milliseconds',contextId:'preview-fixed-context',available:true};
   window.previewQueryCount++;
+  if (window.mockAppMode === 'partial-seconds') return secondsSnapshot(query);
   if (window.mockAppMode === 'missing') return {ok:false,errorCode:'native_host_unavailable'};
   if (window.mockAppMode === 'offline') return {ok:false,errorCode:'runtime_service_unavailable'};
   if (window.mockAppMode === 'week-pending' && query.fromDate !== query.toDate) return {ok:false,errorCode:'application_usage_pending'};
@@ -46,7 +62,7 @@ window.chrome = { runtime: { id:'mock-preview', onMessage: {addListener: listene
   const names = ['Visual Studio Code','记事本','Aimlabs','Fixture 工具','历史应用'];
   const applications = Object.entries(values).map(([classification, value],i)=>({key:String(i+1).padStart(64,'0'),name:names[i],classifications:[classification],totalMs:value,
     dailyMs:Object.fromEntries(dates.map(date=>[date,date==='2026-09-26'?value:0]))}));
-  return {ok:true,applicationUsage:{fromDate:query.fromDate,toDate:query.toDate,revision:'a'.repeat(64),computedAtMs:now,lastSettledAtMs:now-60000,
+  return {ok:true,readUnit:'milliseconds',contextId:'preview-fixed-context',applicationUsage:{fromDate:query.fromDate,toDate:query.toDate,revision:'a'.repeat(64),computedAtMs:now,lastSettledAtMs:now-60000,
     complete:true,reasonCodes:[],totalMs:total,days,applications,nextOffset:null,
     attribution:{complete:window.mockAppMode!=='attribution-pending',productAssociationVersion:'b'.repeat(64),classificationCorrectionVersion:3,
       reasonCodes:window.mockAppMode==='attribution-pending'?['PRODUCT_IDENTITY_UNRESOLVED']:[]}}};
