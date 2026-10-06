@@ -1,12 +1,17 @@
 # TASK_BOARD
 
-## 2026-10-07 网页空登记来源拖垮电脑汇总（云端修复中）
+## 2026-10-07 网页空登记来源拖垮电脑汇总（已上线，Runtime真实复验通过）
+
+- **最终结果覆盖本节此前待授权／未部署记录：** PO集中批准PR #247实际24文件范围后，已合入master `edcb4def45280fe5d15262d936059f24ef7d728d`。精确主线的Guardian Integration `37532767825`、Runtime `37532767800`、Task Cloud `37532767741`及Task Console `37532767884`通过；生产运行[37532947865](https://github.com/william-xia-cn/timeonchrome/actions/runs/37532947865)成功，仅部署Guardian Worker `405861a5-4bfb-40bf-b37d-a7be239d3b98`。发布manifest已回读，Runtime Worker及两套Cloudflare Pages保持原版本，migration数组为空，sharedAccessShadowPrepared=false；无安装、R2操作或共享启用。合并另触发既有GitHub Pages自动流程`37532765516`，目标为仓库GitHub Pages，非两套Cloudflare控制台；本PR未改页面源码，不隐瞒该既有自动副作用。
+- **真实登录验收（2026-10-07当日、Mac目标孩子）：** 独立Runtime页面刷新后computer接口HTTP200、schemaVersion=2、seconds、complete=true，两来源均complete、reasonCodes为空；网页13秒＋应用2389秒－特殊应用已包含贡献0秒＝电脑2402秒（40分2秒），页面实际呈现一致。独立应用接口HTTP200、complete=true、2389秒，revision与computer应用来源版本逐字一致，结算截止北京时间04:54:15.208；有效来源值未被本次来源范围修复改变。截图保留本地临时目录，不入Git。真实主控制台重新进入时登录已过期，故其本次发布后目视复验仍未取得，不用Runtime结果冒充两页面均已复验。
+- **独立展示缺口：** 当前已上传产品行的displayName为“未归属应用”（2368／21秒）；云端读模型及页面沿用上传行名称，不是本次故障隔离生成。产品关联／名称原因交所属Mac端继续核对，不按同名猜合并、不更改原统计。本次确认仅为电脑汇总可用性恢复及应用来源同版本，不代表产品名称、长期诊断稳定性或共享执行全部完成。父清单显式映射仍为取证展示缺口。Matched＝修复／主线／Guardian发布／Runtime真实读取；Missing＝主控制台发布后实视、产品名称归属及长期诊断证据；Deviated＝无本轮未批准产品变更；Extra＝既有GitHub Pages自动流程如上单列。
+- **Mac标准回传已完成：** 经现有Native协调任务，发布结果及仅名称来源只读核查已发送至原Issue #12，[评论6025769295](https://github.com/william-xia-cn/TimeWhereNative/issues/12#issuecomment-6025769295)由当前会话GitHub插件独立回读；固定中继文档Native `df2edbdab1aca86bf55596f736e5a3f79053551f`。仍是原Mac任务，不新建开发会话／分支／工作树、不要求重装；尚无Mac本条名称核查回报，不把送达当作实施完成。
 
 - PO要求当前会话修复并验证后，再向Mac回传确认；Mac不重复安装。职责standard-cloud，允许本任务`workers/src/services/computerUsage.ts`、`tests/unit/computer-usage-cloud.test.js`及本任务板；复用现有云端分支／目录，不改契约、原账、独立网页统计、Native／控件、配额或共享开关。
 - 实施清单：①成功查询确认该设备日在V2与现有兼容统计均无记录时，不仅凭设备登记生成失败统计来源；真实读取异常或已有不完整清单仍保留失败／部分状态。②整个网页范围无记录仍为未知、总量null，不填零；有记录的解绑设备历史继续读取。③旧展示缓存换读模型版本，避免采用修复前来源判断。④回归真实脱敏五来源组合、无来源、完整零清单、不完整／异常、解绑历史、重复读取及原权威值不变；运行此文件测试、typecheck、职责diff和diff check，不跑平台／安装器／全量／浏览器行为测试。
 - 变更等级为中等展示读取修复，不触及网页记账／物化／上传；修改统计来源可用性判断而非其秒数。修复源码、合并部署、真实页面以及Mac回传分别登记，不把本地测试称为线上已解决。
 - **源码验证通过：** `node tests/unit/computer-usage-cloud.test.js`、`npm run typecheck`、本次3文件standard-cloud职责检查及`git diff --check`通过。新增固定用例覆盖1有效＋4空登记、全无记录仍null、真实零清单、不完整/loss/查询异常、解绑历史及迟到新来源版本失效；既有原权威值／家庭隔离回归保留。首次测试因既有VM加载器遗漏新增source-statistics契约模块停止，补齐仅测试映射后通过，未调整产品时长。Matched＝本次来源范围、故障隔离与缓存失效；Deviated／Extra＝无；Missing＝主线集成、Guardian部署及真实Mac孩子页面复验。Mac不需要改代码／再安装。
-- **集成范围已核对：** fetch后当前云端分支相对master还有此前已完成的1.39.1对称共享读取源码与契约，尚无该分支打开的PR。本次不把这些未上线改造偷带入仅网页展示修复的生产部署，不新建隔离分支／树、不改master脏目录。先集中保存当前3文件补丁；正式“云端已修复”回执须在明确集成发布范围、上线及真实页面复验之后发送，不能现在向Mac报线上通过。
+- **集成／发布实况：** 修复提交`c3390e80852841f34225aba98e9a59e75945427d`已推送。现有云端分支合入已发布master，集成HEAD为`0954b87ee942c5048208aa60e77c3897a83719a4`；[PR #247](https://github.com/william-xia-cn/timeonchrome/pull/247)明确列入此前批准的1.39.1可选分域读取与本次修复，共24文件，未冒称只合入3文件。未创建分支／工作树，未触动master脏目录。第一次CI失败是PR遗漏职责声明，补正后职责、契约／Runtime Worker、Console、发布配置及Guardian兼容检查通过；Guardian dry-run通过。无关Task Console仍在安装Chromium，未作为本次产品测试通过证据。合并工具拒绝该24文件实际范围，要求明确授权；已集中请求“合并此PR＋仅部署Guardian＋真实验收＋Mac回传”，不绕过权限。当前尚未合并／部署／线上复验，不能向Mac确认线上通过。仅Guardian部署，不部署Runtime／Pages／终端，不执行migration、不改变执行开关；可选新API集成不代表Windows／Mac共享已验收。
 
 ## 2026-10-07 Mac优先接续（0.1.40已安装，诊断有限实机通过）
 
