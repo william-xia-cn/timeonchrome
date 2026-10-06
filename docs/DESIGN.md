@@ -28,7 +28,7 @@ Native开段／重启／改绑都消费该段已固定的孩子，不用最新po
 
 Native `08c5133` 已接通秒生成、物化、冻结补发及内部同版读取；云端实际生成输出上传与页面适配回归已通过。只读核对发现现有外部 `getApplicationUsage`、Windows Manager 和控件应用读取仍使用毫秒 DTO，秒 head 启用后旧读取返回 `APPLICATION_USAGE_PENDING`。内部读取通过不代表外部界面已可用，不能提前将生成能力上线当作完整交付。
 
-集中接线清单（1.38.0契约已补齐；两端实际消费者仍待实施／验收）：
+集中接线清单（1.38.0契约已合入master；Native 86a2ca1与控件71d619b已完成当前范围源码／隔离消费，最终候选实机读取未验收，解除保护及跨历史分配范围尚未覆盖）：
 
 1. 在既有 v3 `application` 通道增加 `getApplicationUsageSeconds`、`application-usage-seconds-read-v1` 能力及独立 `applicationUsageSeconds` 响应；保留旧消息和 Ms DTO。仅新能力协商成功时使用秒请求，失败不得静默取旧 head 冒充当前秒统计。Host 仍只校验 framing／消息结构和转发。
 2. 请求复用北京时间起止日、offset、expectedRevision，最多七天、产品每页最多100。秒 revision 为有界不透明字符串，不能借旧64hex校验拒绝 `application-seconds-view:` 版本。分页绑定同一冻结范围版本；版本变化允许从首页重新读取一次，不能混页。
