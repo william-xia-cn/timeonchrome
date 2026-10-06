@@ -181,6 +181,9 @@ async function main() {
       assert.equal(partialView.targetRows[0].rangeSeconds, null);
       assert.equal(partialView.targetRows[0].rangeKnownSeconds, 4);
       assert.equal(partialView.targetRows[0].todaySeconds, 4);
+      assert.equal(partialView.categoryRows.find(row => row.key === 'app_study').seconds, 4);
+      assert.equal(partialView.categoryRows.find(row => row.key === 'app_other').seconds, 4,
+        'a category present in the incomplete snapshot remains visible as known usage');
 
       const unknownViewAdapter = await load(async ({ query }) => query.fromDate === '2026-10-06' && query.offset === 0
         ? { ...byName.unknown.response } : { ok: false, errorCode: 'application_usage_pending' }, secondsContext);

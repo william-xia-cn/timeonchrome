@@ -354,9 +354,15 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
   const knownTotalSeconds = unit === 'seconds' ? snapshot.knownTotalSeconds : snapshot.days.reduce((sum, day) => sum + day.totalMs / 1000, 0);
   const totalSeconds = unit === 'seconds' ? snapshot.totalSeconds
     : unavailable ? null : selectedDays.reduce((sum, day) => sum + day.totalMs, 0) / 1000;
-  const categoryRows = Object.entries(APPLICATION_CATEGORY_LABELS).map(([key, label]) => ({ key: uiKey(key), label,
-    seconds: unit === 'milliseconds' && unavailable ? null : (categoryTotals[uiKey(key)] || 0),
-    limitLabel: '不适用', status: unit === 'seconds' && !snapshot.complete ? '已知分类用量；总量不完整' : '独立应用统计，不计网页配额' }));
+  const categoryRows = Object.entries(APPLICATION_CATEGORY_LABELS).map(([key, label]) => {
+    const categoryKey = uiKey(key);
+    const known = Object.hasOwn(categoryTotals, categoryKey);
+    return { key: categoryKey, label,
+      seconds: unit === 'milliseconds' && unavailable || unit === 'seconds' && !snapshot.complete && !known
+        ? null : (categoryTotals[categoryKey] || 0),
+      limitLabel: '不适用', status: unit === 'seconds' && !snapshot.complete
+        ? known ? '已知部分；总量不完整' : '分类用量未知' : '独立应用统计，不计网页配额' };
+  });
   const series = summarySeries(snapshot);
   const chartSeries = mode === 'week' ? series : selectedDays[0].hours.map(hour => ({ label: `${hour.hour}`,
     categories: unit === 'seconds' ? uiCategories(hour.categoriesSeconds) : unavailable ? {} : uiCategories(Object.fromEntries(
