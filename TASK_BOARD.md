@@ -1,5 +1,20 @@
 # TASK_BOARD
 
+## 2026-10-07 Native新版统计名称丢失（Windows已修复并安装，新增缺名主体／Mac单列）
+
+- **最终现场结果，覆盖下文诊断阶段的“未实施／待完成”：** Native功能提交`852975222d079fa18767ab78d1742e24f871e841`已推送main，内部候选2.6.39由该固定源码构建；安装器SHA-256 `f93bea2bda1afaaa9a8ac4472b0ebaa12320d469d986add4ad773f8e9c690a32`。已完成2.6.38→2.6.39原地升级，Burn退出0、无需重启，Service运行；四个持久主EXE和七个项目DLL均为2.6.39.0，逐文件哈希与候选构建一致。Migration／MachineProbe是Bundle预检EXE，MSI明确排除，不应误判为漏装。配对、原账及outbox未清理，本轮没有启用共享。
+- **真实端到端核对：** 正式Host当日秒读取、云端`/v2/module/app-usage`及两套已登录页面均显示原10条的安全名称，原8条固定“未归属应用”已恢复。固定同一已结算截止2026-10-07北京时间06:03:02.317，本机与云端总量均18420秒、complete=true，11条主体名称和秒数逐项一致；主控制台与独立Runtime实际展示5小时7分及相同截止，不能用持续新增后的结果冒称修复前后固定原账对比。隔离原账／时长守恒与名称独立回归由Native提供；79项唯一聚焦通过（后续76／13项有交集，不累计）。截图仅存本地临时目录、不入Git。云端保留上传名称的既有代码通过25项发布读取与9项页面适配回归，未改Worker／Pages产品代码，因此没有无效重复部署。
+- **仍未完成的独立项：** 本次运行后新增一条60秒缺名主体，本机及云端都输出“未归属应用”，并非页面再次覆写恢复名称。当前真实孩子策略投影、云端技术目录及其变体、分类与resolved名称均无对应主体；当前进程和本次已知安装组件也未匹配。普通权限不能读取受保护本机盘点库，尚不能区分该已退出主体是采集失败、未持久化、过滤或确无合法名称；不猜名称、不自动合并产品、不为取证新增接口或再制包。该项保留待精确本机元数据证据，不能宣称所有应用名称已解决。Mac标准任务`windows-mac-display-names-20261007-8529752`已通过Issue #12评论6026234208回读送达，尚无修复／实机回执；不以Windows结果代替Mac。名称恢复也不代表产品关联、分类或共享执行全部验收。
+
+- **最新授权与实施边界：** PO已明确要求“修改并部署”，覆盖此前只读限制。Native所属会话修复实际名称元数据读取与派生版本重物化，当前会话核对云端是否保持上传名称；只修改显示名称，不改变原账、时长、分类、产品归属／合并或特殊应用角色。复用现有分支／目录，集中测试、提交和一个最终Windows候选；Mac公共源码及标准回传单列，Windows不等待Mac实机。最小回归覆盖未确认对象有安全名称、确认名称优先、同名不合并、用户隔离、缺名称、重物化后时长／原账不变。只有确实改动的云端资源需要发布；本机安装／云端上线／真实名称逐行验收分别记录，不把已下发任务当作修复完成。
+- **云端名称链核对：** `applicationAccounts.ts`分块接收保留校验后的displayName并按行哈希持久化；`applicationStatisticsNative.ts:60–77/98–104`纯新版读取复制已发布行；`computerUsageService.ts:80`及`app-runtime-time.js:65–67`沿用上传名称，没有按产品确认再次改写名称。现有隔离回归`npm test -- test/application-account-publication.test.ts -t 'seconds|complete standalone usage|complete snapshot publishes before|replacement may lower'`通过25项（57项非本范围跳过）；`node app-runtime-management/console/app-runtime-time.test.js`通过9项，diff检查通过。首次测试被沙箱阻止写测试临时文件，合法提权后通过，不是产品失败。本轮尚未发现需更改云端产品代码的名称断点，不为部署而重复发布未变Worker／Pages；Native修复及真实新名称上传仍待完成。
+
+- **此前只读诊断基线：** PO要求从Native本机开始查，不急于修改。实际Windows Host为2.6.38.0；当日正式`getApplicationUsageSeconds`成功、complete=true、10条应用中8条名称为“未归属应用”，2条有产品名称，证明错误在云端上传前已有。首次沙箱管道返回RUNTIME_SERVICE_UNAVAILABLE，合法只读提权后通过，不能把沙箱失败记为Service故障。
+- **代码依据：** Native `ApplicationChildStatisticsReader.cs:76–80`将唯一confirmed/associated且ProductId非空作为名称显示条件，否则直接使用固定标签；没有读取本机盘点缓存、分类DisplayName或未确认投影CanonicalName。该逻辑由`3cd5a105`引入。`ApplicationAccountingV3.cs:11/194`原账只保存platform/runtimeIdentity，不保存采集名称；`MachineApplicationInventoryStore.cs:138–145`仍将Evidence.DisplayName随payload持久化。旧`ApplicationUsageReader.cs:253–268/540–583`有同用户盘点／规范名称／原名称读取回退，新孩子统计没有接入。字段未存入原账不单独构成错误，真正断点是其名称元数据读取未接线。
+- **测试漏检：** ApplicationChildStatistics测试用例使用已确认产品夹具，检查时长、归属、版本和原账，不覆盖“有显示名称但产品未确认”的subject名称断言。不能将此前时长／上传通过写成产品名称完整验收。
+- **结论范围：** 已证实本机输出异常及产生异常的统计条件；逐条盘点名称、分类名称、关联状态和采集质量仍待合法证据，不宣称本机盘点或8条具体归属已正常。直接访问Service目录被OS ACL拒绝，不改ACL／绕过；已交现有Native会话仅只读补核，不实施修复。Mac相同症状已见，具体实现及现场关联原因仍以所属端回报为准。
+- **最小后续修复建议（未实施）：** 显示名称与产品确认分离：确认产品用规范名称，未确认对象按精确身份使用合法名称元数据回退、保持独立主体及未确认状态；不按名称合并，不改分类／时长／特殊属性。补对应固定名称回归并重新生成派生版本，不改原账、不修补云端文案。本机产品归属及特殊应用处理的实际影响另核，不能仅凭统计complete宣布全部正确。
+
 ## 2026-10-07 网页空登记来源拖垮电脑汇总（已上线，Runtime真实复验通过）
 
 - **最终结果覆盖本节此前待授权／未部署记录：** PO集中批准PR #247实际24文件范围后，已合入master `edcb4def45280fe5d15262d936059f24ef7d728d`。精确主线的Guardian Integration `37532767825`、Runtime `37532767800`、Task Cloud `37532767741`及Task Console `37532767884`通过；生产运行[37532947865](https://github.com/william-xia-cn/timeonchrome/actions/runs/37532947865)成功，仅部署Guardian Worker `405861a5-4bfb-40bf-b37d-a7be239d3b98`。发布manifest已回读，Runtime Worker及两套Cloudflare Pages保持原版本，migration数组为空，sharedAccessShadowPrepared=false；无安装、R2操作或共享启用。合并另触发既有GitHub Pages自动流程`37532765516`，目标为仓库GitHub Pages，非两套Cloudflare控制台；本PR未改页面源码，不隐瞒该既有自动副作用。
