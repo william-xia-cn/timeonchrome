@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "description": "两端共用的应用只读秒传输向量；所有用量为秒，时刻为毫秒，明细允许重叠。",
+  "capability": "application-usage-seconds-read-v1",
+  "samples": [{
+    "name": "日量6秒，分类及产品各4秒，明细之和不等于总量；小时分类可大于同小时总量",
+    "query": { "fromDate": "2026-10-06", "toDate": "2026-10-06", "offset": 0 },
+    "snapshot": {
+      "schemaVersion": 2, "durationUnit": "seconds", "fromDate": "2026-10-06", "toDate": "2026-10-06",
+      "revision": "application-seconds-view:golden1", "computedAtMs": 1791241200100, "lastSettledAtMs": 1791241200000,
+      "complete": true, "reasonCodes": [], "totalSeconds": 6, "knownTotalSeconds": 6,
+      "knownCategoriesSeconds": { "study": 4, "other": 4 },
+      "days": [{
+        "date": "2026-10-06", "status": "available", "generatedAtMs": 1791241200100,
+        "settledThroughMs": 1791241200000, "complete": true, "reasonCodes": [],
+        "totalSeconds": 6, "categoriesSeconds": { "study": 4, "other": 4 },
+        "hours": [
+          { "hour": 0, "totalSeconds": 0, "categoriesSeconds": { "study": 1 } },
+          { "hour": 1, "totalSeconds": 6, "categoriesSeconds": { "study": 3, "other": 4 } },
+          { "hour": 2, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 3, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 4, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 5, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 6, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 7, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 8, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 9, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 10, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 11, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 12, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 13, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 14, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 15, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 16, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 17, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 18, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 19, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 20, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 21, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 22, "totalSeconds": 0, "categoriesSeconds": {} },
+          { "hour": 23, "totalSeconds": 0, "categoriesSeconds": {} }
+        ]
+      }],
+      "applications": [
+        { "key": "product:alpha", "name": "Alpha", "classifications": ["study"], "totalSeconds": 4, "knownTotalSeconds": 4, "dailySeconds": { "2026-10-06": 4 } },
+        { "key": "product:beta", "name": "Beta", "classifications": ["other"], "totalSeconds": 4, "knownTotalSeconds": 4, "dailySeconds": { "2026-10-06": 4 } }
+      ], "nextOffset": null
+    }
+  }],
+  "invalidQueries": [
+    { "fromDate": "2026-10-06", "toDate": "2026-10-06", "offset": 0, "childId": "not-authority" },
+    { "fromDate": "2026-10-06", "toDate": "2026-10-06", "offset": 0, "userId": "not-authority" },
+    { "fromDate": "2026-10-06", "toDate": "2026-10-06", "offset": 100 },
+    { "fromDate": "2026-10-06", "toDate": "2026-10-13", "offset": 0 },
+    { "fromDate": "2026-02-30", "toDate": "2026-03-01", "offset": 0 },
+    { "fromDate": "2026-10-06", "toDate": "2026-10-05", "offset": 0 },
+    { "fromDate": "2026-10-06", "toDate": "2026-10-06", "offset": -1 },
+    { "fromDate": "2026-10-06", "toDate": "2026-10-06", "offset": 20001 },
+    { "fromDate": "2026-10-06", "toDate": "2026-10-06", "offset": 0, "expectedRevision": "invalid revision" }
+  ]
+}
