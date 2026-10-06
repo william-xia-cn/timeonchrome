@@ -13,6 +13,7 @@ on:
       - 'workers/src/services/sharedWebContributions.ts'
       - 'workers/src/services/sharedWebSourceBinding.ts'
       - 'workers/src/services/computerUsage.ts'
+      - 'workers/src/services/sourceStatistics.ts'
       - 'workers/migrations/033_shared_web_contributions_v1.sql'
       - 'workers/wrangler.toml'
       - 'app-runtime-management/contracts/**'
@@ -22,6 +23,7 @@ on:
       - 'tests/unit/shared-access-state-cloud.test.js'
       - 'tests/unit/shared-web-contributions-cloud.test.js'
       - 'tests/unit/computer-usage-cloud.test.js'
+      - 'tests/unit/source-statistics-cloud.test.js'
       - '.github/workflows/app-runtime-guardian-integration.yml'
   push:
     branches: [master]
@@ -35,6 +37,7 @@ on:
       - 'workers/src/services/sharedWebContributions.ts'
       - 'workers/src/services/sharedWebSourceBinding.ts'
       - 'workers/src/services/computerUsage.ts'
+      - 'workers/src/services/sourceStatistics.ts'
       - 'workers/migrations/033_shared_web_contributions_v1.sql'
       - 'app-runtime-management/contracts/**'
       - 'tests/unit/app-runtime-management-gateway.test.js'
@@ -42,6 +45,7 @@ on:
       - 'tests/unit/shared-access-state-cloud.test.js'
       - 'tests/unit/shared-web-contributions-cloud.test.js'
       - 'tests/unit/computer-usage-cloud.test.js'
+      - 'tests/unit/source-statistics-cloud.test.js'
       - '.github/workflows/app-runtime-guardian-integration.yml'
 
 jobs:
@@ -60,3 +64,4 @@ jobs:
       - run: node tests/unit/shared-access-state-cloud.test.js
       - run: node tests/unit/shared-web-contributions-cloud.test.js
       - run: node tests/unit/computer-usage-cloud.test.js
+      - run: node tests/unit/source-statistics-cloud.test.js
