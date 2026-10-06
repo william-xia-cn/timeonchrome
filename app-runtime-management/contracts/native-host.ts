@@ -6,6 +6,9 @@ export const LEGACY_NATIVE_HOST_ID = 'com.timeonchrome.guardian' as const;
 export const BROWSER_BRIDGE_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v1' as const;
 export const BROWSER_BRIDGE_V2_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v2' as const;
 export const BROWSER_BRIDGE_V3_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v3' as const;
+export { APPLICATION_USAGE_SECONDS_READ_CAPABILITY, validateApplicationUsageSecondsQuery,
+  validateApplicationUsageSecondsSnapshot } from './application-usage-seconds.js';
+export type { ApplicationUsageSecondsQuery, ApplicationUsageSecondsSnapshot } from './application-usage-seconds.js';
 /** These capabilities never imply shared enforcement is enabled. */
 export const SHARED_QUOTA_STATE_READ_CAPABILITY = 'shared-quota-state-read' as const;
 export const SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY = 'shared-access-policy-identity-read' as const;
@@ -77,6 +80,7 @@ export interface NativeHostResponse {
   duplicate?: boolean;
   stale?: boolean;
   applicationUsage?: ApplicationUsageSnapshot;
+  applicationUsageSeconds?: import('./application-usage-seconds.js').ApplicationUsageSecondsSnapshot;
   sharedQuota?: import('./shared-access.js').SharedQuotaStateV1;
   /** Optional only after capability negotiation; equality is not execution authorization. */
   sharedAccessPolicyIdentity?: import('./shared-access.js').SharedAccessPolicyIdentityV1;
@@ -146,7 +150,7 @@ export interface BrowserBridgeV3Envelope<TPayload = unknown> {
   protocolVersion: typeof BROWSER_BRIDGE_V3_PROTOCOL_VERSION;
   channel: 'health' | 'statistics' | 'application' | 'sharedQuota';
   requestId: string;
-  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getSharedQuotaState' | 'reportReminderResult'
+  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getApplicationUsageSeconds' | 'getSharedQuotaState' | 'reportReminderResult'
     | 'getSharedReminderState' | 'acknowledgeSharedReminderDelivery' | 'resolveSharedReminder' | 'reportBrowserActivity'
     | 'acknowledgeBrowserExecution' | 'getSharedWebSourceChallenge' | 'bindSharedWebSource' | 'replaceSharedWebContribution'
     | 'getSharedWebSourceScope' | 'bindSharedWebSourceV2' | 'replaceSharedWebContributionV2';

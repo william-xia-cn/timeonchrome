@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.37.0');
+assert.equal(pkg.version, '1.38.0');
 assert(pkg.exports['./application-ledger'], '固定孩子原账契约必须独立导出');
 const applicationLedger = JSON.parse(fs.readFileSync(path.join(root, 'application-ledger-v3.schema.json'), 'utf8'));
 assert.equal(applicationLedger.properties.schemaVersion.const, 3);
@@ -130,7 +130,7 @@ const nativeHostV3 = JSON.parse(fs.readFileSync(path.join(root, 'native-host-v3.
 assert.equal(nativeHostV3.properties.protocolVersion.const, 3);
 assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics', 'application', 'sharedQuota']);
 assert.deepEqual(nativeHostV3.properties.messageType.enum,
-  ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getSharedQuotaState', 'reportReminderResult',
+  ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getApplicationUsageSeconds', 'getSharedQuotaState', 'reportReminderResult',
     'getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution',
     'getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution',
     'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'replaceSharedWebContributionV2']);
@@ -140,6 +140,14 @@ assert(!reusableSchema.$defs.webClaims.properties.connectionHash);
 assert(!reusableSchema.$defs.webClaims.properties.challengeId);
 assert.equal(reusableSchema.$defs.webClaims.properties.schemaVersion.const,2);
 assert.equal(nativeHostV3.$defs.applicationQuery.additionalProperties, false);
+assert(pkg.exports['./application-usage-seconds']);
+assert(pkg.files.includes('application-usage-seconds.ts'));
+const applicationSecondsSchema=JSON.parse(fs.readFileSync(path.join(root,'application-usage-seconds-v2.schema.json'),'utf8'));
+assert.equal(applicationSecondsSchema.$defs.snapshot.properties.durationUnit.const,'seconds');
+assert.equal(applicationSecondsSchema.$defs.query.additionalProperties,false);
+assert.equal(applicationSecondsSchema.$defs.snapshot.properties.applications.maxItems,100);
+assert.equal(nativeHostV3.allOf[0].then.allOf[1].then.properties.payload.$ref,
+  'application-usage-seconds-v2.schema.json#/$defs/query');
 assert.deepEqual(nativeHostV3.$defs.sharedQuotaQuery.required, ['date']);
 assert.deepEqual(Object.keys(nativeHostV3.$defs.sharedQuotaQuery.properties), ['date']);
 assert.equal(nativeHostV3.$defs.sharedQuotaQuery.additionalProperties, false);

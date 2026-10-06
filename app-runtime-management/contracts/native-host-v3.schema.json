@@ -9,7 +9,7 @@
     "protocolVersion": { "const": 3 },
     "channel": { "enum": ["health", "statistics", "application", "sharedQuota"] },
     "requestId": { "type": "string", "format": "uuid" },
-    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity", "acknowledgeBrowserExecution", "getSharedWebSourceChallenge", "bindSharedWebSource", "replaceSharedWebContribution", "getSharedWebSourceScope", "bindSharedWebSourceV2", "replaceSharedWebContributionV2"] },
+    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getApplicationUsageSeconds", "getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity", "acknowledgeBrowserExecution", "getSharedWebSourceChallenge", "bindSharedWebSource", "replaceSharedWebContribution", "getSharedWebSourceScope", "bindSharedWebSourceV2", "replaceSharedWebContributionV2"] },
     "extensionId": { "type": "string", "minLength": 1 },
     "profileId": { "type": "string", "format": "uuid" },
     "sentAtMs": { "type": "integer", "minimum": 0 },
@@ -18,7 +18,15 @@
   "allOf": [
     {
       "if": { "properties": { "channel": { "const": "application" } }, "required": ["channel"] },
-      "then": { "properties": { "messageType": { "const": "getApplicationUsage" }, "payload": { "$ref": "#/$defs/applicationQuery" } } }
+      "then": {
+        "properties": { "messageType": { "enum": ["getApplicationUsage", "getApplicationUsageSeconds"] } },
+        "allOf": [
+          { "if": { "properties": { "messageType": { "const": "getApplicationUsage" } } },
+            "then": { "properties": { "payload": { "$ref": "#/$defs/applicationQuery" } } } },
+          { "if": { "properties": { "messageType": { "const": "getApplicationUsageSeconds" } } },
+            "then": { "properties": { "payload": { "$ref": "application-usage-seconds-v2.schema.json#/$defs/query" } } } }
+        ]
+      }
     },
     {
       "if": { "properties": { "channel": { "const": "statistics" } }, "required": ["channel"] },
