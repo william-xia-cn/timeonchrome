@@ -1,4 +1,4 @@
-import {env} from 'cloudflare:workers';
+import {env,exports} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
 import {createUsageAccountV2,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
 import {readApplicationSourceStatistics} from '../src/sourceStatistics';
@@ -8,8 +8,8 @@ import {routeV2} from '../src/v2Routes';
 
 const date='2026-10-07',start=Date.parse(date+'T00:00:00+08:00'),now=start+3600000;
 const user='a'.repeat(64),peer='b'.repeat(64);
-async function fixture(){
-  const machine=crypto.randomUUID(),account=crypto.randomUUID(),child=crypto.randomUUID(),token=crypto.randomUUID();
+async function fixture(scope?:{account:string;child:string}){
+  const machine=crypto.randomUUID(),account=scope?.account??crypto.randomUUID(),child=scope?.child??crypto.randomUUID(),token=crypto.randomUUID();
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machines_v2(id,account_id,platform,token_hash,last_seen_at_ms,created_at_ms,updated_at_ms)
     VALUES(?1,?2,'windows',?3,?4,?4,?4)`).bind(machine,account,await sha256Hex(token),now).run();
   for(const local of [user,peer])await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
@@ -90,4 +90,15 @@ it('machine web fallback is domain-only and concurrent rebind invalidates the re
     {method:'POST',headers:{authorization:`Bearer ${f.token}`,'content-type':'application/json'},body:JSON.stringify({...query,source:'web'})});
   expect(await (await routeV2(request(),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now))?.json()).toMatchObject({source:'web',days:[{totalSeconds:600}]});
   rebind=true;await expect(routeV2(request(),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now)).rejects.toMatchObject({status:409,code:'SOURCE_STATISTICS_CONTEXT_CHANGED'});
+});
+it('Runtime Service Binding verifies Guardian ownership and returns only persisted application domain',async()=>{
+  const f=await fixture({account:'seconds-source-account',child:'seconds-source-child'});
+  await seedPublished(f,user);await seedPublished(f,peer);
+  const request=(accountId=f.account)=>new Request('https://runtime-capability/getApplicationSourceStatistics',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId:f.child,query})});
+  const response=await exports.RuntimeComputerUsageService.fetch(request());
+  expect(response.status).toBe(200);expect(await response.json()).toMatchObject({source:'application',durationUnit:'seconds',childId:f.child,
+    days:[{totalSeconds:1200,nonSpecialTotalSeconds:1200,complete:true}]});
+  expect((await exports.RuntimeComputerUsageService.fetch(request('foreign-account'))).status).toBe(404);
+  expect((await exports.RuntimeComputerUsageService.fetch(new Request('https://runtime-capability/getApplicationSourceStatistics'))).status).toBe(405);
 });

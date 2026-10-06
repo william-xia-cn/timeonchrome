@@ -71,5 +71,14 @@ function load(file,deps={}){
  assert.equal((await router.handle(request({...query,source:'application'}),env)).status,400);
  assert.equal(peerReads,1,'invalid requests do not read domain statistics');
  rebind=true;assert.equal((await router.handle(request(),env)).status,409);
+ identity={profileId:'child',deviceId:'self'};rebind=false;
+ const app={...all,source:'application',days:all.days.map(day=>({...day,nonSpecialTotalSeconds:day.totalSeconds}))};
+ const appEnv={...env,RUNTIME_COMPUTER_USAGE:{fetch:async request=>{
+  assert.equal(new URL(request.url).pathname,'/getApplicationSourceStatistics');
+  assert.deepEqual(await request.json(),{accountId:'account',childId:'child',query:{...query,source:'application',scope:'all'}});
+  return Response.json(app);
+ }}};
+ assert.deepEqual(await (await router.handle(request({...query,source:'application',scope:'all'}),appEnv)).json(),app);
+ assert.equal((await router.handle(request({...query,source:'application',scope:'all'}),{...env,RUNTIME_COMPUTER_USAGE:{fetch:async()=>new Response(null,{status:503})}})).status,503);
  console.log('source-statistics cloud PASS: actual V2 projection/correction, domain/own exclusion, decrease, unknown, bounded response, auth/rebind; original accounting untouched');
 })().catch(error=>{console.error(error);process.exitCode=1;});
