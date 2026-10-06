@@ -18,7 +18,7 @@ function add(map: Map<string, number>, key: string, seconds: number) {
   map.set(key, (map.get(key) || 0) + Number(seconds || 0));
 }
 
-function compactDeviceAccount(account: any): any {
+export function compactDeviceAccount(account: any): any {
   const byChannelMode = new Map<string, number>();
   const byQuotaBucket = new Map<string, number>();
   const activeByQuotaBucket = new Map<string, number>();

@@ -9,7 +9,7 @@
     "protocolVersion": { "const": 3 },
     "channel": { "enum": ["health", "statistics", "application", "sharedQuota"] },
     "requestId": { "type": "string", "format": "uuid" },
-    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getApplicationUsageSeconds", "getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity", "acknowledgeBrowserExecution", "getSharedWebSourceChallenge", "bindSharedWebSource", "replaceSharedWebContribution", "getSharedWebSourceScope", "bindSharedWebSourceV2", "replaceSharedWebContributionV2"] },
+    "messageType": { "enum": ["heartbeat", "probe", "dailyUsageSnapshot", "getApplicationUsage", "getApplicationUsageSeconds", "getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity", "acknowledgeBrowserExecution", "getSharedWebSourceChallenge", "bindSharedWebSource", "replaceSharedWebContribution", "getSharedWebSourceScope", "bindSharedWebSourceV2", "replaceSharedWebContributionV2", "exchangeSourceStatistics"] },
     "extensionId": { "type": "string", "minLength": 1 },
     "profileId": { "type": "string", "format": "uuid" },
     "sentAtMs": { "type": "integer", "minimum": 0 },
@@ -39,7 +39,7 @@
     {
       "if": { "properties": { "channel": { "const": "sharedQuota" } }, "required": ["channel"] },
       "then": {
-        "properties": { "messageType": { "enum": ["getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity", "acknowledgeBrowserExecution", "getSharedWebSourceChallenge", "bindSharedWebSource", "replaceSharedWebContribution", "getSharedWebSourceScope", "bindSharedWebSourceV2", "replaceSharedWebContributionV2"] } },
+        "properties": { "messageType": { "enum": ["getSharedQuotaState", "reportReminderResult", "getSharedReminderState", "acknowledgeSharedReminderDelivery", "resolveSharedReminder", "reportBrowserActivity", "acknowledgeBrowserExecution", "getSharedWebSourceChallenge", "bindSharedWebSource", "replaceSharedWebContribution", "getSharedWebSourceScope", "bindSharedWebSourceV2", "replaceSharedWebContributionV2", "exchangeSourceStatistics"] } },
         "allOf": [
           { "if": { "properties": { "messageType": { "const": "getSharedQuotaState" } } },
             "then": { "properties": { "payload": { "$ref": "#/$defs/sharedQuotaQuery" } } } },
@@ -66,7 +66,9 @@
           { "if": { "properties": { "messageType": { "const": "bindSharedWebSource" } } },
             "then": { "properties": { "payload": { "$ref": "shared-web-sync-v1.schema.json#/$defs/bindQuery" } } } },
           { "if": { "properties": { "messageType": { "const": "replaceSharedWebContribution" } } },
-            "then": { "properties": { "payload": { "$ref": "shared-web-sync-v1.schema.json#/$defs/replaceQuery" } } } }
+            "then": { "properties": { "payload": { "$ref": "shared-web-sync-v1.schema.json#/$defs/replaceQuery" } } } },
+          { "if": { "properties": { "messageType": { "const": "exchangeSourceStatistics" } } },
+            "then": { "properties": { "payload": { "$ref": "source-statistics-v1.schema.json#/$defs/exchange" } } } }
         ]
       }
     }

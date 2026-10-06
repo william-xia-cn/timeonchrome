@@ -13,6 +13,8 @@ import { readSharedAccessPolicyForChild } from '../routes/profiles';
 import { readSharedAccessDayState, readSharedQuotaExecutionBasis, pageSharedQuotaExecutionBasis, type SharedAccessStateEnv } from './sharedAccessState';
 import { createSharedAccessPolicyIdentityV1, type SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { createSharedWebSourceChallenge, createSharedWebMachineScope, readSharedWebVerificationKey, verifyCurrentSharedWebSource } from './sharedWebSourceBinding';
+import { validateSourceStatisticsQuery, validateSourceStatisticsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
+import { readWebSourceStatistics,readSourceStatisticsResponse } from './sourceStatistics';
 
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
@@ -72,7 +74,11 @@ export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:str
       const targetRows=target.results??[];
       const domain=targetRows.length?null:await env.DB.prepare('SELECT * FROM stats_v1 WHERE profile_id=? AND device_id=? AND date=? ORDER BY domain,channel,mode').bind(childId,device.id,date).all<Record<string,unknown>>();
       const raw=targetRows.length?targetRows:domain?.results??[];
-      if(!raw.length){sources.push({...base,reasons:['WEB_ACCOUNT_UNAVAILABLE']});continue;}
+      // Registration is not a daily statistics source. A successful empty read
+      // contributes no source (not a synthetic zero or an unavailable account).
+      // Existing manifests, legacy rows and actual read failures remain visible,
+      // including historical statistics from devices that have since unbound.
+      if(!raw.length)continue;
       const changes=await listUsageAccountingCorrections(env,childId,{from:date,to:date,deviceId:device.id});
       const corrected=applyCorrectionsToV1StatsRows(raw,changes,targetRows.length?'daily_target':'daily_domain').filter(row=>row.channel==='active');
       const categoriesMs:Record<string,number>={};
@@ -180,13 +186,13 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
       env.RUNTIME_COMPUTER_USAGE?readRuntime<string>(env,'applicationEvidenceRevision',accountId,childId,from,to):Promise.resolve(undefined),
     ]);
     if((heads.results?.length??0)>700)throw new Error('COMPUTER_USAGE_SOURCE_LIMIT');
-    return sha(JSON.stringify({model:'computer-projection-v5',heads:heads.results,evidence,corrections,application}));
+    return sha(JSON.stringify({model:'computer-projection-v6',heads:heads.results,evidence,corrections,application}));
   };
   let version:string|null=null;
   // Keep the former optional machine selector for wire compatibility, but this
   // projection is now always the whole Child aggregate.
   const scopeKey=await sha(JSON.stringify([accountId,childId,from,to]));
-  const cacheKey=(kind:'summary'|'details')=>`computer-projection-v5:${scopeKey}:${version}:${kind}`;
+  const cacheKey=(kind:'summary'|'details')=>`computer-projection-v6:${scopeKey}:${version}:${kind}`;
   try {
     version=await fingerprint();
     const cached=await env.CONFIG_CACHE.get<ComputerUsageResult>(cacheKey(summaryOnly?'summary':'details'),'json');
@@ -233,7 +239,7 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
   async fetch(request:Request):Promise<Response> {
     const operation=new URL(request.url).pathname;
     if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy','/readSharedQuotaState','/readSharedQuotaExecutionBasis',
-      '/createSharedWebSourceChallenge','/createSharedWebMachineScope','/readSharedWebVerificationKey'].includes(operation))
+      '/createSharedWebSourceChallenge','/createSharedWebMachineScope','/readSharedWebVerificationKey','/readSourceStatistics'].includes(operation))
       return Response.json({code:'METHOD_NOT_ALLOWED'},{status:405});
     const reader=request.body?.getReader();
     if(!reader)return Response.json({code:'INVALID_SCOPE'},{status:400});
@@ -251,6 +257,18 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     }
     if(!input||['accountId','childId'].some(key=>typeof input[key]!=='string'||!String(input[key]).length||String(input[key]).length>200))return Response.json({code:'INVALID_SCOPE'},{status:400});
     try {
+      if(operation==='/readSourceStatistics') {
+        const accountId=String(input.accountId),childId=String(input.childId),query=validateSourceStatisticsQuery(input.query);
+        const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(childId,accountId).first();
+        if(!owned)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
+        if(query.scope!=='all')return Response.json({code:'SOURCE_STATISTICS_INVALID'},{status:400});
+        const value=query.source==='web'?await readWebSourceStatistics(this.env,accountId,childId,query)
+          :this.env.RUNTIME_COMPUTER_USAGE?.fetch?await readSourceStatisticsResponse(await this.env.RUNTIME_COMPUTER_USAGE.fetch(
+            new Request('https://runtime-capability/getApplicationSourceStatistics',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId,query})})))
+          :null;
+        if(!value)throw new Error('SOURCE_STATISTICS_UNAVAILABLE');
+        return Response.json(validateSourceStatisticsSnapshot(value,{source:query.source,childId,fromDate:query.fromDate,toDate:query.toDate}),{headers:{'cache-control':'no-store'}});
+      }
       if(operation==='/createSharedWebSourceChallenge'){
         return Response.json(await createSharedWebSourceChallenge(this.env,input),{headers:{'cache-control':'no-store'}});
       }
@@ -307,6 +325,8 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
       const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(input.childId,input.accountId).first();
       return Response.json({owned:!!owned});
     }catch(error){
+      if(operation==='/readSourceStatistics')return Response.json({code:error instanceof Error&&error.message==='SOURCE_STATISTICS_INVALID'?'SOURCE_STATISTICS_INVALID':'SOURCE_STATISTICS_UNAVAILABLE'},
+        {status:error instanceof Error&&error.message==='SOURCE_STATISTICS_INVALID'?400:503});
       const bindingCode=error instanceof Error?error.message:'';
       if((operation==='/createSharedWebMachineScope'||operation==='/readSharedQuotaExecutionBasis'&&Object.hasOwn(input,'webSourceProof'))
         &&/^(WEB_SOURCE_(SCOPE_MISMATCH|PROOF_EXPIRED|PROOF_SIGNATURE_INVALID|BINDING_UNAVAILABLE)|SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE|SOURCE_SCOPE_LIMIT|INVALID_WEB_SOURCE_(SCOPE|PROOF|BINDING|KEY))$/.test(bindingCode)){

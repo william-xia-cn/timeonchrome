@@ -14,6 +14,8 @@ export const SHARED_QUOTA_STATE_READ_CAPABILITY = 'shared-quota-state-read' as c
 export const SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY = 'shared-access-policy-identity-read' as const;
 export const SHARED_WEB_CONTRIBUTION_SYNC_CAPABILITY = 'shared-web-contribution-sync-v1' as const;
 export const SHARED_WEB_LOCAL_LEASE_CAPABILITY = 'shared-web-local-lease-v1' as const;
+export { SOURCE_STATISTICS_READ_CAPABILITY, SOURCE_STATISTICS_EXCHANGE_MESSAGE, validateSourceStatisticsExchange } from './source-statistics.js';
+export type { SourceStatisticsExchange, SourceStatisticsSnapshot, SourceStatisticsQuery, SharedQuotaSecondsDay } from './source-statistics.js';
 export const SHARED_QUOTA_EXECUTION_PREPARATION_CAPABILITY = 'shared-quota-execution-preparation-read-v1' as const;
 export const SHARED_REMINDER_RESULT_SHADOW_CAPABILITY = 'shared-reminder-result-shadow' as const;
 export { SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_REMINDER_CONTINUITY_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY,
@@ -81,6 +83,8 @@ export interface NativeHostResponse {
   stale?: boolean;
   applicationUsage?: ApplicationUsageSnapshot;
   applicationUsageSeconds?: import('./application-usage-seconds.js').ApplicationUsageSecondsSnapshot;
+  /** Own-domain total only; successful reading never enables shared enforcement. */
+  sourceStatistics?: import('./source-statistics.js').SourceStatisticsSnapshot;
   sharedQuota?: import('./shared-access.js').SharedQuotaStateV1;
   /** Optional only after capability negotiation; equality is not execution authorization. */
   sharedAccessPolicyIdentity?: import('./shared-access.js').SharedAccessPolicyIdentityV1;
@@ -153,7 +157,7 @@ export interface BrowserBridgeV3Envelope<TPayload = unknown> {
   messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getApplicationUsageSeconds' | 'getSharedQuotaState' | 'reportReminderResult'
     | 'getSharedReminderState' | 'acknowledgeSharedReminderDelivery' | 'resolveSharedReminder' | 'reportBrowserActivity'
     | 'acknowledgeBrowserExecution' | 'getSharedWebSourceChallenge' | 'bindSharedWebSource' | 'replaceSharedWebContribution'
-    | 'getSharedWebSourceScope' | 'bindSharedWebSourceV2' | 'replaceSharedWebContributionV2';
+    | 'getSharedWebSourceScope' | 'bindSharedWebSourceV2' | 'replaceSharedWebContributionV2' | 'exchangeSourceStatistics';
   extensionId: string;
   profileId: string;
   sentAtMs: number;

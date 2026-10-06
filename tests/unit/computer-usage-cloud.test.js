@@ -12,6 +12,7 @@ if(name==='@timeonchrome/app-runtime-contracts/computer-usage')return load('app-
 if(name==='@timeonchrome/app-runtime-contracts/shared-access')return load('app-runtime-management/contracts/shared-access.ts');
 if(name==='@timeonchrome/app-runtime-contracts/shared-web-sync')return load('app-runtime-management/contracts/shared-web-sync.ts');
 if(name==='./shared-access.js')return load('app-runtime-management/contracts/shared-access.ts');
+if(name.startsWith('@timeonchrome/app-runtime-contracts/'))return load('app-runtime-management/contracts/'+name.slice('@timeonchrome/app-runtime-contracts/'.length)+'.ts');
 const next=path.posix.normalize(path.posix.join(path.posix.dirname(file),name));
 return load(next.endsWith('.js')||next.endsWith('.ts')?next:next+'.ts');
 }});
@@ -24,18 +25,18 @@ assert.equal(schema.validateDeviceAccountRows([{kind:'daily_total'}],date).code,
 const app={key:'app:opaque',computerKey:'opaque-computer',computerName:'电脑',revision:'a1',associationVersion:'association1',correctionRevision:'ac1',settledAtMs:start+4000,complete:true,reasons:[],totalMs:2000,categoriesMs:{composite:2000},intervals:[{startMs:start+1500,endMs:start+3500,classification:'composite',subjectKey:'opaque-product',label:'办公应用',special:false}]};
 const fullPolicy=JSON.parse(JSON.stringify(loader()('app-runtime-management/contracts/shared-access.ts').projectLegacySharedAccessPolicy(
  {timeQuota:{daily:{friday:{studyMinutes:60,compositeMinutes:30,restMinutes:60}}}},7,0)));
-function fixture({owned=true,appFailure=false,webFailure=false,sharedStateFailure=false,policyChanges=false,policyContentChanges=false,failedDate,legacy=false,appError='private runtime failure',publicStats=[]}={}){
+function fixture({owned=true,appFailure=false,webFailure=false,sharedStateFailure=false,policyChanges=false,policyContentChanges=false,failedDate,legacy=false,appError='private runtime failure',publicStats=[],webDevices=[{id:'browser',device_name:'浏览器设备'}]}={}){
 let reads=0,heads=1,appReads=0;const store=new Map();
 let policyReads=0;
 const account={profileId:'child',deviceId:'browser',date,revision:1,statsHash:'hash',generatedAt:start+4000,committedAt:start+5000,complete:true,lossCount:0,rows:authorityRows};
 const db={
   prepare(sql){return {bind(...params){return {
-    async first(){if(sql.includes('FROM profiles'))return owned?{id:'child'}:null;if(sql.includes('SELECT manifest_id'))return legacy?null:{manifest_id:'m'+heads+'|'+params[2]};return {count:1,lastChange:heads};},
-    async all(){if(sql.includes('SELECT device_id,date'))return {results:[{device_id:'browser',date,manifest_id:'m'+heads}]};if(sql.includes('FROM devices'))return {results:[{id:'browser',device_name:'浏览器设备'}]};if(sql.includes('FROM target_stats_v1'))return {results:[{date,channel:'active',mode:'study',target_classification_at_time:'study',duration_seconds:5134,last_seen_at:start+5134000}]};if(sql.includes('FROM usage_segments_v1')){reads++;return {results:[{id:'private-segment',start_ms:start+1000,end_ms:start+4000,duration_seconds:3,domain:'learning.example',target_classification_at_time:'study'}]};}return {results:[]};}
+    async first(){if(sql.includes('FROM profiles'))return owned?{id:'child'}:null;if(sql.includes('SELECT manifest_id'))return legacy||webDevices.find(device=>device.id===params[1])?.empty?null:{manifest_id:'m'+heads+'|'+params[2]+'|'+params[1]};return {count:1,lastChange:heads};},
+    async all(){if(sql.includes('SELECT device_id,date'))return {results:[{device_id:'browser',date,manifest_id:'m'+heads}]};if(sql.includes('FROM devices'))return {results:webDevices};if(sql.includes('FROM target_stats_v1'))return {results:webDevices.find(device=>device.id===params[1])?.empty?[]:[{date,channel:'active',mode:'study',target_classification_at_time:'study',duration_seconds:5134,last_seen_at:start+5134000}]};if(sql.includes('FROM usage_segments_v1')){reads++;return {results:[{id:'private-segment',start_ms:start+1000,end_ms:start+4000,duration_seconds:3,domain:'learning.example',target_classification_at_time:'study'}]};}return {results:[]};}
   };}};},withSession(){return db;}
 };
-const load=loader({'./profileAccountsV2':{readManifestAccountV2:async(_db,manifest)=>{if(webFailure||manifest.split('|')[1]===failedDate)throw Error('private DB detail');return {...account,date:manifest.split('|')[1]||date,revision:heads};}},
-'./compositePageCorrections':{readCompositeCorrections:async()=>({revision:'c1',items:[]}),projectCompositeDailyRows:()=>account.rows.filter(row=>row.kind==='daily_target')},
+const load=loader({'./profileAccountsV2':{readManifestAccountV2:async(_db,manifest)=>{const device=webDevices.find(row=>row.id===manifest.split('|')[2]);if(webFailure||device?.failed||manifest.split('|')[1]===failedDate)throw Error('private DB detail');return {...account,date:manifest.split('|')[1]||date,deviceId:device?.id||'browser',revision:heads,complete:device?.complete??true,lossCount:device?.lossCount??0,rows:device?.zero?[]:authorityRows};}},
+'./compositePageCorrections':{readCompositeCorrections:async()=>({revision:'c1',items:[]}),projectCompositeDailyRows:current=>current.rows.filter(row=>row.kind==='daily_target')},
 './usageAccountingCorrections':{listUsageAccountingCorrections:async()=>[],applyCorrectionsToV1StatsRows:rows=>rows},
 '../db/middleware':{generateToken:async()=> 'test-internal',verifyAccountToken:async request=>request.headers.get('authorization')==='Bearer fixture'?'family':null,json:(body,status=200)=>Response.json(body,{status})},'../routes/stats':{statsRouter:{handle:async request=>Response.json({stats:new URL(request.url).pathname.includes('hourly')?publicStats.map(row=>({...row,hour:0})):publicStats})}},
 '../routes/profiles':{readSharedAccessPolicyForChild:async(_db,accountId,childId)=>{
@@ -87,6 +88,52 @@ assert.equal(combinedSeconds.sourceVersions.application,'native-seconds-r1');
 assert.equal(secondsFixture.reads(),0);assert.equal(secondsFixture.appReads(),0,'new summary does not call old application evidence');
 assert.equal(secondsCalls,1);
 assert.deepEqual(JSON.parse(JSON.stringify(await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date))),JSON.parse(JSON.stringify(combinedSeconds)));
+// Sanitized production shape: one valid Mac source and four empty registrations.
+const emptyRegistrations=[{id:'old-windows',device_name:'旧Windows',empty:true,status:'bound'},
+  ...[1,2,3].map(i=>({id:'unbound-'+i,device_name:'旧绑定'+i,empty:true,status:'unbound'}))];
+const dailySourcesFixture=fixture({webDevices:[{id:'browser',device_name:'当前Mac'},...emptyRegistrations]});
+dailySourcesFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage;
+const dailySourcesService=dailySourcesFixture.load('workers/src/services/computerUsage.ts');
+const dailySources=await dailySourcesService.readComputerWebEvidence(dailySourcesFixture.env,'family','child',date,date,false);
+assert.equal(dailySources.length,1,'empty registrations are not failed daily statistics sources');
+const dailySummary=await dailySourcesService.readComputerUsageStatisticsSummarySeconds(dailySourcesFixture.env,'family','child',date,date);
+assert.equal(dailySummary.sourceStatus.web,'complete');assert.equal(dailySummary.totals.web,3);
+assert.equal(dailySummary.totals.computer,combinedSeconds.totals.computer);
+assert.deepEqual(JSON.parse(JSON.stringify(dailySummary.categories)),JSON.parse(JSON.stringify(combinedSeconds.categories)));
+assert.equal(dailySummary.sourceVersions.web,combinedSeconds.sourceVersions.web,'empty registrations do not change authoritative source versions');
+assert.equal(dailySourcesFixture.reads(),0,'seconds display reads no raw segments');
+emptyRegistrations[0].empty=false;
+const laterSource=await dailySourcesService.readComputerWebStatisticsSeconds(dailySourcesFixture.env,'family','child',date,date);
+assert.equal(laterSource.totalDuration,6,'later uploaded statistics join the aggregate exactly once');
+assert.notEqual(laterSource.revision,dailySummary.sourceVersions.web,'newly present source invalidates the previous display version');
+emptyRegistrations[0].empty=true;
+for(const webDevices of [[],emptyRegistrations]){
+  const emptyFixture=fixture({webDevices}),emptyService=emptyFixture.load('workers/src/services/computerUsage.ts');
+  const empty=await emptyService.readComputerWebStatisticsSeconds(emptyFixture.env,'family','child',date,date);
+  assert.equal(empty.complete,false);assert.equal(empty.totalDuration,null);assert.equal(empty.availableTotalDuration,null,'no records never becomes a fabricated complete zero');
+}
+const zeroFixture=fixture({webDevices:[{id:'browser',device_name:'显式零清单',zero:true}]}),zeroService=zeroFixture.load('workers/src/services/computerUsage.ts');
+const zero=await zeroService.readComputerWebStatisticsSeconds(zeroFixture.env,'family','child',date,date);
+assert.equal(zero.complete,true);assert.equal(zero.totalDuration,0,'an actual complete zero manifest remains distinct from no records');
+assert.equal(zero.categories.length,0);
+for(const failure of [{complete:false},{lossCount:1},{failed:true}]){
+  const failedFixture=fixture({webDevices:[{id:'browser',device_name:'已上传来源'},
+    {id:'partial',device_name:'真实失败来源',...failure},...emptyRegistrations]});
+  const failedService=failedFixture.load('workers/src/services/computerUsage.ts');
+  const partial=await failedService.readComputerWebStatisticsSeconds(failedFixture.env,'family','child',date,date);
+  assert.equal(partial.complete,false);assert.equal(partial.totalDuration,null);assert.equal(partial.availableTotalDuration,failure.failed?3:6);
+}
+const readFailureFixture=fixture({webDevices:[{id:'browser',device_name:'已上传来源'},...emptyRegistrations]});
+const prepareBeforeFailure=readFailureFixture.env.DB.prepare;
+readFailureFixture.env.DB.prepare=sql=>{const statement=prepareBeforeFailure(sql);return {bind(...params){
+  const bound=statement.bind(...params);
+  if(sql.includes('FROM target_stats_v1')&&params[1]==='old-windows')return {...bound,all:async()=>{throw Error('query failure');}};
+  return bound;
+}};};
+const readFailure=await readFailureFixture.load('workers/src/services/computerUsage.ts').readComputerWebStatisticsSeconds(readFailureFixture.env,'family','child',date,date);
+assert.equal(readFailure.complete,false);assert.equal(readFailure.availableTotalDuration,3,'a failed read is not treated as an empty registration');
+const unboundFixture=fixture({webDevices:[{id:'browser',device_name:'有历史统计的解绑来源',status:'unbound'}]}),unboundService=unboundFixture.load('workers/src/services/computerUsage.ts');
+assert.equal((await unboundService.readComputerWebStatisticsSeconds(unboundFixture.env,'family','child',date,date)).totalDuration,3,'unbinding never removes recorded historical usage');
 const route=secondsFixture.load('workers/src/routes/computerUsage.ts').handleComputerUsage;
 const requestSeconds=(extra={},authorized=true)=>new Request('https://fixture/computer-usage?'+new URLSearchParams({from:date,to:date,durationUnit:'seconds',...extra}),{headers:authorized?{authorization:'Bearer fixture'}:{}});
 const publicSecondsResponse=await route(requestSeconds(),secondsFixture.env,'child');
@@ -207,7 +254,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(cachedSummary.totals)),JSON.parse(JSO
 assert.equal(cachedSummary.revision,result.revision);assert.equal(cachedSummary.timeline.length,0);assert.equal(cachedSummary.products.length,0);
 assert.equal(f.reads(),firstReads);assert.equal(f.appReads(),1,'summary/details cache hits never reload application evidence');
 const summaryKeys=[...f.store.keys()].filter(key=>key.endsWith(':summary'));assert.equal(summaryKeys.length,1);
-assert.ok(summaryKeys[0].startsWith('computer-projection-v5:'),'the Child projection invalidates cached physical-computer generations');
+assert.ok(summaryKeys[0].startsWith('computer-projection-v6:'),'the source-scope fix invalidates previous unavailable-source cache generations');
 assert.equal(JSON.parse(f.store.get(summaryKeys[0])).timeline.length,0,'summary KV generation is small and separate from details');
 f.change();const updated=await service.readComputerUsage(f.env,'account','child',date,date);assert.notEqual(updated.revision,result.revision);assert.ok(f.reads()>firstReads);
 const selected=await service.readComputerUsage(f.env,'account','child',date,date,'opaque-computer');assert.equal(selected.totals.applicationMs,2000);assert.equal(selected.devices.length,1);

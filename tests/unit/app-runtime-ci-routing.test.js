@@ -81,6 +81,13 @@ assert.equal(classifyPaths(['.github/workflows/app-runtime-production.yml']).nat
 assert.equal(classifyPaths(['.github/workflows/app-runtime.yml']).native_artifact, false);
 assert(workflow.includes('run: node tools/classify-app-runtime-ci-changes.js --verify-gate'));
 const production=fs.readFileSync(path.join(root,'.github/workflows/app-runtime-production.yml'),'utf8');
+const guardianIntegration=fs.readFileSync(path.join(root,'.github/workflows/app-runtime-guardian-integration.yml'),'utf8');
+assert.equal(guardianIntegration.split("- 'workers/src/services/sourceStatistics.ts'").length-1,2,
+  'source reader changes must trigger the existing Guardian job for both PR and master');
+assert.equal(guardianIntegration.split("- 'tests/unit/source-statistics-cloud.test.js'").length-1,2,
+  'source regression changes must trigger the existing Guardian job');
+assert(guardianIntegration.includes('run: node tests/unit/source-statistics-cloud.test.js'),
+  'the existing Guardian job must execute the actual source reader regression');
 assert(production.includes('cmp pages/computer-usage-view.js "$RUNNER_TEMP/main-console-computer-usage-view.js"'),
   'existing Pages smoke must compare the real statistics renderer, not only HTML status');
 

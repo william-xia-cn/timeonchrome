@@ -69,7 +69,8 @@ it('advertises shared contribution upload only to an authenticated machine with 
   expect(unauthenticated.status).toBe(401);
   const response=await exports.default.fetch(new Request(url,{headers:{authorization:`Bearer ${f.token}`}}));
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({protocol:'application-shared-quota-v1',schemaVersion:1,enabled:true});
+  expect(await response.json()).toEqual({protocol:'application-shared-quota-v1',schemaVersion:1,enabled:true,
+    capabilities:['source-statistics-read-v1']});
   const oldSchema={prepare(){return {bind(){return {all:async()=>({results:[]})};}};}} as unknown as D1Database;
   expect(await applicationSharedQuotaUploadReady(oldSchema)).toBe(false);
 });
