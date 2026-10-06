@@ -10,7 +10,8 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.38.0');
+assert.equal(pkg.version, '1.39.1');
+assert(pkg.exports['./source-statistics']);
 assert(pkg.exports['./application-ledger'], '固定孩子原账契约必须独立导出');
 const applicationLedger = JSON.parse(fs.readFileSync(path.join(root, 'application-ledger-v3.schema.json'), 'utf8'));
 assert.equal(applicationLedger.properties.schemaVersion.const, 3);
@@ -133,7 +134,10 @@ assert.deepEqual(nativeHostV3.properties.messageType.enum,
   ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getApplicationUsageSeconds', 'getSharedQuotaState', 'reportReminderResult',
     'getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution',
     'getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution',
-    'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'replaceSharedWebContributionV2']);
+    'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'replaceSharedWebContributionV2', 'exchangeSourceStatistics']);
+assert(nativeHostV3.allOf.find(rule => rule.if?.properties?.channel?.const === 'sharedQuota').then.allOf.some(
+  rule => rule.if?.properties?.messageType?.const === 'exchangeSourceStatistics'
+    && rule.then.properties.payload.$ref === 'source-statistics-v1.schema.json#/$defs/exchange'));
 const reusableSchema=JSON.parse(fs.readFileSync(path.join(root,'shared-web-sync-v2.schema.json'),'utf8'));
 assert.equal(reusableSchema.$defs.webClaims.additionalProperties,false);
 assert(!reusableSchema.$defs.webClaims.properties.connectionHash);
