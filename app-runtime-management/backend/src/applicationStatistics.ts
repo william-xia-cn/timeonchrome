@@ -4,6 +4,7 @@ import type { ApplicationClassification, RuntimePlatform } from './contracts';
 import { HttpError } from './http';
 import { selectNativeApplicationStatistics } from './applicationStatisticsNative';
 import type { UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
+import { readApplicationLedgerRetirement } from './applicationLedgerRetirement';
 
 const DAY = 86400000, OFFSET = 8 * 3600000, ROW_LIMIT = 10000;
 type Filters = Parameters<typeof queryAppUsage>[5];
@@ -118,6 +119,7 @@ function enqueueStatement(db:D1Database,s:Scope,now:number) {
 /** Included in the publication transaction: default Child day plus existing affected scopes. */
 export async function applicationPublicationDirtyStatements(db:D1Database,candidate:{id:string;account_id:string;child_id:string;date:string;
   machine_id:string;local_user_id:string},now:number) {
+  if(await readApplicationLedgerRetirement(db,candidate.account_id))return [];
   const from=Date.parse(`${candidate.date}T00:00:00+08:00`);
   const defaultScope=await hashUsageAccountValue([candidate.account_id,candidate.child_id,
     {machineId:null,localUserId:null,platform:null},0,DAY]);
@@ -144,6 +146,10 @@ export async function rebuildApplicationStatistics(db:D1Database,now=Date.now(),
     .bind(now,scopeKey??null,preferredDate??null).all<Scope>();
   let built=0;
   for(const s of work.results)try {
+    if(await readApplicationLedgerRetirement(db,s.account_id)){
+      await db.prepare('DELETE FROM runtime_application_statistics_queue_v1 WHERE scope_key=?1 AND date=?2').bind(s.scope_key,s.date).run();
+      continue;
+    }
     const filters:Filters=JSON.parse(s.filters_json);
     const before=await applicationStatisticsSource(db,s.account_id,s.child_id,s.from_ms,s.to_ms,filters);
     if(before.rawRows>ROW_LIMIT)throw new HttpError(503,'APPLICATION_STATISTICS_ROW_LIMIT','该日期记录超过后台单批限制。');
@@ -203,6 +209,7 @@ function quota(durations:number[],minutes:number|null):Quota {
 /** Caller verifies Child ownership. Does not calculate totals from raw facts. */
 export async function readPersistentApplicationUsage(db:D1Database,account:string,child:string,from:number,to:number,filters:Filters,
   defer?:(work:Promise<unknown>)=>void,now=Date.now()) {
+  if(await readApplicationLedgerRetirement(db,account))throw new HttpError(409,'APPLICATION_V3_RECORDS_NOT_AVAILABLE','无新版应用记录；旧应用统计已退出。');
   if(!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||to<=from||to-from>31*DAY)
     throw new HttpError(400,'INVALID_RANGE','统计日期范围无效。');
   const weekStart=midnight(from)-((new Date(from+OFFSET).getUTCDay()+6)%7)*DAY;

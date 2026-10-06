@@ -9,6 +9,7 @@ import { commitUninstallOperation, readUninstallReceipt } from './uninstallOpera
 import { machineUsageCorrections } from './applicationUsageCorrections';
 import { readPersistentApplicationUsage } from './applicationStatistics';
 import { readNativeApplicationStatisticsRangeSeconds } from './applicationStatisticsNative';
+import { requireApplicationLegacyEnabled, readApplicationLedgerRetirement } from './applicationLedgerRetirement';
 import { getApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
   putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
   applyKnowledgeOperation } from './applicationKnowledge';
@@ -331,11 +332,25 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       const durationUnit=url.searchParams.get('durationUnit');
       if(durationUnit!==null&&durationUnit!=='seconds'&&durationUnit!=='milliseconds')
         throw new HttpError(400,'INVALID_DURATION_UNIT','统计单位无效。');
-      if(durationUnit==='seconds')return jsonResponse(await readNativeApplicationStatisticsRangeSeconds(
+      if(durationUnit==='seconds'||await readApplicationLedgerRetirement(env.RUNTIME_DB,claims.account_id)){
+        const seconds=await readNativeApplicationStatisticsRangeSeconds(
         env.RUNTIME_DB,claims.account_id,childId,range.fromMs,range.toMs,{
           machineId:url.searchParams.get('machineId')||undefined,
           localUserId:url.searchParams.get('userId')||undefined,platform:platform||undefined,
-        }));
+        });
+        if(durationUnit==='seconds')return jsonResponse(seconds);
+        // 旧响应单位仅投影新秒统计，不读取或持久化旧账。
+        const ms=(value:number|null)=>value===null?null:value*1000;
+        return jsonResponse({durationUnit:'milliseconds',complete:seconds.complete,
+          totalDurationMs:ms(seconds.totalDuration),availableTotalDurationMs:ms(seconds.availableTotalDuration),
+          categories:seconds.categories.map(row=>({classification:row.category,durationMs:ms(row.duration)})),
+          applications:seconds.products.map(row=>({runtimeIdentity:row.subjectKey,displayName:row.displayName,
+            classifications:row.classifications,durationMs:ms(row.duration)})),
+          buckets:seconds.days.flatMap(day=>day.hours.filter(row=>row.kind==='total').map(row=>({
+            startAtMs:Date.parse(`${day.date}T00:00:00+08:00`)+row.hour!*3600000,durationMs:ms(row.duration)}))),
+          days:seconds.days,statistics:{producer:'native',revision:seconds.revision,stale:!seconds.complete,
+            missingDates:seconds.days.filter(day=>!day.complete).map(day=>day.date)}});
+      }
       const result=await readPersistentApplicationUsage(env.RUNTIME_DB, claims.account_id, childId,
         range.fromMs, range.toMs, {
           machineId: url.searchParams.get('machineId') || undefined,
@@ -726,6 +741,7 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
   }
   if (url.pathname === '/v2/segments:upload') {
     if (request.method !== 'POST') return methodNotAllowed('POST');
+    await requireApplicationLegacyEnabled(env.RUNTIME_DB,machine.accountId);
     const parsed = parseMachineUpload(await readJsonBody(request), machine.platform);
     const legacy = await persistMachineSegments(env.RUNTIME_DB, machine, parsed.envelopes, nowMs);
     const accounting = await persistAccountingUsageSegments(

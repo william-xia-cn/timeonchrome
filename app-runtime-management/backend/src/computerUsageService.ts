@@ -9,6 +9,7 @@ import { loadUsageCorrections } from './applicationUsageCorrections';
 import { CHROME_DISPLAY_RULES } from './specialApplications';
 import { readApplicationSharedQuotaContributions } from './applicationSharedQuota';
 import { verifySharedWebSourceAssignment, verifySharedWebSourceScope } from './sharedWebSourceBinding';
+import { readApplicationLedgerRetirement } from './applicationLedgerRetirement';
 
 /** Capability-bound entrypoint; this is never exposed by the public fetch router. */
 export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
@@ -61,9 +62,10 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)||!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to-86400000+8*3600000).toISOString().slice(0,10)!==toDate)throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
     const seconds=await readNativeApplicationStatisticsRangeSeconds(this.env.RUNTIME_DB,accountId,childId,from,to);
-    if(seconds.availableTotalDuration!==null||secondsOnly){
+    if(seconds.availableTotalDuration!==null||secondsOnly||await readApplicationLedgerRetirement(this.env.RUNTIME_DB,accountId)){
       const snapshot={source:'application',fromDate,toDate,durationUnit:'seconds',
       complete:seconds.complete,totalDuration:seconds.totalDuration,availableTotalDuration:seconds.availableTotalDuration,
+      days:seconds.days,
       applicationUsage:seconds.applicationUsage,
       categories:seconds.categories.map(row=>({classification:row.category,duration:row.duration})),
       applications:seconds.products.map(row=>({displayName:row.displayName,duration:row.duration,classifications:row.classifications})),
@@ -78,7 +80,7 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       // rebuilding the ledger or keeping a second persisted statistics model.
       const milliseconds=(duration:number|null)=>duration===null?null:duration*1000;
       return {source:'application',fromDate,toDate,durationUnit:'milliseconds',
-        complete:snapshot.complete,totalDurationMs:milliseconds(snapshot.totalDuration),
+        complete:snapshot.complete,days:snapshot.days,totalDurationMs:milliseconds(snapshot.totalDuration),
         availableTotalDurationMs:milliseconds(snapshot.availableTotalDuration),statistics:snapshot.statistics,
         categories:snapshot.categories.map(({classification,duration})=>({classification,durationMs:milliseconds(duration)})),
         applications:snapshot.applications.map(({displayName,classifications,duration})=>({displayName,classifications,
@@ -101,6 +103,12 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
   }
   async applicationEvidenceRevision(accountId:string,childId:string,fromDate:string,toDate:string) {
     await this.requireChildScope(accountId,childId);
+    const retirement=await readApplicationLedgerRetirement(this.env.RUNTIME_DB,accountId);
+    if(retirement){
+      const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
+      const current=await readNativeApplicationStatisticsRangeSeconds(this.env.RUNTIME_DB,accountId,childId,from,to);
+      return sha256Hex(JSON.stringify({model:'application-v3-only',retiredAtMs:retirement.retired_at_ms,revision:current.revision}));
+    }
     const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)||!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to-86400000+8*3600000).toISOString().slice(0,10)!==toDate)throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');

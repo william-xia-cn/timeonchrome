@@ -14,6 +14,16 @@ const readableSnapshot=await withComputerUsageRevision(mergeComputerUsage(readab
 const partialSnapshot=await withComputerUsageRevision(mergeComputerUsage({...readableBundle,applications:[...readableBundle.applications,{...base,key:'mock-legacy-unavailable',computerKey:null,computerName:'不可读旧版来源',complete:false,statisticsComplete:false,historyQuality:'bestEffort',reasons:['LEGACY_APPLICATION_SOURCE_UNAVAILABLE'],associationVersion:'missing',totalMs:null,categoriesMs:{},intervals:[]}]}));
 const server=http.createServer(async(req,res)=>{
 const url=new URL(req.url,'http://127.0.0.1');
+if(url.pathname==='/mock-v3-application'){
+const current=url.searchParams.has('current');
+const fixture={source:'application',durationUnit:'seconds',fromDate:'2026-10-07',toDate:'2026-10-07',
+  complete:current,totalDuration:current?51:null,availableTotalDuration:current?51:null,
+  days:[{date:'2026-10-07',reasonCodes:current?[]:['APPLICATION_V3_RECORDS_NOT_AVAILABLE']}],
+  categories:current?[{classification:'study',duration:51}]:[],buckets:[],applications:current?[{displayName:'演示应用',classifications:['study'],duration:51}]:[],
+  statistics:{producer:'native',stale:!current,computedAtMs:day,missingDates:current?[]:['2026-10-07']}};
+res.setHeader('Content-Type','text/html; charset=utf-8');
+res.end('<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app-runtime-management/console/app-runtime.css"><link rel="stylesheet" href="/app-runtime-management/console/app-runtime-v2.css"><title>隔离新版应用统计</title></head><body><main class="computer-view" id="fixture"></main><script src="/app-runtime-management/console/computer-usage-view.js"></script><script>document.getElementById("fixture").innerHTML=ComputerUsageView.independentSummary('+JSON.stringify(fixture)+');</script></body></html>');return;
+}
 if(url.pathname.startsWith('/runtime-management-component/')){
 const name=url.pathname.slice('/runtime-management-component/'.length);
 if(!/^[a-z0-9-]+\.(js|css|json)$/.test(name)){res.writeHead(404);res.end();return;}

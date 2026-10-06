@@ -7,6 +7,8 @@ import { readCoveredChromeDeduction } from './applicationSharedQuota';
 import { HttpError } from './http';
 import { isConfirmedSpecialApplication, CHROME_DISPLAY_VERSION } from './specialApplications';
 import { effectiveApplicationKnowledge } from './applicationKnowledge';
+import { readApplicationLedgerRetirement } from './applicationLedgerRetirement';
+import { readNativeApplicationStatisticsRangeSeconds } from './applicationStatisticsNative';
 
 const MAX_EVIDENCE = 10000;
 type Usage = { totalDurationMs: number; categories: Array<{classification:string;durationMs:number}> };
@@ -28,6 +30,31 @@ export async function readComputerApplicationEvidence(db: D1Database, accountId:
   fromDate: string, toDate: string, defer?:(work:Promise<unknown>)=>void): Promise<ComputerApplicationSource[]> {
   const fromMs = Date.parse(`${fromDate}T00:00:00+08:00`);
   const toMs = Date.parse(`${toDate}T00:00:00+08:00`) + 86400000;
+  if(await readApplicationLedgerRetirement(db,accountId)){
+    const machines=await db.prepare(`SELECT DISTINCT m.id,m.display_name FROM runtime_machines_v2 m
+      JOIN runtime_application_account_publications_v1 p ON p.machine_id=m.id
+      WHERE m.account_id=?1 AND p.account_id=?1 AND p.child_id=?2 AND p.date>=?3 AND p.date<=?4
+      ORDER BY m.id LIMIT 101`).bind(accountId,childId,fromDate,toDate).all<{id:string;display_name:string|null}>();
+    if(machines.results.length>100)throw new HttpError(422,'COMPUTER_USAGE_SOURCE_LIMIT','电脑来源过多。');
+    const policy=await getAppPolicy(db,accountId,childId);
+    const sources:ComputerApplicationSource[]=[];
+    for(const machine of machines.results){
+      const snapshot=await readNativeApplicationStatisticsRangeSeconds(db,accountId,childId,fromMs,toMs,{machineId:machine.id});
+      if(snapshot.availableTotalDuration===null)continue;
+      const computerKey=await sha256Hex(`${accountId}\ncomputer\n${machine.id}`);
+      const dates=snapshot.days.filter(day=>day.totalDuration!==null);
+      sources.push({key:`app:${computerKey}`,computerKey,computerName:machine.display_name||'电脑',
+        revision:snapshot.revision,associationVersion:policy.productIdentityProjection?.version??'unavailable',
+        correctionRevision:snapshot.revision,settledAtMs:dates.length&&dates.every(day=>day.settledThroughMs!==null)
+          ?Math.min(...dates.map(day=>day.settledThroughMs!)):null,
+        complete:false,statisticsComplete:snapshot.complete,reasons:['APPLICATION_TIMELINE_NOT_AVAILABLE',
+          ...new Set(snapshot.days.flatMap(day=>day.reasonCodes))],totalMs:snapshot.availableTotalDuration*1000,
+        categoriesMs:Object.fromEntries(snapshot.categories.map(row=>[row.category!,row.duration*1000])),
+        chromeIncludedInApplicationMs:snapshot.applicationUsage
+          ?(snapshot.availableTotalDuration-snapshot.applicationUsage.nonSpecialTotal)*1000:null,intervals:[]});
+    }
+    return sources;
+  }
   const machines = await db.prepare(`SELECT DISTINCT m.id,m.display_name FROM runtime_machines_v2 m
     WHERE m.account_id=?1 AND (m.default_child_id=?2 OR EXISTS (SELECT 1 FROM runtime_usage_segments_v2 s
       WHERE s.machine_id=m.id AND s.child_id=?2 AND COALESCE(s.start_wall_time_ms,s.start_at_ms)<?4

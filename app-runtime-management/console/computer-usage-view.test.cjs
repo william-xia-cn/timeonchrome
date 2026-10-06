@@ -43,6 +43,10 @@ assert.ok(view.independentSummary(appSnapshot).includes('Service 已发布持久
 assert.ok(view.independentSummary(appSnapshot).includes('结算截止'));
 assert.ok(view.independentSummary(appSnapshot).includes('更新中，保留已有有效读数'));
 assert.ok(view.independentSummary({...appSnapshot,statistics:{producer:'legacy-server'}}).includes('非最新 Service 统计'));
+const noNew=view.independentSummary({...appSnapshot,durationUnit:'seconds',complete:false,totalDuration:null,
+  availableTotalDuration:null,categories:[],applications:[],days:[{date:'2026-10-01',reasonCodes:['APPLICATION_V3_RECORDS_NOT_AVAILABLE']}]});
+assert.ok(noNew.includes('无新版应用记录：2026-10-01'));assert.ok(noNew.includes('空白不代表零用量'));
+assert.ok(noNew.includes('尚无已发布记录'));assert.ok(!noNew.includes('部分统计可用'));
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 const pending=deferred(),events={},host={innerHTML:'',classList:{add(){}},addEventListener(name,fn){events[name]=fn;},querySelector(){return null;}};
 const reader=view.create(host,()=>pending.promise);const work=reader.load();reader.invalidate();pending.resolve(snapshot);

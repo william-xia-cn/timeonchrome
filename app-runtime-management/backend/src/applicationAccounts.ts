@@ -6,6 +6,7 @@ import type { MachineSelfResponse } from './contracts';
 import { HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http';
 import { isRecord } from './validation';
 import { publishApplicationAccounts } from './applicationAccountPublication';
+import { requireCurrentApplicationManifest, retiredApplicationRevision, readApplicationLedgerRetirement, V3_ONLY_ALGORITHMS } from './applicationLedgerRetirement';
 
 const prefix = '/v2/machines/application-accounts/manifests';
 const categories = new Set(['study','composite','restrictedEntertainment','unclassified','other','blocked','historicalUnknown']);
@@ -43,6 +44,7 @@ async function load(db: D1Database, machine: MachineSelfResponse, id: string): P
     WHERE m.id=?1 AND m.machine_id=?2 AND m.account_id=?3`)
     .bind(id, machine.machineId, machine.accountId).first<StoredManifest>();
   if (!stored) fail(404, 'APPLICATION_ACCOUNT_NOT_FOUND');
+  await requireCurrentApplicationManifest(db,machine.accountId,stored.child_id,JSON.parse(stored.manifest_json));
   return stored;
 }
 export async function beginApplicationAccount(db: D1Database, machine: MachineSelfResponse, value: unknown, now: number) {
@@ -59,6 +61,10 @@ export async function beginApplicationAccount(db: D1Database, machine: MachineSe
   if (!assignment) fail(403, 'APPLICATION_ACCOUNT_ASSIGNMENT_UNAVAILABLE');
   if (manifest.schemaVersion === 2 && manifest.childId !== undefined && manifest.childId !== assignment.child_id)
     fail(403, 'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH');
+  const retirement=await requireCurrentApplicationManifest(db,machine.accountId,assignment.child_id,manifest);
+  if(retirement&&manifest.revision<=retiredApplicationRevision(retirement,{machineId:machine.machineId,
+    localUserId:v.localUserId,assignmentVersion:v.assignmentVersion,date:manifest.date}))
+    fail(409,'APPLICATION_ACCOUNT_STALE_REVISION');
   const id = 'aa1_' + await hashUsageAccountValue([machine.machineId, v.localUserId, v.assignmentVersion, manifest.date, manifest.revision]);
   const scope = [machine.machineId, v.localUserId, v.assignmentVersion, manifest.date];
   // 条件 INSERT 保证并发新水位不能被旧的开始请求绕过；同版本只允许相同 hash。
@@ -142,9 +148,10 @@ export async function routeApplicationAccounts(request: Request, db: D1Database,
         'runtime_application_account_publication_checks_v1','runtime_application_statistics_days_v1','runtime_application_statistics_queue_v1'];
       const result=await db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN (${tables.map((_,i)=>`?${i+1}`).join(',')})`)
         .bind(...tables).all();
+      const retirement=await readApplicationLedgerRetirement(db,machine.accountId);
       return jsonResponse({protocol:'usage-account-v1',schemaVersion:1,enabled:result.results.length===tables.length,
-        chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,acceptedAlgorithms:[...Object.values(applicationAccountAlgorithms),
-          applicationAccountAlgorithm('windows',2),applicationAccountAlgorithm('macos',2)],
+        chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,acceptedAlgorithms:retirement?[...V3_ONLY_ALGORITHMS]:[...Object.values(applicationAccountAlgorithms),
+          applicationAccountAlgorithm('windows',2),applicationAccountAlgorithm('macos',2),...V3_ONLY_ALGORITHMS],
         capabilities:['application-usage-projection-v1','application-statistics-seconds-v2',APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY]});
     }
     if (path === prefix) return request.method === 'POST'

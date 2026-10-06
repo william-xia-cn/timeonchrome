@@ -5,6 +5,7 @@ import type { MachineSelfResponse } from './contracts';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { isRecord } from './validation';
+import { requireApplicationLegacyEnabled } from './applicationLedgerRetirement';
 
 const validInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 const keys = (value: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []) =>
@@ -99,6 +100,7 @@ export const applicationSharedQuotaSourceKey=(machineId:string,localUserId:strin
 /** Durable receipt only. A separate source validator must publish a usable shared state. */
 export async function receiveApplicationSharedQuota(db: D1Database, machine: MachineSelfResponse,
   value: unknown, nowMs: number) {
+  await requireApplicationLegacyEnabled(db,machine.accountId);
   const upload = parseApplicationSharedQuotaUpload(value);
   const assignment = await db.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
     JOIN runtime_machines_v2 m ON m.id=a.machine_id

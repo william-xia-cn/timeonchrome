@@ -4,6 +4,7 @@ import {HttpError} from './http';
 import type {StatisticsValue} from './applicationStatistics';
 import { normalizeApplicationUsageClock } from './applicationUsageClock';
 import { verifyApplicationAccountPublication,isReadableApplicationAccountSnapshot } from './applicationAccountPublication';
+import { readApplicationLedgerRetirement, isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
 type Filters={machineId?:string;localUserId?:string;platform?:string};
 const DAY=86400000,OFFSET=8*3600000;
 function mergeApplicationUsage(values:Array<ApplicationUsageSeconds|undefined|null>):ApplicationUsageSeconds|null {
@@ -20,6 +21,7 @@ function mergeApplicationUsage(values:Array<ApplicationUsageSeconds|undefined|nu
 }
 /** 持久化来源统计读取；不加载原账，不调用云端统计重算器。 */
 export async function readNativeApplicationStatisticsSeconds(db:D1Database,account:string,child:string,date:string,filters:Filters={}) {
+  const retirement=await readApplicationLedgerRetirement(db,account);
   const heads=await db.prepare(`SELECT p.manifest_id,p.revision,p.machine_id,p.local_user_id,p.assignment_version,
       snapshot.manifest_json,snapshot.manifest_hash FROM runtime_application_account_publications_v1 p
     JOIN runtime_application_account_manifests_v1 snapshot ON snapshot.id=p.manifest_id
@@ -42,11 +44,12 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
   const applicationUsage:Array<ApplicationUsageSeconds|undefined>=[];
   for(const head of heads.results){
     const value=JSON.parse(head.manifest_json);
+    if(retirement&&!isV3OnlyApplicationManifest(value,child))continue;
     if(value.schemaVersion!==2){legacySourceCount++;continue;}
     const manifest=await verifyUsageAccountManifestV2(value);
     if(manifest.childId!==undefined&&manifest.childId!==child)
       throw new HttpError(503,'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH','统计清单孩子与读取范围不一致。');
-    if(!isReadableApplicationAccountSnapshot(manifest)||manifest.date!==date||manifest.sourceKind!=='application'
+    if((retirement?!manifest.complete:!isReadableApplicationAccountSnapshot(manifest))||manifest.date!==date||manifest.sourceKind!=='application'
       ||manifest.revision!==head.revision||manifest.manifestHash!==head.manifest_hash)
       throw new HttpError(503,'APPLICATION_STATISTICS_INVALID_PUBLICATION','已发布统计范围无效。');
     const chunks=await db.prepare(`SELECT chunk_index,rows_json FROM runtime_application_account_chunks_v1
@@ -80,6 +83,7 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
 /** 日／周统计只归集来源秒统计；缺日期不等于零，余额由独立配额模块计算。 */
 export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,account:string,child:string,
   fromMs:number,toMs:number,filters:Filters={}) {
+  const retirement=await readApplicationLedgerRetirement(db,account);
   if(!Number.isSafeInteger(fromMs)||!Number.isSafeInteger(toMs)||fromMs<0||toMs<=fromMs
     ||(fromMs+OFFSET)%DAY!==0||(toMs+OFFSET)%DAY!==0||toMs-fromMs>7*DAY)
     throw new HttpError(400,'INVALID_RANGE','秒统计仅支持最多七个北京时间完整日期。');
@@ -107,7 +111,7 @@ export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,
     availableTotalDuration:availableTotal,
     categories:rows.filter(row=>row.kind==='category'),products:rows.filter(row=>row.kind==='subject'),
     days:days.map(({date,snapshot})=>({date,complete:snapshot?.complete===true,
-      reasonCodes:!snapshot?['APPLICATION_STATISTICS_NOT_AVAILABLE']:
+      reasonCodes:!snapshot?[retirement?'APPLICATION_V3_RECORDS_NOT_AVAILABLE':'APPLICATION_STATISTICS_NOT_AVAILABLE']:
         [...new Set([...snapshot.reasonCodes,...(snapshot.legacySourceCount>0?['LEGACY_STATISTICS_UNIT']:[])])].sort(),
       totalDuration:snapshot?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration??null,
       hours:snapshot?.rows.filter(row=>row.hour!==null)??[],
