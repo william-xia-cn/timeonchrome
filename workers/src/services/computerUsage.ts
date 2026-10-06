@@ -74,7 +74,11 @@ export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:str
       const targetRows=target.results??[];
       const domain=targetRows.length?null:await env.DB.prepare('SELECT * FROM stats_v1 WHERE profile_id=? AND device_id=? AND date=? ORDER BY domain,channel,mode').bind(childId,device.id,date).all<Record<string,unknown>>();
       const raw=targetRows.length?targetRows:domain?.results??[];
-      if(!raw.length){sources.push({...base,reasons:['WEB_ACCOUNT_UNAVAILABLE']});continue;}
+      // Registration is not a daily statistics source. A successful empty read
+      // contributes no source (not a synthetic zero or an unavailable account).
+      // Existing manifests, legacy rows and actual read failures remain visible,
+      // including historical statistics from devices that have since unbound.
+      if(!raw.length)continue;
       const changes=await listUsageAccountingCorrections(env,childId,{from:date,to:date,deviceId:device.id});
       const corrected=applyCorrectionsToV1StatsRows(raw,changes,targetRows.length?'daily_target':'daily_domain').filter(row=>row.channel==='active');
       const categoriesMs:Record<string,number>={};
@@ -182,13 +186,13 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
       env.RUNTIME_COMPUTER_USAGE?readRuntime<string>(env,'applicationEvidenceRevision',accountId,childId,from,to):Promise.resolve(undefined),
     ]);
     if((heads.results?.length??0)>700)throw new Error('COMPUTER_USAGE_SOURCE_LIMIT');
-    return sha(JSON.stringify({model:'computer-projection-v5',heads:heads.results,evidence,corrections,application}));
+    return sha(JSON.stringify({model:'computer-projection-v6',heads:heads.results,evidence,corrections,application}));
   };
   let version:string|null=null;
   // Keep the former optional machine selector for wire compatibility, but this
   // projection is now always the whole Child aggregate.
   const scopeKey=await sha(JSON.stringify([accountId,childId,from,to]));
-  const cacheKey=(kind:'summary'|'details')=>`computer-projection-v5:${scopeKey}:${version}:${kind}`;
+  const cacheKey=(kind:'summary'|'details')=>`computer-projection-v6:${scopeKey}:${version}:${kind}`;
   try {
     version=await fingerprint();
     const cached=await env.CONFIG_CACHE.get<ComputerUsageResult>(cacheKey(summaryOnly?'summary':'details'),'json');
