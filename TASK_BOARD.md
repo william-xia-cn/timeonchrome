@@ -1,5 +1,16 @@
 # TASK_BOARD
 
+## 2026-10-07 Mac优先接续（安装与应用链路局部通过，诊断源码待实机）
+
+- PO要求优先Mac。本轮职责为architecture-integration／standard-cloud只读核对与现有任务协调；不修改Native／控件、不新建分支或工作树、不安装部署、不启共享。最小检查为固定提交证据、实际页面响应、调用链及`git diff --check`，不跑无关产品测试。
+- **最新依据覆盖下方早期“待领取／安装未核实”状态：** 独立回读Native固定`e6f43cffd52949878394307f41894ef159bbf762`的Mac安装验收文档及脱敏JSON。Mac实际0.1.39，生产源码`6542050469f56deef19539c3d8cec786bc9c7ee2`、契约1.38.0；自然纯v3事实→冻结清单→精确ACK/发布→Manager秒读取已通过一次实机核对。登录后两套云端应用页面同已发布快照的秒量、分类及截止一致。不能据此声称所有历史、最新本机head或共享通过。
+- **当前云端复验：** 已登录Runtime正常切换Mac目标孩子、当日；电脑汇总真实HTTP200、schemaVersion=2、seconds，`sourceStatus.application=complete`、`sourceStatus.web=partial`，唯一原因`WEB_STATISTICS_PARTIAL`。随后真实`/v2/module/app-usage` HTTP200、seconds、complete=true、当日原因为空；该响应revision与电脑汇总的application来源revision逐字一致，固定已发布快照没有混用。有效两侧数值及分类保留，完整电脑总量未伪造。此结果不是应用v3上传失败；不要求重新安装或清队列。
+- **父清单映射审查：** `applicationStatisticsNative.ts`日读取确实保留父清单revision/hash/cutoff，范围读取只把它们hash为视图revision并返回日期截止；`computerUsageService.ts`及两套页面没有完整父清单引用。视图revision与Native父revision语义不同，不要求相等，也不把更晚本机pending head与更早页面发布截止强行比较。缺少显式映射属于精确取证展示缺口，不能升级为统计可用前提。
+- **网页状态审查：** `readComputerWebEvidence`按孩子登记的网页设备×日期读取，缺head且无兼容权威统计、清单不完整/lossCount、来源切换或读取异常都可能使`readComputerWebStatisticsSeconds.complete=false`。秒汇总只保留总体`WEB_STATISTICS_PARTIAL`，未返回每来源原因/截止；目前无法仅凭这一总码认定扩展丢账或云端投影错误。必须补实际来源范围证据，不按名称关联电脑，不把缺量填零，不修改网页记账。
+- **Mac诊断修复：** 独立回读`1414a22b32624d71e13ae972ccecb49184cd74f3`，已修可确定性复现的status策略上下文刷新竞争（最多重读一次）及历史失败误归为当前能力拒绝。所属端报告Portable31／Swift26及编译通过；实际仍0.1.39，尚未签名安装这些修复，不能声称现场18次中2次失败根因全部确定或已消失。留待一次最终候选统一实机，不重复安装。
+- **标准交接：** 经已有TimeWhere Native Host协调原`MAC-V3-ONLY-INTEGRATION-20261007`，API范围证据补充已送达[Issue #12评论6024912489](https://github.com/william-xia-cn/TimeWhereNative/issues/12#issuecomment-6024912489)，固定Native文档`c4f4e22b1f85137c7980015e414df2862ea3b33d`；本补充实际领取/完成待回执。原任务此前领取6023519643；诊断修复回报6024565923已核对，不再让Mac重复开发已修路径。
+- **收口判断：** Matched＝Mac已安装及局部原账/发布/两应用页面证据；Missing＝父清单到页面显式映射、网页部分来源的实际原因、诊断修复安装后的现场核验；Extra＝无本轮新业务改动。长期稳定性、旧物理数据及其他未验证场景继续单列，不阻断当前应用链路。Windows新1.39.1共享影子源码不能替代Mac1.38.0安装证据。
+
 ## 2026-10-07 Windows对称共享读取（源码及聚焦验证完成，真实联调待验）
 
 - 当前应用纯v3原账→秒统计→自动上传→云端页面链路已验收，本批不重做。共享执行保持关闭。
