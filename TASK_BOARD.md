@@ -1,5 +1,9 @@
 # TASK_BOARD
 
+## 2026-10-07 控件共享读取消费者接线（源码完成，待集成）
+
+PO 批准在既有 `codex/integration-access-20261002` 工作树收口控件消费者；工作树已从 `origin/master` 快进到 `fc57d06`，快进前无本地提交和脏改。最终消费包固定为 App Runtime Contracts 1.39.1，source commit `adb1f2089ab0f8f4adf7c1b0a6e3761656e33f7f`，包 SHA-256 `f3c4d551d570fd1ba88fc64f040b5e3f36967d79236796d22337981a9141ff42`；直接消费包内 `dist/source-statistics.js`，不修改共享契约。网页来源严格合并本机逐日 `readQuotaReadModelV2.local.today` 与 `/device/source-statistics` 的云端 `web/other` 快照，并用其排除键证明本机来源；通过固定契约 `combineOwnAndOtherStatistics` 合成，不拿已合并 V2 总数拼接另一来源键。云端读取失败时继续读取本机最新账，并仅复用同孩子／凭据范围／日期范围下的云端其他设备 LKG；应用来源优先 Native `exchangeSourceStatistics`（允许无网页快照独立读取），桥不可用时读云端同孩子范围 `/device/source-statistics`，再使用来源隔离的可信缓存。来源只能择一，不相加；LKG 保留原完整性、读取时间与结算截止，按日合并且不让单日缺口污染其他日期。在途结果按孩子、来源、周期、身份及 Native 连接代次失效。周期任务仅保存诊断影子读数并调用独立秒核算函数，不进入拦截、配额锁、模式或提醒决策。禁止修改网页/应用原账、统计生成、上传、既有配置、候选包或部署；共享限制保持关闭。Native 应用源身份是当前孩子＋当前用户＋当前分配；自身排除必须按精确来源键，不能排除整机。实施文件限于版本化契约快照、Native Host 客户端、云端只读请求封装、来源读取/缓存与周期影子调用及其聚焦测试；不改共享契约目录、Workers、Pages、生产配置或包产物。专项 `source-statistics-shadow`、`local-guardian`、`quota-read-model-v2` 测试，`check:extension-root`、`check:app-runtime-boundaries`、相关 JS 语法检查及 `git diff --check` 通过；Contracts 1.38.0 生成产物经授权重建后，根任务复核 `npm run typecheck` 通过。全量测试、打包、安装、部署和实机Native联调未执行。范围审计 Matched，无 Deviated/Missing/Extra。源码提交推送后由架构主线集成；V2 共享限制保持关闭。
+
 ## 2026-10-07 退出旧应用账，仅保留新v3（PO批准，执行中）
 
 源码收口：Windows所属任务已推送`e67f7c1e238430ca8f81b186a93b8b45882caaf6`，根任务只读核对提交和干净工作区。生产只读v3、新模型重物化及持久revision floor、旧应用生产/直接上传/旧队列退出已实现；旧毫秒响应仅投影新秒结果。所属任务报告108项唯一C#聚焦、8项隔离SQLite/dry-run及固定1.38.0 JS哈希/新算法验证通过；真实本机删除、安装和新候选构建未执行。Mac正式交接已登记到Native Issue #12，实际执行与实机结果待所属端回报。

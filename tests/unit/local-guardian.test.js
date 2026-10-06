@@ -38,6 +38,8 @@ function moduleSource(instance) {
   return originalSource
     .replace(/from '\.\/mac-guardian-health.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/infra/mac-guardian-health.js')).href}'`)
     .replace(/from '\.\.\/core\/shared-web-native.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-web-native.js')).href}'`)
+    .replace(/import \{ SOURCE_STATISTICS_EXCHANGE_MESSAGE, SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsExchange, validateSourceStatisticsSnapshot \} from '\.\.\/core\/shared-contracts\/1\.39\.1\/source-statistics\.js';/,
+      'const { SOURCE_STATISTICS_EXCHANGE_MESSAGE, SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsExchange, validateSourceStatisticsSnapshot } = globalThis.__GUARDIAN_SOURCE_STATISTICS_CONTRACT;')
     .replace(/import \{ MANAGED_POLICY_KEYS, readManagedActivationPolicy \} from '\.\.\/core\/activation-gate\.js';/, `const MANAGED_POLICY_KEYS = globalThis.__guardianPolicyKeys;\nconst readManagedActivationPolicy = (...args) => globalThis.__guardianReadPolicy(...args);`)
     .replace(/import \{ readNativeHostDeploymentMarker, readNativeHostDevelopmentMarker \} from '\.\.\/core\/deployment-mode\.js';/, 'const readNativeHostDeploymentMarker = (...args) => globalThis.__guardianReadMarker(...args);\nconst readNativeHostDevelopmentMarker = (...args) => globalThis.__guardianReadDevelopmentMarker(...args);')
     .replace(/import \{ budgetedLocalSet \} from '\.\/storage-budget\.js';/, 'const budgetedLocalSet = (...args) => globalThis.__guardianBudgetedSet(...args);')
@@ -61,6 +63,8 @@ function moduleSource(instance) {
 }
 
 async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [], platform = 'win' } = {}) {
+  const statsContractSource = fs.readFileSync(path.join(root, 'extension', 'core', 'shared-contracts', '1.39.1', 'source-statistics.js'), 'utf8');
+  global.__GUARDIAN_SOURCE_STATISTICS_CONTRACT = await import(`data:text/javascript;base64,${Buffer.from(statsContractSource).toString('base64')}`);
   const alarms = { onAlarm: createEvent(), created: [] };
   alarms.get = async () => null;
   alarms.create = async (name, options) => { alarms.created.push({ name, options }); };
@@ -1311,6 +1315,55 @@ async function run() {
   await waitFor(() => dualStorage.mac_guardian_health_status_v1.lastErrorCode === null);
   assert.deepStrictEqual(Object.keys(dualStorage).filter(key => key === 'usage_segments_v1'), [],
     'health tests must not create an authoritative ledger');
+
+  const sourceStatisticsMessages = [];
+  const sourceStatisticsHost = await loadGuardian({
+    storage: { cloud_profile_id: 'child-source-stats', cloud_device_id: 'device-source-stats' }, policy,
+    connectNative: () => createPort((payload, onMessage) => {
+      sourceStatisticsMessages.push(payload);
+      const response = { ok: true, receivedAt: Date.now(), requestId: payload.requestId,
+        supportedProtocols: [3], capabilities: ['health', 'source-statistics-read-v1'],
+        ...(payload.messageType === 'exchangeSourceStatistics' ? {
+          sharedQuotaStage: 'shadow', sourceStatistics: {
+            schemaVersion: 1, durationUnit: 'seconds', source: 'application', childId: 'child-source-stats',
+            fromDate: '2026-10-07', toDate: '2026-10-07', revision: 'native-source-revision', readAtMs: Date.now(),
+            includedSourceKeys: ['application-source'], excludedSourceKeys: [], days: [{ date: '2026-10-07',
+              totalSeconds: 60, categoriesSeconds: { restrictedEntertainment: 60 }, nonSpecialTotalSeconds: 60,
+              settledThroughMs: null, complete: true, reasonCodes: [] }],
+          },
+        } : {}) };
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+    }),
+  });
+  await waitFor(() => sourceStatisticsHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+  const sourceRead = await sourceStatisticsHost.module.requestSourceStatisticsExchange({
+    fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null,
+  });
+  assert.equal(sourceRead.ok, true);
+  assert.equal(sourceRead.source, 'native');
+  assert.equal(sourceRead.snapshot.days[0].totalSeconds, 60);
+  const sourceRequest = sourceStatisticsMessages.find(message => message.messageType === 'exchangeSourceStatistics');
+  assert.equal(sourceRequest.channel, 'sharedQuota');
+  assert.deepEqual(sourceRequest.payload, { fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null });
+  assert.equal(sourceStatisticsHost.module.readNativeHostDiagnosticState().capabilities.includes('source-statistics-read-v1'), true);
+
+  const wrongStageHost = await loadGuardian({
+    storage: { cloud_profile_id: 'child-source-stats', cloud_device_id: 'device-source-stats' }, policy,
+    connectNative: () => createPort((payload, onMessage) => queueMicrotask(() => onMessage.listeners.forEach(listener => listener({
+      ok: true, receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [3],
+      capabilities: ['source-statistics-read-v1'],
+      ...(payload.messageType === 'exchangeSourceStatistics' ? { sharedQuotaStage: 'enforce', sourceStatistics: {
+        schemaVersion: 1, durationUnit: 'seconds', source: 'application', childId: 'child-source-stats',
+        fromDate: '2026-10-07', toDate: '2026-10-07', revision: 'native-source-revision', readAtMs: Date.now(),
+        includedSourceKeys: [], excludedSourceKeys: [], days: [{ date: '2026-10-07', totalSeconds: 0,
+          categoriesSeconds: {}, nonSpecialTotalSeconds: 0, settledThroughMs: null, complete: true, reasonCodes: [] }],
+      } } : {}),
+    })))),
+  });
+  await waitFor(() => wrongStageHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+  const wrongStage = await wrongStageHost.module.requestSourceStatisticsExchange({ fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null });
+  assert.equal(wrongStage.ok, false);
+  assert.equal(wrongStage.errorCode, 'source_statistics_native_invalid_response', 'only shadow-stage responses are accepted');
   console.log('[Local Guardian] passed');
   process.exit(0);
 }

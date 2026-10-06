@@ -43,6 +43,7 @@ import { configureRestUsageReminder, evaluateRestUsageReminder as evaluateLegacy
 import { isSharedAccessRuntimeEnabled } from './product/shared-access-runtime.js';
 import { pollSharedAccessIntegration, initSharedAccessIntegration } from './product/shared-access-integration.js';
 import { registerSharedSyncDiagnosticsReader } from './infra/shared-sync-diagnostics.js';
+import { initSourceStatisticsShadow, refreshSourceStatisticsShadow } from './infra/source-statistics-shadow.js';
 registerSharedSyncDiagnosticsReader();
 
 function evaluateRestUsageReminder(options) {
@@ -113,6 +114,7 @@ let alarmsSetupPromise = null;
 let privacyConsentAccepted = false;
 let runtimeActivationState = { activated: false, activationMode: 'disabled', reason: 'privacy_consent_required' };
 let localGuardianBootstrapState = 'booting';
+initSourceStatisticsShadow({ isEnabled: () => isMonitoringEnabled() });
 
 configureLocalGuardianStateProvider(() => ({
   bootstrapState: localGuardianBootstrapState,
@@ -177,6 +179,7 @@ async function bootstrapServiceWorker(reason) {
       const activation = await resolveActivationState();
       return activation.activated === true && getSyncState().monitoringEnabled !== 0;
     } });
+    refreshSourceStatisticsShadow().catch(() => {});
     notifyLocalGuardianBootstrapResult('ready', `bootstrap_complete:${reason}`).catch(() => {});
   } catch (err) {
     localGuardianBootstrapState = 'failed';

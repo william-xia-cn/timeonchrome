@@ -6,6 +6,7 @@ import { pumpQuotaAudit } from './quota-audit-upload.js';
 import { recordSyncHealth } from './diagnostic-evidence.js';
 import { DEFAULT_CONFIG } from './storage.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
+import { validateSourceStatisticsQuery } from '../core/shared-contracts/1.39.1/source-statistics.js';
 import {
   buildSiteClassificationRequestsUploadPayload,
   getPendingSiteClassificationRequestUploads,
@@ -463,6 +464,17 @@ async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {
 // Dedicated derived protocol: never calls original ledger or aggregate upload ACKs.
 export async function readCloudSharedWebCapabilities(options = {}) {
   return readCapturedSharedDeviceJson(options, '/device/shared-web-capabilities/v1');
+}
+export async function readCloudSourceStatistics(options = {}, query = {}) {
+  let body;
+  try {
+    body = { ...query };
+    validateSourceStatisticsQuery(body);
+  } catch (_) { return { ok: false, errorCode: 'source_statistics_invalid_query' }; }
+  if (new TextEncoder().encode(JSON.stringify(body)).length > 16384) return { ok: false, errorCode: 'source_statistics_size_limit' };
+  const response = await readCapturedSharedDeviceJson(options, '/device/source-statistics', body);
+  if (!response.ok) return response;
+  return { ok: true, snapshot: response.value };
 }
 export async function readCloudSharedWebWatermark(options = {}, date) {
   const ms = Date.parse(`${date}T00:00:00Z`);
