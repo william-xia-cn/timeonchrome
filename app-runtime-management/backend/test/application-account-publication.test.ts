@@ -140,9 +140,10 @@ it.each([
   expect((await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27'))
     ?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration).toBe(1501);
 });
-it('real Native mixed-ledger producer uploads 15 facts / 1457 known seconds through the authenticated page route unchanged',async()=>{
+it('real Native mixed-ledger producer uploads 15 new segments / 1457 known seconds through the authenticated page route unchanged',async()=>{
   const original=JSON.stringify(childMixedGenerated),begin=childMixedGenerated.requests[0].body;
   expect(childMixedGenerated.synthetic).toBe(true);
+  expect(childMixedGenerated.manifest.rawFactCount).toBe(16); // 15条新账＋1条未知旧事实；未知旧事实不贡献时长。
   expect(begin.manifest).toEqual(childMixedGenerated.manifest);
   const f=await fixture('windows',{accountId:'mixed-native-account',child:childMixedGenerated.manifest.childId,
     localUserId:begin.localUserId}),token=crypto.randomUUID(),readAt=childMixedGenerated.manifest.generatedAtMs;
