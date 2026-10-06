@@ -119,6 +119,7 @@ jobs:
       - run: node app-runtime-management/console/app-runtime-clipboard.test.js
       - run: node app-runtime-management/console/app-runtime-knowledge.test.cjs
       - run: node app-runtime-management/console/app-runtime-component.test.cjs
+      - run: node app-runtime-management/console/computer-usage-view.test.cjs
       - run: node tests/unit/runtime-management-loader.test.js
       - run: node tests/unit/main-console-release-stage.test.js
       - run: node app-runtime-management/console/app-runtime-session.test.js

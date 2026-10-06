@@ -102,6 +102,31 @@ assert.equal((await route(requestSeconds({revision:'computer-v2:'+ '0'.repeat(64
 const detailNotReady=await route(requestSeconds({detail:'products',revision:publicSeconds.revision}),secondsFixture.env,'child');
 assert.equal(detailNotReady.status,503);assert.equal((await detailNotReady.json()).code,'COMPUTER_USAGE_DETAIL_NOT_READY');
 assert.equal((await route(requestSeconds({source:'web'}),secondsFixture.env,'child')).status,400);
+const applicationSeconds=await route(requestSeconds({source:'application'}),secondsFixture.env,'child');
+assert.equal(applicationSeconds.status,200);
+assert.equal((await applicationSeconds.json()).totalDuration,15,'application tab selects the same native seconds source');
+const callsBeforeScopeDenied=secondsCalls;
+const scopeDeniedFixture=fixture({owned:false});
+scopeDeniedFixture.env.RUNTIME_COMPUTER_USAGE=secondsFixture.env.RUNTIME_COMPUTER_USAGE;
+assert.equal((await scopeDeniedFixture.load('workers/src/routes/computerUsage.ts').handleComputerUsage(
+  requestSeconds({source:'application'}),scopeDeniedFixture.env,'child')).status,404);
+assert.equal(secondsCalls,callsBeforeScopeDenied,'wrong family never reaches application service');
+const wireFixture=fixture(),wireModes=[];
+wireFixture.env.RUNTIME_COMPUTER_USAGE.fetch=async request=>{
+  const value=await request.json();wireModes.push(value.secondsOnly===true);
+  return Response.json(value.secondsOnly?{source:'application',durationUnit:'seconds',totalDuration:51}
+    :{source:'application',durationUnit:'milliseconds',totalDurationMs:51000});
+};
+const wireRoute=wireFixture.load('workers/src/routes/computerUsage.ts').handleComputerUsage;
+assert.equal((await (await wireRoute(requestSeconds({source:'application'}),wireFixture.env,'child')).json()).totalDuration,51);
+assert.equal((await (await wireRoute(requestSeconds({source:'application',durationUnit:'milliseconds'}),wireFixture.env,'child')).json()).totalDurationMs,51000);
+assert.equal((await (await wireRoute(new Request('https://fixture/?'+new URLSearchParams({from:date,to:date,source:'application'}),
+  {headers:{authorization:'Bearer fixture'}}),wireFixture.env,'child')).json()).totalDurationMs,51000);
+assert.deepEqual(wireModes,[true,false,false],'explicit new mode and omitted/old mode remain separate');
+wireFixture.env.RUNTIME_COMPUTER_USAGE.fetch=async()=>Response.json({code:'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});
+assert.deepEqual(await (await wireRoute(requestSeconds({source:'application'}),wireFixture.env,'child')).json(),{code:'APPLICATION_SCOPE_UNAVAILABLE'});
+wireFixture.env.RUNTIME_COMPUTER_USAGE.fetch=async()=>{throw Error('private database details');};
+assert.deepEqual(await (await wireRoute(requestSeconds({source:'application'}),wireFixture.env,'child')).json(),{code:'COMPUTER_USAGE_UNAVAILABLE'});
 assert.equal(secondsFixture.reads(),0,'public seconds endpoint never reloads raw web intervals');
 const bindingSeconds=await new secondsService.ComputerUsageService({},secondsFixture.env).getComputerUsageStatisticsSeconds('family','child',date,date);
 assert.equal(bindingSeconds.revision,publicSeconds.revision,'existing binding and browser route share the same authority');

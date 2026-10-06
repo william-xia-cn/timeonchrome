@@ -1,5 +1,45 @@
 # TASK_BOARD
 
+## 2026-10-06 应用读取兼容与部署依赖修复（进行中）
+
+PO批准修复已证实的云端读取/部署问题并继续Windows核对。T.xia属于尚未完成的Mac链路，其报错待Mac完成后单独复验；此前其他孩子HTTP200不证明T.xia恢复。本批职责standard-cloud，只改Runtime内部读取、Guardian只读路由/适配、主控制台读取参数、已有CI和相关测试。不改原账/统计生成/配额/扩展/Native，不创建分支工作树，不执行migration或启用共享。
+
+实施清单：旧请求固定旧毫秒字段，新秒统计只做响应投影，不新增持久副本；新应用请求显式选择seconds；保留范围核验稳定错误码；现有统计渲染测试接入对应CI。最小验证为application-account-publication、computer-usage-evidence、computer-usage-cloud、computer-usage-view、main-console-release-stage和相关typecheck/dry-run/diff，不跑全平台。发布依赖包含实际修改的Runtime Worker、Guardian、主Pages，发布和真实Windows同孩子/日期验收分别登记；历史P2、共享和Mac不扩大处理。
+
+源码修复与聚焦验证：Runtime旧调用固定返回毫秒兼容投影，显式seconds调用读取同一持久化秒统计；Guardian仅允许application来源选择seconds，并保留APPLICATION_SCOPE_UNAVAILABLE稳定范围错误；主控制台显式选择seconds。原秒渲染器未改，复用其既有桌面/移动结构证据，新增读取参数与CI接线回归。两个Runtime真实D1隔离测试文件97/97通过；computer-usage-cloud、computer-usage-view、main-console-release-stage、app-runtime-ci-routing、源码边界检查、两套TypeScript及Runtime dry-run通过。首次D1测试因本地Vite缓存写权限未启动，合法提权后通过，不记为产品失败。生产主Pages既有smoke补齐实际JS与受测源码逐字比较，不只检查HTML200。Matched＝本批兼容修复及聚焦测试；Missing＝合入、指定资源发布与真实Windows页面复验；Deviated/Extra＝无。未提交的契约包和.wrangler目录原地保留且不纳入提交。
+
+## 当前：Windows 当日秒统计本机至云端页面已核对，控件实际页面待验（2026-10-06）
+
+23:01用户反馈`COMPUTER_USAGE_UNAVAILABLE`后追加真实主控制台核对（不是控件内部页）：同孩子/今天点击“应用使用”，Guardian `/profiles/:child/computer-usage/v1?source=application`实际HTTP200，producer=native、durationUnit=seconds、availableTotalDuration=10612、分类/产品行使用duration。页面却将每条时长显示“不可用”。刷新后直接读取浏览器实际加载的`/computer-usage-view.js`（16230字符）：不含秒格式分支或availableTotalDuration，independentSummary仍只读durationMs/totalDurationMs，已证线上主Pages旧消费者与新秒响应不匹配。master现有`fdb5dbe`已包含秒/partial消费者，但此前仅部署Runtime Worker/独立Pages，主Pages及Guardian排除在该次发布范围；不能把本地源码已修订当主控制台已上线。此次两次应用/电脑查询均HTTP200，用户报告的通用错误码没有在当前现场重现，不将旧单位显示缺陷冒称该503错误的唯一根因。主控制台读取/发布待办与已通过的独立Runtime页、正式Host当天链路分别保留；后续发布前核对主Pages秒汇总所需Guardian接口依赖，不盲目只换脚本。没有修改产品代码/部署/安装或追共享P1。
+
+22:53—22:58真实只读验收：正式Service、SessionAgent、Manager、Host、Core与Infrastructure六组件均2.6.37.0且与唯一候选哈希匹配，Service Running。正式Host通过Native Messaging framing协商`application-usage-seconds-read-v1`；今天/本周至今请求均通过1.38固定validator，耗时257/209ms，响应4799/5192字节。Host与当前用户合法ApplicationSeconds管道回读的范围revision、完整性、nullable总量、known量与截止精确一致，持久head修订486，今天已知10125整数秒，结算截止`1791298349401`（北京时间22:52:29.401），完整总量null，sole reason=`APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING`。脱敏证据位于Native本地`.tmp/windows-candidate-2.6.37/installed-host-seconds-results.json`和`host-pipe-matches.json`，不保存真实SID/Child或凭据。
+
+同一登录云端页面实际点击“刷新应用”：`/v2/module/app-usage` HTTP200、durationUnit=seconds、availableTotalDuration=10125、totalDuration=null、当天截止同为`1791298349401`，8个产品/3个分类正常展示，页面为“Service权威秒统计”和2小时48分45秒部分量。分类为复合360/学习5060/未归类4705秒；原始明细与完整总量未混同。此项已证明当前日持久统计→云端采用→真实页面同截止一致；正式Host读数也一致，不代表共享已启用。
+
+周视图真实读取继续保留历史差异：云端10-05已有已发布42780秒，当天新版本随后为10389秒，显示部分53169秒；本机新秒接口10-05没有新head而返回unknown，不冒充同范围周一致。页面包含10-07至11未来日期并标记缺统计、总截止显示“尚未同步”，作为周展示/历史兼容缺口登记，按PO先贯通当前日、不追开发历史的范围不在本批改代码。真实仅8个应用，100+多页仍只具固定合成证据；持久ACK/outbox未独立回读，不用云端采用证明替代该字段。
+
+控件运行验收仍缺失：用户已确认1.7.45原目录重载，但浏览器工具明确拒绝Chrome内部页及`chrome-extension://`协议；未以CDP、其他浏览器、代理或存储旁路绕过。磁盘候选/模拟渲染不能冒充实际Admin验收，已仅请求普通“应用使用→今天”截图，无需Service Worker、重新安装或配置。Matched＝六组件/真实本机秒读/当天云端采用与页面同截止；Missing＝控件实际页面；Deviated＝周历史/未来日期状态尚未统一（单列）；Extra＝无。多用户/改绑/锁眠/完整重启与Mac仍延后；本批没有安装、部署、migration、配对/ACL/原账/策略修改或共享启用。
+
+PO回复“已安装并重载”后恢复真实验收：root只读注册Service路径/文件版本/哈希确认2.6.37.0，Service Running，Service SHA256 `52e7dcb922ef18480f9d2f891418e88f835b1173b797d4e7d340334424f0d334`。原安装等待阻塞已解除（下条为旧阶段记录）。当前继续正式Host→Service秒接口及控件页面、云端同范围读取核对；两端所属会话已收到只读实测交接，不再安装/重构/发包、不修改原账/配对/ACL/策略或启用共享。实际多用户改绑、锁眠/完整重启及Mac仍按已批准缺口延后；真实多页若不足100只保留固定夹具证据。
+
+运行验收阻塞登记：候选交付及后续两次自动续跑均未观察到2.6.37安装生效，最新只读回读Service仍2.6.36.0/Running；两端所属任务已完成且idle，没有正在等待的构建或测试进程。新能力真实验收无法由旧运行服务证明，按PO手动安装约定不自行启动安装器、绕过UAC、临时替换服务或修改数据。完整目标记为blocked（待手动升级及原扩展重载），不是待合并授权或开发失败，不重复构建/检查。用户完成运行前提并恢复目标后，直接继续当前孩子/日周秒读取和页面一致性验收；原目标未缩减、未标记完成。
+
+候选最终核验完成：Native 2.6.37的13发布组件及MSI内11组件实际版本、ProductVersion/UpgradeCode和契约1.38一致；候选记录提交 `9bf7ab8dba59e822fb34b7bf9d25a40a1499a98e`已推送（纯记录，安装源码仍86a2ca1），工作区干净。root复核Burn/MSI/manifest哈希及所属候选记录。正式安装四组件仍2.6.36、Service Running、latest不变；本批未安装/UAC/部署。Matched＝两仓源码整合、聚焦/跨语言/目视证据和匹配候选准备；Missing＝2.6.37受控升级、原候选重载及新秒能力真实读取；Deviated/Extra无（本批范围）。当前仅等待这些运行前提，不能标记完整目标达成，不追查开发历史缺口或启用共享。
+
+匹配候选准备：控件所属任务已原路径更新unpacked 1.7.45，对应master b373669b，稳定ID/公钥/开发模式/权限/junction保持，旧1.7.42完整备份，未重载或自托管。源包清单hash `69e4f7bae3412ae0fabc11af4dabd61afb22353d3e06c0bc880c622d8d4ae7ef`；root独立比较Native客户端/应用读模型/Admin三文件与源代码一致。旧新核心background、foreground-timing、session、usage-segments、integrity、timing-dispatcher、cloud-sync、storage、storage-maintenance、quota及quota-read-model-v2经行尾规范化一致；其他差异是已批准的应用读/展示和1.7.45 Mac-only Guardian健康适配，不改Windows网页原账。Native唯一2.6.37已生成，source86a2ca1/contracts1.38；root读取manifest并回算Burn `024a93cd2250d360a943bdab40c3dd7ceba4cc4e47527dac210ef740f2bd0f8e`、MSI `2a507b6ab19b63080dfb68640d91a287f8bfb7d50be900c73d93ab4405e37139`、manifest `4e4138aa3239ec8cb6f831c186bdde86c4d823cb9a5e1c5d45400b44d81ab56c`匹配。安装器组件/结构收尾由所属任务完成，当前仍2.6.36运行，尚未升级/重载，新本地秒通道未验收。
+
+20:33已登录内置浏览器对同孩子/当日/Windows现有账户执行真实“刷新应用”，页面返回Service权威秒统计：已知5921秒（1小时38分41秒），结算截止20:28:55，读取20:33:17，7个产品及分类/小时可见；完整总量仍未知，开发旧账缺口未伪报完整。此前页面停留的2662秒已被新量替换，本次没有部署或安装。此证据证明现有云端读取仍更新，不能替代尚未安装的新BrowserBridge秒通道验收。PR head→合并SHA的GitHub compare文件差异为空，复用精确head测试；生产workflow仅workflow_dispatch，不因本次PR合并自动部署。原加载路径实读为junction指向D盘固定候选，保持未迁移。
+
+PO明确要求合并后，PR #244已实际合入master，merge SHA `b373669b88fc154a19f207db4c9fd7a70d7764ad`；GitHub回读closed/merged=true，head `476780655d4e17a21f3559273556dc2d9e9a100e`的两次相关CI均success。下方“待#244合并授权”是旧阶段记录，已被本条取代；一次工具拒绝不建立每PR重复审批规则。契约1.38、Native `86a2ca1`和控件实现已有聚焦及跨语言验证；已安装2.6.36仍不含新秒读取能力，源码合入不等于实机完成。
+
+下一批只完成匹配本地候选和真实只读链路：Native所属会话集中构建一个含本次接线的Windows候选，控件所属会话从已合入代码核对并更新原unpacked候选路径，保留ID/绑定/模式/原账。不顺带自托管、云端部署、migration、R2或共享启用。构建完成与安装分别登记；安装沿用受控升级与用户UAC边界，不自动启动新安装器。真实验证要求能力协商为秒读取、原生响应与页面采用同revision/截止、已知部分可见而完整总量不造零，旧接口不冒充新能力。仅复用或补跑本次消费者/候选结构检查，不重跑无关全平台测试，不新建分支或工作树。
+
+同批补修已提交／推送（2026-10-06）：控件提交`476780655d4e17a21f3559273556dc2d9e9a100e`，固定目录干净，PR #244共9文件／3提交；根任务实查GitHub head一致、open／mergeable，精确App Runtime运行`37448448051`与`37448470167`均success。新补丁六文件仅Admin、读模型、预览辅助、两个聚焦测试和任务板；未知完整量及旧ms隔离回归、C# wire／契约向量、Rest和目视通过。压缩后的旧发布漂移已纠正，所属任务确认仅提交本PR，没有版本修改／构建／托管／安装／部署。当前唯一集成授权待办是PR #244合入master，PO仅批准#243不得代推为#244批准；获得后才继续匹配候选和真实通道步骤，源代码完成不等于端到端完成。
+
+秒部分量页面补验结果（2026-10-06，未提交／未发布）：控件现有admin渲染已将新行为限定readUnit=seconds，根任务直接重跑真实列表／图例／详情回归PASS，涵盖partial已知量、未知不造零、完整零及旧ms不完整保持原行为。已独立目视桌面／移动隔离截图：应用4秒、分类4秒及小时图可见，权威完整总量仍未知，已知总量6秒单独提示，明细不替代总量。控件任务在contextCompaction后误回历史1.7.45托管任务，实读仅检查没有版本／提交／部署；已重新交接恢复同一PR #244的补丁收尾，明确不更新版本或托管。当前6项补丁仍在固定控件目录保留，PR head仍837661b，待提交／推送及新head CI，不把旧head通过证据当作新补丁通过。最终匹配Native候选及真实通道验收仍缺失，PR #244合并授权未取得。
+
+秒消费者最终页面反向核对（2026-10-06）：PR #244 当前仍未合并。根任务以控件实际 admin.js 的列表与图例渲染函数、合成 partial 秒读模型直接运行，确认 knownTotalSeconds=6、产品已知4秒、分类已知4秒时，列表仍因 totalSeconds=null 整块退出，图例仍显示未知；此前读模型通过不能证明页面已展示。最小修订交控件所属任务在同一PR补齐：仅秒格式保留已知分类／应用明细和明确的不完整标记，完整总量仍未知，无证据不造零，旧毫秒行为不变；检查实际列表、图例、详情与状态文案，增加真实渲染函数回归和隔离目视证据，不改采集、原账、统计、配额或云端。禁止仅删除断言／改夹具掩盖；完成后复核PR精确head及CI再等待合并授权，不新建分支、工作树或中间安装包。
+
 ## 应用秒统计外部读取集中接线（2026-10-06，继续既有完整链路目标）
 
 云端当日／周已取得同截止实机采用证据，下一项是控件直接读取：真实调用仍为extension/infra/native-host-client.js的getApplicationUsage与stats/application-usage-read-model.js的totalMs，Native BrowserBridgeDispatcher仍调用旧ApplicationUsageReader。不能把秒值塞进Ms字段，也不能将已完成的云端链路等同于全部消费者完成。
@@ -15,6 +55,8 @@ PO随后明确批准合并PR #243：GitHub插件按预期head成功合并为mast
 控件实际入口补验发现新增TIMEONCHROME_APPLICATION_USAGE_READ_CONTEXT被background通用监听器争抢，local-guardian真实路由断言失败；已交所属任务将该只读消息排除纳入最小接线补丁及任务板允许范围，不删除断言或修改计时／原账。Native新秒读取目前只证实已验证当前用户的唯一受保护孩子／当前分配范围；源码Coordinator与Reader仍要求Protected及有效assignment，解除保护和跨历史分配的原有读取能力尚未证明，不能宣称DESIGN接线清单第5项全覆盖。此缺口独立登记，不阻止已固定的Windows当日范围核对，不猜补历史或用旧单位填平。
 
 控件集中源码已完成：固定extension-local目录、既存分支codex/integration-access-20261002提交`71d619b88e2e751ca45650304f73a92bf28a1462`，工作区实读干净。六文件仅TASK_BOARD、Native客户端、应用只读模型和local-guardian／application-usage-read-model／rest-usage-summary三个聚焦测试；三项均通过，另node --check及diff通过。最终实际复用原APPLICATION_USAGE_READ消息的contextOnly分支，没有新增消息类型或background修改，前述路由争抢在真实入口回归中消除。秒优先、旧单位兼容、单位／profile-device／连接代次隔离、可信断线缓存、部分量、真实0与未知、迟到非空不同ID忽略／缺ID拒绝、Native实际revision错误及最多一次重读均固定验证；Native原样wire及契约向量通过。未改网页／配额／云端／候选。按既有推送和PR授权交控件所属任务整合最新master、推送原分支及创建集中PR；不创建分支／工作树，不自动合并、打包或安装。Matched＝当前范围的三端源码与隔离消费；Missing＝控件主线集成、最终匹配候选的真实读取及上述范围验证缺口；Extra＝无。Windows原账→云端页面原有实机证据继续有效，新Host读取不冒称实机已通过。
+
+控件集中PR已完成：非强制整合master efd409d后head `837661b8b494264225c5ea69dbdf9fe25b0a2b52`已推送，五个实现／测试文件与71d619b逐字节一致；Task板保留双方记录。PR #244由GitHub插件实读open／mergeable=true／六文件，Task-Role=extension-local；精确App Runtime CI `37446388246` success，合并后三个聚焦专项亦通过。尚未合入主线，未打包、安装、部署或托管；根会话PR附件再次因100项上限拒绝，PR状态不受影响，不清旧附件。当前目标保持进行中，等待本批源码合入及后续一次最终候选实机读取，不将已有2357／2422秒云端实机证据冒充新Host接口验收。
 
 ## 应用孩子统计集中安装、发布与验收（2026-10-06，PO明确批准）
 

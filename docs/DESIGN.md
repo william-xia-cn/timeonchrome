@@ -1,5 +1,11 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-06 应用读取单位兼容修复
+
+Runtime受限getApplicationUsage的格式由调用者明确选择，不由是否已上传秒统计决定：secondsOnly=true只返回权威整数秒；省略/false保持旧毫秒字段。已有秒统计时，旧格式仅对同一权威结果做响应单位投影，保持complete、部分可用量和截止/版本，不重算、不持久化毫秒副本，不以旧统计填平缺量。完全没有秒结果时，未指定单位的旧调用保留既有legacy兼容读取。此条替代下文“内部getApplicationUsage未指定单位也优先返回秒”的旧接线说明；秒持久化和统计语义不变。
+
+Guardian /profiles/:child/computer-usage/v1?source=application&durationUnit=seconds显式透传secondsOnly；未指定/milliseconds保持旧字段。网页/媒体独立入口单位契约不变。主控制台应用视图显式选择seconds，电脑汇总继续使用既有seconds入口。APPLICATION_SCOPE_UNAVAILABLE按稳定公开码返回，未知内部异常仍不泄露。现有computer-usage-view测试接入Runtime与主Pages相关CI；发布须核对Runtime输出、Guardian透传和主Pages实际脚本兼容，而非只检查HTML200。现有主Pages smoke额外回读computer-usage-view.js并与该发布SHA的源码逐字节比较，不增加新审批层，也不把脚本匹配冒充真实统计验收。
+
 ## 应用孩子统计同步接入（2026-10-06，已批准实施，非共享）
 
 ### 2026-10-06 同日旧／新账可用部分的最小兼容

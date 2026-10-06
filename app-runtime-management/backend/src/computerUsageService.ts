@@ -61,7 +61,8 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)||!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to-86400000+8*3600000).toISOString().slice(0,10)!==toDate)throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
     const seconds=await readNativeApplicationStatisticsRangeSeconds(this.env.RUNTIME_DB,accountId,childId,from,to);
-    if(seconds.availableTotalDuration!==null||secondsOnly)return {source:'application',fromDate,toDate,durationUnit:'seconds',
+    if(seconds.availableTotalDuration!==null||secondsOnly){
+      const snapshot={source:'application',fromDate,toDate,durationUnit:'seconds',
       complete:seconds.complete,totalDuration:seconds.totalDuration,availableTotalDuration:seconds.availableTotalDuration,
       applicationUsage:seconds.applicationUsage,
       categories:seconds.categories.map(row=>({classification:row.category,duration:row.duration})),
@@ -72,6 +73,18 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       statistics:{producer:'native',revision:seconds.revision,stale:!seconds.complete,
         settledThroughByDate:seconds.days.map(day=>({date:day.date,settledThroughMs:day.settledThroughMs})),
         missingDates:seconds.days.filter(day=>!day.complete).map(day=>day.date)}};
+      if(secondsOnly)return snapshot;
+      // Wire compatibility only: preserve old consumers' field names without
+      // rebuilding the ledger or keeping a second persisted statistics model.
+      const milliseconds=(duration:number|null)=>duration===null?null:duration*1000;
+      return {source:'application',fromDate,toDate,durationUnit:'milliseconds',
+        complete:snapshot.complete,totalDurationMs:milliseconds(snapshot.totalDuration),
+        availableTotalDurationMs:milliseconds(snapshot.availableTotalDuration),statistics:snapshot.statistics,
+        categories:snapshot.categories.map(({classification,duration})=>({classification,durationMs:milliseconds(duration)})),
+        applications:snapshot.applications.map(({displayName,classifications,duration})=>({displayName,classifications,
+          classification:classifications?.length===1?classifications[0]:'historicalUnknown',durationMs:milliseconds(duration)})),
+        buckets:snapshot.buckets.map(({startAtMs,duration})=>({startAtMs,durationMs:milliseconds(duration)}))};
+    }
     const {value:result,statistics}=await readPersistentApplicationUsage(this.env.RUNTIME_DB,accountId,childId,from,to,{},work=>this.ctx.waitUntil(work));
     const value=result as {
       totalDurationMs:number;categories:Array<{classification:string;durationMs:number}>;
