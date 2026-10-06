@@ -30,6 +30,11 @@ async function run(){
   app.weekSummarySeries.forEach(row=>row.totalSeconds=null);
   result=await readRestUsageSummary({now});assert.equal(result.today.totalSeconds,290.5);assert.equal(result.week.totalSeconds,null);
   assert.equal(result.week.webSeconds,300);
+  app=appView();app.totalSeconds=null;app.knownTotalSeconds=6000;
+  app.weekSummarySeries[0].totalSeconds=null;app.weekSummarySeries[0].categories={app_restrictedEntertainment:30.5};
+  result=await readRestUsageSummary({now});
+  assert.equal(result.today.applicationSeconds,null);assert.equal(result.week.applicationSeconds,null);
+  assert.equal(result.today.webSeconds,200);assert.equal(result.week.webSeconds,300);
   failApp=true;result=await readRestUsageSummary({now});assert.equal(result.today.applicationSeconds,null);assert.equal(result.today.webSeconds,200);
   failApp=false;app=appView();failWeb=true;result=await readRestUsageSummary({now});assert.equal(result.today.webSeconds,null);assert.equal(result.today.applicationSeconds,90.5);
   failWeb=false;storage={};result=await readRestUsageSummary({now});assert.equal(result.today.webSeconds,null);

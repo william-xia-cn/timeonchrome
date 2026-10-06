@@ -3691,15 +3691,21 @@ function renderUsageLegend(view) {
   const el = document.getElementById('usage-analysis-legend');
   if (!el) return;
   const totals = view?.categoryTotals || {};
-  el.innerHTML = usageCategoryKeys(view).map(key => `
+  el.innerHTML = usageCategoryKeys(view).map(key => {
+    const incomplete = view?.kind === 'application' && view.totalSeconds == null;
+    const partial = incomplete && view.readUnit === 'seconds';
+    const known = Object.prototype.hasOwnProperty.call(totals, key);
+    const value = incomplete ? (partial && known ? totals[key] : null) : (totals[key] ?? 0);
+    return `
     <div class="usage-legend-item">
       <span class="usage-dot ${key}"></span>
       <span>
         <div class="usage-legend-name">${usageCategoryLabel(key)}</div>
-        <div class="usage-legend-time">${usageTime(view.totalSeconds == null && view.kind === 'application' ? null : totals[key] || 0, view)}</div>
+        <div class="usage-legend-time">${usageTime(value, view)}${partial && known ? '（已知部分）' : ''}</div>
       </span>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function usageTargetIcon(row = {}) {
@@ -3742,13 +3748,18 @@ function renderUsageAnalysisList(view) {
     searchEl.placeholder = usageAnalysisState.listMode === 'categories' ? '搜索分类' : (view.searchTargetPlaceholder || '搜索管理对象');
   }
   const rows = filteredUsageRows(view);
-  if (view.kind === 'application' && view.totalSeconds == null) {
+  const incompleteApplication = view.kind === 'application' && view.totalSeconds == null;
+  const partialSeconds = incompleteApplication && view.readUnit === 'seconds';
+  if (incompleteApplication && !partialSeconds) {
     wrap.innerHTML = '<div class="usage-empty">当前范围的应用统计证据不完整，暂不能提供完整总量或明细；这不表示零用量。</div>';
     if (detail) detail.className = 'usage-detail-panel';
     return;
   }
   if (rows.length === 0) {
-    wrap.innerHTML = '<div class="usage-empty">当前时间范围内没有管理对象使用记录</div>';
+    const message = partialSeconds
+      ? '当前范围没有可确认的应用明细；用量未知，不代表零用量。'
+      : '当前时间范围内没有管理对象使用记录';
+    wrap.innerHTML = `<div class="usage-empty">${message}</div>`;
     if (detail) detail.className = 'usage-detail-panel';
     return;
   }
@@ -3760,7 +3771,9 @@ function renderUsageAnalysisList(view) {
           ${rows.map(row => `
             <tr data-usage-detail-kind="category" data-usage-detail-key="${escAttr(row.key)}">
               <td><span class="usage-target-name"><span class="usage-dot ${escAttr(row.key)}"></span>${escHtml(row.label)}</span></td>
-              <td>${usageTime(row.seconds, view)}</td>
+              <td>${row.seconds == null && partialSeconds
+                ? '未知' : usageTime(row.seconds, view)}${row.seconds != null && partialSeconds
+                  ? '<div class="usage-partial-label">已知部分</div>' : ''}</td>
               <td>${escHtml(row.limitLabel || '—')}</td>
               <td><span class="usage-status ${usageStatusClass(row.status)}">${escHtml(row.status || '—')}</span></td>
             </tr>
@@ -3775,7 +3788,8 @@ function renderUsageAnalysisList(view) {
         <tbody>
           ${rows.map(row => `
             <tr data-usage-detail-kind="target" data-usage-detail-key="${escAttr(row.key)}">
-              <td><span class="usage-target-name"><span class="usage-target-icon">${usageTargetIcon(row)}</span><span>${escHtml(row.label || '未命名管理对象')}</span></span></td>
+              <td><span class="usage-target-name"><span class="usage-target-icon">${usageTargetIcon(row)}</span><span>${escHtml(row.label || '未命名管理对象')}</span></span>${partialSeconds && row.rangeSeconds == null
+                ? `<div class="usage-partial-label">所选范围已知 ${usageTime(row.rangeKnownSeconds, view)}；总量不完整</div>` : ''}</td>
               <td>${escHtml(row.categoryLabel || usageCategoryLabel(row.category))}</td>
               <td>${usageTime(row.todaySeconds, view)}</td>
               <td>${usageTime(row.weekSeconds, view)}</td>
@@ -3807,7 +3821,12 @@ function renderUsageDetail(view) {
     const selection = usageAnalysisState.detail;
     const row = (selection.kind === 'category' ? view.categoryRows : view.targetRows).find(r => r.key === selection.key);
     detail.className = row ? 'usage-detail-panel visible' : 'usage-detail-panel';
-    detail.innerHTML = row ? `<strong>${escHtml(row.label)}</strong><p>当前范围：${usageTime(selection.kind === 'category' ? row.seconds : row.rangeSeconds, view)}</p>
+    const partialSeconds = view.readUnit === 'seconds' && view.totalSeconds == null;
+    const rangeText = !row ? '' : selection.kind === 'category'
+      ? row.seconds == null ? '分类用量未知' : `${usageTime(row.seconds, view)}${partialSeconds ? '（已知部分）' : ''}`
+      : row.rangeSeconds == null && partialSeconds ? `已知部分 ${usageTime(row.rangeKnownSeconds, view)}；总量暂不完整`
+        : usageTime(row.rangeSeconds, view);
+    detail.innerHTML = row ? `<strong>${escHtml(row.label)}</strong><p>当前范围：${rangeText}</p>
       ${selection.kind === 'target' ? `<p>今日：${usageTime(row.todaySeconds, view)} · 本周：${usageTime(row.weekSeconds, view)}</p><p>历史管理分类：${escHtml(row.categoryLabel)}</p>` : ''}
       <p>本机当前 Windows 用户 · 已结算应用主账；不计网页配额。明细可重叠，不相加生成总量。</p>` : '';
     return;
@@ -3963,7 +3982,10 @@ function renderUsageAnalysisView(view) {
     if (summaryTitle) summaryTitle.textContent = '所选周分类明细（分类可能重叠）';
     if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '每日分类明细（可能重叠）' : '小时分类明细（可能重叠）';
     const notice = document.getElementById('usage-analysis-app-notice');
-    if (notice) notice.textContent = `${view.warning || ''} 独立应用统计，不计网页配额；仅含已结算记录，明细可能重叠，不相加生成总量。${view.incompleteDates ? '不完整日期：' + view.incompleteDates + '，对应图表空白不代表零用量。' : ''}`;
+    const partialSeconds = view.readUnit === 'seconds' && view.totalSeconds == null;
+    if (notice) notice.textContent = `${view.warning || ''} 独立应用统计，不计网页配额；仅含已结算记录，明细可能重叠，不相加生成总量。${view.incompleteDates ? '不完整日期：' + view.incompleteDates + (partialSeconds
+      ? '；当前可见应用、分类和图表为已知部分，未显示部分不代表零用量。'
+      : '，对应图表空白不代表零用量。') : ''}`;
   }
   const incompleteApp = view.kind === 'application' && view.totalSeconds == null;
   renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: view.weekUnavailable ? '本周应用统计尚不可用，不代表零用量' : incompleteApp ? '应用统计证据不完整，不代表零用量' : '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
