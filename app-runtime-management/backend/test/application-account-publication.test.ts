@@ -25,6 +25,8 @@ import childWallDriftGenerated from './application-child-wall-drift-native-gener
 // 同一正式Service实例从事实入口到上传round捕获，非独立Session／Uploader拼接。
 import childServiceGenerated from './application-child-service-native-generated.json';
 import childServiceCloudResponses from './application-child-service-cloud-responses.json';
+// 正式Native兼容物化及Uploader捕获的全合成请求；不在云端夹具重造行或哈希。
+import childMixedGenerated from './application-child-mixed-native-generated.json';
 const DAY=86400000,start=Date.parse('2026-09-27T00:00:00+08:00'),now=start+DAY;
 const user='a'.repeat(64);
 async function fixture(platform:MachineSelfResponse['platform']='windows',scope?:{accountId:string;child:string;machineId?:string;localUserId?:string}){
@@ -137,6 +139,42 @@ it.each([
     publicationErrorCode:'APPLICATION_ACCOUNT_INCOMPLETE'});
   expect((await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27'))
     ?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration).toBe(1501);
+});
+it('real Native mixed-ledger producer uploads 15 facts / 1457 known seconds through the authenticated page route unchanged',async()=>{
+  const original=JSON.stringify(childMixedGenerated),begin=childMixedGenerated.requests[0].body;
+  expect(childMixedGenerated.synthetic).toBe(true);
+  expect(begin.manifest).toEqual(childMixedGenerated.manifest);
+  const f=await fixture('windows',{accountId:'mixed-native-account',child:childMixedGenerated.manifest.childId,
+    localUserId:begin.localUserId}),token=crypto.randomUUID(),readAt=childMixedGenerated.manifest.generatedAtMs;
+  await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET token_hash=?1 WHERE id=?2')
+    .bind(await sha256Hex(token),f.machine.machineId).run();
+  const call=async(path:string,method:string,body?:unknown)=>{
+    const response=await routeV2(new Request('https://runtime.test'+path,{method,
+      headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
+      ...(body===undefined?{}:{body:JSON.stringify(body)})}),env,readAt);
+    expect(response?.status).toBe(200);return response!.json() as Promise<Record<string,unknown>>;
+  };
+  const receipt=await call(childMixedGenerated.requests[0].path,'POST',begin);
+  const prefix='/v2/machines/application-accounts/manifests/'+receipt.manifestId;
+  const chunk=childMixedGenerated.requests[1];
+  await call(prefix+'/chunks/0','PUT',chunk.body);
+  expect(await call(prefix+'/commit','POST')).toMatchObject({received:true,published:true,revision:1,
+    manifestHash:childMixedGenerated.manifest.manifestHash});
+  await call(prefix+'/commit','POST');
+  const browserToken='test-mixed-browser-'+crypto.randomUUID().replaceAll('-','');
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
+    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms) VALUES(?1,?2,?3,?4,?5,?4)`)
+    .bind(await sha256Hex(browserToken),f.machine.accountId,JSON.stringify([{id:f.child,name:'测试孩子'}]),readAt,readAt+60000).run();
+  const from=Date.parse(childMixedGenerated.manifest.date+'T00:00:00+08:00');
+  const response=await routeV2(new Request(`https://runtime.test/v2/module/app-usage?childId=${f.child}&fromMs=${from}&toMs=${from+DAY}&durationUnit=seconds`,
+    {headers:{authorization:`RuntimeSession ${browserToken}`}}),env,readAt);
+  expect(response?.status).toBe(200);
+  const page=await response!.json();
+  expect(page).toMatchObject({complete:false,totalDuration:null,availableTotalDuration:1457,
+    days:[{reasonCodes:['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING']}]});
+  expect(AppRuntimeTime.applicationSecondsView(page,'day')).toMatchObject({complete:false,
+    totalDurationSeconds:null,availableTotalDurationSeconds:1457});
+  expect(JSON.stringify(childMixedGenerated)).toBe(original);
 });
 it.each(['windows','macos'] as const)('v2 %s producer seconds and product classification rows publish without facts',async(platform)=>{
   const f=await fixture(platform),r=await upload(f,1,{seconds:true,duration:51,deferCommit:true,policyVersions:[],
