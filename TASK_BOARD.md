@@ -1,5 +1,9 @@
 # TASK_BOARD
 
+2026-10-06 应用统计读取接入契约1.38：Native v3若协商 `application-usage-seconds-read-v1`，只读消费者改用权威整数秒快照；无该能力才兼容旧毫秒读取。秒快照按冻结revision分页与严格校验，保留已知部分量、未知总量及可信截止点；缓存按单位、档案绑定和Native连接上下文隔离。仅改Native客户端、应用统计只读模型及其聚焦测试；不改Native/云端服务、页面结构、网页账本、配额、打包候选或发布状态。
+
+实施与专项复验完成：秒协议官方契约向量及Native生成的C#真实wire夹具通过；覆盖响应关联、缺失requestId拒绝、Native revision冲突映射/分页重读、缓存上下文隔离和部分数据不补零。`local-guardian`、应用统计读模型、Rest摘要三项专项通过。物理安装的Native端到端、打包候选和发布未在本任务执行。
+
 2026-10-04 1.7.45托管完成：PR #235合入master d65c54448b495bdebdeae16bb6c1ae959e28c8b0，精确SHA CI 37198428287通过；首轮PR缺Task-Role元数据已修正。原签名密钥、CRX3签名、稳定ID、177个包文件及历史归档核验通过。更新源deployment 682f7f15，稳定与deployment双域名feed/CRX/SHA256SUMS一致；589015字节，SHA256 c881933effb517389114922bbdb70944723be4e883bc19412546017034880856，21个CRX归档保留。发布范围Matched，无Deviated/Extra；Mac实机双通道/迁移仍DEFERRED，readiness=false未动，终端安装待观察。未部署业务云端、Native或家庭配置，未启用恢复/共享执行。
 
 2026-10-04 PO明确批准1.7.45托管发布：在既有Mac双健康链路提交a6e8b2c基础上仅提升manifest与发布文档，提交/推送/PR合入后用原密钥签正式managed包，验证稳定ID、产物边界、签名和线上双域名feed/CRX/SHA256；保留旧CRX。复用已通过两健康专项与typecheck，合入变化时按实际范围复核；最小发布门为managed渠道/隐私边界、根目录、typecheck及diff/精确SHA CI。不改业务云端/Native/Mac安装/家庭配置/账本/配额，不启用恢复或共享执行。Mac实机双通道与迁移验收未通过，extension-readiness=false不动；源码发布不代表备用接管可用。

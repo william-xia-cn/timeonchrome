@@ -553,6 +553,112 @@ async function run() {
   assert.deepStrictEqual(appPayloads.at(-1).payload, query);
   assert.strictEqual((await appRead.module.requestApplicationUsage({ ...query, localUserId: 'other' })).ok, false);
 
+  const secondsPayloads = [];
+  const secondsContextStorage = { cloud_profile_id: 'child-a', cloud_device_id: 'device-a' };
+  const secondsApp = await loadGuardian({ storage: secondsContextStorage, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => {
+      secondsPayloads.push(payload);
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(),
+        requestId: payload.requestId, supportedProtocols: [1, 2, 3],
+        capabilities: ['health', 'application-usage-read', 'application-usage-seconds-read-v1'],
+        ...(payload.messageType === 'getApplicationUsageSeconds' ? { applicationUsageSeconds: { revision: 'seconds:golden1' } } : {}) })));
+    }) });
+  await waitFor(() => secondsPayloads.length > 0);
+  const secondsQuery = { fromDate: '2026-10-06', toDate: '2026-10-06', offset: 100, expectedRevision: 'seconds:view:one' };
+  const secondsResult = await secondsApp.module.requestApplicationUsage(secondsQuery);
+  assert.equal(secondsResult.ok, true);
+  assert.equal(secondsResult.readUnit, 'seconds');
+  assert.equal(secondsResult.applicationUsageSeconds.revision, 'seconds:golden1');
+  assert.equal(secondsPayloads.at(-1).messageType, 'getApplicationUsageSeconds');
+  assert.deepStrictEqual(secondsPayloads.at(-1).payload, secondsQuery);
+  const contextResponse = await new Promise(resolve => secondsApp.runtime.onMessage.listeners[0](
+    { type: secondsApp.module.APPLICATION_USAGE_CONTEXT_MESSAGE, contextOnly: true },
+    { id: secondsApp.runtime.id, url: secondsApp.runtime.getURL('admin/admin.html') }, resolve));
+  assert.equal(contextResponse.ok, true);
+  assert.equal(contextResponse.readUnit, 'seconds');
+  assert.equal(contextResponse.contextId, secondsResult.contextId);
+  const previousContext = contextResponse.contextId;
+  secondsContextStorage.cloud_profile_id = 'child-b';
+  const changedContext = await secondsApp.module.requestApplicationUsageReadContext();
+  assert.equal(changedContext.ok, true);
+  assert.notEqual(changedContext.contextId, previousContext, 'profile binding change invalidates cache context');
+
+  const revisionRead = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => queueMicrotask(() => onMessage.listeners.forEach(listener => listener({
+      ok: payload.messageType !== 'getApplicationUsageSeconds',
+      ...(payload.messageType === 'getApplicationUsageSeconds' ? { errorCode: 'APPLICATION_SECONDS_REVISION_CHANGED' } : {}),
+      receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [1, 2, 3],
+      capabilities: ['health', 'application-usage-seconds-read-v1'],
+    })))) });
+  await waitFor(() => revisionRead.module.readNativeHostDiagnosticState().applicationUsageSecondsSupported === true);
+  assert.equal((await revisionRead.module.requestApplicationUsage(secondsQuery)).errorCode,
+    'application_usage_seconds_revision_changed', 'Native seconds revision conflict reaches the paging retry path');
+
+  let secondsReadPayload;
+  let secondsReadPort;
+  const correlation = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => {
+      secondsReadPort = createPort((payload, onMessage) => {
+        if (payload.messageType !== 'getApplicationUsageSeconds') {
+          queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(),
+            requestId: payload.requestId, supportedProtocols: [1, 2, 3], capabilities: ['health', 'application-usage-seconds-read-v1'] })));
+        } else secondsReadPayload = { payload, onMessage };
+      });
+      return secondsReadPort;
+    } });
+  await waitFor(() => correlation.module.readNativeHostDiagnosticState().applicationUsageSecondsSupported === true);
+  let correlationSettled = false;
+  const correlatedRead = correlation.module.requestApplicationUsage(secondsQuery).then(value => {
+    correlationSettled = true;
+    return value;
+  });
+  await waitFor(() => secondsReadPayload);
+  secondsReadPayload.onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(),
+    requestId: `${secondsReadPayload.payload.requestId}-late`, applicationUsageSeconds: { revision: 'late' } }));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(correlationSettled, false, 'a mismatched nonempty seconds requestId is ignored as a late response');
+  secondsReadPayload.onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(),
+    requestId: secondsReadPayload.payload.requestId, applicationUsageSeconds: { revision: 'correlated' } }));
+  assert.equal((await correlatedRead).applicationUsageSeconds.revision, 'correlated');
+  const previousSecondsRequestId = secondsReadPayload.payload.requestId;
+  const missingRequestIdRead = correlation.module.requestApplicationUsage(secondsQuery);
+  await waitFor(() => secondsReadPayload.payload.requestId !== previousSecondsRequestId);
+  secondsReadPayload.onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(),
+    applicationUsageSeconds: { revision: 'uncorrelated' } }));
+  assert.equal((await missingRequestIdRead).errorCode, 'native_invalid_response', 'a seconds response without requestId is rejected');
+
+  const secondsPendingPayloads = [];
+  const secondsPending = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => {
+      secondsPendingPayloads.push(payload);
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener({ ok: payload.messageType !== 'getApplicationUsageSeconds',
+        receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [1, 2, 3],
+        capabilities: ['health', 'application-usage-read', 'application-usage-seconds-read-v1'],
+        ...(payload.messageType === 'getApplicationUsageSeconds' ? { errorCode: 'APPLICATION_USAGE_SECONDS_PENDING' } : {}) })));
+    }) });
+  await waitFor(() => secondsPendingPayloads.length > 0);
+  assert.equal((await secondsPending.module.requestApplicationUsage(query)).errorCode, 'application_usage_seconds_pending');
+  assert.equal(secondsPendingPayloads.filter(payload => payload.messageType === 'getApplicationUsage').length, 0,
+    'a seconds failure never falls back to the older millisecond DTO');
+
+  const changingCapabilities = ['health', 'application-usage-read'];
+  const capabilityPayloads = [];
+  const dualCapability = await loadGuardian({ storage: {}, policy, development: true,
+    connectNative: () => createPort((payload, onMessage) => {
+      capabilityPayloads.push(payload);
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener({
+        ok: true, receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [1, 2, 3], capabilities: changingCapabilities,
+      })));
+    }) });
+  await dualCapability.module.requestLocalGuardianHeartbeat({ force: true });
+  await waitFor(() => capabilityPayloads.length >= 2);
+  assert.equal(dualCapability.runtime.messages.filter(message => message.type === 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE').length, 1);
+  changingCapabilities.push('application-usage-seconds-read-v1');
+  await dualCapability.module.requestLocalGuardianHeartbeat({ force: true });
+  await waitFor(() => capabilityPayloads.length >= 3);
+  assert.equal(dualCapability.runtime.messages.filter(message => message.type === 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE').length, 2,
+    'new seconds capability notifies a page even when legacy milliseconds were already available');
+
   const sharedState = {
     schemaVersion: 1, policyRevision: 'profile-config:12', revision: 'shared:1',
     computedAtMs: Date.now(), settledAtMs: Date.now(), complete: true, reasonCodes: [], sources: [],
@@ -1043,7 +1149,10 @@ async function run() {
   assert.strictEqual((await firstActivity).ok, true);
   assert.strictEqual((await concurrentRead).ok, true);
   assert.strictEqual((await lastActivity).ok, true);
-  assert.deepStrictEqual(activityRequests.slice(fairStart).map(item => item.messageType), ['getApplicationUsage', 'reportBrowserActivity']);
+  const concurrentRequestTypes = activityRequests.slice(fairStart).map(item => item.messageType);
+  assert.deepStrictEqual(concurrentRequestTypes.slice().sort(), ['getApplicationUsage', 'reportBrowserActivity'].sort());
+  assert.strictEqual(activityRequests.filter(item => item.messageType === 'reportBrowserActivity')
+    .slice(-1)[0].payload.sequence, 4, 'coalescing preserves the newest browser activity during a concurrent application read');
   badActivityAck = true;
   assert.strictEqual((await activity.module.reportSharedBrowserActivity(makeActivity(5))).ok, false);
   badActivityAck = false;

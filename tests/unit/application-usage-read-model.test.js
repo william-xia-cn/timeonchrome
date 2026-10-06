@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const source = fs.readFileSync(path.join(__dirname, '../../extension/stats/application-usage-read-model.js'), 'utf8');
 const fixedNow = Date.parse('2026-09-26T12:00:00+08:00');
 function page(offset = 0, count = 2) {
@@ -17,10 +18,12 @@ function page(offset = 0, count = 2) {
       dailyMs: Object.fromEntries(days.map(d => [d.date, d.date === '2026-09-26' ? index ? 2000 : 1501 : 0])) })),
     nextOffset: null };
 }
-async function load(handler) {
+async function load(handler, context = { readUnit: 'milliseconds', contextId: 'legacy-context', available: true }) {
   global.chrome = { runtime: { sendMessage: async message => {
+    if (message.type === 'TIMEONCHROME_APPLICATION_USAGE_READ' && message.contextOnly) return { ok: true, ...context };
     const response = await handler(message);
-    if (response?.ok && message.query.fromDate === message.query.toDate) {
+    if (response?.ok && !response.readUnit) response.readUnit = context.readUnit, response.contextId = context.contextId;
+    if (response?.ok && context.readUnit === 'milliseconds' && message.query.fromDate === message.query.toDate) {
       const p = structuredClone(response.applicationUsage);
       p.fromDate = message.query.fromDate; p.toDate = message.query.toDate;
       p.days = p.days.filter(day => day.date === p.fromDate);
@@ -105,6 +108,15 @@ async function main() {
     offline = false;
     assert.equal((await reconnect.getAdminApplicationUsageAnalysisView({ force: true })).warning, null);
 
+    const mutableContext = { readUnit: 'milliseconds', contextId: 'child-one/connection-one', available: true };
+    let contextOffline = false;
+    const contextScoped = await load(async () => contextOffline ? { ok: false, errorCode: 'application_usage_unavailable' }
+      : { ok: true, applicationUsage: page() }, mutableContext);
+    await contextScoped.getAdminApplicationUsageAnalysisView();
+    mutableContext.contextId = 'child-two/connection-two';
+    contextOffline = true;
+    await assert.rejects(() => contextScoped.getAdminApplicationUsageAnalysisView({ force: true }), { message: 'application_usage_unavailable' });
+
     const invalid = page(); invalid.totalMs++;
     assert.throws(() => adapter.validateApplicationUsagePage(invalid, invalid.fromDate, invalid.toDate), /native_invalid_response/);
     const weekPending = await load(async ({ query }) => query.fromDate === query.toDate
@@ -117,13 +129,68 @@ async function main() {
     assert.ok(independentDay.weekSummarySeries.every(row => row.totalSeconds === null));
     assert.match(independentDay.warning, /尚未完成发布或校验/);
     await assert.rejects(() => weekPending.getAdminApplicationUsageAnalysisView({ mode: 'week' }), { message: 'application_usage_pending' });
-    if (process.argv[2]) {
-      const nativeSnapshot = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-      adapter.validateApplicationUsagePage(nativeSnapshot, nativeSnapshot.fromDate, nativeSnapshot.toDate);
-      assert.equal(nativeSnapshot.totalMs, 2501);
-      assert.equal(nativeSnapshot.applications.reduce((n, row) => n + row.totalMs, 0), 3501);
-      console.log('Native SQLite → framing → extension snapshot validation: PASS');
+    if (process.argv[2] && process.argv[3]) {
+      const bundle = process.argv[2], wire = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+      const tar = entry => execFileSync('tar.exe', ['-xOf', bundle, entry], { encoding: 'utf8' });
+      const contractModule = await import(`data:text/javascript;base64,${Buffer.from(tar('package/dist/application-usage-seconds.js')).toString('base64')}`);
+      const vectors = JSON.parse(tar('package/application-usage-seconds.vectors.json'));
+      assert.equal(vectors.capability, 'application-usage-seconds-read-v1');
+      for (const sample of vectors.samples) {
+        contractModule.validateApplicationUsageSecondsQuery(sample.query);
+        contractModule.validateApplicationUsageSecondsSnapshot(sample.snapshot, sample.query);
+        adapter.validateApplicationUsageSecondsQuery(sample.query);
+        adapter.validateApplicationUsageSecondsPage(sample.snapshot, sample.query);
+      }
+      for (const query of vectors.invalidQueries) assert.throws(() => adapter.validateApplicationUsageSecondsQuery(query));
+      const byName = Object.fromEntries(wire.map(item => [item.name, item]));
+      for (const item of wire) {
+        contractModule.validateApplicationUsageSecondsQuery(item.query);
+        contractModule.validateApplicationUsageSecondsSnapshot(item.response.applicationUsageSeconds, item.query);
+        adapter.validateApplicationUsageSecondsQuery(item.query);
+        adapter.validateApplicationUsageSecondsPage(item.response.applicationUsageSeconds, item.query);
+      }
+      assert.equal(byName.complete.response.applicationUsageSeconds.totalSeconds, 6);
+      assert.equal(byName.partial.response.applicationUsageSeconds.totalSeconds, null);
+      assert.equal(byName.partial.response.applicationUsageSeconds.knownTotalSeconds, 6);
+      assert.equal(byName.unknown.response.applicationUsageSeconds.days[0].status, 'unknown');
+      assert.equal(byName['page-1'].response.applicationUsageSeconds.nextOffset, 100);
+      assert.equal(byName['page-2'].query.expectedRevision, byName['page-1'].response.applicationUsageSeconds.revision);
+
+      const secondsContext = { readUnit: 'seconds', contextId: 'child-fixed/connection-fixed', available: true };
+      const wireAdapter = await load(async ({ query }) => {
+        const item = byName[query.offset === 0 ? 'page-1' : 'page-2'];
+        if (query.fromDate !== '2026-10-06' || query.toDate !== '2026-10-06') return { ok: false, errorCode: 'application_usage_pending' };
+        assert.equal(query.expectedRevision || null, item.query.expectedRevision || null);
+        return { ...item.response };
+      }, secondsContext);
+      Date.now = () => Date.parse('2026-10-06T12:00:00+08:00');
+      const secondsView = await wireAdapter.getAdminApplicationUsageAnalysisView();
+      assert.equal(secondsView.readUnit, 'seconds');
+      assert.equal(secondsView.totalSeconds, 6);
+      assert.equal(secondsView.targetRows.length, 101);
+      assert.equal(secondsView.targetRows.reduce((sum, row) => sum + row.rangeSeconds, 0), 404);
+      assert.equal(secondsView.totalSeconds, 6, 'overlapping product rows never replace or inflate the authoritative total');
+      assert.equal(secondsView.categoryTotals.app_other, 4);
+
+      const partialViewAdapter = await load(async ({ query }) => query.fromDate === '2026-10-06' && query.offset === 0
+        ? { ...byName.partial.response } : { ok: false, errorCode: 'application_usage_pending' }, secondsContext);
+      const partialView = await partialViewAdapter.getAdminApplicationUsageAnalysisView();
+      assert.equal(partialView.totalSeconds, null);
+      assert.equal(partialView.knownTotalSeconds, 6);
+      assert.equal(partialView.categoryTotals.app_study, 4);
+      assert.equal(partialView.targetRows[0].rangeSeconds, null);
+      assert.equal(partialView.targetRows[0].rangeKnownSeconds, 4);
+      assert.equal(partialView.targetRows[0].todaySeconds, 4);
+
+      const unknownViewAdapter = await load(async ({ query }) => query.fromDate === '2026-10-06' && query.offset === 0
+        ? { ...byName.unknown.response } : { ok: false, errorCode: 'application_usage_pending' }, secondsContext);
+      const unknownView = await unknownViewAdapter.getAdminApplicationUsageAnalysisView();
+      assert.equal(unknownView.totalSeconds, null);
+      assert.equal(unknownView.knownTotalSeconds, 0);
+      assert.match(unknownView.incompleteDates, /2026-10-06/);
+      console.log('Native C# wire + contract vectors → extension seconds consumer: PASS');
     }
+    Date.now = () => fixedNow;
     const html = fs.readFileSync(path.join(__dirname, '../../extension/admin/admin.html'), 'utf8');
     const admin = fs.readFileSync(path.join(__dirname, '../../extension/admin/admin.js'), 'utf8');
     assert.match(html, /data-usage-ledger="web"[\s\S]*data-usage-ledger="media"[\s\S]*data-usage-ledger="application"/);
@@ -134,7 +201,7 @@ async function main() {
     assert.equal(shiftDate(null, -7), '2026-09-19');
     assert.equal(shiftDate('2026-01-01', -1), '2025-12-31');
     assert.equal(shiftDate('2026-09-30', 1), '2026-10-01');
-    console.log('Application usage adapter: PASS (authority, milliseconds, paging, revisions, cache, failures, incomplete, UI routing)');
+    console.log('Application usage adapter: PASS (seconds/milliseconds, scope cache, paging, revisions, known portions, UI routing)');
   } finally { Date.now = originalNow; }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
