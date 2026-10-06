@@ -80,7 +80,7 @@ const internal=await rpc.fetch(new Request('https://capability/readApplicationEv
 expect(internal.status).toBe(200);expect((await internal.json() as Array<{totalMs:number}>)[0]?.totalMs).toBe(1501);
 expect((await rpc.fetch(new Request('https://capability/deleteEverything',{method:'POST'}))).status).toBe(405);
 const authority=await queryAppUsage(env.RUNTIME_DB,args[0],args[1],day,day+86400000,{}) as {totalDurationMs:number};
-const independent=await rpc.getApplicationUsage(...args);expect(independent.totalDurationMs).toBe(authority.totalDurationMs);
+const independent=await rpc.getApplicationUsage(...args);expect(independent).toMatchObject({durationUnit:'milliseconds',totalDurationMs:authority.totalDurationMs});
 expect(JSON.stringify(independent)).not.toMatch(/runtimeIdentity|localUserId|machineId|token|opaque-user/);
 const denied=await rpc.fetch(new Request('https://capability/getApplicationUsage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'foreign-account',childId:args[1],fromDate:args[2],toDate:args[3]})}));expect(denied.status).toBe(404);
 });

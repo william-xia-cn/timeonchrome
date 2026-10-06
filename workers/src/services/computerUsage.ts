@@ -333,14 +333,14 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     return readIndependentUsage(this.env,accountId,childId,from,to,source);
   }
 }
-export async function readIndependentUsage(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,source:string) {
+export async function readIndependentUsage(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,source:string,secondsOnly=false) {
     validateComputerUsageRange(from,to);
     if(!['application','web','media'].includes(source))throw new Error('INVALID_SOURCE');
     const owned=await env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(childId,accountId).first();
     if(!owned)throw new Error('CHILD_NOT_FOUND');
     if(source==='application'){
       if(!env.RUNTIME_COMPUTER_USAGE?.fetch&&!env.RUNTIME_COMPUTER_USAGE?.getApplicationUsage)throw new Error('APPLICATION_RPC_UNAVAILABLE');
-      return readRuntime(env,'getApplicationUsage',accountId,childId,from,to);
+      return readRuntime(env,'getApplicationUsage',accountId,childId,from,to,secondsOnly);
     }
     // Invoke the already-authorized read routes in-process. The token never leaves
     // this capability method, and avoids maintaining a second correction algorithm.

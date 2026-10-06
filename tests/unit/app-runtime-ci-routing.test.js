@@ -80,5 +80,8 @@ assert(workflow.includes("if: needs.changes.outputs.native_artifact == 'true'\n 
 assert.equal(classifyPaths(['.github/workflows/app-runtime-production.yml']).native_artifact, false);
 assert.equal(classifyPaths(['.github/workflows/app-runtime.yml']).native_artifact, false);
 assert(workflow.includes('run: node tools/classify-app-runtime-ci-changes.js --verify-gate'));
+const production=fs.readFileSync(path.join(root,'.github/workflows/app-runtime-production.yml'),'utf8');
+assert(production.includes('cmp pages/computer-usage-view.js "$RUNNER_TEMP/main-console-computer-usage-view.js"'),
+  'existing Pages smoke must compare the real statistics renderer, not only HTML status');
 
 console.log('app-runtime-ci-routing tests: PASS');

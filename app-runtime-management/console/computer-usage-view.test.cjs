@@ -11,6 +11,13 @@ const keyOf=item=>item.platform+'|'+item.runtimeIdentity;
 const members=new Function('state','AppRuntimePolicy','$',directory+';return directoryMembers;')(state,{keyOf},()=>({value:'usage'}));
 assert.equal(members('special').length,1);assert.deepEqual(members('unclassified').map(item=>item.runtimeIdentity),['excel']);
 assert.equal(raw,fs.readFileSync(path.join(__dirname,'../../pages/computer-usage-view.js'),'utf8'),'both cloud pages use identical readonly renderer');
+const mainPage=fs.readFileSync(path.join(__dirname,'../../pages/index.html'),'utf8');
+const applicationRead=mainPage.slice(mainPage.indexOf('const cloudApplicationReader='),mainPage.indexOf('const cloudApplicationReader=')+1200);
+assert.ok(applicationRead.includes("source:'application',durationUnit:'seconds'"),'main application view explicitly selects seconds');
+for(const file of ['app-runtime.yml','app-runtime-main-console.yml']){
+  const workflow=fs.readFileSync(path.join(__dirname,'../../.github/workflows',file),'utf8');
+  assert.ok(workflow.includes('node app-runtime-management/console/computer-usage-view.test.cjs'),'renderer regression must run in '+file);
+}
 const snapshot={schemaVersion:1,revision:'r1',fromDate:'2026-10-01',toDate:'2026-10-01',complete:false,reasons:['APPLICATION_SOURCE_UNAVAILABLE'],totals:{computerMs:null,webMs:1501,applicationMs:null,overlapMs:null},categoriesMs:{study:null},devices:[{key:'child',name:'该孩子的全部设备',complete:false,totalMs:null,webMs:1501,applicationMs:null,chromeUnexplainedMs:null}],sourceVersions:[{kind:'web',settledAtMs:null}]};
 const html=view.summary(snapshot);assert.ok(html.includes('网页与应用'));assert.ok(!html.includes('网页设备与电脑之间缺少可信关联'));assert.ok(html.includes('1秒 501毫秒'));assert.ok(html.includes('不可用'));assert.ok(!html.includes('usage-stack-chart'));
 assert.equal(view.duration(null),'不可用');assert.equal(view.duration(0),'0分 0秒');assert.equal(view.duration(1501),'0分 1秒 501毫秒');

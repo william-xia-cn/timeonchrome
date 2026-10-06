@@ -250,7 +250,10 @@ jobs:
           test "$status" = "401"
       - name: Main Pages smoke
         if: inputs.deploy_main_pages
-        run: curl --retry 5 --retry-all-errors --retry-delay 2 --fail --silent --show-error https://timeonchrome-console.pages.dev/ > /dev/null
+        run: |
+          curl --retry 5 --retry-all-errors --retry-delay 2 --fail --silent --show-error https://timeonchrome-console.pages.dev/ > /dev/null
+          curl --retry 5 --retry-all-errors --retry-delay 2 --fail --silent --show-error https://timeonchrome-console.pages.dev/computer-usage-view.js > "$RUNNER_TEMP/main-console-computer-usage-view.js"
+          cmp pages/computer-usage-view.js "$RUNNER_TEMP/main-console-computer-usage-view.js"
       - name: Release manifest
         env:
           APPLIED_RUNTIME_MIGRATIONS: ${{ steps.migrations.outputs.applied }}

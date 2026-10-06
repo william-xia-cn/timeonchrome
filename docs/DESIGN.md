@@ -1,5 +1,11 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-06 应用读取单位兼容修复
+
+Runtime受限getApplicationUsage的格式由调用者明确选择，不由是否已上传秒统计决定：secondsOnly=true只返回权威整数秒；省略/false保持旧毫秒字段。已有秒统计时，旧格式仅对同一权威结果做响应单位投影，保持complete、部分可用量和截止/版本，不重算、不持久化毫秒副本，不以旧统计填平缺量。完全没有秒结果时，未指定单位的旧调用保留既有legacy兼容读取。此条替代下文“内部getApplicationUsage未指定单位也优先返回秒”的旧接线说明；秒持久化和统计语义不变。
+
+Guardian /profiles/:child/computer-usage/v1?source=application&durationUnit=seconds显式透传secondsOnly；未指定/milliseconds保持旧字段。网页/媒体独立入口单位契约不变。主控制台应用视图显式选择seconds，电脑汇总继续使用既有seconds入口。APPLICATION_SCOPE_UNAVAILABLE按稳定公开码返回，未知内部异常仍不泄露。现有computer-usage-view测试接入Runtime与主Pages相关CI；发布须核对Runtime输出、Guardian透传和主Pages实际脚本兼容，而非只检查HTML200。现有主Pages smoke额外回读computer-usage-view.js并与该发布SHA的源码逐字节比较，不增加新审批层，也不把脚本匹配冒充真实统计验收。
+
 ## 应用孩子统计同步接入（2026-10-06，已批准实施，非共享）
 
 ### 2026-10-06 同日旧／新账可用部分的最小兼容
@@ -28,7 +34,7 @@ Native开段／重启／改绑都消费该段已固定的孩子，不用最新po
 
 Native `08c5133` 已接通秒生成、物化、冻结补发及内部同版读取；云端实际生成输出上传与页面适配回归已通过。只读核对发现现有外部 `getApplicationUsage`、Windows Manager 和控件应用读取仍使用毫秒 DTO，秒 head 启用后旧读取返回 `APPLICATION_USAGE_PENDING`。内部读取通过不代表外部界面已可用，不能提前将生成能力上线当作完整交付。
 
-集中接线清单（1.38.0契约已补齐；两端实际消费者仍待实施／验收）：
+集中接线清单（1.38.0契约已合入master；Native 86a2ca1与控件71d619b已完成当前范围源码／隔离消费，最终候选实机读取未验收，解除保护及跨历史分配范围尚未覆盖）：
 
 1. 在既有 v3 `application` 通道增加 `getApplicationUsageSeconds`、`application-usage-seconds-read-v1` 能力及独立 `applicationUsageSeconds` 响应；保留旧消息和 Ms DTO。仅新能力协商成功时使用秒请求，失败不得静默取旧 head 冒充当前秒统计。Host 仍只校验 framing／消息结构和转发。
 2. 请求复用北京时间起止日、offset、expectedRevision，最多七天、产品每页最多100。秒 revision 为有界不透明字符串，不能借旧64hex校验拒绝 `application-seconds-view:` 版本。分页绑定同一冻结范围版本；版本变化允许从首页重新读取一次，不能混页。

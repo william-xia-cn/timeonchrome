@@ -538,10 +538,29 @@ it('authenticated app-usage seconds route exposes producer statistics and retain
 it('Guardian application source RPC reads the same published seconds without raw reconstruction',async()=>{
   const f=await fixture('windows',{accountId:'seconds-source-account',child:'seconds-source-child'}),one=await upload(f,1,{seconds:true,duration:51,deferCommit:true});
   await commitRequest(f,one.manifestId);
-  const source=await exports.RuntimeComputerUsageService.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27');
+  const rpc=exports.RuntimeComputerUsageService;
+  const source=await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27',true);
   expect(source).toMatchObject({source:'application',durationUnit:'seconds',complete:true,totalDuration:51,
     applications:[{duration:51,classifications:['study']}],statistics:{producer:'native',stale:false}});
   expect(source).not.toHaveProperty('totalDurationMs');
+  // An old caller must not change wire shape when a new seconds head arrives.
+  const old=await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27');
+  expect(old).toMatchObject({durationUnit:'milliseconds',complete:true,totalDurationMs:51000,
+    availableTotalDurationMs:51000,categories:[{classification:'study',durationMs:51000}],
+    applications:[{durationMs:51000,classifications:['study']}],statistics:{producer:'native'}});
+  expect(old).not.toHaveProperty('totalDuration');
+  const oldRequest=await rpc.fetch(new Request('https://runtime-capability/getApplicationUsage',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:f.machine.accountId,
+      childId:f.child,fromDate:'2026-09-27',toDate:'2026-09-27'})}));
+  expect(await oldRequest.json()).toEqual(old);
+  const partial=await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-26','2026-09-27');
+  expect(partial).toMatchObject({durationUnit:'milliseconds',complete:false,totalDurationMs:null,
+    availableTotalDurationMs:51000,categories:[{durationMs:51000}]});
+  const next=await upload(f,2,{seconds:true,duration:20,deferCommit:true});await commitRequest(f,next.manifestId);
+  expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27'))
+    .toMatchObject({durationUnit:'milliseconds',totalDurationMs:20000});
+  expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27',true))
+    .toMatchObject({durationUnit:'seconds',totalDuration:20});
   const forbidden=await exports.RuntimeComputerUsageService.fetch(new Request('https://runtime-capability/getApplicationUsage',{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'another-account',childId:f.child,fromDate:'2026-09-27',toDate:'2026-09-27'})}));
   expect(forbidden.status).toBe(404);expect(await forbidden.json()).toEqual({code:'CHILD_NOT_FOUND'});
