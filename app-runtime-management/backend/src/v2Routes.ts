@@ -8,6 +8,7 @@ import { routeSharedWebSourceBinding, parseMachineWebSourceProof } from './share
 import { commitUninstallOperation, readUninstallReceipt } from './uninstallOperations';
 import { machineUsageCorrections } from './applicationUsageCorrections';
 import { readPersistentApplicationUsage } from './applicationStatistics';
+import { readNativeApplicationStatisticsRangeSeconds } from './applicationStatisticsNative';
 import { getApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
   putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
   applyKnowledgeOperation } from './applicationKnowledge';
@@ -236,8 +237,11 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||!Number.isFinite(start)||!Number.isFinite(end)
         ||end<start||end-start>6*86400000||new Date(start+8*3600000).toISOString().slice(0,10)!==from||new Date(end+8*3600000).toISOString().slice(0,10)!==to)
         throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
-      const binding=env.GUARDIAN_COMPUTER_USAGE as unknown as {getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly?:boolean):Promise<import('@timeonchrome/app-runtime-contracts/computer-usage').ComputerUsageResult>;getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string):Promise<unknown>};
+      const binding=env.GUARDIAN_COMPUTER_USAGE as unknown as {getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly?:boolean):Promise<import('@timeonchrome/app-runtime-contracts/computer-usage').ComputerUsageResult>;getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string):Promise<unknown>;getComputerUsageStatisticsSeconds?(accountId:string,childId:string,from:string,to:string):Promise<import('@timeonchrome/app-runtime-contracts/computer-usage').ComputerUsageStatisticsSummaryV2 & {revision:string}>};
+      const unit=url.searchParams.get('durationUnit');
+      if(unit!==null&&!['seconds','milliseconds'].includes(unit))throw new HttpError(400,'INVALID_DURATION_UNIT','统计单位无效。');
       const source=url.searchParams.get('source');
+      if(source&&unit==='seconds')throw new HttpError(400,'INVALID_SOURCE','独立来源请使用对应统计接口。');
       if(source){if(!['application','web','media'].includes(source))throw new HttpError(400,'INVALID_SOURCE','统计来源无效。');return jsonResponse(await binding.getIndependentUsage(claims.account_id,childId,from,to,source));}
       const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||100);
       if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>100)
@@ -246,8 +250,16 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       if(!['summary','timeline','products'].includes(detail)||detail!=='summary'&&!url.searchParams.get('revision')||offset>0&&!url.searchParams.get('revision'))
         throw new HttpError(400,'INVALID_CURSOR','明细须使用同一汇总版本。');
       const expected=url.searchParams.get('revision'),product=url.searchParams.get('product');
-      if(expected&&!/^computer-v1:[a-f0-9]{64}$/.test(expected)||product&&detail!=='timeline')
+      const revisionPattern=unit==='seconds'?/^computer-v2:[a-f0-9]{64}$/:/^computer-v1:[a-f0-9]{64}$/;
+      if(expected&&!revisionPattern.test(expected)||product&&detail!=='timeline')
         throw new HttpError(400,'INVALID_CURSOR','明细请求无效。');
+      if(unit==='seconds'){
+        if(!binding.getComputerUsageStatisticsSeconds)throw new HttpError(503,'COMPUTER_USAGE_UNAVAILABLE','秒统计读取尚未接通。');
+        const snapshot=await binding.getComputerUsageStatisticsSeconds(claims.account_id,childId,from,to);
+        if(expected&&expected!==snapshot.revision)throw new HttpError(409,'COMPUTER_USAGE_VERSION_CHANGED','统一统计已更新，请重新读取。');
+        if(detail!=='summary'||offset!==0)throw new HttpError(503,'COMPUTER_USAGE_DETAIL_NOT_READY','秒统计明细尚未接通。');
+        return jsonResponse(snapshot);
+      }
       const snapshot=await binding.getComputerUsage(claims.account_id,childId,from,to,url.searchParams.get('computer')||undefined,detail==='summary');
       if(url.searchParams.has('revision')&&url.searchParams.get('revision')!==snapshot.revision)
         throw new HttpError(409,'COMPUTER_USAGE_VERSION_CHANGED','统一统计已更新，请重新读取。');
@@ -316,6 +328,14 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       if (platform != null && platform !== 'windows' && platform !== 'macos') {
         throw new HttpError(400, 'INVALID_PLATFORM', 'Platform is invalid.');
       }
+      const durationUnit=url.searchParams.get('durationUnit');
+      if(durationUnit!==null&&durationUnit!=='seconds'&&durationUnit!=='milliseconds')
+        throw new HttpError(400,'INVALID_DURATION_UNIT','统计单位无效。');
+      if(durationUnit==='seconds')return jsonResponse(await readNativeApplicationStatisticsRangeSeconds(
+        env.RUNTIME_DB,claims.account_id,childId,range.fromMs,range.toMs,{
+          machineId:url.searchParams.get('machineId')||undefined,
+          localUserId:url.searchParams.get('userId')||undefined,platform:platform||undefined,
+        }));
       const result=await readPersistentApplicationUsage(env.RUNTIME_DB, claims.account_id, childId,
         range.fromMs, range.toMs, {
           machineId: url.searchParams.get('machineId') || undefined,

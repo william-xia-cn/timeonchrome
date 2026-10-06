@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 3,
+  "timezone": "Asia/Shanghai",
+  "dayStartMs": 1791129600000,
+  "rules": { "checkpointSeconds": 180, "estimateSeconds": 90, "dayRounding": "floor-per-day", "hourAllocation": "largest-remainder-earliest-tie" },
+  "hashVector": {
+    "segment": {
+      "schemaVersion": 3,
+      "id": "a5f6f63725fd67f18e6221942582ea749245238a3f965be1f95845a67fb07ad4",
+      "childId": "child-a",
+      "source": { "machineId": "machine-a", "localUserId": "user-a", "runtimeSessionId": "session-a", "assignmentVersion": 1 },
+      "application": { "platform": "windows", "runtimeIdentity": "opaque-app-a" },
+      "date": "2026-10-05",
+      "startWallTimeMs": 1791129600000,
+      "endWallTimeMs": 1791129780000,
+      "startMonotonicTimeMs": 1000,
+      "endMonotonicTimeMs": 181000,
+      "clockEpochId": "epoch-a",
+      "durationSeconds": 180,
+      "channel": "active",
+      "endReason": "periodicSnapshot",
+      "estimated": { "isEstimated": false, "reason": null, "cappedAtSeconds": null }
+    },
+    "canonical": "[\"application-ledger-v3\",\"child-a\",\"machine-a\",\"user-a\",\"session-a\",1,\"windows\",\"opaque-app-a\",\"2026-10-05\",1791129600000,1791129780000,1000,181000,\"epoch-a\",180,\"active\",\"periodicSnapshot\",false,null,null]"
+  },
+  "dayVectors": [
+    { "id": "ordinary-180", "startOffsetMs": 0, "endOffsetMs": 180000, "expectedSeconds": [180] },
+    { "id": "subsecond", "startOffsetMs": 0, "endOffsetMs": 999, "expectedSeconds": [0] },
+    { "id": "cross-midnight-floor", "startOffsetMs": 86398750, "endOffsetMs": 86401750, "expectedSeconds": [1, 1] },
+    { "id": "cross-midnight-subsecond", "startOffsetMs": 86399500, "endOffsetMs": 86400500, "expectedSeconds": [0, 0] }
+  ],
+  "hourVectors": [
+    { "id": "whole-180", "startOffsetMs": 0, "endOffsetMs": 180000, "durationSeconds": 180, "expectedSeconds": [180] },
+    { "id": "larger-remainder-earlier", "startOffsetMs": 3599250, "endOffsetMs": 3601250, "durationSeconds": 2, "expectedSeconds": [1, 1] },
+    { "id": "larger-remainder-later", "startOffsetMs": 3599750, "endOffsetMs": 3601750, "durationSeconds": 2, "expectedSeconds": [0, 2] },
+    { "id": "equal-remainder-earlier-tie", "startOffsetMs": 3599250, "endOffsetMs": 3600750, "durationSeconds": 1, "expectedSeconds": [1, 0] }
+  ],
+  "checkpointVectors": [
+    { "id": "on-time", "oldStartMs": 0, "observedAtMs": 180000, "confirmed": true, "settledEndMs": 180000, "nextStartMs": 180000 },
+    { "id": "late-preserves-tail", "oldStartMs": 0, "observedAtMs": 200000, "confirmed": true, "settledEndMs": 180000, "nextStartMs": 180000 },
+    { "id": "very-late-one-window", "oldStartMs": 0, "observedAtMs": 600000, "confirmed": true, "settledEndMs": 180000, "nextStartMs": 180000 },
+    { "id": "failed-no-confirmed-active-sample", "oldStartMs": 0, "observedAtMs": 180000, "confirmed": false, "settledEndMs": 90000, "nextStartMs": null }
+  ],
+  "repairVectors": [
+    { "id": "confirmed-same-child", "observedAtMs": 180000, "assignmentEffectiveAtMs": 0, "eligible": true, "expectedStartMs": 90000 },
+    { "id": "no-backfill-before-assignment", "observedAtMs": 180000, "assignmentEffectiveAtMs": 150000, "eligible": true, "expectedStartMs": 150000 },
+    { "id": "unproven-assignment-window", "observedAtMs": 180000, "assignmentEffectiveAtMs": null, "eligible": true, "expectedStartMs": 180000 },
+    { "id": "inactive", "observedAtMs": 180000, "assignmentEffectiveAtMs": 0, "eligible": false, "expectedStartMs": null }
+  ],
+  "ownershipVectors": [
+    { "id": "user-a-child-a", "user": "user-a", "child": "child-a", "expectedOwner": "child-a" },
+    { "id": "user-b-child-b", "user": "user-b", "child": "child-b", "expectedOwner": "child-b" },
+    { "id": "same-child-different-user", "user": "user-b", "child": "child-a", "expectedOwner": "child-a" },
+    { "id": "unassigned", "user": "user-a", "child": null, "expectedOwner": null }
+  ],
+  "reassignment": { "oldChild": "child-a", "newChild": "child-b", "effectiveAtMs": 150000, "oldEndMs": 150000, "newStartMs": 150000, "failureMustPreserveOldContext": true }
+}

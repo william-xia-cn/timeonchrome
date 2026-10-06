@@ -1,8 +1,17 @@
 /** 版本化派生统计；不负责生成 Segment、重新分类或计算区间并集。 */
 export const USAGE_ACCOUNT_CHUNK_ROWS = 100;
 export const USAGE_ACCOUNT_MAX_ROWS = 10_000;
+export const APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY = 'application-statistics-child-scope-v1' as const;
 export type UsageAccountSource = 'application' | 'web' | 'webMedia';
 export type UsageAccountUnit = 'milliseconds' | 'seconds';
+/** 同版实际用量视图；不含配置、配额余额、借用或第二个发布版本。 */
+export interface ApplicationUsageProjection {
+  nonSpecialTotalMs: number;
+  nonSpecialCategoryMs: Record<string, number>;
+  specialTotalMs: number;
+  complete: boolean;
+  reasonCodes: string[];
+}
 export interface UsageAccountRow {
   kind: 'total' | 'category' | 'subject';
   hour: number | null;
@@ -33,6 +42,29 @@ export interface UsageAccountManifest {
   complete: boolean;
   reasonCodes: string[];
   manifestHash: string;
+  applicationUsage?: ApplicationUsageProjection;
+}
+/** 新版派生统计：唯一用量单位是秒，时间戳仍为毫秒。 */
+export interface ApplicationUsageSeconds {
+  nonSpecialTotal: number;
+  nonSpecialCategories: Record<string, number>;
+  specialTotal: number;
+  complete: boolean;
+  reasonCodes: string[];
+}
+export interface UsageAccountManifestV2 extends Omit<UsageAccountManifest, 'schemaVersion' | 'durationUnit' | 'applicationUsage'> {
+  schemaVersion: 2;
+  durationUnit: 'seconds';
+  /** 新v3生产者开账时固定的孩子；缺省只兼容旧秒清单，不由当前分配补写。 */
+  childId?: string;
+  applicationUsage?: ApplicationUsageSeconds;
+}
+export interface UsageAccountRowV2 extends UsageAccountRow {
+  /** 仅subject行存在，取自同版权威统计；不用于修改配置。 */
+  classifications?: string[];
+}
+export interface UsageAccountChunkV2 extends Omit<UsageAccountChunk, 'rows'> {
+  rows: UsageAccountRowV2[];
 }
 export interface UsageAccountChunk {
   chunkIndex: number;
@@ -119,7 +151,8 @@ export async function hashUsageAccountValue(value: unknown): Promise<string> {
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 export function parseUsageAccountManifest(value: unknown): UsageAccountManifest {
-  const v = exact(value, manifestFields);
+  const v = exact(value, record(value) && Object.hasOwn(value, 'applicationUsage')
+    ? [...manifestFields, 'applicationUsage'] : manifestFields);
   if (v.schemaVersion !== 1 || v.timezone !== 'Asia/Shanghai'
     || (v.sourceKind !== 'application' && v.sourceKind !== 'web' && v.sourceKind !== 'webMedia')
     || v.durationUnit !== (v.sourceKind === 'application' ? 'milliseconds' : 'seconds'))
@@ -146,7 +179,7 @@ export function parseUsageAccountManifest(value: unknown): UsageAccountManifest 
     || !orderedUnique(v.reasonCodes, item => typeof item === 'string' && codePattern.test(item))
     || (v.complete && (v.reasonCodes.length > 0 || v.settledThroughMs === null))
     || (!v.complete && v.reasonCodes.length === 0)) fail('USAGE_ACCOUNT_INVALID_COMPLETENESS');
-  return {
+  const result: UsageAccountManifest = {
     schemaVersion: 1, sourceKind: v.sourceKind, durationUnit: v.sourceKind === 'application' ? 'milliseconds' : 'seconds', timezone: 'Asia/Shanghai',
     date: v.date, revision: v.revision, generatedAtMs: v.generatedAtMs,
     settledThroughMs: v.settledThroughMs === null ? null : Number(v.settledThroughMs),
@@ -156,6 +189,25 @@ export function parseUsageAccountManifest(value: unknown): UsageAccountManifest 
     chunkCount: v.chunkCount, rowsHash: String(v.rowsHash), complete: v.complete,
     reasonCodes: v.reasonCodes.map(String), manifestHash: String(v.manifestHash),
   };
+  if (Object.hasOwn(v, 'applicationUsage')) {
+    if (v.sourceKind !== 'application') fail('USAGE_ACCOUNT_INVALID_APPLICATION_USAGE');
+    result.applicationUsage = parseApplicationUsageProjection(v.applicationUsage);
+  }
+  return result;
+}
+export function parseApplicationUsageProjection(value: unknown): ApplicationUsageProjection {
+  const v = exact(value, ['nonSpecialTotalMs', 'nonSpecialCategoryMs', 'specialTotalMs', 'complete', 'reasonCodes']);
+  if (!integer(v.nonSpecialTotalMs) || v.nonSpecialTotalMs > 86_400_000
+    || !integer(v.specialTotalMs) || v.specialTotalMs > 86_400_000
+    || !record(v.nonSpecialCategoryMs) || Object.keys(v.nonSpecialCategoryMs).length > 16
+    || Object.entries(v.nonSpecialCategoryMs).some(([category, duration]) =>
+      !identifier(category) || !integer(duration) || duration > Number(v.nonSpecialTotalMs))
+    || typeof v.complete !== 'boolean' || !Array.isArray(v.reasonCodes) || v.reasonCodes.length > 16
+    || !orderedUnique(v.reasonCodes, code => typeof code === 'string' && codePattern.test(code))
+    || (v.complete ? v.reasonCodes.length !== 0 : v.reasonCodes.length === 0))
+    fail('USAGE_ACCOUNT_INVALID_APPLICATION_USAGE');
+  return { nonSpecialTotalMs: v.nonSpecialTotalMs, nonSpecialCategoryMs: { ...v.nonSpecialCategoryMs } as Record<string, number>,
+    specialTotalMs: v.specialTotalMs, complete: v.complete, reasonCodes: v.reasonCodes.map(String) };
 }
 export async function verifyUsageAccountManifest(value: unknown): Promise<UsageAccountManifest> {
   const manifest = parseUsageAccountManifest(value);
@@ -192,6 +244,14 @@ export function parseUsageAccountRows(value: unknown, maximum = USAGE_ACCOUNT_MA
   });
 }
 export function validateUsageAccountDimensions(rows: UsageAccountRow[]): { total: number } {
+  return validateDimensions(rows, false);
+}
+/** 日内独立定秒的各维度自身守恒；小时分配不要求跨维度父子上界。 */
+export function validateUsageAccountDimensionsV2(rows: UsageAccountRowV2[]): { total: number } {
+  parseUsageAccountRowsV2(rows);
+  return validateDimensions(rows, true);
+}
+function validateDimensions(rows: UsageAccountRow[], independentHourlySeconds: boolean): { total: number } {
   // 日／小时在各自维度守恒；跨应用／分类的重叠不能被简单加总。
   const groups = new Map<string, { daily?: number; hourly: number; hours: Set<number>; label: string | null }>();
   for (const row of rows) {
@@ -216,7 +276,7 @@ export function validateUsageAccountDimensions(rows: UsageAccountRow[]): { total
   }
   const hourlyTotals = new Map(rows.filter(r => r.kind === 'total' && r.hour !== null).map(r => [r.hour, r.duration]));
   for (const row of rows) {
-    if (row.hour !== null && row.duration > (hourlyTotals.get(row.hour) ?? 0))
+    if (!independentHourlySeconds && row.hour !== null && row.duration > (hourlyTotals.get(row.hour) ?? 0))
       fail('USAGE_ACCOUNT_HOUR_EXCEEDS_TOTAL');
   }
   return { total: total.daily };
@@ -239,4 +299,119 @@ export async function createUsageAccount(
     chunks.push({ chunkIndex: chunks.length, rows: chunkRows, chunkHash: await hashUsageAccountValue(chunkRows) });
   }
   return { manifest, rows, chunks };
+}
+
+/** v2不隐式接受v1毫秒数据；兼容适配必须由调用者显式完成。 */
+export function parseUsageAccountManifestV2(value: unknown): UsageAccountManifestV2 {
+  const optional = ['applicationUsage', 'childId'].filter(key => record(value) && Object.hasOwn(value, key));
+  const v = exact(value, [...manifestFields, ...optional]);
+  if (v.schemaVersion !== 2 || v.durationUnit !== 'seconds') fail('USAGE_ACCOUNT_INVALID_SCHEMA');
+  const { applicationUsage, childId, ...header } = v;
+  // 复用原有非用量字段校验，不转换或重算时长，不复用v1哈希。
+  const checked = parseUsageAccountManifest({ ...header, schemaVersion: 1,
+    durationUnit: v.sourceKind === 'application' ? 'milliseconds' : 'seconds' });
+  const { applicationUsage: _legacyUsage, ...checkedHeader } = checked;
+  const result: UsageAccountManifestV2 = { ...checkedHeader, schemaVersion: 2, durationUnit: 'seconds' };
+  if (Object.hasOwn(v, 'childId')) {
+    if (v.sourceKind !== 'application' || !identifier(childId)) fail('USAGE_ACCOUNT_INVALID_CHILD_SCOPE');
+    result.childId = childId;
+  }
+  if (Object.hasOwn(v, 'applicationUsage')) {
+    if (v.sourceKind !== 'application') fail('USAGE_ACCOUNT_INVALID_APPLICATION_USAGE');
+    result.applicationUsage = parseApplicationUsageSeconds(applicationUsage);
+  }
+  return result;
+}
+export function parseApplicationUsageSeconds(value: unknown): ApplicationUsageSeconds {
+  const v = exact(value, ['nonSpecialTotal', 'nonSpecialCategories', 'specialTotal', 'complete', 'reasonCodes']);
+  if (!integer(v.nonSpecialTotal) || v.nonSpecialTotal > 86400
+    || !integer(v.specialTotal) || v.specialTotal > 86400
+    || !record(v.nonSpecialCategories) || Object.keys(v.nonSpecialCategories).length > 16
+    || Object.entries(v.nonSpecialCategories).some(([category, duration]) =>
+      !identifier(category) || !integer(duration) || duration > Number(v.nonSpecialTotal))
+    || typeof v.complete !== 'boolean' || !Array.isArray(v.reasonCodes) || v.reasonCodes.length > 16
+    || !orderedUnique(v.reasonCodes, code => typeof code === 'string' && codePattern.test(code))
+    || (v.complete ? v.reasonCodes.length !== 0 : v.reasonCodes.length === 0))
+    fail('USAGE_ACCOUNT_INVALID_APPLICATION_USAGE');
+  return { nonSpecialTotal: v.nonSpecialTotal, nonSpecialCategories: { ...v.nonSpecialCategories } as Record<string, number>,
+    specialTotal: v.specialTotal, complete: v.complete, reasonCodes: v.reasonCodes.map(String) };
+}
+export async function verifyUsageAccountManifestV2(value: unknown): Promise<UsageAccountManifestV2> {
+  const manifest = parseUsageAccountManifestV2(value);
+  const { manifestHash, ...header } = manifest;
+  if (await hashUsageAccountValue(header) !== manifestHash) fail('USAGE_ACCOUNT_MANIFEST_HASH_MISMATCH');
+  return manifest;
+}
+export async function verifyApplicationAccountManifest(value: unknown): Promise<UsageAccountManifest | UsageAccountManifestV2> {
+  return record(value) && value.schemaVersion === 2 ? verifyUsageAccountManifestV2(value) : verifyUsageAccountManifest(value);
+}
+export function parseUsageAccountRowsV2(value: unknown, maximum = USAGE_ACCOUNT_MAX_ROWS): UsageAccountRowV2[] {
+  if (!Array.isArray(value) || value.length > maximum) fail('USAGE_ACCOUNT_INVALID_ROWS');
+  const identities = new Set<string>();
+  const categories = new Set(['study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked', 'historicalUnknown']);
+  let previous = '';
+  return value.map(item => {
+    const v = exact(item, record(item) && item.kind === 'subject' ? [...rowFields, 'classifications'] : rowFields);
+    const { classifications, ...base } = v;
+    const row: UsageAccountRowV2 = parseUsageAccountRows([base], 1)[0]!;
+    if (row.duration > (row.hour === null ? 86400 : 3600)) fail('USAGE_ACCOUNT_INVALID_ROW');
+    if (row.kind === 'subject') {
+      if (!Array.isArray(classifications) || classifications.length < 1 || classifications.length > categories.size
+        || !orderedUnique(classifications, c => typeof c === 'string' && categories.has(c)))
+        fail('USAGE_ACCOUNT_INVALID_SUBJECT_CLASSIFICATIONS');
+      row.classifications = classifications.map(String);
+    }
+    const identity = canonicalUsageAccountJson([row.kind, row.hour, row.category, row.subjectKey]);
+    if (identities.has(identity)) fail('USAGE_ACCOUNT_DUPLICATE_ROW');
+    identities.add(identity);
+    const canonical = canonicalUsageAccountJson(row);
+    if (canonical < previous) fail('USAGE_ACCOUNT_ROWS_NOT_SORTED');
+    previous = canonical;
+    return row;
+  });
+}
+export function parseApplicationAccountRows(value: unknown, schemaVersion: 1 | 2,
+  maximum = USAGE_ACCOUNT_MAX_ROWS): UsageAccountRowV2[] {
+  return schemaVersion === 2 ? parseUsageAccountRowsV2(value, maximum) : parseUsageAccountRows(value, maximum);
+}
+export async function createUsageAccountV2(
+  header: Omit<UsageAccountManifestV2, 'rowCount' | 'chunkCount' | 'rowsHash' | 'manifestHash'>,
+  inputRows: UsageAccountRowV2[],
+): Promise<{ manifest: UsageAccountManifestV2; rows: UsageAccountRowV2[]; chunks: UsageAccountChunkV2[] }> {
+  const rows = [...inputRows].sort((a, b) => {
+    const left = canonicalUsageAccountJson(a), right = canonicalUsageAccountJson(b);
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
+  validateUsageAccountDimensionsV2(rows);
+  if (rows.some(row => row.duration > (row.hour === null ? 86400 : 3600))) fail('USAGE_ACCOUNT_INVALID_ROW');
+  const base = { ...header, rowCount: rows.length, chunkCount: Math.ceil(rows.length / USAGE_ACCOUNT_CHUNK_ROWS),
+    rowsHash: await hashUsageAccountValue(rows) };
+  const manifest = await verifyUsageAccountManifestV2({ ...base, manifestHash: await hashUsageAccountValue(base) });
+  const chunks: UsageAccountChunkV2[] = [];
+  for (let i = 0; i < rows.length; i += USAGE_ACCOUNT_CHUNK_ROWS) {
+    const chunkRows = rows.slice(i, i + USAGE_ACCOUNT_CHUNK_ROWS);
+    chunks.push({ chunkIndex: chunks.length, rows: chunkRows, chunkHash: await hashUsageAccountValue(chunkRows) });
+  }
+  return { manifest, rows, chunks };
+}
+/** 网页既有秒分配规则；输入为已确定总量和已生成切片，不负责并集或原账结算。 */
+export function allocateUsageAccountSeconds(slices: ReadonlyArray<{ startMs: number; endMs: number }>, totalSeconds: number): number[] {
+  if (!integer(totalSeconds) || slices.length > USAGE_ACCOUNT_MAX_ROWS
+    || slices.some(slice => !integer(slice.startMs) || !integer(slice.endMs, slice.startMs)))
+    fail('USAGE_ACCOUNT_INVALID_SECOND_SLICES');
+  const parts = slices.map((slice, index) => ({ index, startMs: slice.startMs,
+    width: slice.endMs - slice.startMs, seconds: Math.floor((slice.endMs - slice.startMs) / 1000),
+    remainder: (slice.endMs - slice.startMs) % 1000 }));
+  const floorTotal = parts.reduce((sum, part) => sum + part.seconds, 0);
+  let remaining = totalSeconds - floorTotal;
+  if (!Number.isSafeInteger(floorTotal) || remaining < 0 || remaining > parts.filter(part => part.width > 0).length)
+    fail('USAGE_ACCOUNT_INVALID_SECOND_TOTAL');
+  const order = [...parts].sort((a, b) => b.remainder - a.remainder || a.startMs - b.startMs || a.index - b.index);
+  for (const part of order) {
+    if (remaining === 0) break;
+    if (part.width === 0) continue;
+    part.seconds++; remaining--;
+  }
+  if (remaining !== 0) fail('USAGE_ACCOUNT_INVALID_SECOND_TOTAL');
+  return parts.map(part => part.seconds);
 }

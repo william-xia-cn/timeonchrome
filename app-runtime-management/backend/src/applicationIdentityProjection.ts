@@ -2,7 +2,8 @@ import type { AppEvidence, ApplicationKnowledge, ProductIdentityProjection } fro
 import { associateApplicationEvidence, matches } from '@timeonchrome/app-runtime-contracts/classification';
 import type { AppPolicyClassification, ApplicationClassification } from './contracts';
 import { sha256Hex } from './crypto';
-import { CHROME_SPECIAL_PRODUCT, isConfirmedChrome } from './specialApplications';
+import { isSpecialApplicationProduct } from '@timeonchrome/app-runtime-contracts/classification';
+import { CHROME_SPECIAL_PRODUCT } from './specialApplications';
 
 const keyOf = (item: Pick<AppEvidence, 'platform' | 'runtimeIdentity'>) => `${item.platform}\n${item.runtimeIdentity}`;
 const usable = (item: AppEvidence) => item.discovery?.role !== 'component'
@@ -102,8 +103,10 @@ export function productIdentityItems(evidence: AppEvidence[], knowledge: Applica
       productId: product?.id ?? null, canonicalName: conflict ? item.displayName : canonicalName,
       status: conflict ? 'conflict' : product ? 'confirmed' : associated ? 'associated' : 'unresolved',
       reasonCode: conflict ? 'IDENTITY_CONFLICT' : product ? 'APPROVED_PRODUCT' : associated ? 'VERIFIED_LEAF_ALIAS' : 'IDENTITY_UNRESOLVED' };
-    if (product?.id === CHROME_SPECIAL_PRODUCT && members.some(member => isConfirmedChrome(member,
-      { ...projectedItem, runtimeIdentity: member.runtimeIdentity }, knowledge))) projectedItem.isChromeContainer = true;
+    // Old-client compatibility only. New consumers use product.catalogGroup;
+    // unresolved ordinary identities do not need a negative browser assertion.
+    if (product) projectedItem.isChromeContainer = product.id === CHROME_SPECIAL_PRODUCT
+      && isSpecialApplicationProduct(product.id, knowledge);
     return projectedItem;
   });
   return projected;
@@ -112,12 +115,19 @@ export function productIdentityItems(evidence: AppEvidence[], knowledge: Applica
 export async function buildProductIdentityProjection(evidence: AppEvidence[], knowledge: ApplicationKnowledge,
     explicit: AppPolicyClassification[] = []): Promise<ProductIdentityProjection> {
   const content = { knowledgeVersion: knowledge.version, items: productIdentityItems(evidence, knowledge, explicit) };
-  return { version: await sha256Hex(JSON.stringify(content)), ...content };
+  return { version: await productIdentityProjectionVersion(content, knowledge), ...content };
+}
+
+export async function productIdentityProjectionVersion(content: Omit<ProductIdentityProjection, 'version'>,
+    knowledge: ApplicationKnowledge): Promise<string> {
+  const productDirectories = knowledge.products.map(product => [product.id, product.catalogGroup ?? null])
+    .sort((a,b) => String(a[0]).localeCompare(String(b[0])));
+  return sha256Hex(JSON.stringify({ ...content, productDirectories }));
 }
 
 /** Recent ledger-only identities are standalone evidence, never directory/rule input. */
 export async function includeHistoricalStandaloneIdentities(db:D1Database,account:string,child:string,
-    projection:ProductIdentityProjection,now:number):Promise<ProductIdentityProjection> {
+    projection:ProductIdentityProjection,now:number,knowledge:ApplicationKnowledge):Promise<ProductIdentityProjection> {
   const day=86400000,start=Math.floor((now+8*3600000)/day)*day-8*3600000-6*day;
   const history=await db.prepare(`SELECT s.platform,s.runtime_identity,MAX(s.display_name) AS display_name
     FROM runtime_usage_segments_v2 s JOIN runtime_machines_v2 m ON m.id=s.machine_id
@@ -136,7 +146,7 @@ export async function includeHistoricalStandaloneIdentities(db:D1Database,accoun
   if(items.length===projection.items.length)return projection;
   items.sort((a,b)=>keyOf(a).localeCompare(keyOf(b)));
   const content={knowledgeVersion:projection.knowledgeVersion,items};
-  return {version:await sha256Hex(JSON.stringify(content)),...content};
+  return {version:await productIdentityProjectionVersion(content,knowledge),...content};
 }
 
 /** Leaf identity is not a suite/container. Never join by name, signer alone or productKey. */

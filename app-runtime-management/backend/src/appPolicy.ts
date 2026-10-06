@@ -20,7 +20,8 @@ import { defaultGameGroupRuleId, defaultSystemApplicationRuleId, effectiveApplic
 import { buildProductIdentityProjection, includeHistoricalStandaloneIdentities, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
 import { buildProductBlockPolicy } from './productBlockPolicy';
 import { buildWeekReclassification, correctUsageRows, loadUsageCorrections } from './applicationUsageCorrections';
-import { isConfirmedChrome, CHROME_SPECIAL_PRODUCT } from './specialApplications';
+import { isConfirmedSpecialApplication, CHROME_SPECIAL_PRODUCT } from './specialApplications';
+import { productIdentityProjectionVersion } from './applicationIdentityProjection';
 import type {
   AppEvidence,
   ApplicationOrigin,
@@ -411,9 +412,9 @@ export async function putAppPolicy(
   const resolvedApplications = resolvePolicyApplications(knowledge, childId,
     observed, update.classifications, current.resolvedApplications);
   const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
-    applicationKnowledge: current.applicationKnowledge, resolvedApplications });
+    applicationKnowledge: knowledge, resolvedApplications });
   completeUpdate.productIdentityProjection = await includeHistoricalStandaloneIdentities(database,accountId,childId,
-    await buildProductIdentityProjection(observed, knowledge, update.classifications),nowMs);
+    await buildProductIdentityProjection(observed, knowledge, update.classifications),nowMs,knowledge);
   completeUpdate.productBlockPolicy = buildProductBlockPolicy(knowledge, childId, completeUpdate.productIdentityProjection.version);
   completeUpdate.weekReclassification = buildWeekReclassification(completeUpdate, nowMs, current);
   const version = current.version + 1;
@@ -470,9 +471,18 @@ export async function putAppPolicy(
 export async function refreshHistoricalProductIdentityProjection(database:D1Database,accountId:string,childId:string,nowMs:number) {
   const current=await getAppPolicy(database,accountId,childId);
   if(!current.productIdentityProjection)return false;
-  const projection=await includeHistoricalStandaloneIdentities(database,accountId,childId,current.productIdentityProjection,nowMs);
+  // Existing cloud-confirmed products are authoritative too: a deployment does
+  // not force another inventory scan. Enrich role metadata, never reclassify or
+  // infer an unknown/alias/Chrome identity from its name.
+  const knowledge=effectiveApplicationKnowledge(current.applicationKnowledge ?? {schemaVersion:2,version:0,products:[],rules:[],bindings:[]});
+  const items=current.productIdentityProjection.items.map(item=>item.status==='confirmed' && item.productId
+    ? {...item,isChromeContainer:item.productId===CHROME_SPECIAL_PRODUCT && isConfirmedSpecialApplication(item,knowledge)} : item);
+  const content={knowledgeVersion:current.productIdentityProjection.knowledgeVersion,items};
+  const base={...content,version:await productIdentityProjectionVersion(content,knowledge)};
+  const projection=await includeHistoricalStandaloneIdentities(database,accountId,childId,base,nowMs,knowledge);
   if(projection.version===current.productIdentityProjection.version)return false;
   const payload=normalizeStoredPolicy(current);
+  payload.applicationKnowledge=knowledge;
   payload.productIdentityProjection=projection;
   if(payload.productBlockPolicy)payload.productBlockPolicy={...payload.productBlockPolicy,associationVersion:projection.version};
   const body=JSON.stringify(payload),hash=await sha256Hex(body),version=current.version+1;
@@ -1169,8 +1179,8 @@ export async function queryAppCatalog(
       displayName,
       discovery: found?.evidence.discovery ?? null,
       productId: product?.id ?? null,
-      presentationKind: isConfirmedChrome(found?.evidence, projectedProduct, knowledge) ? 'contentBased' as const : 'standard' as const,
-      specialProductId: isConfirmedChrome(found?.evidence, projectedProduct, knowledge) ? CHROME_SPECIAL_PRODUCT : null,
+      presentationKind: isConfirmedSpecialApplication(projectedProduct, catalogKnowledge) ? 'contentBased' as const : 'standard' as const,
+      specialProductId: isConfirmedSpecialApplication(projectedProduct, catalogKnowledge) ? projectedProduct!.productId : null,
       classification,
       classificationStatus: configured || productChoice ? 'explicit' : resolution?.status ?? 'unclassified',
       classificationReason: configured ? (direct ? '家长明确配置' : '继承已确认应用／产品分类') : resolution?.status==='explicit' ? '孩子产品明确分类'

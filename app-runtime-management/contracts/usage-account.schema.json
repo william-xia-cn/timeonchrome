@@ -25,13 +25,108 @@
     "rowsHash": { "$ref": "#/$defs/hash" },
     "complete": { "type": "boolean" },
     "reasonCodes": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" } },
-    "manifestHash": { "$ref": "#/$defs/hash" }
+    "manifestHash": { "$ref": "#/$defs/hash" },
+    "applicationUsage": { "$ref": "#/$defs/applicationUsage" }
   },
   "allOf": [
+    { "if": { "required": ["applicationUsage"] }, "then": { "properties": { "sourceKind": { "const": "application" } } } },
     { "if": { "properties": { "sourceKind": { "const": "application" } } }, "then": { "properties": { "durationUnit": { "const": "milliseconds" } } }, "else": { "properties": { "durationUnit": { "const": "seconds" } } } },
     { "if": { "properties": { "complete": { "const": true } } }, "then": { "properties": { "reasonCodes": { "maxItems": 0 }, "settledThroughMs": { "type": "integer" } } }, "else": { "properties": { "reasonCodes": { "minItems": 1 } } } }
   ],
   "$defs": {
+    "rowV2": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind","hour","category","subjectKey","displayName","duration"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/row/properties/kind" },
+        "hour": { "$ref": "#/$defs/row/properties/hour" },
+        "category": { "$ref": "#/$defs/row/properties/category" },
+        "subjectKey": { "$ref": "#/$defs/row/properties/subjectKey" },
+        "displayName": { "$ref": "#/$defs/row/properties/displayName" },
+        "duration": { "type": "integer", "minimum": 0, "maximum": 86400 },
+        "classifications": { "type": "array", "minItems": 1, "maxItems": 7, "uniqueItems": true,
+          "items": { "enum": ["study","composite","restrictedEntertainment","unclassified","other","blocked","historicalUnknown"] } }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/row/allOf/0" },
+        { "$ref": "#/$defs/row/allOf/1" },
+        { "if": { "properties": { "kind": { "const": "subject" } } }, "then": { "required": ["classifications"] }, "else": { "not": { "required": ["classifications"] } } },
+        { "if": { "properties": { "hour": { "type": "integer" } } }, "then": { "properties": { "duration": { "maximum": 3600 } } } }
+      ]
+    },
+    "manifestV2": {
+      "description": "整数秒派生统计；时间戳仍为毫秒。v1根schema不接受本格式。",
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion","sourceKind","durationUnit","timezone","date","revision","generatedAtMs","settledThroughMs","algorithmVersion","policyVersions","associationVersion","correctionVersion","rawFactCount","rawFactHash","rowCount","chunkCount","rowsHash","complete","reasonCodes","manifestHash"],
+      "properties": {
+        "schemaVersion": { "const": 2 },
+        "durationUnit": { "const": "seconds" },
+        "childId": { "$ref": "#/$defs/identifier", "description": "新应用原账冻结的孩子；缺省仅供旧秒清单兼容，参与manifestHash。" },
+        "sourceKind": { "$ref": "#/properties/sourceKind" },
+        "timezone": { "$ref": "#/properties/timezone" },
+        "date": { "$ref": "#/properties/date" },
+        "revision": { "$ref": "#/properties/revision" },
+        "generatedAtMs": { "$ref": "#/properties/generatedAtMs" },
+        "settledThroughMs": { "$ref": "#/properties/settledThroughMs" },
+        "algorithmVersion": { "$ref": "#/properties/algorithmVersion" },
+        "policyVersions": { "$ref": "#/properties/policyVersions" },
+        "associationVersion": { "$ref": "#/properties/associationVersion" },
+        "correctionVersion": { "$ref": "#/properties/correctionVersion" },
+        "rawFactCount": { "$ref": "#/properties/rawFactCount" },
+        "rawFactHash": { "$ref": "#/properties/rawFactHash" },
+        "rowCount": { "$ref": "#/properties/rowCount" },
+        "chunkCount": { "$ref": "#/properties/chunkCount" },
+        "rowsHash": { "$ref": "#/properties/rowsHash" },
+        "complete": { "$ref": "#/properties/complete" },
+        "reasonCodes": { "$ref": "#/properties/reasonCodes" },
+        "manifestHash": { "$ref": "#/properties/manifestHash" },
+        "applicationUsage": { "$ref": "#/$defs/applicationUsageSeconds" }
+      },
+      "allOf": [
+        { "if": { "required": ["childId"] }, "then": { "properties": { "sourceKind": { "const": "application" } } } },
+        { "if": { "required": ["applicationUsage"] }, "then": { "properties": { "sourceKind": { "const": "application" } } } },
+        { "if": { "properties": { "complete": { "const": true } } }, "then": { "properties": { "reasonCodes": { "maxItems": 0 }, "settledThroughMs": { "type": "integer" } } }, "else": { "properties": { "reasonCodes": { "minItems": 1 } } } }
+      ]
+    },
+    "applicationUsageSeconds": {
+      "description": "单位仅由v2清单确定为秒；分类可重叠，不包含余额或借用。",
+      "type": "object", "additionalProperties": false,
+      "required": ["nonSpecialTotal", "nonSpecialCategories", "specialTotal", "complete", "reasonCodes"],
+      "properties": {
+        "nonSpecialTotal": { "type": "integer", "minimum": 0, "maximum": 86400 },
+        "specialTotal": { "type": "integer", "minimum": 0, "maximum": 86400 },
+        "nonSpecialCategories": { "type": "object", "maxProperties": 16,
+          "propertyNames": { "$ref": "#/$defs/identifier" },
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 86400 } },
+        "complete": { "$ref": "#/properties/complete" },
+        "reasonCodes": { "$ref": "#/properties/reasonCodes" }
+      },
+      "allOf": [
+        { "if": { "properties": { "complete": { "const": true } } }, "then": { "properties": { "reasonCodes": { "maxItems": 0 } } }, "else": { "properties": { "reasonCodes": { "minItems": 1 } } } }
+      ]
+    },
+    "applicationUsage": {
+      "description": "同版应用实际用量，类别可重叠，不保存配额余额、配置或独立版本。",
+      "type": "object", "additionalProperties": false,
+      "required": ["nonSpecialTotalMs", "nonSpecialCategoryMs", "specialTotalMs", "complete", "reasonCodes"],
+      "properties": {
+        "nonSpecialTotalMs": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+        "specialTotalMs": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+        "nonSpecialCategoryMs": {
+          "type": "object", "maxProperties": 16,
+          "propertyNames": { "$ref": "#/$defs/identifier" },
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 86400000 }
+        },
+        "complete": { "type": "boolean" },
+        "reasonCodes": { "type": "array", "maxItems": 16, "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "complete": { "const": true } } },
+          "then": { "properties": { "reasonCodes": { "maxItems": 0 } } },
+          "else": { "properties": { "reasonCodes": { "minItems": 1 } } } }
+      ]
+    },
     "receipt": {
       "type": "object", "additionalProperties": false,
       "required": ["manifestId", "revision", "manifestHash", "received", "published", "publishStatus"],

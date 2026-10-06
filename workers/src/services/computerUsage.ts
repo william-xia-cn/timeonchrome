@@ -1,7 +1,8 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { mergeComputerUsage, withComputerUsageRevision,
   computerUsageReadPage, type ComputerUsageResult,
-  type ComputerApplicationSource, type ComputerWebSource } from '@timeonchrome/app-runtime-contracts/computer-usage';
+  type ComputerApplicationSource, type ComputerWebSource,
+  projectComputerUsageStatisticsV2, type ComputerUsageStatisticsSourceV2 } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import type { Env } from '../db/middleware';
 import { readManifestAccountV2 } from './profileAccountsV2';
 import { projectCompositeDailyRows, readCompositeCorrections } from './compositePageCorrections';
@@ -16,17 +17,22 @@ import { createSharedWebSourceChallenge, createSharedWebMachineScope, readShared
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
     applicationEvidenceRevision(accountId:string,childId:string,fromDate:string,toDate:string):Promise<string>;
-    getApplicationUsage?(accountId:string,childId:string,fromDate:string,toDate:string):Promise<unknown>;
+    getApplicationUsage?(accountId:string,childId:string,fromDate:string,toDate:string,secondsOnly?:boolean):Promise<unknown>;
     fetch?(request:Request):Promise<Response>};
 }
-async function readRuntime<T>(env:ComputerUsageEnv,operation:'applicationEvidenceRevision'|'readApplicationEvidence'|'getApplicationUsage',accountId:string,childId:string,fromDate:string,toDate:string):Promise<T> {
+async function readRuntime<T>(env:ComputerUsageEnv,operation:'applicationEvidenceRevision'|'readApplicationEvidence'|'getApplicationUsage',accountId:string,childId:string,fromDate:string,toDate:string,secondsOnly=false):Promise<T> {
   const service=env.RUNTIME_COMPUTER_USAGE;
   if(!service)throw new Error('APPLICATION_SERVICE_UNAVAILABLE');
   if(service.fetch){
-    const response=await service.fetch(new Request(`https://runtime-capability/${operation}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId,fromDate,toDate})}));
+    const response=await service.fetch(new Request(`https://runtime-capability/${operation}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId,fromDate,toDate,
+      ...(operation==='getApplicationUsage'&&secondsOnly?{secondsOnly:true}:{})})}));
     const value=await response.json();
     if(!response.ok)throw new Error(String((value as {code?:string}).code||'APPLICATION_SOURCE_UNAVAILABLE'));
     return value as T;
+  }
+  if(operation==='getApplicationUsage'){
+    if(!service.getApplicationUsage)throw new Error('APPLICATION_RPC_UNAVAILABLE');
+    return await service.getApplicationUsage(accountId,childId,fromDate,toDate,secondsOnly) as T;
   }
   const method=service[operation];
   if(!method)throw new Error('APPLICATION_RPC_UNAVAILABLE');
@@ -44,7 +50,7 @@ export function validateComputerUsageRange(from:string,to:string) {
 const classification=(value:unknown)=>({restricted:'restrictedEntertainment',pending_composite:'unclassified',rejected:'blocked'}[String(value)]||String(value||'unknown'));
 
 /** Read authority first; intervals only verify/support display overlap, never replace V2 statistics. */
-export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string):Promise<ComputerWebSource[]> {
+export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,includeIntervals=true):Promise<ComputerWebSource[]> {
   const {start,end}=validateComputerUsageRange(from,to);
   const devices=await env.DB.prepare('SELECT id,device_name FROM devices WHERE profile_id=? ORDER BY id LIMIT 101')
     .bind(childId).all<{id:string;device_name:string}>();
@@ -86,11 +92,11 @@ export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:str
       const category=classification(row.targetClassificationAtTime);
       categoriesMs[category]=(categoriesMs[category]||0)+row.durationSeconds*1000;
     }
-    const rows=await env.DB.prepare(`SELECT id,start_ms,end_ms,duration_seconds,domain,target_classification_at_time FROM usage_segments_v1
+    const rows=includeIntervals?await env.DB.prepare(`SELECT id,start_ms,end_ms,duration_seconds,domain,target_classification_at_time FROM usage_segments_v1
       WHERE profile_id=? AND device_id=? AND date=? AND channel='active' AND duration_seconds>0
       AND end_ms<=? AND uploaded_at<=? ORDER BY start_ms,end_ms,id LIMIT ?`)
       .bind(childId,device.id,date,account.generatedAt,account.committedAt,remaining+1)
-      .all<{id:string;start_ms:number;end_ms:number;duration_seconds:number;domain:string;target_classification_at_time:string}>();
+      .all<{id:string;start_ms:number;end_ms:number;duration_seconds:number;domain:string;target_classification_at_time:string}>():{results:[]};
     const reasons=[...base.reasons,...(!account.complete||account.lossCount?['WEB_ACCOUNT_INCOMPLETE']:[]),
       ...((rows.results?.length??0)>remaining?['WEB_EVIDENCE_LIMIT']:[])];
     const correctionById=new Map(corrections.items.map(item=>[item.segmentId,item]));
@@ -113,6 +119,51 @@ export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:str
     }catch{sources.push({...base,reasons:['WEB_SOURCE_UNAVAILABLE']});}
   }
   return sources;
+}
+
+/** Display-only adapter to the existing web authority; never reads raw intervals. */
+export async function readComputerWebStatisticsSeconds(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string):Promise<ComputerUsageStatisticsSourceV2> {
+  const sources=await readComputerWebEvidence(env,accountId,childId,from,to,false);
+  const seconds=(ms:number)=>{
+    if(!Number.isSafeInteger(ms)||ms<0||ms%1000)throw new Error('WEB_STATISTICS_UNIT_INVALID');
+    return ms/1000;
+  };
+  const add=(a:number,b:number)=>{const result=a+b;if(!Number.isSafeInteger(result))throw new Error('WEB_STATISTICS_DURATION_OVERFLOW');return result;};
+  let availableTotalDuration:number|null=null;
+  const categories=new Map<string,number>();
+  for(const source of sources){
+    if(source.totalMs===null)continue;
+    availableTotalDuration=add(availableTotalDuration??0,seconds(source.totalMs));
+    for(const [classification,value]of Object.entries(source.categoriesMs))
+      categories.set(classification,add(categories.get(classification)??0,seconds(value)));
+  }
+  const complete=sources.length>0&&sources.every(source=>(source.statisticsComplete??source.complete)&&source.totalMs!==null);
+  return {durationUnit:'seconds',revision:await sha(JSON.stringify(sources.map(source=>({key:source.key,
+    revision:source.revision,correctionRevision:source.correctionRevision,statisticsComplete:source.statisticsComplete,reasons:source.reasons})))),
+    complete,totalDuration:complete?availableTotalDuration:null,availableTotalDuration,
+    categories:[...categories].map(([classification,duration])=>({classification,duration}))};
+}
+
+/** Independent authority reads followed by a display projection; no mixed-source quota query. */
+export async function readComputerUsageStatisticsSummarySeconds(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string) {
+  validateComputerUsageRange(from,to);
+  const owned=await env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(childId,accountId).first();
+  if(!owned)throw new Error('CHILD_NOT_FOUND');
+  const errors:string[]=[];
+  const failure=(kind:'WEB'|'APPLICATION',error:unknown)=>{
+    const message=error instanceof Error?error.message:'';
+    errors.push(new RegExp(`^${kind}_[A-Z0-9_]{1,64}$`).test(message)?message:`${kind}_SOURCE_UNAVAILABLE`);
+    return null;
+  };
+  const [web,application]=await Promise.all([
+    readComputerWebStatisticsSeconds(env,accountId,childId,from,to).catch(error=>failure('WEB',error)),
+    readRuntime<ComputerUsageStatisticsSourceV2 & {fromDate:string;toDate:string;statistics?:{revision?:string}}>(env,'getApplicationUsage',accountId,childId,from,to,true)
+      .then(value=>value.durationUnit==='seconds'&&value.fromDate===from&&value.toDate===to
+        ?{...value,revision:value.statistics?.revision??value.revision}:null).catch(error=>failure('APPLICATION',error)),
+  ]);
+  const summary=projectComputerUsageStatisticsV2({fromDate:from,toDate:to,web,application});
+  const result={...summary,reasonCodes:[...new Set([...summary.reasonCodes,...errors])].sort()};
+  return {...result,revision:`computer-v2:${await sha(JSON.stringify({accountId,childId,result}))}`};
 }
 
 export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,_computer?:string,summaryOnly=false) {
@@ -275,6 +326,9 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     }
   }
   async getComputerUsage(accountId:string,childId:string,from:string,to:string,computer?:string,summaryOnly=false){return readComputerUsage(this.env,accountId,childId,from,to,computer,summaryOnly);}
+  async getComputerUsageStatisticsSeconds(accountId:string,childId:string,from:string,to:string){
+    return readComputerUsageStatisticsSummarySeconds(this.env,accountId,childId,from,to);
+  }
   async getIndependentUsage(accountId:string,childId:string,from:string,to:string,source:string) {
     return readIndependentUsage(this.env,accountId,childId,from,to,source);
   }

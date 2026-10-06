@@ -1,0 +1,594 @@
+{
+  "generated": {
+    "chunks": [
+      {
+        "chunkHash": "c0f758cba5b3920b0200a513409ca9e735c337d8d2f909d94fb29c1021015c05",
+        "chunkIndex": 0,
+        "rows": [
+          {
+            "category": "study",
+            "displayName": null,
+            "duration": 52,
+            "hour": 0,
+            "kind": "category",
+            "subjectKey": null
+          },
+          {
+            "category": "study",
+            "displayName": null,
+            "duration": 52,
+            "hour": null,
+            "kind": "category",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "classifications": [
+              "study"
+            ],
+            "displayName": "Browser",
+            "duration": 0,
+            "hour": null,
+            "kind": "subject",
+            "subjectKey": "6309f0269e8a34a9f2de230e651b19375cad412004e44a917c7d53177dd326cb"
+          },
+          {
+            "category": null,
+            "classifications": [
+              "study"
+            ],
+            "displayName": "Editor",
+            "duration": 52,
+            "hour": 0,
+            "kind": "subject",
+            "subjectKey": "aba70ae34c72d4b8e5066ff1738eb99e9294dbbb0700126119877fbcd5bc6a6f"
+          },
+          {
+            "category": null,
+            "classifications": [
+              "study"
+            ],
+            "displayName": "Editor",
+            "duration": 52,
+            "hour": null,
+            "kind": "subject",
+            "subjectKey": "aba70ae34c72d4b8e5066ff1738eb99e9294dbbb0700126119877fbcd5bc6a6f"
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 1,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 10,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 11,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 12,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 13,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 14,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 15,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 16,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 17,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 18,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 19,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 2,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 20,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 21,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 22,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 23,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 3,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 4,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 5,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 6,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 7,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 8,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 9,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 52,
+            "hour": 0,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 52,
+            "hour": null,
+            "kind": "total",
+            "subjectKey": null
+          }
+        ]
+      }
+    ],
+    "manifest": {
+      "algorithmVersion": "windows-application-seconds-v2",
+      "applicationUsage": {
+        "complete": true,
+        "nonSpecialCategories": {
+          "study": 52
+        },
+        "nonSpecialTotal": 52,
+        "reasonCodes": [],
+        "specialTotal": 0
+      },
+      "associationVersion": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "chunkCount": 1,
+      "complete": true,
+      "correctionVersion": 0,
+      "date": "2026-10-05",
+      "durationUnit": "seconds",
+      "generatedAtMs": 1791172800000,
+      "manifestHash": "b3ac33d31743ed44149c793a1d5cac4f4001a648b2102c4dbecaa36a0b632073",
+      "policyVersions": [
+        7
+      ],
+      "rawFactCount": 4,
+      "rawFactHash": "067d97ff19aa2b3b9d93d100b33df58743a446ee2b7eca89353dc101d859aff1",
+      "reasonCodes": [],
+      "revision": 1,
+      "rowCount": 30,
+      "rowsHash": "c0f758cba5b3920b0200a513409ca9e735c337d8d2f909d94fb29c1021015c05",
+      "schemaVersion": 2,
+      "settledThroughMs": 1791172800000,
+      "sourceKind": "application",
+      "timezone": "Asia/Shanghai"
+    }
+  },
+  "boundary": {
+    "chunks": [
+      {
+        "chunkHash": "d9208123daf0873debd55dd8b50453e1e5aa80d7a68dedef940b976df1f1a65b",
+        "chunkIndex": 0,
+        "rows": [
+          {
+            "category": "other",
+            "displayName": null,
+            "duration": 0,
+            "hour": null,
+            "kind": "category",
+            "subjectKey": null
+          },
+          {
+            "category": "study",
+            "displayName": null,
+            "duration": 1,
+            "hour": 0,
+            "kind": "category",
+            "subjectKey": null
+          },
+          {
+            "category": "study",
+            "displayName": null,
+            "duration": 1,
+            "hour": null,
+            "kind": "category",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "classifications": [
+              "other"
+            ],
+            "displayName": "Browser",
+            "duration": 0,
+            "hour": null,
+            "kind": "subject",
+            "subjectKey": "6309f0269e8a34a9f2de230e651b19375cad412004e44a917c7d53177dd326cb"
+          },
+          {
+            "category": null,
+            "classifications": [
+              "study"
+            ],
+            "displayName": "Editor",
+            "duration": 1,
+            "hour": 0,
+            "kind": "subject",
+            "subjectKey": "aba70ae34c72d4b8e5066ff1738eb99e9294dbbb0700126119877fbcd5bc6a6f"
+          },
+          {
+            "category": null,
+            "classifications": [
+              "study"
+            ],
+            "displayName": "Editor",
+            "duration": 1,
+            "hour": null,
+            "kind": "subject",
+            "subjectKey": "aba70ae34c72d4b8e5066ff1738eb99e9294dbbb0700126119877fbcd5bc6a6f"
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 0,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 10,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 11,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 12,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 13,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 14,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 15,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 16,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 17,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 18,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 19,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 2,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 20,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 21,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 22,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 23,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 3,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 4,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 5,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 6,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 7,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 8,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 9,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 1,
+            "hour": 1,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 1,
+            "hour": null,
+            "kind": "total",
+            "subjectKey": null
+          }
+        ]
+      }
+    ],
+    "manifest": {
+      "algorithmVersion": "windows-application-seconds-v2",
+      "applicationUsage": {
+        "complete": true,
+        "nonSpecialCategories": {
+          "study": 1
+        },
+        "nonSpecialTotal": 1,
+        "reasonCodes": [],
+        "specialTotal": 0
+      },
+      "associationVersion": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "chunkCount": 1,
+      "complete": true,
+      "correctionVersion": 0,
+      "date": "2026-10-05",
+      "durationUnit": "seconds",
+      "generatedAtMs": 1791172800000,
+      "manifestHash": "9a4e8b163321e0d9a26a40217184e6bbbe794ccebe034ffdf22c71d4f64ef0b6",
+      "policyVersions": [
+        7
+      ],
+      "rawFactCount": 2,
+      "rawFactHash": "b46ada19c710cb78f090e9e0d33e6d8f843e649419a863a8fa5b0d75793a1924",
+      "reasonCodes": [],
+      "revision": 1,
+      "rowCount": 31,
+      "rowsHash": "d9208123daf0873debd55dd8b50453e1e5aa80d7a68dedef940b976df1f1a65b",
+      "schemaVersion": 2,
+      "settledThroughMs": 1791172800000,
+      "sourceKind": "application",
+      "timezone": "Asia/Shanghai"
+    }
+  }
+}

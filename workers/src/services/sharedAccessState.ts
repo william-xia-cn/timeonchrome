@@ -141,7 +141,8 @@ async function readWebContributions(env:SharedAccessStateEnv,accountId:string,ch
     expectedScopeCount:devices.results.length,availableScopeCount:contributions.length,reasonCodes:[...reasons].sort(),visibleBucketsMs:visibleBuckets};
 }
 
-async function readApplicationContributions(env:SharedAccessStateEnv,accountId:string,childId:string,date:string) {
+async function readApplicationContributions(env:SharedAccessStateEnv,accountId:string,childId:string,date:string,
+  policy:UnifiedChildAccessPolicyV1) {
   if(!env.RUNTIME_COMPUTER_USAGE?.fetch)return {contributions:[] as SharedQuotaContributionV1[],complete:false,
     executionSources:[] as SharedQuotaExecutionSourceV1[],
     expectedScopeCount:0,availableScopeCount:0,reasonCodes:['APPLICATION_SERVICE_UNAVAILABLE'],visibleClassesMs:{}};
@@ -149,13 +150,16 @@ async function readApplicationContributions(env:SharedAccessStateEnv,accountId:s
     const response=await env.RUNTIME_COMPUTER_USAGE.fetch(new Request('https://runtime-capability/readApplicationSharedQuotaContributions',{
       method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId,fromDate:date,toDate:date})}));
     const result=await response.json() as {complete?:boolean;expectedScopeCount?:number;verifiedScopeCount?:number;reasonCodes?:string[];
-      contributions?:Array<{revision:string;contribution:SharedQuotaContributionV1}>};
+      contributions?:Array<{revision:string;statisticsBacked?:boolean;contribution:SharedQuotaContributionV1}>};
     if(!response.ok||!Array.isArray(result.contributions)||!Array.isArray(result.reasonCodes))
       throw new Error('APPLICATION_SHARED_QUOTA_SOURCE_UNAVAILABLE');
-    const contributions=result.contributions.map(item=>({...item.contribution,revision:item.revision}));
-    const executionSources:SharedQuotaExecutionSourceV1[]=result.contributions.flatMap(item=>{
-      const ordinal=Number(item.revision.split(':',1)[0]);
-      return Number.isSafeInteger(ordinal)&&ordinal>0&&/^[1-9][0-9]*:/.test(item.revision)
+    const resolved=result.contributions.map(item=>({...item,contribution:{...item.contribution,
+      ...(item.statisticsBacked===true?{policyRevision:policy.revision}:{})}}));
+    const contributions=resolved.map(item=>({...item.contribution,revision:item.revision}));
+    const executionSources:SharedQuotaExecutionSourceV1[]=resolved.flatMap(item=>{
+      const version=item.statisticsBacked===true?item.revision.replace(/^application-statistics:/,''):item.revision;
+      const ordinal=Number(version.split(':',1)[0]);
+      return Number.isSafeInteger(ordinal)&&ordinal>0&&/^[1-9][0-9]*:/.test(version)
         ?[{publicationRevision:item.revision,revisionOrdinal:ordinal,contribution:item.contribution}]:[];
     });
     const visibleClassesMs:Record<string,number>={};
@@ -178,7 +182,7 @@ async function readSharedAccessDayProjection(env:SharedAccessStateEnv,accountId:
     throw new Error('INVALID_DATE');
   const [webSource,appSource]=await Promise.all([
     readWebContributions(env,accountId,childId,date,policy).catch(()=>unavailableWeb('WEB_SOURCE_UNAVAILABLE')),
-    readApplicationContributions(env,accountId,childId,date),
+    readApplicationContributions(env,accountId,childId,date,policy),
   ]);
   const sources=[...webSource.contributions,...appSource.contributions];
   const projection=projectSharedQuotaDay(policy,date,sources);
@@ -220,7 +224,7 @@ export async function readSharedQuotaExecutionBasis(env:SharedAccessStateEnv,acc
   for(let index=0;index<=offset;index++) {
     const day=beijingDateAt(selected-(offset-index)*dayMs);
     const web=await readWebContributions(env,accountId,childId,day,policy).catch(()=>unavailableWeb('WEB_SOURCE_UNAVAILABLE'));
-    const app=await readApplicationContributions(env,accountId,childId,day);
+    const app=await readApplicationContributions(env,accountId,childId,day,policy);
     const reasons=new Set([...web.reasonCodes,...app.reasonCodes]);
     if(web.executionSources.length!==web.contributions.length||app.executionSources.length!==app.contributions.length)
       reasons.add('SOURCE_EXECUTION_VERSION_UNAVAILABLE');

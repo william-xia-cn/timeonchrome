@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { env, exports } from 'cloudflare:workers';
+import { routeV2 } from '../src/v2Routes';
+import { sha256Hex } from '../src/crypto';
 import { readComputerApplicationEvidence as readEvidence } from '../src/computerUsageEvidence';
 import { readPersistentApplicationUsage,rebuildApplicationStatistics } from '../src/applicationStatistics';
 import { queryAppUsage } from '../src/appPolicy';
-import { isConfirmedChrome } from '../src/specialApplications';
+import { isConfirmedSpecialApplication } from '../src/specialApplications';
+import { putApplicationKnowledge, effectiveApplicationKnowledge } from '../src/applicationKnowledge';
+import { buildProductIdentityProjection } from '../src/applicationIdentityProjection';
 import { CHROME_DISPLAY_RULES } from '../src/specialApplications';
 import { RuntimeComputerUsageService } from '../src/computerUsageService';
 import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
@@ -28,6 +32,25 @@ await env.RUNTIME_DB.prepare(`INSERT INTO runtime_usage_segments_v2(id,machine_i
 VALUES (?1,?2,'opaque-user',1,?3,'session','windows','leaf','已确认应用',?4,?5,?5-?4,'fixture',?1,?5,2,'active','epoch',?4,?5,?6,?7)`).bind(id,machine,child,start,end,estimated,classification).run();
 }
 describe('computer application evidence real D1 read adapter',()=>{
+it('existing Runtime browser route forwards seconds without recomputing or crossing Child scope',async()=>{
+  const token='s'.repeat(43),now=Date.now(),revision='computer-v2:'+ 'a'.repeat(64);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
+    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms)
+    VALUES (?1,'seconds-proxy-account',?2,?3,?4,?3)`).bind(await sha256Hex(token),JSON.stringify([{id:'seconds-proxy-child',name:'测试孩子'}]),now,now+60000).run();
+  let reads=0;
+  const snapshot={schemaVersion:2,durationUnit:'seconds',revision,fromDate:'2026-10-01',toDate:'2026-10-01',totals:{computer:13,web:3,application:15,specialIncluded:5}};
+  const scopedEnv={...env,GUARDIAN_COMPUTER_USAGE:{...env.GUARDIAN_COMPUTER_USAGE,getComputerUsageStatisticsSeconds:async(account:string,child:string,from:string,to:string)=>{
+    expect([account,child,from,to]).toEqual(['seconds-proxy-account','seconds-proxy-child','2026-10-01','2026-10-01']);reads++;return snapshot;
+  }}};
+  const request=(extra:Record<string,string>={})=>new Request('https://runtime.test/v2/module/computer-usage?'+new URLSearchParams({childId:'seconds-proxy-child',from:'2026-10-01',to:'2026-10-01',durationUnit:'seconds',...extra}),{headers:{authorization:`RuntimeSession ${token}`}});
+  const response=await routeV2(request(),scopedEnv,now);
+  expect(response?.status).toBe(200);expect(await response?.json()).toEqual(snapshot);
+  await expect(routeV2(request({childId:'foreign-child'}),scopedEnv,now)).rejects.toMatchObject({status:404,code:'CHILD_NOT_FOUND'});
+  expect(reads).toBe(1);
+  await expect(routeV2(request({durationUnit:'minutes'}),scopedEnv,now)).rejects.toMatchObject({status:400,code:'INVALID_DURATION_UNIT'});
+  await expect(routeV2(request({revision:'computer-v2:'+ 'b'.repeat(64)}),scopedEnv,now)).rejects.toMatchObject({status:409,code:'COMPUTER_USAGE_VERSION_CHANGED'});
+  await expect(routeV2(request({detail:'products',revision}),scopedEnv,now)).rejects.toMatchObject({status:503,code:'COMPUTER_USAGE_DETAIL_NOT_READY'});
+});
 it('pending evidence changes revision after materialization without changing raw facts',async()=>{
   await seed('persistent-account','persistent-machine','persistent-child');await usage('persistent-machine','persistent-child','persistent-pending',day,day+1501);
   const args=['persistent-account','persistent-child','2026-10-01','2026-10-01'] as const,rpc=exports.RuntimeComputerUsageService;
@@ -130,6 +153,8 @@ for(const identity of ['strong-leaf','name-only'])await env.RUNTIME_DB.prepare(`
 VALUES (?1,'legacy-chrome-device','session','windows',?1,'Chrome',?2,?2+1501,1501,'fixture',?1,?2+1501)`).bind(identity,day).run();
 await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_v1 VALUES ('legacy-chrome-machine','user','windows','strong-leaf','名称不同',?1,'installed',0,1)`)
 .bind(JSON.stringify({platform:'windows',runtimeIdentity:'strong-leaf',displayName:'名称不同',values:CHROME_DISPLAY_RULES.windows,verifiedFields:['fileSeriesKey','signerKey']})).run();
+await putApplicationKnowledge(env.RUNTIME_DB,'legacy-chrome-account',['legacy-chrome-child'],'"application-knowledge-v0"',
+  {schemaVersion:2,version:0,products:[],rules:[],bindings:[]},day);
 const before=await queryAppUsage(env.RUNTIME_DB,'legacy-chrome-account','legacy-chrome-child',day,day+86400000,{});
 const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'legacy-chrome-account','legacy-chrome-child','2026-10-01','2026-10-01');
 const history=sources.find(source=>source.historyQuality==='bestEffort');expect(history?.intervals.filter(row=>row.special)).toHaveLength(1);expect(history?.totalMs).toBe(1501);
@@ -141,6 +166,8 @@ await usage('chrome-machine','chrome-child','chrome-v1',day,day+1000);await usag
 await env.RUNTIME_DB.prepare("UPDATE runtime_usage_segments_v2 SET runtime_identity='second-leaf',display_name='旧产品标签' WHERE id='chrome-v2'").run();
 for(const identity of ['leaf','second-leaf'])await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_v1 VALUES ('chrome-machine','opaque-user','windows',?1,'不同版本名称',?2,'installed',0,1)`)
 .bind(identity,JSON.stringify({platform:'windows',runtimeIdentity:identity,displayName:'不同版本名称',values:CHROME_DISPLAY_RULES.windows,verifiedFields:['fileSeriesKey','signerKey']})).run();
+await putApplicationKnowledge(env.RUNTIME_DB,'chrome-account',['chrome-child'],'"application-knowledge-v0"',
+  {schemaVersion:2,version:0,products:[],rules:[],bindings:[]},day);
 const before=await queryAppUsage(env.RUNTIME_DB,'chrome-account','chrome-child',day,day+86400000,{machineId:'chrome-machine'});
 const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'chrome-account','chrome-child','2026-10-01','2026-10-01');
 expect(sources[0]?.intervals.every(item=>item.special&&item.label==='Chrome')).toBe(true);
@@ -188,19 +215,18 @@ SELECT 'budget-'||i,'budget-machine','user',1,'budget-child','session','windows'
 const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'budget-account','budget-child','2026-10-01','2026-10-01');
 expect(sources[0]?.totalMs).toBeNull();expect(sources[0]?.reasons).toContain('APPLICATION_EVIDENCE_LIMIT');expect(sources[0]?.intervals).toHaveLength(10000);
 });
-it('requires approved Chrome leaf plus matching verified strong selectors, never a name or reserved ID alone',()=>{
+it('uses only the approved product association, never a name or separate display matcher',async()=>{
 const reviewed:AppEvidence={platform:'windows',runtimeIdentity:'different-version',displayName:'Unrelated label',values:CHROME_DISPLAY_RULES.windows,verifiedFields:['fileSeriesKey','signerKey']};
-expect(isConfirmedChrome(reviewed)).toBe(true);
-expect(isConfirmedChrome({...reviewed,values:{...reviewed.values,signerKey:'different'}})).toBe(false);
-expect(isConfirmedChrome({...reviewed,verifiedFields:['fileSeriesKey']})).toBe(false);
-const evidence:AppEvidence={platform:'windows',runtimeIdentity:'leaf',displayName:'Chrome',values:{fileSeriesKey:'reviewed-chrome-series'},verifiedFields:['fileSeriesKey']};
-const projection={platform:'windows' as const,runtimeIdentity:'leaf',associationKey:'product:chrome',productId:'builtin.browser.chrome',canonicalName:'Chrome',status:'confirmed' as const,reasonCode:'APPROVED_PRODUCT' as const};
-const knowledge={schemaVersion:2 as const,version:1,products:[{id:'builtin.browser.chrome',name:'Chrome',type:'other' as const,selectors:[{platform:'windows' as const,match:{operator:'all' as const,conditions:[{field:'fileSeriesKey' as const,value:'reviewed-chrome-series'}]}}]}],rules:[],bindings:[]};
-expect(isConfirmedChrome(evidence,projection,knowledge)).toBe(true);
-expect(isConfirmedChrome({...evidence,verifiedFields:[]},projection,knowledge)).toBe(false);
-expect(isConfirmedChrome({...evidence,values:{fileSeriesKey:'different'}},projection,knowledge)).toBe(false);
-expect(isConfirmedChrome(undefined,projection,knowledge)).toBe(false);
-expect(isConfirmedChrome({...evidence,platform:'macos',values:{packageId:'com.google.Chrome'},verifiedFields:['packageId']})).toBe(false);
-expect(isConfirmedChrome({...evidence,platform:'macos',values:{packageId:'com.google.Chrome'},verifiedFields:[]})).toBe(false);
+const knowledge=effectiveApplicationKnowledge({schemaVersion:2,version:1,products:[],rules:[],bindings:[]});
+for(const [item,expected] of [
+  [reviewed,true],
+  [{...reviewed,values:{...reviewed.values,signerKey:'different'}},false],
+  [{...reviewed,verifiedFields:['fileSeriesKey']},false],
+  [{...reviewed,platform:'macos',values:{packageId:'com.google.Chrome'},verifiedFields:['packageId']},false],
+] as Array<[AppEvidence,boolean]>) {
+  const projection=await buildProductIdentityProjection([item],knowledge);
+  expect(isConfirmedSpecialApplication(projection.items[0],knowledge)).toBe(expected);
+}
+expect(isConfirmedSpecialApplication(undefined,knowledge)).toBe(false);
 });
 });

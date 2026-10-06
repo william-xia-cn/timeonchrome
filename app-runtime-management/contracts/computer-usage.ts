@@ -3,6 +3,104 @@ export const COMPUTER_USAGE_SCHEMA_VERSION = 1 as const;
 export const COMPUTER_USAGE_DISPLAY_RULE_VERSION = '4';
 export const COMPUTER_USAGE_MAX_INTERVALS = 20_000;
 
+/** Read-only source statistics; never a mixed quota result or raw-record evidence. */
+export interface ComputerUsageStatisticsSourceV2 {
+  durationUnit: 'seconds';
+  revision: string;
+  complete: boolean;
+  totalDuration: number | null;
+  availableTotalDuration: number | null;
+  categories: Array<{classification: string; duration: number}>;
+  applicationUsage?: {
+    nonSpecialTotal: number;
+    nonSpecialCategories: Record<string, number>;
+    specialTotal: number;
+    complete: boolean;
+    reasonCodes: string[];
+  } | null;
+}
+export interface ComputerUsageStatisticsSummaryV2 {
+  schemaVersion: 2;
+  durationUnit: 'seconds';
+  fromDate: string;
+  toDate: string;
+  complete: boolean;
+  sourceStatus: {web: 'complete' | 'partial' | 'unavailable'; application: 'complete' | 'partial' | 'unavailable'};
+  sourceVersions: {web: string | null; application: string | null};
+  totals: {computer: number | null; web: number | null; application: number | null; specialIncluded: number | null};
+  categories: Record<string, number>;
+  sourceCategories: {web: Record<string, number>; application: Record<string, number>};
+  reasonCodes: string[];
+}
+
+/** Only combines already-produced seconds; no interval union, allocation or quota math. */
+export function projectComputerUsageStatisticsV2(input: {
+  fromDate: string; toDate: string;
+  web: ComputerUsageStatisticsSourceV2 | null;
+  application: ComputerUsageStatisticsSourceV2 | null;
+}): ComputerUsageStatisticsSummaryV2 {
+  const seconds = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+  const add = (a: number, b: number): number => {
+    const result = a + b;
+    if (!seconds(result)) throw new RangeError('COMPUTER_USAGE_DURATION_OVERFLOW');
+    return result;
+  };
+  const reasons: string[] = [];
+  const read = (source: ComputerUsageStatisticsSourceV2 | null, kind: 'web' | 'application') => {
+    const prefix = kind.toUpperCase();
+    if (!source) { reasons.push(`${prefix}_STATISTICS_UNAVAILABLE`); return null; }
+    if (source.durationUnit !== 'seconds' || typeof source.revision !== 'string' || !source.revision
+        || typeof source.complete !== 'boolean' || !Array.isArray(source.categories)
+        || source.categories.some(row => typeof row.classification !== 'string' || !row.classification || !seconds(row.duration))
+        || new Set(source.categories.map(row => row.classification)).size !== source.categories.length) {
+      reasons.push(`${prefix}_STATISTICS_INVALID`); return null;
+    }
+    if (!source.complete && source.totalDuration === null && source.availableTotalDuration === null) {
+      reasons.push(`${prefix}_STATISTICS_UNAVAILABLE`); return null;
+    }
+    if (!seconds(source.availableTotalDuration) || (source.totalDuration !== null && !seconds(source.totalDuration))
+        || (source.complete && source.totalDuration !== source.availableTotalDuration)) {
+      reasons.push(`${prefix}_STATISTICS_INVALID`); return null;
+    }
+    if (!source.complete) reasons.push(`${prefix}_STATISTICS_PARTIAL`);
+    return source;
+  };
+  const web = read(input.web, 'web'), application = read(input.application, 'application');
+  const sourceCategories = {
+    web: Object.fromEntries((web?.categories ?? []).map(row => [row.classification, row.duration])),
+    application: Object.fromEntries((application?.categories ?? []).map(row => [row.classification, row.duration])),
+  };
+  const contribution = application?.applicationUsage;
+  const validContribution = Boolean(contribution && seconds(contribution.nonSpecialTotal)
+    && contribution.nonSpecialTotal <= application!.availableTotalDuration!
+    && seconds(contribution.specialTotal) && contribution.specialTotal <= application!.availableTotalDuration!
+    && contribution.nonSpecialCategories && typeof contribution.nonSpecialCategories === 'object'
+    && !Array.isArray(contribution.nonSpecialCategories)
+    && Object.values(contribution.nonSpecialCategories).every(seconds)
+    && typeof contribution.complete === 'boolean' && Array.isArray(contribution.reasonCodes)
+    && contribution.reasonCodes.every(code => typeof code === 'string'));
+  if (application && !validContribution) reasons.push('APPLICATION_NON_SPECIAL_STATISTICS_UNAVAILABLE');
+  if (validContribution) {
+    reasons.push(...contribution!.reasonCodes);
+    if (!contribution!.complete) reasons.push('APPLICATION_NON_SPECIAL_STATISTICS_PARTIAL');
+  }
+  const categories = {...sourceCategories.web};
+  if (validContribution) for (const [category, duration] of Object.entries(contribution!.nonSpecialCategories))
+    Object.defineProperty(categories, category, {value: add(Object.hasOwn(categories, category) ? categories[category]! : 0, duration),
+      writable: true, enumerable: true, configurable: true});
+  const complete = web?.complete === true && application?.complete === true
+    && validContribution && contribution!.complete;
+  const status = (source: ComputerUsageStatisticsSourceV2 | null) => !source ? 'unavailable' as const
+    : source.complete ? 'complete' as const : 'partial' as const;
+  return {schemaVersion: 2, durationUnit: 'seconds', fromDate: input.fromDate, toDate: input.toDate, complete,
+    sourceStatus: {web: status(web), application: status(application)},
+    sourceVersions: {web: web?.revision ?? null, application: application?.revision ?? null},
+    totals: {computer: complete ? add(web!.totalDuration!, contribution!.nonSpecialTotal) : null,
+      web: web?.availableTotalDuration ?? null, application: application?.availableTotalDuration ?? null,
+      specialIncluded: validContribution ? application!.availableTotalDuration! - contribution!.nonSpecialTotal : null},
+    categories, sourceCategories, reasonCodes: [...new Set(reasons)].sort()};
+}
+
 export interface ComputerUsageInterval {
   startMs: number;
   endMs: number;
