@@ -3,7 +3,7 @@ import {parseUsageAccountRows,parseUsageAccountRowsV2,verifyUsageAccountManifest
 import {HttpError} from './http';
 import type {StatisticsValue} from './applicationStatistics';
 import { normalizeApplicationUsageClock } from './applicationUsageClock';
-import { verifyApplicationAccountPublication } from './applicationAccountPublication';
+import { verifyApplicationAccountPublication,isReadableApplicationAccountSnapshot } from './applicationAccountPublication';
 type Filters={machineId?:string;localUserId?:string;platform?:string};
 const DAY=86400000,OFFSET=8*3600000;
 function mergeApplicationUsage(values:Array<ApplicationUsageSeconds|undefined|null>):ApplicationUsageSeconds|null {
@@ -37,6 +37,8 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
   if(heads.results.length>100)throw new HttpError(503,'APPLICATION_STATISTICS_SOURCE_LIMIT','统计来源超过单次读取限制。');
   const merged=new Map<string,UsageAccountRowV2>(),references:Array<{manifestId:string;revision:number;hash:string;settledThroughMs:number|null}>=[];
   let count=0,legacySourceCount=0;
+  let complete=true;
+  const reasonCodes=new Set<string>();
   const applicationUsage:Array<ApplicationUsageSeconds|undefined>=[];
   for(const head of heads.results){
     const value=JSON.parse(head.manifest_json);
@@ -44,7 +46,7 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
     const manifest=await verifyUsageAccountManifestV2(value);
     if(manifest.childId!==undefined&&manifest.childId!==child)
       throw new HttpError(503,'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH','统计清单孩子与读取范围不一致。');
-    if(!manifest.complete||manifest.date!==date||manifest.sourceKind!=='application'
+    if(!isReadableApplicationAccountSnapshot(manifest)||manifest.date!==date||manifest.sourceKind!=='application'
       ||manifest.revision!==head.revision||manifest.manifestHash!==head.manifest_hash)
       throw new HttpError(503,'APPLICATION_STATISTICS_INVALID_PUBLICATION','已发布统计范围无效。');
     const chunks=await db.prepare(`SELECT chunk_index,rows_json FROM runtime_application_account_chunks_v1
@@ -56,6 +58,8 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
     if(rows.length!==manifest.rowCount||await hashUsageAccountValue(rows)!==manifest.rowsHash)
       throw new HttpError(503,'APPLICATION_STATISTICS_HASH_MISMATCH','已发布统计完整性校验失败。');
     validateUsageAccountDimensionsV2(rows);
+    complete=complete&&manifest.complete;
+    for(const reason of manifest.reasonCodes)reasonCodes.add(reason);
     count+=rows.length;
     if(count>10000)throw new HttpError(503,'APPLICATION_STATISTICS_ROW_LIMIT','统计行超过单次读取限制。');
     references.push({manifestId:head.manifest_id,revision:head.revision,hash:head.manifest_hash,settledThroughMs:manifest.settledThroughMs});
@@ -71,7 +75,7 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
   if(references.length===0)return null;
   return {durationUnit:'seconds' as const,rows:[...merged.values()],references,legacySourceCount,
     applicationUsage:legacySourceCount?null:mergeApplicationUsage(applicationUsage),
-    complete:legacySourceCount===0,revision:await hashUsageAccountValue(references)};
+    complete:complete&&legacySourceCount===0,reasonCodes:[...reasonCodes].sort(),revision:await hashUsageAccountValue(references)};
 }
 /** 日／周统计只归集来源秒统计；缺日期不等于零，余额由独立配额模块计算。 */
 export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,account:string,child:string,
@@ -103,7 +107,8 @@ export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,
     availableTotalDuration:availableTotal,
     categories:rows.filter(row=>row.kind==='category'),products:rows.filter(row=>row.kind==='subject'),
     days:days.map(({date,snapshot})=>({date,complete:snapshot?.complete===true,
-      reasonCodes:!snapshot?['APPLICATION_STATISTICS_NOT_AVAILABLE']:snapshot.legacySourceCount>0?['LEGACY_STATISTICS_UNIT']:[],
+      reasonCodes:!snapshot?['APPLICATION_STATISTICS_NOT_AVAILABLE']:
+        [...new Set([...snapshot.reasonCodes,...(snapshot.legacySourceCount>0?['LEGACY_STATISTICS_UNIT']:[])])].sort(),
       totalDuration:snapshot?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration??null,
       hours:snapshot?.rows.filter(row=>row.hour!==null)??[],
       settledThroughMs:snapshot?.references.every(ref=>ref.settledThroughMs!==null)

@@ -65,7 +65,7 @@ async function drainFixtureStatistics(f:Awaited<ReturnType<typeof fixture>>) {
 async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{empty?:boolean;classification?:string;duration?:number;
   associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string;
   associationKey?:string;reasonCodes?:string[];cutoff?:number;date?:string;hour?:number;policyVersions?:number[];applicationUsage?:ApplicationUsageProjection;extraSubjectKey?:string;deferCommit?:boolean;
-  seconds?:boolean;secondsProjection?:ApplicationUsageSeconds;detailHour?:number}={}){
+  seconds?:boolean;secondsProjection?:ApplicationUsageSeconds;detailHour?:number;childId?:string}={}){
   const duration=options.empty?0:options.duration??1501;
   const row=(kind:UsageAccountRow['kind'],hour:number|null,category:string|null=null,subjectKey:string|null=null,displayName:string|null=null,d=duration):UsageAccountRow=>
     ({kind,hour,category,subjectKey,displayName,duration:d});
@@ -85,6 +85,7 @@ async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{
     ...(options.applicationUsage?{applicationUsage:options.applicationUsage}:{})};
   const {applicationUsage:_legacyUsage,...secondsHeader}=header;
   const account=options.seconds?await createUsageAccountV2({...secondsHeader,schemaVersion:2,durationUnit:'seconds',
+    ...(options.childId?{childId:options.childId}:{}),
     ...(options.secondsProjection?{applicationUsage:options.secondsProjection}:{})},rows.map(row=>row.kind==='subject'
       ?{...row,classifications:[options.classification??'study']}:row)):await createUsageAccount(header,rows);
   const r=await beginApplicationAccount(env.RUNTIME_DB,f.machine,{localUserId:user,assignmentVersion:1,manifest:account.manifest},receivedAt);
@@ -96,6 +97,47 @@ async function commitRequest(f:Awaited<ReturnType<typeof fixture>>,id:string){
   return routeApplicationAccounts(new Request(`http://runtime.test/v2/machines/application-accounts/manifests/${id}/commit`,
     {method:'POST'}),env.RUNTIME_DB,f.machine,now);
 }
+it('mixed-ledger child seconds publish known usage without advertising a complete day, and replace rather than add',async()=>{
+  const f=await fixture(),reasons=['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING'];
+  const first=await upload(f,409,{seconds:true,childId:f.child,duration:1457,complete:false,reasonCodes:reasons,deferCommit:true});
+  const commit=()=>commitRequest(f,first.manifestId);
+  expect(await (await commit()).json()).toMatchObject({received:true,published:true,publicationErrorCode:null});
+  expect(await (await commit()).json()).toMatchObject({published:true});
+  const day=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,start+DAY);
+  expect(day).toMatchObject({durationUnit:'seconds',complete:false,totalDuration:null,availableTotalDuration:1457,
+    days:[{complete:false,totalDuration:1457,reasonCodes:reasons}]});
+  expect(day.categories.find(row=>row.category==='study')?.duration).toBe(1457);
+  expect(day.products[0]?.duration).toBe(1457);
+  const view=AppRuntimeTime.applicationSecondsView(day,'day');
+  expect(view).toMatchObject({complete:false,totalDurationSeconds:null,availableTotalDurationSeconds:1457});
+  const smaller=await upload(f,410,{seconds:true,childId:f.child,duration:1400,complete:false,reasonCodes:reasons,deferCommit:true});
+  expect(await (await commitRequest(f,smaller.manifestId)).json()).toMatchObject({published:true});
+  expect((await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,start+DAY)).availableTotalDuration).toBe(1400);
+  expect(await (await commit()).json()).toMatchObject({published:false});
+  expect((await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,start+DAY)).availableTotalDuration).toBe(1400);
+  const complete=await upload(f,411,{seconds:true,childId:f.child,duration:1500,deferCommit:true});
+  await commitRequest(f,complete.manifestId);
+  expect(await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,start+DAY))
+    .toMatchObject({complete:true,totalDuration:1500,availableTotalDuration:1500,days:[{complete:true,reasonCodes:[]}]});
+  expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
+    .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
+  const foreign=await fixture();
+  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,foreign.machine.accountId,f.child,'2026-09-27')).toBeNull();
+});
+it.each([
+  {seconds:true,withChild:false,reasons:['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING']},
+  {seconds:false,withChild:false,reasons:['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING']},
+  {seconds:true,withChild:true,reasons:['APPLICATION_RAW_OVERLAP_UNRESOLVED']},
+  {seconds:true,withChild:true,reasons:['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING','APPLICATION_RAW_CLOCK_SCOPE_UNRESOLVED']},
+])('mixed-ledger exception rejects unsupported or fact-incomplete scope $seconds/$withChild/$reasons',async({seconds,withChild,reasons})=>{
+  const f=await fixture(),first=await upload(f,1,{seconds:true,deferCommit:true});
+  await commitRequest(f,first.manifestId);
+  const invalid=await upload(f,2,{seconds,childId:withChild?f.child:undefined,complete:false,reasonCodes:reasons,deferCommit:true});
+  expect(await (await commitRequest(f,invalid.manifestId)).json()).toMatchObject({received:true,published:false,
+    publicationErrorCode:'APPLICATION_ACCOUNT_INCOMPLETE'});
+  expect((await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27'))
+    ?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration).toBe(1501);
+});
 it.each(['windows','macos'] as const)('v2 %s producer seconds and product classification rows publish without facts',async(platform)=>{
   const f=await fixture(platform),r=await upload(f,1,{seconds:true,duration:51,deferCommit:true,policyVersions:[],
     secondsProjection:{nonSpecialTotal:51,nonSpecialCategories:{study:51},specialTotal:0,complete:true,reasonCodes:[]}});
