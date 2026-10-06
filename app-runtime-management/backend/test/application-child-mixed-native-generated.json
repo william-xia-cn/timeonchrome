@@ -1,0 +1,588 @@
+{
+  "chunks": [
+    {
+      "chunkHash": "af8f208cb967e9d8739aa5ba841b0e3c9a71e66d7b66dd1313bbb87b91a40395",
+      "chunkIndex": 0,
+      "rows": [
+        {
+          "category": "study",
+          "displayName": null,
+          "duration": 1457,
+          "hour": 0,
+          "kind": "category",
+          "subjectKey": null
+        },
+        {
+          "category": "study",
+          "displayName": null,
+          "duration": 1457,
+          "hour": null,
+          "kind": "category",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "classifications": [
+            "study"
+          ],
+          "displayName": "Synthetic editor",
+          "duration": 1457,
+          "hour": 0,
+          "kind": "subject",
+          "subjectKey": "aba70ae34c72d4b8e5066ff1738eb99e9294dbbb0700126119877fbcd5bc6a6f"
+        },
+        {
+          "category": null,
+          "classifications": [
+            "study"
+          ],
+          "displayName": "Synthetic editor",
+          "duration": 1457,
+          "hour": null,
+          "kind": "subject",
+          "subjectKey": "aba70ae34c72d4b8e5066ff1738eb99e9294dbbb0700126119877fbcd5bc6a6f"
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 1,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 10,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 11,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 12,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 13,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 14,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 15,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 16,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 17,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 18,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 19,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 2,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 20,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 21,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 22,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 23,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 3,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 4,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 5,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 6,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 7,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 8,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 0,
+          "hour": 9,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 1457,
+          "hour": 0,
+          "kind": "total",
+          "subjectKey": null
+        },
+        {
+          "category": null,
+          "displayName": null,
+          "duration": 1457,
+          "hour": null,
+          "kind": "total",
+          "subjectKey": null
+        }
+      ]
+    }
+  ],
+  "manifest": {
+    "algorithmVersion": "windows-application-seconds-v2",
+    "applicationUsage": {
+      "complete": false,
+      "nonSpecialCategories": {
+        "study": 1457
+      },
+      "nonSpecialTotal": 1457,
+      "reasonCodes": [
+        "APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING"
+      ],
+      "specialTotal": 0
+    },
+    "associationVersion": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "childId": "synthetic-child-a",
+    "chunkCount": 1,
+    "complete": false,
+    "correctionVersion": 0,
+    "date": "2026-10-05",
+    "durationUnit": "seconds",
+    "generatedAtMs": 1791216000000,
+    "manifestHash": "ba6ba4d36f5ae71e1ed493d84a8ee8c43931e30e82be7359f4d62a544a204b7a",
+    "policyVersions": [
+      1
+    ],
+    "rawFactCount": 16,
+    "rawFactHash": "9857ad6caf398f74e5d9eb2c9211145482697256e7c57ce1dc9e6359a5004450",
+    "reasonCodes": [
+      "APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING"
+    ],
+    "revision": 1,
+    "rowCount": 29,
+    "rowsHash": "af8f208cb967e9d8739aa5ba841b0e3c9a71e66d7b66dd1313bbb87b91a40395",
+    "schemaVersion": 2,
+    "settledThroughMs": 1791131057000,
+    "sourceKind": "application",
+    "timezone": "Asia/Shanghai"
+  },
+  "requests": [
+    {
+      "body": {
+        "assignmentVersion": 1,
+        "localUserId": "synthetic_user_a_0000000000000000",
+        "manifest": {
+          "algorithmVersion": "windows-application-seconds-v2",
+          "applicationUsage": {
+            "complete": false,
+            "nonSpecialCategories": {
+              "study": 1457
+            },
+            "nonSpecialTotal": 1457,
+            "reasonCodes": [
+              "APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING"
+            ],
+            "specialTotal": 0
+          },
+          "associationVersion": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "childId": "synthetic-child-a",
+          "chunkCount": 1,
+          "complete": false,
+          "correctionVersion": 0,
+          "date": "2026-10-05",
+          "durationUnit": "seconds",
+          "generatedAtMs": 1791216000000,
+          "manifestHash": "ba6ba4d36f5ae71e1ed493d84a8ee8c43931e30e82be7359f4d62a544a204b7a",
+          "policyVersions": [
+            1
+          ],
+          "rawFactCount": 16,
+          "rawFactHash": "9857ad6caf398f74e5d9eb2c9211145482697256e7c57ce1dc9e6359a5004450",
+          "reasonCodes": [
+            "APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING"
+          ],
+          "revision": 1,
+          "rowCount": 29,
+          "rowsHash": "af8f208cb967e9d8739aa5ba841b0e3c9a71e66d7b66dd1313bbb87b91a40395",
+          "schemaVersion": 2,
+          "settledThroughMs": 1791131057000,
+          "sourceKind": "application",
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "method": "POST",
+      "path": "/v2/machines/application-accounts/manifests"
+    },
+    {
+      "body": {
+        "chunkHash": "af8f208cb967e9d8739aa5ba841b0e3c9a71e66d7b66dd1313bbb87b91a40395",
+        "rows": [
+          {
+            "category": "study",
+            "displayName": null,
+            "duration": 1457,
+            "hour": 0,
+            "kind": "category",
+            "subjectKey": null
+          },
+          {
+            "category": "study",
+            "displayName": null,
+            "duration": 1457,
+            "hour": null,
+            "kind": "category",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "classifications": [
+              "study"
+            ],
+            "displayName": "Synthetic editor",
+            "duration": 1457,
+            "hour": 0,
+            "kind": "subject",
+            "subjectKey": "aba70ae34c72d4b8e5066ff1738eb99e9294dbbb0700126119877fbcd5bc6a6f"
+          },
+          {
+            "category": null,
+            "classifications": [
+              "study"
+            ],
+            "displayName": "Synthetic editor",
+            "duration": 1457,
+            "hour": null,
+            "kind": "subject",
+            "subjectKey": "aba70ae34c72d4b8e5066ff1738eb99e9294dbbb0700126119877fbcd5bc6a6f"
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 1,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 10,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 11,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 12,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 13,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 14,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 15,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 16,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 17,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 18,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 19,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 2,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 20,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 21,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 22,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 23,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 3,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 4,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 5,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 6,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 7,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 8,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 0,
+            "hour": 9,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 1457,
+            "hour": 0,
+            "kind": "total",
+            "subjectKey": null
+          },
+          {
+            "category": null,
+            "displayName": null,
+            "duration": 1457,
+            "hour": null,
+            "kind": "total",
+            "subjectKey": null
+          }
+        ]
+      },
+      "method": "PUT",
+      "path": "/v2/machines/application-accounts/manifests/aa1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/chunks/0"
+    },
+    {
+      "body": {},
+      "method": "POST",
+      "path": "/v2/machines/application-accounts/manifests/aa1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/commit"
+    }
+  ],
+  "source": "native-mixed-ledger-15-1457",
+  "synthetic": true
+}

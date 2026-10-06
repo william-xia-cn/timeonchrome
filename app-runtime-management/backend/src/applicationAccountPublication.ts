@@ -135,10 +135,17 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
   for(const span of spans)subjectClassifications[span.subject]=[...new Set([...(subjectClassifications[span.subject]??[]),span.category])].sort();
   return {sourceRevision,rows,subjectClassifications};
 }
+/** 仅旧账归属缺口可发布已知秒统计；其他不完整事实仍拒绝。 */
+export function isReadableApplicationAccountSnapshot(manifest:{schemaVersion:number;durationUnit:string;
+  childId?:string;complete:boolean;reasonCodes:readonly string[]}):boolean {
+  return manifest.complete || manifest.schemaVersion===2 && manifest.durationUnit==='seconds'
+    && typeof manifest.childId==='string' && manifest.childId.trim().length>0
+    && manifest.reasonCodes.length===1 && manifest.reasonCodes[0]==='APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING';
+}
 /** Validate the authenticated producer's snapshot, not a second cloud calculation. */
 export async function validateApplicationAccountSnapshot(db:D1Database,candidate:Candidate) {
   const manifest=await verifyApplicationAccountManifest(JSON.parse(candidate.manifest_json));
-  if(!manifest.complete)fail('APPLICATION_ACCOUNT_INCOMPLETE');
+  if(!isReadableApplicationAccountSnapshot(manifest))fail('APPLICATION_ACCOUNT_INCOMPLETE');
   if(manifest.schemaVersion===2&&manifest.childId!==undefined&&manifest.childId!==candidate.child_id)
     fail('APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH');
   const assignment=await db.prepare(`SELECT a.child_id,m.account_id,m.platform,m.revoked_at_ms FROM runtime_user_assignments_v2 a
@@ -183,7 +190,7 @@ export async function validateApplicationAccountSnapshot(db:D1Database,candidate
   }
   return {manifest,rows,sourceRevision:`application-statistics:${manifest.revision}:${manifest.manifestHash}`};
 }
-/** Receipt is immutable; complete producer snapshots replace a monotonic readable head. */
+/** Receipt is immutable; valid producer snapshots replace a monotonic readable head without hiding coverage gaps. */
 export async function publishApplicationAccounts(db:D1Database,now=Date.now(),manifestId?:string) {
   const candidates=await db.prepare(`SELECT m.* FROM runtime_application_account_manifests_v1 m
     JOIN runtime_application_account_receipts_v1 r ON r.manifest_id=m.id

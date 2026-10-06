@@ -2,6 +2,14 @@
 
 ## 应用孩子统计同步接入（2026-10-06，已批准实施，非共享）
 
+### 2026-10-06 同日旧／新账可用部分的最小兼容
+
+隔离验证使用正式Native兼容物化及Uploader捕获的全合成请求（15条新原段／1457整数秒；另1条未知旧事实只进入事实摘要，rawFactCount=16，不贡献时长），不在云端夹具重新生成行或哈希。原begin／chunk进入机器鉴权路由，commit及重放不累加，随后真实页面HTTP入口返回已知1457秒、总量null及旧账缺口码，生产页面适配器保留已知值；这是隔离跨仓链路证据，尚非实机或线上通过。
+
+现场已证明新v3孩子原账生成有量，却因同日旧格式归属缺口使清单无法冻结。只读兼容层仅纳入有旧记录自身可信孩子及来源证据的旧事实，按已批准整数秒及去重规则生成统计；旧原账不改，不以当前分配猜补旧孩子。无法确定的旧事实保留缺口，不阻断有效新统计。
+
+沿用1.37.0既有schemaVersion=2、durationUnit=seconds、childId、complete及reasonCodes字段，不增加数据字段或修改包内容。只有固定孩子的秒清单complete=false且唯一原因为APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING，允许通过既有身份、维度、分块／行／清单哈希校验后按同来源更高revision更新可读head；complete不改成true。日期和范围完整总量仍null，availableTotalDuration、分类、产品和小时保留已知有效值，日期返回该缺口码。其他不完整原因、缺孩子、旧毫秒格式及新原账重叠／时钟错误继续拒绝发布，不放宽传输和归属校验。接收、采用和页面均使用同一不可变版本，旧head与新head不相加，旧版本仍留存。旧云端不支持此采用语义时保持重试，不冒充完整或改单位。源码通过不代表生产部署或实机已通过。
+
 契约1.37.0实施：UsageAccountManifestV2可选childId只允许application来源，必须是非空不透明ID且纳入manifestHash；缺省仅供旧秒生产者兼容，新v3原账生产者须填写。能力application-statistics-child-scope-v1声明接收支持；未支持时新清单留在本机队列，不降级丢弃孩子。云端begin及发布使用现有精确历史分配核验声明孩子，读取再校验清单孩子与查询范围，稳定冲突码APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH。不要求当前分配仍等于旧分配，不增加身份体系／数据库结构，不改变原账及定秒规则。
 
 Native由application-ledger-v3的固定childId与durationSeconds生成孩子范围及独立来源统计。user／machine／assignment仅隔离来源、核验授权，不用当前分配重新解释旧账。统计与原段分别持久化及确认，统计不等待原段云端重算。
