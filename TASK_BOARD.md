@@ -1,5 +1,12 @@
 # TASK_BOARD
 
+## 控件1.7.46内部候选准备（2026-10-10）
+
+- 基线：`master 71788f1`，既有 `extension-local` 分支；线上feed仍为`1.7.45`，不覆盖。
+- 内容：统一扩展版本与候选记录，生成独立目录的unpacked内部候选；保留稳定扩展ID，原Chrome加载目录不写入、不重载、不安装。
+- 边界：共享执行关闭；不改网页原账、配额、云端配置或R2；不托管。
+- 验收：版本与候选manifest一致，稳定ID正确，开发标记和模块边界正确，输出包SHA可复核；Native真实联调另行验收。
+
 ## Native 应用身份读取 requestId 错误码修正（2026-10-10）
 
 只读审查确认：Native 应用身份读取响应缺失或不匹配 `requestId` 时，扩展运输层原本返回 `application_identity_invalid_response`，但错误码允许列表仅含 `application_identity_usage_invalid_response`，导致错误被归一化为 `heartbeat_build_failed`。按架构任务授权，仅修正该诊断映射并补充缺失 `requestId` 回归；不改变请求/响应协议、身份范围、应用数据、账本、能力协商、共享退避或心跳行为。`node tests/unit/local-guardian.test.js` 与 `git diff --check` 已通过；已更新 PR #251，不打包、不部署、不托管。
