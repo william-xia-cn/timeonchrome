@@ -34,6 +34,55 @@
     { "if": { "properties": { "complete": { "const": true } } }, "then": { "properties": { "reasonCodes": { "maxItems": 0 }, "settledThroughMs": { "type": "integer" } } }, "else": { "properties": { "reasonCodes": { "minItems": 1 } } } }
   ],
   "$defs": {
+    "productCategory": {"enum":["study","composite","restrictedEntertainment","unclassified","other","blocked","historicalUnknown"]},
+    "productReasons": {"type":"array","maxItems":16,"uniqueItems":true,"items":{"type":"string","pattern":"^[A-Z][A-Z0-9_]{0,63}$"}},
+    "productCompleteness": {
+      "if":{"properties":{"complete":{"const":true}}},
+      "then":{"properties":{"reasonCodes":{"maxItems":0}}},
+      "else":{"properties":{"reasonCodes":{"minItems":1}}}
+    },
+    "productProjection": {
+      "description":"独立产品视图；canonical排序、哈希、行守恒及特殊扣除关系由共同验证函数检查，不重算原账。",
+      "type":"object","additionalProperties":false,
+      "required":["schemaVersion","baseManifestHash","revision","catalogVersion","generatedAtMs","complete","reasonCodes","rows","applicationUsage","projectionHash"],
+      "properties":{
+        "schemaVersion":{"const":1},"baseManifestHash":{"$ref":"#/$defs/hash"},
+        "revision":{"$ref":"#/properties/revision"},
+        "catalogVersion":{"type":"integer","minimum":0,"maximum":9007199254740991},
+        "generatedAtMs":{"$ref":"#/properties/generatedAtMs"},"complete":{"type":"boolean"},
+        "reasonCodes":{"$ref":"#/$defs/productReasons"},"projectionHash":{"$ref":"#/$defs/hash"},
+        "rows":{"type":"array","maxItems":10000,"items":{"$ref":"#/$defs/productProjectionRow"}},
+        "applicationUsage":{
+          "type":"object","additionalProperties":false,
+          "required":["nonSpecialTotal","nonSpecialCategories","specialTotal","complete","reasonCodes"],
+          "properties":{
+            "nonSpecialTotal":{"type":"integer","minimum":0,"maximum":86400},
+            "specialTotal":{"type":"integer","minimum":0,"maximum":86400},
+            "nonSpecialCategories":{"type":"object","propertyNames":{"$ref":"#/$defs/productCategory"},
+              "additionalProperties":{"type":"integer","minimum":0,"maximum":86400}},
+            "complete":{"type":"boolean"},"reasonCodes":{"$ref":"#/$defs/productReasons"}
+          },"allOf":[{"$ref":"#/$defs/productCompleteness"}]
+        }
+      },
+      "allOf":[{"$ref":"#/$defs/productCompleteness"},
+        {"if":{"properties":{"complete":{"const":true}}},"then":{"properties":{"applicationUsage":{"properties":{"complete":{"const":true}}}}}}]
+    },
+    "productProjectionRow":{
+      "type":"object","additionalProperties":false,
+      "required":["kind","hour","category","subjectKey","duration"],
+      "properties":{
+        "kind":{"enum":["category","subject"]},"hour":{"type":["integer","null"],"minimum":0,"maximum":23},
+        "category":{"anyOf":[{"$ref":"#/$defs/productCategory"},{"type":"null"}]},
+        "subjectKey":{"type":["string","null"]},"duration":{"type":"integer","minimum":0,"maximum":86400},
+        "classifications":{"type":"array","minItems":1,"maxItems":7,"uniqueItems":true,"items":{"$ref":"#/$defs/productCategory"}}
+      },
+      "allOf":[
+        {"if":{"properties":{"hour":{"type":"integer"}}},"then":{"properties":{"duration":{"maximum":3600}}}},
+        {"if":{"properties":{"kind":{"const":"subject"}}},
+          "then":{"required":["classifications"],"properties":{"category":{"type":"null"},"subjectKey":{"type":"string","pattern":"^((instance|observation):[a-f0-9]{64}|product:[A-Za-z0-9._:-]{1,256})$"}}},
+          "else":{"properties":{"subjectKey":{"type":"null"},"category":{"$ref":"#/$defs/productCategory"}},"not":{"required":["classifications"]}}}
+      ]
+    },
     "manifestV3": {
       "description": "程序实例基础秒统计；不携带产品名称、分类或配额投影。",
       "type": "object", "additionalProperties": false,

@@ -1,6 +1,24 @@
 {
   "schemaVersion": 1,
   "timezone": "Asia/Shanghai",
+  "productProjectionGolden": {
+    "description": "引用instanceV3Golden；Excel/Word各120秒，学习并集180秒，明细不能相加当总量。无名称、余额或重复孩子字段。",
+    "body": {
+      "schemaVersion": 1,
+      "baseManifestHash": "15f85d2abec0972eaf357e8e10b8021abc706640a2a25ae54204f245845bb8b9",
+      "revision": 1, "catalogVersion": 1, "generatedAtMs": 1791475400000, "complete": true, "reasonCodes": [],
+      "rows": [
+        {"kind":"category","hour":0,"category":"study","subjectKey":null,"duration":180},
+        {"kind":"category","hour":null,"category":"study","subjectKey":null,"duration":180},
+        {"kind":"subject","hour":0,"category":null,"subjectKey":"product:excel","duration":120,"classifications":["study"]},
+        {"kind":"subject","hour":0,"category":null,"subjectKey":"product:word","duration":120,"classifications":["study"]},
+        {"kind":"subject","hour":null,"category":null,"subjectKey":"product:excel","duration":120,"classifications":["study"]},
+        {"kind":"subject","hour":null,"category":null,"subjectKey":"product:word","duration":120,"classifications":["study"]}
+      ],
+      "applicationUsage":{"nonSpecialTotal":180,"nonSpecialCategories":{"study":180},"specialTotal":0,"complete":true,"reasonCodes":[]}
+    },
+    "projectionHash": "b8fcf3406be1ae043941f6e421c74064432b809e4d1883b34e07098a0521c498"
+  },
   "childScopeCases": [
     { "id": "legacy-seconds-omitted-child", "patch": {}, "valid": true },
     { "id": "frozen-child-a", "patch": { "childId": "child-a" }, "valid": true },

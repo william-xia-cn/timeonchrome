@@ -486,3 +486,73 @@ export function allocateUsageAccountSeconds(slices: ReadonlyArray<{ startMs: num
   if (remaining !== 0) fail('USAGE_ACCOUNT_INVALID_SECOND_TOTAL');
   return parts.map(part => part.seconds);
 }
+
+/** 产品／分类视图独立于基础统计；不复制名称、归属范围或配额余额。 */
+export interface ApplicationProductProjectionRow extends Omit<UsageAccountRowV2,'kind'|'displayName'> {
+  kind:'category'|'subject';
+}
+export interface ApplicationProductStatisticsProjection {
+  schemaVersion:1;
+  baseManifestHash:string;
+  revision:number;
+  catalogVersion:number;
+  generatedAtMs:number;
+  complete:boolean;
+  reasonCodes:string[];
+  rows:ApplicationProductProjectionRow[];
+  applicationUsage:ApplicationUsageSeconds;
+  projectionHash:string;
+}
+export function parseApplicationProductStatisticsProjection(value:unknown):ApplicationProductStatisticsProjection {
+  const v=exact(value,['schemaVersion','baseManifestHash','revision','catalogVersion','generatedAtMs','complete',
+    'reasonCodes','rows','applicationUsage','projectionHash']);
+  if(v.schemaVersion!==1||typeof v.baseManifestHash!=='string'||!hashPattern.test(v.baseManifestHash)
+    ||typeof v.projectionHash!=='string'||!hashPattern.test(v.projectionHash)||!integer(v.revision,1)
+    ||!integer(v.catalogVersion)||!integer(v.generatedAtMs)||typeof v.complete!=='boolean'
+    ||!Array.isArray(v.reasonCodes)||v.reasonCodes.length>16
+    ||!orderedUnique(v.reasonCodes,code=>typeof code==='string'&&codePattern.test(code))
+    ||(v.complete?v.reasonCodes.length!==0:v.reasonCodes.length===0)
+    ||!Array.isArray(v.rows)||v.rows.length>USAGE_ACCOUNT_MAX_ROWS) fail('APPLICATION_PRODUCT_PROJECTION_INVALID');
+  const categories=new Set(['study','composite','restrictedEntertainment','unclassified','other','blocked','historicalUnknown']);
+  let previous='';const seen=new Set<string>();
+  const rows:ApplicationProductProjectionRow[]=v.rows.map(item=>{
+    const r=exact(item,record(item)&&item.kind==='subject'?['kind','hour','category','subjectKey','duration','classifications']:
+      ['kind','hour','category','subjectKey','duration']);
+    if((r.kind!=='category'&&r.kind!=='subject')||!(r.hour===null||integer(r.hour)&&r.hour<24)
+      ||!integer(r.duration)||r.duration>(r.hour===null?86400:3600)) fail('APPLICATION_PRODUCT_PROJECTION_INVALID_ROW');
+    if(r.kind==='category') {
+      if(typeof r.category!=='string'||!categories.has(r.category)||r.subjectKey!==null) fail('APPLICATION_PRODUCT_PROJECTION_INVALID_ROW');
+    } else if(r.category!==null||typeof r.subjectKey!=='string'
+      ||!(/^(instance|observation):[a-f0-9]{64}$/.test(r.subjectKey)||/^product:[A-Za-z0-9._:-]{1,256}$/.test(r.subjectKey))
+      ||!Array.isArray(r.classifications)||!r.classifications.length||r.classifications.length>categories.size
+      ||!orderedUnique(r.classifications,c=>typeof c==='string'&&categories.has(c))) fail('APPLICATION_PRODUCT_PROJECTION_INVALID_ROW');
+    const row:ApplicationProductProjectionRow={kind:r.kind,hour:r.hour===null?null:Number(r.hour),
+      category:r.category===null?null:String(r.category),subjectKey:r.subjectKey===null?null:String(r.subjectKey),duration:r.duration,
+      ...(Array.isArray(r.classifications)?{classifications:r.classifications.map(String)}:{})};
+    const key=canonicalUsageAccountJson([row.kind,row.hour,row.category,row.subjectKey]),canonical=canonicalUsageAccountJson(row);
+    if(seen.has(key)) fail('USAGE_ACCOUNT_DUPLICATE_ROW');
+    if(canonical<previous) fail('USAGE_ACCOUNT_ROWS_NOT_SORTED');
+    seen.add(key);previous=canonical;return row;
+  });
+  const applicationUsage=parseApplicationUsageSeconds(v.applicationUsage);
+  if(Object.keys(applicationUsage.nonSpecialCategories).some(category=>!categories.has(category))
+    ||v.complete&&!applicationUsage.complete) fail('APPLICATION_PRODUCT_PROJECTION_INVALID');
+  return {schemaVersion:1,baseManifestHash:v.baseManifestHash,revision:v.revision,catalogVersion:v.catalogVersion,
+    generatedAtMs:v.generatedAtMs,complete:v.complete,reasonCodes:v.reasonCodes.map(String),rows,
+    applicationUsage,projectionHash:v.projectionHash};
+}
+export async function verifyApplicationProductStatisticsProjection(value:unknown,
+  base:ApplicationInstanceAccountManifest,baseRows:ApplicationInstanceAccountRow[]) {
+  const projection=parseApplicationProductStatisticsProjection(value),{projectionHash,...body}=projection;
+  if(await hashUsageAccountValue(body)!==projectionHash) fail('APPLICATION_PRODUCT_PROJECTION_HASH_MISMATCH');
+  if(projection.baseManifestHash!==base.manifestHash) fail('APPLICATION_PRODUCT_PROJECTION_BASE_MISMATCH');
+  await verifyApplicationInstanceAccountManifest(base);
+  validateApplicationInstanceAccountDimensions(baseRows);
+  if(baseRows.length!==base.rowCount||await hashUsageAccountValue(baseRows)!==base.rowsHash) fail('USAGE_ACCOUNT_ROWS_HASH_MISMATCH');
+  const totals=baseRows.filter(row=>row.kind==='total').map(row=>({...row,category:null,displayName:null}));
+  validateDimensions([...totals,...projection.rows.map(row=>({...row,displayName:null}))],true);
+  const total=totals.find(row=>row.hour===null)!.duration;
+  if(projection.applicationUsage.nonSpecialTotal+projection.applicationUsage.specialTotal!==total)
+    fail('APPLICATION_PRODUCT_PROJECTION_USAGE_MISMATCH');
+  return projection;
+}

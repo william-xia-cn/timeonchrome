@@ -1,13 +1,38 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { resolveApplication, safeAutomatic, associateApplicationEvidence, isSpecialApplicationProduct, resolveProductOwnership, buildProgramInstanceProductMapping, parseProductOwnershipEvidence, parseProgramInstanceRegistrationBatch } from './dist/application-classification.js';
-import { parseApplicationKnowledge, parseApplicationKnowledgeV4, parseAppEvidence } from './dist/application-knowledge-validation.js';
+import { parseApplicationKnowledge, parseApplicationKnowledgeV4, parseAppEvidence, parseProgramInstanceProjectionContext } from './dist/application-knowledge-validation.js';
 import { parseProgramInstanceMappingReadRequest, parseProgramInstanceMappingReadResponse } from './dist/application-classification.js';
+import {parseProgramInstanceCapabilities,parseProgramInstanceRegistrationReceipt} from './dist/application-classification.js';
+const registrationReceipt={schemaVersion:1,childId:'child-a',items:[{instanceId:'a'.repeat(64),evidenceRevision:2,evidenceHash:'b'.repeat(64)}]};
+assert.deepEqual(parseProgramInstanceRegistrationReceipt(registrationReceipt,registrationReceipt),registrationReceipt);
+assert.equal(parseProgramInstanceRegistrationReceipt({...registrationReceipt,items:[{...registrationReceipt.items[0],evidenceRevision:3,
+  evidenceHash:'c'.repeat(64)}]},registrationReceipt).items[0].evidenceRevision,3);
+for(const patch of [{childId:'child-b'},{items:[]},{items:[registrationReceipt.items[0],registrationReceipt.items[0]]},
+  {items:[{...registrationReceipt.items[0],evidenceRevision:1}]},{items:[{...registrationReceipt.items[0],evidenceHash:'c'.repeat(64)}]},
+  {items:[{...registrationReceipt.items[0],productId:'must-not-ack-identity'}]}])
+  assert.throws(()=>parseProgramInstanceRegistrationReceipt({...registrationReceipt,...patch},registrationReceipt));
+for(const enabled of [false,true]) {
+  const response={schemaVersion:1,enabled,capabilities:enabled?['program-instance-registration-v1']:[]};
+  assert.deepEqual(parseProgramInstanceCapabilities(response),response);
+  assert.throws(()=>parseProgramInstanceCapabilities({...response,enabled:!enabled}));
+}
 const mappingRequest={childId:'child-a',localUserId:'user-a',assignmentVersion:1,instanceIds:['a'.repeat(64)]};
 const mappingResponse={schemaVersion:1,childId:'child-a',assignmentVersion:1,catalogVersion:2,
   items:[{instanceId:'a'.repeat(64),evidenceRevision:1,status:'confirmed',productId:'product-a'}],products:[{id:'product-a',name:'Product A'}]};
 assert.deepEqual(parseProgramInstanceMappingReadRequest(mappingRequest),mappingRequest);
 assert.deepEqual(parseProgramInstanceMappingReadResponse(mappingResponse,mappingRequest),mappingResponse);
+const projectionContext={...mappingResponse,schemaVersion:2,products:[{...mappingResponse.products[0],type:'other',catalogGroup:'specialApplication'}],
+  rules:[],binding:{childId:'child-a',products:[{productId:'product-a',classification:'other'}],ruleIds:[]}};
+assert.deepEqual(parseProgramInstanceProjectionContext(projectionContext,mappingRequest),projectionContext);
+const detachedContext=parseProgramInstanceProjectionContext(projectionContext,mappingRequest);
+detachedContext.products[0].name='changed';assert.equal(projectionContext.products[0].name,'Product A');
+for(const patch of [{childId:'other'},{assignmentVersion:2},{catalogVersion:null},
+  {binding:{...projectionContext.binding,childId:'other'}},
+  {products:[{...projectionContext.products[0],isChromeContainer:true}]},
+  {products:[...projectionContext.products,{id:'unused',name:'unused',type:'other'}]}])
+  assert.throws(()=>parseProgramInstanceProjectionContext({...projectionContext,...patch},mappingRequest));
+assert.throws(()=>parseProgramInstanceMappingReadResponse(projectionContext,mappingRequest));
 for(const patch of [{childId:'child-b'},{assignmentVersion:2},{catalogVersion:null},{products:[]},{items:[]},
   {items:[{...mappingResponse.items[0],status:'pending'}]},{products:[...mappingResponse.products,{id:'extra',name:'Extra'}]},
   {items:[{...mappingResponse.items[0],instanceId:'b'.repeat(64)}]}])

@@ -2,6 +2,47 @@ import { parseProgramInstanceDescriptor, programInstanceId, type ProgramInstance
 
 export type AppPlatform = 'windows' | 'macos';
 
+export const PROGRAM_INSTANCE_REGISTRATION_CAPABILITY = 'program-instance-registration-v1';
+export interface ProgramInstanceCapabilities {
+  schemaVersion:1;
+  enabled:boolean;
+  capabilities:string[];
+}
+export interface ProgramInstanceRegistrationReceipt {
+  schemaVersion:1;
+  childId:string;
+  items:Array<{instanceId:string;evidenceRevision:number;evidenceHash:string}>;
+}
+/** ACK只确认持久登记，不代表已识别产品；完整匹配请求后才能确认该批队列。 */
+export function parseProgramInstanceRegistrationReceipt(value:unknown,
+  expected:Pick<ProgramInstanceRegistrationReceipt,'childId'|'items'>):ProgramInstanceRegistrationReceipt {
+  const invalid=():never=>{throw new Error('INVALID_PROGRAM_INSTANCE_REGISTRATION_RECEIPT');};
+  if(!mappingToken(expected.childId)||!Array.isArray(expected.items)||expected.items.length>100
+    ||new Set(expected.items.map(item=>item.instanceId)).size!==expected.items.length
+    ||expected.items.some(item=>!mappingHash(item.instanceId)||!mappingHash(item.evidenceHash)||!mappingRevision(item.evidenceRevision))) return invalid();
+  if(!mappingRecord(value)||!mappingKeys(value,['schemaVersion','childId','items'])||value.schemaVersion!==1
+    ||value.childId!==expected.childId||!Array.isArray(value.items)||value.items.length!==expected.items.length) return invalid();
+  const seen=new Set<string>(),items:ProgramInstanceRegistrationReceipt['items']=[];
+  for(const item of value.items) {
+    if(!mappingRecord(item)||!mappingKeys(item,['instanceId','evidenceRevision','evidenceHash'])
+      ||!mappingHash(item.instanceId)||!mappingHash(item.evidenceHash)||!mappingRevision(item.evidenceRevision)
+      ||seen.has(item.instanceId)) return invalid();
+    const sent=expected.items.find(entry=>entry.instanceId===item.instanceId);
+    if(!sent||item.evidenceRevision<sent.evidenceRevision
+      ||item.evidenceRevision===sent.evidenceRevision&&item.evidenceHash!==sent.evidenceHash) return invalid();
+    seen.add(item.instanceId);items.push({instanceId:item.instanceId,evidenceRevision:item.evidenceRevision,evidenceHash:item.evidenceHash});
+  }
+  return {schemaVersion:1,childId:expected.childId,items};
+}
+export function parseProgramInstanceCapabilities(value:unknown):ProgramInstanceCapabilities {
+  if(!mappingRecord(value)||!mappingKeys(value,['schemaVersion','enabled','capabilities'])||value.schemaVersion!==1
+    ||typeof value.enabled!=='boolean'||!Array.isArray(value.capabilities)||value.capabilities.length>32
+    ||!value.capabilities.every(mappingToken)||new Set(value.capabilities).size!==value.capabilities.length
+    ||value.enabled!==value.capabilities.includes(PROGRAM_INSTANCE_REGISTRATION_CAPABILITY))
+    throw new Error('INVALID_PROGRAM_INSTANCE_CAPABILITIES');
+  return {schemaVersion:1,enabled:value.enabled,capabilities:[...value.capabilities]};
+}
+
 /** 第二层规则只表达证据到产品的关系；不包含孩子、实例、分类或显示名。 */
 export type ProductOwnershipMatch =
   | { kind: 'binaryHash'; sha256: string }
@@ -60,6 +101,13 @@ export interface ProgramInstanceMappingReadResponse {
   items: Array<{instanceId:string; evidenceRevision:number;
     status:'confirmed'|'unresolved'|'conflict'|'pending'; productId:string|null}>;
   products: Array<{id:string;name:string}>;
+}
+/** 独立产品投影的只读输入；沿用目录属性和孩子配置，不存余额或重复特殊标记。 */
+export interface ProgramInstanceProjectionContext extends Omit<ProgramInstanceMappingReadResponse,'schemaVersion'|'products'> {
+  schemaVersion: 2;
+  products: Array<Pick<AppProduct,'id'|'name'|'type'|'catalogGroup'>>;
+  rules: ClassificationRule[];
+  binding: ChildProductBinding;
 }
 const mappingRecord = (v:unknown): v is Record<string,unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const mappingKeys = (v:Record<string,unknown>,keys:string[]) => Object.keys(v).length === keys.length && keys.every(k=>Object.hasOwn(v,k));

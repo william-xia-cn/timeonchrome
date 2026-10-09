@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.40.0');
+assert.equal(pkg.version, '1.41.0');
 const instanceLedger = JSON.parse(fs.readFileSync(path.join(root,'application-ledger-v4.schema.json'),'utf8'));
 assert.equal(instanceLedger.properties.schemaVersion.const,4);
 assert(instanceLedger.required.includes('childId'));
@@ -18,6 +18,9 @@ const instanceStatistics=JSON.parse(fs.readFileSync(path.join(root,'usage-accoun
 assert.equal(instanceStatistics.manifestV3.properties.schemaVersion.const,3);
 assert(instanceStatistics.manifestV3.required.includes('childId'));
 assert(!instanceStatistics.rowV3.properties.displayName);
+assert.equal(instanceStatistics.productProjection.properties.schemaVersion.const,1);
+assert(!instanceStatistics.productProjectionRow.properties.displayName);
+assert(instanceStatistics.productProjection.required.includes('baseManifestHash'));
 assert(pkg.exports['./source-statistics']);
 assert(pkg.exports['./application-ledger'], '固定孩子原账契约必须独立导出');
 const applicationLedger = JSON.parse(fs.readFileSync(path.join(root, 'application-ledger-v3.schema.json'), 'utf8'));

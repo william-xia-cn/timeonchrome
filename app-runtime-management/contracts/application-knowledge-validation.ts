@@ -1,5 +1,6 @@
 import type { ApplicationKnowledge, ApplicationKnowledgeV4, AppEvidence, MatchExpression, MatchCondition } from './application-classification.js';
-import { safeAutomatic, parseProductOwnershipRules } from './application-classification.js';
+import { safeAutomatic, parseProductOwnershipRules, parseProgramInstanceMappingReadResponse,
+  type ProgramInstanceProjectionContext, type ProgramInstanceMappingReadRequest } from './application-classification.js';
 
 const platforms = ['windows', 'macos'];
 const classes = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked'];
@@ -33,6 +34,23 @@ function expression(value: unknown, allowEmpty = false): MatchExpression {
 /** 拒绝未知字段、脚本、弱自动条件及悬空引用；返回脱离调用方引用的副本。 */
 export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge {
   return parseKnowledgeModel(value, false);
+}
+export function parseProgramInstanceProjectionContext(value:unknown,request:ProgramInstanceMappingReadRequest):ProgramInstanceProjectionContext {
+  if(!object(value)||Object.keys(value).length!==8
+    ||!keys(value,['schemaVersion','childId','assignmentVersion','catalogVersion','items','products','rules','binding'])
+    ||value.schemaVersion!==2||!list(value.products,100)||!object(value.binding)||value.binding.childId!==request.childId)
+    reject('INVALID_PROGRAM_PROJECTION_CONTEXT');
+  for(const product of value.products) if(!object(product)||!keys(product,['id','name','type','catalogGroup']))
+    reject('INVALID_PROGRAM_PROJECTION_CONTEXT');
+  const catalog=parseApplicationKnowledgeV4({schemaVersion:4,version:value.catalogVersion??0,
+    products:value.products,ownershipRules:[],rules:value.rules,bindings:[value.binding]});
+  if((value.catalogVersion===null && catalog.rules.length>0)
+    ||catalog.rules.some(rule=>!catalog.bindings[0].ruleIds.includes(rule.id))) reject('INVALID_PROGRAM_PROJECTION_CONTEXT');
+  const mapped=parseProgramInstanceMappingReadResponse({schemaVersion:1,childId:value.childId,
+    assignmentVersion:value.assignmentVersion,catalogVersion:value.catalogVersion,items:value.items,
+    products:catalog.products.map(p=>({id:p.id,name:p.name}))},request);
+  return {schemaVersion:2,childId:mapped.childId,assignmentVersion:mapped.assignmentVersion,catalogVersion:mapped.catalogVersion,
+    items:mapped.items,products:catalog.products,rules:catalog.rules,binding:catalog.bindings[0]};
 }
 export function parseApplicationKnowledgeV4(value: unknown): ApplicationKnowledgeV4 {
   return parseKnowledgeModel(value, true);
