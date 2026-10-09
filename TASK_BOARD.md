@@ -2,6 +2,18 @@
 
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
+执行切换只读核对已完成（Native 固定 SHA `95352f3c2dbbace1483c65c2369cc678c27a03a7`）：Coordinator 同时下发旧策略与新 offer 不代表并行执行；Agent 接受新 offer 后切到实例消费者，旧精确封锁不再执行，空 offer／撤回／租约到期不自动回退。未切换客户端仍执行旧策略，新目录解除不会自动解除旧策略封锁。`ProgramInstancePolicyBuilder.cs:12–13` 的 suspected 检查看当前用户全部产品；有旧 Firefox 疑似规则时，首次新模式被阻止，已切换模式则被清空且不恢复旧执行。依据为 Coordinator:1616–1685、Agent Program:382–389、enforcer:67–86/207、Builder:46/69 及现有 SwitchingConsumerCannotBeReenabledByLegacyPolicy 回归。必须集中解决目录／旧策略／实际执行模式衔接后才生产切换；尚未改规则、执行语义或生产目录。2.6.42 安装及 Service Running 已再次只读核实，不重复安装；扫描修复仍为源码状态。
+
+完整转换入口本地结果：knowledge专项通过；backend typecheck及program-instances 34/34通过，含非空旧产品、另一孩子绑定、内置目录和读取后原存储不变断言。GET在legacy返回完整legacyCatalog，页面实际生成草稿，未转换项可展开、只读预览可用、保存按钮及处理函数双重拒绝不完整替代；旧服务未提供完整目录时继续明确不可转换。隔离真实浏览器截图检查发现核验详情占编辑网格半列，已修正为展开时独占整行并重新目视确认。临时服务和验收页已关闭，未连接生产数据。Matched为读取／草稿／预览接线及保护既有配置；Missing为实际未转换规则逐项核验、正式目录切换和端到端产品投影，不能把本地通过称生产完成。尚未提交／部署。
+
+Native扫描修复回报：95352f3c2dbbace1483c65c2369cc678c27a03a7已提交推送main，固定报告agents/windows/WINDOWS-SCAN-OWNERSHIP-FIX-2026-10-10.md；据所属任务报告60/60隔离验证通过，包括实际签名文件和当前用户包未启动扫描。已安装2.6.42不含此修复；未制新包、未安装。Mac仍单列，不用Windows报告代替。
+
+完整入口接线实施前（standard-cloud，中等变更）：既有program-instance-catalog GET在legacy状态附加legacyCatalog，复用effectiveApplicationKnowledge组装含内置产品的全家庭目录；保持原state/catalog字段、家庭鉴权及no-store，读取期间版本变化即返回冲突。页面只生成转换草稿、列出全部未转换选择器并允许既有只读预览；存在未转换项时禁用保存且处理函数拒绝写请求，不能静默遗失原规则。最小验证为knowledge专项、program-instances路由专项、backend typecheck、diff与隔离目视；不改匹配算法、统计、生产数据、终端或迁移。上轮修正后的扩充夹具已重新运行通过。
+
+转换草稿本地验证增量：无副作用转换函数与专项已实现，正式v4解析器确认精确hash、完整AUMID、文件系列规则可接受；未转换条件逐项保留，两孩子绑定、产品及版本保持不变，首轮knowledge专项通过。随后扩充既有强化配置／非空分类规则保留用例时，手写分类夹具漏type、exclude、match，连续两次分别被正式解析器拒绝；已补齐夹具，但遵守两次失败暂停规则，未第三次运行，不能将扩充后专项记为通过，尚不提交。当前产品代码未因此放宽校验。完整有效旧目录读取与页面入口仍待接线：现有旧管理GET只返回存储目录，而app-policy仅为孩子范围，均不能直接充当全家庭完整转换输入；须复用服务端effective目录组装，保留内置产品和全部绑定。生产目录、原账、安装及共享开关均未修改。
+
+转换草稿实现前（standard-cloud）：在现有knowledge组件增加无副作用的legacy转换函数及同文件专项测试；输入必须是完整有效目录，保留全部产品元数据、分类规则及孩子绑定。只转换单一明确binaryHash、Windows完整AUMID、已核验同算法fileSeries选择器；复合条件、旧runtimeIdentity及渠道键保留为待处理清单，不静默删除或猜配。返回可预览草稿与未转换项，不自动保存；尚有未处理项不能称迁移完成。先补这一转换内核，随后接完整目录读取及页面入口，整批提交／目视后才交付，不单独发布辅助函数。只跑knowledge专项及diff，不改原账、Native、扩展或生产。
+
 转换入口覆盖核对：后端previewProgramInstanceCatalog允许legacy当前版本的条件只读预览，使用正式匹配器且不写第三层；现有program-instances专项断言空目录预览无写入、冲突／跨孩子／旧版本拒绝及legacy→v4保存。尚无“非空真实legacy保留全部有效产品／绑定后预览”的对应证据，不能将上述测试外推为生产迁移通过。前端openOwnership遇legacy直接return，现有schema4导入入口无法打开；这仍是集中切换的操作入口缺项，不能靠修改浏览器内存或直接写映射绕过。后续集中转换需提供明确草稿、保留有效内置产品与绑定、列出未转换选择器，并先只读预览；扫描修复与转换工具完成后再安排一次交付，不单独反复发布。
 
 扫描强证据根因及修复交接：已直接读取候选510a4c84固定源码，CaptureForDiscoveryAsync传入processKey="inventory"；ReadOwnership在签名逻辑之前要求PID:start正则，扫描必提前返回空证据。运行观察才有真实进程键，解释233实例中强证据稀少。这是已批准扫描识别的实际接线缺项，不是需要用户逐个启动应用或扩大规则猜测。已交Native最小修复：分开文件签名核验与进程包身份核验，扫描保持捕获句柄／代际检查、完成证据后持久登记，原有AUMID核验不放宽；补扫描→outbox→登记隔离回归。缓存已哈希分支也须确认新证据就绪，不能只凭已有hash提前返回。本轮不制中间包、不安装、不修改原账或生产目录；包扫描AUMID来源的实际核验另按同入口检查，不直接信任旧AppEvidence。

@@ -19,7 +19,7 @@ import { readApplicationProductProjections, readApplicationIdentityUsage } from 
 import { requireApplicationLegacyEnabled, readApplicationLedgerRetirement } from './applicationLedgerRetirement';
 import { SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsQuery, validateSourceStatisticsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
 import { readApplicationSourceStatistics } from './sourceStatistics';
-import { getApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
+import { getApplicationKnowledge, effectiveApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
   putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
   applyKnowledgeOperation } from './applicationKnowledge';
 import { errorResponse, HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http';
@@ -200,6 +200,13 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     if(url.pathname === '/v2/module/program-instance-catalog') {
       if(request.method==='GET') {
         const result=await readProgramInstanceCatalog(env.RUNTIME_DB,claims.account_id);
+        if(result.state==='legacy') {
+          const legacyCatalog=effectiveApplicationKnowledge(await getApplicationKnowledge(env.RUNTIME_DB,claims.account_id));
+          if(legacyCatalog.version!==result.version)
+            throw new HttpError(409,'APPLICATION_KNOWLEDGE_CONFLICT','目录已变化，请重新读取。');
+          return jsonResponse({...result,legacyCatalog},
+            {headers:{etag:knowledgeEtag(result.version),'cache-control':'no-store'}});
+        }
         return jsonResponse(result,{headers:{etag:knowledgeEtag(result.version),'cache-control':'no-store'}});
       }
       if(request.method==='PUT') {

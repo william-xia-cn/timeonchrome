@@ -5,7 +5,7 @@ import type { MachineSelfResponse } from '../src/contracts';
 import { sha256Hex, randomToken } from '../src/crypto';
 import { routeV2 } from '../src/v2Routes';
 import { readChildProgramIdentityProjection, listChildProgramInstances } from '../src/programInstances';
-import { getApplicationKnowledge, putApplicationKnowledge } from '../src/applicationKnowledge';
+import { getApplicationKnowledge, putApplicationKnowledge, effectiveApplicationKnowledge } from '../src/applicationKnowledge';
 import { getAppPolicy, putAppPolicy } from '../src/appPolicy';
 import { parseProductOwnershipEvidence, resolveProgramInstanceClassification,parseProgramInstallationLinkReceipt } from '@timeonchrome/app-runtime-contracts/classification';
 import { parseProgramInstanceProjectionContext } from '@timeonchrome/app-runtime-contracts/classification-validation';
@@ -434,9 +434,16 @@ it('规则目录实际读取按家庭鉴权，区分空与旧格式，拒绝不�
   const catalog={schemaVersion:4,version:0,products:[{id:'p',name:'产品',type:'other'}],ownershipRules:[],rules:[],bindings:[]};
   await saveProgramInstanceCatalog(env.RUNTIME_DB,other.machine.accountId,[other.value.childId],'"application-knowledge-v0"',catalog,1);
   expect(await (await routeV2(request(),env,3))!.json()).toMatchObject({state:'empty'});
+  const legacy={schemaVersion:1 as const,version:1,products:[{id:'p',name:'既有产品',type:'other' as const,
+    selectors:[{platform:'windows' as const,match:{operator:'all' as const,conditions:[{field:'binaryHash' as const,value:'a'.repeat(64)}]}}]}],rules:[],
+    bindings:[{childId:value.childId,products:[{productId:'p',classification:'study' as const}],ruleIds:[]},
+      {childId:'sibling-in-same-family',products:[{productId:'p',classification:'other' as const}],ruleIds:[]}]};
   await env.RUNTIME_DB.prepare('INSERT INTO runtime_application_knowledge_versions_v1 VALUES(?1,1,?2,?3,1)')
-    .bind(machine.accountId,JSON.stringify({schemaVersion:1,version:1,products:[],rules:[],bindings:[]}),'legacy').run();
-  expect(await (await routeV2(request(),env,3))!.json()).toEqual({state:'legacy',version:1,catalog:null});
+    .bind(machine.accountId,JSON.stringify(legacy),'legacy').run();
+  expect(await (await routeV2(request(),env,3))!.json()).toEqual({state:'legacy',version:1,catalog:null,
+    legacyCatalog:effectiveApplicationKnowledge(legacy)});
+  expect(await env.RUNTIME_DB.prepare('SELECT payload_json FROM runtime_application_knowledge_versions_v1 WHERE account_id=? AND version=1')
+    .bind(machine.accountId).first('payload_json')).toBe(JSON.stringify(legacy));
   const saved=await saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId],'"application-knowledge-v1"',catalog,2);
   const ready=await routeV2(request(),env,3);
   expect(await ready!.json()).toEqual({state:'available',version:2,catalog:saved});
