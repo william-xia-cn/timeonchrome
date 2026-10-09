@@ -167,7 +167,11 @@ async function instanceReadTests(){
   const click=id=>listeners.click({target:{closest:()=>({id,dataset:{}})}});
   const settle=()=>new Promise(resolve=>setImmediate(resolve));
   const opening=component.open('instance');assert.equal(calls.length,1);assert.match(calls[0],/program-instances\?childId=child-a$/);
-  pending.shift().resolve(page());await opening;assert.match(panel.innerHTML,/&lt;unsafe&gt;/);assert.doesNotMatch(panel.innerHTML,/<unsafe>/);
+  const withInstallation=page();withInstallation.items[0].installation={state:'available',entryCount:1,references:[{variantKey:'scan-entry-confirmed',lastScanReceivedAtMs:0}]};
+  pending.shift().resolve(withInstallation);await opening;assert.match(panel.innerHTML,/&lt;unsafe&gt;/);assert.doesNotMatch(panel.innerHTML,/<unsafe>/);
+  assert.match(panel.innerHTML,/已关联扫描条目：1/);assert.match(panel.innerHTML,/scan-entry-confirmed/);
+  click('instances-refresh');const partial=page();partial.items[0].installation={state:'unavailable',reasonCode:'PROGRAM_INSTALLATION_READ_UNAVAILABLE'};
+  pending.shift().resolve(partial);await settle();assert.match(panel.innerHTML,/安装引用暂不可读/);assert.match(panel.innerHTML,/&lt;unsafe&gt;/);assert.match(panel.innerHTML,/test-machine/);
   click('instances-next');assert.match(calls.at(-1),/afterInstanceId=/);pending.shift().resolve(page(2));await settle();assert.match(panel.innerHTML,/目录已更新/);
   click('instances-refresh');pending.shift().reject(Object.assign(new Error('private detail'),{code:'TEST_UNAVAILABLE'}));await settle();assert.match(panel.innerHTML,/TEST_UNAVAILABLE/);assert.doesNotMatch(panel.innerHTML,/private detail/);
   click('instances-refresh');const older=pending.shift();click('instances-refresh');pending.shift().resolve(page());await settle();const current=panel.innerHTML;older.resolve(page(99));await settle();assert.equal(panel.innerHTML,current);

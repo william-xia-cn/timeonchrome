@@ -4,7 +4,7 @@ import { createUsageAccount, hashUsageAccountValue, canonicalUsageAccountJson, u
 import { sha256Hex, randomToken } from '../src/crypto';
 import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationAccount, readApplicationAccountStatus,routeApplicationAccounts } from '../src/applicationAccounts';
 import { routeV2 } from '../src/v2Routes';
-import { readProgramInstanceStatistics } from '../src/programInstanceStatistics';
+import { readProgramInstanceStatistics,readRecentProgramInstanceUsage } from '../src/programInstanceStatistics';
 import { readApplicationProductProjections } from '../src/applicationProductProjections';
 import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota,
   reconcileApplicationSharedQuotaEvidence, readVerifiedChromeMarginals,
@@ -66,6 +66,40 @@ it('authenticated machine commit returns the newly readable statistics without r
   const other=await fixture();
   expect((await api(other,`/${pending.manifestId}/commit`)).status).toBe(404);
 });
+it('目录30日观察只采用当前已发布实例统计，零量更正退出观察且不跨孩子家庭',async()=>{
+  const f=await fixture(),subjectKey='instance:'+'e'.repeat(64);
+  const snapshot=(revision:number,duration:number)=>createApplicationInstanceAccount({schemaVersion:3,
+    sourceKind:'application',durationUnit:'seconds',timezone:'Asia/Shanghai',date:'2026-09-27',childId:f.childId,
+    revision,generatedAtMs:now,settledThroughMs:now,algorithmVersion:'application-instance-seconds-v1',
+    rawFactCount:1,rawFactHash:'a'.repeat(64),observationResolutionHash:'b'.repeat(64),complete:true,reasonCodes:[]},[
+      {kind:'total',hour:null,subjectKey:null,duration},
+      ...Array.from({length:24},(_,hour)=>({kind:'total' as const,hour,subjectKey:null,duration:hour===3?duration:0})),
+      {kind:'subject',hour:null,subjectKey,duration},{kind:'subject',hour:3,subjectKey,duration}]);
+  const send=async(revision:number,duration:number)=>{
+    const value=await snapshot(revision,duration);
+    const receipt=await beginApplicationAccount(env.RUNTIME_DB,f.machine,{localUserId,assignmentVersion:1,manifest:value.manifest},now);
+    for(const chunk of value.chunks)await putApplicationAccountChunk(env.RUNTIME_DB,f.machine,receipt.manifestId,
+      chunk.chunkIndex,{rows:chunk.rows,chunkHash:chunk.chunkHash});
+    return receipt.manifestId;
+  };
+  const read=(time=now)=>readRecentProgramInstanceUsage(env.RUNTIME_DB,f.machine.accountId,f.childId,time);
+  const first=await send(1,60);
+  expect(await read()).toMatchObject({state:'unavailable',sourceCount:0,subjects:[]});
+  expect(await (await api(f,`/${first}/commit`)).json()).toMatchObject({published:true});
+  expect(await read()).toMatchObject({state:'available',sourceCount:1,
+    subjects:[{subjectKey,lastUsedDate:'2026-09-27'}]});
+  expect((await read(start+29*86400000)).subjects).toHaveLength(1);
+  expect(await read(start+30*86400000)).toMatchObject({state:'unavailable',subjects:[]});
+  expect(await readRecentProgramInstanceUsage(env.RUNTIME_DB,'another-family',f.childId,now))
+    .toMatchObject({state:'unavailable',subjects:[]});
+  expect(await readRecentProgramInstanceUsage(env.RUNTIME_DB,f.machine.accountId,'another-child',now))
+    .toMatchObject({state:'unavailable',subjects:[]});
+  const zero=await send(2,0);
+  expect((await read()).subjects).toHaveLength(1);
+  expect(await (await api(f,`/${zero}/commit`)).json()).toMatchObject({published:true});
+  expect(await read()).toMatchObject({state:'available',sourceCount:1,subjects:[]});
+});
+
 it('instance schema3 uses authenticated existing upload and publishes unknown subjects without catalog or raw uploads',async()=>{
   const f=await fixture();
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_ledger_retirements_v1 VALUES(?1,?2,?3,'[]')`)

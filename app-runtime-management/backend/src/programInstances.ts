@@ -10,6 +10,7 @@ import type { MachineSelfResponse } from './contracts';
 import { HttpError } from './http';
 import { isRecord } from './validation';
 import {readProgramInstallationSummaries} from './programInstallationLinks';
+import {readRecentProgramInstanceUsage} from './programInstanceStatistics';
 
 const fail = (status: number, code: string): never => { throw new HttpError(status, code, code); };
 
@@ -67,6 +68,46 @@ export async function listChildProgramInstances(db:D1Database,accountId:string,c
   });
   return {schemaVersion:1,childId,catalogVersion:catalog?.version??null,items,
     nextAfterInstanceId:rows.length>50?items[items.length-1].instanceId:null};
+}
+
+/** 产品主目录范围在云端组装；不在浏览器重新识别或遍历全部实例。 */
+export async function readChildProgramDirectory(db:D1Database,accountId:string,childId:string,nowMs:number) {
+  const result=await readProgramInstanceCatalog(db,accountId);
+  if(result.state!=='available'||!result.catalog)return fail(409,'PROGRAM_INSTANCE_CATALOG_NOT_AVAILABLE');
+  const instances:Awaited<ReturnType<typeof listChildProgramInstances>>['items']=[];
+  let cursor:string|null=null;
+  do {
+    const page=await listChildProgramInstances(db,accountId,childId,cursor);
+    if(page.catalogVersion!==result.version)return fail(409,'PROGRAM_DIRECTORY_VERSION_CHANGED');
+    instances.push(...page.items);cursor=page.nextAfterInstanceId;
+    if(cursor&&instances.length>=1000)return fail(503,'PROGRAM_DIRECTORY_INSTANCE_LIMIT');
+  }while(cursor);
+  const usage=await readRecentProgramInstanceUsage(db,accountId,childId,nowMs).catch(error=>({
+    state:'unavailable' as const,reasonCode:error instanceof HttpError?error.code:'APPLICATION_DIRECTORY_USAGE_UNAVAILABLE',
+    subjects:[] as {subjectKey:string;lastUsedDate:string}[],fromDate:null,toDate:null}));
+  const recent=new Map(usage.subjects.map(item=>[item.subjectKey,item.lastUsedDate]));
+  type Fact={productId:string;platform:'windows'|'macos';instanceCount:number;installationObserved:boolean;
+    usageObserved:boolean;lastUsedDate:string|null};
+  const facts=new Map<string,Fact>();
+  for(const instance of instances) {
+    if(instance.status!=='confirmed'||!instance.product)continue;
+    const key=JSON.stringify([instance.product.id,instance.platform]);
+    const fact=facts.get(key)??{productId:instance.product.id,platform:instance.platform,instanceCount:0,
+      installationObserved:false,usageObserved:false,lastUsedDate:null};
+    fact.instanceCount++;
+    if(instance.installation.state==='available'&&instance.installation.latestScanEntryCount>0)fact.installationObserved=true;
+    const date=recent.get('instance:'+instance.instanceId);
+    if(date){fact.usageObserved=true;if(!fact.lastUsedDate||date>fact.lastUsedDate)fact.lastUsedDate=date;}
+    facts.set(key,fact);
+  }
+  const latest=await db.prepare('SELECT MAX(version) AS version FROM runtime_application_knowledge_versions_v1 WHERE account_id=?')
+    .bind(accountId).first<{version:number|null}>();
+  if(latest?.version!==result.version)return fail(409,'PROGRAM_DIRECTORY_VERSION_CHANGED');
+  return {schemaVersion:1,childId,catalogVersion:result.version,
+    installationState:instances.some(item=>item.installation.state!=='available')?'partial':'available',
+    usage:{state:usage.state,fromDate:usage.fromDate,toDate:usage.toDate,
+      reasonCode:'reasonCode' in usage?usage.reasonCode:null},
+    facts:[...facts.values()],unidentifiedInstanceCount:instances.filter(item=>item.status!=='confirmed').length};
 }
 
 /** 有界只读预览；复用正式匹配器，但不把预览结果保存到第三层。 */

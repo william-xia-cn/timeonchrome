@@ -335,10 +335,10 @@
   }
   function renderAppDirectory() {
     state.actionApps = [];
-    $('#directory-scope').disabled=Boolean(state.identityCatalog)||Boolean(state.managementError);
-    $('#directory-scope').title=state.identityCatalog?'新版产品目录尚未提供安装／使用范围，不能按旧盘点筛选':'';
+    $('#directory-scope').disabled=Boolean(state.identityCatalog&&!state.identityDirectory)||Boolean(state.managementError);
+    $('#directory-scope').title=state.identityCatalog&&!state.identityDirectory?'安装／使用范围暂不可读，仍可查看全部目录':'';
     if(state.identityCatalog&&!state.managementError){
-      $('#directory-scope').value='all';
+      if(!state.identityDirectory)$('#directory-scope').value='all';
       const catalog=state.identityCatalog,binding=catalog.bindings.find(item=>item.childId===state.childId);
       const choices=[['study','学习应用'],['composite','复合应用'],['restrictedEntertainment','受限娱乐应用'],['other','其他时间应用'],['blocked','黑名单应用'],['unclassified','明确未归类'],['following','跟随分类规则'],['special','特殊应用']];
       const category=product=>product.catalogGroup==='specialApplication'?'special':binding?.products.find(item=>item.productId===product.id)?.classification??'following';
@@ -347,13 +347,26 @@
       $('#open-rules').title='管理孩子批准、分类结果、模式、平台及高级条件草稿；保存须通过云端校验';
       $('#app-category-nav').innerHTML=choices.map(([key,label])=>`<button class="app-category-item ${state.appCategory===key?'active':''}" data-app-category="${key}"><strong>${label}</strong><span>${catalog.products.filter(product=>category(product)===key).length}</span></button>`).join('');
       const search=($('#app-search').value||'').trim().toLowerCase(),platform=$('#management-platform').value;
-      const items=catalog.products.filter(product=>category(product)===state.appCategory&&(!search||product.name.toLowerCase().includes(search))&&(!platform||platforms(product).includes(platform)));
+      const directory=state.identityDirectory,scope=$('#directory-scope').value;
+      const facts=product=>(directory?.facts||[]).filter(item=>item.productId===product.id&&(!platform||item.platform===platform));
+      const inScope=product=>{
+        const records=facts(product);
+        if(scope==='usage')return records.some(item=>item.usageObserved);
+        if(scope==='unused')return directory?.usage.state==='available'&&records.some(item=>item.installationObserved)&&!records.some(item=>item.usageObserved);
+        return true;
+      };
+      const items=catalog.products.filter(product=>category(product)===state.appCategory&&inScope(product)&&(!search||product.name.toLowerCase().includes(search))&&(!platform||platforms(product).includes(platform)));
       $('#app-directory-title').textContent=choices.find(([key])=>key===state.appCategory)?.[1]||'产品目录';
       $('#app-directory-subtitle').textContent=`集中目录 v${catalog.version}；分类为当前孩子明确设置，跟随规则的实际分类以实例投影为准。`;
-      $('#inventory-status').textContent='平台仅表示已启用归属规则的范围，不代表已安装、盘点完整或终端已执行。';
+      $('#inventory-status').textContent='平台仅表示已启用归属规则的范围，不代表已安装、盘点完整或终端已执行。'+
+        (!directory?' 安装／使用范围暂不可读。':directory.usage.state!=='available'?' 使用来源不完整，不能判定“已安装未使用”。':' 使用观察覆盖最近30天；未观察不代表从未使用。');
       const games=items.filter(product=>['game','gameLauncher','gameUtility'].includes(product.type));
       const ordinary=items.filter(product=>!games.includes(product));
-      const cards=list=>list.map(product=>`<article class="record-card product-record"><div><strong>${escape(product.name)}</strong><p>${escape(platforms(product).map(value=>value==='macos'?'macOS':'Windows').join(' / ')||'尚无启用的归属规则')}</p><small>${escape(product.id)}</small></div><button data-edit-identity-product>编辑集中目录资料</button></article>`).join('')||'<p class="empty">当前栏目没有符合筛选的产品；不代表使用时长为零。</p>';
+      const observation=product=>{
+        const records=facts(product),date=records.map(item=>item.lastUsedDate).filter(Boolean).sort().at(-1);
+        return `${records.some(item=>item.installationObserved)?'扫描已观察到安装':'当前安装未确认'} · ${date?`最近使用 ${date}`:directory?.usage.state==='available'?'最近30天未观察到使用':'使用范围未确认'}`;
+      };
+      const cards=list=>list.map(product=>`<article class="record-card product-record"><div><strong>${escape(product.name)}</strong><p>${escape(platforms(product).map(value=>value==='macos'?'macOS':'Windows').join(' / ')||'尚无启用的归属规则')}</p><p>${escape(observation(product))}</p><small>${escape(product.id)}</small></div><button data-edit-identity-product>编辑集中目录资料</button></article>`).join('')||'<p class="empty">当前栏目没有符合筛选的产品；不代表使用时长为零。</p>';
       $('#managed-app-list').innerHTML=cards(ordinary);$('#game-app-list').innerHTML=cards(games);
       $('#ordinary-app-count').textContent=`${ordinary.length} 个`;$('#game-app-count').textContent=`${games.length} 个`;
       $('#system-tool-count').textContent='未区分';$('#system-tool-list').textContent='新版目录未记录系统来源属性，不按名称猜分组。';
@@ -488,9 +501,22 @@
     state.machines = machines;
     state.users = new Map(users);
   }
+  async function loadIdentityDirectory(catalog) {
+    state.identityDirectory=null;
+    try {
+      const value=await runtime(`/v2/module/program-instance-directory?childId=${encodeURIComponent(state.childId)}`);
+      if(state.identityCatalog!==catalog)return;
+      if(value.childId!==state.childId||value.catalogVersion!==catalog.version||value.schemaVersion!==1
+        ||!Array.isArray(value.facts)||!['available','partial','unavailable'].includes(value.usage?.state)
+        ||value.facts.some(item=>!item||typeof item.productId!=='string'||!['windows','macos'].includes(item.platform)
+          ||typeof item.installationObserved!=='boolean'||typeof item.usageObserved!=='boolean'
+          ||!(item.lastUsedDate===null||/^\d{4}-\d{2}-\d{2}$/.test(item.lastUsedDate))))return;
+      state.identityDirectory=value;
+    }catch(error){if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;}
+  }
   async function loadManagementState() {
     const childId = encodeURIComponent(state.childId);
-    state.identityCatalog=null;
+    state.identityCatalog=null;state.identityDirectory=null;
     const policyPromise = runtime(`/v2/module/app-policy?childId=${childId}`);
     const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`);
     const sharedAccessPromise = runtime(`/v2/module/shared-access-policy?childId=${childId}`).then((result) => {
@@ -509,6 +535,7 @@
       const result=await runtime('/v2/module/program-instance-catalog');
       if(result.state!=='available'||result.catalog?.schemaVersion!==4||result.catalog.version!==result.version)throw error;
       state.identityCatalog=result.catalog;state.catalog={items:[],technicalItems:[]};state.records={pending:[],processed:[],technical:[]};
+      await loadIdentityDirectory(result.catalog);
       state.managementError=null;state.managementLoaded=true;state.appCategory='following';return;
     }
     const [policy, catalog, records] = results;
@@ -812,7 +839,8 @@
     knowledgeManager?.dispose();
     knowledgeManager = AppRuntimeKnowledge.mount({root,request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,identityModel:Boolean(state.identityCatalog),mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onCatalogSaved:(catalog,childId)=>{
       if(disposed||childId!==state.childId)return;
-      state.identityCatalog=catalog;state.managementError=null;renderAppDirectory();
+      state.identityCatalog=catalog;state.identityDirectory=null;state.managementError=null;renderAppDirectory();
+      void loadIdentityDirectory(catalog).then(()=>{if(live()&&state.identityCatalog===catalog)renderAppDirectory();}).catch(()=>{});
     },onSaved:async knowledge=>{
     if(!mock){await load();return;}
     state.mockKnowledge=knowledge;

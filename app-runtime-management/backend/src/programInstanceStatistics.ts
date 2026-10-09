@@ -7,6 +7,54 @@ type Filters = { machineId?: string; localUserId?: string; platform?: string };
 type Reference = { manifestId: string; revision: number; hash: string; settledThroughMs: number | null };
 type Day = { date: string; complete: boolean; totalDuration: number | null; reasonCodes: string[];
   rows: ApplicationInstanceAccountRow[]; references: Reference[]; unsupportedSourceCount: number };
+
+/** 目录的使用观察，不是另一份统计账；只读已发布清单的正数subject日行。 */
+export async function readRecentProgramInstanceUsage(db:D1Database,account:string,child:string,nowMs:number) {
+  if(!Number.isSafeInteger(nowMs)||nowMs<29*DAY)throw new HttpError(400,'INVALID_RANGE','无效目录日期。');
+  const today=Math.floor((nowMs+OFFSET)/DAY)*DAY-OFFSET;
+  const fromDate=new Date(today-29*DAY+OFFSET).toISOString().slice(0,10);
+  const toDate=new Date(today+OFFSET).toISOString().slice(0,10);
+  const heads=await db.prepare(`SELECT s.id,s.manifest_json,s.manifest_hash,p.revision FROM runtime_application_account_publications_v1 p
+    JOIN runtime_application_account_manifests_v1 s ON s.id=p.manifest_id
+    JOIN runtime_machines_v2 m ON m.id=p.machine_id
+    WHERE p.account_id=?1 AND p.child_id=?2 AND p.date BETWEEN ?3 AND ?4 AND m.account_id=?1
+      AND s.account_id=?1 AND s.child_id=?2 AND s.date=p.date AND s.state='received'
+      AND s.machine_id=p.machine_id AND s.local_user_id=p.local_user_id
+      AND s.assignment_version=p.assignment_version AND s.revision=p.revision
+    ORDER BY p.date,p.machine_id,p.local_user_id,p.assignment_version LIMIT 1001`)
+    .bind(account,child,fromDate,toDate).all<{id:string;manifest_json:string;manifest_hash:string;revision:number}>();
+  if(heads.results.length>1000)fail('APPLICATION_DIRECTORY_SOURCE_LIMIT');
+  const ids:string[]=[];let unsupportedSourceCount=0,rowCount=0;
+  for(const head of heads.results) {
+    const value:unknown=JSON.parse(head.manifest_json);
+    if(!value||typeof value!=='object'||!('schemaVersion' in value)||value.schemaVersion!==3) {
+      unsupportedSourceCount++;continue;
+    }
+    const manifest=await verifyApplicationInstanceAccountManifest(value);
+    if(!manifest.complete||manifest.childId!==child||manifest.date<fromDate||manifest.date>toDate
+      ||manifest.revision!==head.revision||manifest.manifestHash!==head.manifest_hash
+      ||manifest.algorithmVersion!=='application-instance-seconds-v1')fail('APPLICATION_STATISTICS_INVALID_PUBLICATION');
+    rowCount+=manifest.rowCount;
+    if(rowCount>50000)fail('APPLICATION_DIRECTORY_ROW_LIMIT');
+    ids.push(head.id);
+  }
+  const rows=ids.length?(await db.prepare(`SELECT json_extract(r.value,'$.subjectKey') AS subject_key,
+      MAX(s.date) AS last_date
+    FROM json_each(?1) chosen
+    JOIN runtime_application_account_manifests_v1 s ON s.id=chosen.value
+    JOIN runtime_application_account_chunks_v1 c ON c.manifest_id=s.id
+    JOIN json_each(c.rows_json) r
+    WHERE json_extract(r.value,'$.kind')='subject' AND json_extract(r.value,'$.hour') IS NULL
+      AND json_extract(r.value,'$.duration')>0
+    GROUP BY subject_key ORDER BY subject_key LIMIT 10001`).bind(JSON.stringify(ids))
+    .all<{subject_key:string;last_date:string}>()).results:[];
+  if(rows.length>10000)fail('APPLICATION_DIRECTORY_SUBJECT_LIMIT');
+  if(rows.some(row=>!/^(instance|observation):[a-f0-9]{64}$/.test(row.subject_key)))
+    fail('APPLICATION_STATISTICS_INVALID_PUBLICATION');
+  return {state:ids.length?(unsupportedSourceCount?'partial' as const:'available' as const):'unavailable' as const,
+    fromDate,toDate,sourceCount:ids.length,unsupportedSourceCount,
+    subjects:rows.map(row=>({subjectKey:row.subject_key,lastUsedDate:row.last_date}))};
+}
 function fail(code: string): never { throw new HttpError(503, code, '实例统计读取失败。'); }
 function merge(target: Map<string, ApplicationInstanceAccountRow>, row: ApplicationInstanceAccountRow) {
   const key = JSON.stringify([row.kind, row.hour, row.subjectKey]), previous = target.get(key);

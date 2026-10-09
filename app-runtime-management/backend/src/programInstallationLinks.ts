@@ -6,7 +6,7 @@ import {isRecord} from './validation';
 const fail=(status:number,code:string):never=>{throw new HttpError(status,code,code);};
 
 export type ProgramInstallationSummary =
-  | {state:'available';entryCount:number;references:Array<{variantKey:string;lastScanReceivedAtMs:number}>}
+  | {state:'available';entryCount:number;latestScanEntryCount:number;references:Array<{variantKey:string;lastScanReceivedAtMs:number}>}
   | {state:'unavailable';reasonCode:string};
 
 /** 仅查询当前页的已保存扫描事实；不根据缺失推断卸载，不修改产品映射。 */
@@ -20,27 +20,40 @@ export async function readProgramInstallationSummaries(db:D1Database,accountId:s
     {state:'unavailable' as const,reasonCode}]));
   try {
     if(!await programInstallationStorageReady(db))return unavailable('PROGRAM_INSTALLATION_STORAGE_UNAVAILABLE');
-    type Row={instance_id:string;variant_key:string;last_received:number;entry_count:number};
+    type Row={instance_id:string;variant_key:string;last_received:number;entry_count:number;latest_scan_entry_count:number};
     const rows=await db.prepare(`WITH observed AS (
-      SELECT l.instance_id,l.variant_key,MAX(s.updated_at_ms) AS last_received
+      SELECT l.instance_id,l.variant_key,MAX(s.updated_at_ms) AS last_received,
+        MAX(CASE WHEN m.revoked_at_ms IS NULL AND a.child_id=l.child_id AND a.protected=1
+          AND a.assignment_version=l.assignment_version AND v.status='installed'
+          AND s.scan_id=(SELECT latest.scan_id FROM runtime_application_inventory_scans_v2 latest
+            WHERE latest.machine_id=l.machine_id AND latest.local_user_id=l.local_user_id
+            ORDER BY latest.started_at_ms DESC,latest.scan_id DESC LIMIT 1)
+          THEN 1 ELSE 0 END) AS latest_scan_entry
       FROM json_each(?3) requested
       JOIN runtime_program_installation_links_v1 l
         ON l.child_id=?2 AND l.machine_id=json_extract(requested.value,'$.machineId')
         AND l.instance_id=json_extract(requested.value,'$.instanceId')
       JOIN runtime_machines_v2 m ON m.id=l.machine_id AND m.account_id=?1
       JOIN runtime_application_inventory_scans_v2 s ON s.machine_id=l.machine_id AND s.scan_id=l.scan_id
+      LEFT JOIN runtime_user_assignments_v2 a ON a.machine_id=l.machine_id AND a.local_user_id=l.local_user_id
+        AND a.assignment_version=(SELECT MAX(current.assignment_version) FROM runtime_user_assignments_v2 current
+          WHERE current.machine_id=l.machine_id AND current.local_user_id=l.local_user_id)
+      LEFT JOIN runtime_application_variants_v1 v ON v.machine_id=l.machine_id AND v.local_user_id=l.local_user_id
+        AND v.platform=m.platform AND v.variant_key=l.variant_key
       GROUP BY l.instance_id,l.variant_key
     ), ranked AS (
       SELECT *,COUNT(*) OVER(PARTITION BY instance_id) AS entry_count,
+        SUM(latest_scan_entry) OVER(PARTITION BY instance_id) AS latest_scan_entry_count,
         ROW_NUMBER() OVER(PARTITION BY instance_id ORDER BY last_received DESC,variant_key) AS rank
       FROM observed
-    ) SELECT instance_id,variant_key,last_received,entry_count FROM ranked WHERE rank<=5
+    ) SELECT instance_id,variant_key,last_received,entry_count,latest_scan_entry_count FROM ranked WHERE rank<=5
       ORDER BY instance_id,rank`).bind(accountId,childId,JSON.stringify(instances)).all<Row>();
-    for(const item of instances)summaries.set(item.instanceId,{state:'available',entryCount:0,references:[]});
+    for(const item of instances)summaries.set(item.instanceId,{state:'available',entryCount:0,latestScanEntryCount:0,references:[]});
     for(const row of rows.results) {
       const summary=summaries.get(row.instance_id);
       if(summary?.state==='available') {
         summary.entryCount=row.entry_count;
+        summary.latestScanEntryCount=row.latest_scan_entry_count;
         summary.references.push({variantKey:row.variant_key,lastScanReceivedAtMs:row.last_received});
       }
     }

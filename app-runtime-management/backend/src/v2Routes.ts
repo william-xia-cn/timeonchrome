@@ -1,7 +1,7 @@
 import { requireAccountModule, requireMachine } from './auth';
 import {receiveProgramInstallationLinks,programInstallationStorageReady} from './programInstallationLinks';
 import {PROGRAM_INSTALLATION_LINK_CAPABILITY} from '@timeonchrome/app-runtime-contracts/classification';
-import { listChildProgramInstances, readProgramInstanceCatalog, previewProgramInstanceCatalog, saveProgramInstanceCatalog } from './programInstances';
+import { listChildProgramInstances, readProgramInstanceCatalog, previewProgramInstanceCatalog, saveProgramInstanceCatalog,readChildProgramDirectory } from './programInstances';
 import { routeApplicationAccounts } from './applicationAccounts';
 import {receiveProgramPolicyStatus,readProgramPolicyStatus} from './programPolicyStatus';
 import { registerProgramInstances, readProgramInstanceMappings, programInstanceStorageReady, PROGRAM_INSTANCE_REGISTRATION_CAPABILITY, matchRegisteredProgramInstances, readChildProgramIdentityProjection, readProgramInstanceProjectionContext } from './programInstances';
@@ -184,6 +184,13 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
 
   if (url.pathname.startsWith('/v2/module/')) {
     const claims = await requireAccountModule(request, env, nowMs);
+    if(url.pathname==='/v2/module/program-instance-directory') {
+      if(request.method!=='GET')return methodNotAllowed('GET');
+      const childId=url.searchParams.get('childId')??'';
+      if(!claims.children.some(child=>child.id===childId))throw new HttpError(404,'CHILD_NOT_FOUND','Child was not found.');
+      return jsonResponse(await readChildProgramDirectory(env.RUNTIME_DB,claims.account_id,childId,nowMs),
+        {headers:{'cache-control':'no-store'}});
+    }
     if(url.pathname === '/v2/module/program-instance-catalog/preview') {
       if(request.method!=='POST')return methodNotAllowed('POST');
       return jsonResponse(await previewProgramInstanceCatalog(env.RUNTIME_DB,claims.account_id,claims.children.map(child=>child.id),

@@ -24,9 +24,9 @@ it('实例列表读取安装正向事实、有界摘要与家庭孩子隔离，�
   expect(page.items[0].installation).toMatchObject({references:keys.slice(0,5).map(variantKey=>({variantKey,lastScanReceivedAtMs:0}))});
   const refs=[{machineId:f.machine.machineId,instanceId:f.input.links[0].instanceId}];
   expect([...(await readProgramInstallationSummaries(env.RUNTIME_DB,'another-family',f.value.childId,refs)).values()])
-    .toEqual([{state:'available',entryCount:0,references:[]}]);
+    .toEqual([{state:'available',entryCount:0,latestScanEntryCount:0,references:[]}]);
   expect([...(await readProgramInstallationSummaries(env.RUNTIME_DB,f.machine.accountId,'another-child',refs)).values()])
-    .toEqual([{state:'available',entryCount:0,references:[]}]);
+    .toEqual([{state:'available',entryCount:0,latestScanEntryCount:0,references:[]}]);
   const later='2'.repeat(32);
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_scans_v2 VALUES(?1,?2,?3,1,0,1,'[]',1,1,100)`)
     .bind(f.machine.machineId,f.value.localUserId,later).run();
@@ -36,6 +36,107 @@ it('实例列表读取安装正向事实、有界摘要与家庭孩子隔离，�
     links:[{variantKey:'entry-7',instanceId:f.input.links[0].instanceId}]});
   const refreshed=await listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,f.value.childId,null);
   expect(refreshed.items[0].installation).toMatchObject({entryCount:8,references:[{variantKey:'entry-7',lastScanReceivedAtMs:100},{},{},{},{}]});
+});
+
+it('产品目录正式读取按孩子映射聚合安装，使用来源不可读不清空目录依据',async()=>{
+  const f=await installationFixture();await f.scan();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_variants_v1
+    VALUES(?1,?2,'windows','entry-a',NULL,'label','{}','application','user','shortcut','installed',0,0)`)
+    .bind(f.machine.machineId,f.value.localUserId).run();
+  await receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,f.input);
+  await saveProgramInstanceCatalog(env.RUNTIME_DB,f.machine.accountId,[f.value.childId],'"application-knowledge-v0"',{
+    schemaVersion:4,version:0,products:[{id:'p',name:'产品',type:'other'}],rules:[],bindings:[],
+    ownershipRules:[{id:'r',revision:1,enabled:true,platform:'windows',productId:'p',match:{kind:'binaryHash',sha256:'a'.repeat(64)}}]},1);
+  await materializeProgramInstanceMappings(env.RUNTIME_DB,f.machine.accountId,f.value.childId,
+    f.input.links.map(item=>({machineId:f.machine.machineId,instanceId:item.instanceId})));
+  const now=Date.UTC(2026,9,10),token=randomToken('');
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
+    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms) VALUES(?1,?2,?3,?4,?5,?4)`)
+    .bind(await sha256Hex(token),f.machine.accountId,JSON.stringify([{id:f.value.childId,name:'孩子'}]),now,now+60000).run();
+  const request=(child=f.value.childId,method='GET',auth=token)=>new Request(
+    `https://runtime.test/v2/module/program-instance-directory?childId=${child}`,
+    {method,headers:{authorization:`RuntimeSession ${auth}`}});
+  const expected={childId:f.value.childId,catalogVersion:1,installationState:'available',usage:{state:'unavailable'},
+    facts:[{productId:'p',platform:'windows',instanceCount:1,installationObserved:true,usageObserved:false,lastUsedDate:null}]};
+  expect(await (await routeV2(request(),env,now))!.json()).toMatchObject(expected);
+  await expect(routeV2(request('another-child'),env,now)).rejects.toMatchObject({code:'CHILD_NOT_FOUND'});
+  await expect(routeV2(request(f.value.childId,'GET','invalid'),env,now)).rejects.toMatchObject({status:401});
+  expect((await routeV2(request(f.value.childId,'PUT'),env,now))?.status).toBe(405);
+  await env.RUNTIME_DB.prepare('ALTER TABLE runtime_application_account_publications_v1 RENAME TO directory_usage_unavailable').run();
+  try {
+    expect(await (await routeV2(request(),env,now))!.json()).toMatchObject({...expected,
+      usage:{state:'unavailable',reasonCode:'APPLICATION_DIRECTORY_USAGE_UNAVAILABLE'}});
+  }finally {
+    await env.RUNTIME_DB.prepare('ALTER TABLE directory_usage_unavailable RENAME TO runtime_application_account_publications_v1').run();
+  }
+});
+
+it('当前扫描引用不沿用软件更新前的实例，历史摘要仍保留',async()=>{
+  const f=await installationFixture();await f.scan();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_variants_v1
+    VALUES(?1,?2,'windows','entry-a',NULL,'label','{}','application','user','shortcut','installed',0,0)`)
+    .bind(f.machine.machineId,f.value.localUserId).run();
+  await receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,f.input);
+  const read=()=>listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,f.value.childId,null);
+  expect((await read()).items[0].installation).toMatchObject({entryCount:1,latestScanEntryCount:1});
+  const receipt=await registerProgramInstances(env.RUNTIME_DB,f.machine,{...f.value,items:[{
+    ...f.value.items[0],instance:{...f.value.items[0].instance,executableSha256:'b'.repeat(64)},
+    evidence:{platform:'windows',verified:{binaryHash:'b'.repeat(64)}}}]},2);
+  const next='2'.repeat(32);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_scans_v2 VALUES(?1,?2,?3,1,0,1,'[]',1,2,2)`)
+    .bind(f.machine.machineId,f.value.localUserId,next).run();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_scan_batches_v2 VALUES(?1,?2,0,0,1,'new',?3)`)
+    .bind(f.machine.machineId,next,JSON.stringify([`v\n${f.value.localUserId}\nentry-a`])).run();
+  // 引用晚于扫描到达时不能用旧文件补齐当前安装证据。
+  expect((await read()).items.find(item=>item.instanceId===f.input.links[0].instanceId)?.installation)
+    .toMatchObject({entryCount:1,latestScanEntryCount:0});
+  await receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,{...f.input,scanId:next,
+    links:[{variantKey:'entry-a',instanceId:receipt.items[0].instanceId}]});
+  const page=await read();
+  expect(page.items.find(item=>item.instanceId===receipt.items[0].instanceId)?.installation)
+    .toMatchObject({entryCount:1,latestScanEntryCount:1});
+  expect(page.items.find(item=>item.instanceId===f.input.links[0].instanceId)?.installation)
+    .toMatchObject({entryCount:1,latestScanEntryCount:0});
+});
+
+it('当前安装正向依据随分配及扫描变化失效，不改历史引用或推断卸载',async()=>{
+  const f=await installationFixture();await f.scan();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_variants_v1
+    VALUES(?1,?2,'windows','entry-a',NULL,'label','{}','application','user','shortcut','runtimeObserved',0,0)`)
+    .bind(f.machine.machineId,f.value.localUserId).run();
+  await receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,f.input);
+  const read=async()=> (await listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,f.value.childId,null)).items[0].installation;
+  expect(await read()).toMatchObject({entryCount:1,latestScanEntryCount:0});
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_application_variants_v1 SET status='installed' WHERE machine_id=?`)
+    .bind(f.machine.machineId).run();
+  expect(await read()).toMatchObject({latestScanEntryCount:1});
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,2,'child-b',1,'override',1,1)`)
+    .bind(f.machine.machineId,f.value.localUserId).run();
+  expect(await read()).toMatchObject({entryCount:1,latestScanEntryCount:0});
+  await registerProgramInstances(env.RUNTIME_DB,f.machine,{...f.value,childId:'child-b',assignmentVersion:2},2);
+  expect((await listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,'child-b',null)).items[0].installation)
+    .toMatchObject({entryCount:0,latestScanEntryCount:0});
+  // 回到相同Child也不能把旧分配下的扫描当成新分配的安装事实。
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,3,?3,1,'override',2,2)`)
+    .bind(f.machine.machineId,f.value.localUserId,f.value.childId).run();
+  expect(await read()).toMatchObject({entryCount:1,latestScanEntryCount:0});
+});
+
+it('最新扫描失败或机器撤销不回退旧安装依据，历史详情不消失',async()=>{
+  const f=await installationFixture();await f.scan();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_variants_v1
+    VALUES(?1,?2,'windows','entry-a',NULL,'label','{}','application','user','shortcut','installed',0,0)`)
+    .bind(f.machine.machineId,f.value.localUserId).run();
+  await receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,f.input);
+  const read=async()=> (await listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,f.value.childId,null)).items[0].installation;
+  expect(await read()).toMatchObject({latestScanEntryCount:1});
+  await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET revoked_at_ms=1 WHERE id=?').bind(f.machine.machineId).run();
+  expect(await read()).toMatchObject({entryCount:1,latestScanEntryCount:0});
+  await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET revoked_at_ms=NULL WHERE id=?').bind(f.machine.machineId).run();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_scans_v2
+    VALUES(?1,?2,?3,1,0,0,'[{"sourceKind":"shortcut","status":"failed"}]',1,5,5)`)
+    .bind(f.machine.machineId,f.value.localUserId,'3'.repeat(32)).run();
+  expect(await read()).toMatchObject({entryCount:1,latestScanEntryCount:0});
 });
 
 // 合成已收到扫描批次；验证正式接收路由，不冒称Native扫描生产者已接线。

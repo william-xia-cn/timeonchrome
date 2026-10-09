@@ -112,9 +112,10 @@ function fixture(){
   assert.doesNotMatch(isolated.element('#managed-app-list').innerHTML,/stale classify/);
   assert.equal(isolated.element('#load-empty-state').hidden,true);
   isolatedController.dispose();
-  const identity=fixture(),identityCalls=[];
+  const identity=fixture(),identityCalls=[];let directoryResult=null;
   const identityController=identity.mount({root:identity.root,view:'apps',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{
     identityCalls.push(path);
+    if(path.includes('program-instance-directory')&&directoryResult)return directoryResult;
     if(path==='/v2/module/program-instance-catalog')return {state:'available',version:4,catalog:{schemaVersion:4,version:4,
       products:[{id:'p',name:'新版产品',type:'other'},{id:'q',name:'另一孩子分类不串入',type:'other'}],
       ownershipRules:[{id:'r',enabled:true,platform:'windows',productId:'p'}],rules:[],
@@ -133,6 +134,26 @@ function fixture(){
   assert.equal(identity.element('#directory-scope').disabled,true);
   assert.equal(identity.element('#directory-scope').value,'all');
   assert(identityCalls.includes('/v2/module/program-instance-catalog'));
+  directoryResult={schemaVersion:1,childId:'a',catalogVersion:4,usage:{state:'available'},facts:[
+    {productId:'p',platform:'windows',installationObserved:true,usageObserved:false,lastUsedDate:null},
+    {productId:'q',platform:'windows',installationObserved:false,usageObserved:true,lastUsedDate:'2026-10-10'}]};
+  await identityController.refresh();
+  assert.equal(identity.element('#directory-scope').disabled,false);
+  const changeIdentity=identity.listeners.find(item=>item[0]==='root'&&item[1]==='change')[2];
+  const setScope=async value=>{identity.element('#directory-scope').value=value;await changeIdentity({target:{id:'directory-scope'}});};
+  await setScope('unused');
+  assert.match(identity.element('#managed-app-list').innerHTML,/新版产品/);
+  assert.doesNotMatch(identity.element('#managed-app-list').innerHTML,/另一孩子分类不串入/);
+  await setScope('usage');
+  assert.doesNotMatch(identity.element('#managed-app-list').innerHTML,/新版产品/);
+  assert.match(identity.element('#managed-app-list').innerHTML,/最近使用 2026-10-10/);
+  directoryResult={...directoryResult,usage:{state:'unavailable'}};
+  await identityController.refresh();await setScope('unused');
+  assert.doesNotMatch(identity.element('#managed-app-list').innerHTML,/新版产品/);
+  assert.match(identity.element('#inventory-status').textContent,/不能判定/);
+  await setScope('all');assert.match(identity.element('#managed-app-list').innerHTML,/新版产品/);
+  directoryResult={...directoryResult,childId:'wrong-child'};
+  await identityController.refresh();assert.equal(identity.element('#directory-scope').disabled,true);
   const savedCatalog={schemaVersion:4,version:5,products:[{id:'p',name:'保存后新名称',type:'other'}],ownershipRules:[],rules:[],bindings:[]};
   identity.knowledgeOptions.onCatalogSaved(savedCatalog,'other-child');
   assert.doesNotMatch(identity.element('#managed-app-list').innerHTML,/保存后新名称/);
