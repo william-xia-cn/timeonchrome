@@ -1,5 +1,15 @@
 const assert=require('node:assert/strict');
 const K=require('./app-runtime-knowledge');
+assert.match(K.installationSummaryHTML(undefined),/尚无安装引用信息/);
+assert.match(K.installationSummaryHTML({state:'available',entryCount:0,references:[]}),/不代表未安装/);
+assert.match(K.installationSummaryHTML({state:'unavailable',reasonCode:'<bad>'}),/&lt;bad&gt;/);
+assert.match(K.installationSummaryHTML({state:'available',entryCount:1,references:[]}),/暂不可读/);
+const installationHTML=K.installationSummaryHTML({state:'available',entryCount:8,references:Array.from({length:5},(_,i)=>({variantKey:`<entry-${i}>`,lastScanReceivedAtMs:0}))});
+assert.match(installationHTML,/最近 5 条/);
+assert.match(installationHTML,/北京时间/);
+assert.match(installationHTML,/&lt;entry-0&gt;/);
+assert.doesNotMatch(installationHTML,/<entry-/);
+assert.match(K.installationSummaryHTML({state:'available',entryCount:1,references:[{variantKey:'entry',lastScanReceivedAtMs:Number.MAX_SAFE_INTEGER}]}),/暂不可读/);
 const verifiedInstance={evidence:{platform:'windows',verified:{binaryHash:'a'.repeat(64),windowsAumid:'Package!App',windowsFileSeriesKey:'b'.repeat(64)}}};
 const ownershipOptions=K.ownershipEvidenceOptions([verifiedInstance,verifiedInstance,
   {evidence:{platform:'macos',verified:{macosSignerKey:'c'.repeat(64),macosSigningIdentifier:'com.example.app'}}},

@@ -10,6 +10,8 @@
 
 兼容边界：实例发现既有localUserId上限256，安装引用沿inventory上限128，不反向收紧基础发现契约。超长值记录安装引用范围不支持，不截断或生成替代标识，不影响实例、原账及统计；仅有符合既有扫描协议的正向事实才能发送引用。
 
+家长实例列表只读补充installation：available时返回entryCount与最多5个最近条目references（variantKey、lastScanReceivedAtMs），重复扫描同条目只展示一次；无引用为0个已关联条目，不证明未安装。unavailable返回明确reasonCode，不清空实例列表。时间来自扫描云端接收记录，不称安装或使用时间；不从旧显示名推断产品。一次按本页最多50个实例查询，不扫描原账。家庭、Child及实例机器范围同时约束，历史A引用不随新分配B转移。
+
 当前证据：Native `bfdad2a` 已实现第一步独立扫描登记，当前／上一契约各15项隔离测试通过，尚未安装或实机验收。下文“已核实断点”描述修订前来源，不再代表第一步仍未实现。第二步仍确有断点：`SessionAgent/Program.cs` 只持久化 `scan.ProgramCaptures`，随后才生成 `scanId`；`ProgramDiscoveryFile(Application,Capture)` 的直接关系尚未进入待发存储。固定契约 `ApplicationInventoryBatchV2` 及扫描对象也没有程序实例引用，旧盘点成功不能证明新安装关联可读。Mac 本批源码与领取状态另查，不沿用 Windows 结论。
 
 已核实断点：旧`syncApplicationInventoryV2`以机器／用户／旧variantKey保存安装盘点，校验的是机器用户存在性，不是新版Child范围；Native扫描产生的观测尚未独立登记，当前实例scope由使用事实入口建立。因此旧盘点成功不证明“已安装未使用”的新版实例已登记，也不能直接按binaryHash／名称把旧盘点连接到新实例。

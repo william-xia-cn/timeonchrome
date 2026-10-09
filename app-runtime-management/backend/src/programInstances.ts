@@ -9,6 +9,7 @@ import { canonicalUsageAccountJson, hashUsageAccountValue } from '@timeonchrome/
 import type { MachineSelfResponse } from './contracts';
 import { HttpError } from './http';
 import { isRecord } from './validation';
+import {readProgramInstallationSummaries} from './programInstallationLinks';
 
 const fail = (status: number, code: string): never => { throw new HttpError(status, code, code); };
 
@@ -53,13 +54,16 @@ export async function listChildProgramInstances(db:D1Database,accountId:string,c
   const catalog=isRecord(payload)&&payload.schemaVersion===4?parseApplicationKnowledgeV4(payload):null;
   if(catalog&&catalog.version!==stored?.version) return fail(500,'PROGRAM_INSTANCE_CATALOG_INVALID');
   const rows=results[1].results.filter((row):row is Row=>'instance_id' in row);
+  const installations=await readProgramInstallationSummaries(db,accountId,childId,
+    rows.slice(0,50).map(row=>({machineId:row.machine_id,instanceId:row.instance_id})));
   const items=rows.slice(0,50).map(row=>{
     const current=catalog&&row.rule_set_version===catalog.version&&row.mapped_evidence_revision===row.evidence_revision;
     const product=current&&row.product_id?catalog.products.find(product=>product.id===row.product_id):undefined;
     const status=current&&row.status&&(row.status!=='confirmed'||product)?row.status:'pending';
     return {instanceId:row.instance_id,machineId:row.machine_id,platform:row.platform,
       evidenceRevision:row.evidence_revision,evidence:parseProductOwnershipEvidence(JSON.parse(row.evidence_json)),
-      updatedAtMs:row.updated_at_ms,status,product:status==='confirmed'?{id:product!.id,name:product!.name}:null};
+      updatedAtMs:row.updated_at_ms,status,product:status==='confirmed'?{id:product!.id,name:product!.name}:null,
+      installation:installations.get(row.instance_id)!};
   });
   return {schemaVersion:1,childId,catalogVersion:catalog?.version??null,items,
     nextAfterInstanceId:rows.length>50?items[items.length-1].instanceId:null};

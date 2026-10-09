@@ -13,6 +13,9 @@ CREATE TABLE runtime_program_installation_links_v1 (
     REFERENCES runtime_program_instance_scopes_v1(child_id,machine_id,instance_id,local_user_id,assignment_version)
 );
 
+CREATE INDEX runtime_program_installation_child_instance_v1
+ON runtime_program_installation_links_v1(child_id,machine_id,instance_id,variant_key);
+
 CREATE TRIGGER runtime_program_installation_scope_v1
 BEFORE INSERT ON runtime_program_installation_links_v1
 BEGIN

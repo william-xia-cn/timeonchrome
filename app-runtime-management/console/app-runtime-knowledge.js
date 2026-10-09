@@ -7,6 +7,20 @@
   const types = {game:'游戏',gameLauncher:'游戏平台／启动器',gameUtility:'游戏工具',onlineVideo:'在线视频',mediaPlayer:'影音播放器',other:'其他',unknown:'未知'};
   const resolutionLabels={explicit:'孩子明确分类',automatic:'自动规则',suggestion:'仅建议，不改变有效分类',conflict:'规则冲突，保留原有效分类',unclassified:'未归类'};
   const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  function installationSummaryHTML(summary){
+    const unavailable=code=>`<p class="instance-evidence">安装引用暂不可读：${escapeHtml(code||'PROGRAM_INSTALLATION_READ_UNAVAILABLE')}</p>`;
+    if(summary==null)return '<p>尚无安装引用信息。</p>';
+    if(summary.state==='unavailable')return unavailable(summary.reasonCode);
+    if(summary.state!=='available'||!Number.isSafeInteger(summary.entryCount)||summary.entryCount<0
+      ||!Array.isArray(summary.references)||summary.references.length>5
+      ||summary.references.length!==Math.min(summary.entryCount,5)
+      ||summary.references.some(ref=>!ref||typeof ref.variantKey!=='string'||!ref.variantKey
+        ||!Number.isSafeInteger(ref.lastScanReceivedAtMs)||ref.lastScanReceivedAtMs<0
+        ||Number.isNaN(new Date(ref.lastScanReceivedAtMs).getTime())))return unavailable();
+    if(!summary.entryCount)return '<p>尚无已关联扫描条目；不代表未安装。</p>';
+    const format=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+    return `<section aria-label="安装引用"><p>已关联扫描条目：${summary.entryCount}${summary.entryCount>5?'（仅展示最近 5 条）':''}</p><p>以下为云端扫描接收时间（北京时间），不代表安装时间或当前仍已安装。</p><ul class="instance-evidence">${summary.references.map(ref=>`<li>${escapeHtml(ref.variantKey)}<br>${format.format(new Date(ref.lastScanReceivedAtMs))}</li>`).join('')}</ul></section>`;
+  }
   function previewHitsHTML(hits,children){
     if(!hits.length)return '<p>暂无当前命中；预配置规则仍可在以后发现可靠身份时匹配。</p>';
     return `<div class="knowledge-hit-list">${hits.slice(0,100).map(hit=>`<article class="knowledge-item"><div><strong>${escapeHtml(hit.displayName)}</strong><small>${hit.platform==='macos'?'macOS':'Windows'} · ${escapeHtml(children[hit.childIndex]?.name||'目标孩子')}</small><p>${labels[hit.result.classification]} · ${resolutionLabels[hit.result.status]}</p></div></article>`).join('')}</div>${hits.length>100?'<p>仅列出前 100 条命中观察。</p>':''}`;
@@ -412,7 +426,7 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     }
     function renderInstances(message='') {
       const items=instancePage?.items||[];
-      $('#instance-panel').innerHTML=`<p>未识别不影响原始落账和基础统计。纠错应修正规则或采集依据，不直接修改实例归属。</p><p role="status">${esc(message||`目录版本：${instancePage?.catalogVersion??'尚无新版目录'}`)}</p><div class="knowledge-filter"><button id="instances-refresh">刷新／重试</button><button id="instances-next"${instancePage?.nextAfterInstanceId?'':' disabled'}>下一页</button><button id="ownership-open"${items.length?'':' disabled'}>规则草稿与预览</button></div>${items.map(item=>`<article class="knowledge-item"><div><strong>${esc(item.status==='confirmed'?item.product?.name:'未识别程序实例')}</strong><small>${item.platform==='macos'?'macOS':'Windows'} · ${{confirmed:'已确认',pending:'待更新',unresolved:'未识别',conflict:'归属冲突'}[item.status]||'未知状态'} · ${esc(item.instanceId.slice(0,12))}</small><details><summary>实例与核验依据</summary><p class="instance-evidence">实例：${esc(item.instanceId)}<br>电脑：${esc(item.machineId)}<br>证据修订：${esc(item.evidenceRevision)}</p><pre class="instance-evidence">${esc(JSON.stringify(item.evidence,null,2))}</pre></details></div></article>`).join('')||'<p class="empty">尚无可显示的已登记实例；不代表使用时长为零。</p>'}<div id="ownership-panel"></div>`;
+      $('#instance-panel').innerHTML=`<p>未识别不影响原始落账和基础统计。纠错应修正规则或采集依据，不直接修改实例归属。</p><p role="status">${esc(message||`目录版本：${instancePage?.catalogVersion??'尚无新版目录'}`)}</p><div class="knowledge-filter"><button id="instances-refresh">刷新／重试</button><button id="instances-next"${instancePage?.nextAfterInstanceId?'':' disabled'}>下一页</button><button id="ownership-open"${items.length?'':' disabled'}>规则草稿与预览</button></div>${items.map(item=>`<article class="knowledge-item"><div><strong>${esc(item.status==='confirmed'?item.product?.name:'未识别程序实例')}</strong><small>${item.platform==='macos'?'macOS':'Windows'} · ${{confirmed:'已确认',pending:'待更新',unresolved:'未识别',conflict:'归属冲突'}[item.status]||'未知状态'} · ${esc(item.instanceId.slice(0,12))}</small><details><summary>实例与核验依据</summary><p class="instance-evidence">实例：${esc(item.instanceId)}<br>电脑：${esc(item.machineId)}<br>证据修订：${esc(item.evidenceRevision)}</p><pre class="instance-evidence">${esc(JSON.stringify(item.evidence,null,2))}</pre>${installationSummaryHTML(item.installation)}</details></div></article>`).join('')||'<p class="empty">尚无可显示的已登记实例；不代表使用时长为零。</p>'}<div id="ownership-panel"></div>`;
     }
     async function readInstances(next=false) {
       const key=lease(),generation=++instanceGeneration,cursor=next?instancePage?.nextAfterInstanceId:null;
@@ -577,5 +591,5 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     function dispose(){if(disposed)return;disposed=true;for(const [type,handler]of Object.entries(listeners))root.removeEventListener(type,handler);for(const dialog of all('dialog[open]'))dialog.close();}
     return {open,publish,classify,dispose};
   }
-  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,ownershipEvidenceOptions,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
+  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,installationSummaryHTML,ownershipEvidenceOptions,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
 });

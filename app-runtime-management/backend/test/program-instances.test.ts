@@ -11,7 +11,32 @@ import { parseProductOwnershipEvidence, resolveProgramInstanceClassification,par
 import { parseProgramInstanceProjectionContext } from '@timeonchrome/app-runtime-contracts/classification-validation';
 import {readProgramPolicyStatus,receiveProgramPolicyStatus} from '../src/programPolicyStatus';
 import { updateUserAssignment } from '../src/v2Repository';
-import {receiveProgramInstallationLinks} from '../src/programInstallationLinks';
+import {receiveProgramInstallationLinks,readProgramInstallationSummaries} from '../src/programInstallationLinks';
+
+it('实例列表读取安装正向事实、有界摘要与家庭孩子隔离，不读取原账或猜产品',async()=>{
+  const f=await installationFixture(),keys=Array.from({length:8},(_,i)=>`entry-${i}`);
+  await f.scan(keys);
+  await receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,{...f.input,
+    links:keys.map(variantKey=>({variantKey,instanceId:f.input.links[0].instanceId}))});
+  const page=await listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,f.value.childId,null);
+  expect(page.items).toHaveLength(1);
+  expect(page.items[0]).toMatchObject({status:'pending',product:null,installation:{state:'available',entryCount:8}});
+  expect(page.items[0].installation).toMatchObject({references:keys.slice(0,5).map(variantKey=>({variantKey,lastScanReceivedAtMs:0}))});
+  const refs=[{machineId:f.machine.machineId,instanceId:f.input.links[0].instanceId}];
+  expect([...(await readProgramInstallationSummaries(env.RUNTIME_DB,'another-family',f.value.childId,refs)).values()])
+    .toEqual([{state:'available',entryCount:0,references:[]}]);
+  expect([...(await readProgramInstallationSummaries(env.RUNTIME_DB,f.machine.accountId,'another-child',refs)).values()])
+    .toEqual([{state:'available',entryCount:0,references:[]}]);
+  const later='2'.repeat(32);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_scans_v2 VALUES(?1,?2,?3,1,0,1,'[]',1,1,100)`)
+    .bind(f.machine.machineId,f.value.localUserId,later).run();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_scan_batches_v2 VALUES(?1,?2,0,0,1,'later',?3)`)
+    .bind(f.machine.machineId,later,JSON.stringify([`v\n${f.value.localUserId}\nentry-7`])).run();
+  await receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,{...f.input,scanId:later,
+    links:[{variantKey:'entry-7',instanceId:f.input.links[0].instanceId}]});
+  const refreshed=await listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,f.value.childId,null);
+  expect(refreshed.items[0].installation).toMatchObject({entryCount:8,references:[{variantKey:'entry-7',lastScanReceivedAtMs:100},{},{},{},{}]});
+});
 
 // 合成已收到扫描批次；验证正式接收路由，不冒称Native扫描生产者已接线。
 async function installationFixture() {
@@ -97,6 +122,9 @@ it('安装引用存储未就绪明确503，原程序实例登记不受影响',as
       headers:{authorization:`Bearer ${f.token}`}}),env,2);
     expect(await caps!.json()).toEqual({schemaVersion:1,enabled:true,capabilities:['program-instance-registration-v1']});
     expect((await registerProgramInstances(env.RUNTIME_DB,f.machine,f.value,3)).items).toHaveLength(1);
+    const page=await listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,f.value.childId,null);
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0].installation).toEqual({state:'unavailable',reasonCode:'PROGRAM_INSTALLATION_STORAGE_UNAVAILABLE'});
   } finally {
     await env.RUNTIME_DB.prepare('ALTER TABLE installation_links_test_unavailable RENAME TO runtime_program_installation_links_v1').run();
   }

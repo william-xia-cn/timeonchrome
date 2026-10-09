@@ -5,6 +5,52 @@ import {isRecord} from './validation';
 
 const fail=(status:number,code:string):never=>{throw new HttpError(status,code,code);};
 
+export type ProgramInstallationSummary =
+  | {state:'available';entryCount:number;references:Array<{variantKey:string;lastScanReceivedAtMs:number}>}
+  | {state:'unavailable';reasonCode:string};
+
+/** 仅查询当前页的已保存扫描事实；不根据缺失推断卸载，不修改产品映射。 */
+export async function readProgramInstallationSummaries(db:D1Database,accountId:string,childId:string,
+  instances:readonly {machineId:string;instanceId:string}[]):Promise<Map<string,ProgramInstallationSummary>> {
+  if(instances.length>50||new Set(instances.map(item=>item.instanceId)).size!==instances.length)
+    return fail(400,'INVALID_INSTALLATION_READ_SCOPE');
+  const summaries=new Map<string,ProgramInstallationSummary>();
+  if(!instances.length)return summaries;
+  const unavailable=(reasonCode:string)=>new Map(instances.map(item=>[item.instanceId,
+    {state:'unavailable' as const,reasonCode}]));
+  try {
+    if(!await programInstallationStorageReady(db))return unavailable('PROGRAM_INSTALLATION_STORAGE_UNAVAILABLE');
+    type Row={instance_id:string;variant_key:string;last_received:number;entry_count:number};
+    const rows=await db.prepare(`WITH observed AS (
+      SELECT l.instance_id,l.variant_key,MAX(s.updated_at_ms) AS last_received
+      FROM json_each(?3) requested
+      JOIN runtime_program_installation_links_v1 l
+        ON l.child_id=?2 AND l.machine_id=json_extract(requested.value,'$.machineId')
+        AND l.instance_id=json_extract(requested.value,'$.instanceId')
+      JOIN runtime_machines_v2 m ON m.id=l.machine_id AND m.account_id=?1
+      JOIN runtime_application_inventory_scans_v2 s ON s.machine_id=l.machine_id AND s.scan_id=l.scan_id
+      GROUP BY l.instance_id,l.variant_key
+    ), ranked AS (
+      SELECT *,COUNT(*) OVER(PARTITION BY instance_id) AS entry_count,
+        ROW_NUMBER() OVER(PARTITION BY instance_id ORDER BY last_received DESC,variant_key) AS rank
+      FROM observed
+    ) SELECT instance_id,variant_key,last_received,entry_count FROM ranked WHERE rank<=5
+      ORDER BY instance_id,rank`).bind(accountId,childId,JSON.stringify(instances)).all<Row>();
+    for(const item of instances)summaries.set(item.instanceId,{state:'available',entryCount:0,references:[]});
+    for(const row of rows.results) {
+      const summary=summaries.get(row.instance_id);
+      if(summary?.state==='available') {
+        summary.entryCount=row.entry_count;
+        summary.references.push({variantKey:row.variant_key,lastScanReceivedAtMs:row.last_received});
+      }
+    }
+    return summaries;
+  } catch {
+    console.error(JSON.stringify({message:'program_installation_read_failed',code:'PROGRAM_INSTALLATION_READ_UNAVAILABLE'}));
+    return unavailable('PROGRAM_INSTALLATION_READ_UNAVAILABLE');
+  }
+}
+
 export async function programInstallationStorageReady(db:D1Database):Promise<boolean> {
   const storage=await db.prepare(`SELECT COUNT(*) AS n FROM sqlite_master WHERE
     (type='table' AND name='runtime_program_installation_links_v1') OR
