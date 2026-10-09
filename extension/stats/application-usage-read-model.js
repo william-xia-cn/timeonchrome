@@ -23,6 +23,13 @@ export function applicationUsageErrorMessage(code) {
     application_usage_seconds_revision_changed: '应用统计版本发生变化，请重新读取。',
     application_usage_seconds_unavailable: '本地组件无法读取当前版本的应用统计，请检查组件状态。',
     application_usage_context_changed: '当前本地应用统计来源已变化，请重新读取。',
+    application_identity_usage_unsupported: '当前本地组件尚不支持读取应用身份统计；显示旧版应用统计时会明确标注。',
+    application_identity_usage_unavailable: '本地组件暂时无法读取应用身份统计；已确认的基础用量不会被产品识别结果替代。',
+    application_identity_usage_pending: '应用身份统计尚未就绪；基础实例账与产品身份投影分开显示。',
+    application_identity_usage_revision_changed: '应用身份统计版本发生变化，请重新读取。',
+    application_identity_usage_context_changed: '当前孩子或本地应用统计来源已变化，请重新读取。',
+    application_identity_usage_query_invalid: '应用身份统计请求无效，请重新读取。',
+    application_identity_usage_invalid_response: '本地组件返回的应用身份统计未通过校验。',
     native_invalid_response: '本地组件返回的应用统计未通过校验，请检查组件版本及诊断信息。',
   })[code] || '应用用量暂时无法读取，请重试。';
 }

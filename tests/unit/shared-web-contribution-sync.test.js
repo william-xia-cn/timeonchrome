@@ -49,7 +49,7 @@ async function run() {
     .replace(/import \{ readCloudSharedWebCapabilities[^;]+;/, 'const readCloudSharedWebCapabilities=()=>null,readCloudSharedWebWatermark=()=>null,postCloudSharedWebContribution=()=>null,requestCloudSharedWebSourceBinding=()=>null,requestCloudSharedWebSourceBindingV2=()=>null;')
     .replace(/from '(\.\/shared-web-reusable-binding.js|\.\.\/core\/shared-web-native.js)'/g,
       (_, p) => `from '${url('extension/' + path.posix.normalize('infra/' + p))}'`)
-    .replace(/import \{ requestSharedWebSync, observeSharedAccessPolicyCapability, readSharedWebLocalConnection \}[^;]+;/, 'const requestSharedWebSync=()=>null,observeSharedAccessPolicyCapability=()=>null,readSharedWebLocalConnection=()=>({connection:null,capabilityNegotiated:false});')
+    .replace(/import \{ requestSharedWebSync, observeSharedAccessPolicyCapability, readSharedWebLocalConnection,[\s\S]*?\} from '\.\/native-host-client\.js';/, 'const requestSharedWebSync=()=>null,observeSharedAccessPolicyCapability=()=>null,readSharedWebLocalConnection=()=>({connection:null,capabilityNegotiated:false}),requestApplicationIdentityBindingNative=(...a)=>globalThis.__identityNative(...a),readApplicationIdentityBindingConnection=()=>({connection:null}),setApplicationIdentityBindingEnsurer=()=>{};')
     .replace(/import \{ runStorageMutation, budgetedLocalSet \}[^;]+;/, 'const runStorageMutation=()=>null,budgetedLocalSet=async v=>{globalThis.__sharedDiagnostic=structuredClone(v);};')
     .replace(/import \{ readSharedQuotaExecutionLkg \}[^;]+;/, 'const readSharedQuotaExecutionLkg=()=>null;');
   const mod = await dataModule(source);
@@ -97,6 +97,9 @@ async function run() {
         heads.set(u.date, watermark);
         return { ok: true, value: { ...watermark, status: 'accepted', submittedRevisionOrdinal: u.revisionOrdinal } };
       }, readBasis: async () => ({ ok: false }) };
+    options.identityNative = (method, payload) => options.native(method, payload);
+    options.readIdentityConnection = () => ({ connection, connectionGeneration: 1,
+      reusableSourceSupported: true, applicationIdentityUsageSupported: true });
     return { store, calls, nativeCalls, heads, options, sync: mod.createSharedWebContributionSync(options),
       clock: v => { clock = v; }, connection: v => { connection = v; }, leaseCapability: v => { leaseCapability = v; },
       cap: v => { cap = v; }, fail: v => { failed = v; }, hook: v => { responseHook = v; }, context: v => { context = v; }, policy: v => { currentPolicy = v; } };
@@ -119,12 +122,39 @@ async function run() {
       assert.equal(method, 'replaceSharedWebContributionV2');
       return { ok: true, value: { date: payload.upload.date, revisionOrdinal: payload.upload.revisionOrdinal, contentHash: payload.upload.contentHash, duplicate: true } };
     };
+    f.options.identityNative = (method, payload) => f.options.native(method, payload);
     f.sync = mod.createSharedWebContributionSync(f.options);
     return Object.assign(f, { offline: v => { offline = v; }, exchanges: () => exchanges,
       clock: v => { clock = v; },
       reconnect: () => { connection = {}; }, scope: v => { scopeVersion = v; }, reject: v => { reject = v; }, nativeHook: v => { hook = v; } });
   }
   const disabled = fixture(false); assert.equal((await disabled.sync.refresh()).ok, false); assert.equal(disabled.calls.length, 0);
+  const identityOnly = reusableFixture();
+  identityOnly.options.enabled = false;
+  let policyReads = 0;
+  identityOnly.options.readPolicy = async () => { policyReads++; throw Error('shared policy must not be required'); };
+  identityOnly.sync = mod.createSharedWebContributionSync(identityOnly.options);
+  const beforeIdentityOnly = clone(identityOnly.store);
+  const identityBinding = await identityOnly.sync.ensureApplicationIdentityBinding();
+  assert.equal(identityBinding.ok, true, 'identity binding works while shared contribution sync is disabled');
+  assert.equal(policyReads, 0, 'identity binding does not read shared quota policy LKG');
+  assert.deepEqual(identityOnly.store, beforeIdentityOnly, 'identity binding does not write shared queue or diagnostics');
+  assert.equal(identityOnly.calls.length, 0, 'identity binding does not upload contributions');
+  assert.deepEqual(identityOnly.nativeCalls.map(call => call.method), ['getSharedWebSourceScope', 'bindSharedWebSourceV2']);
+  const reboundIdentity = await identityOnly.sync.ensureApplicationIdentityBinding();
+  assert.equal(reboundIdentity.bindingContextId, identityBinding.bindingContextId,
+    'the same proof cache yields a stable binding digest for the same connection and assignment');
+
+  const identityContextChanged = reusableFixture();
+  identityContextChanged.options.enabled = false;
+  identityContextChanged.options.exchangeV2 = async () => {
+    identityContextChanged.context({ apiBase: 'https://fixture.invalid', deviceId: 'fixture-device',
+      childId: 'different-child', deviceToken: 'fixture-token' });
+    return { ok: true, value: proof('timeonchrome:shared-web-source:v2') };
+  };
+  identityContextChanged.sync = mod.createSharedWebContributionSync(identityContextChanged.options);
+  assert.equal((await identityContextChanged.sync.ensureApplicationIdentityBinding()).ok, false,
+    'a child change during cloud proof exchange rejects the binding');
   for (const [kind, buckets, corrections, expected] of [
     ['borrowed_rest', { study: 546, rest: 360 }, [], []],
     ['explicit_other', { study: 546, other: 360 }, [], []],
