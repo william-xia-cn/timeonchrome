@@ -1,4 +1,6 @@
 import { requireAccountModule, requireMachine } from './auth';
+import {receiveProgramInstallationLinks,programInstallationStorageReady} from './programInstallationLinks';
+import {PROGRAM_INSTALLATION_LINK_CAPABILITY} from '@timeonchrome/app-runtime-contracts/classification';
 import { listChildProgramInstances, readProgramInstanceCatalog, previewProgramInstanceCatalog, saveProgramInstanceCatalog } from './programInstances';
 import { routeApplicationAccounts } from './applicationAccounts';
 import {receiveProgramPolicyStatus,readProgramPolicyStatus} from './programPolicyStatus';
@@ -785,8 +787,13 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
   if (url.pathname === '/v2/machines/program-instances/capabilities') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
     const enabled = await programInstanceStorageReady(env.RUNTIME_DB);
+    const installationEnabled = enabled && await programInstallationStorageReady(env.RUNTIME_DB);
     return jsonResponse({schemaVersion: 1, enabled,
-      capabilities: enabled ? [PROGRAM_INSTANCE_REGISTRATION_CAPABILITY] : []});
+      capabilities: enabled ? [PROGRAM_INSTANCE_REGISTRATION_CAPABILITY,...(installationEnabled?[PROGRAM_INSTALLATION_LINK_CAPABILITY]:[])] : []});
+  }
+  if (url.pathname === '/v2/machines/program-instances/installation-links') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    return jsonResponse(await receiveProgramInstallationLinks(env.RUNTIME_DB,machine,await readJsonBody(request,65_536)));
   }
   if (url.pathname === '/v2/machines/program-instances') {
     if (request.method !== 'POST') return methodNotAllowed('POST');

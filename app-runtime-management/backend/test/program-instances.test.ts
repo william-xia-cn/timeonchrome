@@ -7,10 +7,100 @@ import { routeV2 } from '../src/v2Routes';
 import { readChildProgramIdentityProjection, listChildProgramInstances } from '../src/programInstances';
 import { getApplicationKnowledge, putApplicationKnowledge } from '../src/applicationKnowledge';
 import { getAppPolicy, putAppPolicy } from '../src/appPolicy';
-import { parseProductOwnershipEvidence, resolveProgramInstanceClassification } from '@timeonchrome/app-runtime-contracts/classification';
+import { parseProductOwnershipEvidence, resolveProgramInstanceClassification,parseProgramInstallationLinkReceipt } from '@timeonchrome/app-runtime-contracts/classification';
 import { parseProgramInstanceProjectionContext } from '@timeonchrome/app-runtime-contracts/classification-validation';
 import {readProgramPolicyStatus,receiveProgramPolicyStatus} from '../src/programPolicyStatus';
 import { updateUserAssignment } from '../src/v2Repository';
+import {receiveProgramInstallationLinks} from '../src/programInstallationLinks';
+
+// 合成已收到扫描批次；验证正式接收路由，不冒称Native扫描生产者已接线。
+async function installationFixture() {
+  const f=await fixture(),scanId='1'.repeat(32);
+  const receipt=await registerProgramInstances(env.RUNTIME_DB,f.machine,f.value,1);
+  const input={schemaVersion:1,childId:f.value.childId,localUserId:f.value.localUserId,assignmentVersion:1,
+    scanId,links:[{variantKey:'entry-a',instanceId:receipt.items[0].instanceId}]};
+  const scan=async(keys=['entry-a'])=>{
+    await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_scans_v2 VALUES(?1,?2,?3,1,0,?4,'[]',1,0,0)`)
+      .bind(f.machine.machineId,f.value.localUserId,scanId,keys.length).run();
+    await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_scan_batches_v2 VALUES(?1,?2,0,0,?3,'test',?4)`)
+      .bind(f.machine.machineId,scanId,keys.length,JSON.stringify(keys.map(key=>`v\n${f.value.localUserId}\n${key}`))).run();
+  };
+  const request=(body:unknown=input,token=f.token,method='POST')=>new Request('https://runtime.test/v2/machines/program-instances/installation-links',{
+    method,headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},...(method==='POST'?{body:JSON.stringify(body)}:{})});
+  const rows=()=>env.RUNTIME_DB.prepare('SELECT * FROM runtime_program_installation_links_v1 WHERE machine_id=?')
+    .bind(f.machine.machineId).all();
+  return {...f,input,scan,request,rows};
+}
+
+it('安装引用正式路由鉴权、依赖晚到可重试、重复提交不增加引用',async()=>{
+  const f=await installationFixture();
+  await expect(routeV2(f.request(f.input,''),env,2)).rejects.toMatchObject({status:401});
+  expect((await routeV2(f.request(f.input,f.token,'GET'),env,2))?.status).toBe(405);
+  await expect(routeV2(f.request(),env,2)).rejects.toMatchObject({code:'PROGRAM_INSTALLATION_DEPENDENCIES_PENDING'});
+  expect((await f.rows()).results).toHaveLength(0);
+  await f.scan();
+  for(const time of [3,4]) {
+    const response=await routeV2(f.request(),env,time);
+    expect(response?.status).toBe(200);
+    expect(parseProgramInstallationLinkReceipt(await response!.json(),{...f.input,schemaVersion:1},f.machine.machineId)).toEqual(f.input);
+  }
+  expect((await f.rows()).results).toHaveLength(1);
+});
+
+it('安装引用整批回滚，不把其他扫描条目或未知实例当成当前正向关系',async()=>{
+  const f=await installationFixture();await f.scan(['entry-a','entry-b']);
+  const missing={variantKey:'entry-b',instanceId:'f'.repeat(64)};
+  await expect(receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,{...f.input,links:[...f.input.links,missing]}))
+    .rejects.toMatchObject({code:'PROGRAM_INSTALLATION_DEPENDENCIES_PENDING'});
+  expect((await f.rows()).results).toHaveLength(0);
+  await expect(receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,{...f.input,
+    links:[{...f.input.links[0],variantKey:'not-in-this-scan'}]})).rejects.toMatchObject({code:'PROGRAM_INSTALLATION_DEPENDENCIES_PENDING'});
+  // 同一实例对应多个扫描入口，全部有依据时允许；不自动合并产品。
+  await receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,{...f.input,
+    links:[...f.input.links,{...f.input.links[0],variantKey:'entry-b'}]});
+  expect((await f.rows()).results).toHaveLength(2);
+});
+
+it('安装引用保留历史孩子分配，禁止同扫描改属、跨家庭和跨机器实例引用',async()=>{
+  const f=await installationFixture(),other=await installationFixture();await f.scan();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,2,'child-b',1,'override',0,0)`)
+    .bind(f.machine.machineId,f.value.localUserId).run();
+  await receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,f.input);
+  await registerProgramInstances(env.RUNTIME_DB,f.machine,{...f.value,childId:'child-b',assignmentVersion:2},2);
+  await expect(receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,{...f.input,childId:'child-b',assignmentVersion:2}))
+    .rejects.toMatchObject({code:'PROGRAM_INSTALLATION_SCOPE_CONFLICT'});
+  await expect(receiveProgramInstallationLinks(env.RUNTIME_DB,{...f.machine,accountId:other.machine.accountId},f.input))
+    .rejects.toMatchObject({status:403});
+  await expect(receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,{...f.input,links:other.input.links}))
+    .rejects.toMatchObject({code:'PROGRAM_INSTALLATION_DEPENDENCIES_PENDING'});
+  expect((await f.rows()).results).toMatchObject([{child_id:f.value.childId,assignment_version:1}]);
+});
+
+it('安装引用扫描用户不能借另一用户范围，未知字段拒绝',async()=>{
+  const f=await installationFixture();await f.scan();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,'user-b',1,?2,1,'override',0,0)`)
+    .bind(f.machine.machineId,f.value.childId).run();
+  await registerProgramInstances(env.RUNTIME_DB,f.machine,{...f.value,localUserId:'user-b'},2);
+  await expect(receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,{...f.input,localUserId:'user-b'}))
+    .rejects.toMatchObject({code:'PROGRAM_INSTALLATION_SCOPE_CONFLICT'});
+  await expect(receiveProgramInstallationLinks(env.RUNTIME_DB,f.machine,{...f.input,productId:'guessed-product'}))
+    .rejects.toMatchObject({status:400});
+  expect((await f.rows()).results).toHaveLength(0);
+});
+
+it('安装引用存储未就绪明确503，原程序实例登记不受影响',async()=>{
+  const f=await installationFixture();
+  await env.RUNTIME_DB.prepare('ALTER TABLE runtime_program_installation_links_v1 RENAME TO installation_links_test_unavailable').run();
+  try {
+    await expect(routeV2(f.request(),env,2)).rejects.toMatchObject({code:'PROGRAM_INSTALLATION_STORAGE_UNAVAILABLE'});
+    const caps=await routeV2(new Request('https://runtime.test/v2/machines/program-instances/capabilities',{
+      headers:{authorization:`Bearer ${f.token}`}}),env,2);
+    expect(await caps!.json()).toEqual({schemaVersion:1,enabled:true,capabilities:['program-instance-registration-v1']});
+    expect((await registerProgramInstances(env.RUNTIME_DB,f.machine,f.value,3)).items).toHaveLength(1);
+  } finally {
+    await env.RUNTIME_DB.prepare('ALTER TABLE installation_links_test_unavailable RENAME TO runtime_program_installation_links_v1').run();
+  }
+});
 
 it('新目录接纳经真实心跳持久化，改目录/改绑/离线不冒充当前，跨家庭不可读取',async()=>{
   const {machine,value,token}=await fixture(),user='a'.repeat(64);
@@ -467,7 +557,7 @@ it('真实机器路由认证→能力→登记→持久化→ACK；无凭据与�
     ...(body===undefined?{}:{body:JSON.stringify(body)})});
   await expect(routeV2(request('program-instances/capabilities',undefined,''),env,1)).rejects.toMatchObject({status:401});
   const caps=await routeV2(request('program-instances/capabilities'),env,2);
-  expect(await caps!.json()).toEqual({schemaVersion:1,enabled:true,capabilities:['program-instance-registration-v1']});
+  expect(await caps!.json()).toEqual({schemaVersion:1,enabled:true,capabilities:['program-instance-registration-v1','program-installation-links-v1']});
   expect((await routeV2(request('program-instances'),env,3))!.status).toBe(405);
   await expect(routeV2(request('program-instances',{...value,childId:'wrong'}),env,4)).rejects.toMatchObject({status:403});
   const response=await routeV2(request('program-instances',value),env,5);
