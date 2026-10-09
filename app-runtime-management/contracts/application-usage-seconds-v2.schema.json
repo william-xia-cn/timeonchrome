@@ -4,6 +4,573 @@
   "title": "应用权威整数秒只读快照",
   "$ref": "#/$defs/snapshot",
   "$defs": {
+    "identityQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromDate",
+        "toDate",
+        "offset"
+      ],
+      "properties": {
+        "fromDate": {
+          "$ref": "#/$defs/date"
+        },
+        "toDate": {
+          "$ref": "#/$defs/date"
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20000
+        },
+        "expectedRevision": {
+          "$ref": "#/$defs/revision"
+        },
+        "view": {
+          "enum": [
+            "base",
+            "product"
+          ],
+          "default": "base"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "offset": {
+                "minimum": 1
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "expectedRevision"
+            ]
+          }
+        }
+      ]
+    },
+    "identityBaseHour": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hour",
+        "totalSeconds"
+      ],
+      "properties": {
+        "hour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "totalSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        }
+      }
+    },
+    "identityBaseDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "status",
+        "baseRevision",
+        "manifestHash",
+        "generatedAtMs",
+        "settledThroughMs",
+        "complete",
+        "reasonCodes",
+        "totalSeconds",
+        "hours"
+      ],
+      "properties": {
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "pending_update",
+            "incomplete",
+            "unknown"
+          ]
+        },
+        "baseRevision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "manifestHash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "generatedAtMs": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "settledThroughMs": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "reasonCodes": {
+          "$ref": "#/$defs/reasons"
+        },
+        "totalSeconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hours": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 24,
+          "items": {
+            "$ref": "#/$defs/identityBaseHour"
+          }
+        }
+      }
+    },
+    "identityProductHour": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hour",
+        "categoriesSeconds"
+      ],
+      "properties": {
+        "hour": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 23
+        },
+        "categoriesSeconds": {
+          "$ref": "#/$defs/categories"
+        }
+      }
+    },
+    "identityApplicationUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nonSpecialTotal",
+        "nonSpecialCategories",
+        "specialTotal",
+        "complete",
+        "reasonCodes"
+      ],
+      "properties": {
+        "nonSpecialTotal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "nonSpecialCategories": {
+          "$ref": "#/$defs/categories"
+        },
+        "specialTotal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "reasonCodes": {
+          "$ref": "#/$defs/reasons"
+        }
+      }
+    },
+    "identityProductDay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "status",
+        "baseManifestHash",
+        "projectionHash",
+        "revision",
+        "catalogVersion",
+        "complete",
+        "reasonCodes",
+        "categoriesSeconds",
+        "hours",
+        "applicationUsage"
+      ],
+      "properties": {
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "status": {
+          "enum": [
+            "available",
+            "stale",
+            "missing",
+            "unavailable"
+          ]
+        },
+        "baseManifestHash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "projectionHash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "catalogVersion": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "reasonCodes": {
+          "$ref": "#/$defs/reasons"
+        },
+        "categoriesSeconds": {
+          "$ref": "#/$defs/categories"
+        },
+        "hours": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 24,
+          "items": {
+            "$ref": "#/$defs/identityProductHour"
+          }
+        },
+        "applicationUsage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identityApplicationUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "identitySubject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "totalSeconds",
+        "knownTotalSeconds",
+        "dailySeconds"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^((instance|observation):[a-f0-9]{64}|product:[A-Za-z0-9._:-]{1,256})$"
+        },
+        "totalSeconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 604800
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "knownTotalSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 604800
+        },
+        "dailySeconds": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 7,
+          "propertyNames": {
+            "$ref": "#/$defs/date"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 86400
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "name"
+            ]
+          },
+          "then": {
+            "properties": {
+              "key": {
+                "pattern": "^product:"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "identitySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "durationUnit",
+        "timezone",
+        "fromDate",
+        "toDate",
+        "view",
+        "revision",
+        "base",
+        "product",
+        "subjects",
+        "nextOffset"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 3
+        },
+        "durationUnit": {
+          "const": "seconds"
+        },
+        "timezone": {
+          "const": "Asia/Shanghai"
+        },
+        "fromDate": {
+          "$ref": "#/$defs/date"
+        },
+        "toDate": {
+          "$ref": "#/$defs/date"
+        },
+        "view": {
+          "enum": [
+            "base",
+            "product"
+          ]
+        },
+        "revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "base": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "complete",
+            "reasonCodes",
+            "computedAtMs",
+            "lastSettledAtMs",
+            "totalSeconds",
+            "knownTotalSeconds",
+            "days"
+          ],
+          "properties": {
+            "complete": {
+              "type": "boolean"
+            },
+            "reasonCodes": {
+              "$ref": "#/$defs/reasons"
+            },
+            "computedAtMs": {
+              "$ref": "#/$defs/timestamp"
+            },
+            "lastSettledAtMs": {
+              "$ref": "#/$defs/timestamp"
+            },
+            "totalSeconds": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 604800
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "knownTotalSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 604800
+            },
+            "days": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 7,
+              "items": {
+                "$ref": "#/$defs/identityBaseDay"
+              }
+            }
+          }
+        },
+        "product": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "days"
+              ],
+              "properties": {
+                "days": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 7,
+                  "items": {
+                    "$ref": "#/$defs/identityProductDay"
+                  }
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subjects": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/identitySubject"
+          }
+        },
+        "nextOffset": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "结构约束；七日范围、对应日、状态、日小时守恒、基础引用及分页由validateApplicationIdentityUsageSnapshot共同校验，不重新统计原账。",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "view": {
+                "const": "base"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "product": {
+                "type": "null"
+              },
+              "subjects": {
+                "items": {
+                  "properties": {
+                    "key": {
+                      "pattern": "^(instance|observation):[a-f0-9]{64}$"
+                    },
+                    "name": false
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "product": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "days"
+                ],
+                "properties": {
+                  "days": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 7,
+                    "items": {
+                      "$ref": "#/$defs/identityProductDay"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "date": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
     "revision": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9:_-]{0,159}$" },
     "seconds": { "type": "integer", "minimum": 0, "maximum": 604800 },

@@ -9,6 +9,8 @@ export const BROWSER_BRIDGE_V3_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridg
 export { APPLICATION_USAGE_SECONDS_READ_CAPABILITY, validateApplicationUsageSecondsQuery,
   validateApplicationUsageSecondsSnapshot } from './application-usage-seconds.js';
 export type { ApplicationUsageSecondsQuery, ApplicationUsageSecondsSnapshot } from './application-usage-seconds.js';
+export {APPLICATION_IDENTITY_USAGE_READ_CAPABILITY,validateApplicationIdentityUsageQuery,validateApplicationIdentityUsageSnapshot} from './application-usage-seconds.js';
+export type {ApplicationIdentityUsageQuery,ApplicationIdentityUsageSnapshot} from './application-usage-seconds.js';
 /** These capabilities never imply shared enforcement is enabled. */
 export const SHARED_QUOTA_STATE_READ_CAPABILITY = 'shared-quota-state-read' as const;
 export const SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY = 'shared-access-policy-identity-read' as const;
@@ -83,6 +85,7 @@ export interface NativeHostResponse {
   stale?: boolean;
   applicationUsage?: ApplicationUsageSnapshot;
   applicationUsageSeconds?: import('./application-usage-seconds.js').ApplicationUsageSecondsSnapshot;
+  applicationIdentityUsage?: import('./application-usage-seconds.js').ApplicationIdentityUsageSnapshot;
   /** Own-domain total only; successful reading never enables shared enforcement. */
   sourceStatistics?: import('./source-statistics.js').SourceStatisticsSnapshot;
   sharedQuota?: import('./shared-access.js').SharedQuotaStateV1;
@@ -154,7 +157,7 @@ export interface BrowserBridgeV3Envelope<TPayload = unknown> {
   protocolVersion: typeof BROWSER_BRIDGE_V3_PROTOCOL_VERSION;
   channel: 'health' | 'statistics' | 'application' | 'sharedQuota';
   requestId: string;
-  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getApplicationUsageSeconds' | 'getSharedQuotaState' | 'reportReminderResult'
+  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getApplicationUsageSeconds' | 'getApplicationIdentityUsage' | 'getSharedQuotaState' | 'reportReminderResult'
     | 'getSharedReminderState' | 'acknowledgeSharedReminderDelivery' | 'resolveSharedReminder' | 'reportBrowserActivity'
     | 'acknowledgeBrowserExecution' | 'getSharedWebSourceChallenge' | 'bindSharedWebSource' | 'replaceSharedWebContribution'
     | 'getSharedWebSourceScope' | 'bindSharedWebSourceV2' | 'replaceSharedWebContributionV2' | 'exchangeSourceStatistics';

@@ -3,9 +3,70 @@ import { readFileSync } from 'node:fs';
 import { APPLICATION_USAGE_SECONDS_READ_CAPABILITY, validateApplicationUsageSecondsQuery as query,
   validateApplicationUsageSecondsSnapshot as snapshot } from './dist/application-usage-seconds.js';
 import { validateApplicationUsageSecondsSnapshot as exportedSnapshot } from './dist/native-host.js';
+import {validateApplicationIdentityUsageQuery as identityQuery,validateApplicationIdentityUsageSnapshot as identitySnapshot} from './dist/application-usage-seconds.js';
+
+const iq={fromDate:'2026-10-09',toDate:'2026-10-09',offset:0};
+const iday={date:iq.fromDate,status:'available',baseRevision:1,manifestHash:'a'.repeat(64),generatedAtMs:1791504000000,
+  settledThroughMs:1791504000000,complete:true,reasonCodes:[],totalSeconds:600,
+  hours:Array.from({length:24},(_,hour)=>({hour,totalSeconds:hour===0?600:0}))};
+const identityBase={schemaVersion:3,durationUnit:'seconds',timezone:'Asia/Shanghai',fromDate:iq.fromDate,toDate:iq.toDate,
+  view:'base',revision:'identity-read-1',base:{complete:true,reasonCodes:[],computedAtMs:iday.generatedAtMs,lastSettledAtMs:iday.settledThroughMs,
+    totalSeconds:600,knownTotalSeconds:600,days:[iday]},product:null,
+  subjects:['b','c'].map(c=>({key:'instance:'+c.repeat(64),totalSeconds:400,knownTotalSeconds:400,dailySeconds:{[iq.fromDate]:400}})),nextOffset:null};
+assert.deepEqual(identitySnapshot(identityBase,iq),identityBase,'主体可重叠，不累加主体冒充总量');
+assert.throws(()=>identityQuery({...iq,childId:'client-chosen'}));
+assert.throws(()=>identityQuery({...iq,view:'unknown'}));
+assert.throws(()=>identityQuery({...iq,offset:100}));
+assert.throws(()=>identitySnapshot(identityBase,{...iq,expectedRevision:'different'}));
+assert.throws(()=>identitySnapshot({...identityBase,subjects:identityBase.subjects.map(s=>({...s,name:'fake'}))},iq));
+const missingProduct={...identityBase,view:'product',subjects:[],product:{days:[{date:iq.fromDate,status:'missing',baseManifestHash:iday.manifestHash,
+  projectionHash:null,revision:null,catalogVersion:null,complete:false,reasonCodes:['PRODUCT_PROJECTION_MISSING'],categoriesSeconds:{},hours:[],applicationUsage:null}]}};
+assert.deepEqual(identitySnapshot(missingProduct,{...iq,view:'product'}).base,identityBase.base,'产品缺失不影响基础600秒');
+const availableProduct=structuredClone(missingProduct);
+Object.assign(availableProduct.product.days[0],{status:'available',projectionHash:'d'.repeat(64),revision:2,catalogVersion:7,complete:true,reasonCodes:[],
+  categoriesSeconds:{study:600},hours:Array.from({length:24},(_,hour)=>({hour,categoriesSeconds:hour===0?{study:600}:{}})),applicationUsage:{nonSpecialTotal:600,nonSpecialCategories:{study:600},specialTotal:0,complete:true,reasonCodes:[]}});
+availableProduct.subjects=[{key:'product:example',name:'示例应用',totalSeconds:600,knownTotalSeconds:600,dailySeconds:{[iq.fromDate]:600}}];
+assert.equal(identitySnapshot(availableProduct,{...iq,view:'product'}).subjects[0].name,'示例应用');
+const mismatch=structuredClone(availableProduct);mismatch.product.days[0].baseManifestHash='e'.repeat(64);
+assert.throws(()=>identitySnapshot(mismatch,{...iq,view:'product'}));
+const staleProduct=structuredClone(availableProduct);staleProduct.product.days[0].status='stale';staleProduct.subjects[0].totalSeconds=null;
+assert.equal(identitySnapshot(staleProduct,{...iq,view:'product'}).base.complete,true);
+const changed=structuredClone(identityBase);changed.base.days[0].hours[0].totalSeconds=599;
+assert.throws(()=>identitySnapshot(changed,iq));
+console.log('PASS: identity base/product separation, missing/stale projection, no fabricated name, scope, dimensions and revision');
 
 const vectors=JSON.parse(readFileSync(new URL('./application-usage-seconds.vectors.json',import.meta.url),'utf8'));
 const schema=JSON.parse(readFileSync(new URL('./application-usage-seconds-v2.schema.json',import.meta.url),'utf8'));
+for(const sample of vectors.identitySamples){identityQuery(sample.query);identitySnapshot(sample.snapshot,sample.query);}
+assert.deepEqual(vectors.identitySamples.map(v=>v.snapshot),[identityBase,missingProduct,availableProduct]);
+assert.equal(schema.$defs.identitySnapshot.properties.subjects.maxItems,100);
+assert.equal(schema.$defs.identityQuery.additionalProperties,false);
+const wrongProductHour=structuredClone(availableProduct);wrongProductHour.product.days[0].hours[0].categoriesSeconds.study=599;
+assert.throws(()=>identitySnapshot(wrongProductHour,{...iq,view:'product'}));
+const independentHour=structuredClone(availableProduct);independentHour.product.days[0].hours[0].categoriesSeconds.study=599;
+independentHour.product.days[0].hours[1].categoriesSeconds.study=1;
+assert.equal(identitySnapshot(independentHour,{...iq,view:'product'}).base.totalSeconds,600,'小时分类与基础总量可有秒分配错位');
+const identityPage=structuredClone(identityBase);
+identityPage.subjects=Array.from({length:100},(_,i)=>({key:'instance:'+i.toString(16).padStart(64,'0'),totalSeconds:1,knownTotalSeconds:1,dailySeconds:{[iq.fromDate]:1}}));
+identityPage.nextOffset=100;
+assert.equal(identitySnapshot(identityPage,iq).nextOffset,100);
+const identityLast={...identityPage,subjects:identityPage.subjects.slice(0,1),nextOffset:null};
+assert.equal(identitySnapshot(identityLast,{...iq,offset:100,expectedRevision:identityPage.revision}).subjects.length,1);
+assert.throws(()=>identitySnapshot({...identityPage,nextOffset:200},iq));
+assert.throws(()=>identitySnapshot({...identityPage,subjects:identityPage.subjects.slice(0,99)},iq));
+assert.throws(()=>identitySnapshot({...identityPage,subjects:[...identityPage.subjects,identityPage.subjects[0]]},iq));
+assert.throws(()=>identitySnapshot({...identityLast,subjects:[identityLast.subjects[0],identityLast.subjects[0]]},iq));
+const twoDays=structuredClone(identityBase),nextDate='2026-10-10';
+twoDays.toDate=nextDate;
+twoDays.base.days.push({date:nextDate,status:'unknown',baseRevision:null,manifestHash:null,generatedAtMs:null,settledThroughMs:null,complete:false,reasonCodes:['STATISTICS_NOT_AVAILABLE'],totalSeconds:null,hours:[]});
+twoDays.base.complete=false;twoDays.base.totalSeconds=null;
+twoDays.base.reasonCodes=['STATISTICS_NOT_AVAILABLE'];
+twoDays.subjects.forEach(s=>{s.totalSeconds=null;s.dailySeconds[nextDate]=null;});
+assert.equal(identitySnapshot(twoDays,{...iq,toDate:nextDate}).base.knownTotalSeconds,600,'未知日保留已知日的有效数值');
+const fakeZero=structuredClone(twoDays);fakeZero.subjects[0].dailySeconds[nextDate]=0;
+assert.throws(()=>identitySnapshot(fakeZero,{...iq,toDate:nextDate}));
+assert.throws(()=>identitySnapshot({...identityBase,base:{...identityBase.base,childId:'client-chosen'}},iq));
+console.log('PASS: identity pagination, duplicate rejection, cross-day unknown preservation and exact fields');
 const base=vectors.samples[0].snapshot, first=vectors.samples[0].query;
 const copy=()=>structuredClone(base);
 let checks=0;
