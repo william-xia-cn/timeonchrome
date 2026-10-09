@@ -4,6 +4,16 @@
 
 ### 当前收口清单（覆盖下方各阶段的旧待办状态）
 
+- **证据升级接收专项结果（2026-10-10）：** 实际机器认证路由→隔离D1→正式规则映射已覆盖binaryHash初始未识别、同实例新revision补文件系列后确认、旧重放不覆盖、同hash不同位置实例不借系列，以及新revision明确撤回系列后回到未识别。program-instances 21/21、backend typecheck及diff通过，生产逻辑／接口未改。Matched＝云端现有完整证据快照替换及映射；Missing＝Native真实采集/合并/队列和扫描范围、安装状态表达及实机。已将完整快照而非云端永久union的语义回传原Native任务，避免采集遗漏被误当撤回。Cloudflare／Worker技能用于核对D1参数绑定、事务与有界处理；不将该专项称为全仓审计。不部署、不安装或新增契约版本。
+
+- **证据补齐接收端验证（实施前）：** standard-cloud，本轮仅在既有program-instances专项补充真实机器路由→登记→证据升级→映射重建回归，使用既有Windows文件系列证据，检查旧版本重放不覆盖、高版本完整快照更新、同内容不同位置仍为两个实例。云端不自行合并证据或按hash复用安装状态，采集端须上送同实例完整有效证据；明确撤回依据也通过新版本表达。只改该测试和任务板，运行该文件、typecheck及diff，不修改生产逻辑、协议、配置或原账。Cloudflare／Worker技能核对现有D1事务及有界参数，未开展全平台审查。
+
+- **Native接纳报告回读（2026-10-10）：** 已在Native仓以`git -C`核实本地提交`f817fbc7551e8c900272b02a85d455d7908c52ab`9文件范围；读取实际TRX，1.45为23/23、上一1.44为22/22，不累加。固定1.45包SHA256与架构交付一致。直接核对Coordinator.BuildProgramInstancePolicyStatusAsync→HeartbeatOnceAsync，以及WindowsSessionLauncher完整性和Summary：能力未声明省略、完整会话分母、精确ACK／当前上下文／Ready／租约、版本一致才accepted、非accepted目录null，构造失败不阻断旧心跳。Matched＝本机源码及隔离证据；未核实远端推送，未安装或生产发送；生产0020／启用、真实权限与多用户矩阵、Mac、强化规则迁移仍Missing。Native接着评估上述归属证据断点，不以本批完成替代整体身份完成。
+
+- **断点补充依据：** `ProgramObservationStore.EnqueueResolved`第117行实际只构造binaryHash；Service `ApplyObservationResolutionAsync`只向已登记的该用户观测补文件哈希，活动事实入口第2119行才以当前有效Child建立scope。旧`WindowsApplicationEvidence.FromExecutable`已有文件锁、WinVerifyTrust后文件系列和路径一致的包AUMID采集，可评估复用其核验逻辑，但不能仅按同hash把不同位置实例或不同用户的安装状态合并。Native既有任务已收到只读评估交接，继续先完成当前接纳报告批次。此次只读调查＋任务板登记，diff检查通过，未运行产品测试或改源码。
+
+- **扫描／运行证据实际断点（只读确认，待Native补齐评估）：** Native `ProgramObservationStore.ResolveAsync`附近创建的ProgramInstanceEvidence只有binaryHash；`ProgramInstanceRegistrationStore.NextAsync`还要求Verified.Count==1，故契约已支持的Windows完整AUMID／文件系列等证据不能从该队列进入新归属规则。`WindowsApplicationDiscovery.ObserveVariant`调用Observe(path,"inventory")，但该参数是unavailableKey而非持久发现来源；原有installed、scope及sourceKind留在旧AppEvidence盘点中，没有新实例关联依据。当前只能证明精确文件规则链，不能宣称新实例跨版本规则、已安装未使用筛选已贯通。请Native在现有任务核对真实扫描与运行采集→持久队列→上传，给出复用已核验证据及来源关联的最小方案／缺失项；不得按显示名、路径或运行时出现推断安装或产品。先评估，不另发包、不改原账、无安装部署；本机与云端均保持未识别合法，旧数据不追补。
+
 - **新版目录导入本批结果：** 已接schema4逐项差异→选择→草稿→既有集中保存，不导入包内版本／孩子绑定，不删除未选择条目；跨孩子共用分类规则同ID覆盖拒绝。knowledge/component、JS语法及diff通过，固定v4解析／分类消费者验证缺产品引用拒绝、孩子明确分类与其他孩子绑定保留；新增文件迟到回归覆盖后读优先、关闭及切换孩子不写入。agent-browser独立回环mock真实选择文件，未勾选拒绝、勾选产品及归属规则后保存7→8，回读原两个孩子绑定不变、外部绑定未进入，桌面与390px手机截图已目视。该夹具不提供云端预览接口，未将保存mock冒充云端联调。Matched＝导入源码／专项／隔离界面；Missing＝安装范围依据、Native实际接纳报告、强化迁移、控件获准复验和跨端实机；Deviated／Extra＝无。仅本地提交本批4文件，不推送、不安装部署、生产迁移或启共享；旧数据尽力而为，原未跟踪产物保留。
 
 - **新版目录导入（实施前）：** standard-cloud，复用现有schema4目录预览／保存，不新增HTTP入口或匹配器。只将导入包products／ownershipRules／rules的逐项差异加入内存草稿，不删除未选择条目，不采用包内version或孩子bindings；明确提示产品／归属规则为家庭共用，分类规则仅批准当前孩子，当前孩子明确分类及其他孩子绑定保留。已被其他孩子批准的同ID分类规则不能隐式覆盖，须使用新ID。无选择不修改，坏格式／依赖缺项保留草稿并经现有云端校验拒绝；文件迟到读取受当前孩子／弹窗代次隔离。仅knowledge/component专项、固定解析器、语法／diff和隔离目视，不部署或改第三层映射。

@@ -386,6 +386,41 @@ it('真实机器路由认证→能力→登记→持久化→ACK；无凭据与�
   await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET revoked_at_ms=7 WHERE id=?').bind(machine.machineId).run();
   await expect(routeV2(request('program-instances',value),env,8)).rejects.toMatchObject({status:401});
 });
+it('文件系列证据经真实登记升级并重建归属，旧重放不覆盖，同内容不同位置不混实例',async()=>{
+  const {machine,value,token}=await fixture(),series='c'.repeat(64);
+  await saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId],'"application-knowledge-v0"',{
+    schemaVersion:4,version:0,products:[{id:'series-product',name:'系列产品',type:'other'}],rules:[],bindings:[],
+    ownershipRules:[{id:'series-rule',revision:1,enabled:true,platform:'windows',productId:'series-product',
+      match:{kind:'windowsFileSeries',fileSeriesKey:series}}]},1);
+  const send=async(body:unknown)=>{
+    const deferred:Promise<unknown>[]=[];
+    const response=await routeV2(new Request('https://runtime.test/v2/machines/program-instances',{
+      method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)}),env,2,p=>deferred.push(p));
+    expect(response?.status).toBe(200);await Promise.all(deferred);
+    return await response!.json() as {items:Array<{instanceId:string;evidenceRevision:number;evidenceHash:string}>};
+  };
+  const first=await send(value),id=first.items[0].instanceId;
+  const query={childId:value.childId,localUserId:value.localUserId,assignmentVersion:1,instanceIds:[id]};
+  expect((await readProgramInstanceMappings(env.RUNTIME_DB,machine,query)).items[0].status).toBe('unresolved');
+  const upgraded={...value,items:[{...value.items[0],evidenceRevision:2,evidence:{platform:'windows',
+    verified:{binaryHash:'a'.repeat(64),windowsFileSeriesKey:series}}}]};
+  const second=await send(upgraded);
+  expect(second.items[0]).toMatchObject({instanceId:id,evidenceRevision:2});
+  expect((await readProgramInstanceMappings(env.RUNTIME_DB,machine,query)).items[0])
+    .toMatchObject({status:'confirmed',productId:'series-product',evidenceRevision:2});
+  expect(await send(value)).toEqual(second);
+  const separate=await send({...value,items:[{...value.items[0],instance:{...value.items[0].instance,locationRef:'2'.repeat(32)}}]});
+  expect(separate.items[0].instanceId).not.toBe(id);
+  const both=await readProgramInstanceMappings(env.RUNTIME_DB,machine,{...query,instanceIds:[id,separate.items[0].instanceId]});
+  expect(both.items.find(item=>item.instanceId===id)?.status).toBe('confirmed');
+  expect(both.items.find(item=>item.instanceId===separate.items[0].instanceId)?.status).toBe('unresolved');
+  // 接收完整证据快照而不是永久并集：明确撤回不再有效的系列依据后，允许恢复未识别。
+  await send({...value,items:[{...value.items[0],evidenceRevision:3}]});
+  expect((await readProgramInstanceMappings(env.RUNTIME_DB,machine,query)).items[0])
+    .toMatchObject({status:'unresolved',productId:null,evidenceRevision:3});
+  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_program_instances_v1 WHERE machine_id=?')
+    .bind(machine.machineId).first('n')).toBe(2);
+});
 it('保存后ACK、重复不增加、下降版本不覆盖、更高证据修订可替换',async()=>{
   const {machine,value}=await fixture();
   const first=await registerProgramInstances(env.RUNTIME_DB,machine,value,1);
