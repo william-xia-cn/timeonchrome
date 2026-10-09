@@ -10,6 +10,7 @@ import { getAppPolicy, putAppPolicy } from '../src/appPolicy';
 import { parseProductOwnershipEvidence, resolveProgramInstanceClassification } from '@timeonchrome/app-runtime-contracts/classification';
 import { parseProgramInstanceProjectionContext } from '@timeonchrome/app-runtime-contracts/classification-validation';
 import {readProgramPolicyStatus,receiveProgramPolicyStatus} from '../src/programPolicyStatus';
+import { updateUserAssignment } from '../src/v2Repository';
 
 it('新目录接纳经真实心跳持久化，改目录/改绑/离线不冒充当前，跨家庭不可读取',async()=>{
   const {machine,value,token}=await fixture(),user='a'.repeat(64);
@@ -57,6 +58,30 @@ async function fixture() {
     evidenceRevision:1,evidence:{platform:'windows',verified:{binaryHash:'a'.repeat(64)}}}]};
   return {machine,value,token};
 }
+it('正式改绑递增分配版本，旧实例补发保留原孩子且不能冒充新孩子',async()=>{
+  const {machine,value}=await fixture(),childB=crypto.randomUUID();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machine_users_v2
+    (machine_id,local_user_id,display_name,first_seen_at_ms,last_seen_at_ms) VALUES(?1,?2,'测试用户',0,0)`)
+    .bind(machine.machineId,value.localUserId).run();
+  const changed=await updateUserAssignment(env.RUNTIME_DB,{
+    iss:'test',aud:'app-runtime-management:account',sub:'test-parent',account_id:machine.accountId,
+    children:[{id:value.childId,name:'A'},{id:childB,name:'B'}],iat:0,exp:1000,jti:'test-assignment',
+  },machine.machineId,value.localUserId,{protected:true,childId:childB},10);
+  expect(changed?.policyVersion).toBe(2);
+  const rows=await env.RUNTIME_DB.prepare(`SELECT assignment_version,child_id FROM runtime_user_assignments_v2
+    WHERE machine_id=?1 AND local_user_id=?2 ORDER BY assignment_version`)
+    .bind(machine.machineId,value.localUserId).all();
+  expect(rows.results).toEqual([{assignment_version:1,child_id:value.childId},{assignment_version:2,child_id:childB}]);
+  // 云端接受改绑前已固定的待发发现；接收时不得把它重标给当前孩子。
+  await registerProgramInstances(env.RUNTIME_DB,machine,value,11);
+  expect((await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,value.childId,null)).items).toHaveLength(1);
+  expect((await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,childB,null)).items).toEqual([]);
+  await expect(registerProgramInstances(env.RUNTIME_DB,machine,{...value,childId:childB},12))
+    .rejects.toMatchObject({code:'PROGRAM_INSTANCE_CHILD_SCOPE_MISMATCH'});
+  await registerProgramInstances(env.RUNTIME_DB,machine,{...value,childId:childB,assignmentVersion:changed!.policyVersion},13);
+  expect((await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,childB,null)).items).toHaveLength(1);
+  expect((await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,value.childId,null)).items).toHaveLength(1);
+});
 it('家长用户读取返回新目录接纳；损坏诊断不阻断账户分配，其他家庭不可读',async()=>{
   const {machine,value}=await fixture(),user='b'.repeat(64),token=randomToken('');
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machine_users_v2

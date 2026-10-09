@@ -4,6 +4,10 @@
 
 ### 当前收口清单（覆盖下方各阶段的旧待办状态）
 
+- **扫描分配版本依据补验（实施前）：** standard-cloud，仅在program-instances专项调用正式updateUserAssignment验证A→B分配版本递增、旧分配保留及原范围补发不改属；旧版本自报新Child须拒绝，已固定A范围的云端待发仍可归A，不误改成“所有旧上传拒绝”。Native实时扫描接纳则须匹配当前分配，二者不是同一边界。不新增Child冗余字段或凭据，不改生产函数；最小验证为该专项、typecheck及diff，Cloudflare／Worker技能用于核对现有参数化存储和版本约束。
+
+  结果：program-instances 24/24通过。新增用例通过正式分配函数及实际隔离D1证明version1/A→version2/B、旧记录不变，旧版本冒充B拒绝，A历史补发与B新范围分别保留；不是直接改DB伪造改绑。生产写入只新增分配，(machine,user,version)主键约束，复用该范围，不新增Child重复字段。此证据不代表生产实机改绑已测。
+
 - **扫描登记批次（2026-10-10，源码修复与隔离验证中）：**
   - 已接正式扫描→认证Service→持久登记→冻结上传；扫描不生成用量。根任务直接读取Native `.tmp/program-discovery/discovery.trx`首批4/4通过，覆盖同内容两位置、改绑及运输／Service重启、错误用户／机器／未分配、内容更新和三路回执隔离。
   - 交叉审查发现并在草稿修正：不同用户可有相同assignmentVersion，故固定Service给定LocalUserId并核对管道用户；原盘点与证据补发共用单pending回执会抛INVENTORY_RECEIPT_PENDING，现分流；原逐文件等待20秒改为整次扫描共享捕获等待预算。均不是已证实生产故障，不引入新凭据，不改原账。
