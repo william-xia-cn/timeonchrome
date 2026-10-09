@@ -190,3 +190,36 @@ async function ownershipPreviewTests(){
   component.dispose();console.log('PASS: ownership drafts preserve bindings, server-only preview, paging, stale edits, errors and Child isolation');
 }
 ownershipPreviewTests().catch(error=>{console.error(error);process.exitCode=1;});
+
+async function ownershipSaveTests(){
+  const listeners={},elements={},pending=[],calls=[];let childId='child-a';
+  const dialog={open:false,showModal(){this.open=true;},close(){this.open=false;}};
+  const element=id=>elements[id]??(elements[id]={innerHTML:'',value:'',querySelectorAll:()=>[]});
+  const root={ownerDocument:{},querySelector:s=>s==='#instance-dialog'?dialog:element(s),querySelectorAll:()=>[],
+    addEventListener:(type,handler)=>listeners[type]=handler,removeEventListener:()=>{}};
+  const component=K.mount({root,getContext:()=>({childId}),request:(url,options)=>{calls.push({url,options});return new Promise((resolve,reject)=>pending.push({resolve,reject}));},
+    onSaved:()=>assert.fail('new catalog must not refresh legacy consumers'),onError:()=>assert.fail('save errors remain in draft')});
+  const click=(id,dataset={})=>listeners.click({target:{closest:()=>({id,dataset})}});
+  const settle=()=>new Promise(resolve=>setImmediate(resolve));
+  const opening=component.open('instance');pending.shift().resolve({childId,catalogVersion:7,items:[{...verifiedInstance,instanceId:'a'.repeat(64),machineId:'m',platform:'windows',status:'unresolved',evidenceRevision:1}],nextAfterInstanceId:null});await opening;
+  click('ownership-open');pending.shift().resolve({state:'available',version:7,catalog:ownershipCatalog});await settle();
+  click('ownership-save');const saving=calls.at(-1),count=calls.length;
+  assert.equal(saving.options.method,'PUT');assert.equal(saving.options.headers['If-Match'],'"application-knowledge-v7"');
+  assert.deepEqual(JSON.parse(saving.options.body),ownershipCatalog);
+  click('ownership-save');click('ownership-open');click('ownership-add');assert.equal(calls.length,count);
+  pending.shift().resolve({state:'available',version:8,catalog:{...ownershipCatalog,version:8},mappingState:'pending'});await settle();
+  assert.match(element('#ownership-panel').innerHTML,/目录版本 8 已保存/);
+  assert.match(element('#ownership-panel').innerHTML,/终端执行尚未确认/);
+  assert.doesNotMatch(element('#ownership-panel').innerHTML,/未保存、未生效/);
+  click('ownership-save');assert.equal(calls.length,count);
+  element('#ownership-evidence').value='0';element('#ownership-product').value='0';click('ownership-add');await settle();
+  click('ownership-save');const draft=JSON.parse(calls.at(-1).options.body);assert.equal(draft.ownershipRules.length,1);
+  pending.shift().reject(Object.assign(Error('private server content'),{code:'APPLICATION_KNOWLEDGE_CONFLICT'}));await settle();
+  assert.match(element('#ownership-panel').innerHTML,/草稿已保留/);assert.doesNotMatch(element('#ownership-panel').innerHTML,/private server/);
+  click('ownership-save');assert.deepEqual(JSON.parse(calls.at(-1).options.body),draft);
+  childId='child-b';const prior=element('#ownership-panel').innerHTML;
+  pending.shift().resolve({state:'available',version:9,catalog:{...draft,version:9},mappingState:'pending'});await settle();
+  assert.equal(element('#ownership-panel').innerHTML,prior);
+  component.dispose();console.log('PASS: catalog PUT, conditional version, duplicate guard, pending vs execution, retained conflict draft and late child response');
+}
+ownershipSaveTests().catch(error=>{console.error(error);process.exitCode=1;});

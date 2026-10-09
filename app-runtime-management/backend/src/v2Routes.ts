@@ -1,5 +1,5 @@
 import { requireAccountModule, requireMachine } from './auth';
-import { listChildProgramInstances, readProgramInstanceCatalog, previewProgramInstanceCatalog } from './programInstances';
+import { listChildProgramInstances, readProgramInstanceCatalog, previewProgramInstanceCatalog, saveProgramInstanceCatalog } from './programInstances';
 import { routeApplicationAccounts } from './applicationAccounts';
 import { registerProgramInstances, readProgramInstanceMappings, programInstanceStorageReady, PROGRAM_INSTANCE_REGISTRATION_CAPABILITY, matchRegisteredProgramInstances, readChildProgramIdentityProjection, readProgramInstanceProjectionContext } from './programInstances';
 import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota, applicationSharedQuotaSourceKey } from './applicationSharedQuota';
@@ -188,9 +188,19 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
         {headers:{'cache-control':'no-store'}});
     }
     if(url.pathname === '/v2/module/program-instance-catalog') {
-      if(request.method!=='GET')return methodNotAllowed('GET');
-      const result=await readProgramInstanceCatalog(env.RUNTIME_DB,claims.account_id);
-      return jsonResponse(result,{headers:{etag:knowledgeEtag(result.version),'cache-control':'no-store'}});
+      if(request.method==='GET') {
+        const result=await readProgramInstanceCatalog(env.RUNTIME_DB,claims.account_id);
+        return jsonResponse(result,{headers:{etag:knowledgeEtag(result.version),'cache-control':'no-store'}});
+      }
+      if(request.method==='PUT') {
+        if(!await programInstanceStorageReady(env.RUNTIME_DB))
+          throw new HttpError(503,'PROGRAM_INSTANCE_STORAGE_UNAVAILABLE','实例映射存储尚未就绪。');
+        const catalog=await saveProgramInstanceCatalog(env.RUNTIME_DB,claims.account_id,claims.children.map(child=>child.id),
+          request.headers.get('if-match'),await readJsonBody(request),nowMs);
+        return jsonResponse({state:'available',version:catalog.version,catalog,mappingState:'pending'},
+          {headers:{etag:knowledgeEtag(catalog.version),'cache-control':'no-store'}});
+      }
+      return methodNotAllowed('GET, PUT');
     }
     if (url.pathname.startsWith('/v2/module/application-knowledge/')) {
       if (request.method !== 'POST') return methodNotAllowed('POST');

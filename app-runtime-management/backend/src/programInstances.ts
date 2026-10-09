@@ -88,7 +88,7 @@ export async function previewProgramInstanceCatalog(db:D1Database,accountId:stri
     nextAfterInstanceId:page.nextAfterInstanceId};
 }
 
-/** 调用者提供家长鉴权后的家庭及孩子集合；尚未接入生产管理路由。 */
+/** 调用者提供家长鉴权后的家庭及孩子集合；目录与审计原子保存，映射由有界恢复任务重建。 */
 export async function saveProgramInstanceCatalog(db:D1Database,accountId:string,childIds:readonly string[],
   expected:string|null,input:unknown,nowMs:number) {
   const next=(()=>{try {return parseApplicationKnowledgeV4(input);} catch(error) {

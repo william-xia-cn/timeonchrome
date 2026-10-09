@@ -4,6 +4,55 @@
 
 ### 当前收口清单（覆盖下方各阶段的旧待办状态）
 
+#### 本轮待完成项（先登记再实施）
+
+- **页面保存接线实施前：** standard-cloud，既有app-runtime-knowledge组件及专项测试；两套云端共用组件追加保存／重新读取和分离状态，不修改扩展。覆盖成功、重复点击、版本冲突、草稿保留、孩子切换及迟到响应；node知识组件／管理组件专项、语法与diff，另用agent-browser技能完成隔离桌面／手机目视。不访问生产、不运行无关全量测试。Native已回报集中提交dd071c2，源码与实机仍分开，疑似强化迁移及完整能力／审计缺口继续Missing。
+
+| 问题 | 当前影响 | 本轮处置 |
+|---|---|---|
+| 规则目录保存入口 | 本轮源码已接通，17项隔离测试通过；未部署 | 已复用家长鉴权PUT、条件更新及审计；保存只确认目录，不冒充终端执行 |
+| 管理页面保存及生效状态 | 本轮共用组件已接源码及隔离目视，未部署 | 可保存／重新读取；分别显示目录保存、映射待重建、终端执行未确认，不把状态混同 |
+| 控件新身份读取专项未完成复验 | 新读取模型尚不能交付 | 修正后的专项补跑仍待批准，其余独立工作继续 |
+| Native新执行仅有隔离证据 | 不能宣称当前安装版本已生效 | 源码集中收口后统一候选与实机核验，不反复安装 |
+| Mac及历史归集缺口 | 平台实机与部分旧身份未验证 | Mac单列；旧账尽力而为，不阻塞当前新账链路、不猜补归属 |
+
+本轮职责standard-cloud；允许现有Runtime后端路由／实例测试与设计任务记录，必要测试为该文件、typecheck和diff。无新分支、工作树、生产保存、部署、安装或migration。
+
+- **页面接线结果：** 知识组件新增条件PUT、重复提交／编辑保护、失败保留草稿、迟到孩子结果丢弃和保存后独立状态；两套云端使用同一canonical组件。knowledge和component专项、node语法、diff通过。agent-browser独立本地内存夹具完成保存及1440px桌面／390px手机截图目视，手机scrollWidth=390；截图保存在受限本地Temp的identity-save-desktop.png、identity-save-mobile.png及identity-save-mobile-actions.png，不入Git。无真实家庭请求。旧目录仍明确不猜转换，完整新版产品管理与终端状态联调继续待验；保存成功不等于执行通过。
+
+- **本轮执行结果：** `PUT /v2/module/program-instance-catalog`已接入现有保存事务，返回服务端目录版本／ETag和`mappingState: pending`，沿现有恢复任务重建。17项实例专项与backend typecheck通过；新增真实路由验证未登录、缺If-Match、跨孩子、手写映射、未经授权强化封锁拒绝；保存／重放冲突／撤销与审计、pending→confirmed／unresolved通过。首轮新夹具缺少必填blocked分类被正确拒绝，补齐夹具后通过，未放宽校验。Matched＝本轮后端保存接线；Missing＝页面保存操作、集中端到端实机和Mac；Extra＝无生产操作。控件待批准补验独立保留，不以本轮测试替代。
+
+#### 最新执行状态（2026-10-09，覆盖下方“准备提交”等旧时点）
+
+- **规则正式保存源码接线（实施前，未部署）：** Native受影响221项及正式Agent接收循环已回读通过；源码消费者前置已有证据，继续standard-cloud现有catalog路由PUT，复用家长鉴权／If-Match／唯一版本审计和内部保存函数。成功仅表示目录已保存、映射待重建，不冒称执行ACK；沿现有cron恢复映射。只改既有路由、相关测试和文档，不执行生产保存或migration；单文件实例测试、backend typecheck、diff。控件新专项待批准不影响此独立云端接线。
+
+- **两端本批新增证据（尚未整体交付）：** 已回读Native实际dotnet输出，ProgramInstancePolicy／ServiceApplicationBinding／WindowsProgramObservationPipeline／FormalSessionReminderMessage四组过滤43项通过；其后新增切换保护检查仍在执行，不能把43项当最终全部通过。控件local-guardian运输层修订后通过；Playwright备用隔离夹具已产1440px桌面及390px手机截图，当前会话已目视新基础实例／产品两区、未知保留及不相加说明，手机表格为内部宽表，页面宽390。此证据只覆盖新增区块，不代表完整Admin真实连接／数据来源验收；新读取专项一次补跑批准仍待。
+
+- **控件回报（尚未完成）：** 四处身份读取夹具已修正；local-guardian真实契约注入后通过，旧应用读取／Admin渲染、typecheck、extension-root、语法及diff通过。新专项受同命令两次失败停止规则限制，修正后尚未执行，已向用户集中申请一次复验；不算通过。运输层新请求专项与Admin隔离目视仍缺，已交所属任务继续，不让单条复验批准阻断其他工作；未提交、打包、发布。
+
+- **Native执行接线审查续项：** 只读确认最新代码已从当前分配全部缓存取MAX catalog，再筛同版confirmed，前述旧目录选择问题源码已修、测试回报待。另交所属任务集中核对Agent收到分配变更立即撤销旧决定／拒绝旧assignment，以及Coordinator每秒持原账stateGate读最多1000条并写pipe的开销；按现有有界节奏处理，不引入实时强一致或额外身份体系。尚未验收，不把草稿变化作为运行已修。
+
+- **分类上下文实际接线补验（实施前）：** standard-cloud，在同一实例测试文件将真实机器鉴权projection-context响应交固定契约解析与分类消费者，验证显式blocked、改为other、取消显式后旧排除证据缺失为unknown；不只验证空rules响应。仅相关单文件、typecheck、diff，无产品源码变更，不重跑页面或安装器。
+- **分类上下文补验通过：** 实际路由返回的非空rules／binding经固定解析器进入分类函数，blocked→other更新正确；取消显式配置后缺旧排除证据返回unknown而非blocked。目录版本依次1/2/3。16项实例测试及backend typecheck通过；这是云端到共同消费者的隔离接线证据，Native实际动作和实机仍未验收。
+
+- **新执行消费者只读审查发现实际边界（待Native修正）：** 当前未提交ProgramInstancePolicyBuilder先过滤confirmed，再从该子集取最高catalog；新版本只有pending／unresolved／conflict时可能继续选择旧版本blocked。已交Native按当前分配全部已知上下文确定目录版本，再选择同版可执行决定，并补旧v1封锁→新v2未识别的实际Store回归。不得靠增加TTL或重新猜配解决；当前只是未发布源码，未影响运行服务。规则正式保存仍未开放。
+
+- **规则复用真实存储链补验（实施前）：** standard-cloud，仅现有program-instances.test.ts；同家庭两孩子／两机器登记相同文件内容的不同实例，使用同一规则分别生成映射，经规则改向、冲突、撤销再生成。核对机器鉴权读取及证据内容保持不变、跨孩子拒绝；不直接修改第三层，不开放HTTP保存。运行该文件、backend typecheck、diff，不跑全量或生产操作。Cloudflare／Worker技能用于现有D1事务与绑定审查；在线参考获取暂失败，使用已安装workers-types 4.20260702.1的D1 batch定义，不新增平台API。
+- **本轮补验结果：** 15项program-instances测试及backend typecheck通过。新增实际D1／机器鉴权读取验证同规则跨孩子生成不同实例映射，P→Q改向、双规则冲突、撤销均先pending再重建；两孩子分别正确，证据逐值不变，跨孩子请求403。首次运行因D盘Vite临时文件写权限未启动，限定权限重试通过，不是用例失败。未开放规则HTTP保存、未改变产品源码或生产状态；Matched为此隔离链，正式执行和实机仍Missing。
+
+| 待完成事项 | 已有结果／当前问题 | 接下来执行 |
+|---|---|---|
+| Native分类消费者 | 1.44固定契约已交付；Native正在接实际Projector，尚未回报通过 | 修复四个已复现缺证据／占位身份反例，复用共同向量；基础统计不受影响 |
+| 控件新读取与页面 | 已有未提交实现，专项测试两次失败，尚非可交付 | 先只读定位夹具与固定契约差异，再由控件所属任务修正和验证，不放宽协议校验 |
+| 新身份执行消费者 | 现有docs/DESIGN.md已固定本机快照／ACK，但Native尚未接线 | 明确该消息为Native内部认证管道协议，不是Host共享包接口；按既有设计实施隔离验证 |
+| 规则正式保存与生效 | 只有读取／草稿／预览，HTTP保存未开放 | 在执行消费者与兼容边界完成后集中接通，不用预览冒充生效 |
+| 集中实机／Mac | 本轮没有安装、部署、生产migration或新执行验收 | 源码集中收口后另列最终候选与联调；Mac单列，历史尽力而为 |
+
+云端源码已集中提交`0b3764dc718c92c3bff9998cdcbb32d9c54c89ae`，不再列为未提交；固定契约提交`abbbc5a95bac1578205feb33ec96c88046961b05`。这两个提交不等于生产发布。当前只更新既有任务记录、只读核验真实消费者并交所属任务继续；文档检查为git diff --check，不重跑未变云端代码测试。
+
+- **控件专项失败已定位到具体夹具：** `application-identity-usage-read-model.test.js`产品applicationUsage使用旧Ms字段，但固定1.43解析要求秒字段；多日dailySeconds每日至3600而行总量固定3600；产品分页key重复；contextOnly统一拦截使legacy毫秒上下文分支不可达。已交所属控件任务按真实契约修正并复验，不放宽解析器、不由当前会话编辑扩展。本结论不是实际消费者通过证明。
+- **Native执行消息边界已回传：** 复用docs/DESIGN.md现有本机认证pipe快照／ACK方案，属于Native内部协议，不要求在1.44 Host共享包寻找DTO；不复制产品matcher。未知／失效结果不新增封锁，沿用现有时效依据，不自创更严格TTL。分类修复与执行隔离验证继续，实际服务／政策不变；疑似强化执行迁移仍待处理。
+
 - **云端源码集中提交准备：** standard-cloud，收口现有程序实例登记／映射、schema3基础统计和独立产品投影接收、同源读取及两套云端页面。只提交已有同主题源码／隔离测试／本地migration文件及设计，不应用migration，不开放规则HTTP保存，不部署。测试例外仅`tests/unit/computer-usage-cloud.test.js`（Guardian/Runtime读取边界）。复用已完成桌面／手机目视，运行直接相关实例／应用账户／电脑证据测试、既有页面组件测试、两侧typecheck和diff；保留Native执行、控件接入和正式联调Missing，不把该提交称最终交付。
 - **集中源码审计：** Matched＝实例证据鉴权持久化／映射、基础和产品分别上传读取、两套页面与失败隔离、只读规则草稿；Deviated＝无已知未批准变更；Missing＝规则正式保存／新执行消费者／两端实机／Mac；Extra＝无安装部署。3个直接相关Worker文件57项、内存SQLite约束、Guardian读取、页面component／knowledge／time／renderer、根及backend类型检查、diff通过；复用相同页面源码已完成的隔离桌面／手机目视。不以此认定全部功能完成或可发布。Cloudflare及Worker技能用于绑定、读模型和隔离验证审查。
 

@@ -7,6 +7,8 @@ import { routeV2 } from '../src/v2Routes';
 import { readChildProgramIdentityProjection, listChildProgramInstances } from '../src/programInstances';
 import { getApplicationKnowledge, putApplicationKnowledge } from '../src/applicationKnowledge';
 import { getAppPolicy, putAppPolicy } from '../src/appPolicy';
+import { parseProductOwnershipEvidence, resolveProgramInstanceClassification } from '@timeonchrome/app-runtime-contracts/classification';
+import { parseProgramInstanceProjectionContext } from '@timeonchrome/app-runtime-contracts/classification-validation';
 
 async function fixture() {
   const machine: MachineSelfResponse = {machineId:crypto.randomUUID(), accountId:crypto.randomUUID(),
@@ -97,7 +99,7 @@ it('新版目录下两种旧盘点仍事务保存并ACK，不运行旧识别政�
     version:1,classifications:[{runtimeIdentity:'legacy-app',classification:'blocked'}],
   });
 });
-it('规则目录实际读取按家庭鉴权，区分空与旧格式，不接受写入或静默转换',async()=>{
+it('规则目录实际读取按家庭鉴权，区分空与旧格式，拒绝不支持方法或静默转换',async()=>{
   const {machine,value}=await fixture(),token=randomToken('');
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
     (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms) VALUES(?1,?2,?3,0,1000,0)`)
@@ -120,12 +122,52 @@ it('规则目录实际读取按家庭鉴权，区分空与旧格式，不接受�
   const ready=await routeV2(request(),env,3);
   expect(await ready!.json()).toEqual({state:'available',version:2,catalog:saved});
   expect(ready!.headers.get('etag')).toBe('"application-knowledge-v2"');
-  expect((await routeV2(request('PUT'),env,3))!.status).toBe(405);
+  expect((await routeV2(request('DELETE'),env,3))!.status).toBe(405);
   expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_versions_v1 WHERE account_id=?')
     .bind(machine.accountId).first('n')).toBe(2);
   await env.RUNTIME_DB.prepare('INSERT INTO runtime_application_knowledge_versions_v1 VALUES(?1,3,?2,?3,3)')
     .bind(machine.accountId,JSON.stringify({...saved,version:2}),'invalid').run();
   await expect(routeV2(request(),env,4)).rejects.toMatchObject({code:'PROGRAM_INSTANCE_CATALOG_INVALID'});
+});
+it('目录保存实际路由条件更新并审计，映射待重建，拒绝越界及直接改映射',async()=>{
+  const {machine,value}=await fixture(),token=randomToken('');
+  const receipt=await registerProgramInstances(env.RUNTIME_DB,machine,value,1);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
+    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms) VALUES(?1,?2,?3,0,1000,0)`)
+    .bind(await sha256Hex(token),machine.accountId,JSON.stringify([{id:value.childId,name:'测试孩子'}])).run();
+  const catalog={schemaVersion:4,version:999,products:[{id:'p',name:'产品',type:'other'}],rules:[],bindings:[],
+    ownershipRules:[{id:'r',revision:1,enabled:true,platform:'windows',productId:'p',match:{kind:'binaryHash',sha256:'a'.repeat(64)}}]};
+  const save=(body:unknown=catalog,etag:string|null='"application-knowledge-v0"',auth=true)=>routeV2(
+    new Request('https://runtime.test/v2/module/program-instance-catalog',{method:'PUT',
+      headers:{'content-type':'application/json',...(auth?{authorization:`RuntimeSession ${token}`}:{ }),
+        ...(etag?{'if-match':etag}:{})},body:JSON.stringify(body)}),env,3);
+  await expect(save(catalog,null,false)).rejects.toMatchObject({status:401});
+  await expect(save(catalog,null)).rejects.toMatchObject({status:412});
+  await expect(save({...catalog,bindings:[{childId:'another-child',products:[],ruleIds:[]}]}))
+    .rejects.toMatchObject({status:404,code:'CHILD_NOT_FOUND'});
+  await expect(save({...catalog,mappings:[]})).rejects.toMatchObject({status:400});
+  await expect(save({...catalog,bindings:[{childId:value.childId,ruleIds:[],products:[{productId:'p',classification:'blocked',enhancedBlocking:true}]}]}))
+    .rejects.toMatchObject({status:400,code:'PRODUCT_BLOCK_APPROVAL_REQUIRED'});
+  const response=await save();
+  expect(response!.status).toBe(200);
+  expect(response!.headers.get('etag')).toBe('"application-knowledge-v1"');
+  expect(response!.headers.get('cache-control')).toBe('no-store');
+  expect(await response!.json()).toEqual({state:'available',version:1,catalog:{...catalog,version:1},mappingState:'pending'});
+  const query={childId:value.childId,localUserId:value.localUserId,assignmentVersion:1,
+    instanceIds:receipt.items.map(item=>item.instanceId)};
+  expect((await readProgramInstanceMappings(env.RUNTIME_DB,machine,query)).items[0].status).toBe('pending');
+  await expect(save()).rejects.toMatchObject({status:412});
+  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_audit_v1 WHERE account_id=?')
+    .bind(machine.accountId).first('n')).toBe(1);
+  await refreshPendingProgramInstanceMappings(env.RUNTIME_DB);
+  expect((await readProgramInstanceMappings(env.RUNTIME_DB,machine,query)).items[0]).toMatchObject({status:'confirmed',productId:'p'});
+  const withdrawn=await save({...catalog,ownershipRules:[]},'"application-knowledge-v1"');
+  expect(await withdrawn!.json()).toMatchObject({version:2,mappingState:'pending'});
+  expect((await readProgramInstanceMappings(env.RUNTIME_DB,machine,query)).items[0].status).toBe('pending');
+  await refreshPendingProgramInstanceMappings(env.RUNTIME_DB);
+  expect((await readProgramInstanceMappings(env.RUNTIME_DB,machine,query)).items[0]).toMatchObject({status:'unresolved',productId:null});
+  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_audit_v1 WHERE account_id=?')
+    .bind(machine.accountId).first('n')).toBe(2);
 });
 it('旧目录消费者不能误读或降级覆盖新版规则，既有版本和政策保持不变',async()=>{
   const {machine,value}=await fixture();
@@ -364,6 +406,82 @@ it('当前分配读取持久映射；旧规则和新证据使结果待更新，�
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,2,'child-b',1,'override',10,10)`)
     .bind(machine.machineId,value.localUserId).run();
   await expect(read()).rejects.toMatchObject({status:403});
+});
+
+it('机器实际分类上下文支持显式封锁和解除，缺排除证据不会变为自动封锁',async()=>{
+  const {machine,value,token}=await fixture();
+  const receipt=await registerProgramInstances(env.RUNTIME_DB,machine,value,1);
+  const instanceId=receipt.items[0].instanceId;
+  const query={childId:value.childId,localUserId:value.localUserId,assignmentVersion:1,instanceIds:[instanceId]};
+  const rule={id:'class-rule',name:'分类规则',kind:'product',productId:'p',match:{operator:'all',conditions:[]},
+    exclude:[{operator:'all',conditions:[{field:'fileSeriesKey',value:'b'.repeat(64)}]}],
+    mode:'automatic',classification:'blocked',type:'other',enabled:true,source:'fixture',reason:'隔离接线回归'};
+  const catalog={schemaVersion:4,version:0,products:[{id:'p',name:'产品P',type:'other'}],
+    ownershipRules:[{id:'own',revision:1,enabled:true,platform:'windows',productId:'p',
+      match:{kind:'binaryHash',sha256:'a'.repeat(64)}}],rules:[rule]};
+  const cases=[{classification:'blocked',status:'explicit'},{classification:'other',status:'explicit'},
+    {classification:null,status:'unknown'}];
+  for(let index=0;index<cases.length;index++){
+    const expected=cases[index];
+    await saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId],
+      `"application-knowledge-v${index}"`,{...catalog,bindings:[{childId:value.childId,ruleIds:[rule.id],
+        products:expected.classification?[{productId:'p',classification:expected.classification}]:[]}]},index+2);
+    await materializeProgramInstanceMappings(env.RUNTIME_DB,machine.accountId,value.childId,[{machineId:machine.machineId,instanceId}]);
+    const response=await routeV2(new Request('https://runtime.test/v2/machines/program-instances/projection-context/read',{
+      method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(query)}),env,10);
+    const context=parseProgramInstanceProjectionContext(await response!.json(),query);
+    expect(context.catalogVersion).toBe(index+1);
+    expect(context.rules).toEqual([rule]);
+    expect(resolveProgramInstanceClassification(context,value.childId,instanceId,
+      parseProductOwnershipEvidence(value.items[0].evidence))).toMatchObject(expected);
+  }
+});
+
+it('同家庭两孩子复用归属规则，改向冲突撤销通过规则重建且不改变实例证据',async()=>{
+  const a=await fixture(),b=await fixture();
+  await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET account_id=? WHERE id=?')
+    .bind(a.machine.accountId,b.machine.machineId).run();
+  b.machine.accountId=a.machine.accountId;
+  const sources=[a,b];
+  const receipts=await Promise.all(sources.map(s=>registerProgramInstances(env.RUNTIME_DB,s.machine,s.value,1)));
+  expect(receipts[0].items[0].instanceId).not.toBe(receipts[1].items[0].instanceId);
+  const evidence=()=>env.RUNTIME_DB.prepare(`SELECT machine_id,instance_id,descriptor_json,evidence_revision,evidence_json,evidence_hash
+    FROM runtime_program_instances_v1 WHERE machine_id IN (?1,?2) ORDER BY machine_id`)
+    .bind(a.machine.machineId,b.machine.machineId).all();
+  const before=(await evidence()).results;
+  const rule={id:'shared-rule',revision:1,enabled:true,platform:'windows',productId:'p',
+    match:{kind:'binaryHash',sha256:'a'.repeat(64)}};
+  const catalog={schemaVersion:4,version:0,products:[{id:'p',name:'产品P',type:'other'},
+    {id:'q',name:'产品Q',type:'other'}],ownershipRules:[rule],rules:[],bindings:[]};
+  const read=async(index:number)=>{
+    const s=sources[index];
+    const response=await routeV2(new Request('https://runtime.test/v2/machines/program-instances/mappings/read',{
+      method:'POST',headers:{authorization:`Bearer ${s.token}`,'content-type':'application/json'},
+      body:JSON.stringify({childId:s.value.childId,localUserId:s.value.localUserId,assignmentVersion:1,
+        instanceIds:receipts[index].items.map(i=>i.instanceId)})}),env,10);
+    return response!.json();
+  };
+  const stages=[{rules:[rule],status:'confirmed',productId:'p'},
+    {rules:[{...rule,revision:2,productId:'q'}],status:'confirmed',productId:'q'},
+    {rules:[rule,{...rule,id:'conflicting-rule',productId:'q'}],status:'conflict',productId:null},
+    {rules:[],status:'unresolved',productId:null}];
+  for(let index=0;index<stages.length;index++){
+    const stage=stages[index];
+    await saveProgramInstanceCatalog(env.RUNTIME_DB,a.machine.accountId,sources.map(s=>s.value.childId),
+      `"application-knowledge-v${index}"`,{...catalog,ownershipRules:stage.rules},index+2);
+    for(let source=0;source<sources.length;source++){
+      expect(await read(source)).toMatchObject({items:[{status:'pending',productId:null}]});
+      const s=sources[source];
+      await materializeProgramInstanceMappings(env.RUNTIME_DB,s.machine.accountId,s.value.childId,
+        receipts[source].items.map(i=>({machineId:s.machine.machineId,instanceId:i.instanceId})));
+      expect(await read(source)).toMatchObject({childId:s.value.childId,catalogVersion:index+1,
+        items:[{instanceId:receipts[source].items[0].instanceId,status:stage.status,productId:stage.productId}]});
+    }
+    expect((await evidence()).results).toEqual(before);
+  }
+  await expect(readProgramInstanceMappings(env.RUNTIME_DB,a.machine,{childId:b.value.childId,
+    localUserId:a.value.localUserId,assignmentVersion:1,instanceIds:[receipts[1].items[0].instanceId]}))
+    .rejects.toMatchObject({status:403});
 });
 
 it('目录与审计原子保存、服务端版本递增、过期编辑和未授权孩子拒绝，不写政策或映射',async()=>{
