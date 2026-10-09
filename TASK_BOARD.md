@@ -1,7 +1,12 @@
 # TASK_BOARD
 
+## Native 应用身份读取 requestId 错误码修正（2026-10-10）
+
+只读审查确认：Native 应用身份读取响应缺失或不匹配 `requestId` 时，扩展运输层原本返回 `application_identity_invalid_response`，但错误码允许列表仅含 `application_identity_usage_invalid_response`，导致错误被归一化为 `heartbeat_build_failed`。按架构任务授权，仅修正该诊断映射并补充缺失 `requestId` 回归；不改变请求/响应协议、身份范围、应用数据、账本、能力协商、共享退避或心跳行为。`node tests/unit/local-guardian.test.js` 与 `git diff --check` 已通过；已更新 PR #251，不打包、不部署、不托管。
+
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
+最新终端整合状态：仅移植应用身份只读统计，基于主线 `b79eb72`；排除 `806abac` 的来源统计影子功能。身份读模型、Admin 展示、Native Host 回归、契约构建、typecheck 和扩展根目录检查通过；未打包、安装或部署。
 云端执行衔接集中提交审计：Matched 为目录／孩子策略／机器水位原子更新、新执行能力协商、严格执行契约1.47及旧盘点并发不得覆盖新策略；复用对应源码的program-instances 38项、产品封锁及机器能力专项、契约build/classification/machine-control/compatibility和typecheck通过证据，19文件职责检查及diff检查通过。根锁仅同步契约版本。此批无未批准Extra，不包含终端源码、安装包或生产操作；整体Missing仍有Native真实执行链与控件同孩子读取接线、生产目录转换和实机验收，不能把云端提交视为全部完成。
 
 控件只读审查已确认可复用现有V2签名绑定，不需新增协议字段：已交两端实施独立读取ensure及Native实际入口connection/user校验、分页和缓存的绑定代际隔离。必须复用同一证明缓存，不调用贡献queue/build/upload、共享余额或执行；未绑定／改绑／断开拒绝读取。Native当前隔离发送消费29项回归通过，固定1.47包哈希已核验，真实管道边界仍在补验；源码、安装、生产状态分开记录。2.6.42安装及Running再次确认，无重复安装。
@@ -102,7 +107,6 @@ Windows生产者核验回报：Native确认Service在线2.6.40.0，11正式组�
 - Runtime health及既有鉴权smoke通过；新增实例登记能力与家长实例入口未鉴权均401。R2 latest发布前后均2.3.1、SHA256 `3109d6bbd147f5bfba88549a240dae42e84e724aa86bd1baef724d2df7b17563`。
 - 已沿原Native会话转交Mac：现有0.1.41保留pending自动重试，先以机器鉴权核实新实例登记／统计能力，再回报新revision、ACK和published。**尚缺Mac真实自动补发回报、当前家庭登录页面验收及终端候选联合验收；不能以部署或401证明它们完成。** Native另报main b76dd4f为独立CI节流变更，未混入本次云端发布。
 - Matched：源码集成、四资源发布、限定迁移、产物比对与未鉴权拒绝；Missing：上述真实联调；Extra：无新增分支、工作树、安装、共享启用或R2操作。发布证据本地任务板保存，后续随交付集中提交，不为证据单开PR。
-
 生产run37980792222：master c7b1411精确CI通过，0017–0020已应用；0021在D1远程解析报incomplete input，后续四资源均未部署。只读核实pending仅0021且其表/索引/trigger均不存在，失败已回滚。触发器含未括起CASE..END，符合Cloudflare workers-sdk#4727记录的远程分割缺陷；本地SQLite/Worker测试不复现远端解析。最小修订仅为两处CASE加括号，不改变条件、错误码或表结构；固定语法回归与安装引用34项复验后，沿现有分支PR合并，发布只预期0021，禁止重放0017–0020。
 
 PO明确批准职责检查最小修订：本批架构集成与标准云端可共同声明。新增且仅允许architecture-integration附加standard-cloud，既有单职责不变；扩展、Native、Task、Santa仍拒绝直接修改，公共文件仍需精确例外。不改变产品测试、生产审核、来源合并证明或部署授权。先补正反固定用例，再继续PR #248发布。
@@ -4292,3 +4296,6 @@ Checklist：
 - 每次只推进单主题小包
 - 完成后同步更新本板与 DECISIONS
 - 当前正式发布目标为 `V1-minimal release candidate`；V0 证据仅作为 baseline 保留，不作为 formal release 口径
+## 应用身份统计同孩子绑定隔离（2026-10-10，扩展侧实施中）
+
+应用身份只读统计在每次实际读取前必须建立或复核当前 Native connection 对应的可复用 V2 同孩子证明；同一 `createReusableSharedWebBinding` proof cache 负责复用。该 ensure 只做身份绑定，不启用共享访问，不构建/上传贡献，不改余额、账本或配额。应用统计快照、分页和30秒缓存均绑定证明摘要；切换孩子、断开/重连、分配变化或迟到响应时，整次读取拒绝发布。Native 读入口门禁由 Native 所属任务实施；扩展侧不改 Native 文件或协议字段。另将 `capture()` 的身份部分与共享配额策略 LKG 解耦，避免共享访问未启用时应用身份只读统计无法取得绑定上下文。仅当扩展与 Native 双侧门禁均完成后才能称安全闭环；不打包、安装、部署或托管。
