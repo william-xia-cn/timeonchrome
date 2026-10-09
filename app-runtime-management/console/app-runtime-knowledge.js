@@ -99,6 +99,43 @@
   }
   function withDefaultRecommendations(value){const next=clone(value);next.schemaVersion=Math.max(2,next.schemaVersion);next.rules=next.rules.filter(rule=>rule.id!==legacyGameSuggestionRuleId);for(const binding of next.bindings)binding.ruleIds=binding.ruleIds.filter(id=>id!==legacyGameSuggestionRuleId);return next;}
   const same = (a,b) => JSON.stringify(a)===JSON.stringify(b);
+  function catalogImportDiff(current,incoming) {
+    const kinds=['products','ownershipRules','rules'];
+    if(current?.schemaVersion!==4||incoming?.schemaVersion!==4
+      ||Object.keys(incoming).some(key=>!['schemaVersion','version','products','ownershipRules','rules','bindings'].includes(key))
+      ||!Array.isArray(incoming.bindings)||kinds.some(kind=>!Array.isArray(incoming[kind])||incoming[kind].length>1000))
+      throw new Error('请选择schema4目录；旧selectors或实例映射不能作为导入规则');
+    const changes=[];
+    for(const kind of kinds){
+      const seen=new Set();
+      for(const item of incoming[kind]){
+        if(!item||typeof item.id!=='string'||!/^[A-Za-z0-9._:-]{1,256}$/.test(item.id)||seen.has(item.id))throw new Error('导入条目标识无效或重复');
+        seen.add(item.id);
+        const old=current[kind].find(entry=>entry.id===item.id);
+        if(!same(old,item))changes.push({key:`${kind}:${item.id}`,kind,name:item.name||item.id,change:old?'modify':'add'});
+      }
+    }
+    return {incoming:clone(incoming),changes};
+  }
+  function applyCatalogImport(current,incoming,selected,childId){
+    const preview=catalogImportDiff(current,incoming);
+    if(!childId||!selected.length||selected.some(key=>!preview.changes.some(change=>change.key===key)))throw new Error('请逐项选择有效差异');
+    for(const rule of incoming.rules)if(selected.includes(`rules:${rule.id}`)
+      &&current.rules.some(old=>old.id===rule.id&&!same(old,rule))
+      &&current.bindings.some(binding=>binding.childId!==childId&&binding.ruleIds.includes(rule.id)))
+      throw new Error('分类规则被其他孩子批准，请改用新规则ID，不能覆盖其他孩子');
+    const next=clone(current);
+    for(const kind of ['products','ownershipRules','rules'])for(const item of incoming[kind])if(selected.includes(`${kind}:${item.id}`)){
+      next[kind]=next[kind].filter(entry=>entry.id!==item.id);next[kind].push(clone(item));
+    }
+    const selectedRules=incoming.rules.filter(rule=>selected.includes(`rules:${rule.id}`));
+    if(selectedRules.length){
+      let binding=next.bindings.find(item=>item.childId===childId);
+      if(!binding){binding={childId,products:[],ruleIds:[]};next.bindings.push(binding);}
+      for(const rule of selectedRules)if(!binding.ruleIds.includes(rule.id))binding.ruleIds.push(rule.id);
+    }
+    return next;
+  }
   function matched(product,evidence){return product.selectors.some(selector=>selector.platform===evidence.platform&&selector.match.conditions.length&&(selector.match.operator==='all'?selector.match.conditions.every:selector.match.conditions.some).call(selector.match.conditions,condition=>(condition.field==='runtimeIdentity'?evidence.runtimeIdentity:evidence.values[condition.field])===condition.value&&(!['runtimeIdentity','binaryHash','packageId','distributionKey','signerKey','fileSeriesKey'].includes(condition.field)||evidence.verifiedFields.includes(condition.field))));}
   function selectorFor(evidence,scope) {
     const verified = new Set(evidence.verifiedFields), values=evidence.values;
@@ -287,9 +324,9 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
       if(editingRule!==null)$('#rule-enabled').checked=knowledge.rules[editingRule].enabled;
     }
     let instanceGeneration=0,instancePage=null,ownershipGeneration=0,ownershipDraft=null,ownershipVersion=null,ownershipPreview=null;
-    let ownershipSaving=false,ownershipSaved=false;
+    let ownershipSaving=false,ownershipSaved=false,ownershipImport=null;
     const ownershipStatus={confirmed:'已确认',pending:'待更新',unresolved:'未识别',conflict:'归属冲突'};
-    function invalidateOwnership(){ownershipGeneration++;ownershipPreview=null;}
+    function invalidateOwnership(){ownershipGeneration++;ownershipPreview=null;ownershipImport=null;}
     function renderOwnership(message=''){
       const panel=$('#ownership-panel');if(!panel)return;
       if(!ownershipDraft){panel.innerHTML=`<p role="status">${esc(message)}</p>`;return;}
@@ -318,6 +355,7 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
         <label>结果<select id="ownership-class-result">${classOptions()}</select></label>
         <details class="classification-expression-editor"><summary>系列／开发者规则条件</summary><p>仅这两种分类规则使用；不改变产品归属。新版实例没有的旧证据会保留未知，不能按名称猜配；自动规则须通过服务端安全校验。</p><label>新规则匹配条件 JSON<textarea id="ownership-class-match" rows="6" maxlength="16384">${esc(JSON.stringify({operator:'all',conditions:[]},null,2))}</textarea></label><label>新规则排除条件 JSON<textarea id="ownership-class-exclude" rows="4" maxlength="16384">[]</textarea></label></details>
         <label>解释<input id="ownership-class-reason" maxlength="256"></label><p id="ownership-class-error" role="alert"></p><button id="ownership-class-add">加入分类规则草稿</button></section>
+        <section class="knowledge-editor"><h3>导入schema4目录</h3><p>逐项加入草稿，不删除未选择条目。包内孩子绑定及版本不导入；孩子明确分类不覆盖。产品／归属规则为家庭共用，分类规则仅批准当前孩子。还需通过云端预览和保存校验。</p><label>选择目录JSON<input id="ownership-import-file" type="file" accept="application/json"></label><p id="ownership-import-error" role="alert"></p>${ownershipImport?`<fieldset><legend>导入差异（未提交）</legend>${ownershipImport.changes.map((change,index)=>`<label><input type="checkbox" data-ownership-import-item="${index}"> ${esc(change.name)} · ${{products:'产品',ownershipRules:'归属规则',rules:'分类规则'}[change.kind]} · ${change.change==='modify'?'修改':'新增'}</label>`).join('')||'<p>没有新增或修改</p>'}<button id="ownership-import-apply"${ownershipImport.changes.length?'':' disabled'}>将所选差异加入草稿</button></fieldset>`:''}</section>
         <div class="knowledge-filter"><button id="ownership-preview">云端预览当前孩子</button><button id="ownership-preview-next"${ownershipPreview?.nextAfterInstanceId?'':' disabled'}>预览下一页</button><button id="ownership-save"${ownershipSaving||ownershipSaved?' disabled':''}>${ownershipSaving?'正在保存…':'保存集中规则目录'}</button><button id="ownership-open">重新读取目录</button></div>
         <p>保存影响当前家庭中符合规则的实例，不限于当前孩子或本页预览。重新读取会丢弃当前内存草稿；保存不代表终端已经执行。</p>
         <div aria-live="polite">${ownershipPreview?`<p>仅预览本页 ${ownershipPreview.items.length} 个实例，尚未生效。</p>${ownershipPreview.items.map(item=>{
@@ -327,7 +365,7 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
       if(ownershipSaving)for(const control of panel.querySelectorAll('button,input,select,textarea'))control.disabled=true;
     }
     async function openOwnership(){
-      const key=lease(),generation=++ownershipGeneration;ownershipDraft=null;ownershipPreview=null;ownershipSaved=false;
+      const key=lease(),generation=++ownershipGeneration;ownershipDraft=null;ownershipPreview=null;ownershipSaved=false;ownershipImport=null;
       renderOwnership('正在读取集中规则目录…');
       try{
         const data=await request('/v2/module/program-instance-catalog');assertCurrent(key);
@@ -396,6 +434,13 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     }
     async function open(kind){const key=lease();if(kind==='identity'||['product','rule'].includes(kind)&&getContext().identityModel){$('#instance-dialog').showModal();instancePage=null;renderInstances();await openOwnership();return;}if(kind==='instance'){$('#instance-dialog').showModal();await readInstances();return;}await load();assertCurrent(key);if(kind==='product')renderProducts();else renderRules();$(`#${kind}-dialog`).showModal();}
     async function perform(button){
+      if(button.id==='ownership-import-apply'&&ownershipImport&&!ownershipSaving){
+        try{
+          const selected=all('[data-ownership-import-item]:checked').map(input=>ownershipImport.changes[Number(input.dataset.ownershipImportItem)]?.key);
+          const next=applyCatalogImport(ownershipDraft,ownershipImport.incoming,selected,getContext().childId);
+          invalidateOwnership();ownershipDraft=next;ownershipSaved=false;renderOwnership('所选导入差异已加入草稿；请运行云端预览，尚未保存。');
+        }catch(error){$('#ownership-import-error').textContent=error.message;}
+      }
       if(ownershipSaving&&(button.id.startsWith('ownership-')||Object.keys(button.dataset).some(key=>key.startsWith('ownership'))))return;
       if(button.id==='open-products')await open('product');if(button.id==='open-rules')await open('rule');
       if(button.id==='open-instances')await open('instance');
@@ -507,6 +552,16 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
       // A file can finish reading after the host changes Child, before a
       // transport request exists; give file reads the same context lease.
       const files=input.files;
+      if(input.id==='ownership-import-file'&&files?.[0]&&ownershipDraft&&!ownershipSaving){
+        const key=lease(),generation=++ownershipGeneration,file=files[0];ownershipImport=null;
+        const read=async()=>{
+          if(file.size>1048576)throw new Error('目录文件超过1MiB，请拆分规则包');
+          const text=await file.text();assertCurrent(key);
+          if(generation!==ownershipGeneration||!$('#instance-dialog').open)return;
+          ownershipImport=catalogImportDiff(ownershipDraft,JSON.parse(text));renderOwnership('已读取导入差异；仅格式检查，尚未通过云端规则校验。');
+        };
+        return read().catch(error=>{if(active()&&generation===ownershipGeneration&&$('#instance-dialog').open)$('#ownership-import-error').textContent=error.message;});
+      }
       if(input.id==='import-rules'&&files?.[0]){
         const key=lease(),file=files[0];
         const scopedFile={text:async()=>{const text=await file.text();assertCurrent(key);return text;}};
@@ -522,5 +577,5 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     function dispose(){if(disposed)return;disposed=true;for(const [type,handler]of Object.entries(listeners))root.removeEventListener(type,handler);for(const dialog of all('dialog[open]'))dialog.close();}
     return {open,publish,classify,dispose};
   }
-  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,ownershipEvidenceOptions,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
+  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,ownershipEvidenceOptions,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
 });

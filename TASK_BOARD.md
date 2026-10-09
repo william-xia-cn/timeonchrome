@@ -4,6 +4,12 @@
 
 ### 当前收口清单（覆盖下方各阶段的旧待办状态）
 
+- **新版目录导入本批结果：** 已接schema4逐项差异→选择→草稿→既有集中保存，不导入包内版本／孩子绑定，不删除未选择条目；跨孩子共用分类规则同ID覆盖拒绝。knowledge/component、JS语法及diff通过，固定v4解析／分类消费者验证缺产品引用拒绝、孩子明确分类与其他孩子绑定保留；新增文件迟到回归覆盖后读优先、关闭及切换孩子不写入。agent-browser独立回环mock真实选择文件，未勾选拒绝、勾选产品及归属规则后保存7→8，回读原两个孩子绑定不变、外部绑定未进入，桌面与390px手机截图已目视。该夹具不提供云端预览接口，未将保存mock冒充云端联调。Matched＝导入源码／专项／隔离界面；Missing＝安装范围依据、Native实际接纳报告、强化迁移、控件获准复验和跨端实机；Deviated／Extra＝无。仅本地提交本批4文件，不推送、不安装部署、生产迁移或启共享；旧数据尽力而为，原未跟踪产物保留。
+
+- **新版目录导入（实施前）：** standard-cloud，复用现有schema4目录预览／保存，不新增HTTP入口或匹配器。只将导入包products／ownershipRules／rules的逐项差异加入内存草稿，不删除未选择条目，不采用包内version或孩子bindings；明确提示产品／归属规则为家庭共用，分类规则仅批准当前孩子，当前孩子明确分类及其他孩子绑定保留。已被其他孩子批准的同ID分类规则不能隐式覆盖，须使用新ID。无选择不修改，坏格式／依赖缺项保留草稿并经现有云端校验拒绝；文件迟到读取受当前孩子／弹窗代次隔离。仅knowledge/component专项、固定解析器、语法／diff和隔离目视，不部署或改第三层映射。
+
+- **导入／安装范围缺口已具体定位：** 新实例ProductOwnershipEvidence及RegistrationBatch只含平台、已核验证据、实例和分配，没有安装状态／发现来源／安装范围；不能从运行使用或位置猜“已安装”。旧knowledge组件diffImport会访问product.selectors，旧import-preview/approve使用原目录模型；schema4产品没有selectors，不能直接复用旧入口或将名称候选当确定产品。本项尚未实现：导入须保持逐项差异确认、现有孩子绑定和集中规则边界，安装信息须先明确复用已有盘点关联的可靠依据；不新增识别条件、不过度采集、不扩展旧账修复。此次只读定位，未改数据或接口。
+
 - **1.45固定包核验：** build、machine-control（含12项共同JSON正反向量）、compatibility及diff通过；包173503字节、92文件逐一与源码／dist SHA256一致，包SHA256 `b4118dec1f07b9cc44eba89b68057e0f9249c2f84b310b65466677e65c004ffc`。1.44原包仍为`52333a21db1c4fa73c4da583f455b21b37a9e1bf3cd0f489152c118f48025f5c`。Matched＝可选诊断开发包；Missing＝Native真实汇总上报及跨端实机；Extra／Deviated＝无。只集中提交8个契约／文档／workspace锁文件，不推送或生成安装器。生产0020未应用，不得开始发送新字段。
 
 - **固定1.45开发契约（实施前）：** architecture-integration，将bec0ce3中的可选目录接纳报告集中固定为1.45.0，补既有machine schema定义及可跨语言读取的正反向量；保留1.44包不变，根lock仅workspace版本同步。仅build、machine-control、compatibility、包内容和hash检查；随后交原Native任务消费固定包，实际汇总基于应覆盖会话而非截断诊断列表，能力未声明不发送。只源码适配／隔离测试，不生成安装器、部署或执行生产迁移。

@@ -246,6 +246,31 @@ async function ownershipSaveTests(){
 }
 ownershipSaveTests().catch(error=>{console.error(error);process.exitCode=1;});
 
+async function ownershipImportLifecycleTests(){
+  const listeners={},elements={};let childId='child-a';
+  const dialog={open:false,showModal(){this.open=true;},close(){this.open=false;}};
+  const element=id=>elements[id]??(elements[id]={innerHTML:'',textContent:'',value:''});
+  const calls=[];
+  const root={ownerDocument:{},querySelector:s=>s==='#instance-dialog'?dialog:element(s),querySelectorAll:()=>[],
+    addEventListener:(type,handler)=>listeners[type]=handler,removeEventListener:()=>{}};
+  const component=K.mount({root,getContext:()=>({childId}),request:async url=>{calls.push(url);return {state:'available',version:7,catalog:ownershipCatalog};},onSaved:()=>assert.fail('file reading must not save'),onError:()=>assert.fail('file errors remain local')});
+  await component.open('identity');
+  const incoming={...ownershipCatalog,products:[...ownershipCatalog.products,{id:'import-late',name:'迟到导入',type:'other'}]};
+  const read=text=>listeners.change({target:{id:'ownership-import-file',files:[{size:100,text}]}});
+  let resolveOld;
+  const old=read(()=>new Promise(resolve=>resolveOld=resolve));
+  await read(async()=>JSON.stringify({...incoming,products:[...ownershipCatalog.products,{id:'import-current',name:'当前导入',type:'other'}]}));
+  const current=element('#ownership-panel').innerHTML;assert.match(current,/当前导入/);
+  resolveOld(JSON.stringify(incoming));await old;assert.equal(element('#ownership-panel').innerHTML,current);
+  let resolveClosed;const closing=read(()=>new Promise(resolve=>resolveClosed=resolve));dialog.close();
+  resolveClosed(JSON.stringify(incoming));await closing;assert.equal(element('#ownership-panel').innerHTML,current);
+  dialog.showModal();let resolveChild;const switching=read(()=>new Promise(resolve=>resolveChild=resolve));childId='child-b';
+  resolveChild(JSON.stringify(incoming));await switching;assert.equal(element('#ownership-panel').innerHTML,current);
+  assert.equal(calls.length,1,'file parsing must neither save nor start a request under another Child');
+  component.dispose();console.log('PASS: schema4 import latest file wins, close and Child isolation without transport writes');
+}
+ownershipImportLifecycleTests().catch(error=>{console.error(error);process.exitCode=1;});
+
 {
   const rule={id:'r',name:'原规则',kind:'family',platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]},exclude:[{operator:'any',conditions:[{field:'packageId',value:'legacy-evidence'}]}],classification:'study',mode:'automatic',type:'other',enabled:true,source:'parent-confirmed',reason:'既有依据'};
   const original={...ownershipCatalog,rules:[rule],bindings:[{childId:'child-a',products:[],ruleIds:['r']},{childId:'child-b',products:[],ruleIds:['r']}]};
@@ -391,6 +416,33 @@ async function newCatalogRuleContractTests(){
     assert.throws(()=>parseApplicationKnowledgeV4(weakNew),/WEAK_AUTOMATIC_RULE/);
     assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,kind}),/明确的匹配条件/);
   }
-  console.log('PASS: actual v4 parser and classifier consume UI product/type drafts, suggestion/platform/explicit priority and Child isolation');
+  const imported=structuredClone(shared);
+  imported.version=999;
+  imported.bindings=[{childId:'foreign-child',products:[{productId:'product-a',classification:'blocked'}],ruleIds:[]}];
+  imported.products.push({id:'import-product',name:'导入产品',type:'other'});
+  imported.ownershipRules.push({id:'import-owner',revision:1,enabled:true,platform:'windows',productId:'import-product',match:{kind:'binaryHash',sha256:'c'.repeat(64)}});
+  imported.rules.push({...shared.rules[0],id:'import-class',name:'导入分类'});
+  const importPreview=K.catalogImportDiff(shared,imported);
+  assert.equal(importPreview.changes.length,3);
+  const merged=parseApplicationKnowledgeV4(K.applyCatalogImport(shared,imported,importPreview.changes.map(item=>item.key),'child-a'));
+  assert.equal(merged.version,shared.version);
+  assert.deepEqual(merged.bindings.find(b=>b.childId==='child-b'),shared.bindings.find(b=>b.childId==='child-b'));
+  assert.deepEqual(merged.bindings.find(b=>b.childId==='child-a').products,shared.bindings.find(b=>b.childId==='child-a').products);
+  assert(!merged.bindings.some(b=>b.childId==='foreign-child'));
+  assert(merged.bindings.find(b=>b.childId==='child-a').ruleIds.includes('import-class'));
+  assert(!shared.products.some(p=>p.id==='import-product'));
+  assert.throws(()=>K.applyCatalogImport(shared,imported,[],'child-a'),/逐项选择/);
+  const onlyProduct=K.applyCatalogImport(shared,imported,['products:import-product'],'child-a');
+  assert.deepEqual(onlyProduct.rules,shared.rules);
+  assert.deepEqual(onlyProduct.ownershipRules,shared.ownershipRules);
+  assert.deepEqual(onlyProduct.bindings,shared.bindings);
+  imported.rules[0].classification='blocked';
+  assert.throws(()=>K.applyCatalogImport(shared,imported,[`rules:${shared.rules[0].id}`],'child-a'),/其他孩子/);
+  assert.throws(()=>K.catalogImportDiff(shared,{...imported,mappings:[]}),/实例映射/);
+  assert.throws(()=>K.catalogImportDiff(shared,{...imported,schemaVersion:3}),/schema4/);
+  assert.throws(()=>K.catalogImportDiff(shared,{...imported,products:[imported.products[0],imported.products[0]]}),/重复/);
+  const missingProduct=K.applyCatalogImport(shared,imported,['ownershipRules:import-owner'],'child-a');
+  assert.throws(()=>parseApplicationKnowledgeV4(missingProduct),'dangling ownership target must fail the real validator');
+  console.log('PASS: actual v4 parser/classifier, import selection, foreign binding isolation, shared rule protection and reference validation');
 }
 newCatalogRuleContractTests().catch(error=>{console.error(error);process.exitCode=1;});
