@@ -41,13 +41,18 @@
     return next;
   }
   const empty = () => ({schemaVersion:2,version:0,products:[],rules:[],bindings:[]});
-  function editOwnershipProduct(catalog,{productId,name,childId,classification}){
+  function editOwnershipProduct(catalog,{productId,name,type,catalogGroup,childId,classification}){
     if(catalog?.schemaVersion!==4||!childId)throw new Error('目录或孩子范围无效');
     const next=clone(catalog),product=next.products.find(item=>item.id===productId);
     if(!product)throw new Error('产品已变化，请重新读取');
     if(!name?.trim()||name.trim().length>256)throw new Error('请填写有效的产品名称');
     if(classification!==''&&!Object.hasOwn(labels,classification))throw new Error('分类无效');
+    if(type!==undefined&&!Object.hasOwn(types,type))throw new Error('客观产品类型无效');
+    if(catalogGroup!==undefined&&!['','specialApplication'].includes(catalogGroup))throw new Error('统计目录无效');
     product.name=name.trim();
+    if(type!==undefined)product.type=type;
+    if(catalogGroup==='')delete product.catalogGroup;
+    else if(catalogGroup!==undefined)product.catalogGroup=catalogGroup;
     if(classification===''){
       const binding=next.bindings.find(item=>item.childId===childId);
       if(binding)binding.products=binding.products.filter(item=>item.productId!==productId);
@@ -274,9 +279,9 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
         <label>目标应用身份<select id="ownership-product"><option value="">新建产品草稿</option>${ownershipDraft.products.map((product,index)=>`<option value="${index}">${esc(product.name)}</option>`).join('')}</select></label>
         <label>新产品名称（选择已有产品时忽略）<input id="ownership-name" maxlength="256"></label><button id="ownership-add"${options.length?'':' disabled'}>加入规则草稿</button>
         <p>修改规则、刷新实例或关闭对话框会清除旧预览；草稿仅保留在当前对话框。</p></section>
-        <section class="knowledge-editor"><h3>产品资料与当前孩子分类</h3><p>名称属于家庭集中目录；分类只修改当前孩子。“跟随分类规则”不是“未归类”。修改先进入草稿，最后集中保存。</p>${ownershipDraft.products.map((product,index)=>{
+        <section class="knowledge-editor"><h3>产品资料与当前孩子分类</h3><p>名称与客观类型属于家庭集中目录；类型变化可能影响其他孩子已批准的类型分类规则。未核实时保留未知，不依据类型识别产品。下面的明确分类只修改当前孩子。“跟随分类规则”不是“未归类”。修改先进入草稿，最后集中保存。</p>${ownershipDraft.products.map((product,index)=>{
           const classification=ownershipDraft.bindings.find(item=>item.childId===getContext().childId)?.products.find(item=>item.productId===product.id)?.classification??'';
-          return `<fieldset><legend>${esc(product.name)}</legend><label>产品名称<input id="ownership-product-name-${index}" maxlength="256" value="${esc(product.name)}"></label><label>当前孩子分类<select id="ownership-product-class-${index}"><option value=""${classification===''?' selected':''}>跟随分类规则</option>${classOptions(classification)}</select></label><button data-ownership-product="${index}">更新产品草稿</button></fieldset>`;
+          return `<fieldset><legend>${esc(product.name)}</legend><label>产品名称<input id="ownership-product-name-${index}" maxlength="256" value="${esc(product.name)}"></label><label>客观产品类型（家庭共用）<select id="ownership-product-type-${index}">${Object.entries(types).map(([key,label])=>`<option value="${key}"${product.type===key?' selected':''}>${label}</option>`).join('')}</select></label><label>统计目录（家庭共用）<select id="ownership-product-group-${index}"><option value=""${!product.catalogGroup?' selected':''}>普通应用</option><option value="specialApplication"${product.catalogGroup==='specialApplication'?' selected':''}>特殊应用</option></select></label><p>特殊应用从非特殊应用统计中排除；“其他时间”是独立分类，不等于特殊应用。保存后仍需等待统计投影更新。</p><label>当前孩子分类<select id="ownership-product-class-${index}"><option value=""${classification===''?' selected':''}>跟随分类规则</option>${classOptions(classification)}</select></label><button data-ownership-product="${index}">更新产品草稿</button></fieldset>`;
         }).join('')||'<p>暂无产品，请先根据核验依据建立归属规则。</p>'}</section>
         <div>${ownershipDraft.ownershipRules.map((rule,index)=>`<article class="knowledge-item"><div><strong>${esc(ownershipDraft.products.find(product=>product.id===rule.productId)?.name||rule.productId)}</strong><small>${esc(rule.platform)} · ${rule.enabled?'草稿启用':'草稿停用'}</small><pre class="instance-evidence">${esc(JSON.stringify(rule.match,null,2))}</pre></div><button data-ownership-toggle="${index}">${rule.enabled?'停用草稿':'恢复草稿'}</button><button data-ownership-remove="${index}">移除草稿规则</button></article>`).join('')||'<p>暂无归属规则。</p>'}</div>
         <section class="knowledge-editor"><h3>既有分类规则与当前孩子</h3><p>只修改分类结果或当前孩子批准状态，保留匹配及排除条件。复杂条件编辑尚未适配；缺少可核验依据时保持未知，不在页面猜测命中。${ownershipSaved?'目录已保存；终端执行尚未确认。':'此处仍是未提交草稿。'}</p>${ownershipDraft.rules.map((rule,index)=>{
@@ -404,7 +409,8 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
         if(!product)return;
         try{
           const next=editOwnershipProduct(ownershipDraft,{productId:product.id,childId:getContext().childId,
-            name:$(`#ownership-product-name-${index}`).value,classification:$(`#ownership-product-class-${index}`).value});
+            name:$(`#ownership-product-name-${index}`).value,type:$(`#ownership-product-type-${index}`).value,
+            catalogGroup:$(`#ownership-product-group-${index}`).value,classification:$(`#ownership-product-class-${index}`).value});
           invalidateOwnership();ownershipDraft=next;ownershipSaved=false;renderOwnership('产品资料已更新到草稿；尚未保存。');
         }catch(error){renderOwnership(error.message);}
       }
