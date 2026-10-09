@@ -285,6 +285,39 @@ async function ownershipImportLifecycleTests(){
 }
 ownershipImportLifecycleTests().catch(error=>{console.error(error);process.exitCode=1;});
 
+async function legacyOwnershipEntryTests(){
+  const listeners={},elements={},calls=[];
+  const dialog={open:false,showModal(){this.open=true;},close(){this.open=false;}};
+  const element=id=>elements[id]??(elements[id]={innerHTML:'',value:''});
+  const legacy={...enhanced,version:10,products:[...enhanced.products,{id:'unconverted',name:'<待核验>',type:'other',
+    selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'runtimeIdentity',value:'opaque-old-id'}]}}]}]};
+  const root={ownerDocument:{},querySelector:s=>s==='#instance-dialog'?dialog:element(s),querySelectorAll:()=>[],
+    addEventListener:(type,handler)=>listeners[type]=handler,removeEventListener:()=>{}};
+  const component=K.mount({root,getContext:()=>({childId:'child-a'}),request:async(url,options)=>{
+    calls.push({url,options});
+    if(url.includes('/preview?'))return {preview:true,childId:'child-a',catalogVersion:10,items:[],nextAfterInstanceId:null};
+    return {state:'legacy',version:10,catalog:null,legacyCatalog:legacy};
+  },onSaved:()=>assert.fail('legacy preview must not save'),onError:()=>assert.fail('local entry errors')});
+  await component.open('identity');
+  assert.match(element('#ownership-panel').innerHTML,/已生成旧目录转换草稿/);
+  assert.match(element('#ownership-panel').innerHTML,/仍有 1 项旧规则/);
+  assert.match(element('#ownership-panel').innerHTML,/&lt;待核验&gt;/);
+  assert.match(element('#ownership-panel').innerHTML,/id="ownership-save" disabled/);
+  await listeners.click({target:{closest:()=>({id:'ownership-save',dataset:{}})}});
+  assert.equal(calls.length,1,'disabled save is enforced by the handler too');
+  await listeners.click({target:{closest:()=>({id:'ownership-preview',dataset:{}})}});
+  assert.equal(calls.length,2);
+  assert.equal(calls[1].options.method,'POST');
+  const preview=JSON.parse(calls[1].options.body).catalog;
+  assert.deepEqual(preview.bindings,legacy.bindings);
+  assert.equal(preview.products.length,legacy.products.length);
+  assert.equal(preview.ownershipRules.length,1);
+  assert.equal(calls.some(call=>call.options?.method==='PUT'),false);
+  component.dispose();
+  console.log('PASS: legacy entry builds complete draft, exposes unsupported rules, previews without writes and refuses incomplete save');
+}
+legacyOwnershipEntryTests().catch(error=>{console.error(error);process.exitCode=1;});
+
 {
   const rule={id:'r',name:'原规则',kind:'family',platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]},exclude:[{operator:'any',conditions:[{field:'packageId',value:'legacy-evidence'}]}],classification:'study',mode:'automatic',type:'other',enabled:true,source:'parent-confirmed',reason:'既有依据'};
   const original={...ownershipCatalog,rules:[rule],bindings:[{childId:'child-a',products:[],ruleIds:['r']},{childId:'child-b',products:[],ruleIds:['r']}]};
@@ -304,6 +337,53 @@ ownershipImportLifecycleTests().catch(error=>{console.error(error);process.exitC
 
 async function newCatalogRuleContractTests(){
   const {parseApplicationKnowledgeV4}=await import('@timeonchrome/app-runtime-contracts/classification-validation');
+  // 使用正式契约验证转换输出；转换不修改源目录或任何孩子配置。
+  const selector=(field,value,platform='windows')=>({platform,match:{operator:'all',conditions:[{field,value}]}});
+  const legacy={schemaVersion:3,version:10,products:[
+    {id:'hash-product',name:'精确文件',type:'other',selectors:[selector('binaryHash','a'.repeat(64))]},
+    {id:'package-product',name:'包产品',type:'other',selectors:[selector('packageId','Fixture_family!App')]},
+    {id:'series-product',name:'文件系列',type:'other',catalogGroup:'specialApplication',selectors:[selector('fileSeriesKey','b'.repeat(64))]},
+    {id:'unresolved-product',name:'不得猜配',type:'unknown',selectors:[
+      selector('runtimeIdentity','opaque-old-id'),selector('distributionKey','channel-key'),
+      selector('productKey','product-key'),selector('packageId','Family_without_app'),
+      selector('packageId','com.example.app','macos'),
+      {platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'c'.repeat(64)},{field:'signerKey',value:'d'.repeat(64)}]}}
+    ]}
+  ],rules:[],bindings:[
+    {childId:'child-a',products:[{productId:'hash-product',classification:'study'}],ruleIds:[]},
+    {childId:'child-b',products:[{productId:'package-product',classification:'blocked'}],ruleIds:[]}
+  ]};
+  const legacyBefore=JSON.stringify(legacy),converted=K.legacyOwnershipDraft(legacy);
+  assert.equal(JSON.stringify(legacy),legacyBefore);
+  assert.equal(converted.requiresReview,true);
+  assert.equal(converted.unconverted.length,6);
+  assert.deepEqual(converted.catalog.bindings,legacy.bindings);
+  assert.deepEqual(converted.catalog.rules,legacy.rules);
+  assert.equal(converted.catalog.version,10);
+  assert.equal(converted.catalog.products.length,4);
+  assert.equal(converted.catalog.products[2].catalogGroup,'specialApplication');
+  assert.equal(converted.catalog.products.some(p=>Object.hasOwn(p,'selectors')),false);
+  assert.deepEqual(converted.catalog.ownershipRules.map(r=>r.match.kind),['binaryHash','windowsAumid','windowsFileSeries']);
+  assert.deepEqual(parseApplicationKnowledgeV4(converted.catalog),converted.catalog);
+  assert.deepEqual(K.legacyOwnershipDraft(legacy),converted,'same input gives the same draft');
+  assert.deepEqual(converted.unconverted.map(item=>item.selector),legacy.products[3].selectors);
+  assert.throws(()=>K.legacyOwnershipDraft({...legacy,bindings:undefined}),/完整旧目录/);
+  assert.throws(()=>K.legacyOwnershipDraft({...legacy,schemaVersion:4}),/完整旧目录/);
+  const macHash=K.legacyOwnershipDraft({...legacy,products:[{...legacy.products[0],selectors:[selector('binaryHash','a'.repeat(64),'macos')]}],bindings:[]});
+  assert.equal(macHash.catalog.ownershipRules[0].platform,'macos');
+  assert.equal(macHash.unconverted.length,0);
+  const enhancedDraft=K.legacyOwnershipDraft(enhanced);
+  assert.deepEqual(enhancedDraft.catalog.products[0].suspectedMatchers,enhanced.products[0].suspectedMatchers);
+  assert.deepEqual(enhancedDraft.catalog.bindings,enhanced.bindings);
+  assert.deepEqual(parseApplicationKnowledgeV4(enhancedDraft.catalog),enhancedDraft.catalog);
+  const classificationRule={id:'preserved-rule',name:'既有产品分类',kind:'product',productId:'hash-product',
+    classification:'study',type:'other',match:{operator:'all',conditions:[]},exclude:[],mode:'automatic',enabled:true,source:'parent-confirmed',reason:'既有明确设置'};
+  const withRule={...legacy,rules:[classificationRule],bindings:legacy.bindings.map(b=>({...b,ruleIds:['preserved-rule']}))};
+  const ruleDraft=K.legacyOwnershipDraft(withRule);
+  assert.deepEqual(ruleDraft.catalog.rules,withRule.rules);
+  assert.deepEqual(ruleDraft.catalog.bindings,withRule.bindings);
+  assert.deepEqual(parseApplicationKnowledgeV4(ruleDraft.catalog),ruleDraft.catalog);
+  console.log('PASS: legacy draft preserves products and all Child bindings; unsupported selectors remain explicit, no guessed rules');
   const {resolveProgramInstanceClassification}=await import('@timeonchrome/app-runtime-contracts/classification');
   const input={id:'new-rule',name:'产品分类',kind:'product',productId:'product-a',type:'other',platform:'',mode:'automatic',classification:'other',reason:'家长明确配置',childId:'child-a'};
   const added=K.addCatalogClassification(ownershipCatalog,input),parsed=parseApplicationKnowledgeV4(added);

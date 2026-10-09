@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.46.0');
+assert.equal(pkg.version, '1.47.0');
 const instanceLedger = JSON.parse(fs.readFileSync(path.join(root,'application-ledger-v4.schema.json'),'utf8'));
 assert.equal(instanceLedger.properties.schemaVersion.const,4);
 assert(instanceLedger.required.includes('childId'));
@@ -87,6 +87,9 @@ assert.deepEqual(enrollment.$defs.request.required, ['code', 'platform']);
 assert.equal(enrollment.$defs.request.properties.clientMachineToken.pattern, '^rt_machine_token_[A-Za-z0-9_-]{43}$');
 assert.deepEqual(enrollment.$defs.response.required, ['machineId', 'machineToken', 'platform']);
 const appPolicy = JSON.parse(fs.readFileSync(path.join(root, 'runtime-app-policy-v1.schema.json'), 'utf8'));
+assert(!appPolicy.required.includes('programInstanceExecutionPolicy'), 'old clients do not require the new execution branch');
+assert.equal(appPolicy.properties.programInstanceExecutionPolicy.$ref, '#/$defs/programInstanceExecutionPolicy');
+assert.deepEqual(appPolicy.$defs.programInstanceExecutionPolicy.required, ['schemaVersion','catalogVersion','blockedProducts']);
 assert(!appPolicy.required.includes('productIdentityProjection'), 'N-1 policy does not require product projection');
 assert(!appPolicy.required.includes('productBlockPolicy'), 'N-1 policy does not require product block policy');
 assert.deepEqual(appPolicy.properties.productBlockPolicy.required,

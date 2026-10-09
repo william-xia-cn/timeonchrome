@@ -162,6 +162,7 @@ export interface AppPolicyDocument {
   repairWeekStart?: '2026-09-21';
   productIdentityProjection?: import('@timeonchrome/app-runtime-contracts/classification').ProductIdentityProjection;
   productBlockPolicy?: import('@timeonchrome/app-runtime-contracts/classification').ProductBlockPolicyV1;
+  programInstanceExecutionPolicy?: import('@timeonchrome/app-runtime-contracts/classification').ProgramInstanceExecutionPolicyV1;
   weekReclassification?: import('@timeonchrome/app-runtime-contracts').RuntimeWeekReclassification;
   applicationKnowledge?: import('@timeonchrome/app-runtime-contracts/classification').ApplicationKnowledge;
   resolvedApplications?: AppPolicyClassification[];

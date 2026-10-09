@@ -1,4 +1,30 @@
 import assert from 'node:assert/strict';
+import {parseProgramInstanceExecutionPolicy, PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY} from './dist/application-classification.js';
+assert.equal(PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY, 'program-instance-execution-policy-v1');
+const executionHint = {signerKey:'a'.repeat(64), productName:'Fixture'};
+const executionPolicy = {schemaVersion:1,catalogVersion:11,blockedProducts:[
+  {productId:'ordinary',suspectedMatchers:[]}, {productId:'enhanced',suspectedMatchers:[executionHint]}]};
+assert.deepEqual(parseProgramInstanceExecutionPolicy(executionPolicy), executionPolicy);
+const executionCopy = parseProgramInstanceExecutionPolicy(executionPolicy);
+executionCopy.blockedProducts[1].suspectedMatchers[0].productName = 'changed';
+assert.equal(executionHint.productName, 'Fixture');
+assert.deepEqual(parseProgramInstanceExecutionPolicy({...executionPolicy,blockedProducts:[]}).blockedProducts,[]);
+for (const value of [null, {}, {...executionPolicy,schemaVersion:2}, {...executionPolicy,catalogVersion:-1},
+  {...executionPolicy,catalogVersion:1.5}, {...executionPolicy,catalogVersion:Number.MAX_SAFE_INTEGER+1},
+  {...executionPolicy,childId:'child-a'}, {...executionPolicy,associationVersion:'old'},
+  {schemaVersion:1,catalogVersion:11}, {...executionPolicy,blockedProducts:[{productId:'ordinary'}]},
+  {...executionPolicy,blockedProducts:[{productId:'ordinary',suspectedMatchers:[],enhancedBlocking:false}]},
+  {...executionPolicy,blockedProducts:[executionPolicy.blockedProducts[0],executionPolicy.blockedProducts[0]]},
+  {...executionPolicy,blockedProducts:[{productId:'other',suspectedMatchers:[executionHint,executionHint]}]},
+  {...executionPolicy,blockedProducts:[executionPolicy.blockedProducts[1],{productId:'other',suspectedMatchers:[executionHint]}]},
+  {...executionPolicy,blockedProducts:[{productId:'bad\n',suspectedMatchers:[]}]},
+  ...[{...executionHint,signerKey:'A'.repeat(64)},{...executionHint,productName:''},
+    {...executionHint,productName:'bad\n'},{...executionHint,path:'C:/fake'}].map(hint =>
+      ({...executionPolicy,blockedProducts:[{productId:'enhanced',suspectedMatchers:[hint]}]})),
+  {...executionPolicy,blockedProducts:Array.from({length:1001},(_,i)=>({productId:`p${i}`,suspectedMatchers:[]}))},
+  {...executionPolicy,blockedProducts:Array.from({length:100},(_,i)=>({productId:`p${i}`,
+    suspectedMatchers:[{signerKey:'a'.repeat(64),productName:`${i}${'中'.repeat(230)}`}]}))},
+]) assert.throws(()=>parseProgramInstanceExecutionPolicy(value),/INVALID_PROGRAM_INSTANCE_EXECUTION_POLICY/);
 import { readFileSync } from 'node:fs';
 import { resolveApplication, safeAutomatic, associateApplicationEvidence, isSpecialApplicationProduct, resolveProductOwnership, buildProgramInstanceProductMapping, parseProductOwnershipEvidence, parseProgramInstanceRegistrationBatch } from './dist/application-classification.js';
 import { parseApplicationKnowledge, parseApplicationKnowledgeV4, parseAppEvidence, parseProgramInstanceProjectionContext } from './dist/application-knowledge-validation.js';
@@ -103,6 +129,31 @@ const detachedMapping=parseProgramInstanceMappingReadResponse(mappingResponse,ma
 detachedMapping.products[0].name='Changed'; detachedMapping.items[0].status='pending';
 assert.equal(mappingResponse.products[0].name,'Product A'); assert.equal(mappingResponse.items[0].status,'confirmed');
 const vectors = JSON.parse(readFileSync(new URL('./application-classification.vectors.json', import.meta.url)));
+for (const vector of vectors.executionPolicyCases) {
+  if (vector.valid) assert.deepEqual(parseProgramInstanceExecutionPolicy(vector.input), vector.input, vector.name);
+  else assert.throws(() => parseProgramInstanceExecutionPolicy(vector.input), /INVALID_PROGRAM_INSTANCE_EXECUTION_POLICY/, vector.name);
+}
+const policySchema = JSON.parse(readFileSync(new URL('./runtime-app-policy-v1.schema.json', import.meta.url)));
+assert.equal(policySchema.properties.programInstanceExecutionPolicy.$ref, '#/$defs/programInstanceExecutionPolicy');
+assert.equal(policySchema.required.includes('programInstanceExecutionPolicy'), false, 'old policy remains representable');
+const executionSchema = policySchema.$defs.programInstanceExecutionPolicy;
+assert.equal(executionSchema.additionalProperties, false);
+assert.deepEqual(executionSchema.required, Object.keys(executionPolicy));
+assert.equal(executionSchema.properties.catalogVersion.maximum, Number.MAX_SAFE_INTEGER);
+assert.equal(executionSchema.properties.blockedProducts.maxItems, 1000);
+const entrySchema = executionSchema.properties.blockedProducts.items;
+assert.equal(entrySchema.additionalProperties, false);
+assert.deepEqual(entrySchema.required, Object.keys(executionPolicy.blockedProducts[0]));
+assert.equal(entrySchema.properties.productId.$ref, '#/$defs/executionText');
+const hintSchema = entrySchema.properties.suspectedMatchers.items;
+assert.equal(hintSchema.additionalProperties, false);
+assert.deepEqual(hintSchema.required, Object.keys(executionHint));
+assert.equal(hintSchema.properties.productName.$ref, '#/$defs/executionText');
+assert.equal(new RegExp(hintSchema.properties.signerKey.pattern).test(executionHint.signerKey), true);
+assert.equal(new RegExp(hintSchema.properties.signerKey.pattern).test('A'.repeat(64)), false);
+assert.equal(policySchema.$defs.executionText.maxLength, 256);
+for (const invalidText of ['', 'bad\n', 'bad\u0000', 'bad\u007f'])
+  assert.equal(new RegExp(policySchema.$defs.executionText.pattern).test(invalidText), false);
 for(const vector of vectors.instanceConditionCases)
   assert.equal(evaluateProgramInstanceCondition(vector.expression,parseProductOwnershipEvidence(vector.evidence)),vector.expected,vector.name);
 const instanceRule={id:'product',name:'Product rule',kind:'product',productId:'product-a',

@@ -521,6 +521,44 @@ export interface ApplicationKnowledgeV4 extends Omit<ApplicationKnowledge, 'sche
   products: Array<Omit<AppProduct, 'selectors'>>;
   ownershipRules: ProductOwnershipRule[];
 }
+export const PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY = 'program-instance-execution-policy-v1';
+/** 完整产品封锁集合；范围、策略版本及生效时间由父机器孩子策略绑定。 */
+export interface ProgramInstanceExecutionPolicyV1 {
+  schemaVersion: 1;
+  catalogVersion: number;
+  blockedProducts: Array<{
+    productId: string;
+    suspectedMatchers: Array<{signerKey: string; productName: string}>;
+  }>;
+}
+export function parseProgramInstanceExecutionPolicy(value: unknown): ProgramInstanceExecutionPolicyV1 {
+  const invalid = (): never => { throw new Error('INVALID_PROGRAM_INSTANCE_EXECUTION_POLICY'); };
+  const record = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const exact = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
+  const token = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 256 && !/[\u0000-\u001f\u007f]/.test(v);
+  if (!record(value) || !exact(value, ['schemaVersion','catalogVersion','blockedProducts']) || value.schemaVersion !== 1
+    || typeof value.catalogVersion !== 'number' || !Number.isSafeInteger(value.catalogVersion) || value.catalogVersion < 0
+    || !Array.isArray(value.blockedProducts) || value.blockedProducts.length > 1000) return invalid();
+  const products = new Set<string>(), hints = new Set<string>();
+  const blockedProducts: ProgramInstanceExecutionPolicyV1['blockedProducts'] = [];
+  for (const entry of value.blockedProducts) {
+    if (!record(entry) || !exact(entry, ['productId','suspectedMatchers']) || !token(entry.productId)
+      || products.has(entry.productId) || !Array.isArray(entry.suspectedMatchers)) return invalid();
+    products.add(entry.productId);
+    const suspectedMatchers: ProgramInstanceExecutionPolicyV1['blockedProducts'][number]['suspectedMatchers'] = [];
+    for (const hint of entry.suspectedMatchers) {
+      if (!record(hint) || !exact(hint, ['signerKey','productName']) || typeof hint.signerKey !== 'string'
+        || !/^[a-f0-9]{64}$/.test(hint.signerKey) || !token(hint.productName)) return invalid();
+      const key = JSON.stringify([hint.signerKey, hint.productName]);
+      if (hints.has(key)) return invalid();
+      hints.add(key); suspectedMatchers.push({signerKey: hint.signerKey, productName: hint.productName});
+    }
+    blockedProducts.push({productId: entry.productId, suspectedMatchers});
+  }
+  const result: ProgramInstanceExecutionPolicyV1 = {schemaVersion: 1, catalogVersion: value.catalogVersion, blockedProducts};
+  if (new TextEncoder().encode(JSON.stringify(result)).length > 64_000) return invalid();
+  return result;
+}
 export interface ProductBlockPolicyV1 {
   schemaVersion: 1;
   knowledgeVersion: number;
