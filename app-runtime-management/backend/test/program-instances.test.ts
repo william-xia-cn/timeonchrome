@@ -309,6 +309,43 @@ it('家长实例列表按孩子隔离、分页不重项，规则过期不展示�
   expect((await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,value.childId,null)).items
     .every(item=>item.status==='unresolved'&&item.product===null)).toBe(true);
 });
+it('无使用清单也可登记实例，同实例的两个孩子范围独立且不凭机器共享',async()=>{
+  const {machine,value,token}=await fixture(),secondChild=crypto.randomUUID();
+  const catalog={schemaVersion:4,version:0,products:[{id:'p',name:'应用',type:'other'}],
+    ownershipRules:[{id:'r',revision:1,enabled:true,platform:'windows',productId:'p',
+      match:{kind:'binaryHash',sha256:'a'.repeat(64)}}],rules:[],bindings:[]};
+  await saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId,secondChild],
+    '"application-knowledge-v0"',catalog,1);
+  const upload=async(body:typeof value)=>{
+    const deferred:Promise<unknown>[]=[];
+    const response=await routeV2(new Request('https://runtime.test/v2/machines/program-instances',{
+      method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
+      body:JSON.stringify(body)}),env,2,p=>deferred.push(p));
+    expect(response!.status).toBe(200);
+    await Promise.all(deferred);
+    return response!.json();
+  };
+  const first=await upload(value);
+  expect(await upload(value)).toEqual(first);
+  expect((await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,value.childId,null)).items)
+    .toMatchObject([{status:'confirmed',product:{id:'p'}}]);
+  expect((await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,secondChild,null)).items).toEqual([]);
+  await expect(upload({...value,childId:secondChild})).rejects.toMatchObject({code:'PROGRAM_INSTANCE_CHILD_SCOPE_MISMATCH'});
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,'user-b',1,?2,1,'override',0,0)`)
+    .bind(machine.machineId,secondChild).run();
+  await upload({...value,childId:secondChild,localUserId:'user-b'});
+  const a=await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,value.childId,null);
+  const b=await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,secondChild,null);
+  expect(a.items).toHaveLength(1);
+  expect(b.items).toHaveLength(1);
+  expect(b.items[0]).toMatchObject({instanceId:a.items[0].instanceId,status:'confirmed',product:{id:'p'}});
+  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_program_instances_v1 WHERE machine_id=?')
+    .bind(machine.machineId).first('n')).toBe(1);
+  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_program_instance_scopes_v1 WHERE machine_id=?')
+    .bind(machine.machineId).first('n')).toBe(2);
+  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_account_manifests_v1 WHERE machine_id=?')
+    .bind(machine.machineId).first('n')).toBe(0);
+});
 it('登记实际路由触发匹配，失败ACK仍有效，后台恢复及规则撤销自动重建',async()=>{
   const {machine,value,token}=await fixture();
   const catalog={schemaVersion:4,version:0,products:[{id:'product-a',name:'应用A',type:'other'}],
