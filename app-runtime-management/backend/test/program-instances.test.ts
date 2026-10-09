@@ -497,6 +497,49 @@ it('目录保存实际路由条件更新并审计，映射待重建，拒绝越�
   expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_audit_v1 WHERE account_id=?')
     .bind(machine.accountId).first('n')).toBe(2);
 });
+it('非空旧目录切换保留历史产品配置与强化封锁，不以未识别历史产品伪造匹配',async()=>{
+  const {machine,value}=await fixture();
+  const receipt=await registerProgramInstances(env.RUNTIME_DB,machine,value,1);
+  const hint={platform:'windows',signerKey:'c'.repeat(64),productName:'Firefox'};
+  const legacy={schemaVersion:3,version:1,products:[
+    {id:'firefox',name:'Firefox',type:'other',suspectedMatchers:[hint],selectors:[
+      {platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]}}]},
+    {id:'historic-game',name:'历史游戏',type:'game',selectors:[
+      {platform:'windows',match:{operator:'all',conditions:[{field:'distributionKey',value:'steam:retired'}]}}]},
+  ],rules:[],bindings:[{childId:value.childId,products:[
+    {productId:'firefox',classification:'blocked',enhancedBlocking:true},
+    {productId:'historic-game',classification:'restrictedEntertainment'},
+  ],ruleIds:[]}]};
+  const originalPayload=JSON.stringify(legacy),originalHash=await sha256Hex(originalPayload);
+  await env.RUNTIME_DB.prepare('INSERT INTO runtime_application_knowledge_versions_v1 VALUES(?1,1,?2,?3,1)')
+    .bind(machine.accountId,originalPayload,originalHash).run();
+  const beforePolicy=await getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId);
+  const next={...legacy,schemaVersion:4,products:legacy.products.map(({selectors,...product})=>product),
+    ownershipRules:[{id:'verified-firefox',revision:1,enabled:true,platform:'windows',productId:'firefox',
+      match:{kind:'binaryHash',sha256:'a'.repeat(64)}}]};
+  const saved=await saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId],
+    '"application-knowledge-v1"',next,2);
+  expect(saved.bindings).toEqual(legacy.bindings);
+  expect(saved.products).toEqual(next.products);
+  expect(await env.RUNTIME_DB.prepare('SELECT payload_json FROM runtime_application_knowledge_versions_v1 WHERE account_id=? AND version=1')
+    .bind(machine.accountId).first('payload_json')).toBe(originalPayload);
+  expect(await env.RUNTIME_DB.prepare('SELECT previous_hash FROM runtime_application_knowledge_audit_v1 WHERE account_id=? AND version=2')
+    .bind(machine.accountId).first('previous_hash')).toBe(originalHash);
+  const afterPolicy=await getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId);
+  expect(afterPolicy.quotas).toEqual(beforePolicy.quotas);
+  expect(afterPolicy.timeWindows).toEqual(beforePolicy.timeWindows);
+  expect(afterPolicy.classifications).toEqual(beforePolicy.classifications);
+  expect(afterPolicy.programInstanceExecutionPolicy).toEqual({schemaVersion:1,catalogVersion:2,
+    blockedProducts:[{productId:'firefox',suspectedMatchers:[{signerKey:hint.signerKey,productName:'Firefox'}]}]});
+  const query={childId:value.childId,localUserId:value.localUserId,assignmentVersion:1,
+    instanceIds:receipt.items.map(item=>item.instanceId)};
+  expect((await readProgramInstanceMappings(env.RUNTIME_DB,machine,query)).items[0].status).toBe('pending');
+  await refreshPendingProgramInstanceMappings(env.RUNTIME_DB);
+  expect((await readProgramInstanceMappings(env.RUNTIME_DB,machine,query)).items[0])
+    .toMatchObject({status:'confirmed',productId:'firefox'});
+  expect(saved.ownershipRules.some(rule=>rule.productId==='historic-game')).toBe(false);
+});
+
 it('旧目录消费者不能误读或降级覆盖新版规则，既有版本和政策保持不变',async()=>{
   const {machine,value}=await fixture();
   const legacy={schemaVersion:1 as const,version:0,products:[],rules:[],bindings:[]};
