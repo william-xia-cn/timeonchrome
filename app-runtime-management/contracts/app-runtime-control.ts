@@ -88,7 +88,46 @@ export interface RuntimeMachineEnrollmentResponse {
 export type RuntimeMachinePolicyState = 'pending' | 'cached' | 'applied' | 'failed' | 'offline';
 
 /** Receiver capabilities are independent of the child's applied policy version. */
-export type RuntimeReceiverCapability = 'heartbeat-os-version-v1' | 'uninstall-operation-receipt-v1';
+export type RuntimeReceiverCapability = 'heartbeat-os-version-v1' | 'uninstall-operation-receipt-v1' | 'program-instance-policy-status-v1';
+
+/** Optional heartbeat diagnostics only; never grants execution authority. */
+export const PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY = 'program-instance-policy-status-v1';
+export type ProgramInstancePolicyAdoptionState = 'accepted' | 'noSession' | 'unsupported' | 'pending' | 'partial' | 'unknown';
+export interface ProgramInstancePolicyStatusReport {
+  schemaVersion: 1;
+  users: Array<{
+    /** Existing opaque cloud user reference; not a SID or a client-selected Child. */
+    localUserId: string;
+    assignmentVersion: number;
+    state: ProgramInstancePolicyAdoptionState;
+    /** Only populated when every expected session has accepted this same catalogue. */
+    catalogVersion: number | null;
+  }>;
+}
+
+/** Structural validation does not prove authenticated assignment or actual adoption. */
+export function parseProgramInstancePolicyStatusReport(input: unknown): ProgramInstancePolicyStatusReport {
+  const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const exact = (value: Record<string, unknown>, fields: readonly string[]) => Object.keys(value).length === fields.length
+    && fields.every(field => Object.hasOwn(value, field));
+  const invalid = (): never => { throw new Error('INVALID_PROGRAM_INSTANCE_POLICY_STATUS'); };
+  if (!record(input) || !exact(input, ['schemaVersion', 'users']) || input.schemaVersion !== 1
+      || !Array.isArray(input.users) || input.users.length > 100) return invalid();
+  const seen = new Set<string>();
+  const users: ProgramInstancePolicyStatusReport['users'] = input.users.map(value => {
+    if (!record(value) || !exact(value, ['localUserId', 'assignmentVersion', 'state', 'catalogVersion'])
+        || typeof value.localUserId !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/u.test(value.localUserId)
+        || seen.has(value.localUserId) || !Number.isSafeInteger(value.assignmentVersion) || Number(value.assignmentVersion) < 1
+        || typeof value.state !== 'string' || !['accepted','noSession','unsupported','pending','partial','unknown'].includes(value.state)
+        || (value.state === 'accepted'
+          ? !Number.isSafeInteger(value.catalogVersion) || Number(value.catalogVersion) < 1
+          : value.catalogVersion !== null)) return invalid();
+    seen.add(value.localUserId);
+    return {localUserId:value.localUserId, assignmentVersion:Number(value.assignmentVersion),
+      state:value.state as ProgramInstancePolicyAdoptionState, catalogVersion:value.catalogVersion === null ? null : Number(value.catalogVersion)};
+  });
+  return {schemaVersion:1, users};
+}
 
 export type RuntimeOsVersionResult =
   | { ok: true; osVersion: string }

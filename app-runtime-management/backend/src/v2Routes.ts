@@ -1,6 +1,7 @@
 import { requireAccountModule, requireMachine } from './auth';
 import { listChildProgramInstances, readProgramInstanceCatalog, previewProgramInstanceCatalog, saveProgramInstanceCatalog } from './programInstances';
 import { routeApplicationAccounts } from './applicationAccounts';
+import {receiveProgramPolicyStatus,readProgramPolicyStatus} from './programPolicyStatus';
 import { registerProgramInstances, readProgramInstanceMappings, programInstanceStorageReady, PROGRAM_INSTANCE_REGISTRATION_CAPABILITY, matchRegisteredProgramInstances, readChildProgramIdentityProjection, readProgramInstanceProjectionContext } from './programInstances';
 import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota, applicationSharedQuotaSourceKey } from './applicationSharedQuota';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
@@ -558,6 +559,12 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     if (usersMatch) {
       if (request.method !== 'GET') return methodNotAllowed('GET');
       const result = await listMachineUsers(env.RUNTIME_DB, claims.account_id, decodeURIComponent(usersMatch[1]!));
+      if(result){
+        const reports=await readProgramPolicyStatus(env.RUNTIME_DB,claims.account_id,decodeURIComponent(usersMatch[1]!),nowMs)
+          .catch(()=>{console.warn('PROGRAM_POLICY_STATUS_READ_UNAVAILABLE');return [];});
+        result.users=result.users.map(user=>isRecord(user)?{...user,
+          programInstancePolicy:reports.find(report=>report.localUserId===user.localUserId)??null}:user);
+      }
       return result ? jsonResponse(result) : errorResponse(404, 'MACHINE_NOT_FOUND', 'Machine was not found.');
     }
     const defaultMatch = url.pathname.match(/^\/v2\/module\/machines\/([^/]+)\/default-assignment$/u);
@@ -859,6 +866,7 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
         || item.length < 1 || item.length > 64))) {
       throw new HttpError(400, 'INVALID_REQUEST', 'Heartbeat capabilities are invalid.');
     }
+    if(body.programInstancePolicy!==undefined)await receiveProgramPolicyStatus(env.RUNTIME_DB,machine,body.programInstancePolicy,nowMs);
     await recordMachineHeartbeat(env.RUNTIME_DB, machine, {
       serviceVersion: String(body.serviceVersion), osVersion: version.osVersion,
       architecture: String(body.architecture), tamperCount: Number(body.tamperCount),

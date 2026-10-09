@@ -2,6 +2,12 @@
 
 ## 2026-10-09 应用身份三层改造接线边界（实施中，未启用）
 
+目录接纳云端接线进展（覆盖下方仅类型阶段）：既有机器心跳接收可选报告，鉴权机器及当前受保护分配校验与快照写入同一SQL，改绑旧报告拒绝；新0020只保存每机器一份有界最新报告和服务端接收时间，不记录动作。存储未就绪不声明`program-instance-policy-status-v1`；本次迁移仅在隔离D1验证，生产尚未应用。家长既有机器用户读取返回独立`programInstancePolicy`，保留报告state，另给currentState；超过现有十分钟机器／报告新鲜度、撤销或改绑显示unknown，接纳目录不是当前schema4版本则pending。目录接纳不是终止结果，不授权执行；报告损坏／读取异常降为null，不阻断机器账户读取。Native实际报告、固定契约包、云端页面状态及真实联调仍待完成，不能将本地接口通过称为已生效。
+
+云端目录接纳状态接线（开发契约，尚未发布）：复用机器认证及心跳通道，接收能力`program-instance-policy-status-v1`与可选`programInstancePolicy`报告独立于旧product-block-v1及策略ACK。报告schemaVersion=1，users逐项只含既有opaque localUserId、assignmentVersion、state、catalogVersion；不携Child自报归属、会话ID、sequence、路径、观测ref或动作结果。云端必须从当前机器分配核对孩子与分配版本；该报告是尽力诊断，不影响计时、统计或执行授权。
+
+Native从应覆盖的当前会话集合汇总每用户状态，不能直接把有64项截断的诊断列表当完整分母。state=accepted仅在非空、完整可枚举的应覆盖会话全部具备有效新模式整份ACK、相同当前分配和同一catalogVersion时成立；catalogVersion仅在此状态非null。其他状态为noSession（确无应覆盖会话）、unsupported（全部明确不支持）、pending（已知会话均等待且无已接纳）、partial（混合能力／目录／接纳）、unknown（枚举不全或状态无法核实）。断开、改绑、过期使旧ACK退出accepted，不能取最大目录版本或任一成功代表全部。云端展示“最近报告接纳目录”，离线、分配或当前目录不符不表示当前采用；不宣称进程已结束。首次仅固定类型／解析与反例；云端接收存储、Native实际上报及页面消费仍待，未就绪前不声明接收能力、不发送新字段、不覆盖1.44固定包。
+
 本机新实例执行诊断继续属于Native内部协议：允许在既有认证Agent→Service管道结果中携带sequence、assignmentVersion、catalogVersion、outcome和稳定reason；由实际动作引用其采用的快照上下文，不用旧policyVersion替代，也不凭最近ACK猜归属。Service仅在当前认证用户／分配与已发送快照一致时接受为该次执行结果，迟到或无上下文结果保留诊断但不标当前成功。本机只读诊断可分开表达消费者支持、已提供、整份接纳、已失效和实际动作结果；无动作保持未知／未发生，不把ACK当终止成功。复用现有本机日志存储且remoteEligible=false，不上传原始ref。该内部DTO不意味着新增Host共享消息或云端capability；跨仓可读状态和心跳能力另由集中契约固定，不向旧字段塞新含义。此为现有新执行消费者的接线补齐，不新增执行权限、共享限制或真实进程测试授权。
 
 目录保存源码接线：在Native新执行消费者及正式接收循环隔离验证通过后，`PUT /v2/module/program-instance-catalog`复用现有家长module鉴权、If-Match和同一目录／审计事务。请求是完整schema4目录，不接受手工第三层映射；服务端递增版本。响应返回已保存目录、ETag和`mappingState: pending`，只确认保存，不代表所有实例已重建或机器已执行。映射仍由现有版本差异恢复任务处理，读取旧映射期间明确pending，不在写请求中全量扫描。缺实例存储返回503；不执行迁移。现有强化规则不得通过此入口无授权新增。管理界面随后同批接保存及独立生效状态；本条覆盖下方“仅GET／预览、无PUT”的旧实施状态，但不意味着已经部署或允许真实生产改动。

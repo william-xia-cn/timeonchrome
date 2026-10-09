@@ -33,7 +33,7 @@
 .variant-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:12px}
 .knowledge-body .notice{background:#e8f6f0;color:var(--green-dark);margin:0 0 14px;overflow-wrap:anywhere}
 .instance-evidence{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
-.classification-expression-editor{width:100%;min-width:0}
+.classification-expression-editor{width:100%;min-width:0;grid-column:1/-1}
 .classification-expression-editor label{display:grid;gap:6px;margin:10px 0}
 .classification-expression-editor textarea{box-sizing:border-box;width:100%;min-width:0;resize:vertical;font:12px/1.5 monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 .app-directory-card .empty{overflow-wrap:anywhere;white-space:normal}

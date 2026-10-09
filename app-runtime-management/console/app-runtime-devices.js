@@ -4,6 +4,18 @@
     osLabel: (machine) => machine.osVersion || machine.windowsVersion || api.platformLabel(machine.platform),
     syncAt: (machine) => machine.lastSyncAtMs ?? machine.lastUploadAtMs,
     accountStatus: (user) => user.sessionActive === true ? '会话活动' : user.sessionActive === false ? '会话未活动' : '会话状态未报告',
+    programPolicyStatus(user, nowMs = Date.now()) {
+      const report = user.programInstancePolicy;
+      if (!report) return '新版目录：未报告（不能由旧策略状态推断）';
+      if (report.assignmentVersion !== user.assignmentVersion || user.protected !== true
+        || !Number.isSafeInteger(report.receivedAtMs) || report.receivedAtMs > nowMs || nowMs - report.receivedAtMs > 600000)
+        return '新版目录：未确认（报告已失效或分配变化）';
+      const labels = { noSession: '无活动会话', unsupported: '当前会话未支持', pending: '等待接纳当前目录',
+        partial: '部分会话尚未接纳', unknown: '当前接纳未确认' };
+      if (report.currentState === 'accepted' && Number.isSafeInteger(report.catalogVersion) && report.catalogVersion > 0)
+        return `新版目录：最近报告已接纳 v${report.catalogVersion}；不代表实际结束应用`;
+      return `新版目录：${labels[report.currentState] || '当前接纳未确认'}`;
+    },
     productBlockStatus: (machine) => machine.platform !== 'windows' ? '当前平台未报告产品级封锁能力'
       : machine.productBlockingCapability !== 'reported' ? '产品级封锁未覆盖（设备未报告执行能力）'
       : machine.policyState !== 'applied' ? '产品级封锁能力已报告，策略尚未生效'

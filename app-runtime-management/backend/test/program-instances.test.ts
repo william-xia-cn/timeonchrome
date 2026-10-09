@@ -9,6 +9,38 @@ import { getApplicationKnowledge, putApplicationKnowledge } from '../src/applica
 import { getAppPolicy, putAppPolicy } from '../src/appPolicy';
 import { parseProductOwnershipEvidence, resolveProgramInstanceClassification } from '@timeonchrome/app-runtime-contracts/classification';
 import { parseProgramInstanceProjectionContext } from '@timeonchrome/app-runtime-contracts/classification-validation';
+import {readProgramPolicyStatus,receiveProgramPolicyStatus} from '../src/programPolicyStatus';
+
+it('新目录接纳经真实心跳持久化，改目录/改绑/离线不冒充当前，跨家庭不可读取',async()=>{
+  const {machine,value,token}=await fixture(),user='a'.repeat(64);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,1,?3,1,'override',0,0)`)
+    .bind(machine.machineId,user,value.childId).run();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_knowledge_versions_v1 VALUES(?1,8,'{"schemaVersion":4}','hash',0)`)
+    .bind(machine.accountId).run();
+  const report={schemaVersion:1,users:[{localUserId:user,assignmentVersion:1,state:'accepted',catalogVersion:8}]};
+  const response=await routeV2(new Request('https://runtime.test/v2/machines/heartbeat',{method:'POST',
+    headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
+    body:JSON.stringify({serviceVersion:'test',windowsVersion:'10',architecture:'x64',tamperCount:0,policyState:'applied',programInstancePolicy:report})}),env,100);
+  expect(response?.status).toBe(200);
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,101))
+    .toMatchObject([{currentState:'accepted',catalogVersion:8,receivedAtMs:100}]);
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,'different-family',machine.machineId,101)).toEqual([]);
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,600101))
+    .toMatchObject([{currentState:'unknown'}]);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_knowledge_versions_v1 VALUES(?1,9,'{"schemaVersion":4}','hash',0)`)
+    .bind(machine.accountId).run();
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,102))
+    .toMatchObject([{state:'accepted',currentState:'pending',catalogVersion:8}]);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,2,'another-child',1,'override',0,0)`)
+    .bind(machine.machineId,user).run();
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,103))
+    .toMatchObject([{currentState:'unknown'}]);
+  await expect(receiveProgramPolicyStatus(env.RUNTIME_DB,machine,report,104)).rejects.toMatchObject({code:'PROGRAM_POLICY_STATUS_SCOPE_CHANGED'});
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,104))
+    .toMatchObject([{receivedAtMs:100}]);
+  await receiveProgramPolicyStatus(env.RUNTIME_DB,machine,{schemaVersion:1,users:[]},105);
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,106)).toEqual([]);
+});
 
 async function fixture() {
   const machine: MachineSelfResponse = {machineId:crypto.randomUUID(), accountId:crypto.randomUUID(),
@@ -25,6 +57,49 @@ async function fixture() {
     evidenceRevision:1,evidence:{platform:'windows',verified:{binaryHash:'a'.repeat(64)}}}]};
   return {machine,value,token};
 }
+it('家长用户读取返回新目录接纳；损坏诊断不阻断账户分配，其他家庭不可读',async()=>{
+  const {machine,value}=await fixture(),user='b'.repeat(64),token=randomToken('');
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machine_users_v2
+    (machine_id,local_user_id,display_name,first_seen_at_ms,last_seen_at_ms) VALUES(?1,?2,'测试用户',0,0)`)
+    .bind(machine.machineId,user).run();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,1,?3,1,'override',0,0)`)
+    .bind(machine.machineId,user,value.childId).run();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
+    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms) VALUES(?1,?2,?3,0,1000,0)`)
+    .bind(await sha256Hex(token),machine.accountId,JSON.stringify([{id:value.childId,name:'测试孩子'}])).run();
+  await receiveProgramPolicyStatus(env.RUNTIME_DB,machine,{schemaVersion:1,users:[{
+    localUserId:user,assignmentVersion:1,state:'pending',catalogVersion:null}]},10);
+  const read=()=>routeV2(new Request(`https://runtime.test/v2/module/machines/${machine.machineId}/users`,
+    {headers:{authorization:`RuntimeSession ${token}`}}),env,11);
+  expect(await (await read())!.json()).toMatchObject({users:[{localUserId:user,childId:value.childId,
+    programInstancePolicy:{state:'pending',currentState:'pending',receivedAtMs:10}}]});
+  await env.RUNTIME_DB.prepare('UPDATE runtime_program_policy_status_v1 SET payload_json=? WHERE machine_id=?')
+    .bind('{"schemaVersion":999}',machine.machineId).run();
+  const degraded=await read();
+  expect(degraded!.status).toBe(200);
+  expect(await degraded!.json()).toMatchObject({users:[{localUserId:user,childId:value.childId,programInstancePolicy:null}]});
+  await env.RUNTIME_DB.prepare('UPDATE runtime_browser_sessions_v1 SET account_id=? WHERE token_hash=?')
+    .bind('different-family',await sha256Hex(token)).run();
+  expect((await read())!.status).toBe(404);
+});
+it('隔离库缺少新诊断存储时不声明能力，旧心跳继续工作，新报告明确不可用',async()=>{
+  const {machine,token}=await fixture();
+  await env.RUNTIME_DB.prepare('ALTER TABLE runtime_program_policy_status_v1 RENAME TO test_program_policy_status_saved').run();
+  try {
+    const headers={authorization:`Bearer ${token}`,'content-type':'application/json'};
+    const policy=await routeV2(new Request('https://runtime.test/v2/machines/policy',{headers}),env,20);
+    expect(await policy!.json()).toMatchObject({capabilities:expect.not.arrayContaining(['program-instance-policy-status-v1'])});
+    const heartbeat={serviceVersion:'test',windowsVersion:'10',architecture:'x64',tamperCount:0,policyState:'applied'};
+    expect((await routeV2(new Request('https://runtime.test/v2/machines/heartbeat',{
+      method:'POST',headers,body:JSON.stringify(heartbeat)}),env,20))!.status).toBe(200);
+    await expect(routeV2(new Request('https://runtime.test/v2/machines/heartbeat',{
+      method:'POST',headers,body:JSON.stringify({...heartbeat,programInstancePolicy:{schemaVersion:1,users:[]}})}),env,21))
+      .rejects.toMatchObject({status:503,code:'PROGRAM_POLICY_STATUS_UNAVAILABLE'});
+    expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,22)).toEqual([]);
+  } finally {
+    await env.RUNTIME_DB.prepare('ALTER TABLE test_program_policy_status_saved RENAME TO runtime_program_policy_status_v1').run();
+  }
+});
 it('规则预览使用实际孩子实例与正式匹配器，不写第三层，拒绝旧版本及跨孩子请求',async()=>{
   const {machine,value}=await fixture(),token=randomToken('');
   await registerProgramInstances(env.RUNTIME_DB,machine,value,1);

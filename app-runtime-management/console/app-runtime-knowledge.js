@@ -83,15 +83,18 @@
     if(expressions!==undefined){revised.match=clone(expressions.match);revised.exclude=clone(expressions.exclude);}
     return reviseRule(catalog,revised,[childId],rule.id);
   }
-  function addCatalogClassification(catalog,{id,name,kind,productId,type,platform,mode,classification,reason,childId}){
+  function addCatalogClassification(catalog,{id,name,kind,productId,type,platform,mode,classification,reason,childId,expressions}){
     if(catalog?.schemaVersion!==4||!childId||!id||catalog.rules.some(rule=>rule.id===id))throw new Error('目录、孩子或规则标识无效');
     if(!name?.trim()||name.trim().length>256||!reason?.trim()||reason.trim().length>256)throw new Error('请填写规则名称及解释');
-    if(!['product','type'].includes(kind)||!['automatic','suggestion'].includes(mode)||!Object.hasOwn(labels,classification)||!['','windows','macos'].includes(platform))throw new Error('分类规则选项无效');
+    if(!['product','type','family','developer'].includes(kind)||!['automatic','suggestion'].includes(mode)||!Object.hasOwn(labels,classification)||!['','windows','macos'].includes(platform))throw new Error('分类规则选项无效');
     const product=catalog.products.find(item=>item.id===productId);
     if(kind==='product'&&!product)throw new Error('请选择集中目录中的产品');
     if(kind==='type'&&(!Object.hasOwn(types,type)||type==='unknown'))throw new Error('请选择已确定的客观产品类型');
+    const advanced=['family','developer'].includes(kind);
+    if(advanced&&(!expressions?.match?.conditions?.length||!Array.isArray(expressions.exclude)))throw new Error('系列／开发者规则需要明确的匹配条件');
     const rule={id,name:name.trim(),kind,...(kind==='product'?{productId:product.id}:{}),...(platform?{platform}:{}),
-      match:{operator:'all',conditions:[]},exclude:[],mode,classification,type:kind==='product'?product.type:type,enabled:true,source:'parent-confirmed',reason:reason.trim()};
+      match:advanced?clone(expressions.match):{operator:'all',conditions:[]},exclude:advanced?clone(expressions.exclude):[],
+      mode,classification,type:kind==='product'?product.type:kind==='type'?type:'unknown',enabled:true,source:'parent-confirmed',reason:reason.trim()};
     return reviseRule(catalog,rule,[childId],null);
   }
   function withDefaultRecommendations(value){const next=clone(value);next.schemaVersion=Math.max(2,next.schemaVersion);next.rules=next.rules.filter(rule=>rule.id!==legacyGameSuggestionRuleId);for(const binding of next.bindings)binding.ruleIds=binding.ruleIds.filter(id=>id!==legacyGameSuggestionRuleId);return next;}
@@ -307,13 +310,14 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
         }).join('')||'<p>暂无自定义分类规则；产品明确分类仍可独立设置。</p>'}</section>
         <section class="knowledge-editor"><h3>新增分类规则草稿</h3><p>只批准给当前孩子；不建立或修改产品归属。明确产品分类优先，建议规则不直接改变有效分类。</p>
         <label>规则名称<input id="ownership-class-name" maxlength="256"></label>
-        <label>匹配对象<select id="ownership-class-kind"><option value="product">已确认产品</option><option value="type">客观产品类型</option></select></label>
+        <label>匹配对象<select id="ownership-class-kind"><option value="product">已确认产品</option><option value="type">客观产品类型</option><option value="family">系列分类规则</option><option value="developer">开发者分类规则</option></select></label>
         <label>产品（产品规则使用）<select id="ownership-class-product"><option value="">请选择产品</option>${ownershipDraft.products.map((product,index)=>`<option value="${index}">${esc(product.name)}</option>`).join('')}</select></label>
         <label>类型（类型规则使用）<select id="ownership-class-type">${Object.entries(types).filter(([key])=>key!=='unknown').map(([key,label])=>`<option value="${key}">${label}</option>`).join('')}</select></label>
         <label>平台<select id="ownership-class-platform"><option value="">两个平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select></label>
         <label>模式<select id="ownership-class-mode"><option value="suggestion">仅建议</option><option value="automatic">自动</option></select></label>
         <label>结果<select id="ownership-class-result">${classOptions()}</select></label>
-        <label>解释<input id="ownership-class-reason" maxlength="256"></label><button id="ownership-class-add">加入分类规则草稿</button></section>
+        <details class="classification-expression-editor"><summary>系列／开发者规则条件</summary><p>仅这两种分类规则使用；不改变产品归属。新版实例没有的旧证据会保留未知，不能按名称猜配；自动规则须通过服务端安全校验。</p><label>新规则匹配条件 JSON<textarea id="ownership-class-match" rows="6" maxlength="16384">${esc(JSON.stringify({operator:'all',conditions:[]},null,2))}</textarea></label><label>新规则排除条件 JSON<textarea id="ownership-class-exclude" rows="4" maxlength="16384">[]</textarea></label></details>
+        <label>解释<input id="ownership-class-reason" maxlength="256"></label><p id="ownership-class-error" role="alert"></p><button id="ownership-class-add">加入分类规则草稿</button></section>
         <div class="knowledge-filter"><button id="ownership-preview">云端预览当前孩子</button><button id="ownership-preview-next"${ownershipPreview?.nextAfterInstanceId?'':' disabled'}>预览下一页</button><button id="ownership-save"${ownershipSaving||ownershipSaved?' disabled':''}>${ownershipSaving?'正在保存…':'保存集中规则目录'}</button><button id="ownership-open">重新读取目录</button></div>
         <p>保存影响当前家庭中符合规则的实例，不限于当前孩子或本页预览。重新读取会丢弃当前内存草稿；保存不代表终端已经执行。</p>
         <div aria-live="polite">${ownershipPreview?`<p>仅预览本页 ${ownershipPreview.items.length} 个实例，尚未生效。</p>${ownershipPreview.items.map(item=>{
@@ -407,9 +411,11 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
             name:$('#ownership-class-name').value,kind:$('#ownership-class-kind').value,
             productId:ownershipDraft?.products[$('#ownership-class-product').value]?.id,type:$('#ownership-class-type').value,
             platform:$('#ownership-class-platform').value,mode:$('#ownership-class-mode').value,
-            classification:$('#ownership-class-result').value,reason:$('#ownership-class-reason').value});
+            classification:$('#ownership-class-result').value,reason:$('#ownership-class-reason').value,
+            expressions:['family','developer'].includes($('#ownership-class-kind').value)
+              ?parseClassificationExpressions($('#ownership-class-match').value,$('#ownership-class-exclude').value):undefined});
           invalidateOwnership();ownershipDraft=next;ownershipSaved=false;renderOwnership('新分类规则已加入当前孩子草稿；尚未保存。');
-        }catch(error){renderOwnership(error.message);}
+        }catch(error){$('#ownership-class-error').textContent=error.message;}
       }
       if(button.dataset.ownershipClassification!==undefined||button.dataset.ownershipApproval!==undefined){
         const index=Number(button.dataset.ownershipClassification??button.dataset.ownershipApproval),rule=ownershipDraft?.rules[index];

@@ -493,7 +493,7 @@ describe('Runtime product API', () => {
     const headers=bearer(enrolled.machineToken);
     const response=await call('/v2/machines/policy',{headers});
     const policy=await response.json<{version:number;capabilities:string[]}>();
-    expect(policy.capabilities).toEqual(['heartbeat-os-version-v1', 'uninstall-operation-receipt-v1']);
+    expect(policy.capabilities).toEqual(['heartbeat-os-version-v1', 'uninstall-operation-receipt-v1','program-instance-policy-status-v1']);
     const etag=response.headers.get('etag')!;
     expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':etag}})).status).toBe(304);
     expect((await call('/v2/machines/policy',{headers:{'If-None-Match':etag}})).status).toBe(401);

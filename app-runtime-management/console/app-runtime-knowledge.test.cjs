@@ -372,6 +372,25 @@ async function newCatalogRuleContractTests(){
   assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,productId:'测试应用'}),/集中目录/);
   assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,kind:'type',type:'unknown'}),/客观产品类型/);
   assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,reason:''}),/解释/);
+  for(const kind of ['family','developer']){
+    const conditions=K.parseClassificationExpressions(JSON.stringify({operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]}),'[]');
+    const advanced=K.addCatalogClassification(ownershipCatalog,{...input,kind,expressions:conditions});
+    const validated=parseApplicationKnowledgeV4(advanced);
+    assert.equal(resolve(validated).classification,'other');
+    assert.equal(Object.hasOwn(validated.rules.at(-1),'productId'),false,'advanced rules must not inherit hidden product selection');
+    assert.equal(validated.rules.at(-1).type,'unknown','advanced rules must not inherit hidden type selection');
+    assert.deepEqual(validated.bindings.find(b=>b.childId==='child-b'),ownershipCatalog.bindings.find(b=>b.childId==='child-b'));
+    assert.deepEqual(validated.ownershipRules,ownershipCatalog.ownershipRules);
+    conditions.match.conditions[0].value='c'.repeat(64);
+    assert.equal(advanced.rules.at(-1).match.conditions[0].value,'a'.repeat(64));
+    const missing=K.addCatalogClassification(ownershipCatalog,{...input,kind,expressions:{
+      match:{operator:'all',conditions:[{field:'fileSeriesKey',value:'verified-old-series'}]},exclude:[]}});
+    assert.equal(resolve(parseApplicationKnowledgeV4(missing)).status,'unknown','unsupported evidence must not become a fake match or mismatch');
+    const weakNew=K.addCatalogClassification(ownershipCatalog,{...input,kind,expressions:{
+      match:{operator:'all',conditions:[{field:'productName',value:'Chrome'}]},exclude:[]}});
+    assert.throws(()=>parseApplicationKnowledgeV4(weakNew),/WEAK_AUTOMATIC_RULE/);
+    assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,kind}),/明确的匹配条件/);
+  }
   console.log('PASS: actual v4 parser and classifier consume UI product/type drafts, suggestion/platform/explicit priority and Child isolation');
 }
 newCatalogRuleContractTests().catch(error=>{console.error(error);process.exitCode=1;});
