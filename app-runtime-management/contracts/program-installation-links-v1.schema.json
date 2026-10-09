@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "program-installation-links-v1.schema.json",
+  "title": "同次扫描安装引用请求及精确回执",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "childId", "localUserId", "assignmentVersion", "scanId", "links"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "childId": {"$ref": "#/$defs/token"},
+    "localUserId": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"},
+    "assignmentVersion": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "scanId": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+    "links": {
+      "type": "array", "minItems": 1, "maxItems": 100, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["variantKey", "instanceId"],
+        "properties": {
+          "variantKey": {"$ref": "#/$defs/token"},
+          "instanceId": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "token": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[^\\u0000-\\u001f\\u007f]+$"}
+  },
+  "$comment": "Schema只检查结构。接收端另核验认证范围、同次扫描条目及实例登记；发送端另核验回执范围和全部二元组与冻结请求一致。"
+}

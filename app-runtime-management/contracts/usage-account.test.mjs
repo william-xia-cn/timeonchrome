@@ -6,9 +6,69 @@ import { createUsageAccount, hashUsageAccountValue, canonicalUsageAccountJson,
   createUsageAccountV2, verifyUsageAccountManifestV2, parseApplicationUsageSeconds,
   allocateUsageAccountSeconds,parseUsageAccountRowsV2,validateUsageAccountDimensionsV2,
   APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY } from './dist/usage-account.js';
+import { createApplicationInstanceAccount, parseApplicationInstanceAccountRows, verifyApplicationInstanceAccountManifest,
+  validateApplicationInstanceAccountDimensions, parseApplicationProductStatisticsProjection,
+  verifyApplicationProductStatisticsProjection } from './dist/usage-account.js';
+
+const instanceStart=usageAccountDayStart('2026-10-09');
+const instanceHeader={schemaVersion:3,sourceKind:'application',durationUnit:'seconds',timezone:'Asia/Shanghai',childId:'child-a',
+  date:'2026-10-09',revision:1,generatedAtMs:instanceStart+200000,settledThroughMs:instanceStart+180000,
+  algorithmVersion:'application-instance-seconds-v1',rawFactCount:2,rawFactHash:'a'.repeat(64),
+  observationResolutionHash:await hashUsageAccountValue([]),complete:true,reasonCodes:[]};
+const instanceRows=[{kind:'total',hour:null,subjectKey:null,duration:180},
+  ...Array.from({length:24},(_,hour)=>({kind:'total',hour,subjectKey:null,duration:hour===0?180:0})),
+  ...['instance:'+'b'.repeat(64),'observation:'+'c'.repeat(64)].flatMap(subjectKey=>[
+    {kind:'subject',hour:null,subjectKey,duration:120},{kind:'subject',hour:0,subjectKey,duration:120}])];
+const instanceAccount=await createApplicationInstanceAccount(instanceHeader,instanceRows);
+const productBody={schemaVersion:1,baseManifestHash:instanceAccount.manifest.manifestHash,revision:1,catalogVersion:1,
+  generatedAtMs:instanceHeader.generatedAtMs,complete:true,reasonCodes:[],
+  rows:[...['product:word','product:excel'].flatMap(subjectKey=>[null,0].map(hour=>({kind:'subject',hour,
+    category:null,subjectKey,duration:120,classifications:['study']}))),
+    ...[null,0].map(hour=>({kind:'category',hour,category:'study',subjectKey:null,duration:180}))]
+    .sort((a,b)=>canonicalUsageAccountJson(a)<canonicalUsageAccountJson(b)?-1:1),
+  applicationUsage:{nonSpecialTotal:180,nonSpecialCategories:{study:180},specialTotal:0,complete:true,reasonCodes:[]}};
+const signProduct=async body=>({...body,projectionHash:await hashUsageAccountValue(body)});
+const productProjection=await signProduct(productBody),baseBefore=JSON.stringify(instanceAccount);
+assert.deepEqual(await verifyApplicationProductStatisticsProjection(productProjection,instanceAccount.manifest,instanceAccount.rows),productProjection);
+assert.equal(productProjection.rows.filter(row=>row.kind==='subject'&&row.hour===null).reduce((sum,row)=>sum+row.duration,0),240);
+assert.equal(JSON.stringify(instanceAccount),baseBefore,'产品视图不修改基础统计，明细240不冒充总量180');
+await assert.rejects(()=>verifyApplicationProductStatisticsProjection({...productProjection,catalogVersion:2},instanceAccount.manifest,instanceAccount.rows),/HASH_MISMATCH/);
+await assert.rejects(async()=>verifyApplicationProductStatisticsProjection(await signProduct({...productBody,baseManifestHash:'f'.repeat(64)}),instanceAccount.manifest,instanceAccount.rows),/BASE_MISMATCH/);
+await assert.rejects(async()=>verifyApplicationProductStatisticsProjection(await signProduct({...productBody,applicationUsage:{...productBody.applicationUsage,specialTotal:1}}),instanceAccount.manifest,instanceAccount.rows),/USAGE_MISMATCH/);
+assert.throws(()=>parseApplicationProductStatisticsProjection({...productProjection,rows:[{...productBody.rows[0],displayName:'重复名称'}]}),/INVALID_FIELDS/);
+assert.throws(()=>parseApplicationProductStatisticsProjection({...productProjection,balance:100}),/INVALID_FIELDS/);
+const revisedProduct=await signProduct({...productBody,revision:2,rows:productBody.rows.map(row=>({...row,duration:row.kind==='subject'?60:90})),
+  applicationUsage:{nonSpecialTotal:90,nonSpecialCategories:{study:90},specialTotal:90,complete:true,reasonCodes:[]}});
+assert.equal((await verifyApplicationProductStatisticsProjection(revisedProduct,instanceAccount.manifest,instanceAccount.rows)).revision,2,'更正允许投影分类／产品下降，不修改基础总量');
+assert.deepEqual(await verifyApplicationInstanceAccountManifest(instanceAccount.manifest),instanceAccount.manifest);
+assert.deepEqual(validateApplicationInstanceAccountDimensions(instanceAccount.rows),{total:180},'明细240不替代并集总量180');
+assert.equal(instanceRows[0].hour,null,'创建不排序修改调用方输入');
+assert(!('displayName' in instanceAccount.rows[0]));
+assert(!('associationVersion' in instanceAccount.manifest));
+assert.throws(()=>parseUsageAccountRowsV2(instanceAccount.rows),/USAGE_ACCOUNT_INVALID_FIELDS/);
+assert.throws(()=>parseApplicationInstanceAccountRows([{...instanceAccount.rows[0],displayName:'Product'}]),/USAGE_ACCOUNT_INVALID_FIELDS/);
+assert.throws(()=>parseApplicationInstanceAccountRows([{kind:'subject',hour:null,subjectKey:'product:browser',duration:120}]),/USAGE_ACCOUNT_INVALID_SUBJECT/);
+assert.throws(()=>parseApplicationInstanceAccountRows([{kind:'category',hour:null,subjectKey:null,duration:120}]),/USAGE_ACCOUNT_INVALID_ROW/);
+await assert.rejects(()=>verifyApplicationInstanceAccountManifest({...instanceAccount.manifest,childId:'child-b'}),/HASH_MISMATCH/);
+await assert.rejects(()=>verifyApplicationInstanceAccountManifest({...instanceAccount.manifest,policyVersions:[]}),/INVALID_FIELDS/);
+const resolvedRows=instanceRows.map(row=>({...row,subjectKey:row.subjectKey?.startsWith('observation:')?'instance:'+'d'.repeat(64):row.subjectKey}));
+const resolvedAccount=await createApplicationInstanceAccount({...instanceHeader,revision:2,observationResolutionHash:'e'.repeat(64)},resolvedRows);
+assert.equal(resolvedAccount.manifest.rawFactHash,instanceAccount.manifest.rawFactHash);
+assert.notEqual(resolvedAccount.manifest.manifestHash,instanceAccount.manifest.manifestHash);
+assert.equal(validateApplicationInstanceAccountDimensions(resolvedAccount.rows).total,180);
+assert.equal(instanceAccount.chunks[0].chunkHash,await hashUsageAccountValue(instanceAccount.chunks[0].rows));
 
 const vectors = JSON.parse(readFileSync(new URL('./usage-account.vectors.json', import.meta.url), 'utf8'));
+assert.deepEqual(productBody,vectors.productProjectionGolden.body,'跨语言产品投影固定载荷');
+assert.equal(productProjection.projectionHash,vectors.productProjectionGolden.projectionHash,'跨语言产品投影固定哈希');
+assert.deepEqual(await verifyApplicationProductStatisticsProjection({...vectors.productProjectionGolden.body,
+  projectionHash:vectors.productProjectionGolden.projectionHash},instanceAccount.manifest,instanceAccount.rows),productProjection);
 const schema = JSON.parse(readFileSync(new URL('./usage-account.schema.json', import.meta.url), 'utf8'));
+for(const field of ['rowCount','observationResolutionHash','rowsHash','manifestHash'])
+  assert.equal(instanceAccount.manifest[field],vectors.instanceV3Golden[field]);
+assert.equal(instanceAccount.chunks[0].chunkHash,vectors.instanceV3Golden.chunkHash);
+assert.deepEqual(schema.$defs.rowV3.required,Object.keys(instanceRows[0]));
+assert.deepEqual([...schema.$defs.manifestV3.required].sort(),Object.keys(instanceAccount.manifest).sort());
 assert.equal(schema.additionalProperties, false);
 assert.equal(schema.$defs.row.additionalProperties, false);
 assert.equal(schema.properties.rowCount.maximum, 10000);
@@ -187,3 +247,23 @@ assert.throws(()=>parseUsageAccountRowsV2([{...subjectSeconds,classifications:['
 assert.throws(()=>parseUsageAccountRowsV2([{...subjectSeconds,classifications:['study','composite']}]), /INVALID_SUBJECT_CLASSIFICATIONS/);
 assert.throws(()=>parseUsageAccountRowsV2([{...row('total',null,51),classifications:['study']}]), /INVALID_FIELDS/);
 console.log('usage-account: golden vectors and compatibility/integrity checks passed');
+
+const upload = await import('./dist/usage-account.js');
+const productReceipt = vectors.productProjectionUpload.receipt;
+const productManifestId = productReceipt.manifestId;
+const productExpected = {revision:productReceipt.revision,projectionHash:productReceipt.projectionHash};
+assert.equal(upload.APPLICATION_PRODUCT_PROJECTION_UPLOAD_CAPABILITY,vectors.productProjectionUpload.capability);
+assert.equal(upload.APPLICATION_PRODUCT_PROJECTION_MAX_BYTES,vectors.productProjectionUpload.maxBytes);
+assert.equal(upload.applicationProductProjectionUploadPath(productManifestId),vectors.productProjectionUpload.path);
+assert.deepEqual(upload.verifyApplicationProductProjectionReceipt(productReceipt,productManifestId,productExpected),productReceipt);
+assert.deepEqual(upload.verifyApplicationProductProjectionReceipt(productReceipt,productManifestId,productExpected),productReceipt,
+  '重复确认是同一个版本，不产生累加结果');
+for(const patch of vectors.productProjectionUpload.invalidReceiptPatches) {
+  assert.throws(()=>upload.verifyApplicationProductProjectionReceipt({...productReceipt,...patch},productManifestId,productExpected),
+    /APPLICATION_PRODUCT_RECEIPT_MISMATCH/);
+}
+assert.throws(()=>upload.verifyApplicationProductProjectionReceipt({...productReceipt,childId:'extra'},productManifestId,productExpected),/INVALID_FIELDS/);
+for(const bad of ['',`aa1_${'A'.repeat(64)}`,`${productManifestId}/../commit`,null])
+  assert.throws(()=>upload.applicationProductProjectionUploadPath(bad),/APPLICATION_PRODUCT_MANIFEST_ID_INVALID/);
+assert.throws(()=>upload.verifyApplicationProductProjectionReceipt(productReceipt,productManifestId,{revision:0,projectionHash:'b'.repeat(64)}),/RECEIPT_MISMATCH/);
+console.log('product projection upload: exact request ACK and bounded path checks passed');

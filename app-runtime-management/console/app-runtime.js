@@ -96,7 +96,7 @@
   function showSuccess(message) { if(!live())return;$('#status-strip').className = 'success'; $('#status-message').textContent = message; $('#retry').hidden = true; $('#status-strip').hidden = false; setTimeout(() => { if (live()&&$('#status-strip').className === 'success' && $('#status-message').textContent === message) clearError(); }, 3500); }
   function clearError() { $('#status-strip').hidden = true; }
   function setLoading(active) { if(!live())return;const main = $('main'); main.setAttribute('aria-busy', String(active)); $('#refresh').disabled = active; if (active) { if (!state.loaded) { main.classList.add('initial-load-pending'); main.classList.remove('initial-load-failed'); $('#load-empty-state').hidden = true; } $('#status-strip').className = 'loading'; $('#status-message').textContent = '正在加载 Runtime 数据…'; $('#retry').hidden = true; $('#status-strip').hidden = false; } else if ($('#status-strip').className === 'loading') clearError(); }
-  function markLoaded() { assertLive();if (!mock&&!embedded) authRecovery.protectedLoadSucceeded(); state.loaded = true; const main = $('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
+  function markLoaded(protectedSuccess=true) { assertLive();if (protectedSuccess&&!mock&&!embedded) authRecovery.protectedLoadSucceeded(); state.loaded = true; const main = $('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
   async function issue() {
     if(embedded){assertLive();renderChildPicker();return;}
     state.session = AppRuntimeSession.load(sessionStorage);
@@ -204,7 +204,7 @@
     ['machine-filter','user-filter','platform-filter'].forEach(id=>{const control=$('#'+id);control.disabled=state.usageKind!=='application';control.hidden=computer;});
     $('#application-read-note').textContent=state.usageReadInfo?`${state.usageReadInfo.legacy?'旧版兼容统计 · ':''}${state.usageReadInfo.cached?'缓存 · ':''}读取于 ${time(state.usageReadInfo.readAtMs)}（手动刷新可重新读取）`:'';
     if(state.usageKind!=='application')return;
-    if (!mock && (state.usageLoading || state.usageError || !state.usage)) {
+    if (!mock && !state.usage) {
       const message = state.usageLoading ? '正在读取使用统计…' : state.usageError || '使用统计尚未加载';
       $('#total-time').textContent = '—';
       $('#quota-state').textContent = '暂不可用';
@@ -219,6 +219,8 @@
       return;
     }
     const usage = state.usage || {};
+    if(state.usageLoading)$('#application-read-note').textContent+=' · 正在刷新，显示上次有效统计';
+    else if(state.usageError)$('#application-read-note').textContent+=` · ${state.usageError}；保留上次有效统计，截止见下方，点击刷新重试`;
     if(usage.durationUnit==='seconds'){renderSecondsUsage(usage);return;}
     $('#outside-window-summary').textContent = `本周期时段外使用 ${duration(usage.outsideTimeWindows?.durationMs || 0)}`;
     $('#total-time').textContent = duration(usage.totalDurationMs);
@@ -264,6 +266,12 @@
     $('#app-ranking').innerHTML=usage.applications.map((item,index)=>`<button class="app-row" data-usage-app="${index}"><span class="app-icon">${index+1}</span><div class="app-meta"><strong>${escape(item.displayName||'未知应用')}</strong><small>${escape(item.classifications.map(label).join('／'))}</small></div><div><strong>${fmt(item.durationSeconds)}</strong><small>独立应用统计</small></div></button>`).join('')||(usage.complete?'暂无使用记录':'尚无可用应用明细');
     $('#category-ranking').className='list';
     $('#category-ranking').innerHTML=usage.categories.map(item=>`<button class="category-row" data-usage-category="${escape(item.classification)}"><span class="app-icon">${escape(label(item.classification).slice(0,1))}</span><div><strong>${escape(label(item.classification))}</strong><small>分类明细可能重叠</small></div><strong>${fmt(item.durationSeconds)}</strong></button>`).join('')||(usage.complete?'暂无分类记录':'尚无可用分类明细');
+    if(usage.productStatus?.complete===false){
+      $('#outside-window-summary').textContent+=' 产品／分类投影尚未完整，基础用量仍有效。';
+      if(!usage.applications.length)$('#app-ranking').textContent='产品明细待更新；基础实例见下方。';
+      if(!usage.categories.length)$('#category-ranking').textContent='分类明细待更新；未识别不等于未归类。';
+    }
+    if(usage.instances?.length)$('#app-ranking').innerHTML+=`<details><summary>基础程序实例（${usage.instances.length}）；明细可能重叠，不相加生成总量</summary>${usage.instances.map(item=>`<p><code>${escape(item.subjectKey)}</code> · ${fmt(item.durationSeconds)}</p>`).join('')}</details>`;
   }
   function observedApps() {
     const applications = new Map();
@@ -327,6 +335,58 @@
   }
   function renderAppDirectory() {
     state.actionApps = [];
+    $('#directory-scope').disabled=Boolean(state.identityCatalog&&!state.identityDirectory)||Boolean(state.managementError);
+    $('#directory-scope').title=state.identityCatalog&&!state.identityDirectory?'安装／使用范围暂不可读，仍可查看全部目录':'';
+    if(state.identityCatalog&&!state.managementError){
+      if(!state.identityDirectory)$('#directory-scope').value='all';
+      const catalog=state.identityCatalog,binding=catalog.bindings.find(item=>item.childId===state.childId);
+      const choices=[['study','学习应用'],['composite','复合应用'],['restrictedEntertainment','受限娱乐应用'],['other','其他时间应用'],['blocked','黑名单应用'],['unclassified','明确未归类'],['following','跟随分类规则'],['special','特殊应用']];
+      const category=product=>product.catalogGroup==='specialApplication'?'special':binding?.products.find(item=>item.productId===product.id)?.classification??'following';
+      const platforms=product=>[...new Set(catalog.ownershipRules.filter(rule=>rule.enabled&&rule.productId===product.id).map(rule=>rule.platform))];
+      $('#open-products').disabled=false;$('#open-rules').disabled=false;
+      $('#open-rules').title='管理孩子批准、分类结果、模式、平台及高级条件草稿；保存须通过云端校验';
+      $('#app-category-nav').innerHTML=choices.map(([key,label])=>`<button class="app-category-item ${state.appCategory===key?'active':''}" data-app-category="${key}"><strong>${label}</strong><span>${catalog.products.filter(product=>category(product)===key).length}</span></button>`).join('');
+      const search=($('#app-search').value||'').trim().toLowerCase(),platform=$('#management-platform').value;
+      const directory=state.identityDirectory,scope=$('#directory-scope').value;
+      const facts=product=>(directory?.facts||[]).filter(item=>item.productId===product.id&&(!platform||item.platform===platform));
+      const inScope=product=>{
+        const records=facts(product);
+        if(scope==='usage')return records.some(item=>item.usageObserved);
+        if(scope==='unused')return directory?.usage.state==='available'&&records.some(item=>item.installationObserved)&&!records.some(item=>item.usageObserved);
+        return true;
+      };
+      const items=catalog.products.filter(product=>category(product)===state.appCategory&&inScope(product)&&(!search||product.name.toLowerCase().includes(search))&&(!platform||platforms(product).includes(platform)));
+      $('#app-directory-title').textContent=choices.find(([key])=>key===state.appCategory)?.[1]||'产品目录';
+      $('#app-directory-subtitle').textContent=`集中目录 v${catalog.version}；分类为当前孩子明确设置，跟随规则的实际分类以实例投影为准。`;
+      $('#inventory-status').textContent='平台仅表示已启用归属规则的范围，不代表已安装、盘点完整或终端已执行。'+
+        (!directory?' 安装／使用范围暂不可读。':directory.usage.state!=='available'?' 使用来源不完整，不能判定“已安装未使用”。':' 使用观察覆盖最近30天；未观察不代表从未使用。');
+      const games=items.filter(product=>['game','gameLauncher','gameUtility'].includes(product.type));
+      const ordinary=items.filter(product=>!games.includes(product));
+      const observation=product=>{
+        const records=facts(product),date=records.map(item=>item.lastUsedDate).filter(Boolean).sort().at(-1);
+        return `${records.some(item=>item.installationObserved)?'扫描已观察到安装':'当前安装未确认'} · ${date?`最近使用 ${date}`:directory?.usage.state==='available'?'最近30天未观察到使用':'使用范围未确认'}`;
+      };
+      const cards=list=>list.map(product=>`<article class="record-card product-record"><div><strong>${escape(product.name)}</strong><p>${escape(platforms(product).map(value=>value==='macos'?'macOS':'Windows').join(' / ')||'尚无启用的归属规则')}</p><p>${escape(observation(product))}</p><small>${escape(product.id)}</small></div><button data-edit-identity-product>编辑集中目录资料</button></article>`).join('')||'<p class="empty">当前栏目没有符合筛选的产品；不代表使用时长为零。</p>';
+      $('#managed-app-list').innerHTML=cards(ordinary);$('#game-app-list').innerHTML=cards(games);
+      $('#ordinary-app-count').textContent=`${ordinary.length} 个`;$('#game-app-count').textContent=`${games.length} 个`;
+      $('#system-tool-count').textContent='未区分';$('#system-tool-list').textContent='新版目录未记录系统来源属性，不按名称猜分组。';
+      $('#processed-count').textContent='未读取';$('#processed-records').textContent='旧处理历史未接入新版目录；程序实例记录可独立查看。';
+      $('#processed-history').hidden=true;
+      return;
+    }
+    $('#open-products').disabled = Boolean(state.managementError);
+    $('#open-rules').disabled = Boolean(state.managementError);
+    if(state.managementError){
+      $('#app-category-nav').textContent='产品目录暂不可用';
+      $('#app-directory-title').textContent='产品目录暂不可用';
+      $('#inventory-status').textContent='目录读取失败；盘点完整性和应用数量未知。';
+      $('#app-directory-subtitle').textContent='程序实例仍可独立查看。请刷新重试产品目录，当前不提供分类修改。';
+      $('#managed-app-list').innerHTML=`<p class="empty">${escape(state.managementError)}</p>`;
+      for(const selector of ['#game-app-list','#system-tool-list','#processed-records'])$(selector).innerHTML='';
+      for(const selector of ['#ordinary-app-count','#game-app-count','#system-tool-count','#processed-count'])$(selector).textContent='未知';
+      $('#processed-history').hidden=true;
+      return;
+    }
     const catalog = [
       ['study', '▣', '学习应用'], ['composite', '∞', '复合应用'],
       ['restrictedEntertainment', '♟', '受限娱乐应用'], ['other', '◌', '其他时间应用'], ['blocked', '⊗', '黑名单应用'],
@@ -424,7 +484,7 @@
       return `<article class="technical-record"><div><strong>${escape(item.displayName || '未知技术进程')}</strong><p><span class="platform-chip ${escape(item.platform)}">${item.platform === 'macos' ? 'macOS' : 'Windows'}</span> · ${item.lastSeenAtMs ? `最近使用 ${time(item.lastSeenAtMs)}` : '最近 30 天无使用'}</p></div><div><strong>${duration(item.mainDurationMs || 0)}</strong><p>${escape(reason)}</p></div><span class="badge offline">只读</span></article>`;
     }).join('') : '<p>暂无技术进程记录</p>';
   }
-  function openDrawer(machineId) { const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(AppRuntimeDevices.syncAt(machine))}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>${escape(AppRuntimeDevices.productBlockStatus(machine))}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${AppRuntimeDevices.accountStatus(user)} · ${policyLabel(user.policyState)}</small></label>`).join('') || '<p>已配对；等待本机服务首次上报账户。</p>'}</div><div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
+  function openDrawer(machineId) { const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(AppRuntimeDevices.syncAt(machine))}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>${escape(AppRuntimeDevices.productBlockStatus(machine))}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${AppRuntimeDevices.accountStatus(user)} · ${policyLabel(user.policyState)}</small><small>${escape(AppRuntimeDevices.programPolicyStatus(user))}</small>${Number.isSafeInteger(user.programInstancePolicy?.receivedAtMs) ? `<small>报告接收：${time(user.programInstancePolicy.receivedAtMs)}</small>` : ''}</label>`).join('') || '<p>已配对；等待本机服务首次上报账户。</p>'}</div><div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
   function closeDrawer() { $('#device-drawer').classList.remove('open'); $('#device-drawer').setAttribute('aria-hidden', 'true'); $('#mobile-backdrop').hidden = true; }
   function openUsageDetail(kind, value) { const item = kind === 'app' ? state.usage.applications?.[Number(value)] : state.usage.categories?.find((entry) => entry.classification === value); if (!item) return; const title = kind === 'app' ? item.displayName || '未知应用' : categoryLabels[item.classification]||'历史分类未知';
     if(state.usage.durationUnit==='seconds'){
@@ -441,8 +501,22 @@
     state.machines = machines;
     state.users = new Map(users);
   }
+  async function loadIdentityDirectory(catalog) {
+    state.identityDirectory=null;
+    try {
+      const value=await runtime(`/v2/module/program-instance-directory?childId=${encodeURIComponent(state.childId)}`);
+      if(state.identityCatalog!==catalog)return;
+      if(value.childId!==state.childId||value.catalogVersion!==catalog.version||value.schemaVersion!==1
+        ||!Array.isArray(value.facts)||!['available','partial','unavailable'].includes(value.usage?.state)
+        ||value.facts.some(item=>!item||typeof item.productId!=='string'||!['windows','macos'].includes(item.platform)
+          ||typeof item.installationObserved!=='boolean'||typeof item.usageObserved!=='boolean'
+          ||!(item.lastUsedDate===null||/^\d{4}-\d{2}-\d{2}$/.test(item.lastUsedDate))))return;
+      state.identityDirectory=value;
+    }catch(error){if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;}
+  }
   async function loadManagementState() {
     const childId = encodeURIComponent(state.childId);
+    state.identityCatalog=null;state.identityDirectory=null;
     const policyPromise = runtime(`/v2/module/app-policy?childId=${childId}`);
     const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`);
     const sharedAccessPromise = runtime(`/v2/module/shared-access-policy?childId=${childId}`).then((result) => {
@@ -454,11 +528,22 @@
       state.sharedAccessError = error?.code || 'SHARED_ACCESS_POLICY_UNAVAILABLE';
     });
     const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`)));
-    const [policy, catalog, records] = await Promise.all([policyPromise, catalogPromise, recordsPromise, sharedAccessPromise]);
+    let results;
+    try{results=await Promise.all([policyPromise, catalogPromise, recordsPromise, sharedAccessPromise]);}
+    catch(error){
+      if(state.view!=='apps'||error?.code!=='APPLICATION_KNOWLEDGE_READER_NOT_ADAPTED')throw error;
+      const result=await runtime('/v2/module/program-instance-catalog');
+      if(result.state!=='available'||result.catalog?.schemaVersion!==4||result.catalog.version!==result.version)throw error;
+      state.identityCatalog=result.catalog;state.catalog={items:[],technicalItems:[]};state.records={pending:[],processed:[],technical:[]};
+      await loadIdentityDirectory(result.catalog);
+      state.managementError=null;state.managementLoaded=true;state.appCategory='following';return;
+    }
+    const [policy, catalog, records] = results;
     state.policy = AppRuntimePolicy.normalize(policy);
     state.policyEtag = `"app-policy-v${state.policy.version}"`;
     state.catalog = catalog;
     state.records = records;
+    state.managementError = null;
     state.managementLoaded = true;
   }
   async function load({ freshToken = false } = {}) {
@@ -491,33 +576,39 @@
         await loadManagementState();
         renderAll(); markLoaded(); if (state.view === requestedView) clearError();
       }
-    } catch (error) { if (state.view === requestedView) showError(error); }
+    } catch (error) {
+      if(!live()||error?.code==='COMPONENT_CONTEXT_CHANGED')return;
+      if(state.view===requestedView&&requestedView==='apps'&&error?.code!=='AUTH_RECOVERY_FAILED'){
+        state.identityCatalog=null;state.managementError=error?.code||'APPLICATION_DIRECTORY_UNAVAILABLE';
+        state.managementLoaded=false;
+        state.catalog={items:[],technicalItems:[]};
+        state.records={pending:[],processed:[],technical:[]};
+        renderAll();markLoaded(false);
+      }
+      if (state.view === requestedView) showError(error);
+    }
     finally { setLoading(false); }
   }
   let usageRequestVersion = 0;
   async function loadUsage({refresh=false}={}) {
     const requestVersion = ++usageRequestVersion;
-    const requestedPeriod=state.period;
     computerReader.invalidate();independentReader.invalidate();
     if(state.usageKind==='computer'){renderUsage();await computerReader.load({refresh});return;}
     if(['web','media'].includes(state.usageKind)){renderUsage();await independentReader.load();return;}
     if (mock) return;
     const period = range();
-    const query = new URLSearchParams({ childId: state.childId, fromMs: String(period.from), toMs: String(period.to), durationUnit:'seconds' });
+    const query = new URLSearchParams({ childId: state.childId, fromMs: String(period.from), toMs: String(period.to), view:'display' });
     if ($('#machine-filter').value) query.set('machineId', $('#machine-filter').value);
     if ($('#user-filter').value) query.set('userId', $('#user-filter').value);
     if ($('#platform-filter').value) query.set('platform', $('#platform-filter').value);
-    state.usage = null; state.usageReadInfo=null; state.usageError = null; state.usageLoading = true; renderUsage();
+    const requestKey=`/v2/module/program-instance-usage?${query}`;
+    if(state.usageResultKey!==requestKey){state.usage=null;state.usageReadInfo=null;state.usageResultKey=null;}
+    state.usageError = null; state.usageLoading = true; renderUsage();
     try {
-      let read=await applicationReadCache.read(`/v2/module/app-usage?${query}`,()=>runtime(`/v2/module/app-usage?${query}`),{refresh});
+      const read=await applicationReadCache.read(requestKey,()=>runtime(requestKey),{refresh});
       if(requestVersion!==usageRequestVersion)return;
-      let value=AppRuntimeTime.applicationSecondsView(read.value,requestedPeriod);
-      if(value.availableTotalDurationSeconds===null&&!value.noNewRecordDates?.length){
-        query.set('durationUnit','milliseconds');
-        read=await applicationReadCache.read(`/v2/module/app-usage?${query}`,()=>runtime(`/v2/module/app-usage?${query}`),{refresh});
-        value=read.value;read={...read,legacy:true};
-      }
-      if (requestVersion === usageRequestVersion) {state.usage=value;state.usageReadInfo=read;}
+      const value=AppRuntimeTime.applicationIdentityView(read.value);
+      if (requestVersion === usageRequestVersion) {state.usage=value;state.usageReadInfo=read;state.usageResultKey=requestKey;}
     } catch (error) {
       if (requestVersion !== usageRequestVersion) return;
       state.usageError = `使用统计暂不可用：${AppRuntimeNetwork.friendlyError(error).message}`;
@@ -705,6 +796,7 @@
     if (button.dataset.appCategory) { state.appCategory = button.dataset.appCategory; renderAppDirectory(); }
     if (button.dataset.classifyIndex != null && button.dataset.classification) { const app = state.actionApps[Number(button.dataset.classifyIndex)]; if (app) { if(app.manageability!=='actionable')throw new Error('技术进程记录不能直接归类，请先确认产品身份');if(app.productId) await knowledgeManager.classify(app.productId,button.dataset.classification); else {const implementations=app.runtimeImplementations?.length?app.runtimeImplementations:[app];let next=state.policy;for(const implementation of implementations){if(!implementation.runtimeIdentity)throw new Error('此应用缺少可靠身份，请先在确定性应用列表确认');next=AppRuntimePolicy.classify(next,{...app,...implementation},button.dataset.classification);}await savePolicy(next);} showSuccess(`${app.displayName || '应用'} 分类已保存，等待设备实际应用`); } }
     if (button.dataset.manageVariants !== undefined) await knowledgeManager.open('product');
+    if (button.dataset.editIdentityProduct !== undefined) await knowledgeManager.open('identity');
     if (button.classList.contains('drawer-close')) closeDrawer();
     if (button.dataset.uninstall) { const result = mock ? { code: 'UNIN-STALL-CODE', expiresAtMs: Date.now() + 600000 } : await runtime(`/v2/module/machines/${encodeURIComponent(button.dataset.uninstall)}/uninstall-codes`, { method: 'POST', body: '{}' }); showCode('uninstall', result.code, result.expiresAtMs); $('#uninstall-dialog').showModal(); }
     if (button.dataset.revoke && !mock && confirm('吊销后这台电脑将停止采集和上传，确定继续？')) { await runtime(`/v2/module/machines/${encodeURIComponent(button.dataset.revoke)}/revoke`, { method: 'POST', body: '{}' }); closeDrawer(); await load(); }
@@ -745,7 +837,11 @@
   let knowledgeManager;
   function mountKnowledgeManager(){
     knowledgeManager?.dispose();
-    knowledgeManager = AppRuntimeKnowledge.mount({root,request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onSaved:async knowledge=>{
+    knowledgeManager = AppRuntimeKnowledge.mount({root,request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,identityModel:Boolean(state.identityCatalog),mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onCatalogSaved:(catalog,childId)=>{
+      if(disposed||childId!==state.childId)return;
+      state.identityCatalog=catalog;state.identityDirectory=null;state.managementError=null;renderAppDirectory();
+      void loadIdentityDirectory(catalog).then(()=>{if(live()&&state.identityCatalog===catalog)renderAppDirectory();}).catch(()=>{});
+    },onSaved:async knowledge=>{
     if(!mock){await load();return;}
     state.mockKnowledge=knowledge;
     const binding=knowledge.bindings.find(item=>item.childId===state.childId);

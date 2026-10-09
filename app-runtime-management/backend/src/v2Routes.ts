@@ -1,5 +1,10 @@
 import { requireAccountModule, requireMachine } from './auth';
+import {receiveProgramInstallationLinks,programInstallationStorageReady} from './programInstallationLinks';
+import {PROGRAM_INSTALLATION_LINK_CAPABILITY} from '@timeonchrome/app-runtime-contracts/classification';
+import { listChildProgramInstances, readProgramInstanceCatalog, previewProgramInstanceCatalog, saveProgramInstanceCatalog,readChildProgramDirectory } from './programInstances';
 import { routeApplicationAccounts } from './applicationAccounts';
+import {receiveProgramPolicyStatus,readProgramPolicyStatus} from './programPolicyStatus';
+import { registerProgramInstances, readProgramInstanceMappings, programInstanceStorageReady, PROGRAM_INSTANCE_REGISTRATION_CAPABILITY, matchRegisteredProgramInstances, readChildProgramIdentityProjection, readProgramInstanceProjectionContext } from './programInstances';
 import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota, applicationSharedQuotaSourceKey } from './applicationSharedQuota';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import type { SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
@@ -9,6 +14,8 @@ import { commitUninstallOperation, readUninstallReceipt } from './uninstallOpera
 import { machineUsageCorrections } from './applicationUsageCorrections';
 import { readPersistentApplicationUsage } from './applicationStatistics';
 import { readNativeApplicationStatisticsRangeSeconds } from './applicationStatisticsNative';
+import { readProgramInstanceStatistics } from './programInstanceStatistics';
+import { readApplicationProductProjections, readApplicationIdentityUsage } from './applicationProductProjections';
 import { requireApplicationLegacyEnabled, readApplicationLedgerRetirement } from './applicationLedgerRetirement';
 import { SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsQuery, validateSourceStatisticsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
 import { readApplicationSourceStatistics } from './sourceStatistics';
@@ -177,6 +184,34 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
 
   if (url.pathname.startsWith('/v2/module/')) {
     const claims = await requireAccountModule(request, env, nowMs);
+    if(url.pathname==='/v2/module/program-instance-directory') {
+      if(request.method!=='GET')return methodNotAllowed('GET');
+      const childId=url.searchParams.get('childId')??'';
+      if(!claims.children.some(child=>child.id===childId))throw new HttpError(404,'CHILD_NOT_FOUND','Child was not found.');
+      return jsonResponse(await readChildProgramDirectory(env.RUNTIME_DB,claims.account_id,childId,nowMs),
+        {headers:{'cache-control':'no-store'}});
+    }
+    if(url.pathname === '/v2/module/program-instance-catalog/preview') {
+      if(request.method!=='POST')return methodNotAllowed('POST');
+      return jsonResponse(await previewProgramInstanceCatalog(env.RUNTIME_DB,claims.account_id,claims.children.map(child=>child.id),
+        url.searchParams.get('childId')??'',request.headers.get('if-match'),await readJsonBody(request),url.searchParams.get('afterInstanceId')),
+        {headers:{'cache-control':'no-store'}});
+    }
+    if(url.pathname === '/v2/module/program-instance-catalog') {
+      if(request.method==='GET') {
+        const result=await readProgramInstanceCatalog(env.RUNTIME_DB,claims.account_id);
+        return jsonResponse(result,{headers:{etag:knowledgeEtag(result.version),'cache-control':'no-store'}});
+      }
+      if(request.method==='PUT') {
+        if(!await programInstanceStorageReady(env.RUNTIME_DB))
+          throw new HttpError(503,'PROGRAM_INSTANCE_STORAGE_UNAVAILABLE','实例映射存储尚未就绪。');
+        const catalog=await saveProgramInstanceCatalog(env.RUNTIME_DB,claims.account_id,claims.children.map(child=>child.id),
+          request.headers.get('if-match'),await readJsonBody(request),nowMs);
+        return jsonResponse({state:'available',version:catalog.version,catalog,mappingState:'pending'},
+          {headers:{etag:knowledgeEtag(catalog.version),'cache-control':'no-store'}});
+      }
+      return methodNotAllowed('GET, PUT');
+    }
     if (url.pathname.startsWith('/v2/module/application-knowledge/')) {
       if (request.method !== 'POST') return methodNotAllowed('POST');
       const childIds=claims.children.map(child=>child.id), body=await readJsonBody(request);
@@ -322,6 +357,48 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       return jsonResponse(await queryAppCatalog(
         env.RUNTIME_DB, claims.account_id, childId, nowMs, platform || undefined,
       ));
+    }
+    if (url.pathname === '/v2/module/program-instance-usage') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild(), range = requireRange(7), platform = url.searchParams.get('platform');
+      if (platform !== null && platform !== 'windows' && platform !== 'macos')
+        throw new HttpError(400, 'INVALID_PLATFORM', 'Platform is invalid.');
+      const view=url.searchParams.get('view');
+      if(view!==null&&view!=='display')throw new HttpError(400,'INVALID_IDENTITY_VIEW','身份读取视图无效。');
+      if(view==='display')return jsonResponse(await readApplicationIdentityUsage(env.RUNTIME_DB,claims.account_id,childId,
+        range.fromMs,range.toMs,{machineId:url.searchParams.get('machineId')||undefined,
+          localUserId:url.searchParams.get('userId')||undefined,platform:platform||undefined}));
+      const includeIdentity=url.searchParams.get('includeIdentity');
+      if(includeIdentity!==null&&includeIdentity!=='true'&&includeIdentity!=='false')
+        throw new HttpError(400,'INVALID_IDENTITY_VIEW','身份读取参数无效。');
+      const includeProducts=url.searchParams.get('includeProducts');
+      if(includeProducts!==null&&includeProducts!=='true'&&includeProducts!=='false')
+        throw new HttpError(400,'INVALID_PRODUCT_VIEW','产品读取参数无效。');
+      const statistics=await readProgramInstanceStatistics(env.RUNTIME_DB, claims.account_id, childId,
+        range.fromMs, range.toMs, { machineId: url.searchParams.get('machineId') || undefined,
+          localUserId: url.searchParams.get('userId') || undefined, platform: platform || undefined });
+      const result: Record<string, unknown> = {...statistics};
+      if(includeIdentity==='true') {
+        try {
+          result.identityProjection=await readChildProgramIdentityProjection(env.RUNTIME_DB,claims.account_id,childId,
+            statistics.subjects.flatMap(row=>row.subjectKey?[row.subjectKey]:[]));
+        } catch {
+          result.identityProjection={state:'unavailable',reasonCodes:['PROGRAM_IDENTITY_READ_UNAVAILABLE']};
+        }
+      }
+      if(includeProducts==='true') {
+        try {
+          result.productStatistics=await readApplicationProductProjections(env.RUNTIME_DB,claims.account_id,childId,statistics);
+        } catch {
+          result.productStatistics={state:'unavailable',reasonCodes:['APPLICATION_PRODUCT_READ_UNAVAILABLE']};
+        }
+      }
+      return jsonResponse(result);
+    }
+    if (url.pathname === '/v2/module/program-instances') {
+      if(request.method!=='GET')return methodNotAllowed('GET');
+      return jsonResponse(await listChildProgramInstances(env.RUNTIME_DB,claims.account_id,requireChild(),
+        url.searchParams.get('afterInstanceId')));
     }
     if (url.pathname === '/v2/module/app-usage') {
       if (request.method !== 'GET') return methodNotAllowed('GET');
@@ -491,6 +568,12 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     if (usersMatch) {
       if (request.method !== 'GET') return methodNotAllowed('GET');
       const result = await listMachineUsers(env.RUNTIME_DB, claims.account_id, decodeURIComponent(usersMatch[1]!));
+      if(result){
+        const reports=await readProgramPolicyStatus(env.RUNTIME_DB,claims.account_id,decodeURIComponent(usersMatch[1]!),nowMs)
+          .catch(()=>{console.warn('PROGRAM_POLICY_STATUS_READ_UNAVAILABLE');return [];});
+        result.users=result.users.map(user=>isRecord(user)?{...user,
+          programInstancePolicy:reports.find(report=>report.localUserId===user.localUserId)??null}:user);
+      }
       return result ? jsonResponse(result) : errorResponse(404, 'MACHINE_NOT_FOUND', 'Machine was not found.');
     }
     const defaultMatch = url.pathname.match(/^\/v2\/module\/machines\/([^/]+)\/default-assignment$/u);
@@ -708,6 +791,36 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     if (request.method !== 'GET') return methodNotAllowed('GET');
     return jsonResponse(await machineUsageCorrections(env.RUNTIME_DB, machine, url.searchParams.get('after')));
   }
+  if (url.pathname === '/v2/machines/program-instances/capabilities') {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const enabled = await programInstanceStorageReady(env.RUNTIME_DB);
+    const installationEnabled = enabled && await programInstallationStorageReady(env.RUNTIME_DB);
+    return jsonResponse({schemaVersion: 1, enabled,
+      capabilities: enabled ? [PROGRAM_INSTANCE_REGISTRATION_CAPABILITY,...(installationEnabled?[PROGRAM_INSTALLATION_LINK_CAPABILITY]:[])] : []});
+  }
+  if (url.pathname === '/v2/machines/program-instances/installation-links') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    return jsonResponse(await receiveProgramInstallationLinks(env.RUNTIME_DB,machine,await readJsonBody(request,65_536)));
+  }
+  if (url.pathname === '/v2/machines/program-instances') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    if (!await programInstanceStorageReady(env.RUNTIME_DB))
+      throw new HttpError(503, 'PROGRAM_INSTANCE_STORAGE_UNAVAILABLE', '实例登记存储尚未就绪。');
+    const receipt=await registerProgramInstances(env.RUNTIME_DB, machine, await readJsonBody(request), nowMs);
+    const matching=matchRegisteredProgramInstances(env.RUNTIME_DB,machine,receipt);
+    if(defer) defer(matching); else await matching;
+    return jsonResponse(receipt);
+  }
+  if (url.pathname === '/v2/machines/program-instances/mappings/read'
+    ||url.pathname === '/v2/machines/program-instances/projection-context/read') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    if (!await programInstanceStorageReady(env.RUNTIME_DB))
+      throw new HttpError(503, 'PROGRAM_INSTANCE_STORAGE_UNAVAILABLE', '实例映射存储尚未就绪。');
+    const value=await readJsonBody(request);
+    return jsonResponse(url.pathname.endsWith('/projection-context/read')
+      ?await readProgramInstanceProjectionContext(env.RUNTIME_DB,machine,value)
+      :await readProgramInstanceMappings(env.RUNTIME_DB, machine, value));
+  }
   if (url.pathname === '/v2/machines/application-inventory') {
     if (request.method !== 'POST') return methodNotAllowed('POST');
     return jsonResponse(await syncApplicationInventory(env.RUNTIME_DB, machine.accountId, machine.machineId,
@@ -767,6 +880,7 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
         || item.length < 1 || item.length > 64))) {
       throw new HttpError(400, 'INVALID_REQUEST', 'Heartbeat capabilities are invalid.');
     }
+    if(body.programInstancePolicy!==undefined)await receiveProgramPolicyStatus(env.RUNTIME_DB,machine,body.programInstancePolicy,nowMs);
     await recordMachineHeartbeat(env.RUNTIME_DB, machine, {
       serviceVersion: String(body.serviceVersion), osVersion: version.osVersion,
       architecture: String(body.architecture), tamperCount: Number(body.tamperCount),

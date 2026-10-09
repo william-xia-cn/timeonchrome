@@ -1,4 +1,333 @@
+import { parseProgramInstanceDescriptor, programInstanceId, type ProgramInstanceDescriptor } from './application-ledger.js';
+
 export type AppPlatform = 'windows' | 'macos';
+
+export const PROGRAM_INSTANCE_REGISTRATION_CAPABILITY = 'program-instance-registration-v1';
+export const PROGRAM_INSTALLATION_LINK_CAPABILITY = 'program-installation-links-v1';
+export interface ProgramInstanceCapabilities {
+  schemaVersion:1;
+  enabled:boolean;
+  capabilities:string[];
+}
+export interface ProgramInstanceRegistrationReceipt {
+  schemaVersion:1;
+  childId:string;
+  items:Array<{instanceId:string;evidenceRevision:number;evidenceHash:string}>;
+}
+/** ACK只确认持久登记，不代表已识别产品；完整匹配请求后才能确认该批队列。 */
+export function parseProgramInstanceRegistrationReceipt(value:unknown,
+  expected:Pick<ProgramInstanceRegistrationReceipt,'childId'|'items'>):ProgramInstanceRegistrationReceipt {
+  const invalid=():never=>{throw new Error('INVALID_PROGRAM_INSTANCE_REGISTRATION_RECEIPT');};
+  if(!mappingToken(expected.childId)||!Array.isArray(expected.items)||expected.items.length>100
+    ||new Set(expected.items.map(item=>item.instanceId)).size!==expected.items.length
+    ||expected.items.some(item=>!mappingHash(item.instanceId)||!mappingHash(item.evidenceHash)||!mappingRevision(item.evidenceRevision))) return invalid();
+  if(!mappingRecord(value)||!mappingKeys(value,['schemaVersion','childId','items'])||value.schemaVersion!==1
+    ||value.childId!==expected.childId||!Array.isArray(value.items)||value.items.length!==expected.items.length) return invalid();
+  const seen=new Set<string>(),items:ProgramInstanceRegistrationReceipt['items']=[];
+  for(const item of value.items) {
+    if(!mappingRecord(item)||!mappingKeys(item,['instanceId','evidenceRevision','evidenceHash'])
+      ||!mappingHash(item.instanceId)||!mappingHash(item.evidenceHash)||!mappingRevision(item.evidenceRevision)
+      ||seen.has(item.instanceId)) return invalid();
+    const sent=expected.items.find(entry=>entry.instanceId===item.instanceId);
+    if(!sent||item.evidenceRevision<sent.evidenceRevision
+      ||item.evidenceRevision===sent.evidenceRevision&&item.evidenceHash!==sent.evidenceHash) return invalid();
+    seen.add(item.instanceId);items.push({instanceId:item.instanceId,evidenceRevision:item.evidenceRevision,evidenceHash:item.evidenceHash});
+  }
+  return {schemaVersion:1,childId:expected.childId,items};
+}
+export function parseProgramInstanceCapabilities(value:unknown):ProgramInstanceCapabilities {
+  if(!mappingRecord(value)||!mappingKeys(value,['schemaVersion','enabled','capabilities'])||value.schemaVersion!==1
+    ||typeof value.enabled!=='boolean'||!Array.isArray(value.capabilities)||value.capabilities.length>32
+    ||!value.capabilities.every(mappingToken)||new Set(value.capabilities).size!==value.capabilities.length
+    ||value.enabled!==value.capabilities.includes(PROGRAM_INSTANCE_REGISTRATION_CAPABILITY)
+    ||!value.enabled&&value.capabilities.includes(PROGRAM_INSTALLATION_LINK_CAPABILITY))
+    throw new Error('INVALID_PROGRAM_INSTANCE_CAPABILITIES');
+  return {schemaVersion:1,enabled:value.enabled,capabilities:[...value.capabilities]};
+}
+
+/** 第二层规则只表达证据到产品的关系；不包含孩子、实例、分类或显示名。 */
+export type ProductOwnershipMatch =
+  | { kind: 'binaryHash'; sha256: string }
+  | { kind: 'windowsAumid'; aumid: string }
+  | { kind: 'windowsFileSeries'; fileSeriesKey: string }
+  | { kind: 'macosSignature'; signerKey: string; signingIdentifier: string };
+export interface ProductOwnershipRule {
+  id: string;
+  revision: number;
+  enabled: boolean;
+  platform: AppPlatform;
+  productId: string;
+  match: ProductOwnershipMatch;
+}
+/** 只接收采集层核验的证据；这里不执行OS验签，也不把客户端声明当作权限。 */
+export interface ProductOwnershipEvidence {
+  platform: AppPlatform;
+  verified: {
+    binaryHash?: string;
+    windowsAumid?: string;
+    windowsFileSeriesKey?: string;
+    macosSignerKey?: string;
+    macosSigningIdentifier?: string;
+  };
+}
+export interface ProductOwnershipResult {
+  status: 'confirmed' | 'unresolved' | 'conflict';
+  productId: string | null;
+  ruleIds: string[];
+}
+/** 调用者必须先核验机器凭据及历史分配；不能把请求本身构造为授权范围。 */
+export interface ProgramInstanceRegistrationScope {
+  machineId: string;
+  childId: string;
+  localUserId: string;
+  assignmentVersion: number;
+}
+export interface ProgramInstanceRegistrationBatch {
+  schemaVersion: 1;
+  childId: string;
+  localUserId: string;
+  assignmentVersion: number;
+  items: Array<{instance: ProgramInstanceDescriptor; evidenceRevision: number; evidence: ProductOwnershipEvidence}>;
+}
+/** 同次扫描的正向事实引用，不是产品归属，也不表达卸载或完整安装清单。 */
+export interface ProgramInstallationLinkBatch {
+  schemaVersion: 1;
+  childId: string;
+  localUserId: string;
+  assignmentVersion: number;
+  scanId: string;
+  links: Array<{variantKey: string; instanceId: string}>;
+}
+export interface ProgramInstanceMappingReadRequest {
+  childId: string;
+  localUserId: string;
+  assignmentVersion: number;
+  instanceIds: string[];
+}
+export interface ProgramInstanceMappingReadResponse {
+  schemaVersion: 1;
+  childId: string;
+  assignmentVersion: number;
+  catalogVersion: number | null;
+  items: Array<{instanceId:string; evidenceRevision:number;
+    status:'confirmed'|'unresolved'|'conflict'|'pending'; productId:string|null}>;
+  products: Array<{id:string;name:string}>;
+}
+/** 独立产品投影的只读输入；沿用目录属性和孩子配置，不存余额或重复特殊标记。 */
+export interface ProgramInstanceProjectionContext extends Omit<ProgramInstanceMappingReadResponse,'schemaVersion'|'products'> {
+  schemaVersion: 2;
+  products: Array<Pick<AppProduct,'id'|'name'|'type'|'catalogGroup'>>;
+  rules: ClassificationRule[];
+  binding: ChildProductBinding;
+}
+const mappingRecord = (v:unknown): v is Record<string,unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const mappingKeys = (v:Record<string,unknown>,keys:string[]) => Object.keys(v).length === keys.length && keys.every(k=>Object.hasOwn(v,k));
+const mappingToken = (v:unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 256 && !/[\u0000-\u001f\u007f]/.test(v);
+const mappingRevision = (v:unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 1;
+const mappingHash = (v:unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
+/** scope必须来自认证及扫描状态；调用者还须核对条目和实例的实际存在与范围。 */
+export function parseProgramInstallationLinkBatch(value: unknown,
+  scope: ProgramInstanceRegistrationScope & {scanId: string}): ProgramInstallationLinkBatch {
+  const fail = (): never => { throw new Error('INVALID_PROGRAM_INSTALLATION_LINKS'); };
+  if (!scope || !mappingToken(scope.machineId) || !mappingToken(scope.childId)
+    || !mappingToken(scope.localUserId) || scope.localUserId.length > 128 || !mappingRevision(scope.assignmentVersion)
+    || typeof scope.scanId !== 'string' || !/^[a-f0-9]{32}$/.test(scope.scanId)
+    || !mappingRecord(value) || !mappingKeys(value, ['schemaVersion','childId','localUserId','assignmentVersion','scanId','links'])
+    || value.schemaVersion !== 1 || value.childId !== scope.childId || value.localUserId !== scope.localUserId
+    || value.assignmentVersion !== scope.assignmentVersion || value.scanId !== scope.scanId
+    || !Array.isArray(value.links) || value.links.length < 1 || value.links.length > 100) return fail();
+  const links: ProgramInstallationLinkBatch['links'] = [], seen = new Set<string>();
+  for (const link of value.links) {
+    if (!mappingRecord(link) || !mappingKeys(link, ['variantKey','instanceId'])
+      || !mappingToken(link.variantKey) || !mappingHash(link.instanceId)) return fail();
+    const key = JSON.stringify([link.variantKey, link.instanceId]);
+    if (seen.has(key)) return fail();
+    seen.add(key);
+    links.push({variantKey:link.variantKey, instanceId:link.instanceId});
+  }
+  return {schemaVersion:1, childId:scope.childId, localUserId:scope.localUserId,
+    assignmentVersion:scope.assignmentVersion, scanId:scope.scanId, links};
+}
+/** 只确认本批实际引用；顺序可变，范围及二元组必须完整一致。 */
+export function parseProgramInstallationLinkReceipt(value:unknown,expected:ProgramInstallationLinkBatch,
+  machineId:string):ProgramInstallationLinkBatch {
+  try {
+    const scope={machineId,childId:expected.childId,localUserId:expected.localUserId,
+      assignmentVersion:expected.assignmentVersion,scanId:expected.scanId};
+    const sent=parseProgramInstallationLinkBatch(expected,scope),received=parseProgramInstallationLinkBatch(value,scope);
+    const keys=new Set(sent.links.map(link=>JSON.stringify([link.variantKey,link.instanceId])));
+    if(received.links.length!==sent.links.length||received.links.some(link=>!keys.has(JSON.stringify([link.variantKey,link.instanceId]))))
+      throw new Error('mismatched links');
+    return received;
+  } catch {throw new Error('INVALID_PROGRAM_INSTALLATION_RECEIPT');}
+}
+export function parseProgramInstanceMappingReadRequest(value:unknown):ProgramInstanceMappingReadRequest {
+  if (!mappingRecord(value) || !mappingKeys(value,['childId','localUserId','assignmentVersion','instanceIds'])
+    || !mappingToken(value.childId) || !mappingToken(value.localUserId) || !mappingRevision(value.assignmentVersion)
+    || !Array.isArray(value.instanceIds) || value.instanceIds.length < 1 || value.instanceIds.length > 100
+    || !value.instanceIds.every(mappingHash) || new Set(value.instanceIds).size !== value.instanceIds.length)
+    throw new Error('INVALID_PROGRAM_INSTANCE_MAPPING_READ');
+  return {childId:value.childId,localUserId:value.localUserId,assignmentVersion:value.assignmentVersion,instanceIds:[...value.instanceIds]};
+}
+/** 与实际发出的请求核对，避免迟到或缺项响应成为当前缓存。 */
+export function parseProgramInstanceMappingReadResponse(value:unknown,request:ProgramInstanceMappingReadRequest):ProgramInstanceMappingReadResponse {
+  const expected=parseProgramInstanceMappingReadRequest(request);
+  const fail=():never=>{throw new Error('INVALID_PROGRAM_INSTANCE_MAPPING_RESPONSE');};
+  if (!mappingRecord(value) || !mappingKeys(value,['schemaVersion','childId','assignmentVersion','catalogVersion','items','products'])
+    || value.schemaVersion!==1 || value.childId!==expected.childId || value.assignmentVersion!==expected.assignmentVersion
+    || (value.catalogVersion!==null && !(typeof value.catalogVersion==='number' && Number.isSafeInteger(value.catalogVersion) && value.catalogVersion>=0))
+    || !Array.isArray(value.items) || value.items.length!==expected.instanceIds.length || !Array.isArray(value.products)
+    || value.products.length>value.items.length) return fail();
+  const products:ProgramInstanceMappingReadResponse['products']=[], productIds=new Set<string>();
+  for (const p of value.products) {
+    if (!mappingRecord(p) || !mappingKeys(p,['id','name']) || !mappingToken(p.id)
+      || typeof p.name!=='string' || !p.name.length || p.name.length>256 || /[\u0000-\u001f]/.test(p.name)
+      || productIds.has(p.id)) return fail();
+    productIds.add(p.id); products.push({id:p.id,name:p.name});
+  }
+  const items:ProgramInstanceMappingReadResponse['items']=[], seen=new Set<string>(), usedProducts=new Set<string>();
+  for (const item of value.items) {
+    if (!mappingRecord(item) || !mappingKeys(item,['instanceId','evidenceRevision','status','productId'])
+      || !mappingHash(item.instanceId) || !expected.instanceIds.includes(item.instanceId) || seen.has(item.instanceId)
+      || !mappingRevision(item.evidenceRevision)
+      || (item.status!=='confirmed' && item.status!=='unresolved' && item.status!=='conflict' && item.status!=='pending')
+      || (value.catalogVersion===null && item.status!=='pending')) return fail();
+    if (item.status==='confirmed') {
+      if (!mappingToken(item.productId) || !productIds.has(item.productId)) return fail();
+      usedProducts.add(item.productId);
+    } else if (item.productId!==null) return fail();
+    seen.add(item.instanceId);
+    items.push({instanceId:item.instanceId,evidenceRevision:item.evidenceRevision,status:item.status,
+      productId:typeof item.productId==='string'?item.productId:null});
+  }
+  if (usedProducts.size!==productIds.size) return fail();
+  return {schemaVersion:1,childId:expected.childId,assignmentVersion:expected.assignmentVersion,
+    catalogVersion:value.catalogVersion,items,products};
+}
+export async function parseProgramInstanceRegistrationBatch(value: unknown,
+  scope: ProgramInstanceRegistrationScope): Promise<ProgramInstanceRegistrationBatch> {
+  const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  const exact = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).length === keys.length
+    && keys.every(key => Object.hasOwn(v, key));
+  const id = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 256
+    && !/[\u0000-\u001f\u007f]/.test(v);
+  const fail = (): never => { throw new Error('INVALID_PROGRAM_INSTANCE_REGISTRATION'); };
+  if (!scope || !id(scope.machineId) || !id(scope.childId) || !id(scope.localUserId)
+    || !Number.isSafeInteger(scope.assignmentVersion) || scope.assignmentVersion < 0
+    || !record(value) || !exact(value, ['schemaVersion', 'childId', 'localUserId', 'assignmentVersion', 'items'])
+    || value.schemaVersion !== 1 || value.childId !== scope.childId || value.localUserId !== scope.localUserId
+    || value.assignmentVersion !== scope.assignmentVersion || !Array.isArray(value.items) || value.items.length > 100) return fail();
+  const items: ProgramInstanceRegistrationBatch['items'] = [], seen = new Set<string>();
+  for (const entry of value.items) {
+    if (!record(entry) || !exact(entry, ['instance', 'evidenceRevision', 'evidence'])
+      || typeof entry.evidenceRevision !== 'number' || !Number.isSafeInteger(entry.evidenceRevision)
+      || entry.evidenceRevision < 1) return fail();
+    const instance = parseProgramInstanceDescriptor(entry.instance);
+    const evidence = parseProductOwnershipEvidence(entry.evidence);
+    if (instance.machineId !== scope.machineId || evidence.platform !== instance.platform
+      || (evidence.verified.binaryHash !== undefined && evidence.verified.binaryHash !== instance.executableSha256)) return fail();
+    const key = await programInstanceId(instance);
+    if (seen.has(key)) return fail();
+    seen.add(key);
+    items.push({instance, evidenceRevision: entry.evidenceRevision, evidence});
+  }
+  return {schemaVersion: 1, childId: scope.childId, localUserId: scope.localUserId,
+    assignmentVersion: scope.assignmentVersion, items};
+}
+export function parseProductOwnershipEvidence(value: unknown): ProductOwnershipEvidence {
+  const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!record(value) || Object.keys(value).length !== 2 || !Object.hasOwn(value, 'platform')
+    || !record(value.verified) || (value.platform !== 'windows' && value.platform !== 'macos'))
+    throw new Error('INVALID_PRODUCT_OWNERSHIP_EVIDENCE');
+  const allowed = value.platform === 'windows' ? ['binaryHash', 'windowsAumid', 'windowsFileSeriesKey']
+    : ['binaryHash', 'macosSignerKey', 'macosSigningIdentifier'];
+  for (const [key, entry] of Object.entries(value.verified)) {
+    if (!allowed.includes(key) || typeof entry !== 'string' || entry.length === 0 || entry.length > 256
+      || /[\u0000-\u001f\u007f\\/]/.test(entry)) throw new Error('INVALID_PRODUCT_OWNERSHIP_EVIDENCE');
+    if (key === 'windowsAumid' ? !/^[^!\s]+![^!\s]+$/.test(entry)
+      : key === 'macosSigningIdentifier' ? false : !/^[a-f0-9]{64}$/.test(entry))
+      throw new Error('INVALID_PRODUCT_OWNERSHIP_EVIDENCE');
+  }
+  return {platform: value.platform === 'windows' ? 'windows' : 'macos', verified: {...value.verified}};
+}
+/** 第三层结果：不复制目录名称或孩子分类。实例ID的生成独立于产品匹配。 */
+export interface ProgramInstanceProductMapping {
+  childId: string;
+  ruleSetVersion: number;
+  items: Array<ProductOwnershipResult & { instanceId: string }>;
+}
+export function buildProgramInstanceProductMapping(
+  childId: string, ruleSetVersion: number, productIds: readonly string[], rules: readonly ProductOwnershipRule[],
+  instances: readonly { instanceId: string; evidence: ProductOwnershipEvidence }[],
+): ProgramInstanceProductMapping {
+  const identifier = (value: unknown): value is string => typeof value === 'string' && value.length > 0
+    && value.length <= 256 && !/[\u0000-\u001f\u007f]/.test(value);
+  if (!identifier(childId) || !Number.isSafeInteger(ruleSetVersion) || ruleSetVersion < 0
+    || productIds.some(id => !identifier(id)) || new Set(productIds).size !== productIds.length)
+    throw new Error('INVALID_PROGRAM_INSTANCE_MAPPING');
+  const products = new Set(productIds), seen = new Set<string>();
+  // 即使无实例，也校验整个规则集，不让无效配置待到首次使用才暴露。
+  validateProductOwnershipRules(rules);
+  if (rules.some(rule => !products.has(rule.productId))) throw new Error('PRODUCT_OWNERSHIP_TARGET_MISSING');
+  const items = instances.map(instance => {
+    if (!identifier(instance.instanceId) || seen.has(instance.instanceId)
+      || Object.keys(instance).length !== 2 || !Object.hasOwn(instance, 'evidence'))
+      throw new Error('INVALID_PROGRAM_INSTANCE_MAPPING');
+    seen.add(instance.instanceId);
+    return {instanceId: instance.instanceId, ...matchProductOwnership(rules, parseProductOwnershipEvidence(instance.evidence))};
+  }).sort((a, b) => a.instanceId < b.instanceId ? -1 : a.instanceId > b.instanceId ? 1 : 0);
+  return {childId, ruleSetVersion, items};
+}
+/** 首版云端调用；纯函数可用于跨端共同向量，不授权终端建立另一套映射。 */
+export function resolveProductOwnership(rules: readonly ProductOwnershipRule[], evidence: ProductOwnershipEvidence): ProductOwnershipResult {
+  validateProductOwnershipRules(rules);
+  return matchProductOwnership(rules, parseProductOwnershipEvidence(evidence));
+}
+function validateProductOwnershipRules(rules: readonly ProductOwnershipRule[]): void {
+  const hash = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  const token = (value: unknown): value is string => typeof value === 'string' && value.length > 0
+    && value.length <= 256 && !/[\u0000-\u001f\u007f]/.test(value);
+  const exactKeys = (value: object, keys: string[]) => Object.keys(value).length === keys.length
+    && keys.every(key => Object.hasOwn(value, key));
+  const ids = new Set<string>();
+  for (const rule of rules) {
+    if (!rule || !exactKeys(rule, ['id', 'revision', 'enabled', 'platform', 'productId', 'match'])
+      || !token(rule.id) || ids.has(rule.id) || !token(rule.productId)
+      || !Number.isSafeInteger(rule.revision) || rule.revision < 1 || typeof rule.enabled !== 'boolean'
+      || !['windows', 'macos'].includes(rule.platform) || !rule.match) throw new Error('INVALID_PRODUCT_OWNERSHIP_RULE');
+    ids.add(rule.id);
+    const m = rule.match;
+    const valid = m.kind === 'binaryHash' ? exactKeys(m, ['kind', 'sha256']) && hash(m.sha256)
+      : m.kind === 'windowsAumid' ? rule.platform === 'windows' && exactKeys(m, ['kind', 'aumid'])
+        && token(m.aumid) && /^[^!\s]+![^!\s]+$/.test(m.aumid)
+      : m.kind === 'windowsFileSeries' ? rule.platform === 'windows' && exactKeys(m, ['kind', 'fileSeriesKey']) && hash(m.fileSeriesKey)
+      : m.kind === 'macosSignature' ? rule.platform === 'macos' && exactKeys(m, ['kind', 'signerKey', 'signingIdentifier'])
+        && hash(m.signerKey) && token(m.signingIdentifier) : false;
+    if (!valid) throw new Error('INVALID_PRODUCT_OWNERSHIP_RULE');
+  }
+}
+export function parseProductOwnershipRules(value: unknown, productIds: readonly string[]): ProductOwnershipRule[] {
+  if (!Array.isArray(value) || value.length > 1000) throw new Error('INVALID_PRODUCT_OWNERSHIP_RULE');
+  validateProductOwnershipRules(value);
+  if (value.some(rule => !productIds.includes(rule.productId))) throw new Error('PRODUCT_OWNERSHIP_TARGET_MISSING');
+  return value.map(rule => ({...rule, match: {...rule.match}}));
+}
+function matchProductOwnership(rules: readonly ProductOwnershipRule[], evidence: ProductOwnershipEvidence): ProductOwnershipResult {
+  const matched = rules.filter(rule => {
+    if (!rule.enabled || rule.platform !== evidence.platform) return false;
+    const m = rule.match, v = evidence.verified;
+    switch (m.kind) {
+      case 'binaryHash': return v.binaryHash === m.sha256;
+      case 'windowsAumid': return v.windowsAumid === m.aumid;
+      case 'windowsFileSeries': return v.windowsFileSeriesKey === m.fileSeriesKey;
+      case 'macosSignature': return v.macosSignerKey === m.signerKey && v.macosSigningIdentifier === m.signingIdentifier;
+    }
+  });
+  const products = new Set(matched.map(rule => rule.productId));
+  return {status: products.size === 1 ? 'confirmed' : products.size > 1 ? 'conflict' : 'unresolved',
+    productId: products.size === 1 ? [...products][0]! : null, ruleIds: matched.map(rule => rule.id).sort()};
+}
+
 export type AppType = 'game' | 'gameLauncher' | 'gameUtility' | 'onlineVideo' | 'mediaPlayer' | 'other' | 'unknown';
 export type AppTypeStatus = 'confirmed' | 'suggested' | 'unknown';
 export type AppTypeReasonCode = 'distributionProductRule' | 'exactPackageRule' | 'verifiedProductRule' | 'exactNameSuggestion' | 'none';
@@ -186,6 +515,12 @@ export interface ApplicationKnowledge {
   rules: ClassificationRule[];
   bindings: ChildProductBinding[];
 }
+/** 产品归属只由ownershipRules定义；rules保留分类配置，不承担身份确认。 */
+export interface ApplicationKnowledgeV4 extends Omit<ApplicationKnowledge, 'schemaVersion' | 'products'> {
+  schemaVersion: 4;
+  products: Array<Omit<AppProduct, 'selectors'>>;
+  ownershipRules: ProductOwnershipRule[];
+}
 export interface ProductBlockPolicyV1 {
   schemaVersion: 1;
   knowledgeVersion: number;
@@ -208,6 +543,60 @@ export interface ClassificationResolution {
 }
 const strong = new Set<EvidenceField>(['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'signerKey', 'fileSeriesKey']);
 const rank = { product: 0, family: 1, developer: 1, type: 2 };
+/** 新实例证据不提供旧runtimeIdentity；缺字段不是已证明不匹配。 */
+export function evaluateProgramInstanceCondition(expression: MatchExpression, evidence: ProductOwnershipEvidence): boolean | null {
+  if (!expression.conditions.length) return false;
+  const values = expression.conditions.map(condition => {
+    const actual = condition.field === 'binaryHash' ? evidence.verified.binaryHash : undefined;
+    return actual === undefined ? null : actual === condition.value;
+  });
+  if (expression.operator === 'all') return values.includes(false) ? false : values.includes(null) ? null : true;
+  if (expression.operator === 'any') return values.includes(true) ? true : values.includes(null) ? null : false;
+  throw new Error('INVALID_MATCH_EXPRESSION');
+}
+export interface ProgramInstanceClassificationResolution {
+  classification: AppClass | null;
+  status: 'explicit' | 'automatic' | 'unclassified' | 'unknown' | 'conflict';
+  ruleIds: string[];
+}
+/** 仅消费已经校验的同孩子映射上下文；不识别产品、不计时、不核算配额。 */
+export function resolveProgramInstanceClassification(context: ProgramInstanceProjectionContext, childId: string,
+  instanceId: string, evidence: ProductOwnershipEvidence): ProgramInstanceClassificationResolution {
+  if (context.childId !== childId || context.binding.childId !== childId)
+    throw new Error('APPLICATION_PRODUCT_SCOPE_INVALID');
+  const mappings = context.items.filter(item => item.instanceId === instanceId);
+  if (mappings.length !== 1 || context.catalogVersion === null || mappings[0]!.status !== 'confirmed')
+    return {classification:null,status:'unknown',ruleIds:[]};
+  const products = context.products.filter(product => product.id === mappings[0]!.productId);
+  if (products.length !== 1) throw new Error('APPLICATION_PRODUCT_CONTEXT_INVALID');
+  const product = products[0]!;
+  const explicit = context.binding.products.filter(item => item.productId === product.id);
+  if (explicit.length > 1) throw new Error('APPLICATION_PRODUCT_BINDING_INVALID');
+  if (explicit.length === 1) return {classification:explicit[0]!.classification,status:'explicit',ruleIds:[]};
+  const enabled = new Set(context.binding.ruleIds);
+  const candidates: Array<{rule:ClassificationRule;match:boolean|null}> = [];
+  for (const rule of context.rules) {
+    if (!rule.enabled || !enabled.has(rule.id) || rule.mode !== 'automatic'
+      || rule.platform && rule.platform !== evidence.platform || rule.productId && rule.productId !== product.id) continue;
+    const typeRule = rule.kind === 'type' && rule.match.conditions.length === 0;
+    if (!typeRule && !rule.productId && !safeAutomatic(rule.match)) continue;
+    const positive = typeRule ? product.type !== 'unknown' && product.type === rule.type
+      : rule.productId && !rule.match.conditions.length ? true : evaluateProgramInstanceCondition(rule.match,evidence);
+    if (positive === false) continue;
+    const exclusions = rule.exclude.map(expression => evaluateProgramInstanceCondition(expression,evidence));
+    if (exclusions.includes(true)) continue;
+    candidates.push({rule,match:positive === null || exclusions.includes(null) ? null : true});
+  }
+  if (!candidates.length) return {classification:'unclassified',status:'unclassified',ruleIds:[]};
+  const priority = Math.min(...candidates.map(candidate => rank[candidate.rule.kind]));
+  const best = candidates.filter(candidate => rank[candidate.rule.kind] === priority)
+    .sort((a,b) => a.rule.id < b.rule.id ? -1 : a.rule.id > b.rule.id ? 1 : 0);
+  const ruleIds = best.map(candidate => candidate.rule.id);
+  if (best.some(candidate => candidate.match === null)) return {classification:null,status:'unknown',ruleIds};
+  if (new Set(best.map(candidate => candidate.rule.classification)).size > 1)
+    return {classification:null,status:'conflict',ruleIds};
+  return {classification:best[0]!.rule.classification,status:'automatic',ruleIds};
+}
 export function safeAutomatic(expression: MatchExpression): boolean {
   if (!expression.conditions.length) return false;
   return expression.operator === 'all'

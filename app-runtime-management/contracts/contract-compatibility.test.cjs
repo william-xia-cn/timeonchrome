@@ -10,7 +10,19 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.39.1');
+assert.equal(pkg.version, '1.46.0');
+const instanceLedger = JSON.parse(fs.readFileSync(path.join(root,'application-ledger-v4.schema.json'),'utf8'));
+assert.equal(instanceLedger.properties.schemaVersion.const,4);
+assert(instanceLedger.required.includes('childId'));
+const instanceStatistics=JSON.parse(fs.readFileSync(path.join(root,'usage-account.schema.json'),'utf8')).$defs;
+assert.equal(instanceStatistics.manifestV3.properties.schemaVersion.const,3);
+assert(instanceStatistics.manifestV3.required.includes('childId'));
+assert(!instanceStatistics.rowV3.properties.displayName);
+assert.equal(instanceStatistics.productProjection.properties.schemaVersion.const,1);
+assert(!instanceStatistics.productProjectionRow.properties.displayName);
+assert(instanceStatistics.productProjection.required.includes('baseManifestHash'));
+assert.deepEqual(instanceStatistics.productProjectionReceipt.required,['manifestId','revision','projectionHash','received']);
+assert.equal(instanceStatistics.productProjectionReceipt.properties.received.const,true);
 assert(pkg.exports['./source-statistics']);
 assert(pkg.exports['./application-ledger'], '固定孩子原账契约必须独立导出');
 const applicationLedger = JSON.parse(fs.readFileSync(path.join(root, 'application-ledger-v3.schema.json'), 'utf8'));
@@ -131,7 +143,7 @@ const nativeHostV3 = JSON.parse(fs.readFileSync(path.join(root, 'native-host-v3.
 assert.equal(nativeHostV3.properties.protocolVersion.const, 3);
 assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics', 'application', 'sharedQuota']);
 assert.deepEqual(nativeHostV3.properties.messageType.enum,
-  ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getApplicationUsageSeconds', 'getSharedQuotaState', 'reportReminderResult',
+  ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getApplicationUsageSeconds', 'getApplicationIdentityUsage', 'getSharedQuotaState', 'reportReminderResult',
     'getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution',
     'getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution',
     'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'replaceSharedWebContributionV2', 'exchangeSourceStatistics']);
@@ -152,6 +164,10 @@ assert.equal(applicationSecondsSchema.$defs.query.additionalProperties,false);
 assert.equal(applicationSecondsSchema.$defs.snapshot.properties.applications.maxItems,100);
 assert.equal(nativeHostV3.allOf[0].then.allOf[1].then.properties.payload.$ref,
   'application-usage-seconds-v2.schema.json#/$defs/query');
+assert.equal(nativeHostV3.allOf[0].then.allOf[2].then.properties.payload.$ref,
+  'application-usage-seconds-v2.schema.json#/$defs/identityQuery');
+assert.equal(applicationSecondsSchema.$defs.identitySnapshot.properties.schemaVersion.const,3);
+assert.equal(applicationSecondsSchema.$defs.identityQuery.additionalProperties,false);
 assert.deepEqual(nativeHostV3.$defs.sharedQuotaQuery.required, ['date']);
 assert.deepEqual(Object.keys(nativeHostV3.$defs.sharedQuotaQuery.properties), ['date']);
 assert.equal(nativeHostV3.$defs.sharedQuotaQuery.additionalProperties, false);

@@ -14,6 +14,15 @@ assert.equal(raw,fs.readFileSync(path.join(__dirname,'../../pages/computer-usage
 const mainPage=fs.readFileSync(path.join(__dirname,'../../pages/index.html'),'utf8');
 const applicationRead=mainPage.slice(mainPage.indexOf('const cloudApplicationReader='),mainPage.indexOf('const cloudApplicationReader=')+1200);
 assert.ok(applicationRead.includes("source:'application',durationUnit:'seconds'"),'main application view explicitly selects seconds');
+assert.ok(applicationRead.includes("model:'program-instance-v1'"),'main application view selects the cloud identity projection');
+const identityHtml=view.independentSummary({model:'program-instance-v1',source:'application',durationUnit:'seconds',
+  fromDate:'2026-10-09',toDate:'2026-10-09',complete:true,totalDuration:60,availableTotalDuration:60,
+  categories:[],applications:[],buckets:[],productStatus:{complete:false},
+  instances:[{subjectKey:'instance:<unsafe>',duration:60},{subjectKey:'instance:second',duration:60}],
+  statistics:{producer:'native'}});
+assert.ok(identityHtml.includes('<strong>1分 0秒</strong>'),'base total is not summed from overlapping instances');
+assert.ok(identityHtml.includes('产品／分类投影尚未完整'));assert.ok(identityHtml.includes('基础程序实例（2）'));
+assert.ok(identityHtml.includes('instance:&lt;unsafe&gt;'));assert.ok(!identityHtml.includes('<unsafe>'));
 for(const file of ['app-runtime.yml','app-runtime-main-console.yml']){
   const workflow=fs.readFileSync(path.join(__dirname,'../../.github/workflows',file),'utf8');
   assert.ok(workflow.includes('node app-runtime-management/console/computer-usage-view.test.cjs'),'renderer regression must run in '+file);
@@ -51,6 +60,26 @@ const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {
 const pending=deferred(),events={},host={innerHTML:'',classList:{add(){}},addEventListener(name,fn){events[name]=fn;},querySelector(){return null;}};
 const reader=view.create(host,()=>pending.promise);const work=reader.load();reader.invalidate();pending.resolve(snapshot);
 work.then(async()=>{
+const selectionRequests=[],selectionHost={...host,innerHTML:''};
+const selectionReader=view.createIndependent(selectionHost,()=>new Promise((resolve,reject)=>selectionRequests.push({resolve,reject})));
+const oldSelection=selectionReader.load();selectionReader.invalidate();const newSelection=selectionReader.load();
+const currentIdentity={model:'program-instance-v1',source:'application',durationUnit:'seconds',
+  fromDate:'2026-10-09',toDate:'2026-10-09',complete:true,totalDuration:60,availableTotalDuration:60,
+  categories:[],applications:[],buckets:[],instances:[],productStatus:{complete:false},statistics:{producer:'native'}};
+selectionRequests[1].resolve(currentIdentity);await newSelection;
+const selectedMarkup=selectionHost.innerHTML;
+selectionRequests[0].resolve({...currentIdentity,totalDuration:999});await oldSelection;
+assert.equal(selectionHost.innerHTML,selectedMarkup,'late previous-scope success cannot replace current identity statistics');
+const oldError=selectionReader.load();selectionReader.invalidate();const nextSelection=selectionReader.load();
+selectionRequests[3].resolve(currentIdentity);await nextSelection;
+selectionRequests[2].reject(Object.assign(Error('old failure'),{code:'OLD_SCOPE_ERROR'}));await oldError;
+assert.equal(selectionHost.innerHTML,selectedMarkup,'late previous-scope error cannot erase current statistics');
+const refreshFailure=selectionReader.load(true);
+selectionRequests[4].reject(Object.assign(Error('offline'),{code:'CURRENT_OFFLINE'}));await refreshFailure;
+assert(selectionHost.innerHTML.includes('1分 0秒'));assert(selectionHost.innerHTML.includes('上次有效统计'));
+selectionReader.invalidate();const emptyScope=selectionReader.load();
+selectionRequests[5].reject(Error('no current data'));await emptyScope;
+assert(!selectionHost.innerHTML.includes('1分 0秒'),'another child or period cannot inherit last valid statistics');
 let unavailable=false;
 const independentHost={...host,innerHTML:''},independentReader=view.createIndependent(independentHost,async()=>{if(unavailable)throw Object.assign(Error('pending'),{code:'APPLICATION_STATISTICS_PENDING'});return appSnapshot;});
 await independentReader.load();unavailable=true;await independentReader.load(true);

@@ -11,6 +11,7 @@ import { controlledProducts, systemToolPackageIds } from './productCatalogRules'
 import { buildProductIdentityProjection, includeHistoricalStandaloneIdentities, productIdentityItems, productProjectionEvidence, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
 import { buildProductBlockPolicy } from './productBlockPolicy';
 import chromeDisplayRules from './chrome-display-rules.json';
+import { readProgramInstanceCatalog } from './programInstances';
 
 export const knowledgeEtag = (version: number) => `"application-knowledge-v${version}"`;
 export function effectiveApplicationKnowledge(value: ApplicationKnowledge): ApplicationKnowledge {
@@ -86,7 +87,14 @@ function contract<T>(parse: () => T): T {
 export async function getApplicationKnowledge(db: D1Database, accountId: string): Promise<ApplicationKnowledge> {
   const row = await db.prepare(`SELECT payload_json FROM runtime_application_knowledge_versions_v1
     WHERE account_id=?1 ORDER BY version DESC LIMIT 1`).bind(accountId).first<{ payload_json: string }>();
-  return row ? JSON.parse(row.payload_json) as ApplicationKnowledge : empty();
+  if (!row) return empty();
+  let value: unknown;
+  try { value = JSON.parse(row.payload_json); }
+  catch { throw new HttpError(503, 'APPLICATION_KNOWLEDGE_INVALID_STORAGE', '应用目录无法读取。'); }
+  if (isRecord(value) && value.schemaVersion === 4)
+    throw new HttpError(409, 'APPLICATION_KNOWLEDGE_READER_NOT_ADAPTED', '该入口尚未适配新版产品归属规则。');
+  try { return parseApplicationKnowledge(value); }
+  catch { throw new HttpError(503, 'APPLICATION_KNOWLEDGE_INVALID_STORAGE', '应用目录无法读取。'); }
 }
 export function parseKnowledge(value: unknown, childIds: string[]): ApplicationKnowledge {
   const knowledge = contract(() => parseApplicationKnowledge(value));
@@ -467,13 +475,16 @@ export async function syncApplicationInventory(db: D1Database, accountId: string
       display_name=excluded.display_name,evidence_json=excluded.evidence_json,status=excluded.status,last_seen_at_ms=excluded.last_seen_at_ms`)
     .bind(machineId, item.localUserId, item.evidence.platform, item.evidence.runtimeIdentity, item.evidence.displayName,
       canonical(item.evidence), item.status, nowMs));
-  const knowledge = await getApplicationKnowledge(db, accountId);
-  const known = await listApplicationInventory(db, accountId);
-  const evidence = [...observations.map(item => item.evidence), ...known.filter(item => !observations.some(incoming =>
-    item.machineId === machineId && item.localUserId === incoming.localUserId && item.evidence.runtimeIdentity === incoming.evidence.runtimeIdentity)).map(item => item.evidence)];
-  const children = await inventoryPolicyChildren(db, accountId);
-  if (scan?.completed || observations.length > 0)
-    statements.push(...await policyStatements(db, accountId, knowledge, children.childIds, evidence, nowMs, undefined, true));
+  const catalog = await readProgramInstanceCatalog(db, accountId);
+  if (catalog.state !== 'available') {
+    const knowledge = await getApplicationKnowledge(db, accountId);
+    const known = await listApplicationInventory(db, accountId);
+    const evidence = [...observations.map(item => item.evidence), ...known.filter(item => !observations.some(incoming =>
+      item.machineId === machineId && item.localUserId === incoming.localUserId && item.evidence.runtimeIdentity === incoming.evidence.runtimeIdentity)).map(item => item.evidence)];
+    const children = await inventoryPolicyChildren(db, accountId);
+    if (scan?.completed || observations.length > 0)
+      statements.push(...await policyStatements(db, accountId, knowledge, children.childIds, evidence, nowMs, undefined, true));
+  }
   await batch(db, statements);
   return { batchId: value.batchId, status: 'accepted', acceptedCount: observations.length };
 }
@@ -634,11 +645,14 @@ async function syncApplicationInventoryV2(db: D1Database, accountId: string, mac
       .bind(machineId,item.localUserId,item.evidence.platform,item.variantKey,item.parentProductKey??null,item.evidence.displayName,canonical(item.evidence),item.variantRole,item.scope,item.sourceKind,item.status,nowMs));
     statements.push(inventoryProjectionStatement(db,machineId,item.localUserId,item.evidence,item.status,nowMs));
   }
-  const knowledge=await getApplicationKnowledge(db,accountId),known=await listApplicationInventory(db,accountId);
-  const incoming=[...products,...variants].map(item=>item.evidence),evidence=[...incoming,...known.filter(item=>!incoming.some(next=>item.machineId===machineId&&item.evidence.runtimeIdentity===next.runtimeIdentity)).map(item=>item.evidence)];
-  const children=await inventoryPolicyChildren(db,accountId);
-  if(scan?.completed||incoming.length>0)
-    statements.push(...await policyStatements(db,accountId,knowledge,children.childIds,evidence,nowMs,undefined,true));
+  const catalog=await readProgramInstanceCatalog(db,accountId);
+  if(catalog.state!=='available') {
+    const knowledge=await getApplicationKnowledge(db,accountId),known=await listApplicationInventory(db,accountId);
+    const incoming=[...products,...variants].map(item=>item.evidence),evidence=[...incoming,...known.filter(item=>!incoming.some(next=>item.machineId===machineId&&item.evidence.runtimeIdentity===next.runtimeIdentity)).map(item=>item.evidence)];
+    const children=await inventoryPolicyChildren(db,accountId);
+    if(scan?.completed||incoming.length>0)
+      statements.push(...await policyStatements(db,accountId,knowledge,children.childIds,evidence,nowMs,undefined,true));
+  }
   await batch(db,statements);
   return {batchId:value.batchId,status:'accepted',acceptedCount:products.length+variants.length};
 }

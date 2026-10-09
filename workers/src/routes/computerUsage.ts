@@ -11,8 +11,11 @@ export async function handleComputerUsage(request:Request,env:ComputerUsageEnv,c
     const unit=url.searchParams.get('durationUnit');
     if(unit!==null&&!['seconds','milliseconds'].includes(unit))return json({code:'INVALID_DURATION_UNIT'},400);
     const source=url.searchParams.get('source');
+    const model=url.searchParams.get('model');
+    if(model!==null&&(model!=='program-instance-v1'||source!=='application'||unit!=='seconds'))
+      return json({code:'INVALID_APPLICATION_MODEL'},400);
     if(source&&unit==='seconds'&&source!=='application')return json({code:'INVALID_SOURCE'},400);
-    if(source)return json(await readIndependentUsage(env,accountId,childId,url.searchParams.get('from')||'',url.searchParams.get('to')||'',source,unit==='seconds'));
+    if(source)return json(await readIndependentUsage(env,accountId,childId,url.searchParams.get('from')||'',url.searchParams.get('to')||'',source,unit==='seconds',model==='program-instance-v1'));
     const expected=url.searchParams.get('revision');
     const offset=Number(url.searchParams.get('offset')||0),limit=Number(url.searchParams.get('limit')||100);
     if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>100)return json({code:'INVALID_CURSOR'},400);

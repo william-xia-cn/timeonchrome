@@ -18,6 +18,11 @@ function normalize(file) {
 function declaration(body) {
   const matches = [...body.matchAll(/^Task-Role:\s*([a-z-]+)\s*$/gm)];
   if (matches.length !== 1 || !roles.has(matches[0][1])) throw new Error('Exactly one valid Task-Role is required');
+  const additional = [...body.matchAll(/^Task-Additional-Role:\s*([^\r\n]*)$/gm)];
+  const additionalRole = additional[0]?.[1].trim();
+  if (additional.length > 1 || (additional.length && (matches[0][1] !== 'architecture-integration' || additionalRole !== 'standard-cloud'))) {
+    throw new Error('Only architecture-integration with one standard-cloud additional role is supported');
+  }
   const sourceLines = [...body.matchAll(/^Integration-Source:.*$/gm)].map(match => match[0]);
   const integrationSources = sourceLines.map(line => {
     const match = line.match(/^Integration-Source:\s*([a-f0-9]{40})\s*$/i);
@@ -34,7 +39,7 @@ function declaration(body) {
     if (/[*?]/.test(file) || !match[2].trim()) throw new Error('Exception requires exact file and reason');
     exceptions[file] = match[2].trim();
   }
-  return { role: matches[0][1], exceptions, integrationSources };
+  return { role: matches[0][1], additionalRole, exceptions, integrationSources };
 }
 function owner(file) {
   if (file.startsWith('extension/modules/task/') || file.startsWith('pages/task/')
@@ -50,19 +55,20 @@ function owner(file) {
   if (/^(workers|pages)\//.test(file)) return 'standard-cloud';
   return null;
 }
-function checkScope(paths, { role, exceptions = {}, integrationSourcePaths = [] }) {
+function checkScope(paths, { role, additionalRole, exceptions = {}, integrationSourcePaths = [] }) {
   if (!roles.has(role)) throw new Error('Unknown role');
+  if (additionalRole !== undefined && !(role === 'architecture-integration' && additionalRole === 'standard-cloud')) throw new Error('Unsupported additional role');
   const verifiedSourcePaths = new Set(integrationSourcePaths.map(normalize));
   const failures = [];
   for (const raw of paths) {
     const file = normalize(raw);
     const actual = owner(file);
     // A task exception never transfers another module's implementation ownership.
-    if (actual && actual !== role && !(role === 'architecture-integration' && verifiedSourcePaths.has(file))) {
+    if (actual && actual !== role && actual !== additionalRole && !(role === 'architecture-integration' && verifiedSourcePaths.has(file))) {
       failures.push(file + ': belongs to ' + actual); continue;
     }
     const docs = /\.md$/.test(file);
-    const allowed = actual === role
+    const allowed = actual === role || (additionalRole !== undefined && actual === additionalRole)
       || (role === 'architecture-integration' && verifiedSourcePaths.has(file))
       || (role === 'architecture-integration' && (governance.has(file) || file.startsWith('app-runtime-management/docs/') || file === 'app-runtime-management/README.md'))
       || (role === 'standard-cloud' && (file.startsWith('app-runtime-management/docs/') || file === 'app-runtime-management/README.md' || (docs && (file.startsWith('docs/') || ['TASK_BOARD.md', 'PROJECT_MASTER.md'].includes(file)))))

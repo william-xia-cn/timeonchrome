@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "test": "node test/program-instance-storage.test.mjs && vitest run",
     "wrangler:types": "wrangler types --env-file .dev.vars.example --strict-vars false",
     "wrangler:types:check": "wrangler types --env-file .dev.vars.example --strict-vars false --check",
     "dry-run": "wrangler deploy --dry-run"

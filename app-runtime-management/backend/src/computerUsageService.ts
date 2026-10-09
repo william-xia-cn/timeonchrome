@@ -12,6 +12,7 @@ import { verifySharedWebSourceAssignment, verifySharedWebSourceScope } from './s
 import { readApplicationLedgerRetirement } from './applicationLedgerRetirement';
 import { validateSourceStatisticsQuery } from '@timeonchrome/app-runtime-contracts/source-statistics';
 import { readApplicationSourceStatistics } from './sourceStatistics';
+import { readApplicationIdentityUsage } from './applicationProductProjections';
 
 /** Capability-bound entrypoint; this is never exposed by the public fetch router. */
 export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
@@ -32,7 +33,7 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
   // default fetch router. A bounded JSON response owns its request lifetime.
   async fetch(request:Request):Promise<Response> {
     const operation=new URL(request.url).pathname.slice(1);
-    if(request.method!=='POST'||!['applicationEvidenceRevision','readApplicationEvidence','getApplicationUsage',
+    if(request.method!=='POST'||!['applicationEvidenceRevision','readApplicationEvidence','getApplicationUsage','getApplicationIdentityUsage',
       'readApplicationSharedQuotaContributions','verifySharedWebSourceAssignment','verifySharedWebSourceScope','getApplicationSourceStatistics'].includes(operation))
       return jsonResponse({code:'METHOD_NOT_ALLOWED'},{status:405});
     try {
@@ -54,6 +55,7 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       const value=operation==='applicationEvidenceRevision'?await this.applicationEvidenceRevision(...args)
         :operation==='readApplicationEvidence'?await this.readApplicationEvidence(...args)
           :operation==='readApplicationSharedQuotaContributions'?await this.readSharedQuotaApplicationContributions(...args)
+            :operation==='getApplicationIdentityUsage'?await this.getApplicationIdentityUsage(...args)
             :await this.getApplicationUsage(...args,input.secondsOnly===true);
       return jsonResponse(value);
     }catch(error){
@@ -64,6 +66,16 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       console.error(JSON.stringify({event:'computer_application_capability_failed',code}));
       return jsonResponse({code},{status:error instanceof HttpError?error.status:503});
     }
+  }
+  async getApplicationIdentityUsage(accountId:string,childId:string,fromDate:string,toDate:string) {
+    await this.requireChildScope(accountId,childId);
+    const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)
+      ||!Number.isSafeInteger(from)||!Number.isSafeInteger(to)
+      ||new Date(from+28800000).toISOString().slice(0,10)!==fromDate
+      ||new Date(to-86400000+28800000).toISOString().slice(0,10)!==toDate)
+      throw new HttpError(400,'INVALID_RANGE','日期范围无效。');
+    return readApplicationIdentityUsage(this.env.RUNTIME_DB,accountId,childId,from,to);
   }
   async getApplicationUsage(accountId:string,childId:string,fromDate:string,toDate:string,secondsOnly=false) {
     await this.requireChildScope(accountId,childId);

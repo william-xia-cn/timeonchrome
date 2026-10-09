@@ -14,6 +14,8 @@ import { commitUninstallOperation } from './uninstallOperations';
 import { getAppPolicy, resolveClassification } from './appPolicy';
 import type { AppPolicyDocument } from './contracts';
 import { getLoggingPolicy } from './terminalLogging';
+import {programPolicyStatusReady} from './programPolicyStatus';
+import {PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY} from '@timeonchrome/app-runtime-contracts';
 
 type PolicyState = MachineSelfResponse['policyState'];
 
@@ -439,6 +441,7 @@ export async function getMachinePolicy(
   const loggingPolicy = await getLoggingPolicy(database, machine.accountId, machine.machineId);
   const policy = {
     capabilities: ['heartbeat-os-version-v1', 'uninstall-operation-receipt-v1',
+      ...(await programPolicyStatusReady(database)?[PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY]:[]),
       ...(supportsOther?['application-other-v1']:[])],
     version: machine.desiredPolicyVersion,
     defaultChildId: machine.defaultChildId,

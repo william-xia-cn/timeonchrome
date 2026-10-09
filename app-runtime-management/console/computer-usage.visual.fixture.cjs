@@ -6,6 +6,18 @@ require('./stage-management-component.cjs').stageRuntimeManagementComponent(__di
 (async()=>{
 const {mergeComputerUsage,withComputerUsageRevision,computerUsageReadPage}=await import(pathToFileURL(path.join(root,'app-runtime-management/contracts/dist/computer-usage.js')));
 const day=Date.parse('2026-10-01T00:00:00+08:00');
+function identityUsage(params){
+  const from=params.get('from')||new Date(Number(params.get('fromMs'))+28800000).toISOString().slice(0,10);
+  const start=Date.parse(from+'T00:00:00+08:00'),missing=params.get('productMissing')==='true';
+  return {model:'program-instance-v1',source:'application',childId:params.get('childId')||'mock-child',
+    fromDate:from,toDate:from,durationUnit:'seconds',complete:true,totalDuration:60,availableTotalDuration:60,
+    instances:['a','b'].map(key=>({subjectKey:'instance:'+key.repeat(64),duration:60})),
+    days:[{date:from,complete:true,totalDuration:60,settledThroughMs:start+60000,reasonCodes:[]}],
+    buckets:[{startAtMs:start,duration:60}],categories:missing?[]:[{classification:'study',duration:60}],
+    applications:missing?[]:[{subjectKey:'product:word',displayName:'Word',duration:60,classifications:['study'],identified:true}],
+    productStatus:{complete:!missing,reasonCodes:missing?['APPLICATION_PRODUCT_PROJECTION_NOT_AVAILABLE']:[]},
+    statistics:{producer:'native',stale:false,settledThroughByDate:[{date:from,settledThroughMs:start+60000}]},revision:'isolated-fixture'};
+}
 const base={computerKey:'mock-computer',computerName:'演示电脑',revision:'mock-r1',correctionRevision:'mock-c1',settledAtMs:day+120000,complete:true,reasons:[]};
 const bundle={fromDate:'2026-10-01',toDate:'2026-10-01',web:[{...base,key:'mock-web',totalMs:60000,categoriesMs:{study:60000},intervals:[{startMs:day,endMs:day+60000,creditedMs:60000,classification:'study',subjectKey:'mock-site',label:'learning.example'}]}],applications:[{...base,key:'mock-app',associationVersion:'mock-p1',totalMs:120000,categoriesMs:{composite:60000,study:60000},intervals:[{startMs:day,endMs:day+60000,classification:'composite',subjectKey:'mock-chrome',label:'Chrome',special:true},{startMs:day+60000,endMs:day+120000,classification:'study',subjectKey:'mock-excel',label:'Excel',special:false}]}]};
 const snapshot=await withComputerUsageRevision(mergeComputerUsage(bundle));
@@ -14,6 +26,11 @@ const readableSnapshot=await withComputerUsageRevision(mergeComputerUsage(readab
 const partialSnapshot=await withComputerUsageRevision(mergeComputerUsage({...readableBundle,applications:[...readableBundle.applications,{...base,key:'mock-legacy-unavailable',computerKey:null,computerName:'不可读旧版来源',complete:false,statisticsComplete:false,historyQuality:'bestEffort',reasons:['LEGACY_APPLICATION_SOURCE_UNAVAILABLE'],associationVersion:'missing',totalMs:null,categoriesMs:{},intervals:[]}]}));
 const server=http.createServer(async(req,res)=>{
 const url=new URL(req.url,'http://127.0.0.1');
+if(url.pathname==='/mock-identity-usage'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(identityUsage(url.searchParams)));return;}
+if(url.pathname==='/v2/module/program-instance-usage'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(identityUsage(url.searchParams)));return;}
+if(url.pathname==='/v2/module/machines'){res.setHeader('Content-Type','application/json');res.end('{"machines":[]}');return;}
+if(url.pathname==='/v2/module/app-catalog'){res.setHeader('Content-Type','application/json');res.end('{"items":[]}');return;}
+if(url.pathname==='/v2/module/computer-usage'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(computerUsageReadPage(readableSnapshot,'summary')));return;}
 if(url.pathname==='/mock-v3-application'){
 const current=url.searchParams.has('current');
 const fixture={source:'application',durationUnit:'seconds',fromDate:'2026-10-07',toDate:'2026-10-07',
@@ -43,9 +60,13 @@ let body=fs.readFileSync(file);
 if(file.endsWith('console'+path.sep+'app-runtime.js'))body=String(body).replace("const $ =",'window.__mockRuntimeState=state; const $ =');
 res.setHeader('Content-Type',file.endsWith('.html')?'text/html; charset=utf-8':file.endsWith('.js')?'text/javascript; charset=utf-8':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'application/octet-stream');
 if(file.endsWith('console'+path.sep+'index.html'))body=String(body).replace('<script src="computer-usage-view.js">','<script>window.__readComputerUsageMock=async params=>(await fetch("/mock-computer-usage?"+params)).json();</script><script src="computer-usage-view.js">');
+if(file.endsWith('console'+path.sep+'index.html')&&url.searchParams.has('identity'))body=String(body).replace('<head>',`<head><script>
+sessionStorage.setItem('timeonchrome_runtime_browser_session_v1',JSON.stringify({token:'isolated-not-a-real-token',expiresAt:Date.now()+3600000,children:[{id:'mock-child',name:'隔离测试孩子'}]}));
+window.fixtureRequests=[];const fixtureFetch=window.fetch.bind(window);window.fetch=(input,options)=>{const u=new URL(typeof input==='string'?input:input.url,location.href);if(u.hostname==='timeonchrome-app-runtime-api.william-xia-cn.workers.dev'){fixtureRequests.push(u.pathname+u.search);if(new URLSearchParams(location.search).has('missing'))u.searchParams.set('productMissing','true');return fixtureFetch(u.pathname+u.search,options);}return fixtureFetch(input,options);};</script>`);
 if(file===path.join(root,'pages','index.html')){
 body=String(body).replace('<head>','<head><script>localStorage.setItem("toc_session",JSON.stringify({token:"isolated-mock",email:"demo@example.invalid"}));</script>');
 body=body.replace("async function api(path, method='GET', body=null, conditionalHeaders=null) {",`async function api(path, method='GET', body=null, conditionalHeaders=null) {
+if(path.includes('model=program-instance-v1')){window.fixtureRequests||=[];window.fixtureRequests.push(path);const p=new URLSearchParams(path.split('?')[1]);if(new URLSearchParams(location.search).has('missing'))p.set('productMissing','true');return (await fetch('/mock-identity-usage?'+p)).json();}
 if(path.startsWith('/app-runtime/manage/v1/')){
 if(path.endsWith('/machines'))return {machines:[{id:'fixture-machine',displayName:'演示 Windows 电脑',platform:'windows',osVersion:'11',architecture:'x64',status:'online',policyState:'applied',serviceVersion:'mock-only',defaultChildId:'mock-child',desiredPolicyVersion:1,appliedPolicyVersion:1}]};
 if(path.endsWith('/users'))return {users:[{localUserId:'fixture-user',displayName:'演示账户',protected:true,childId:'mock-child',policyState:'applied'}]};

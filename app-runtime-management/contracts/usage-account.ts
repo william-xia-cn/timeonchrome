@@ -66,6 +66,21 @@ export interface UsageAccountRowV2 extends UsageAccountRow {
 export interface UsageAccountChunkV2 extends Omit<UsageAccountChunk, 'rows'> {
   rows: UsageAccountRowV2[];
 }
+/** 程序实例基础统计：无产品名称、分类或配额；产品归集另行读取映射。 */
+export interface ApplicationInstanceAccountRow {
+  kind: 'total' | 'subject';
+  hour: number | null;
+  subjectKey: string | null;
+  duration: number;
+}
+export interface ApplicationInstanceAccountManifest extends Omit<UsageAccountManifestV2,
+  'schemaVersion'|'sourceKind'|'childId'|'policyVersions'|'associationVersion'|'correctionVersion'|'applicationUsage'> {
+  schemaVersion: 3;
+  sourceKind: 'application';
+  childId: string;
+  observationResolutionHash: string;
+}
+export const APPLICATION_INSTANCE_STATISTICS_CAPABILITY = 'application-instance-statistics-v1';
 export interface UsageAccountChunk {
   chunkIndex: number;
   rows: UsageAccountRow[];
@@ -394,6 +409,62 @@ export async function createUsageAccountV2(
   }
   return { manifest, rows, chunks };
 }
+
+export function parseApplicationInstanceAccountRows(value:unknown,maximum=USAGE_ACCOUNT_MAX_ROWS):ApplicationInstanceAccountRow[] {
+  if(!Array.isArray(value)||value.length>maximum) fail('USAGE_ACCOUNT_INVALID_ROWS');
+  let previous=''; const seen=new Set<string>();
+  return value.map(item=>{
+    const v=exact(item,['kind','hour','subjectKey','duration']);
+    if((v.kind!=='total'&&v.kind!=='subject') || !(v.hour===null||integer(v.hour)&&v.hour<24)
+      || !integer(v.duration)||v.duration>(v.hour===null?86400:3600)) fail('USAGE_ACCOUNT_INVALID_ROW');
+    if(v.kind==='subject' ? typeof v.subjectKey!=='string'||!/^(instance|observation):[a-f0-9]{64}$/.test(v.subjectKey)
+      : v.subjectKey!==null) fail('USAGE_ACCOUNT_INVALID_SUBJECT');
+    const row:ApplicationInstanceAccountRow={kind:v.kind,hour:v.hour===null?null:Number(v.hour),
+      subjectKey:v.subjectKey===null?null:String(v.subjectKey),duration:v.duration};
+    const key=canonicalUsageAccountJson([row.kind,row.hour,row.subjectKey]),canonical=canonicalUsageAccountJson(row);
+    if(seen.has(key)) fail('USAGE_ACCOUNT_DUPLICATE_ROW');
+    if(canonical<previous) fail('USAGE_ACCOUNT_ROWS_NOT_SORTED');
+    seen.add(key);previous=canonical;return row;
+  });
+}
+export function validateApplicationInstanceAccountDimensions(rows:ApplicationInstanceAccountRow[]):{total:number} {
+  const checked=parseApplicationInstanceAccountRows(rows);
+  // 仅复用数值维度守恒检查，不用占位显示名通过旧行解析或写入旧格式。
+  return validateDimensions(checked.map(row=>({...row,category:null,displayName:null})),true);
+}
+export function parseApplicationInstanceAccountManifest(value:unknown):ApplicationInstanceAccountManifest {
+  const fields=manifestFields.filter(key=>!['policyVersions','associationVersion','correctionVersion'].includes(key));
+  const v=exact(value,[...fields,'childId','observationResolutionHash']);
+  if(v.schemaVersion!==3||v.sourceKind!=='application'||v.durationUnit!=='seconds'||!identifier(v.childId))
+    fail('USAGE_ACCOUNT_INVALID_SCHEMA');
+  if(typeof v.observationResolutionHash!=='string'||!hashPattern.test(v.observationResolutionHash)) fail('USAGE_ACCOUNT_INVALID_HASH');
+  const {observationResolutionHash,...header}=v;
+  const validated=parseUsageAccountManifestV2({...header,schemaVersion:2,policyVersions:[],associationVersion:null,correctionVersion:0});
+  const {policyVersions:_policies,associationVersion:_association,correctionVersion:_correction,applicationUsage:_usage,...base}=validated;
+  return {...base,schemaVersion:3,sourceKind:'application',childId:v.childId,observationResolutionHash};
+}
+export async function verifyApplicationInstanceAccountManifest(value:unknown):Promise<ApplicationInstanceAccountManifest> {
+  const manifest=parseApplicationInstanceAccountManifest(value);
+  const {manifestHash,...body}=manifest;
+  if(await hashUsageAccountValue(body)!==manifestHash) fail('USAGE_ACCOUNT_MANIFEST_HASH_MISMATCH');
+  return manifest;
+}
+export async function createApplicationInstanceAccount(
+  header:Omit<ApplicationInstanceAccountManifest,'rowCount'|'chunkCount'|'rowsHash'|'manifestHash'>,
+  inputRows:ApplicationInstanceAccountRow[]) {
+  const rows=parseApplicationInstanceAccountRows([...inputRows].sort((a,b)=>{
+    const left=canonicalUsageAccountJson(a),right=canonicalUsageAccountJson(b);return left<right?-1:left>right?1:0;
+  }));
+  validateApplicationInstanceAccountDimensions(rows);
+  const body={...header,rowCount:rows.length,chunkCount:Math.ceil(rows.length/USAGE_ACCOUNT_CHUNK_ROWS),rowsHash:await hashUsageAccountValue(rows)};
+  const manifest=await verifyApplicationInstanceAccountManifest({...body,manifestHash:await hashUsageAccountValue(body)});
+  const chunks:Array<{chunkIndex:number;rows:ApplicationInstanceAccountRow[];chunkHash:string}>=[];
+  for(let i=0;i<rows.length;i+=USAGE_ACCOUNT_CHUNK_ROWS) {
+    const chunkRows=rows.slice(i,i+USAGE_ACCOUNT_CHUNK_ROWS);
+    chunks.push({chunkIndex:chunks.length,rows:chunkRows,chunkHash:await hashUsageAccountValue(chunkRows)});
+  }
+  return {manifest,rows,chunks};
+}
 /** 网页既有秒分配规则；输入为已确定总量和已生成切片，不负责并集或原账结算。 */
 export function allocateUsageAccountSeconds(slices: ReadonlyArray<{ startMs: number; endMs: number }>, totalSeconds: number): number[] {
   if (!integer(totalSeconds) || slices.length > USAGE_ACCOUNT_MAX_ROWS
@@ -414,4 +485,98 @@ export function allocateUsageAccountSeconds(slices: ReadonlyArray<{ startMs: num
   }
   if (remaining !== 0) fail('USAGE_ACCOUNT_INVALID_SECOND_TOTAL');
   return parts.map(part => part.seconds);
+}
+
+/** 产品／分类视图独立于基础统计；不复制名称、归属范围或配额余额。 */
+export interface ApplicationProductProjectionRow extends Omit<UsageAccountRowV2,'kind'|'displayName'> {
+  kind:'category'|'subject';
+}
+export interface ApplicationProductStatisticsProjection {
+  schemaVersion:1;
+  baseManifestHash:string;
+  revision:number;
+  catalogVersion:number;
+  generatedAtMs:number;
+  complete:boolean;
+  reasonCodes:string[];
+  rows:ApplicationProductProjectionRow[];
+  applicationUsage:ApplicationUsageSeconds;
+  projectionHash:string;
+}
+/** PUT正文即ApplicationProductStatisticsProjection；不修改基础上传队列或发布水位。 */
+export const APPLICATION_PRODUCT_PROJECTION_UPLOAD_CAPABILITY = 'application-product-projection-upload-v1' as const;
+export const APPLICATION_PRODUCT_PROJECTION_MAX_BYTES = 1_048_576;
+export function applicationProductProjectionUploadPath(manifestId:string):string {
+  if(typeof manifestId!=='string'||!/^aa1_[a-f0-9]{64}$/.test(manifestId))
+    fail('APPLICATION_PRODUCT_MANIFEST_ID_INVALID');
+  return `/v2/machines/application-accounts/manifests/${manifestId}/product-projection`;
+}
+export interface ApplicationProductProjectionReceipt {
+  manifestId:string;
+  revision:number;
+  projectionHash:string;
+  received:true;
+}
+/** ACK须属于当前冻结的请求；单纯received不能确认另一个版本。 */
+export function verifyApplicationProductProjectionReceipt(value:unknown,manifestId:string,
+  expected:Pick<ApplicationProductStatisticsProjection,'revision'|'projectionHash'>):ApplicationProductProjectionReceipt {
+  applicationProductProjectionUploadPath(manifestId);
+  const v=exact(value,['manifestId','revision','projectionHash','received']);
+  if(!integer(expected.revision,1)||typeof expected.projectionHash!=='string'||!hashPattern.test(expected.projectionHash)
+    ||v.manifestId!==manifestId||v.revision!==expected.revision||v.projectionHash!==expected.projectionHash
+    ||v.received!==true) fail('APPLICATION_PRODUCT_RECEIPT_MISMATCH');
+  return {manifestId,revision:expected.revision,projectionHash:expected.projectionHash,received:true};
+}
+export function parseApplicationProductStatisticsProjection(value:unknown):ApplicationProductStatisticsProjection {
+  const v=exact(value,['schemaVersion','baseManifestHash','revision','catalogVersion','generatedAtMs','complete',
+    'reasonCodes','rows','applicationUsage','projectionHash']);
+  if(v.schemaVersion!==1||typeof v.baseManifestHash!=='string'||!hashPattern.test(v.baseManifestHash)
+    ||typeof v.projectionHash!=='string'||!hashPattern.test(v.projectionHash)||!integer(v.revision,1)
+    ||!integer(v.catalogVersion)||!integer(v.generatedAtMs)||typeof v.complete!=='boolean'
+    ||!Array.isArray(v.reasonCodes)||v.reasonCodes.length>16
+    ||!orderedUnique(v.reasonCodes,code=>typeof code==='string'&&codePattern.test(code))
+    ||(v.complete?v.reasonCodes.length!==0:v.reasonCodes.length===0)
+    ||!Array.isArray(v.rows)||v.rows.length>USAGE_ACCOUNT_MAX_ROWS) fail('APPLICATION_PRODUCT_PROJECTION_INVALID');
+  const categories=new Set(['study','composite','restrictedEntertainment','unclassified','other','blocked','historicalUnknown']);
+  let previous='';const seen=new Set<string>();
+  const rows:ApplicationProductProjectionRow[]=v.rows.map(item=>{
+    const r=exact(item,record(item)&&item.kind==='subject'?['kind','hour','category','subjectKey','duration','classifications']:
+      ['kind','hour','category','subjectKey','duration']);
+    if((r.kind!=='category'&&r.kind!=='subject')||!(r.hour===null||integer(r.hour)&&r.hour<24)
+      ||!integer(r.duration)||r.duration>(r.hour===null?86400:3600)) fail('APPLICATION_PRODUCT_PROJECTION_INVALID_ROW');
+    if(r.kind==='category') {
+      if(typeof r.category!=='string'||!categories.has(r.category)||r.subjectKey!==null) fail('APPLICATION_PRODUCT_PROJECTION_INVALID_ROW');
+    } else if(r.category!==null||typeof r.subjectKey!=='string'
+      ||!(/^(instance|observation):[a-f0-9]{64}$/.test(r.subjectKey)||/^product:[A-Za-z0-9._:-]{1,256}$/.test(r.subjectKey))
+      ||!Array.isArray(r.classifications)||!r.classifications.length||r.classifications.length>categories.size
+      ||!orderedUnique(r.classifications,c=>typeof c==='string'&&categories.has(c))) fail('APPLICATION_PRODUCT_PROJECTION_INVALID_ROW');
+    const row:ApplicationProductProjectionRow={kind:r.kind,hour:r.hour===null?null:Number(r.hour),
+      category:r.category===null?null:String(r.category),subjectKey:r.subjectKey===null?null:String(r.subjectKey),duration:r.duration,
+      ...(Array.isArray(r.classifications)?{classifications:r.classifications.map(String)}:{})};
+    const key=canonicalUsageAccountJson([row.kind,row.hour,row.category,row.subjectKey]),canonical=canonicalUsageAccountJson(row);
+    if(seen.has(key)) fail('USAGE_ACCOUNT_DUPLICATE_ROW');
+    if(canonical<previous) fail('USAGE_ACCOUNT_ROWS_NOT_SORTED');
+    seen.add(key);previous=canonical;return row;
+  });
+  const applicationUsage=parseApplicationUsageSeconds(v.applicationUsage);
+  if(Object.keys(applicationUsage.nonSpecialCategories).some(category=>!categories.has(category))
+    ||v.complete&&!applicationUsage.complete) fail('APPLICATION_PRODUCT_PROJECTION_INVALID');
+  return {schemaVersion:1,baseManifestHash:v.baseManifestHash,revision:v.revision,catalogVersion:v.catalogVersion,
+    generatedAtMs:v.generatedAtMs,complete:v.complete,reasonCodes:v.reasonCodes.map(String),rows,
+    applicationUsage,projectionHash:v.projectionHash};
+}
+export async function verifyApplicationProductStatisticsProjection(value:unknown,
+  base:ApplicationInstanceAccountManifest,baseRows:ApplicationInstanceAccountRow[]) {
+  const projection=parseApplicationProductStatisticsProjection(value),{projectionHash,...body}=projection;
+  if(await hashUsageAccountValue(body)!==projectionHash) fail('APPLICATION_PRODUCT_PROJECTION_HASH_MISMATCH');
+  if(projection.baseManifestHash!==base.manifestHash) fail('APPLICATION_PRODUCT_PROJECTION_BASE_MISMATCH');
+  await verifyApplicationInstanceAccountManifest(base);
+  validateApplicationInstanceAccountDimensions(baseRows);
+  if(baseRows.length!==base.rowCount||await hashUsageAccountValue(baseRows)!==base.rowsHash) fail('USAGE_ACCOUNT_ROWS_HASH_MISMATCH');
+  const totals=baseRows.filter(row=>row.kind==='total').map(row=>({...row,category:null,displayName:null}));
+  validateDimensions([...totals,...projection.rows.map(row=>({...row,displayName:null}))],true);
+  const total=totals.find(row=>row.hour===null)!.duration;
+  if(projection.applicationUsage.nonSpecialTotal+projection.applicationUsage.specialTotal!==total)
+    fail('APPLICATION_PRODUCT_PROJECTION_USAGE_MISMATCH');
+  return projection;
 }

@@ -16,6 +16,7 @@ import { rebuildApplicationStatistics } from './applicationStatistics';
 import { publishApplicationAccounts } from './applicationAccountPublication';
 import { reconcileApplicationSharedQuotaEvidence } from './applicationSharedQuota';
 import { requireApplicationLegacyEnabled } from './applicationLedgerRetirement';
+import { refreshPendingProgramInstanceMappings } from './programInstances';
 export { RuntimeComputerUsageService } from './computerUsageService';
 
 interface WindowsV2ReleaseManifest {
@@ -220,6 +221,9 @@ async function route(request: Request, env: Env, defer?:(work:Promise<unknown>)=
 
 export default {
   async scheduled(_controller:ScheduledController,env:Env,ctx:ExecutionContext):Promise<void> {
+    ctx.waitUntil(refreshPendingProgramInstanceMappings(env.RUNTIME_DB).catch(()=>{
+      console.error(JSON.stringify({message:'program_instance_mapping_refresh_failed',code:'PROGRAM_INSTANCE_MAPPING_RETRY_PENDING'}));
+    }));
     ctx.waitUntil((async()=>{await publishApplicationAccounts(env.RUNTIME_DB);await rebuildApplicationStatistics(env.RUNTIME_DB);
       await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB);})());
   },

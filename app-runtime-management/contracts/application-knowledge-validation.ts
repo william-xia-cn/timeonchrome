@@ -1,5 +1,6 @@
-import type { ApplicationKnowledge, AppEvidence, MatchExpression, MatchCondition } from './application-classification.js';
-import { safeAutomatic } from './application-classification.js';
+import type { ApplicationKnowledge, ApplicationKnowledgeV4, AppEvidence, MatchExpression, MatchCondition } from './application-classification.js';
+import { safeAutomatic, parseProductOwnershipRules, parseProgramInstanceMappingReadResponse,
+  type ProgramInstanceProjectionContext, type ProgramInstanceMappingReadRequest } from './application-classification.js';
 
 const platforms = ['windows', 'macos'];
 const classes = ['study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked'];
@@ -32,23 +33,50 @@ function expression(value: unknown, allowEmpty = false): MatchExpression {
 
 /** 拒绝未知字段、脚本、弱自动条件及悬空引用；返回脱离调用方引用的副本。 */
 export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge {
-  if (!object(value) || !keys(value, ['schemaVersion', 'version', 'products', 'rules', 'bindings'])
-      || ![1,2,3].includes(Number(value.schemaVersion)) || !Number.isSafeInteger(value.version) || Number(value.version) < 0
+  return parseKnowledgeModel(value, false);
+}
+export function parseProgramInstanceProjectionContext(value:unknown,request:ProgramInstanceMappingReadRequest):ProgramInstanceProjectionContext {
+  if(!object(value)||Object.keys(value).length!==8
+    ||!keys(value,['schemaVersion','childId','assignmentVersion','catalogVersion','items','products','rules','binding'])
+    ||value.schemaVersion!==2||!list(value.products,100)||!object(value.binding)||value.binding.childId!==request.childId)
+    reject('INVALID_PROGRAM_PROJECTION_CONTEXT');
+  for(const product of value.products) if(!object(product)||!keys(product,['id','name','type','catalogGroup']))
+    reject('INVALID_PROGRAM_PROJECTION_CONTEXT');
+  const catalog=parseApplicationKnowledgeV4({schemaVersion:4,version:value.catalogVersion??0,
+    products:value.products,ownershipRules:[],rules:value.rules,bindings:[value.binding]});
+  if((value.catalogVersion===null && catalog.rules.length>0)
+    ||catalog.rules.some(rule=>!catalog.bindings[0].ruleIds.includes(rule.id))) reject('INVALID_PROGRAM_PROJECTION_CONTEXT');
+  const mapped=parseProgramInstanceMappingReadResponse({schemaVersion:1,childId:value.childId,
+    assignmentVersion:value.assignmentVersion,catalogVersion:value.catalogVersion,items:value.items,
+    products:catalog.products.map(p=>({id:p.id,name:p.name}))},request);
+  return {schemaVersion:2,childId:mapped.childId,assignmentVersion:mapped.assignmentVersion,catalogVersion:mapped.catalogVersion,
+    items:mapped.items,products:catalog.products,rules:catalog.rules,binding:catalog.bindings[0]};
+}
+export function parseApplicationKnowledgeV4(value: unknown): ApplicationKnowledgeV4 {
+  return parseKnowledgeModel(value, true);
+}
+function parseKnowledgeModel(value: unknown, instanceModel: false): ApplicationKnowledge;
+function parseKnowledgeModel(value: unknown, instanceModel: true): ApplicationKnowledgeV4;
+function parseKnowledgeModel(value: unknown, instanceModel: boolean): ApplicationKnowledge | ApplicationKnowledgeV4 {
+  const allowed = ['schemaVersion', 'version', 'products', 'rules', 'bindings', ...(instanceModel ? ['ownershipRules'] : [])];
+  if (!object(value) || !keys(value, allowed)
+      || (instanceModel ? value.schemaVersion !== 4 : ![1,2,3].includes(Number(value.schemaVersion)))
+      || !Number.isSafeInteger(value.version) || Number(value.version) < 0
       || !list(value.products) || !list(value.rules) || !list(value.bindings, 100)) reject('INVALID_APPLICATION_KNOWLEDGE');
   const productIds: string[] = [], ruleIds: string[] = [], childIds: string[] = [];
   for (const product of value.products) {
-    if (!object(product) || !keys(product, ['id', 'name', 'type', 'catalogGroup', 'selectors', 'suspectedMatchers']) || !id(product.id)
-        || !text(product.name) || !oneOf(product.type, types) || !list(product.selectors, 64)
-        || product.selectors.length === 0
+    if (!object(product) || !keys(product, ['id', 'name', 'type', 'catalogGroup', 'suspectedMatchers', ...(instanceModel ? [] : ['selectors'])]) || !id(product.id)
+        || !text(product.name) || !oneOf(product.type, types)
+        || (!instanceModel && (!list(product.selectors, 64) || product.selectors.length === 0))
         || (product.catalogGroup !== undefined && product.catalogGroup !== 'specialApplication')
-        || (product.suspectedMatchers !== undefined && (value.schemaVersion !== 3 || !list(product.suspectedMatchers, 16)))) reject('INVALID_PRODUCT');
+        || (product.suspectedMatchers !== undefined && ((!instanceModel && value.schemaVersion !== 3) || !list(product.suspectedMatchers, 16)))) reject('INVALID_PRODUCT');
     productIds.push(product.id);
     for (const hint of product.suspectedMatchers ?? []) {
       if (!object(hint) || !keys(hint, ['platform', 'signerKey', 'productName']) || hint.platform !== 'windows'
           || typeof hint.signerKey !== 'string' || !/^[a-f0-9]{64}$/u.test(hint.signerKey)
           || !text(hint.productName)) reject('INVALID_SUSPECTED_MATCHER');
     }
-    for (const selector of product.selectors) {
+    for (const selector of instanceModel ? [] : (list(product.selectors, 64) ? product.selectors : [])) {
       if (!object(selector) || !keys(selector, ['platform', 'match']) || !oneOf(selector.platform, platforms)) reject('INVALID_PRODUCT_SELECTOR');
       const match = expression(selector.match);
       if (!safeAutomatic(match)) reject('WEAK_PRODUCT_SELECTOR');
@@ -58,6 +86,10 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
     }
   }
   if (!unique(productIds)) reject('DUPLICATE_PRODUCT');
+  if (instanceModel) {
+    try { parseProductOwnershipRules(value.ownershipRules, productIds); }
+    catch { reject('INVALID_PRODUCT_OWNERSHIP_RULE'); }
+  }
   for (const rule of value.rules) {
     if (!object(rule) || !keys(rule, ['id', 'name', 'kind', 'platform', 'productId', 'match', 'exclude', 'mode', 'classification', 'type', 'enabled', 'source', 'reason'])
         || !id(rule.id) || !text(rule.name) || !oneOf(rule.kind, ['product', 'family', 'developer', 'type'])
@@ -84,7 +116,7 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
     for (const item of binding.products) {
       if (!object(item) || !keys(item, ['productId', 'classification', 'enhancedBlocking']) || !id(item.productId)
           || !productIds.includes(item.productId) || !oneOf(item.classification, classes)
-          || (item.enhancedBlocking !== undefined && (value.schemaVersion !== 3 || item.enhancedBlocking !== true
+          || (item.enhancedBlocking !== undefined && ((!instanceModel && value.schemaVersion !== 3) || item.enhancedBlocking !== true
             || item.classification !== 'blocked'))) reject('INVALID_PRODUCT_BINDING');
       boundProducts.push(item.productId);
     }
@@ -92,7 +124,7 @@ export function parseApplicationKnowledge(value: unknown): ApplicationKnowledge 
     childIds.push(binding.childId);
   }
   if (!unique(childIds)) reject('DUPLICATE_CHILD');
-  return JSON.parse(JSON.stringify(value)) as ApplicationKnowledge;
+  return JSON.parse(JSON.stringify(value)) as ApplicationKnowledge | ApplicationKnowledgeV4;
 }
 
 export function parseAppEvidence(value: unknown): AppEvidence {

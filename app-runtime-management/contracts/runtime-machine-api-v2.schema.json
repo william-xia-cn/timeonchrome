@@ -12,6 +12,30 @@
     "applicationCorrectionPage": { "$ref": "#/$defs/applicationCorrectionPage" }
   },
   "$defs": {
+    "programInstancePolicyStatus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "users"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "users": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/programInstancePolicyUserStatus" } }
+      },
+      "$comment": "Optional heartbeat.programInstancePolicy; send only with program-instance-policy-status-v1. localUserId must be unique; assignment must be authenticated server-side."
+    },
+    "programInstancePolicyUserStatus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["localUserId", "assignmentVersion", "state", "catalogVersion"],
+      "properties": {
+        "localUserId": { "$ref": "#/$defs/localUserId" },
+        "assignmentVersion": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "state": { "enum": ["accepted", "noSession", "unsupported", "pending", "partial", "unknown"] },
+        "catalogVersion": { "type": ["integer", "null"], "minimum": 1, "maximum": 9007199254740991 }
+      },
+      "allOf": [{
+        "if": { "properties": { "state": { "const": "accepted" } } },
+        "then": { "properties": { "catalogVersion": { "type": "integer" } } },
+        "else": { "properties": { "catalogVersion": { "type": "null" } } }
+      }]
+    },
     "applicationCorrectionPage": {
       "type": "object", "additionalProperties": false,
       "required": ["cursor", "hasMore", "items"],

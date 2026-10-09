@@ -1,4 +1,45 @@
 {
+  "observationHashVector": {
+    "segment": {
+      "schemaVersion": 4,
+      "id": "b9407e71003f6f25c6abe851738dbbc76e18f8cbe0f3daf179bd0a6ca1b2bedc",
+      "childId": "child-a",
+      "source": {
+        "machineId": "machine-a",
+        "localUserId": "user-a",
+        "runtimeSessionId": "session-a",
+        "assignmentVersion": 1
+      },
+      "application": {
+        "platform": "windows",
+        "observationRef": "11111111111111111111111111111111"
+      },
+      "date": "2026-10-05",
+      "startWallTimeMs": 1791129600000,
+      "endWallTimeMs": 1791129780000,
+      "startMonotonicTimeMs": 1000,
+      "endMonotonicTimeMs": 181000,
+      "clockEpochId": "epoch-a",
+      "durationSeconds": 180,
+      "channel": "active",
+      "endReason": "periodicSnapshot",
+      "estimated": {
+        "isEstimated": false,
+        "reason": null,
+        "cappedAtSeconds": null
+      }
+    },
+    "canonical": "[\"application-ledger-v4\",\"child-a\",\"machine-a\",\"user-a\",\"session-a\",1,\"windows\",\"11111111111111111111111111111111\",\"2026-10-05\",1791129600000,1791129780000,1000,181000,\"epoch-a\",180,\"active\",\"periodicSnapshot\",false,null,null]"
+  },
+  "programInstanceVector": {
+    "descriptor": {
+      "machineId": "machine-a",
+      "platform": "windows",
+      "locationRef": "22222222222222222222222222222222",
+      "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "e7936e901141566059a6cfa403f4f32204f44a4e8a9112c0b42705e6fca0e52e"
+  },
   "schemaVersion": 3,
   "timezone": "Asia/Shanghai",
   "dayStartMs": 1791129600000,

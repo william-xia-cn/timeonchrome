@@ -116,6 +116,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
+      - run: npm run build:app-runtime-contracts
       - run: node app-runtime-management/console/app-runtime-clipboard.test.js
       - run: node app-runtime-management/console/app-runtime-knowledge.test.cjs
       - run: node app-runtime-management/console/app-runtime-component.test.cjs

@@ -27,6 +27,17 @@ async function main() {
   assert.match(devices.productBlockStatus({ platform: 'windows', productBlockingCapability: 'reported', policyState: 'pending' }), /尚未生效/);
   assert.match(devices.productBlockStatus({ platform: 'windows', productBlockingCapability: 'reported', policyState: 'applied' }), /实机验收/);
   assert.equal(devices.accountStatus({}), '会话状态未报告');
+  const adoption={protected:true,assignmentVersion:3,programInstancePolicy:{assignmentVersion:3,
+    currentState:'accepted',catalogVersion:7,receivedAtMs:1000}};
+  assert.match(devices.programPolicyStatus(adoption,1001),/已接纳 v7.*不代表实际结束/);
+  assert.match(devices.programPolicyStatus({policyState:'applied'},1001),/未报告/);
+  assert.match(devices.programPolicyStatus({...adoption,assignmentVersion:4},1001),/失效/);
+  assert.match(devices.programPolicyStatus(adoption,601001),/失效/);
+  assert.match(devices.programPolicyStatus(adoption,999),/失效/);
+  for(const [currentState,label] of Object.entries({pending:'等待接纳',partial:'部分会话',unsupported:'未支持',noSession:'无活动会话',unknown:'未确认'}))
+    assert.match(devices.programPolicyStatus({...adoption,programInstancePolicy:{...adoption.programInstancePolicy,currentState}},1001),new RegExp(label));
+  assert.match(devices.programPolicyStatus({...adoption,programInstancePolicy:{...adoption.programInstancePolicy,catalogVersion:'7'}},1001),/未确认/);
+  assert.match(source,/AppRuntimeDevices\.programPolicyStatus\(user\)/);
   assert.equal(devices.releasePath('macos'), null);
   assert.throws(() => devices.pairingName('linux'));
   const calls = [];

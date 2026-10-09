@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "1.45.0",
+  "capability": "program-instance-policy-status-v1",
+  "vectors": [
+    {"name":"empty-replaces-previous-report","valid":true,"input":{"schemaVersion":1,"users":[]}},
+    {"name":"all-sessions-same-catalog","valid":true,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"accepted","catalogVersion":7}]}},
+    {"name":"partial-does-not-carry-highest-version","valid":true,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"partial","catalogVersion":null}]}},
+    {"name":"no-session-is-not-accepted","valid":true,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"noSession","catalogVersion":null}]}},
+    {"name":"old-agent-unsupported","valid":true,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"unsupported","catalogVersion":null}]}},
+    {"name":"waiting-for-new-ack","valid":true,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"pending","catalogVersion":null}]}},
+    {"name":"enumeration-incomplete","valid":true,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"unknown","catalogVersion":null}]}},
+    {"name":"accepted-must-have-catalog","valid":false,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"accepted","catalogVersion":null}]}},
+    {"name":"partial-must-not-claim-version","valid":false,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"partial","catalogVersion":7}]}},
+    {"name":"child-cannot-be-self-selected","valid":false,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"accepted","catalogVersion":7,"childId":"untrusted"}]}},
+    {"name":"duplicate-user","valid":false,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"accepted","catalogVersion":7},{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"unknown","catalogVersion":null}]}},
+    {"name":"old-policy-state-not-directory-adoption","valid":false,"input":{"schemaVersion":1,"users":[{"localUserId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":2,"state":"applied","catalogVersion":7}]}}
+  ]
+}

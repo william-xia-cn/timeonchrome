@@ -330,6 +330,10 @@ it.each([
   };
   const capability=await call('capabilities','GET');
   expect(capability.capabilities).toContain('application-statistics-child-scope-v1');
+  expect(capability.acceptedAlgorithms).toContain('application-instance-seconds-v1');
+  expect(capability.capabilities).toEqual(expect.arrayContaining([
+    'application-instance-statistics-v1', 'application-product-projection-upload-v1',
+  ]));
   const receipt=await call('manifests','POST',begin);
   expect(receipt).toMatchObject({received:false,published:false,revision:begin.manifest.revision,
     manifestHash:begin.manifest.manifestHash,publishStatus:'pending'});
@@ -350,7 +354,9 @@ it.each([
   if(total===180)expect({synthetic:true,
     contractsVersion:generated.contractsVersion,requestManifestHash:begin.manifest.manifestHash,
     // 原跨仓捕获不可改写；只剔除本轮新增的能力声明，统计/ACK仍逐字段等于原证据。
-    capability:{...capability,acceptedAlgorithms:(capability.acceptedAlgorithms as string[]).filter(value=>!value.includes('v3-only'))},
+    capability:{...capability,
+      acceptedAlgorithms:(capability.acceptedAlgorithms as string[]).filter(value=>!value.includes('v3-only')&&value!=='application-instance-seconds-v1'),
+      capabilities:(capability.capabilities as string[]).filter(value=>!['application-instance-statistics-v1','application-product-projection-upload-v1'].includes(value))},
     begin:receipt,pendingStatus,chunks:chunkReceipts,commit,publishedStatus}).toEqual(childServiceCloudResponses);
   // 重放原请求不累加；没有原段云端接收、旧策略历史或云端重算前提。
   expect(await call('manifests','POST',begin)).toMatchObject({manifestId:receipt.manifestId,received:true});

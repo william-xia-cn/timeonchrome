@@ -19,7 +19,9 @@ export function isV3OnlyApplicationManifest(value:{schemaVersion:number;duration
 export async function requireCurrentApplicationManifest(db:D1Database,accountId:string,child:string,
   manifest:{schemaVersion:number;durationUnit:string;childId?:string;algorithmVersion:string}) {
   const retirement=await readApplicationLedgerRetirement(db,accountId);
-  if(retirement&&!isV3OnlyApplicationManifest(manifest,child))
+  const currentInstance=manifest.schemaVersion===3&&manifest.durationUnit==='seconds'&&manifest.childId===child
+    &&manifest.algorithmVersion==='application-instance-seconds-v1';
+  if(retirement&&!isV3OnlyApplicationManifest(manifest,child)&&!currentInstance)
     throw new HttpError(409,'APPLICATION_LEGACY_LEDGER_RETIRED','旧应用账已退出，仅接收新版孩子秒统计。');
   return retirement;
 }
@@ -35,7 +37,7 @@ export function retiredApplicationRevision(retirement:ApplicationLedgerRetiremen
 
 const oldManifests=`SELECT id FROM runtime_application_account_manifests_v1 WHERE account_id=?1
   AND COALESCE(json_extract(manifest_json,'$.algorithmVersion'),'') NOT IN
-    ('windows-application-v3-only-seconds-v1','macos-application-v3-only-seconds-v1')`;
+    ('windows-application-v3-only-seconds-v1','macos-application-v3-only-seconds-v1','application-instance-seconds-v1')`;
 const legacyScopes:Record<string,string>={
   runtime_usage_segments:'device_id IN (SELECT id FROM runtime_devices WHERE account_id=?1)',
   runtime_app_hourly_stats_v1:'device_id IN (SELECT id FROM runtime_devices WHERE account_id=?1)',
@@ -100,7 +102,7 @@ export async function retireApplicationLedger(db:D1Database,accountId:string,bac
       SELECT machine_id,local_user_id,assignment_version,date,MAX(revision) AS revision
       FROM runtime_application_account_manifests_v1 WHERE account_id=?1
         AND COALESCE(json_extract(manifest_json,'$.algorithmVersion'),'') NOT IN
-          ('windows-application-v3-only-seconds-v1','macos-application-v3-only-seconds-v1')
+          ('windows-application-v3-only-seconds-v1','macos-application-v3-only-seconds-v1','application-instance-seconds-v1')
       GROUP BY machine_id,local_user_id,assignment_version,date)`)
     .bind(accountId,now,backupSha256,JSON.stringify(inventory.tables))];
   for(const [table,where]of Object.entries(legacyScopes))statements.push(db.prepare(`DELETE FROM ${table} WHERE ${where}`).bind(accountId));

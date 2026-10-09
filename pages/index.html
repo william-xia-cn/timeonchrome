@@ -7771,7 +7771,7 @@ const cloudComputerReader=ComputerUsageView.create(document.getElementById('clou
 const cloudApplicationReadCache=ComputerUsageView.createReadCache();
 const cloudApplicationReader=ComputerUsageView.createIndependent(document.getElementById('cloud-application-usage'),async({refresh}={})=>{
   const selected=currentProfileId,range=cloudUsageRange();
-  const params=new URLSearchParams({from:range.from,to:range.to,source:'application',durationUnit:'seconds'});
+  const params=new URLSearchParams({from:range.from,to:range.to,source:'application',durationUnit:'seconds',model:'program-instance-v1'});
   const url=`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`;
   const result=await cloudApplicationReadCache.read(url,()=>api(url),{refresh});
   if(selected!==currentProfileId)throw new Error('SELECTION_CHANGED');

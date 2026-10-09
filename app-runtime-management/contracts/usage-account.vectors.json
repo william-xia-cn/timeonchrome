@@ -1,6 +1,32 @@
 {
   "schemaVersion": 1,
   "timezone": "Asia/Shanghai",
+  "productProjectionUpload": {
+    "capability":"application-product-projection-upload-v1",
+    "method":"PUT",
+    "maxBytes":1048576,
+    "path":"/v2/machines/application-accounts/manifests/aa1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/product-projection",
+    "receipt":{"manifestId":"aa1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","revision":3,"projectionHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","received":true},
+    "invalidReceiptPatches":[{"manifestId":"aa1_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"revision":2},{"revision":4},{"revision":"3"},{"projectionHash":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"received":false},{"received":"true"}]
+  },
+  "productProjectionGolden": {
+    "description": "引用instanceV3Golden；Excel/Word各120秒，学习并集180秒，明细不能相加当总量。无名称、余额或重复孩子字段。",
+    "body": {
+      "schemaVersion": 1,
+      "baseManifestHash": "15f85d2abec0972eaf357e8e10b8021abc706640a2a25ae54204f245845bb8b9",
+      "revision": 1, "catalogVersion": 1, "generatedAtMs": 1791475400000, "complete": true, "reasonCodes": [],
+      "rows": [
+        {"kind":"category","hour":0,"category":"study","subjectKey":null,"duration":180},
+        {"kind":"category","hour":null,"category":"study","subjectKey":null,"duration":180},
+        {"kind":"subject","hour":0,"category":null,"subjectKey":"product:excel","duration":120,"classifications":["study"]},
+        {"kind":"subject","hour":0,"category":null,"subjectKey":"product:word","duration":120,"classifications":["study"]},
+        {"kind":"subject","hour":null,"category":null,"subjectKey":"product:excel","duration":120,"classifications":["study"]},
+        {"kind":"subject","hour":null,"category":null,"subjectKey":"product:word","duration":120,"classifications":["study"]}
+      ],
+      "applicationUsage":{"nonSpecialTotal":180,"nonSpecialCategories":{"study":180},"specialTotal":0,"complete":true,"reasonCodes":[]}
+    },
+    "projectionHash": "b8fcf3406be1ae043941f6e421c74064432b809e4d1883b34e07098a0521c498"
+  },
   "childScopeCases": [
     { "id": "legacy-seconds-omitted-child", "patch": {}, "valid": true },
     { "id": "frozen-child-a", "patch": { "childId": "child-a" }, "valid": true },
@@ -53,6 +79,14 @@
     { "id": "web-integer-seconds", "sourceKind": "web", "durationUnit": "seconds", "hour": 23, "duration": 61, "categories": [{ "category": "study", "duration": 61 }], "expectedTotal": 61 },
     { "id": "complete-zero", "sourceKind": "application", "durationUnit": "milliseconds", "hour": 0, "duration": 0, "categories": [], "expectedTotal": 0 }
   ],
+  "instanceV3Golden": {
+    "description": "2026-10-09 child-a，完整日总量180秒、0时180秒、其余小时0；instance:b×64与observation:c×64各日/0时120秒；revision=1、截止日初180000ms、生成日初200000ms、rawFactCount=2、rawFactHash=a×64、算法application-instance-seconds-v1、空解析集合。",
+    "rowCount": 29,
+    "observationResolutionHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "rowsHash": "fa15693a303e944ef3a13af0913fdf259e4e6caf8c911925f0cf7551f227c2c4",
+    "chunkHash": "fa15693a303e944ef3a13af0913fdf259e4e6caf8c911925f0cf7551f227c2c4",
+    "manifestHash": "15f85d2abec0972eaf357e8e10b8021abc706640a2a25ae54204f245845bb8b9"
+  },
   "canonicalHashVector": { "input": { "b": 2, "a": 1 }, "canonical": "{\"a\":1,\"b\":2}", "sha256": "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777" },
   "unicodeHashVector": { "input": { "a": "应用", "b": "<>&" }, "canonical": "{\"a\":\"应用\",\"b\":\"<>&\"}", "sha256": "3732e17de4a00fe7ad70592b0efca9b73d6ce689d98d5d595cdbf484406b0c97" }
 }

@@ -60,6 +60,8 @@ CI按实际diff运行；纯文档不触发产品测试。发布使用精确maste
 
 治理测试只运行职责检查固定用例、现有 CI 路由/源码边界及 diff check；文档只走轻量门，不运行产品/平台测试。本轮无业务、协议、安装或部署变更。
 
+经PO明确授权的架构与标准云端联合任务，可在`Task-Role: architecture-integration`下增加唯一一行`Task-Additional-Role: standard-cloud`，允许该任务自身修改这两个职责的文件；这不是其他模块的归属转移。未声明时仍执行单职责规则；不支持其他组合或重复附加声明。扩展、Native、Task和Santa仍须所属任务实施、按既有来源证明集成；公共文件仍需精确例外，产品与发布检查不变。
+
 检查示例：将上述声明放入临时文本文件（不要保存敏感信息），提交前运行 `node tools/check-task-scope.js --base origin/master --head HEAD --declaration <声明文件>`；暂存未提交时使用 `--staged --declaration <声明文件>`。重命名同时检查新旧路径。PR 的 changes job 读取 PR 描述与实际 diff，失败阻断现有 app-runtime-gate；修改 PR 描述会重新检查。master push 复用 PR 审查，不引入可发布的第二份职责声明。与这三个模块无关的任务仍遵守原所属模块规则。
 
 ## Lightweight Three-Role Codex Workflow
