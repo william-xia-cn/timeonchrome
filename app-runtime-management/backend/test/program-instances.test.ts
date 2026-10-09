@@ -53,7 +53,7 @@ it('产品目录正式读取按孩子映射聚合安装，使用来源不可读�
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
     (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms) VALUES(?1,?2,?3,?4,?5,?4)`)
     .bind(await sha256Hex(token),f.machine.accountId,JSON.stringify([{id:f.value.childId,name:'孩子'}]),now,now+60000).run();
-  const request=(child=f.value.childId,method='GET',auth=token)=>new Request(
+  const request=(child:string=f.value.childId,method='GET',auth=token)=>new Request(
     `https://runtime.test/v2/module/program-instance-directory?childId=${child}`,
     {method,headers:{authorization:`RuntimeSession ${auth}`}});
   const expected={childId:f.value.childId,catalogVersion:1,installationState:'available',usage:{state:'unavailable'},

@@ -1,5 +1,5 @@
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-plugin';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
 const migrations = await readD1Migrations(
@@ -56,6 +56,8 @@ export default defineConfig({
     }),
   ],
   test: {
+    // 该脚本使用Node SQLite，由npm test单独执行，不在workerd中构造。
+    exclude: [...configDefaults.exclude, 'test/program-instance-storage.test.mjs'],
     setupFiles: ['./test/setup.ts'],
   },
 });

@@ -2,6 +2,10 @@
 
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
+上述测试入口复验：publication 82/82与独立SQLite通过；typecheck发现目录测试request默认UUID导致参数被推为UUID模板类型，补显式string以保留“另一孩子”拒绝用例。仅测试夹具类型，不改变接口Child校验或产品代码。
+
+Worker CI 后续定位：303项通过，旧生产者捕获比较因新增实例能力字段失败；独立node:sqlite脚本被Vitest Worker环境误收集报Illegal constructor。修订仅测试接线：SQLite脚本在npm test前由Node执行并精确排除Worker收集；旧捕获统计及ACK不改，新增能力明确断言后再比较旧能力集合。使用Cloudflare技能核对运行环境边界；只复验上述失败文件、存储脚本、typecheck及diff，不扩大产品行为。
+
 PR #248 发布前 CI 修复：console 独立任务在干净 runner 仅 npm ci 后运行知识测试，缺少契约 dist，报 ERR_MODULE_NOT_FOUND；本地通过依赖已构建产物。仅补该任务 build:app-runtime-contracts 前置及固定顺序回归，不改变产品或降低门禁。职责 architecture-integration，工作流文件作为精确任务例外；最小验证为契约构建、知识页面专项、CI 路由、发布配置和差异检查，不运行终端或全平台测试。
 
 PO集中发布授权（2026-10-10）：允许现有云端分支推送、PR及相关检查通过后合并；发布Runtime、Guardian与两套Pages；先核实生产pending，只执行0017–0021中未应用的迁移，发现其他pending即停止迁移步骤并报告。部署后核验新能力及Mac自动补发，不安装终端、不启共享、不发布Task／Santa、不改R2。本批复用已记录精确代码的专项及目视证据，CI按影响运行；发布与真实验收分别登记。本节此前待授权状态由本条覆盖，不以授权本身标为已发布。
