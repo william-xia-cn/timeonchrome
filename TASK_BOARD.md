@@ -2,6 +2,10 @@
 
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
+目录切换只读核对（2026-10-10）：不能将legacy目录仅改schemaVersion后发布。`application-knowledge-validation.ts:60–127`显示v4产品不接受selectors，新增ownershipRules；产品ID/name/type/catalogGroup/suspectedMatchers与分类rules/bindings结构可保留，但须以实际输入校验及逐项差异为证据。`applicationKnowledge.ts:18–32`的旧effective入口会注入controlledProducts及Chrome规则，故只复制数据库products会遗漏有效目录，不能宣称配置无损。`applicationKnowledge.ts:94–95`在旧管理入口遇v4时明确409；盘点接收在catalog available时跳过旧policyStatements（约478、648行）。`programInstances.ts`新版保存仅原子写目录／审计，不调用旧policyStatements；实例映射由登记或有界任务生成。因此上线切换还必须核对旧管理入口退出、新执行消费及既有封锁保持，不能把统计可用等同执行安全。已向原Native任务交接只读评估Windows2.6.42／Mac0.1.41的实际消费与未知映射行为；未改生产目录、规则或第三层结果。
+
+下一集中批次：先取得当前有效目录（含内置项）及实例核验依据的只读清单，输出可保留元数据／配置、可确定转换规则、不可直接转换规则及消费者覆盖；转换预览必须保持原目录不可变、使用条件版本并展示影响范围。旧runtimeIdentity、包家族和旧文件系列不能仅凭字段同名转换为实例键、完整AUMID或新文件系列。无法证明者保留待核验，不启用猜测规则。生产切换及可能影响已生效封锁的差异须集中明确后执行，不能通过发布空ownershipRules使全部产品未识别来冒称完成。
+
 04:20发布及真实入口收口：run37985721761成功，来源b79eb72；Guardian版本db20e9a4-4f80-41d7-832b-58dc12f00534，Runtime Pages866289f2-cb47-4f7c-acb4-b83cb035b597，Main Pagesfad51a2a-b9cd-42a7-b311-cb2518d8cc87。manifest确认Runtime版本仍889d6243，迁移为空、sharedAccessShadowPrepared=false、R2 latest仍2.3.1且哈希不变。已登录主控制台实例入口正常显示第一页50个登记实例，404消失；规则目录明确返回“现有目录尚待集中切换”，不存在新版目录。因此当前目录10仍legacy是Windows／Mac产品pending的共同前置缺口，不是应让终端重装或猜产品。下一步先核对安全目录转换，保留既有产品及孩子配置、不把旧身份绑定直接当新规则、不直接写第三层映射；尚未执行目录切换。Mac固定回报15bf75684ebe0c3fc28e55c0c2c41abd3f5a6b7a记录0.1.41的基础版本22/23/25 ACK／Published与页面对照，按Mac报告证据收录，不等于Windows独立复现；1.45/1.46源码增量仍待办。整体未完成。
 
 04:14真实登录读取取得新版基础上云证据：主控制台应用使用返回program-instance-v1、seconds、complete=true，今天总量482秒、7个基础条目，来源revision92、unsupportedSourceCount=0、截止04:13:44；页面呈现8分2秒。产品投影仍未完成，返回APPLICATION_PRODUCT_CATALOG_CHANGED、目录版本10、可用来源0/1，已交Native只读定位目录消费与投影，不重复安装。PR #250已合并为b79eb72a22504b8bd23539ea30b9666494bf60e0，精确SHA相关CI通过；生产run37985721761已启动并完成已授权环境审核，仅Guardian和两套Pages，Runtime及migration均不部署。运行结果与实例入口实测待补，不以已启动称发布完成。
