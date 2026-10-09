@@ -10,7 +10,7 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.43.0');
+assert.equal(pkg.version, '1.44.0');
 const instanceLedger = JSON.parse(fs.readFileSync(path.join(root,'application-ledger-v4.schema.json'),'utf8'));
 assert.equal(instanceLedger.properties.schemaVersion.const,4);
 assert(instanceLedger.required.includes('childId'));

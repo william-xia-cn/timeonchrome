@@ -496,6 +496,60 @@ export interface ClassificationResolution {
 }
 const strong = new Set<EvidenceField>(['runtimeIdentity', 'binaryHash', 'packageId', 'distributionKey', 'productKey', 'hostedAppId', 'signerKey', 'fileSeriesKey']);
 const rank = { product: 0, family: 1, developer: 1, type: 2 };
+/** 新实例证据不提供旧runtimeIdentity；缺字段不是已证明不匹配。 */
+export function evaluateProgramInstanceCondition(expression: MatchExpression, evidence: ProductOwnershipEvidence): boolean | null {
+  if (!expression.conditions.length) return false;
+  const values = expression.conditions.map(condition => {
+    const actual = condition.field === 'binaryHash' ? evidence.verified.binaryHash : undefined;
+    return actual === undefined ? null : actual === condition.value;
+  });
+  if (expression.operator === 'all') return values.includes(false) ? false : values.includes(null) ? null : true;
+  if (expression.operator === 'any') return values.includes(true) ? true : values.includes(null) ? null : false;
+  throw new Error('INVALID_MATCH_EXPRESSION');
+}
+export interface ProgramInstanceClassificationResolution {
+  classification: AppClass | null;
+  status: 'explicit' | 'automatic' | 'unclassified' | 'unknown' | 'conflict';
+  ruleIds: string[];
+}
+/** 仅消费已经校验的同孩子映射上下文；不识别产品、不计时、不核算配额。 */
+export function resolveProgramInstanceClassification(context: ProgramInstanceProjectionContext, childId: string,
+  instanceId: string, evidence: ProductOwnershipEvidence): ProgramInstanceClassificationResolution {
+  if (context.childId !== childId || context.binding.childId !== childId)
+    throw new Error('APPLICATION_PRODUCT_SCOPE_INVALID');
+  const mappings = context.items.filter(item => item.instanceId === instanceId);
+  if (mappings.length !== 1 || context.catalogVersion === null || mappings[0]!.status !== 'confirmed')
+    return {classification:null,status:'unknown',ruleIds:[]};
+  const products = context.products.filter(product => product.id === mappings[0]!.productId);
+  if (products.length !== 1) throw new Error('APPLICATION_PRODUCT_CONTEXT_INVALID');
+  const product = products[0]!;
+  const explicit = context.binding.products.filter(item => item.productId === product.id);
+  if (explicit.length > 1) throw new Error('APPLICATION_PRODUCT_BINDING_INVALID');
+  if (explicit.length === 1) return {classification:explicit[0]!.classification,status:'explicit',ruleIds:[]};
+  const enabled = new Set(context.binding.ruleIds);
+  const candidates: Array<{rule:ClassificationRule;match:boolean|null}> = [];
+  for (const rule of context.rules) {
+    if (!rule.enabled || !enabled.has(rule.id) || rule.mode !== 'automatic'
+      || rule.platform && rule.platform !== evidence.platform || rule.productId && rule.productId !== product.id) continue;
+    const typeRule = rule.kind === 'type' && rule.match.conditions.length === 0;
+    if (!typeRule && !rule.productId && !safeAutomatic(rule.match)) continue;
+    const positive = typeRule ? product.type !== 'unknown' && product.type === rule.type
+      : rule.productId && !rule.match.conditions.length ? true : evaluateProgramInstanceCondition(rule.match,evidence);
+    if (positive === false) continue;
+    const exclusions = rule.exclude.map(expression => evaluateProgramInstanceCondition(expression,evidence));
+    if (exclusions.includes(true)) continue;
+    candidates.push({rule,match:positive === null || exclusions.includes(null) ? null : true});
+  }
+  if (!candidates.length) return {classification:'unclassified',status:'unclassified',ruleIds:[]};
+  const priority = Math.min(...candidates.map(candidate => rank[candidate.rule.kind]));
+  const best = candidates.filter(candidate => rank[candidate.rule.kind] === priority)
+    .sort((a,b) => a.rule.id < b.rule.id ? -1 : a.rule.id > b.rule.id ? 1 : 0);
+  const ruleIds = best.map(candidate => candidate.rule.id);
+  if (best.some(candidate => candidate.match === null)) return {classification:null,status:'unknown',ruleIds};
+  if (new Set(best.map(candidate => candidate.rule.classification)).size > 1)
+    return {classification:null,status:'conflict',ruleIds};
+  return {classification:best[0]!.rule.classification,status:'automatic',ruleIds};
+}
 export function safeAutomatic(expression: MatchExpression): boolean {
   if (!expression.conditions.length) return false;
   return expression.operator === 'all'

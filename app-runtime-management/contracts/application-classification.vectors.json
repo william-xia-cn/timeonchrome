@@ -1,5 +1,16 @@
 {
   "schemaVersion": 1,
+  "instanceConditionCases": [
+    {"name":"missing-exclusion-is-unknown","expression":{"operator":"all","conditions":[{"field":"signerKey","value":"signer"}]},"evidence":{"platform":"windows","verified":{}},"expected":null},
+    {"name":"series-fields-are-not-aliases","expression":{"operator":"all","conditions":[{"field":"fileSeriesKey","value":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}]},"evidence":{"platform":"windows","verified":{"windowsFileSeriesKey":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}},"expected":null},
+    {"name":"aumid-is-not-package-container","expression":{"operator":"all","conditions":[{"field":"packageId","value":"family"}]},"evidence":{"platform":"windows","verified":{"windowsAumid":"family!App"}},"expected":null},
+    {"name":"no-comparable-placeholder","expression":{"operator":"all","conditions":[{"field":"runtimeIdentity","value":"instance"}]},"evidence":{"platform":"windows","verified":{}},"expected":null},
+    {"name":"all-known-false-overrides-unknown","expression":{"operator":"all","conditions":[{"field":"binaryHash","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"field":"signerKey","value":"signer"}]},"evidence":{"platform":"windows","verified":{"binaryHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},"expected":false},
+    {"name":"any-known-true-overrides-unknown","expression":{"operator":"any","conditions":[{"field":"binaryHash","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"field":"signerKey","value":"signer"}]},"evidence":{"platform":"windows","verified":{"binaryHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},"expected":true},
+    {"name":"all-known-true-and-unknown","expression":{"operator":"all","conditions":[{"field":"binaryHash","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"field":"signerKey","value":"signer"}]},"evidence":{"platform":"windows","verified":{"binaryHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},"expected":null},
+    {"name":"any-known-false-and-unknown","expression":{"operator":"any","conditions":[{"field":"binaryHash","value":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},{"field":"signerKey","value":"signer"}]},"evidence":{"platform":"windows","verified":{"binaryHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},"expected":null},
+    {"name":"mac-signer-not-legacy-alias","expression":{"operator":"all","conditions":[{"field":"signerKey","value":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]},"evidence":{"platform":"macos","verified":{"macosSignerKey":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},"expected":null}
+  ],
   "cases": [
     {
       "name": "approved-signed-file-series-retains-child-product-choice",

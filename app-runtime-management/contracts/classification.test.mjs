@@ -4,6 +4,7 @@ import { resolveApplication, safeAutomatic, associateApplicationEvidence, isSpec
 import { parseApplicationKnowledge, parseApplicationKnowledgeV4, parseAppEvidence, parseProgramInstanceProjectionContext } from './dist/application-knowledge-validation.js';
 import { parseProgramInstanceMappingReadRequest, parseProgramInstanceMappingReadResponse } from './dist/application-classification.js';
 import {parseProgramInstanceCapabilities,parseProgramInstanceRegistrationReceipt} from './dist/application-classification.js';
+import {evaluateProgramInstanceCondition,resolveProgramInstanceClassification} from './dist/application-classification.js';
 const registrationReceipt={schemaVersion:1,childId:'child-a',items:[{instanceId:'a'.repeat(64),evidenceRevision:2,evidenceHash:'b'.repeat(64)}]};
 assert.deepEqual(parseProgramInstanceRegistrationReceipt(registrationReceipt,registrationReceipt),registrationReceipt);
 assert.equal(parseProgramInstanceRegistrationReceipt({...registrationReceipt,items:[{...registrationReceipt.items[0],evidenceRevision:3,
@@ -48,6 +49,32 @@ const detachedMapping=parseProgramInstanceMappingReadResponse(mappingResponse,ma
 detachedMapping.products[0].name='Changed'; detachedMapping.items[0].status='pending';
 assert.equal(mappingResponse.products[0].name,'Product A'); assert.equal(mappingResponse.items[0].status,'confirmed');
 const vectors = JSON.parse(readFileSync(new URL('./application-classification.vectors.json', import.meta.url)));
+for(const vector of vectors.instanceConditionCases)
+  assert.equal(evaluateProgramInstanceCondition(vector.expression,parseProductOwnershipEvidence(vector.evidence)),vector.expected,vector.name);
+const instanceRule={id:'product',name:'Product rule',kind:'product',productId:'product-a',
+  match:{operator:'all',conditions:[]},exclude:[],mode:'automatic',classification:'study',type:'other',enabled:true,source:'fixture',reason:'fixture'};
+const instanceContext={...projectionContext,binding:{childId:'child-a',products:[],ruleIds:['product']},rules:[instanceRule]};
+const instanceEvidence={platform:'windows',verified:{binaryHash:'a'.repeat(64)}};
+const resolveInstance=(context=instanceContext)=>resolveProgramInstanceClassification(context,'child-a','a'.repeat(64),instanceEvidence);
+assert.deepEqual(resolveInstance(),{classification:'study',status:'automatic',ruleIds:['product']});
+for(const field of ['signerKey','fileSeriesKey','packageId','runtimeIdentity']) {
+  const context={...instanceContext,rules:[{...instanceRule,exclude:[{operator:'all',conditions:[{field,value:'instance'}]}]}]};
+  assert.deepEqual(resolveInstance(context),{classification:null,status:'unknown',ruleIds:['product']});
+  assert.deepEqual(resolveInstance({...context,binding:projectionContext.binding}),{classification:'other',status:'explicit',ruleIds:[]});
+}
+const knownExclude={operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]};
+assert.equal(resolveInstance({...instanceContext,rules:[{...instanceRule,exclude:[knownExclude]}]}).status,'unclassified');
+assert.equal(resolveInstance({...instanceContext,rules:[{...instanceRule,match:{operator:'all',conditions:[{field:'binaryHash',value:'b'.repeat(64)}]},
+  exclude:[{operator:'all',conditions:[{field:'signerKey',value:'missing'}]}]}]}).status,'unclassified');
+const unknownLower={...instanceRule,id:'lower',kind:'type',productId:undefined,exclude:[{operator:'all',conditions:[{field:'signerKey',value:'missing'}]}]};
+const rankedContext={...instanceContext,binding:{...instanceContext.binding,ruleIds:['product','lower']},rules:[instanceRule,unknownLower]};
+assert.equal(resolveInstance(rankedContext).status,'automatic');
+assert.equal(resolveInstance({...rankedContext,rules:[{...instanceRule,exclude:unknownLower.exclude},{...unknownLower,exclude:[]}]}).status,'unknown');
+assert.equal(resolveInstance({...rankedContext,rules:[instanceRule,{...instanceRule,id:'lower',classification:'other'}]}).status,'conflict');
+assert.equal(resolveInstance({...instanceContext,rules:[{...instanceRule,kind:'type',productId:undefined}]}).status,'automatic');
+assert.equal(resolveInstance({...instanceContext,rules:[{...instanceRule,mode:'suggestion'}]}).status,'unclassified');
+assert.equal(resolveInstance({...instanceContext,items:[{...mappingResponse.items[0],status:'unresolved',productId:null}]}).status,'unknown');
+assert.throws(()=>resolveProgramInstanceClassification(instanceContext,'other-child','a'.repeat(64),instanceEvidence),/APPLICATION_PRODUCT_SCOPE_INVALID/);
 const legacyShape = result => ({productId:result.productId,classification:result.classification,status:result.status,ruleIds:result.ruleIds,suggestions:result.suggestions});
 // 新规则独立于孩子／实例：同证据在不同孩子及不同位置执行仍归同产品，实例不在这里合并。
 const ownershipRule = {id:'exact',revision:1,enabled:true,platform:'windows',productId:'browser',match:{kind:'binaryHash',sha256:'a'.repeat(64)}};
@@ -127,6 +154,24 @@ assert.throws(()=>buildProgramInstanceProductMapping('child-a',1,['browser'],[ow
 assert.throws(()=>buildProgramInstanceProductMapping('child-a',1,['browser'],[ownershipRule],[{...programInstances[0],productId:'forced'}]),/INVALID_PROGRAM_INSTANCE_MAPPING/);
 assert.throws(()=>buildProgramInstanceProductMapping('',1,['browser'],[ownershipRule],programInstances),/INVALID_PROGRAM_INSTANCE_MAPPING/);
 assert.deepEqual(programInstances.map(item=>item.instanceId),['machine-location-content-b','machine-location-content-a']); // 不修改输入事实
+// 映射是可重建结果；修改规则不能就地改变旧映射或实例证据。
+const originalMappingJson=JSON.stringify(mapA);
+const originalInstancesJson=JSON.stringify(programInstances);
+const redirectedRule={...ownershipRule,revision:2,productId:'replacement'};
+const redirected=buildProgramInstanceProductMapping('child-a',2,['browser','replacement'],[redirectedRule],programInstances);
+assert.ok(redirected.items.every(item=>item.status==='confirmed' && item.productId==='replacement'));
+const ambiguous=buildProgramInstanceProductMapping('child-a',3,['browser','replacement'],
+  [ownershipRule,{...redirectedRule,id:'second-target'}],programInstances);
+assert.ok(ambiguous.items.every(item=>item.status==='conflict' && item.productId===null));
+const withdrawn=buildProgramInstanceProductMapping('child-a',4,['browser'],[{...ownershipRule,enabled:false}],programInstances);
+assert.ok(withdrawn.items.every(item=>item.status==='unresolved' && item.productId===null));
+const changedContent=[{instanceId:'machine-location-new-content',evidence:{platform:'windows',verified:{binaryHash:'d'.repeat(64)}}}];
+assert.equal(buildProgramInstanceProductMapping('child-a',5,['browser'],[ownershipRule],changedContent).items[0].status,'unresolved');
+assert.equal(JSON.stringify(mapA),originalMappingJson);
+assert.equal(JSON.stringify(programInstances),originalInstancesJson);
+// 新证据不能伪装成旧分类证据：包容器不等于完整AUMID，旧签名字段也不自动成为平台验签结果。
+for(const verified of [{packageId:'Fixture_family'}, {fileSeriesKey:'c'.repeat(64)}, {signerKey:'b'.repeat(64)}])
+  assert.throws(()=>parseProductOwnershipEvidence({platform:'windows',verified}),/INVALID_PRODUCT_OWNERSHIP_EVIDENCE/);
 for (const vector of vectors.cases) assert.deepEqual(legacyShape(resolveApplication(vector.knowledge, vector.childId, vector.evidence, vector.previous)), vector.expected, vector.name);
 assert.equal(safeAutomatic({operator:'any',conditions:[]}),false);
 assert.equal(safeAutomatic({operator:'invalid',conditions:[{field:'binaryHash',value:'hash'}]}),false);
@@ -199,4 +244,4 @@ assert.equal(schema.additionalProperties,false);
 assert.deepEqual(schema.required,Object.keys(valid));
 for (const platform of [['windows'], {toString:()=> 'windows'}, new String('macos'), null, 0])
   assert.throws(()=>parseProductOwnershipEvidence({platform,verified:{}}),/INVALID_PRODUCT_OWNERSHIP_EVIDENCE/);
-console.log('classification vectors: '+vectors.cases.length+' PASS');
+console.log('classification vectors: '+vectors.cases.length+' legacy + '+vectors.instanceConditionCases.length+' instance conditions PASS; projection assertions PASS');
