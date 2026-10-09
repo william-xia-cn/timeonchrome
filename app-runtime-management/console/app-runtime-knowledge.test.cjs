@@ -1,5 +1,22 @@
 const assert=require('node:assert/strict');
 const K=require('./app-runtime-knowledge');
+{
+  const old=[{productId:'p',selector:{platform:'windows',match:{operator:'all',conditions:[{field:'runtimeIdentity',value:'old'}]}}}];
+  const rule={id:'replacement',revision:1,enabled:true,productId:'p',platform:'windows',match:{kind:'binaryHash',sha256:'a'.repeat(64)}};
+  const catalog={ownershipRules:[rule]},before=JSON.stringify({old,catalog});
+  assert.equal(K.legacyResolutionValid(old[0],catalog),false);
+  for(const bad of [{...rule,productId:'other'},{...rule,platform:'macos'},{...rule,enabled:false}])
+    assert.throws(()=>K.resolveLegacyOwnership(old,0,{ownershipRules:[bad]},rule.id,'核验记录'),/同一产品/);
+  assert.throws(()=>K.resolveLegacyOwnership(old,0,catalog,rule.id,'  '),/核验依据/);
+  assert.throws(()=>K.resolveLegacyOwnership(old,2,catalog,rule.id,'核验记录'),/同一产品/);
+  const resolved=K.resolveLegacyOwnership(old,0,catalog,rule.id,'同扫描安装引用与已核验文件内容对应');
+  assert.equal(K.legacyResolutionValid(resolved[0],catalog),true);
+  assert.deepEqual(resolved[0].selector,old[0].selector);
+  assert.equal(JSON.stringify({old,catalog}),before);
+  for(const changed of [[],[{...rule,enabled:false}],[{...rule,revision:2}],[{...rule,match:{kind:'binaryHash',sha256:'b'.repeat(64)}}]])
+    assert.equal(K.legacyResolutionValid(resolved[0],{ownershipRules:changed}),false);
+  console.log('PASS: reviewed legacy replacement is product/platform bound, preserves input and expires on rule changes');
+}
 assert.match(K.installationSummaryHTML(undefined),/尚无安装引用信息/);
 assert.match(K.installationSummaryHTML({state:'available',entryCount:0,references:[]}),/不代表未安装/);
 assert.match(K.installationSummaryHTML({state:'unavailable',reasonCode:'<bad>'}),/&lt;bad&gt;/);
@@ -317,6 +334,51 @@ async function legacyOwnershipEntryTests(){
   console.log('PASS: legacy entry builds complete draft, exposes unsupported rules, previews without writes and refuses incomplete save');
 }
 legacyOwnershipEntryTests().catch(error=>{console.error(error);process.exitCode=1;});
+
+async function legacyResolutionLifecycleTests(){
+  const listeners={},elements={},calls=[];let saved=0;
+  const dialog={open:false,showModal(){this.open=true;},close(){this.open=false;}};
+  const element=id=>elements[id]??(elements[id]={innerHTML:'',value:'',querySelectorAll:()=>[]});
+  const legacy={schemaVersion:3,version:10,products:[{id:'product-a',name:'已核验产品',type:'other',selectors:[
+    {platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]}},
+    {platform:'windows',match:{operator:'all',conditions:[{field:'runtimeIdentity',value:'old-reference'}]}}
+  ]}],rules:[],bindings:[{childId:'child-a',products:[],ruleIds:[]}]};
+  const before=JSON.stringify(legacy),draft=K.legacyOwnershipDraft(legacy).catalog;
+  const root={ownerDocument:{},querySelector:s=>s==='#instance-dialog'?dialog:element(s),querySelectorAll:()=>[],
+    addEventListener:(type,handler)=>listeners[type]=handler,removeEventListener:()=>{}};
+  const component=K.mount({root,getContext:()=>({childId:'child-a'}),request:async(url,options)=>{
+    calls.push({url,options});
+    if(options?.method==='PUT')return {state:'available',version:11,mappingState:'pending',catalog:{...JSON.parse(options.body),version:11}};
+    return {state:'legacy',version:10,catalog:null,legacyCatalog:legacy};
+  },onCatalogSaved:()=>saved++,onError:error=>assert.fail(String(error))});
+  const click=async(id='',dataset={})=>{listeners.click({target:{closest:()=>({id,dataset})}});await new Promise(resolve=>setImmediate(resolve));};
+  await component.open('identity');
+  element('#ownership-resolution-rule-0').value=draft.ownershipRules[0].id;
+  element('#ownership-resolution-reason-0').value='';
+  await click('',{ownershipResolve:'0'});
+  assert.match(element('#ownership-panel').innerHTML,/请填写具体核验依据/);
+  await click('ownership-save');assert.equal(calls.length,1);
+  element('#ownership-resolution-reason-0').value='同扫描安装引用及文件内容核对一致';
+  await click('',{ownershipResolve:'0'});
+  assert.match(element('#ownership-panel').innerHTML,/仍有 0 项旧规则/);
+  assert.doesNotMatch(element('#ownership-panel').innerHTML,/id="ownership-save" disabled/);
+  await click('',{ownershipToggle:'0'});
+  assert.match(element('#ownership-panel').innerHTML,/仍有 1 项旧规则/);
+  await click('ownership-save');assert.equal(calls.length,1,'changed replacement cannot pass the save handler');
+  await click('',{ownershipToggle:'0'});
+  element('#ownership-resolution-rule-0').value=draft.ownershipRules[0].id;
+  element('#ownership-resolution-reason-0').value='重新核对启用后的替代规则';
+  await click('',{ownershipResolve:'0'});
+  await click('ownership-save');
+  assert.equal(saved,1);assert.equal(calls.length,2);
+  assert.equal(calls[1].options.headers['If-Match'],'"application-knowledge-v10"');
+  const submitted=JSON.parse(calls[1].options.body);
+  assert.deepEqual(submitted.products,draft.products);assert.deepEqual(submitted.bindings,legacy.bindings);
+  assert.equal(submitted.ownershipRules.length,1);assert.equal(JSON.stringify(legacy),before);
+  component.dispose();
+  console.log('PASS: actual legacy review events gate saving, invalidate changed rules and preserve products and Child bindings');
+}
+legacyResolutionLifecycleTests().catch(error=>{console.error(error);process.exitCode=1;});
 
 {
   const rule={id:'r',name:'原规则',kind:'family',platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]},exclude:[{operator:'any',conditions:[{field:'packageId',value:'legacy-evidence'}]}],classification:'study',mode:'automatic',type:'other',enabled:true,source:'parent-confirmed',reason:'既有依据'};
