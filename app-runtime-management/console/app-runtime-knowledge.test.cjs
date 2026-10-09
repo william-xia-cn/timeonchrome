@@ -317,6 +317,47 @@ async function newCatalogRuleContractTests(){
     {ruleId:input.id,childId:'child-a',classification:'study',newId:'revised-rule'}));
   assert.equal(forChild(revised,'child-a').classification,'study');
   assert.equal(forChild(revised,'child-b').classification,'other');
+  const suggested=parseApplicationKnowledgeV4(K.reviseCatalogClassification(shared,
+    {ruleId:input.id,childId:'child-a',classification:'study',mode:'suggestion',platform:'macos',newId:'suggested-rule'}));
+  assert.equal(forChild(suggested,'child-a').status,'unclassified');
+  assert.equal(forChild(suggested,'child-b').classification,'other');
+  assert.equal(suggested.rules.at(-1).platform,'macos');
+  const bothPlatforms=parseApplicationKnowledgeV4(K.reviseCatalogClassification(suggested,
+    {ruleId:'suggested-rule',childId:'child-a',classification:'study',mode:'automatic',platform:'',newId:'both-rule'}));
+  assert.equal(forChild(bothPlatforms,'child-a').classification,'study');
+  assert.equal(Object.hasOwn(bothPlatforms.rules.at(-1),'platform'),false);
+  assert.deepEqual(bothPlatforms.rules[0],shared.rules[0]);
+  assert.deepEqual(bothPlatforms.bindings.find(b=>b.childId==='child-b'),shared.bindings.find(b=>b.childId==='child-b'));
+  assert.throws(()=>K.reviseCatalogClassification(shared,
+    {ruleId:input.id,childId:'child-a',classification:'study',mode:'invented',newId:'invalid-rule'}),/规则模式无效/);
+  assert.throws(()=>K.reviseCatalogClassification(shared,
+    {ruleId:input.id,childId:'child-a',classification:'study',platform:'linux',newId:'invalid-rule'}),/规则平台无效/);
+  const weakRule={...parsed.rules[0],kind:'family',mode:'suggestion',match:{operator:'all',conditions:[{field:'productName',value:'Chrome'}]}};
+  delete weakRule.productId;
+  const weak=parseApplicationKnowledgeV4({...parsed,rules:[weakRule]});
+  const unsafe=K.reviseCatalogClassification(weak,
+    {ruleId:input.id,childId:'child-a',classification:'blocked',mode:'automatic',newId:'unsafe-rule'});
+  assert.throws(()=>parseApplicationKnowledgeV4(unsafe),/WEAK_AUTOMATIC_RULE/,'mode editing must not bypass server contract safety');
+  const expressions=K.parseClassificationExpressions(JSON.stringify({operator:'all',conditions:[{field:'binaryHash',value:'b'.repeat(64)}]}),'[]');
+  const changedConditions=parseApplicationKnowledgeV4(K.reviseCatalogClassification(shared,
+    {ruleId:input.id,childId:'child-a',classification:'study',expressions,newId:'changed-conditions'}));
+  assert.equal(forChild(changedConditions,'child-a').status,'unclassified');
+  assert.equal(forChild(changedConditions,'child-b').classification,'other');
+  assert.deepEqual(changedConditions.rules[0],shared.rules[0]);
+  expressions.match.conditions[0].value='c'.repeat(64);
+  assert.equal(changedConditions.rules.at(-1).match.conditions[0].value,'b'.repeat(64));
+  const excluded=K.parseClassificationExpressions(JSON.stringify(shared.rules[0].match),
+    JSON.stringify([{operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]}]));
+  const excludedCatalogue=parseApplicationKnowledgeV4(K.reviseCatalogClassification(shared,
+    {ruleId:input.id,childId:'child-a',classification:'blocked',expressions:excluded,newId:'excluded-rule'}));
+  assert.equal(forChild(excludedCatalogue,'child-a').status,'unclassified');
+  assert.throws(()=>K.parseClassificationExpressions('{','[]'),/JSON 格式错误/);
+  assert.throws(()=>K.parseClassificationExpressions('[]','[]'),/表达式数组/);
+  assert.throws(()=>K.parseClassificationExpressions(JSON.stringify(shared.rules[0].match),'{}'),/表达式数组/);
+  assert.throws(()=>K.parseClassificationExpressions(' '.repeat(16385),'[]'),/文本过长/);
+  const invalidField=K.parseClassificationExpressions('{"operator":"all","conditions":[{"field":"windowsFileSeriesKey","value":"not-an-alias"}]}','[]');
+  assert.throws(()=>parseApplicationKnowledgeV4(K.reviseCatalogClassification(shared,
+    {ruleId:input.id,childId:'child-a',classification:'study',expressions:invalidField,newId:'invalid-field'})),/INVALID_MATCH_CONDITION/);
   const stopped=parseApplicationKnowledgeV4(K.toggleApproval(revised,'revised-rule','child-a','unused'));
   assert.equal(forChild(stopped,'child-a').status,'unclassified');
   assert.equal(forChild(stopped,'child-b').classification,'other');

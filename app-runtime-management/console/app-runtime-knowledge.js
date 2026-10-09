@@ -60,11 +60,28 @@
     return next;
   }
   const legacyGameSuggestionRuleId='builtin.type.game.restricted-suggestion';
-  function reviseCatalogClassification(catalog,{ruleId,childId,classification,newId}){
+  function parseClassificationExpressions(matchText,excludeText){
+    if(typeof matchText!=='string'||typeof excludeText!=='string'||matchText.length>16384||excludeText.length>16384)
+      throw new Error('条件文本过长或格式无效');
+    let match,exclude;
+    try{match=JSON.parse(matchText);exclude=JSON.parse(excludeText);}catch{throw new Error('条件 JSON 格式错误；请修正后再加入草稿');}
+    const expression=value=>value&&typeof value==='object'&&!Array.isArray(value)
+      &&['all','any'].includes(value.operator)&&Array.isArray(value.conditions);
+    if(!expression(match)||!Array.isArray(exclude)||!exclude.every(expression))throw new Error('匹配条件需要 operator／conditions，排除条件需要表达式数组');
+    return {match,exclude};
+  }
+  function reviseCatalogClassification(catalog,{ruleId,childId,classification,mode,platform,expressions,newId}){
     if(catalog?.schemaVersion!==4||!childId||!Object.hasOwn(labels,classification))throw new Error('目录、孩子或分类无效');
     const rule=catalog.rules.find(item=>item.id===ruleId);
     if(!rule||!newId||catalog.rules.some(item=>item.id===newId))throw new Error('规则已变化，请重新读取');
-    return reviseRule(catalog,{...clone(rule),id:newId,classification},[childId],rule.id);
+    if(mode!==undefined&&!['automatic','suggestion'].includes(mode))throw new Error('规则模式无效');
+    if(platform!==undefined&&!['','windows','macos'].includes(platform))throw new Error('规则平台无效');
+    const revised={...clone(rule),id:newId,classification};
+    if(mode!==undefined)revised.mode=mode;
+    if(platform==='')delete revised.platform;
+    else if(platform!==undefined)revised.platform=platform;
+    if(expressions!==undefined){revised.match=clone(expressions.match);revised.exclude=clone(expressions.exclude);}
+    return reviseRule(catalog,revised,[childId],rule.id);
   }
   function addCatalogClassification(catalog,{id,name,kind,productId,type,platform,mode,classification,reason,childId}){
     if(catalog?.schemaVersion!==4||!childId||!id||catalog.rules.some(rule=>rule.id===id))throw new Error('目录、孩子或规则标识无效');
@@ -284,9 +301,9 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
           return `<fieldset><legend>${esc(product.name)}</legend><label>产品名称<input id="ownership-product-name-${index}" maxlength="256" value="${esc(product.name)}"></label><label>客观产品类型（家庭共用）<select id="ownership-product-type-${index}">${Object.entries(types).map(([key,label])=>`<option value="${key}"${product.type===key?' selected':''}>${label}</option>`).join('')}</select></label><label>统计目录（家庭共用）<select id="ownership-product-group-${index}"><option value=""${!product.catalogGroup?' selected':''}>普通应用</option><option value="specialApplication"${product.catalogGroup==='specialApplication'?' selected':''}>特殊应用</option></select></label><p>特殊应用从非特殊应用统计中排除；“其他时间”是独立分类，不等于特殊应用。保存后仍需等待统计投影更新。</p><label>当前孩子分类<select id="ownership-product-class-${index}"><option value=""${classification===''?' selected':''}>跟随分类规则</option>${classOptions(classification)}</select></label><button data-ownership-product="${index}">更新产品草稿</button></fieldset>`;
         }).join('')||'<p>暂无产品，请先根据核验依据建立归属规则。</p>'}</section>
         <div>${ownershipDraft.ownershipRules.map((rule,index)=>`<article class="knowledge-item"><div><strong>${esc(ownershipDraft.products.find(product=>product.id===rule.productId)?.name||rule.productId)}</strong><small>${esc(rule.platform)} · ${rule.enabled?'草稿启用':'草稿停用'}</small><pre class="instance-evidence">${esc(JSON.stringify(rule.match,null,2))}</pre></div><button data-ownership-toggle="${index}">${rule.enabled?'停用草稿':'恢复草稿'}</button><button data-ownership-remove="${index}">移除草稿规则</button></article>`).join('')||'<p>暂无归属规则。</p>'}</div>
-        <section class="knowledge-editor"><h3>既有分类规则与当前孩子</h3><p>只修改分类结果或当前孩子批准状态，保留匹配及排除条件。复杂条件编辑尚未适配；缺少可核验依据时保持未知，不在页面猜测命中。${ownershipSaved?'目录已保存；终端执行尚未确认。':'此处仍是未提交草稿。'}</p>${ownershipDraft.rules.map((rule,index)=>{
+        <section class="knowledge-editor"><h3>既有分类规则与当前孩子</h3><p>可修订分类结果、模式、平台和条件，或改变当前孩子批准状态。高级条件直接使用既有契约，不转换证据字段；缺少可核验依据时保持未知，不在页面猜测命中。${ownershipSaved?'目录已保存；终端执行尚未确认。':'此处仍是未提交草稿。'}</p>${ownershipDraft.rules.map((rule,index)=>{
           const approved=rule.enabled&&ownershipDraft.bindings.find(item=>item.childId===getContext().childId)?.ruleIds.includes(rule.id);
-          return `<fieldset><legend>${esc(rule.name)}</legend><p>${esc(rule.kind)} · ${esc(rule.platform||'两个平台')} · ${rule.mode==='automatic'?'自动':'仅建议'} · ${rule.enabled?'规则启用':'规则停用'} · ${approved?'当前孩子已批准':'当前孩子未批准'}</p><details><summary>原匹配与排除条件</summary><pre class="instance-evidence">${esc(JSON.stringify({productId:rule.productId,type:rule.type,match:rule.match,exclude:rule.exclude},null,2))}</pre></details><label>分类结果<select id="ownership-rule-class-${index}">${classOptions(rule.classification)}</select></label><button data-ownership-classification="${index}">为当前孩子修订分类草稿</button><button data-ownership-approval="${index}">${approved?'停用当前孩子草稿':'批准当前孩子草稿'}</button></fieldset>`;
+          return `<fieldset><legend>${esc(rule.name)}</legend><p>${esc(rule.kind)} · ${esc(rule.platform||'两个平台')} · ${rule.mode==='automatic'?'自动':'仅建议'} · ${rule.enabled?'规则启用':'规则停用'} · ${approved?'当前孩子已批准':'当前孩子未批准'}</p><details class="classification-expression-editor"><summary>原条件与高级编辑</summary><pre class="instance-evidence">${esc(JSON.stringify({productId:rule.productId,type:rule.type,match:rule.match,exclude:rule.exclude},null,2))}</pre><label>匹配条件 JSON<textarea id="ownership-rule-match-${index}" rows="6" maxlength="16384">${esc(JSON.stringify(rule.match,null,2))}</textarea></label><label>排除条件 JSON<textarea id="ownership-rule-exclude-${index}" rows="4" maxlength="16384">${esc(JSON.stringify(rule.exclude,null,2))}</textarea></label><p>这里只解析格式；保存时仍须通过云端语义及安全校验。</p></details><label>分类结果<select id="ownership-rule-class-${index}">${classOptions(rule.classification)}</select></label><label>规则模式<select id="ownership-rule-mode-${index}"><option value="suggestion"${rule.mode==='suggestion'?' selected':''}>仅建议</option><option value="automatic"${rule.mode==='automatic'?' selected':''}>自动</option></select></label><label>规则平台<select id="ownership-rule-platform-${index}">${[['','两个平台'],['windows','Windows'],['macos','macOS']].map(([value,label])=>`<option value="${value}"${(rule.platform||'')===value?' selected':''}>${label}</option>`).join('')}</select></label><p>修订只替换当前孩子引用；自动模式仍需满足服务端安全校验。</p><p id="ownership-rule-error-${index}" role="alert"></p><button data-ownership-classification="${index}">为当前孩子修订规则草稿</button><button data-ownership-approval="${index}">${approved?'停用当前孩子草稿':'批准当前孩子草稿'}</button></fieldset>`;
         }).join('')||'<p>暂无自定义分类规则；产品明确分类仍可独立设置。</p>'}</section>
         <section class="knowledge-editor"><h3>新增分类规则草稿</h3><p>只批准给当前孩子；不建立或修改产品归属。明确产品分类优先，建议规则不直接改变有效分类。</p>
         <label>规则名称<input id="ownership-class-name" maxlength="256"></label>
@@ -303,7 +320,7 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
           const describe=value=>`${ownershipStatus[value.status]||'未知'}${value.productId?' · '+(ownershipDraft.products.find(product=>product.id===value.productId)?.name||value.productId):''}`;
           return `<article class="knowledge-item"><div><small>${esc(item.instanceId.slice(0,12))}</small><p>${esc(describe(item.before))} → ${esc(describe(item.after))}</p></div></article>`;
         }).join('')}`:''}</div>`;
-      if(ownershipSaving)for(const control of panel.querySelectorAll('button,input,select'))control.disabled=true;
+      if(ownershipSaving)for(const control of panel.querySelectorAll('button,input,select,textarea'))control.disabled=true;
     }
     async function openOwnership(){
       const key=lease(),generation=++ownershipGeneration;ownershipDraft=null;ownershipPreview=null;ownershipSaved=false;
@@ -399,10 +416,12 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
         if(!rule)return;
         try{
           const next=button.dataset.ownershipClassification!==undefined
-            ?reviseCatalogClassification(ownershipDraft,{ruleId:rule.id,childId:getContext().childId,classification:$(`#ownership-rule-class-${index}`).value,newId:`rule-${crypto.randomUUID()}`})
+            ?reviseCatalogClassification(ownershipDraft,{ruleId:rule.id,childId:getContext().childId,classification:$(`#ownership-rule-class-${index}`).value,
+              mode:$(`#ownership-rule-mode-${index}`).value,platform:$(`#ownership-rule-platform-${index}`).value,
+              expressions:parseClassificationExpressions($(`#ownership-rule-match-${index}`).value,$(`#ownership-rule-exclude-${index}`).value),newId:`rule-${crypto.randomUUID()}`})
             :toggleApproval(ownershipDraft,rule.id,getContext().childId,`rule-${crypto.randomUUID()}`);
           invalidateOwnership();ownershipDraft=next;ownershipSaved=false;renderOwnership('当前孩子分类规则草稿已更新；尚未保存，其他孩子不变。');
-        }catch(error){renderOwnership(error.message);}
+        }catch(error){$(`#ownership-rule-error-${index}`).textContent=error.message;}
       }
       if(button.dataset.ownershipProduct!==undefined){
         const index=Number(button.dataset.ownershipProduct),product=ownershipDraft?.products[index];
@@ -497,5 +516,5 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     function dispose(){if(disposed)return;disposed=true;for(const [type,handler]of Object.entries(listeners))root.removeEventListener(type,handler);for(const dialog of all('dialog[open]'))dialog.close();}
     return {open,publish,classify,dispose};
   }
-  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,ownershipEvidenceOptions,addOwnershipDraft,editOwnershipProduct,reviseCatalogClassification,addCatalogClassification,mount};
+  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,ownershipEvidenceOptions,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
 });

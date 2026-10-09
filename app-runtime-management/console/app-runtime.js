@@ -344,7 +344,7 @@
       const category=product=>product.catalogGroup==='specialApplication'?'special':binding?.products.find(item=>item.productId===product.id)?.classification??'following';
       const platforms=product=>[...new Set(catalog.ownershipRules.filter(rule=>rule.enabled&&rule.productId===product.id).map(rule=>rule.platform))];
       $('#open-products').disabled=false;$('#open-rules').disabled=false;
-      $('#open-rules').title='管理既有规则的孩子批准及分类结果；复杂条件编辑尚未适配';
+      $('#open-rules').title='管理孩子批准、分类结果、模式、平台及高级条件草稿；保存须通过云端校验';
       $('#app-category-nav').innerHTML=choices.map(([key,label])=>`<button class="app-category-item ${state.appCategory===key?'active':''}" data-app-category="${key}"><strong>${label}</strong><span>${catalog.products.filter(product=>category(product)===key).length}</span></button>`).join('');
       const search=($('#app-search').value||'').trim().toLowerCase(),platform=$('#management-platform').value;
       const items=catalog.products.filter(product=>category(product)===state.appCategory&&(!search||product.name.toLowerCase().includes(search))&&(!platform||platforms(product).includes(platform)));
