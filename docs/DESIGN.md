@@ -2,6 +2,59 @@
 
 ## 2026-10-09 应用身份三层改造接线边界（实施中，未启用）
 
+新实例分类的缺证据判定：已确认映射决定产品，分类不再执行产品识别。显式孩子产品分类优先；其余沿用产品、开发者／家族、类型的原优先级。新证据对旧条件只可直接核验同语义binaryHash；runtimeIdentity及其他旧字段不得注入占位值或由相近新字段猜转换。条件返回true／false／unknown；all存在false即false，否则含unknown为unknown；any存在true即true，否则含unknown为unknown。排除条件命中即排除，不可判定不能当作false。只检查当前孩子启用、平台／产品范围相符的自动规则；已明确不匹配或已排除的规则不造成缺口。最高可能生效优先级存在unknown时返回分类未知；更低优先级unknown不得推翻已确定的高优先级结果。同级冲突仍为冲突，全部确定不匹配才为未归类。未知／冲突仅标记产品投影不完整，基础秒数保留；建议规则不自动采用。本规则不修改旧模型匹配器，不改变原账或既有显式分类。
+
+电脑使用秒汇总与应用页共用getApplicationIdentityUsage。其applicationUsage只累计同版独立产品投影已有的nonSpecialTotal、nonSpecialCategories和specialTotal，不从实例或产品明细重算。任一必要产品来源缺失／过期时返回null，基础应用总量仍可展示；缺扣除依据不当作零扣除。汇总沿用网页＋非特殊应用公式及现有只读投影器，版本使用含基础、产品和目录的完整读取revision，不能只使用基础revision。网页读取及配额模块不变。
+
+云端应用使用的页面投影只读schema3已发布基础清单及独立产品投影。基础总量／小时和程序实例明细始终来自基础行；产品／分类只来自引用该基础hash且目录仍同版的已上传产品行。跨来源累计不等于将同一来源重叠实例相加，后者禁止。产品缺失／过期／读取失败时保留基础和实例，产品完整性单列，不伪造空分类、未归类或产品零用量。名称从同版集中目录读取，目录读取失败不阻断基础。两套页面通过module `program-instance-usage?view=display`及受限Service Binding `getApplicationIdentityUsage`消费同一服务端函数；原始base响应、旧应用接口及网页接口保持兼容，不增加浏览器识别器或配额计算。
+
+上传能力沿用GET `/v2/machines/application-accounts/capabilities`：原enabled描述基础上传存储；新增`application-instance-statistics-v1`与`application-instance-seconds-v1`算法仅在schema3接收／防回流兼容已就绪时声明。独立`application-product-projection-upload-v1`还要求产品投影表及不可变约束就绪。旧能力不因产品存储缺失被撤销；产品PUT在未就绪时返回503 `APPLICATION_PRODUCT_STORAGE_UNAVAILABLE`，客户端保留冻结投影等待后续有界重试。此检查不运行迁移，不扫描原账，不表示产品映射或执行能力已覆盖。
+
+独立产品投影上传沿用机器鉴权和现有基础manifest来源：能力`application-product-projection-upload-v1`就绪后，PUT `/v2/machines/application-accounts/manifests/{manifestId}/product-projection`，JSON正文直接为既有ApplicationProductStatisticsProjection，不另包孩子、名称或用量。基础清单须已received且schema3；产品投影失败不撤销基础采用。正文最大1048576字节。成功ACK仅含manifestId、revision、projectionHash、received:true；客户端必须逐项对照此次冻结请求，不能把旧版本、其他清单或只返回HTTP200视为确认。重复同版同hash返回同一ACK，同版异hash拒绝，低于已有且未保存的版本拒绝；新版更正允许下降。能力未声明时保留本机产品投影待发送，不冒充旧上传、不阻塞基础统计。失联重试原载荷；ACK只确认产品投影接收，不证明目录仍最新或执行生效。固定1.42包缺该传输定义，后续兼容包集中补齐；本段不表示生产能力已开放。
+
+实际执行缺口：`getMachinePolicy`读取已保存的孩子政策快照，不直接解析schema4目录。因此目录升级并不等于机器政策GET立即失败，也不等于新版规则已用于执行。Native现有SessionAgent观测携observationRef，Service持久解析instanceId；现有enforcementPolicy仍为BlockedRuntimeIdentities／ProductBlockPolicy，Windows执行器仍运行旧匹配。新projection-context目前用于产品统计，不应被描述为已迁移封锁或管理能力。下一步须衔接Service已鉴权的当前用户／孩子／分配和观测解析，由执行端核对当前进程捕获后消费决策；不在Agent再建归属规则、不把实例ID写进旧技术身份字段。具体本机消息尚待集中固定；在消费者完成前不开新目录HTTP保存，不清空旧政策，不宣告新执行能力。
+
+本机执行衔接首版（源码实施，未启用）：复用现有认证Service／SessionAgent管道与projection-context schema2，不新增云端凭据或产品匹配器。Service核对当前受保护用户、唯一孩子及assignmentVersion，在自身持久表解析observationRef→instanceId，再检查映射的evidenceRevision、catalogVersion及分类上下文；Agent不指定孩子／产品。仅已确认产品和有效分类决策能新增产品封锁；未知／冲突不猜配。分类解析须与既有契约用例一致，不因身份改造暗改分类优先级。
+
+- 本机能力`program-instance-policy-v1`只表示新执行消息可消费，与Host统计读取能力分开。
+- 本机全量快照`programInstancePolicy`：schemaVersion=1、当前认证连接内递增sequence、assignmentVersion、catalogVersion、validUntilMonotonicMs、blockedObservationRefs。引用集合去重、有界；消息不携产品名称、路径、第二份映射、余额或重复instanceId。Service持有实例／证据版本，Agent已持有观测对应的路径、捕获代际与hash，无须再次复制这些值形成第二份权威。
+- Agent核对当前连接、分配、顺序、时效和自身观测，并在实际动作前复用当前用户、会话、PID＋启动时间、文件变化、系统关键进程等保护；仅收到布尔持久ACK不算可执行依据。未建立可靠本机关联时不执行新的产品封锁。
+- ACK引用实际接收的sequence、assignmentVersion及catalogVersion，只有整份快照被接纳才确认。首次有效快照确认是原子切换边界，不能逐项混用旧selectors与新决策；未知实例不意味着消息不完整，但必须显示未识别／未覆盖，不假称已受产品规则保护。
+- 改绑、新证据导致旧观测失效、快照截止、认证管道断开／重连时撤销相应决策。新连接从空上下文重新接收；已切换到新模式后不得因失效偷偷启用旧匹配器。未支持新模式的Agent仍走原协议，明确能力未迁移。
+- 在集中迁移／发布前，当前运行服务与原政策不变；schema4保存和客户端覆盖须在同批验收说明。尚无新客户端执行证据时，不开放新规则保存并宣称已执行，不用旧政策ACK证明新模式通过。既有疑似变体强化封锁是另一种明确授权机制，不由本次确定性归属快照自行推导或取消；其迁移仍为显式未完成项。
+
+规则预览：`POST /v2/module/program-instance-catalog/preview?childId=...&afterInstanceId=...`使用家长module鉴权及If-Match。请求为`{catalog}`，按现有schema4解析并检查所有绑定属于当前家庭。读取当前孩子最多50实例，返回当前归属与拟议规则执行结果、目录版本和续页游标；不写规则／映射／政策。当前目录已改变时拒绝旧预览，不能以预览代替保存审核或宣称已生效。相同规则覆盖不同孩子时仍分别在各自实例范围预览。
+
+规则草稿页面仅构造第二层规则，证据选择来自实例读取的verified字段；不在浏览器运行匹配。内存草稿保存完整目录，编辑只改变所选产品／ownershipRules，保留分类rules及孩子bindings。预览使用读取目录的ETag；草稿变化、刷新、关闭及上下文变化使在途结果失效。旧目录返回legacy时不自动复制selectors或建立空目录覆盖。当前只有GET和只读POST，无实际保存操作；最终保存和实际执行仍须集中接入。
+
+旧盘点接收与产品政策分离：家庭目录已为schema4时，旧v1/v2盘点仍按原事务保存并ACK，但不运行旧selectors／内置产品识别及政策派生；新版归属仅由程序实例登记与集中规则产生。旧目录维持原接收及政策行为；现存政策快照不由此清空或伪造更新。该兼容接收不代表新版政策执行已接通，管理写入须等待对应消费者完成。
+
+规则目录读取：`GET /v2/module/program-instance-catalog`复用家长module鉴权，从现有Knowledge版本表读取同一权威产品／规则目录，返回catalog与ETag；没有目录时返回明确empty，旧格式返回legacy而非伪造空规则。损坏格式或版本不一致返回稳定错误，不猜测转换。此入口不接受写入，不触发匹配；完整编辑入口与机器政策消费者须集中接通后才开放写入，不把此只读步骤称为规则管理已完成。
+
+管理读取：现有两套页面共享的Runtime组件增加程序实例只读对话框，按当前Child读取`GET /v2/module/program-instances`，逐页显示云端映射和经核验的证据。未识别、冲突、待更新不是分类；不执行浏览器匹配、不提供第三层编辑。分页目录版本变化时要求刷新而不拼接不同目录版本，关闭／刷新／切换孩子后旧响应不得覆写。读取失败局部重试，空清单仅表示尚无已登记实例，不推断零用量。旧目录管理及政策消费者切换仍未完成。
+
+实例登记确认契约：capabilities为`{schemaVersion:1,enabled,capabilities}`，enabled与`program-instance-registration-v1`能力一致；关闭时不得发送或清除待登记队列。登记ACK为`{schemaVersion:1,childId,items:[{instanceId,evidenceRevision,evidenceHash}]}`，hash按已验证evidence的canonical JSON计算。实例集合须与请求精确一致（空批亦为空），同版本hash须相同；服务端更高证据版本可以确认旧请求已被覆盖，但不得用该ACK确认本机后来产生的其他待发送版本。低版本、缺项／重复项／跨孩子或同版本冲突均不确认；事务失败无部分ACK。ACK不确认产品识别或统计上传。严格解析已进入共同契约源码及云端返回，下一固定包交付前Native不猜wire。
+
+家长读取`GET /v2/module/program-instances?childId=…&afterInstanceId=…`，沿用module孩子授权，按实例ID每页50项。只列该孩子已有登记范围的实例（不由机器登记推导其他孩子），同实例多用户范围不重复列出；返回machineId、instanceId、平台、已核验证据、证据版本、更新时间及当前映射状态／产品名称。旧规则或旧证据结果显示pending，不展示已过期产品；映射不是分类，未识别不等于未归类。读取不匹配、不修改实例或规则，不提供人工覆盖映射接口；原始路径不出本机。此清单是当前状态浏览，不承诺跨页冻结整个目录，目录版本随页明示。
+
+旧目录消费者边界：旧`getApplicationKnowledge`仅接受原schema1/2/3目录。遇已保存schema4时明确返回`APPLICATION_KNOWLEDGE_READER_NOT_ADAPTED`，禁止隐式类型断言、降级回写、按旧selectors猜归属；损坏旧目录返回独立读取错误。此边界在旧编辑／导入／撤销／盘点生成政策之前生效，不删除已保存政策或基础统计。新版管理写入尚未开放，必须与对应消费者集中切换；拒绝误读不是最终管理能力。
+
+基础读取增加可选`includeProducts=true`，独立返回`productStatistics`。以本次已读基础清单为范围，读取各清单最新保存投影，不回退其他基础版本、不汇加实例明细。逐来源给出日期、基础清单及截止、投影和available/stale/missing/unavailable；当前目录版本变化时保留旧投影并标stale，不能冒充最新分类。身份名称、产品时长和基础统计分别隔离失败；默认请求不增加投影读取。产品读取有总字节／行数边界，不扫描原账；缺失、异常及尚未完成的投影均不改变基础完整性与总量。
+
+产品投影传输：`PUT /v2/machines/application-accounts/manifests/{id}/product-projection`沿用机器鉴权，限1MiB。独立投影版本在同一基础清单内递增；同版本相同hash幂等，不同hash冲突，迟到旧版本不得覆盖新版本。开发迁移0019仅建不可变派生JSON版本表，外键引用基础清单；归属／日期不另存。接收核对基础所属机器及家庭、Child、行hash与目录产品引用，不重算原账、不影响基础发布。旧产品投影可保留为带截止的历史视图；读取采用状态另接，不能把接收ACK当作页面已展示。
+
+独立产品统计输出草稿`ApplicationProductStatisticsProjection`引用baseManifestHash，孩子／日期／来源／截止由被引用基础清单提供，不重复存另一份归属；projection revision独立递增，catalogVersion标注分类／映射依据。rows仅category/subject日小时整数秒，subject为product:<产品ID>或尚未归属的instance/observation主体，保留实际分类集合但不含名称。基础total不复制进投影；数值校验使用被引用基础的total维度，允许明细重叠。applicationUsage沿用既有非特殊总量／分类及特殊扣除贡献，不含余额或借用结果。完整性仅属于此投影，不反向影响基础统计。更正可使新版时长下降；投影落后时展示其截止和状态，不要求当前云端head与本机瞬时版本匹配。
+
+开发入口`POST /v2/machines/program-instances/projection-context/read`与映射读取使用相同请求、机器鉴权及当前用户孩子分配核对，并在同一D1批次取得目录和映射。只下发本批确认产品、当前孩子绑定及适用分类规则；不下发其他孩子配置或产品归属匹配规则。旧`mappings/read`保持schema1原状；新入口未声明生产能力。
+
+独立产品统计的输入上下文采用开发中schemaVersion=2：沿用映射的childId、assignmentVersion、catalogVersion、items；products为已确认目标的id/name/type及可选catalogGroup，不复制selectors或强化封锁线索。rules及binding为同一目录版本下该孩子的既有分类配置投影，只包含相关规则与目标产品，不产生第二份可写配置。身份仍由云端映射确定，分类规则不反向确认身份。旧schema1及固定1.40.0包不变；新上下文只供独立产品投影，不包含余额或借用结果。未知映射不影响基础统计；产品投影输出与相应能力尚待集中固定，不提前宣称可用。
+
+基础读取可选`includeIdentity=true`，响应新增独立`identityProjection`：读取同孩子已登记实例映射及同次目录版本，仅附产品名称与主体成员关系，不计算产品总时长、不修改基础revision。观测未解析为unresolved，缺映射或版本过期为pending，冲突保持conflict；未请求时不访问目录。身份读取失败返回该投影unavailable与稳定原因，基础统计继续正常返回。名称变更只改变身份投影revision。产品并集／分类统计仍须基于本机实际区间独立生成，不能相加实例行。
+
+映射生成触发：证据登记成功后针对该批已保存实例执行有界后台匹配；ACK只表示证据已保存，匹配失败不使其变成登记失败。现有定时入口按当前目录／证据与映射版本差异，每轮最多补处理100项，覆盖规则更新及中断重试；待处理状态由版本差异得出，不新增另一份任务状态。读取仍仅使用已生成结果，不在读请求内识别；不扫描原账。
+
+基础读取使用`GET /v2/module/program-instance-usage?childId=…&fromMs=…&toMs=…`，沿用家长module鉴权，最多七个完整北京时间日期，可选machineId/userId/platform筛选。只读取已采用schema3清单及其不可变块，不读取原账或执行识别。返回整数秒总量、日／小时、实例或观测主体明细、来源清单引用和截止；各来源total累计，主体明细不能反算总量。旧格式来源显式列为未适配，缺日期保留有效部分且完整总量为null，不将缺失当零。此为基础读取，不返回产品／分类／配额，也不宣称现有页面已切换；独立产品投影完成后由展示层消费，不把实例统计冒充旧产品行。
+
 集中开发包1.40.0已在本地构建交付Native，SHA-256 `ac64f23574b899f23897bb130494f0ffcc48583f8796e9f769b3bca1e3cafe72`；保留1.39.1为上一兼容包。当前未合入／部署，无生产能力启用。包同时包含原账v4、实例登记及映射读取、usage-account实例基础schema3和共同向量；Native固定包消费，不跨仓引用源码。根package-lock仅同步workspace包版本，无依赖升级。
 
 产品原则与权威入口见根及App Runtime DECISIONS的同日条款；状态见TASK_BOARD。现有classification契约中的ProductOwnershipRule和ProgramInstanceProductMapping是本轮新模型，不能与旧AppProduct.selectors、ClassificationRule或ProductIdentityProjection混称已对齐。

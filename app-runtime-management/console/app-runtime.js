@@ -96,7 +96,7 @@
   function showSuccess(message) { if(!live())return;$('#status-strip').className = 'success'; $('#status-message').textContent = message; $('#retry').hidden = true; $('#status-strip').hidden = false; setTimeout(() => { if (live()&&$('#status-strip').className === 'success' && $('#status-message').textContent === message) clearError(); }, 3500); }
   function clearError() { $('#status-strip').hidden = true; }
   function setLoading(active) { if(!live())return;const main = $('main'); main.setAttribute('aria-busy', String(active)); $('#refresh').disabled = active; if (active) { if (!state.loaded) { main.classList.add('initial-load-pending'); main.classList.remove('initial-load-failed'); $('#load-empty-state').hidden = true; } $('#status-strip').className = 'loading'; $('#status-message').textContent = '正在加载 Runtime 数据…'; $('#retry').hidden = true; $('#status-strip').hidden = false; } else if ($('#status-strip').className === 'loading') clearError(); }
-  function markLoaded() { assertLive();if (!mock&&!embedded) authRecovery.protectedLoadSucceeded(); state.loaded = true; const main = $('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
+  function markLoaded(protectedSuccess=true) { assertLive();if (protectedSuccess&&!mock&&!embedded) authRecovery.protectedLoadSucceeded(); state.loaded = true; const main = $('main'); main.classList.remove('initial-load-pending', 'initial-load-failed'); $('#load-empty-state').hidden = true; }
   async function issue() {
     if(embedded){assertLive();renderChildPicker();return;}
     state.session = AppRuntimeSession.load(sessionStorage);
@@ -204,7 +204,7 @@
     ['machine-filter','user-filter','platform-filter'].forEach(id=>{const control=$('#'+id);control.disabled=state.usageKind!=='application';control.hidden=computer;});
     $('#application-read-note').textContent=state.usageReadInfo?`${state.usageReadInfo.legacy?'旧版兼容统计 · ':''}${state.usageReadInfo.cached?'缓存 · ':''}读取于 ${time(state.usageReadInfo.readAtMs)}（手动刷新可重新读取）`:'';
     if(state.usageKind!=='application')return;
-    if (!mock && (state.usageLoading || state.usageError || !state.usage)) {
+    if (!mock && !state.usage) {
       const message = state.usageLoading ? '正在读取使用统计…' : state.usageError || '使用统计尚未加载';
       $('#total-time').textContent = '—';
       $('#quota-state').textContent = '暂不可用';
@@ -219,6 +219,8 @@
       return;
     }
     const usage = state.usage || {};
+    if(state.usageLoading)$('#application-read-note').textContent+=' · 正在刷新，显示上次有效统计';
+    else if(state.usageError)$('#application-read-note').textContent+=` · ${state.usageError}；保留上次有效统计，截止见下方，点击刷新重试`;
     if(usage.durationUnit==='seconds'){renderSecondsUsage(usage);return;}
     $('#outside-window-summary').textContent = `本周期时段外使用 ${duration(usage.outsideTimeWindows?.durationMs || 0)}`;
     $('#total-time').textContent = duration(usage.totalDurationMs);
@@ -264,6 +266,12 @@
     $('#app-ranking').innerHTML=usage.applications.map((item,index)=>`<button class="app-row" data-usage-app="${index}"><span class="app-icon">${index+1}</span><div class="app-meta"><strong>${escape(item.displayName||'未知应用')}</strong><small>${escape(item.classifications.map(label).join('／'))}</small></div><div><strong>${fmt(item.durationSeconds)}</strong><small>独立应用统计</small></div></button>`).join('')||(usage.complete?'暂无使用记录':'尚无可用应用明细');
     $('#category-ranking').className='list';
     $('#category-ranking').innerHTML=usage.categories.map(item=>`<button class="category-row" data-usage-category="${escape(item.classification)}"><span class="app-icon">${escape(label(item.classification).slice(0,1))}</span><div><strong>${escape(label(item.classification))}</strong><small>分类明细可能重叠</small></div><strong>${fmt(item.durationSeconds)}</strong></button>`).join('')||(usage.complete?'暂无分类记录':'尚无可用分类明细');
+    if(usage.productStatus?.complete===false){
+      $('#outside-window-summary').textContent+=' 产品／分类投影尚未完整，基础用量仍有效。';
+      if(!usage.applications.length)$('#app-ranking').textContent='产品明细待更新；基础实例见下方。';
+      if(!usage.categories.length)$('#category-ranking').textContent='分类明细待更新；未识别不等于未归类。';
+    }
+    if(usage.instances?.length)$('#app-ranking').innerHTML+=`<details><summary>基础程序实例（${usage.instances.length}）；明细可能重叠，不相加生成总量</summary>${usage.instances.map(item=>`<p><code>${escape(item.subjectKey)}</code> · ${fmt(item.durationSeconds)}</p>`).join('')}</details>`;
   }
   function observedApps() {
     const applications = new Map();
@@ -327,6 +335,19 @@
   }
   function renderAppDirectory() {
     state.actionApps = [];
+    $('#open-products').disabled = Boolean(state.managementError);
+    $('#open-rules').disabled = Boolean(state.managementError);
+    if(state.managementError){
+      $('#app-category-nav').textContent='产品目录暂不可用';
+      $('#app-directory-title').textContent='产品目录暂不可用';
+      $('#inventory-status').textContent='目录读取失败；盘点完整性和应用数量未知。';
+      $('#app-directory-subtitle').textContent='程序实例仍可独立查看。请刷新重试产品目录，当前不提供分类修改。';
+      $('#managed-app-list').innerHTML=`<p class="empty">${escape(state.managementError)}</p>`;
+      for(const selector of ['#game-app-list','#system-tool-list','#processed-records'])$(selector).innerHTML='';
+      for(const selector of ['#ordinary-app-count','#game-app-count','#system-tool-count','#processed-count'])$(selector).textContent='未知';
+      $('#processed-history').hidden=true;
+      return;
+    }
     const catalog = [
       ['study', '▣', '学习应用'], ['composite', '∞', '复合应用'],
       ['restrictedEntertainment', '♟', '受限娱乐应用'], ['other', '◌', '其他时间应用'], ['blocked', '⊗', '黑名单应用'],
@@ -459,6 +480,7 @@
     state.policyEtag = `"app-policy-v${state.policy.version}"`;
     state.catalog = catalog;
     state.records = records;
+    state.managementError = null;
     state.managementLoaded = true;
   }
   async function load({ freshToken = false } = {}) {
@@ -491,33 +513,39 @@
         await loadManagementState();
         renderAll(); markLoaded(); if (state.view === requestedView) clearError();
       }
-    } catch (error) { if (state.view === requestedView) showError(error); }
+    } catch (error) {
+      if(!live()||error?.code==='COMPONENT_CONTEXT_CHANGED')return;
+      if(state.view===requestedView&&requestedView==='apps'&&error?.code!=='AUTH_RECOVERY_FAILED'){
+        state.managementError=error?.code||'APPLICATION_DIRECTORY_UNAVAILABLE';
+        state.managementLoaded=false;
+        state.catalog={items:[],technicalItems:[]};
+        state.records={pending:[],processed:[],technical:[]};
+        renderAll();markLoaded(false);
+      }
+      if (state.view === requestedView) showError(error);
+    }
     finally { setLoading(false); }
   }
   let usageRequestVersion = 0;
   async function loadUsage({refresh=false}={}) {
     const requestVersion = ++usageRequestVersion;
-    const requestedPeriod=state.period;
     computerReader.invalidate();independentReader.invalidate();
     if(state.usageKind==='computer'){renderUsage();await computerReader.load({refresh});return;}
     if(['web','media'].includes(state.usageKind)){renderUsage();await independentReader.load();return;}
     if (mock) return;
     const period = range();
-    const query = new URLSearchParams({ childId: state.childId, fromMs: String(period.from), toMs: String(period.to), durationUnit:'seconds' });
+    const query = new URLSearchParams({ childId: state.childId, fromMs: String(period.from), toMs: String(period.to), view:'display' });
     if ($('#machine-filter').value) query.set('machineId', $('#machine-filter').value);
     if ($('#user-filter').value) query.set('userId', $('#user-filter').value);
     if ($('#platform-filter').value) query.set('platform', $('#platform-filter').value);
-    state.usage = null; state.usageReadInfo=null; state.usageError = null; state.usageLoading = true; renderUsage();
+    const requestKey=`/v2/module/program-instance-usage?${query}`;
+    if(state.usageResultKey!==requestKey){state.usage=null;state.usageReadInfo=null;state.usageResultKey=null;}
+    state.usageError = null; state.usageLoading = true; renderUsage();
     try {
-      let read=await applicationReadCache.read(`/v2/module/app-usage?${query}`,()=>runtime(`/v2/module/app-usage?${query}`),{refresh});
+      const read=await applicationReadCache.read(requestKey,()=>runtime(requestKey),{refresh});
       if(requestVersion!==usageRequestVersion)return;
-      let value=AppRuntimeTime.applicationSecondsView(read.value,requestedPeriod);
-      if(value.availableTotalDurationSeconds===null&&!value.noNewRecordDates?.length){
-        query.set('durationUnit','milliseconds');
-        read=await applicationReadCache.read(`/v2/module/app-usage?${query}`,()=>runtime(`/v2/module/app-usage?${query}`),{refresh});
-        value=read.value;read={...read,legacy:true};
-      }
-      if (requestVersion === usageRequestVersion) {state.usage=value;state.usageReadInfo=read;}
+      const value=AppRuntimeTime.applicationIdentityView(read.value);
+      if (requestVersion === usageRequestVersion) {state.usage=value;state.usageReadInfo=read;state.usageResultKey=requestKey;}
     } catch (error) {
       if (requestVersion !== usageRequestVersion) return;
       state.usageError = `使用统计暂不可用：${AppRuntimeNetwork.friendlyError(error).message}`;

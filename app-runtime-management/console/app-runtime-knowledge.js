@@ -12,6 +12,34 @@
     return `<div class="knowledge-hit-list">${hits.slice(0,100).map(hit=>`<article class="knowledge-item"><div><strong>${escapeHtml(hit.displayName)}</strong><small>${hit.platform==='macos'?'macOS':'Windows'} · ${escapeHtml(children[hit.childIndex]?.name||'目标孩子')}</small><p>${labels[hit.result.classification]} · ${resolutionLabels[hit.result.status]}</p></div></article>`).join('')}</div>${hits.length>100?'<p>仅列出前 100 条命中观察。</p>':''}`;
   }
   const clone = value => JSON.parse(JSON.stringify(value));
+  function ownershipEvidenceOptions(items) {
+    const options=[],seen=new Set();
+    for(const item of items){
+      const evidence=item.evidence,verified=evidence?.verified||{};
+      if(!['windows','macos'].includes(evidence?.platform))continue;
+      const add=(label,match)=>{const key=JSON.stringify([evidence.platform,match]);if(seen.has(key))return;seen.add(key);options.push({platform:evidence.platform,label,match});};
+      if(/^[a-f0-9]{64}$/.test(verified.binaryHash||''))add('确定文件内容',{kind:'binaryHash',sha256:verified.binaryHash});
+      if(evidence.platform==='windows'){
+        if(verified.windowsAumid)add('Windows 完整 AUMID',{kind:'windowsAumid',aumid:verified.windowsAumid});
+        if(verified.windowsFileSeriesKey)add('Windows 已核验文件系列',{kind:'windowsFileSeries',fileSeriesKey:verified.windowsFileSeriesKey});
+      }else if(verified.macosSignerKey&&verified.macosSigningIdentifier)add('macOS 已核验签名组合',{
+        kind:'macosSignature',signerKey:verified.macosSignerKey,signingIdentifier:verified.macosSigningIdentifier});
+    }
+    return options;
+  }
+  function addOwnershipDraft(catalog,option,{productId,name,ruleId,newProductId}){
+    if(catalog?.schemaVersion!==4||!option)throw new Error('请选择已核验的归属依据');
+    const next=clone(catalog);let product=next.products.find(item=>item.id===productId);
+    if(productId&&!product)throw new Error('目标产品已变化，请重新选择');
+    if(!product){
+      if(!name?.trim()||name.trim().length>256)throw new Error('请填写有效的产品名称');
+      product={id:newProductId,name:name.trim(),type:'unknown'};next.products.push(product);
+    }
+    if(next.ownershipRules.some(rule=>rule.enabled&&rule.productId===product.id&&rule.platform===option.platform&&same(rule.match,option.match)))
+      throw new Error('此产品已有相同规则，无需重复添加');
+    next.ownershipRules.push({id:ruleId,revision:1,enabled:true,platform:option.platform,productId:product.id,match:clone(option.match)});
+    return next;
+  }
   const empty = () => ({schemaVersion:2,version:0,products:[],rules:[],bindings:[]});
   const legacyGameSuggestionRuleId='builtin.type.game.restricted-suggestion';
   function withDefaultRecommendations(value){const next=clone(value);next.schemaVersion=Math.max(2,next.schemaVersion);next.rules=next.rules.filter(rule=>rule.id!==legacyGameSuggestionRuleId);for(const binding of next.bindings)binding.ruleIds=binding.ruleIds.filter(id=>id!==legacyGameSuggestionRuleId);return next;}
@@ -203,9 +231,98 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
       if(editingRule!==null){const rule=knowledge.rules[editingRule];for(const [field,id]of [['name','rule-name'],['kind','rule-kind'],['mode','rule-mode'],['classification','rule-class'],['type','rule-type'],['source','rule-source'],['reason','rule-reason']])$(`#${id}`).value=rule[field];$('#rule-operator').value=rule.match.operator;$('#rule-product-name').value=rule.match.conditions.find(item=>item.field==='productName')?.value||'';$('#rule-product').value=rule.productId?String(knowledge.products.findIndex(item=>item.id===rule.productId)):'';all('.rule-anchor').forEach(input=>{const anchor=anchors[Number(input.value)];input.checked=rule.match.conditions.some(item=>item.field===anchor.field&&item.value===anchor.value);});all('#rule-panel .knowledge-child').forEach(input=>{input.checked=knowledge.bindings.find(item=>item.childId===getContext().children[Number(input.value)].id)?.ruleIds.includes(rule.id)||false;});}
       if(editingRule!==null)$('#rule-enabled').checked=knowledge.rules[editingRule].enabled;
     }
-    async function open(kind){const key=lease();await load();assertCurrent(key);if(kind==='product')renderProducts();else renderRules();$(`#${kind}-dialog`).showModal();}
+    let instanceGeneration=0,instancePage=null,ownershipGeneration=0,ownershipDraft=null,ownershipVersion=null,ownershipPreview=null;
+    const ownershipStatus={confirmed:'已确认',pending:'待更新',unresolved:'未识别',conflict:'归属冲突'};
+    function invalidateOwnership(){ownershipGeneration++;ownershipPreview=null;}
+    function renderOwnership(message=''){
+      const panel=$('#ownership-panel');if(!panel)return;
+      if(!ownershipDraft){panel.innerHTML=`<p role="status">${esc(message)}</p>`;return;}
+      const options=ownershipEvidenceOptions(instancePage?.items||[]);
+      panel.innerHTML=`<section class="knowledge-editor"><h3>产品归属规则草稿</h3><p>未保存、未生效。规则可跨孩子复用；只在云端预览，不直接修改实例归属。</p><p role="status">${esc(message||`基于目录版本 ${ownershipVersion}`)}</p>
+        <label>已核验依据<select id="ownership-evidence"><option value="">请选择依据</option>${options.map((option,index)=>`<option value="${index}">${esc(option.platform+' · '+option.label+' · '+Object.values(option.match).slice(1).join(' / '))}</option>`).join('')}</select></label>
+        <label>目标应用身份<select id="ownership-product"><option value="">新建产品草稿</option>${ownershipDraft.products.map((product,index)=>`<option value="${index}">${esc(product.name)}</option>`).join('')}</select></label>
+        <label>新产品名称（选择已有产品时忽略）<input id="ownership-name" maxlength="256"></label><button id="ownership-add"${options.length?'':' disabled'}>加入规则草稿</button>
+        <p>修改规则、刷新实例或关闭对话框会清除旧预览；草稿仅保留在当前对话框。</p></section>
+        <div>${ownershipDraft.ownershipRules.map((rule,index)=>`<article class="knowledge-item"><div><strong>${esc(ownershipDraft.products.find(product=>product.id===rule.productId)?.name||rule.productId)}</strong><small>${esc(rule.platform)} · ${rule.enabled?'草稿启用':'草稿停用'}</small><pre class="instance-evidence">${esc(JSON.stringify(rule.match,null,2))}</pre></div><button data-ownership-toggle="${index}">${rule.enabled?'停用草稿':'恢复草稿'}</button><button data-ownership-remove="${index}">移除草稿规则</button></article>`).join('')||'<p>暂无归属规则。</p>'}</div>
+        <div class="knowledge-filter"><button id="ownership-preview">云端预览当前孩子</button><button id="ownership-preview-next"${ownershipPreview?.nextAfterInstanceId?'':' disabled'}>预览下一页</button></div>
+        <div aria-live="polite">${ownershipPreview?`<p>仅预览本页 ${ownershipPreview.items.length} 个实例，尚未生效。</p>${ownershipPreview.items.map(item=>{
+          const describe=value=>`${ownershipStatus[value.status]||'未知'}${value.productId?' · '+(ownershipDraft.products.find(product=>product.id===value.productId)?.name||value.productId):''}`;
+          return `<article class="knowledge-item"><div><small>${esc(item.instanceId.slice(0,12))}</small><p>${esc(describe(item.before))} → ${esc(describe(item.after))}</p></div></article>`;
+        }).join('')}`:''}</div>`;
+    }
+    async function openOwnership(){
+      const key=lease(),generation=++ownershipGeneration;ownershipDraft=null;ownershipPreview=null;
+      renderOwnership('正在读取集中规则目录…');
+      try{
+        const data=await request('/v2/module/program-instance-catalog');assertCurrent(key);
+        if(generation!==ownershipGeneration||!$('#instance-dialog').open)return;
+        if(data.state==='legacy'){renderOwnership('现有目录尚待集中切换，不能自动把旧身份规则当成新版规则。实例仍可正常浏览。');return;}
+        if(!Number.isSafeInteger(data.version)||data.version<0||!['available','empty'].includes(data.state)
+          ||(data.state==='available'&&(data.catalog?.schemaVersion!==4||data.catalog.version!==data.version)))throw new Error('INVALID_CATALOG');
+        ownershipVersion=data.version;ownershipDraft=data.state==='empty'?{schemaVersion:4,version:0,products:[],ownershipRules:[],rules:[],bindings:[]}:clone(data.catalog);
+        renderOwnership();
+      }catch(error){if(active()&&generation===ownershipGeneration&&error.code!=='COMPONENT_CONTEXT_CHANGED')renderOwnership(`目录读取失败：${error.code||'PROGRAM_INSTANCE_CATALOG_UNAVAILABLE'}`);}
+    }
+    async function previewOwnership(next=false){
+      if(!ownershipDraft)return;
+      const key=lease(),cursor=next?ownershipPreview?.nextAfterInstanceId:null;if(next&&!cursor)return;
+      const generation=++ownershipGeneration;ownershipPreview=null;renderOwnership('正在运行云端只读预览…');
+      try{
+        const page=await request(`/v2/module/program-instance-catalog/preview?childId=${encodeURIComponent(getContext().childId)}${cursor?`&afterInstanceId=${encodeURIComponent(cursor)}`:''}`,
+          {method:'POST',headers:{'If-Match':`"application-knowledge-v${ownershipVersion}"`},body:JSON.stringify({catalog:ownershipDraft})});
+        assertCurrent(key);if(generation!==ownershipGeneration||!$('#instance-dialog').open)return;
+        if(page.preview!==true||page.childId!==getContext().childId||page.catalogVersion!==ownershipVersion||!Array.isArray(page.items))throw new Error('INVALID_PREVIEW');
+        ownershipPreview=page;renderOwnership();
+      }catch(error){if(active()&&generation===ownershipGeneration&&error.code!=='COMPONENT_CONTEXT_CHANGED')renderOwnership(`预览失败：${error.code||'PROGRAM_INSTANCE_PREVIEW_UNAVAILABLE'}；草稿尚未生效。`);}
+    }
+    function renderInstances(message='') {
+      const items=instancePage?.items||[];
+      $('#instance-panel').innerHTML=`<p>未识别不影响原始落账和基础统计。纠错应修正规则或采集依据，不直接修改实例归属。</p><p role="status">${esc(message||`目录版本：${instancePage?.catalogVersion??'尚无新版目录'}`)}</p><div class="knowledge-filter"><button id="instances-refresh">刷新／重试</button><button id="instances-next"${instancePage?.nextAfterInstanceId?'':' disabled'}>下一页</button><button id="ownership-open"${items.length?'':' disabled'}>规则草稿与预览</button></div>${items.map(item=>`<article class="knowledge-item"><div><strong>${esc(item.status==='confirmed'?item.product?.name:'未识别程序实例')}</strong><small>${item.platform==='macos'?'macOS':'Windows'} · ${{confirmed:'已确认',pending:'待更新',unresolved:'未识别',conflict:'归属冲突'}[item.status]||'未知状态'} · ${esc(item.instanceId.slice(0,12))}</small><details><summary>实例与核验依据</summary><p class="instance-evidence">实例：${esc(item.instanceId)}<br>电脑：${esc(item.machineId)}<br>证据修订：${esc(item.evidenceRevision)}</p><pre class="instance-evidence">${esc(JSON.stringify(item.evidence,null,2))}</pre></details></div></article>`).join('')||'<p class="empty">尚无可显示的已登记实例；不代表使用时长为零。</p>'}<div id="ownership-panel"></div>`;
+    }
+    async function readInstances(next=false) {
+      const key=lease(),generation=++instanceGeneration,cursor=next?instancePage?.nextAfterInstanceId:null;
+      if(next&&!cursor)return;
+      invalidateOwnership();ownershipDraft=null;
+      const version=instancePage?.catalogVersion;
+      if(!next)instancePage=null;
+      renderInstances('正在读取程序实例…');
+      try {
+        const page=await request(`/v2/module/program-instances?childId=${encodeURIComponent(getContext().childId)}${cursor?`&afterInstanceId=${encodeURIComponent(cursor)}`:''}`);
+        assertCurrent(key);if(generation!==instanceGeneration||!$('#instance-dialog').open)return;
+        if(page.childId!==getContext().childId||!Array.isArray(page.items))throw new Error('程序实例响应范围不一致');
+        if(next&&page.catalogVersion!==version){instancePage=null;renderInstances('目录已更新，请刷新后重新浏览');return;}
+        instancePage=page;renderInstances();
+      } catch(error) {
+        if(!active()||generation!==instanceGeneration||error.code==='COMPONENT_CONTEXT_CHANGED'||!$('#instance-dialog').open)return;
+        renderInstances(`程序实例读取失败：${error.code||'PROGRAM_INSTANCES_UNAVAILABLE'}。请重试。`);
+      }
+    }
+    async function open(kind){const key=lease();if(kind==='instance'){$('#instance-dialog').showModal();await readInstances();return;}await load();assertCurrent(key);if(kind==='product')renderProducts();else renderRules();$(`#${kind}-dialog`).showModal();}
     async function perform(button){
       if(button.id==='open-products')await open('product');if(button.id==='open-rules')await open('rule');
+      if(button.id==='open-instances')await open('instance');
+      if(button.id==='instances-refresh')await readInstances();
+      if(button.id==='instances-next')await readInstances(true);
+      if(button.id==='ownership-open')await openOwnership();
+      if(button.id==='ownership-preview')await previewOwnership();
+      if(button.id==='ownership-preview-next')await previewOwnership(true);
+      if(button.id==='ownership-add'){
+        try{
+          const option=ownershipEvidenceOptions(instancePage?.items||[])[$('#ownership-evidence').value];
+          const product=ownershipDraft?.products[$('#ownership-product').value];
+          const next=addOwnershipDraft(ownershipDraft,option,{productId:product?.id,name:$('#ownership-name').value,
+            ruleId:`ownership-${crypto.randomUUID()}`,newProductId:`product-${crypto.randomUUID()}`});
+          invalidateOwnership();ownershipDraft=next;renderOwnership('已更新内存草稿，请重新预览；未保存。');
+        }catch(error){renderOwnership(error.message);}
+      }
+      if(button.dataset.ownershipToggle!==undefined||button.dataset.ownershipRemove!==undefined){
+        const index=Number(button.dataset.ownershipToggle??button.dataset.ownershipRemove),rule=ownershipDraft?.ownershipRules[index];
+        if(!rule)return;invalidateOwnership();
+        if(button.dataset.ownershipRemove!==undefined)ownershipDraft.ownershipRules.splice(index,1);
+        else{rule.enabled=!rule.enabled;rule.revision++;}
+        renderOwnership('已更新内存草稿，请重新预览；未保存。');
+      }
+      if(button.dataset.knowledgeClose==='instance-dialog'){instanceGeneration++;invalidateOwnership();ownershipDraft=null;}
       if(button.dataset.knowledgeClose)$(`#${button.dataset.knowledgeClose}`).close();
       if(button.id==='knowledge-reload'){await load();renderProducts();renderRules();}
       if(button.id==='confirm-product'){
@@ -272,5 +389,5 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     function dispose(){if(disposed)return;disposed=true;for(const [type,handler]of Object.entries(listeners))root.removeEventListener(type,handler);for(const dialog of all('dialog[open]'))dialog.close();}
     return {open,publish,classify,dispose};
   }
-  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,mount};
+  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,ownershipEvidenceOptions,addOwnershipDraft,mount};
 });

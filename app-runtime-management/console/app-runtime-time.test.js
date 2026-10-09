@@ -2,6 +2,25 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { beijingHourLabel, beijingRange } = require('./app-runtime-time.js');
 
+test('身份展示只格式化基础与产品投影，未识别和重叠不改变总量',()=>{
+  const {applicationIdentityView}=require('./app-runtime-time.js');
+  const snapshot={model:'program-instance-v1',durationUnit:'seconds',complete:true,totalDuration:60,availableTotalDuration:60,
+    instances:[{subjectKey:'instance:a',duration:60},{subjectKey:'instance:b',duration:60}],
+    applications:[],categories:[],productStatus:{complete:false,reasonCodes:['APPLICATION_PRODUCT_PROJECTION_NOT_AVAILABLE']},
+    buckets:[{startAtMs:0,duration:60},{startAtMs:3600000,duration:null}],
+    days:[{date:'2026-10-09',complete:true,settledThroughMs:123}],revision:'fixture'};
+  const original=JSON.stringify(snapshot),view=applicationIdentityView(snapshot);
+  assert.equal(view.totalDurationSeconds,60);assert.equal(view.instances.length,2);
+  assert.equal(view.productStatus.complete,false);assert.deepEqual(view.categories,[]);
+  assert.equal(view.buckets[1].durationSeconds,null);assert.equal(JSON.stringify(snapshot),original);
+  assert.throws(()=>applicationIdentityView({...snapshot,durationUnit:'milliseconds'}));
+  assert.throws(()=>applicationIdentityView({...snapshot,totalDuration:0.5}));
+  const identified=applicationIdentityView({...snapshot,productStatus:{complete:true},
+    applications:[{subjectKey:'product:word',displayName:'Word',duration:60,classifications:['study']}],
+    categories:[{classification:'study',duration:60}]});
+  assert.equal(identified.applications[0].displayName,'Word');assert.equal(identified.categories[0].durationSeconds,60);
+});
+
 test('application statistics notice has a real DOM target before requesting usage',()=>{
   const html=require('node:fs').readFileSync(require('node:path').join(__dirname,'index.html'),'utf8');
   assert.equal((html.match(/id="outside-window-summary"/g)||[]).length,1);

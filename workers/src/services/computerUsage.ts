@@ -20,9 +20,10 @@ export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
     applicationEvidenceRevision(accountId:string,childId:string,fromDate:string,toDate:string):Promise<string>;
     getApplicationUsage?(accountId:string,childId:string,fromDate:string,toDate:string,secondsOnly?:boolean):Promise<unknown>;
+    getApplicationIdentityUsage?(accountId:string,childId:string,fromDate:string,toDate:string):Promise<unknown>;
     fetch?(request:Request):Promise<Response>};
 }
-async function readRuntime<T>(env:ComputerUsageEnv,operation:'applicationEvidenceRevision'|'readApplicationEvidence'|'getApplicationUsage',accountId:string,childId:string,fromDate:string,toDate:string,secondsOnly=false):Promise<T> {
+async function readRuntime<T>(env:ComputerUsageEnv,operation:'applicationEvidenceRevision'|'readApplicationEvidence'|'getApplicationUsage'|'getApplicationIdentityUsage',accountId:string,childId:string,fromDate:string,toDate:string,secondsOnly=false):Promise<T> {
   const service=env.RUNTIME_COMPUTER_USAGE;
   if(!service)throw new Error('APPLICATION_SERVICE_UNAVAILABLE');
   if(service.fetch){
@@ -163,9 +164,10 @@ export async function readComputerUsageStatisticsSummarySeconds(env:ComputerUsag
   };
   const [web,application]=await Promise.all([
     readComputerWebStatisticsSeconds(env,accountId,childId,from,to).catch(error=>failure('WEB',error)),
-    readRuntime<ComputerUsageStatisticsSourceV2 & {fromDate:string;toDate:string;statistics?:{revision?:string}}>(env,'getApplicationUsage',accountId,childId,from,to,true)
-      .then(value=>value.durationUnit==='seconds'&&value.fromDate===from&&value.toDate===to
-        ?{...value,revision:value.statistics?.revision??value.revision}:null).catch(error=>failure('APPLICATION',error)),
+    readRuntime<ComputerUsageStatisticsSourceV2 & {model:string;childId:string;fromDate:string;toDate:string}>(env,'getApplicationIdentityUsage',accountId,childId,from,to)
+      .then(value=>value.model==='program-instance-v1'&&value.childId===childId
+        &&value.durationUnit==='seconds'&&value.fromDate===from&&value.toDate===to
+        ?value:null).catch(error=>failure('APPLICATION',error)),
   ]);
   const summary=projectComputerUsageStatisticsV2({fromDate:from,toDate:to,web,application});
   const result={...summary,reasonCodes:[...new Set([...summary.reasonCodes,...errors])].sort()};
@@ -353,12 +355,14 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     return readIndependentUsage(this.env,accountId,childId,from,to,source);
   }
 }
-export async function readIndependentUsage(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,source:string,secondsOnly=false) {
+export async function readIndependentUsage(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,source:string,secondsOnly=false,identityModel=false) {
     validateComputerUsageRange(from,to);
     if(!['application','web','media'].includes(source))throw new Error('INVALID_SOURCE');
+    if(identityModel&&(source!=='application'||!secondsOnly))throw new Error('INVALID_SOURCE');
     const owned=await env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(childId,accountId).first();
     if(!owned)throw new Error('CHILD_NOT_FOUND');
     if(source==='application'){
+      if(identityModel)return readRuntime(env,'getApplicationIdentityUsage',accountId,childId,from,to);
       if(!env.RUNTIME_COMPUTER_USAGE?.fetch&&!env.RUNTIME_COMPUTER_USAGE?.getApplicationUsage)throw new Error('APPLICATION_RPC_UNAVAILABLE');
       return readRuntime(env,'getApplicationUsage',accountId,childId,from,to,secondsOnly);
     }

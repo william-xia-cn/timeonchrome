@@ -88,7 +88,7 @@ it('current Guardian scope supports a child without devices and fails closed wit
 const rpc=exports.RuntimeComputerUsageService;
 expect(await rpc.readApplicationEvidence('empty-account','empty-child','2026-10-01','2026-10-01')).toEqual([]);
 await env.RUNTIME_DB.prepare("INSERT INTO runtime_children_v1(child_id,account_id,child_name,created_at_ms,updated_at_ms) VALUES ('stale-child','foreign-account','旧记录',0,0)").run();
-for(const operation of ['getApplicationUsage','readApplicationEvidence','applicationEvidenceRevision']) {
+for(const operation of ['getApplicationUsage','getApplicationIdentityUsage','readApplicationEvidence','applicationEvidenceRevision']) {
 const request=(accountId:string,childId:string)=>new Request(`https://capability/${operation}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId,fromDate:'2026-10-01',toDate:'2026-10-01'})});
 expect((await rpc.fetch(request('foreign-account','stale-child'))).status).toBe(404);
 const failed=await rpc.fetch(request('scope-unavailable','rpc-boundary-child'));expect(failed.status).toBe(503);expect(await failed.json()).toEqual({code:'APPLICATION_SCOPE_UNAVAILABLE'});

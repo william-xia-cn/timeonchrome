@@ -24,6 +24,46 @@ function fixture(){
   return{mount:context.AppRuntimeManagement.mount,root,element,elements,listeners,queries,get knowledgeDisposed(){return knowledgeDisposed;}};
 }
 (async()=>{
+  // 执行实际读取函数，不复制其请求代际判断；只替换网络和绘制边界。
+  const usageFunction=source.slice(source.indexOf('  async function loadUsage('),source.indexOf('  function renderAll()'));
+  assert(usageFunction.includes('program-instance-usage'));
+  const usageState={usageKind:'application',childId:'child-a'},usageRequests=[],paints=[];
+  let usageRange={from:1,to:2};
+  const usageContext={state:usageState,usageRequestVersion:0,mock:false,URLSearchParams,
+    computerReader:{invalidate(){},async load(){}},independentReader:{invalidate(){},async load(){}},
+    range:()=>usageRange,$:()=>({value:''}),renderUsage:()=>paints.push(usageState.usage),
+    applicationReadCache:{async read(key,read){return{value:await read()};}},
+    runtime:path=>{const pending=deferred();usageRequests.push({path,...pending});return pending.promise;},
+    AppRuntimeTime:{applicationIdentityView:value=>value},AppRuntimeNetwork:{friendlyError:error=>error},
+    showError(){throw Error('A stale authentication error must not reopen login');}};
+  vm.createContext(usageContext);vm.runInContext(usageFunction,usageContext);
+  const firstUsage=usageContext.loadUsage();
+  usageState.childId='child-b';usageRange={from:3,to:10};
+  const secondUsage=usageContext.loadUsage();
+  assert.match(usageRequests[0].path,/childId=child-a&fromMs=1&toMs=2&view=display/);
+  assert.match(usageRequests[1].path,/childId=child-b&fromMs=3&toMs=10&view=display/);
+  const latest={totalDuration:60,childId:'child-b'};
+  usageRequests[1].resolve(latest);await secondUsage;
+  usageRequests[0].resolve({totalDuration:999,childId:'child-a'});await firstUsage;
+  assert.equal(usageState.usage,latest,'old child/day response cannot replace the new selection');
+  assert(!paints.some(value=>value?.totalDuration===999));
+  const abandonedUsage=usageContext.loadUsage();
+  usageState.usageKind='web';await usageContext.loadUsage();
+  usageRequests[2].reject(Object.assign(Error('expired old request'),{code:'AUTH_RECOVERY_FAILED'}));
+  await abandonedUsage;
+  assert.equal(usageState.usageError,null,'old application errors cannot cover the web tab');
+  usageState.usageKind='application';
+  const failedRefresh=usageContext.loadUsage({refresh:true});
+  assert.equal(usageState.usage,latest,'same-scope refresh keeps valid statistics while loading');
+  usageRequests[3].reject(Error('temporary offline'));await failedRefresh;
+  assert.equal(usageState.usage,latest,'same-scope failure must retain valid statistics');
+  assert.match(usageState.usageError,/temporary offline/);
+  usageRange={from:20,to:21};
+  const differentDay=usageContext.loadUsage();
+  assert.equal(usageState.usage,null,'another date must not retain previous statistics');
+  usageRequests[4].reject(Error('unavailable new day'));await differentDay;
+  assert.equal(usageState.usage,null);
+
   const good=fixture(),calls=[];
   const controller=good.mount({root:good.root,view:'devices',children:[{id:'child-a',name:'测试孩子'}],childId:'child-a',request:async path=>{calls.push(path);return path==='/v2/module/machines'?{machines:[{id:'machine-fixture',displayName:'测试电脑',platform:'windows',policyState:'applied',status:'online'}]}:{users:[]};}});
   await controller.ready;
@@ -49,6 +89,28 @@ function fixture(){
   requests[0].reject(Error('old policy failed'));requests[1].reject(Error('old catalog failed'));await appsController.ready;
   assert.equal(apps.element('#load-empty-message').textContent,'');
   const invalid=fixture();assert.throws(()=>invalid.mount({root:invalid.root,view:'usage',request:async()=>{}}),/INVALID_RUNTIME_MANAGEMENT_VIEW/);
+  const isolated=fixture();let catalogFails=true;
+  const isolatedController=isolated.mount({root:isolated.root,view:'apps',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{
+    if(path.includes('app-policy'))return Policy.defaultPolicy();
+    if(path.includes('app-catalog')){if(catalogFails)throw Object.assign(new Error('private detail'),{code:'APPLICATION_KNOWLEDGE_READER_NOT_ADAPTED'});return{items:[],technicalItems:[],inventoryCoverage:[]};}
+    if(path.includes('shared-access'))return{policy:null};
+    throw Error('Unexpected request '+path);
+  }});
+  await isolatedController.ready;
+  assert.equal(isolated.element('#load-empty-state').hidden,true,'old directory failure must not hide instance entry');
+  assert.equal(isolated.element('#open-products').disabled,true);
+  assert.equal(isolated.element('#open-rules').disabled,true);
+  assert.notEqual(isolated.element('#open-instances').disabled,true);
+  assert.match(isolated.element('#managed-app-list').innerHTML,/APPLICATION_KNOWLEDGE_READER_NOT_ADAPTED/);
+  assert.equal(isolated.element('#ordinary-app-count').textContent,'未知');
+  catalogFails=false;await isolatedController.refresh();
+  assert.equal(isolated.element('#open-products').disabled,false);
+  assert.doesNotMatch(isolated.element('#managed-app-list').innerHTML,/READER_NOT_ADAPTED/);
+  isolated.element('#managed-app-list').innerHTML='<button>stale classify</button>';
+  catalogFails=true;await isolatedController.refresh();
+  assert.doesNotMatch(isolated.element('#managed-app-list').innerHTML,/stale classify/);
+  assert.equal(isolated.element('#load-empty-state').hidden,true);
+  isolatedController.dispose();
   const system=fixture(),systemCalls=[];
   const systemController=system.mount({root:system.root,view:'system',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{
     systemCalls.push(path);

@@ -1,5 +1,7 @@
 import { requireAccountModule, requireMachine } from './auth';
+import { listChildProgramInstances, readProgramInstanceCatalog, previewProgramInstanceCatalog } from './programInstances';
 import { routeApplicationAccounts } from './applicationAccounts';
+import { registerProgramInstances, readProgramInstanceMappings, programInstanceStorageReady, PROGRAM_INSTANCE_REGISTRATION_CAPABILITY, matchRegisteredProgramInstances, readChildProgramIdentityProjection, readProgramInstanceProjectionContext } from './programInstances';
 import { applicationSharedQuotaUploadReady, receiveApplicationSharedQuota, applicationSharedQuotaSourceKey } from './applicationSharedQuota';
 import { computerUsageReadPage } from '@timeonchrome/app-runtime-contracts/computer-usage';
 import type { SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
@@ -9,6 +11,8 @@ import { commitUninstallOperation, readUninstallReceipt } from './uninstallOpera
 import { machineUsageCorrections } from './applicationUsageCorrections';
 import { readPersistentApplicationUsage } from './applicationStatistics';
 import { readNativeApplicationStatisticsRangeSeconds } from './applicationStatisticsNative';
+import { readProgramInstanceStatistics } from './programInstanceStatistics';
+import { readApplicationProductProjections, readApplicationIdentityUsage } from './applicationProductProjections';
 import { requireApplicationLegacyEnabled, readApplicationLedgerRetirement } from './applicationLedgerRetirement';
 import { SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsQuery, validateSourceStatisticsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
 import { readApplicationSourceStatistics } from './sourceStatistics';
@@ -177,6 +181,17 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
 
   if (url.pathname.startsWith('/v2/module/')) {
     const claims = await requireAccountModule(request, env, nowMs);
+    if(url.pathname === '/v2/module/program-instance-catalog/preview') {
+      if(request.method!=='POST')return methodNotAllowed('POST');
+      return jsonResponse(await previewProgramInstanceCatalog(env.RUNTIME_DB,claims.account_id,claims.children.map(child=>child.id),
+        url.searchParams.get('childId')??'',request.headers.get('if-match'),await readJsonBody(request),url.searchParams.get('afterInstanceId')),
+        {headers:{'cache-control':'no-store'}});
+    }
+    if(url.pathname === '/v2/module/program-instance-catalog') {
+      if(request.method!=='GET')return methodNotAllowed('GET');
+      const result=await readProgramInstanceCatalog(env.RUNTIME_DB,claims.account_id);
+      return jsonResponse(result,{headers:{etag:knowledgeEtag(result.version),'cache-control':'no-store'}});
+    }
     if (url.pathname.startsWith('/v2/module/application-knowledge/')) {
       if (request.method !== 'POST') return methodNotAllowed('POST');
       const childIds=claims.children.map(child=>child.id), body=await readJsonBody(request);
@@ -322,6 +337,48 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       return jsonResponse(await queryAppCatalog(
         env.RUNTIME_DB, claims.account_id, childId, nowMs, platform || undefined,
       ));
+    }
+    if (url.pathname === '/v2/module/program-instance-usage') {
+      if (request.method !== 'GET') return methodNotAllowed('GET');
+      const childId = requireChild(), range = requireRange(7), platform = url.searchParams.get('platform');
+      if (platform !== null && platform !== 'windows' && platform !== 'macos')
+        throw new HttpError(400, 'INVALID_PLATFORM', 'Platform is invalid.');
+      const view=url.searchParams.get('view');
+      if(view!==null&&view!=='display')throw new HttpError(400,'INVALID_IDENTITY_VIEW','身份读取视图无效。');
+      if(view==='display')return jsonResponse(await readApplicationIdentityUsage(env.RUNTIME_DB,claims.account_id,childId,
+        range.fromMs,range.toMs,{machineId:url.searchParams.get('machineId')||undefined,
+          localUserId:url.searchParams.get('userId')||undefined,platform:platform||undefined}));
+      const includeIdentity=url.searchParams.get('includeIdentity');
+      if(includeIdentity!==null&&includeIdentity!=='true'&&includeIdentity!=='false')
+        throw new HttpError(400,'INVALID_IDENTITY_VIEW','身份读取参数无效。');
+      const includeProducts=url.searchParams.get('includeProducts');
+      if(includeProducts!==null&&includeProducts!=='true'&&includeProducts!=='false')
+        throw new HttpError(400,'INVALID_PRODUCT_VIEW','产品读取参数无效。');
+      const statistics=await readProgramInstanceStatistics(env.RUNTIME_DB, claims.account_id, childId,
+        range.fromMs, range.toMs, { machineId: url.searchParams.get('machineId') || undefined,
+          localUserId: url.searchParams.get('userId') || undefined, platform: platform || undefined });
+      const result: Record<string, unknown> = {...statistics};
+      if(includeIdentity==='true') {
+        try {
+          result.identityProjection=await readChildProgramIdentityProjection(env.RUNTIME_DB,claims.account_id,childId,
+            statistics.subjects.flatMap(row=>row.subjectKey?[row.subjectKey]:[]));
+        } catch {
+          result.identityProjection={state:'unavailable',reasonCodes:['PROGRAM_IDENTITY_READ_UNAVAILABLE']};
+        }
+      }
+      if(includeProducts==='true') {
+        try {
+          result.productStatistics=await readApplicationProductProjections(env.RUNTIME_DB,claims.account_id,childId,statistics);
+        } catch {
+          result.productStatistics={state:'unavailable',reasonCodes:['APPLICATION_PRODUCT_READ_UNAVAILABLE']};
+        }
+      }
+      return jsonResponse(result);
+    }
+    if (url.pathname === '/v2/module/program-instances') {
+      if(request.method!=='GET')return methodNotAllowed('GET');
+      return jsonResponse(await listChildProgramInstances(env.RUNTIME_DB,claims.account_id,requireChild(),
+        url.searchParams.get('afterInstanceId')));
     }
     if (url.pathname === '/v2/module/app-usage') {
       if (request.method !== 'GET') return methodNotAllowed('GET');
@@ -707,6 +764,31 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
   if (url.pathname === '/v2/machines/app-usage-corrections') {
     if (request.method !== 'GET') return methodNotAllowed('GET');
     return jsonResponse(await machineUsageCorrections(env.RUNTIME_DB, machine, url.searchParams.get('after')));
+  }
+  if (url.pathname === '/v2/machines/program-instances/capabilities') {
+    if (request.method !== 'GET') return methodNotAllowed('GET');
+    const enabled = await programInstanceStorageReady(env.RUNTIME_DB);
+    return jsonResponse({schemaVersion: 1, enabled,
+      capabilities: enabled ? [PROGRAM_INSTANCE_REGISTRATION_CAPABILITY] : []});
+  }
+  if (url.pathname === '/v2/machines/program-instances') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    if (!await programInstanceStorageReady(env.RUNTIME_DB))
+      throw new HttpError(503, 'PROGRAM_INSTANCE_STORAGE_UNAVAILABLE', '实例登记存储尚未就绪。');
+    const receipt=await registerProgramInstances(env.RUNTIME_DB, machine, await readJsonBody(request), nowMs);
+    const matching=matchRegisteredProgramInstances(env.RUNTIME_DB,machine,receipt);
+    if(defer) defer(matching); else await matching;
+    return jsonResponse(receipt);
+  }
+  if (url.pathname === '/v2/machines/program-instances/mappings/read'
+    ||url.pathname === '/v2/machines/program-instances/projection-context/read') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    if (!await programInstanceStorageReady(env.RUNTIME_DB))
+      throw new HttpError(503, 'PROGRAM_INSTANCE_STORAGE_UNAVAILABLE', '实例映射存储尚未就绪。');
+    const value=await readJsonBody(request);
+    return jsonResponse(url.pathname.endsWith('/projection-context/read')
+      ?await readProgramInstanceProjectionContext(env.RUNTIME_DB,machine,value)
+      :await readProgramInstanceMappings(env.RUNTIME_DB, machine, value));
   }
   if (url.pathname === '/v2/machines/application-inventory') {
     if (request.method !== 'POST') return methodNotAllowed('POST');

@@ -1,5 +1,20 @@
 const assert=require('node:assert/strict');
 const K=require('./app-runtime-knowledge');
+const verifiedInstance={evidence:{platform:'windows',verified:{binaryHash:'a'.repeat(64),windowsAumid:'Package!App',windowsFileSeriesKey:'b'.repeat(64)}}};
+const ownershipOptions=K.ownershipEvidenceOptions([verifiedInstance,verifiedInstance,
+  {evidence:{platform:'macos',verified:{macosSignerKey:'c'.repeat(64),macosSigningIdentifier:'com.example.app'}}},
+  {evidence:{platform:'macos',verified:{macosSignerKey:'d'.repeat(64)}}},
+  {evidence:{platform:'windows',displayName:'Chrome',values:{binaryHash:'e'.repeat(64)}}}]);
+assert.deepEqual(ownershipOptions.map(option=>option.match.kind),['binaryHash','windowsAumid','windowsFileSeries','macosSignature']);
+const ownershipCatalog={schemaVersion:4,version:7,products:[{id:'product-a',name:'测试应用',type:'other'}],ownershipRules:[],rules:[],bindings:[{childId:'child-b',products:[{productId:'product-a',classification:'study'}],ruleIds:[]}]};
+const draft=K.addOwnershipDraft(ownershipCatalog,ownershipOptions[0],{productId:'product-a',ruleId:'rule-a'});
+assert.deepEqual(draft.bindings,ownershipCatalog.bindings);assert.equal(ownershipCatalog.ownershipRules.length,0);
+assert.deepEqual(Object.keys(draft.ownershipRules[0]).sort(),['enabled','id','match','platform','productId','revision']);
+assert.throws(()=>K.addOwnershipDraft(draft,ownershipOptions[0],{productId:'product-a',ruleId:'duplicate'}),/重复/);
+assert.throws(()=>K.addOwnershipDraft(draft,null,{productId:'product-a'}),/已核验/);
+assert.throws(()=>K.addOwnershipDraft(draft,ownershipOptions[0],{productId:'missing'}),/已变化/);
+const newDraft=K.addOwnershipDraft(ownershipCatalog,ownershipOptions[3],{name:'新应用',newProductId:'new-app',ruleId:'mac-rule'});
+assert.equal(newDraft.products.at(-1).type,'unknown');assert.equal(newDraft.ownershipRules[0].platform,'macos');
 const evidence={platform:'windows',runtimeIdentity:'fixture',displayName:'Fixture game',values:{binaryHash:'a'.repeat(64),signerKey:'b'.repeat(64),productName:'Fixture game'},verifiedFields:['binaryHash','signerKey']};
 const confirmed=K.confirmProduct(K.empty(),{evidence,scope:'file',name:'Fixture game',type:'game',classification:'restrictedEntertainment',childIds:['child-a'],id:'fixture-game'});
 assert.deepEqual(confirmed.bindings.map(item=>item.childId),['child-a']);
@@ -121,3 +136,57 @@ async function componentLifecycleTests(){
   console.log('PASS: scoped component, Child/revision isolation, disposal, late reads/writes and standalone compatibility');
 }
 componentLifecycleTests().catch(error=>{console.error(error);process.exitCode=1;});
+
+async function instanceReadTests(){
+  const listeners={},panel={innerHTML:''},dialog={open:false,showModal(){this.open=true;},close(){this.open=false;}};
+  let childId='child-a';const pending=[],calls=[];
+  const root={ownerDocument:{},querySelector:s=>s==='#instance-panel'?panel:dialog,querySelectorAll:()=>[],addEventListener:(t,f)=>listeners[t]=f,removeEventListener:()=>{}};
+  const component=K.mount({root,getContext:()=>({childId}),request:url=>{calls.push(url);return new Promise((resolve,reject)=>pending.push({resolve,reject}));},onSaved:async()=>{},onError:()=>assert.fail('instance error must remain local')});
+  const page=(version=1)=>({childId:'child-a',catalogVersion:version,items:[{instanceId:'a'.repeat(64),machineId:'test-machine',platform:'windows',status:'confirmed',product:{name:'<unsafe>'},evidenceRevision:1,evidence:{binaryHash:'b'.repeat(64)}}],nextAfterInstanceId:'a'.repeat(64)});
+  const click=id=>listeners.click({target:{closest:()=>({id,dataset:{}})}});
+  const settle=()=>new Promise(resolve=>setImmediate(resolve));
+  const opening=component.open('instance');assert.equal(calls.length,1);assert.match(calls[0],/program-instances\?childId=child-a$/);
+  pending.shift().resolve(page());await opening;assert.match(panel.innerHTML,/&lt;unsafe&gt;/);assert.doesNotMatch(panel.innerHTML,/<unsafe>/);
+  click('instances-next');assert.match(calls.at(-1),/afterInstanceId=/);pending.shift().resolve(page(2));await settle();assert.match(panel.innerHTML,/目录已更新/);
+  click('instances-refresh');pending.shift().reject(Object.assign(new Error('private detail'),{code:'TEST_UNAVAILABLE'}));await settle();assert.match(panel.innerHTML,/TEST_UNAVAILABLE/);assert.doesNotMatch(panel.innerHTML,/private detail/);
+  click('instances-refresh');const older=pending.shift();click('instances-refresh');pending.shift().resolve(page());await settle();const current=panel.innerHTML;older.resolve(page(99));await settle();assert.equal(panel.innerHTML,current);
+  click('instances-refresh');dialog.close();const closed=panel.innerHTML;pending.shift().resolve(page());await settle();assert.equal(panel.innerHTML,closed);
+  const switching=component.open('instance');childId='child-b';const waiting=panel.innerHTML;pending.shift().resolve(page());await switching;assert.equal(panel.innerHTML,waiting);
+  component.dispose();assert.ok(calls.every(url=>url.startsWith('/v2/module/program-instances?')));
+  console.log('PASS: instance read-only entry, escaping, pagination version, local error, refresh race, close and Child isolation');
+}
+instanceReadTests().catch(error=>{console.error(error);process.exitCode=1;});
+
+async function ownershipPreviewTests(){
+  const listeners={},elements={};let childId='child-a';const pending=[],calls=[];
+  const dialog={open:false,showModal(){this.open=true;},close(){this.open=false;}};
+  const element=id=>elements[id]??(elements[id]={innerHTML:'',value:''});
+  const root={ownerDocument:{},querySelector:s=>s==='#instance-dialog'?dialog:element(s),querySelectorAll:()=>[],
+    addEventListener:(type,handler)=>listeners[type]=handler,removeEventListener:()=>{}};
+  const component=K.mount({root,getContext:()=>({childId}),request:(url,options)=>{calls.push({url,options});return new Promise((resolve,reject)=>pending.push({resolve,reject}));},onSaved:()=>assert.fail('preview must not save'),onError:()=>assert.fail('error must remain local')});
+  const click=(id,dataset={})=>listeners.click({target:{closest:()=>({id,dataset})}});
+  const settle=()=>new Promise(resolve=>setImmediate(resolve));
+  const opening=component.open('instance');pending.shift().resolve({childId,catalogVersion:7,items:[{...verifiedInstance,instanceId:'a'.repeat(64),machineId:'m',platform:'windows',status:'unresolved',evidenceRevision:1}],nextAfterInstanceId:null});await opening;
+  click('ownership-open');assert.equal(calls.at(-1).url,'/v2/module/program-instance-catalog');
+  pending.shift().resolve({state:'available',version:7,catalog:ownershipCatalog});await settle();
+  assert.match(element('#ownership-panel').innerHTML,/未保存、未生效/);
+  element('#ownership-evidence').value='0';element('#ownership-product').value='0';click('ownership-add');await settle();
+  click('ownership-preview');const preview=calls.at(-1);
+  assert.match(preview.url,/preview\?childId=child-a$/);assert.equal(preview.options.method,'POST');
+  assert.equal(preview.options.headers['If-Match'],'"application-knowledge-v7"');
+  const sent=JSON.parse(preview.options.body).catalog;assert.deepEqual(sent.bindings,ownershipCatalog.bindings);assert.equal(sent.ownershipRules.length,1);
+  pending.shift().resolve({preview:true,childId,catalogVersion:7,items:[{instanceId:'a'.repeat(64),before:{status:'unresolved',productId:null},after:{status:'confirmed',productId:'product-a'}}],nextAfterInstanceId:'a'.repeat(64)});await settle();
+  assert.match(element('#ownership-panel').innerHTML,/未识别 → 已确认 · 测试应用/);
+  click('ownership-preview-next');assert.match(calls.at(-1).url,/afterInstanceId=/);const stale=pending.shift();
+  click('',{ownershipToggle:'0'});await settle();const changed=element('#ownership-panel').innerHTML;
+  stale.resolve({preview:true,childId,catalogVersion:7,items:[],nextAfterInstanceId:null});await settle();assert.equal(element('#ownership-panel').innerHTML,changed);
+  click('ownership-preview');assert.equal(JSON.parse(calls.at(-1).options.body).catalog.ownershipRules[0].enabled,false);
+  pending.shift().reject(Object.assign(new Error('private'),{code:'APPLICATION_KNOWLEDGE_CONFLICT'}));await settle();
+  assert.match(element('#ownership-panel').innerHTML,/APPLICATION_KNOWLEDGE_CONFLICT/);assert.doesNotMatch(element('#ownership-panel').innerHTML,/private/);
+  click('ownership-open');pending.shift().resolve({state:'legacy',version:8,catalog:null});await settle();assert.match(element('#ownership-panel').innerHTML,/不能自动/);
+  click('ownership-open');childId='child-b';const before=element('#ownership-panel').innerHTML;
+  pending.shift().resolve({state:'available',version:7,catalog:ownershipCatalog});await settle();assert.equal(element('#ownership-panel').innerHTML,before);
+  assert.ok(calls.every(call=>!call.options||call.options.method==='POST'&&call.url.includes('/preview?')));
+  component.dispose();console.log('PASS: ownership drafts preserve bindings, server-only preview, paging, stale edits, errors and Child isolation');
+}
+ownershipPreviewTests().catch(error=>{console.error(error);process.exitCode=1;});

@@ -83,5 +83,26 @@
       settledThroughMs:snapshot.days.every(day=>day.settledThroughMs!==null)
         ?Math.min(...snapshot.days.map(day=>day.settledThroughMs)):null,revision:snapshot.revision};
   }
-  return { beijingHourLabel, beijingRange, formatSeconds, applicationSecondsView };
+  function applicationIdentityView(snapshot) {
+    if(snapshot?.model!=='program-instance-v1'||snapshot.durationUnit!=='seconds'
+      ||!Array.isArray(snapshot.days)||!snapshot.days.length||!Array.isArray(snapshot.instances)
+      ||!Array.isArray(snapshot.applications)||!Array.isArray(snapshot.categories)||!Array.isArray(snapshot.buckets)
+      ||typeof snapshot.productStatus?.complete!=='boolean')throw new TypeError('Invalid identity snapshot.');
+    const seconds=value=>{formatSeconds(value);return value;};
+    const required=value=>{if(value===null||value===undefined)throw new TypeError('Missing seconds.');return seconds(value);};
+    if(snapshot.complete!==true&&snapshot.totalDuration!==null)throw new TypeError('Incomplete total cannot be complete.');
+    return {durationUnit:'seconds',complete:snapshot.complete===true,
+      totalDurationSeconds:seconds(snapshot.totalDuration),availableTotalDurationSeconds:seconds(snapshot.availableTotalDuration),
+      categories:snapshot.categories.map(row=>({classification:row.classification,durationSeconds:required(row.duration)})),
+      applications:snapshot.applications.map(row=>({...row,durationSeconds:required(row.duration)})),
+      instances:snapshot.instances.map(row=>({subjectKey:row.subjectKey,durationSeconds:required(row.duration)})),
+      buckets:snapshot.buckets.map(row=>({startAtMs:row.startAtMs,durationSeconds:seconds(row.duration)})),
+      productStatus:snapshot.productStatus,
+      missingDates:snapshot.days.filter(day=>!day.complete).map(day=>day.date),
+      // 缺持久统计不能证明没有原始记录，不推断“无新版记录”。
+      noNewRecordDates:[],
+      settledThroughMs:snapshot.days.every(day=>Number.isSafeInteger(day.settledThroughMs))
+        ?Math.min(...snapshot.days.map(day=>day.settledThroughMs)):null,revision:snapshot.revision};
+  }
+  return { beijingHourLabel, beijingRange, formatSeconds, applicationSecondsView, applicationIdentityView };
 });

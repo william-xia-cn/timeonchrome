@@ -70,13 +70,15 @@ return {load,env:{DB:db,CONFIG_CACHE:{get:async key=>store.has(key)?JSON.parse(s
 let f=fixture(),service=f.load('workers/src/services/computerUsage.ts');
 const secondsFixture=fixture(),secondsService=secondsFixture.load('workers/src/services/computerUsage.ts');
 let secondsCalls=0;
-secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=async(accountId,childId,from,to,secondsOnly)=>{
+secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async(accountId,childId,from,to)=>{
   secondsCalls++;
   assert.equal(accountId,'family');assert.equal(childId,'child');assert.equal(from,date);assert.equal(to,date);
-  assert.equal(secondsOnly,true,'new display never requests raw-ledger legacy fallback');
-  return {source:'application',durationUnit:'seconds',fromDate:from,toDate:to,complete:true,totalDuration:15,availableTotalDuration:15,
+  return {model:'program-instance-v1',childId,revision:'identity-product-r1',source:'application',durationUnit:'seconds',fromDate:from,toDate:to,complete:true,totalDuration:15,availableTotalDuration:15,
     categories:[{classification:'study',duration:10},{classification:'other',duration:10}],
-    applicationUsage:{nonSpecialTotal:10,nonSpecialCategories:{study:10},specialTotal:10,complete:true,reasonCodes:[]},statistics:{revision:'native-seconds-r1'}};
+    applicationUsage:{nonSpecialTotal:10,nonSpecialCategories:{study:10},specialTotal:5,complete:true,reasonCodes:[]},statistics:{revision:'native-seconds-r1'}};
+};
+secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=async(...args)=>{
+  assert.equal(args[4],true);return secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage(...args.slice(0,4));
 };
 const sourceSeconds=await secondsService.readComputerWebStatisticsSeconds(secondsFixture.env,'family','child',date,date);
 assert.equal(sourceSeconds.totalDuration,3,'web source uses authoritative seconds once');
@@ -84,7 +86,7 @@ assert.equal(secondsFixture.reads(),0,'summary does not load web raw intervals')
 const combinedSeconds=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
 assert.equal(combinedSeconds.totals.computer,13);assert.equal(combinedSeconds.totals.specialIncluded,5);
 assert.deepEqual(JSON.parse(JSON.stringify(combinedSeconds.categories)),{study:13});
-assert.equal(combinedSeconds.sourceVersions.application,'native-seconds-r1');
+assert.equal(combinedSeconds.sourceVersions.application,'identity-product-r1','summary version includes product/catalog changes, not only base statistics');
 assert.equal(secondsFixture.reads(),0);assert.equal(secondsFixture.appReads(),0,'new summary does not call old application evidence');
 assert.equal(secondsCalls,1);
 assert.deepEqual(JSON.parse(JSON.stringify(await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date))),JSON.parse(JSON.stringify(combinedSeconds)));
@@ -92,7 +94,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(await secondsService.readComputerUsag
 const emptyRegistrations=[{id:'old-windows',device_name:'旧Windows',empty:true,status:'bound'},
   ...[1,2,3].map(i=>({id:'unbound-'+i,device_name:'旧绑定'+i,empty:true,status:'unbound'}))];
 const dailySourcesFixture=fixture({webDevices:[{id:'browser',device_name:'当前Mac'},...emptyRegistrations]});
-dailySourcesFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage;
+dailySourcesFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage;
 const dailySourcesService=dailySourcesFixture.load('workers/src/services/computerUsage.ts');
 const dailySources=await dailySourcesService.readComputerWebEvidence(dailySourcesFixture.env,'family','child',date,date,false);
 assert.equal(dailySources.length,1,'empty registrations are not failed daily statistics sources');
@@ -170,6 +172,29 @@ assert.equal((await (await wireRoute(requestSeconds({source:'application',durati
 assert.equal((await (await wireRoute(new Request('https://fixture/?'+new URLSearchParams({from:date,to:date,source:'application'}),
   {headers:{authorization:'Bearer fixture'}}),wireFixture.env,'child')).json()).totalDurationMs,51000);
 assert.deepEqual(wireModes,[true,false,false],'explicit new mode and omitted/old mode remain separate');
+const identityPayload={model:'program-instance-v1',source:'application',durationUnit:'seconds',totalDuration:51,
+  instances:[{subjectKey:'instance:opaque',duration:51}],applications:[],productStatus:{complete:false}};
+let identityReads=0;
+wireFixture.env.RUNTIME_COMPUTER_USAGE.fetch=async request=>{
+  identityReads++;assert.equal(new URL(request.url).pathname,'/getApplicationIdentityUsage');
+  assert.deepEqual(await request.json(),{accountId:'family',childId:'child',fromDate:date,toDate:date});
+  return Response.json(identityPayload);
+};
+const identityRequest=(extra={},authorized=true)=>requestSeconds({source:'application',model:'program-instance-v1',...extra},authorized);
+assert.deepEqual(await (await wireRoute(identityRequest(),wireFixture.env,'child')).json(),identityPayload);
+assert.equal((await wireRoute(identityRequest({},false),wireFixture.env,'child')).status,401);
+for(const extra of [{source:'web'},{source:'media'},{source:''},{durationUnit:'milliseconds'},{model:'unknown'}])
+  assert.equal((await wireRoute(identityRequest(extra),wireFixture.env,'child')).status,400);
+const deniedIdentity=fixture({owned:false});deniedIdentity.env.RUNTIME_COMPUTER_USAGE=wireFixture.env.RUNTIME_COMPUTER_USAGE;
+assert.equal((await deniedIdentity.load('workers/src/routes/computerUsage.ts').handleComputerUsage(identityRequest(),deniedIdentity.env,'child')).status,404);
+assert.equal(identityReads,1,'invalid model, authentication and ownership fail before Runtime read');
+delete wireFixture.env.RUNTIME_COMPUTER_USAGE.fetch;
+wireFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async(...args)=>{
+  assert.deepEqual(args,['family','child',date,date]);return identityPayload;
+};
+assert.deepEqual(await (await wireRoute(identityRequest(),wireFixture.env,'child')).json(),identityPayload);
+delete wireFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage;
+assert.deepEqual(await (await wireRoute(identityRequest(),wireFixture.env,'child')).json(),{code:'APPLICATION_RPC_UNAVAILABLE'});
 wireFixture.env.RUNTIME_COMPUTER_USAGE.fetch=async()=>Response.json({code:'APPLICATION_SCOPE_UNAVAILABLE'},{status:503});
 assert.deepEqual(await (await wireRoute(requestSeconds({source:'application'}),wireFixture.env,'child')).json(),{code:'APPLICATION_SCOPE_UNAVAILABLE'});
 wireFixture.env.RUNTIME_COMPUTER_USAGE.fetch=async()=>{throw Error('private database details');};
@@ -177,14 +202,26 @@ assert.deepEqual(await (await wireRoute(requestSeconds({source:'application'}),w
 assert.equal(secondsFixture.reads(),0,'public seconds endpoint never reloads raw web intervals');
 const bindingSeconds=await new secondsService.ComputerUsageService({},secondsFixture.env).getComputerUsageStatisticsSeconds('family','child',date,date);
 assert.equal(bindingSeconds.revision,publicSeconds.revision,'existing binding and browser route share the same authority');
-secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=async()=>{throw Error('APPLICATION_SOURCE_UNAVAILABLE');};
+const identityReader=secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage;
+secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async(...args)=>({...(await identityReader(...args)),
+  revision:'identity-product-r2',applicationUsage:null});
+const productPending=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
+assert.equal(productPending.totals.application,15,'missing product projection preserves the valid base total');
+assert.equal(productPending.totals.web,3);assert.equal(productPending.totals.computer,null);
+assert.equal(productPending.totals.specialIncluded,null,'unknown deduction must not become zero');
+assert.notEqual(productPending.revision,bindingSeconds.revision,'product-only revision invalidates the summary');
+secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async(...args)=>({...(await identityReader(...args)),childId:'other-child'});
+const wrongIdentityScope=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
+assert.equal(wrongIdentityScope.totals.application,null,'response scope must match the requested child');
+assert.equal(wrongIdentityScope.totals.web,3);
+secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async()=>{throw Error('APPLICATION_SOURCE_UNAVAILABLE');};
 const appMissing=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
 assert.equal(appMissing.totals.web,3);assert.equal(appMissing.totals.application,null);assert.equal(appMissing.totals.computer,null);
 assert(appMissing.reasonCodes.includes('APPLICATION_SOURCE_UNAVAILABLE'));
-secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=async()=>{throw Error('APPLICATION_DATABASE_MEMORY_LIMIT');};
+secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async()=>{throw Error('APPLICATION_DATABASE_MEMORY_LIMIT');};
 assert((await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date)).reasonCodes.includes('APPLICATION_DATABASE_MEMORY_LIMIT'));
 const webMissingFixture=fixture({webFailure:true}),webMissingService=webMissingFixture.load('workers/src/services/computerUsage.ts');
-webMissingFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationUsage=async()=>({durationUnit:'seconds',fromDate:date,toDate:date,complete:true,totalDuration:5,availableTotalDuration:5,
+webMissingFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async()=>({model:'program-instance-v1',childId:'child',revision:'identity-r2',durationUnit:'seconds',fromDate:date,toDate:date,complete:true,totalDuration:5,availableTotalDuration:5,
   categories:[{classification:'unclassified',duration:5}],applicationUsage:{nonSpecialTotal:5,nonSpecialCategories:{unclassified:5},specialTotal:0,complete:true,reasonCodes:[]},statistics:{revision:'r2'}});
 const webMissing=await webMissingService.readComputerUsageStatisticsSummarySeconds(webMissingFixture.env,'family','child',date,date);
 assert.equal(webMissing.totals.web,null);assert.equal(webMissing.totals.application,5);assert.equal(webMissing.totals.computer,null);

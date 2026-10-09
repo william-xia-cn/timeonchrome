@@ -32,4 +32,8 @@
 .knowledge-item summary{cursor:pointer;font-size:13px;color:var(--green-dark)}
 .variant-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:12px}
 .knowledge-body .notice{background:#e8f6f0;color:var(--green-dark);margin:0 0 14px;overflow-wrap:anywhere}
+.instance-evidence{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}
+.app-directory-card .empty{overflow-wrap:anywhere;white-space:normal}
+#instance-panel .knowledge-item>div{min-width:0;max-width:100%}
+@media(max-width:640px){#ownership-panel .knowledge-item>div{flex-basis:100%}}
 @media(max-width:640px){.knowledge-dialog{width:100vw;height:100dvh;max-height:100dvh;border-radius:0;margin:0;max-width:100vw}.knowledge-dialog header,.knowledge-dialog footer{padding:14px}.knowledge-body{padding:14px}.knowledge-editor{grid-template-columns:1fr;padding:14px}.knowledge-dialog footer small{font-size:11px}.knowledge-item{padding:12px}.knowledge-item>label{width:100%}.knowledge-tools button{flex:1}.knowledge-item>details button{font-size:12px}}
