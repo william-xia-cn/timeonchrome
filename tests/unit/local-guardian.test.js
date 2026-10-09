@@ -1323,6 +1323,7 @@ async function run() {
   const identityStorage = { cloud_profile_id: 'child-identity-a', cloud_device_id: 'device-identity-a' };
   const identityCapability = 'application-identity-usage-read-v1';
   let omitIdentityRequestId = false;
+  let identityReadError = null;
   const identityHost = await loadGuardian({ storage: identityStorage, policy,
     connectNative: () => createPort((payload, onMessage) => {
       identityPayloads.push(payload);
@@ -1333,9 +1334,23 @@ async function run() {
         complete: true, reasonCodes: [], totalSeconds: 180,
         hours: Array.from({ length: 24 }, (_, hour) => ({ hour, totalSeconds: hour === 11 ? 180 : 0 })),
       };
-      const response = { ok: true, receivedAt: Date.now(), ...(omitIdentityRequestId ? {} : { requestId: payload.requestId }),
-        supportedProtocols: [3], capabilities: ['health', identityCapability],
-        ...(payload.messageType === 'getApplicationIdentityUsage' ? { applicationIdentityUsage: {
+      const response = { ok: identityReadError && payload.messageType === 'getApplicationIdentityUsage' ? false : true,
+        receivedAt: Date.now(), ...(omitIdentityRequestId && payload.messageType === 'getApplicationIdentityUsage'
+          ? {} : { requestId: payload.requestId }),
+        ...(identityReadError && payload.messageType === 'getApplicationIdentityUsage' ? { errorCode: identityReadError } : {}),
+        supportedProtocols: [3], capabilities: ['health', identityCapability, 'shared-web-source-reusable-v2'],
+        ...(payload.messageType === 'getSharedWebSourceScope' ? { sharedWebSourceScope: {
+          schemaVersion: 2, keyId: 'a'.repeat(64), signature: 'A'.repeat(86), claims: {
+            schemaVersion: 2, audience: 'timeonchrome:shared-web-machine-scope:v2',
+            applicationSourceKey: 'e'.repeat(64), childScopeHash: 'f'.repeat(64), assignmentVersion: 1,
+            issuedAtMs: Date.now(), expiresAtMs: Date.now() + 300_000,
+          },
+        } } : {}),
+        ...(payload.messageType === 'bindSharedWebSourceV2' ? { sharedWebIdentity: {
+          status: 'verified', webSourceKey: payload.payload.proof.claims.webSourceKey,
+          expiresAtMs: payload.payload.proof.claims.expiresAtMs,
+        } } : {}),
+        ...(payload.messageType === 'getApplicationIdentityUsage' && !identityReadError ? { applicationIdentityUsage: {
           schemaVersion: 3, durationUnit: 'seconds', timezone: 'Asia/Shanghai',
           fromDate: payload.payload.fromDate, toDate: payload.payload.toDate, view: payload.payload.view || 'base',
           revision: 'identity:revision-1',
@@ -1349,9 +1364,27 @@ async function run() {
   const identityContext = await identityHost.module.requestApplicationIdentityUsageReadContext();
   assert.equal(identityContext.ok, true);
   assert.equal(identityContext.identitySupported, true);
+  const bindingContextId = 'c'.repeat(64);
+  identityHost.module.setApplicationIdentityBindingEnsurer(async () => ({ ok: true, bindingContextId,
+    expiresAtMs: Date.now() + 300_000 }));
+  const bindingResult = await identityHost.module.requestApplicationIdentityBindingNative('getSharedWebSourceScope', {});
+  assert.equal(bindingResult.ok, true, 'identity binding is permitted without enabling shared contribution sync');
+  assert.deepEqual(identityPayloads.filter(item => ['getSharedWebSourceScope', 'bindSharedWebSourceV2'].includes(item.messageType))
+    .map(item => item.messageType), ['getSharedWebSourceScope']);
+  const bindResult = await identityHost.module.requestApplicationIdentityBindingNative('bindSharedWebSourceV2', {
+    proof: { schemaVersion: 2, keyId: 'a'.repeat(64), signature: 'A'.repeat(86), claims: {
+      schemaVersion: 2, audience: 'timeonchrome:shared-web-source:v2',
+      applicationSourceKey: 'e'.repeat(64), childScopeHash: 'f'.repeat(64), assignmentVersion: 1,
+      issuedAtMs: Date.now(), expiresAtMs: Date.now() + 300_000,
+      webSourceKey: `web:${'b'.repeat(64)}`, bindingEpochHash: 'd'.repeat(64),
+    } },
+  });
+  assert.equal(bindResult.ok, true);
+  assert.equal((await identityHost.module.requestApplicationIdentityBindingNative('replaceSharedWebContributionV2', {})).errorCode,
+    'application_identity_usage_binding_method_rejected', 'the identity-only native surface rejects contribution writes');
   const identityQuery = { fromDate: '2026-10-07', toDate: '2026-10-07', view: 'base', offset: 0 };
   const nativeIdentityResult = await identityHost.module.requestApplicationIdentityUsage(identityQuery,
-    { expectedContextId: identityContext.contextId });
+    { expectedContextId: identityContext.contextId, expectedBindingContextId: bindingContextId });
   assert.equal(nativeIdentityResult.ok, true);
   assert.equal(nativeIdentityResult.snapshot.base.totalSeconds, 180);
   const identityRequest = identityPayloads.find(item => item.messageType === 'getApplicationIdentityUsage');
@@ -1362,17 +1395,26 @@ async function run() {
   const guardianStatusBeforeInvalidIdentityResponse = identityStorage.local_guardian_status_v1;
   omitIdentityRequestId = true;
   const invalidIdentityResponse = await identityHost.module.requestApplicationIdentityUsage(identityQuery,
-    { expectedContextId: identityContext.contextId });
+    { expectedContextId: identityContext.contextId, expectedBindingContextId: bindingContextId });
   assert.equal(invalidIdentityResponse.ok, false);
   assert.equal(invalidIdentityResponse.errorCode, 'application_identity_usage_invalid_response',
     'a missing Native requestId stays an application-read error instead of being mislabeled as a heartbeat failure');
   assert.deepEqual(identityStorage.local_guardian_status_v1, guardianStatusBeforeInvalidIdentityResponse,
     'a business-read response error does not alter Guardian heartbeat status');
   omitIdentityRequestId = false;
+  identityReadError = 'APPLICATION_IDENTITY_USAGE_CONTEXT_CHANGED';
+  const contextRejected = await identityHost.module.requestApplicationIdentityUsage(identityQuery,
+    { expectedContextId: identityContext.contextId, expectedBindingContextId: bindingContextId });
+  assert.equal(contextRejected.errorCode, 'application_identity_usage_context_changed',
+    'Native assignment/context rejection remains distinguishable from an unavailable service');
+  assert.equal(identityHost.module.readNativeHostDiagnosticState().connected, true,
+    'a correlated identity business rejection does not disconnect Native transport');
+  identityReadError = null;
   const identityRequestCount = identityPayloads.length;
   identityStorage.cloud_profile_id = 'child-identity-b';
   assert.equal((await identityHost.module.requestApplicationIdentityUsage(identityQuery,
-    { expectedContextId: identityContext.contextId })).errorCode, 'application_identity_usage_context_changed');
+    { expectedContextId: identityContext.contextId, expectedBindingContextId: bindingContextId })).errorCode,
+  'application_identity_usage_context_changed');
   assert.equal(identityPayloads.length, identityRequestCount, 'a changed child context must not reach Native');
   assert.equal((await identityHost.module.requestApplicationIdentityUsage({ ...identityQuery, extra: 'not allowed' })).errorCode,
     'application_identity_usage_query_invalid');

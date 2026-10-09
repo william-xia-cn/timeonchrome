@@ -59,6 +59,7 @@ let queuedHeartbeat = null;
 let queuedProbe = null;
 let queuedApplicationRead = null;
 let queuedApplicationIdentityRead = null;
+let applicationIdentityBindingEnsurer = null;
 let queuedSharedQuotaRead = null;
 let queuedSharedReminderReport = null;
 let queuedSharedLifecycle = null;
@@ -342,6 +343,8 @@ function normalizeErrorCode(value) {
     'application_identity_usage_context_changed',
     'application_identity_usage_query_invalid',
     'application_identity_usage_invalid_response',
+    'application_identity_usage_binding_required',
+    'application_identity_usage_binding_unavailable',
     'shared_quota_unavailable',
     'shared_quota_invalid_state',
     'shared_quota_stale_state',
@@ -354,6 +357,10 @@ function normalizeErrorCode(value) {
 
 function identityUsageErrorCode(value) {
   const code = String(value || '').toUpperCase();
+  if (/CONTEXT_CHANGED|ASSIGNMENT_CHANGED|BINDING_CHANGED|SCOPE_MISMATCH/.test(code)) return 'application_identity_usage_context_changed';
+  if (/PROOF_REQUIRED|PROOF_EXPIRED|SCOPE_UNAVAILABLE|BINDING_UNAVAILABLE|SHARED_WEB_SYNC_UNAVAILABLE/.test(code)) {
+    return 'application_identity_usage_binding_unavailable';
+  }
   if (/UNSUPPORTED|NOT_SUPPORTED/.test(code)) return 'application_identity_usage_unsupported';
   if (/REVISION_CHANGED/.test(code)) return 'application_identity_usage_revision_changed';
   if (/PENDING|NOT_READY/.test(code)) return 'application_identity_usage_pending';
@@ -835,6 +842,31 @@ async function performSnapshotDrain() {
 }
 
 async function performSend(options) {
+  if (options.type === 'applicationIdentityBinding') {
+    const port = nativePort;
+    const generation = applicationConnectionGeneration;
+    if (!['getSharedWebSourceScope', 'bindSharedWebSourceV2'].includes(options.method)
+      || !port || !sharedNativeV3 || !applicationIdentityUsageSupported
+      || !sharedNativeCapabilities.has('shared-web-source-reusable-v2')) {
+      return { ok: false, errorCode: 'application_identity_usage_binding_unavailable' };
+    }
+    try {
+      const payload = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
+        messageType: options.method, extensionId: chrome.runtime.id,
+        profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.payload };
+      if (nativePort !== port || applicationConnectionGeneration !== generation) {
+        return { ok: false, errorCode: 'application_identity_usage_context_changed' };
+      }
+      const ack = await postToNativeHost(payload);
+      if (nativePort !== port || applicationConnectionGeneration !== generation || ack.requestId !== payload.requestId) {
+        return { ok: false, errorCode: 'application_identity_usage_context_changed' };
+      }
+      return { ok: true, value: captureSharedWebNativeReceipt(options.method, ack, options.payload, safeNow()) };
+    } catch (error) {
+      return { ok: false, errorCode: SHARED_WEB_IDENTITY_ERRORS.has(error?.message)
+        ? error.message : 'application_identity_usage_binding_unavailable' };
+    }
+  }
   if (options.type === 'sharedWeb') {
     const port = nativePort;
     try {
@@ -1369,7 +1401,8 @@ export async function requestApplicationIdentityUsageReadContext({ recheck = fal
     legacyAvailable: negotiated.legacyAvailable };
 }
 
-export async function requestApplicationIdentityUsage(query, { recheck = false, expectedContextId = null } = {}) {
+export async function requestApplicationIdentityUsage(query, { recheck = false, expectedContextId = null,
+  expectedBindingContextId = null } = {}) {
   if (!await readNativeHostDeploymentMarker().catch(() => false)) {
     return { ok: false, errorCode: 'managed_marker_unavailable' };
   }
@@ -1378,11 +1411,20 @@ export async function requestApplicationIdentityUsage(query, { recheck = false, 
   const negotiated = await ensureApplicationIdentityUsageCapability({ recheck });
   if (!negotiated.ok) return negotiated;
   if (!applicationIdentityUsageSupported) return { ok: false, errorCode: 'application_identity_usage_unsupported' };
+  if (typeof expectedBindingContextId !== 'string' || !/^[a-f0-9]{64}$/.test(expectedBindingContextId)
+    || typeof applicationIdentityBindingEnsurer !== 'function') {
+    return { ok: false, errorCode: 'application_identity_usage_binding_required' };
+  }
+  const binding = await applicationIdentityBindingEnsurer();
+  if (!binding?.ok || binding.bindingContextId !== expectedBindingContextId) {
+    return { ok: false, errorCode: 'application_identity_usage_context_changed' };
+  }
   const context = await readApplicationIdentityUsageContext();
   if (!context.ok || !context.supported || expectedContextId && expectedContextId !== context.contextId) {
     return { ok: false, errorCode: 'application_identity_usage_context_changed' };
   }
-  const options = { type: 'applicationIdentityRead', query, expectedContextId: context.contextId };
+  const options = { type: 'applicationIdentityRead', query, expectedContextId: context.contextId,
+    expectedBindingContextId };
   if (!activeSendPromise) return startSend(options);
   if (queuedApplicationIdentityRead) return { ok: false, errorCode: 'application_identity_usage_busy' };
   return new Promise(resolve => { queuedApplicationIdentityRead = { options, resolve }; });
@@ -1440,6 +1482,38 @@ export async function requestSharedQuotaState(expected = {}) {
   if (!activeSendPromise) return startSend(options);
   if (queuedSharedQuotaRead) return { ok: false, errorCode: 'shared_quota_busy' };
   return new Promise(resolve => { queuedSharedQuotaRead = { options, resolve }; });
+}
+
+export async function requestApplicationIdentityBindingNative(method, value = {}) {
+  if (!['getSharedWebSourceScope', 'bindSharedWebSourceV2'].includes(method)) {
+    return { ok: false, errorCode: 'application_identity_usage_binding_method_rejected' };
+  }
+  let payload;
+  try { payload = await captureSharedWebNativeRequest(method, value); }
+  catch (_) { return { ok: false, errorCode: 'application_identity_usage_binding_invalid_request' }; }
+  if (!await readNativeHostDeploymentMarker().catch(() => false)) {
+    return { ok: false, errorCode: 'managed_marker_unavailable' };
+  }
+  if (!nativePort || !sharedNativeV3 || !applicationIdentityUsageSupported
+    || !sharedNativeCapabilities.has('shared-web-source-reusable-v2')) {
+    return { ok: false, errorCode: 'application_identity_usage_binding_unavailable' };
+  }
+  const options = { type: 'applicationIdentityBinding', method, payload };
+  if (!activeSendPromise) return startSend(options);
+  if (queuedSharedWeb) return { ok: false, errorCode: 'application_identity_usage_binding_busy' };
+  return new Promise(resolve => { queuedSharedWeb = { options, resolve }; });
+}
+
+export function setApplicationIdentityBindingEnsurer(ensurer) {
+  applicationIdentityBindingEnsurer = typeof ensurer === 'function' ? ensurer : null;
+}
+
+export function readApplicationIdentityBindingConnection() {
+  return { connection: nativePort,
+    connectionGeneration: applicationConnectionGeneration,
+    reusableSourceSupported: nativePort !== null && sharedNativeV3
+      && sharedNativeCapabilities.has('shared-web-source-reusable-v2'),
+    applicationIdentityUsageSupported: nativePort !== null && sharedNativeV3 && applicationIdentityUsageSupported };
 }
 
 export async function requestSharedWebSync(method, value = {}) {
@@ -1643,7 +1717,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
     requestApplicationIdentityUsage(message.query, { recheck: message.recheck === true,
-      expectedContextId: message.expectedContextId }).then(sendResponse,
+      expectedContextId: message.expectedContextId,
+      expectedBindingContextId: message.expectedBindingContextId }).then(sendResponse,
       () => sendResponse({ ok: false, errorCode: 'application_identity_usage_unavailable' }));
     return true;
   }

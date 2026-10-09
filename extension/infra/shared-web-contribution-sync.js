@@ -8,7 +8,9 @@ import { readCloudSharedWebCapabilities, readCloudSharedWebWatermark, postCloudS
   requestCloudSharedWebSourceBinding, requestCloudSharedWebSourceBindingV2 } from './cloud-sync.js';
 import { createReusableSharedWebBinding } from './shared-web-reusable-binding.js';
 import { SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
-import { requestSharedWebSync, observeSharedAccessPolicyCapability, readSharedWebLocalConnection } from './native-host-client.js';
+import { requestSharedWebSync, observeSharedAccessPolicyCapability, readSharedWebLocalConnection,
+  requestApplicationIdentityBindingNative, readApplicationIdentityBindingConnection,
+  setApplicationIdentityBindingEnsurer } from './native-host-client.js';
 import { runStorageMutation, budgetedLocalSet } from './storage-budget.js';
 import { readSharedQuotaExecutionLkg } from './shared-quota-execution-reader.js';
 import { projectLocalSharedQuotaExecution } from '../core/shared-contracts/1.28.0/shared-quota-execution.js';
@@ -100,14 +102,18 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
   capabilities = readCloudSharedWebCapabilities, readWatermark = readCloudSharedWebWatermark,
   upload = postCloudSharedWebContribution, exchange = requestCloudSharedWebSourceBinding,
   exchangeV2 = requestCloudSharedWebSourceBindingV2, native = requestSharedWebSync,
-  readBasis = readSharedQuotaExecutionLkg, readConnection = readSharedWebLocalConnection } = {}) {
+  readBasis = readSharedQuotaExecutionLkg, readConnection = readSharedWebLocalConnection,
+  identityNative = null, readIdentityConnection = readApplicationIdentityBindingConnection } = {}) {
   let running = null, queued = false, epoch = 0;
   const nativeReceipts = new Map();
   let preparation = fail('shared_web_not_prepared');
   let preparationScope = null;
   let sourceBinding = null;
   let bindingConnection = null, localLease = null;
-  const reusableBinding = createReusableSharedWebBinding({ native, exchange: exchangeV2, now });
+  const reusableNative = (method, value) => !enabled && ['getSharedWebSourceScope', 'bindSharedWebSourceV2'].includes(method)
+    ? (identityNative || requestApplicationIdentityBindingNative)(method, value) : native(method, value);
+  const reusableBinding = createReusableSharedWebBinding({ native: reusableNative, exchange: exchangeV2, now });
+  let identityBindingPromise = null;
   let diagnosticStage = null, diagnosticDate = null;
   let diagnosticContext = null;
   let diagnostic = { lastAttemptAtMs: null, lastCompletedAtMs: null, lastErrorCode: null,
@@ -139,6 +145,56 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     return { ...context, policy: checked.policy, policyHash,
       scopeHash: await hash(['shared-web-v1', context.apiBase, context.deviceId, context.childId, context.deviceToken]),
       policyIdentity: { schemaVersion: 1, revision: checked.policy.revision, effectiveAtMs: checked.policy.effectiveAtMs, stage: checked.policy.stage, policyHash } };
+  }
+  async function captureIdentity() {
+    const context = await readContext();
+    if (!context || !['apiBase', 'deviceId', 'childId', 'deviceToken'].every(k => typeof context[k] === 'string' && context[k])) {
+      throw Error('application_identity_usage_binding_unavailable');
+    }
+    return { ...context, scopeHash: await hash(['shared-web-v1', context.apiBase,
+      context.deviceId, context.childId, context.deviceToken]) };
+  }
+  async function ensureApplicationIdentityBinding() {
+    if (identityBindingPromise) return identityBindingPromise;
+    const operation = (async () => {
+      const generation = epoch;
+      let context;
+      try { context = await captureIdentity(); }
+      catch (_) { return fail('application_identity_usage_binding_unavailable'); }
+      const initialConnection = readIdentityConnection();
+      const connection = initialConnection?.connection;
+      if (!connection || initialConnection.reusableSourceSupported !== true
+        || initialConnection.applicationIdentityUsageSupported !== true
+        || !Number.isSafeInteger(initialConnection.connectionGeneration)) {
+        return fail('application_identity_usage_binding_unavailable');
+      }
+      const currentIdentity = async expected => {
+        if (generation !== epoch) return false;
+        let next;
+        try { next = await captureIdentity(); } catch (_) { return false; }
+        const currentConnection = readIdentityConnection();
+        return generation === epoch && next.scopeHash === context.scopeHash
+          && currentConnection?.connection === expected
+          && currentConnection.connectionGeneration === initialConnection.connectionGeneration
+          && currentConnection.reusableSourceSupported === true
+          && currentConnection.applicationIdentityUsageSupported === true;
+      };
+      const bound = await reusableBinding.bind(context, connection, currentIdentity);
+      if (!bound.ok || !await currentIdentity(connection)) {
+        reusableBinding.invalidate();
+        return fail(bound.errorCode || 'application_identity_usage_binding_unavailable');
+      }
+      const bindingContextId = await hash({ schemaVersion: 1, scopeHash: context.scopeHash,
+        connectionGeneration: initialConnection.connectionGeneration,
+        applicationSourceKey: bound.claims.applicationSourceKey,
+        childScopeHash: bound.claims.childScopeHash, assignmentVersion: bound.claims.assignmentVersion,
+        webSourceKey: bound.claims.webSourceKey, bindingEpochHash: bound.claims.bindingEpochHash,
+        expiresAtMs: bound.binding.expiresAtMs });
+      return { ok: true, bindingContextId, expiresAtMs: bound.binding.expiresAtMs };
+    })();
+    identityBindingPromise = operation;
+    try { return await operation; }
+    finally { if (identityBindingPromise === operation) identityBindingPromise = null; }
   }
   async function current(c, generation) {
     if (!enabled || generation !== epoch) return false;
@@ -445,7 +501,7 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     }).finally(() => { running = null; if (queued && enabled) { queued = false; void refresh(); } });
     return running;
   }
-  return { refresh,
+  return { refresh, ensureApplicationIdentityBinding,
     readDiagnostics(policyHash, days = {}, scopeHash = null) {
       const connection = readConnection();
       let bindingState = !enabled ? 'disabled' : !connection.connection ? 'disconnected' : !sourceBinding ? 'unbound' : 'unknown';
@@ -508,12 +564,33 @@ export function configureSharedWebContributionSync({ enabled = false } = {}) { r
 export function readLocalSharedWebReplacements() { return sync?.replacements() || Promise.resolve(fail('shared_web_disabled')); }
 export function readLocalSharedQuotaPreparation() { return sync?.readPreparation() || Promise.resolve(fail('shared_web_disabled')); }
 export function readSharedWebSourceBinding() { return sync?.readBinding() || Promise.resolve(fail('shared_web_disabled')); }
+export function ensureApplicationIdentityBinding() {
+  return sync?.ensureApplicationIdentityBinding() || Promise.resolve(fail('application_identity_usage_binding_unavailable'));
+}
 export function readSharedWebDiagnosticState(policyHash, days, scopeHash) {
   return sync?.readDiagnostics(policyHash, days, scopeHash) || { bindingState: 'unknown', cacheScopeCurrent: null, running: null, stage: null, currentNativeConfirmedByDate: {} };
 }
 export function initSharedWebContributionSync() {
   if (sync) return;
   sync = createSharedWebContributionSync();
+  setApplicationIdentityBindingEnsurer(() => sync.ensureApplicationIdentityBinding());
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type !== 'TIMEONCHROME_APPLICATION_IDENTITY_BINDING_ENSURE') return false;
+    try {
+      const expected = new URL(chrome.runtime.getURL('admin/admin.html'));
+      const actual = new URL(sender?.url || '');
+      if (sender?.id !== chrome.runtime.id || actual.origin !== expected.origin || actual.pathname !== expected.pathname) {
+        sendResponse({ ok: false, errorCode: 'application_identity_usage_binding_sender_rejected' });
+        return false;
+      }
+    } catch (_) {
+      sendResponse({ ok: false, errorCode: 'application_identity_usage_binding_sender_rejected' });
+      return false;
+    }
+    sync.ensureApplicationIdentityBinding().then(sendResponse,
+      () => sendResponse({ ok: false, errorCode: 'application_identity_usage_binding_unavailable' }));
+    return true;
+  });
   const refresh = () => { void sync.refresh().catch(() => {}); };
   chrome.runtime.onStartup.addListener(refresh); chrome.runtime.onInstalled.addListener(refresh);
   chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === 'timeonchromeLocalGuardianHeartbeat') refresh(); });

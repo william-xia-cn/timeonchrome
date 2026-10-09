@@ -2,6 +2,7 @@ import { validateApplicationIdentityUsageQuery, validateApplicationIdentityUsage
 import { getAdminApplicationUsageAnalysisView, APPLICATION_CATEGORY_LABELS } from './application-usage-read-model.js';
 
 const MESSAGE = 'TIMEONCHROME_APPLICATION_IDENTITY_USAGE_READ';
+const BINDING_MESSAGE = 'TIMEONCHROME_APPLICATION_IDENTITY_BINDING_ENSURE';
 const DAY_MS = 86_400_000;
 const PAGE_SIZE = 100;
 const cache = new Map();
@@ -39,11 +40,22 @@ async function contextRead(recheck) {
   }
   return response;
 }
-async function requestPage(query, contextId, recheck) {
+async function bindingRead() {
+  let response;
+  try { response = await chrome.runtime.sendMessage({ type: BINDING_MESSAGE }); }
+  catch (_) { fail('application_identity_usage_binding_unavailable'); }
+  if (!response?.ok || typeof response.bindingContextId !== 'string'
+    || !/^[a-f0-9]{64}$/.test(response.bindingContextId)
+    || !Number.isSafeInteger(response.expiresAtMs) || response.expiresAtMs <= Date.now()) {
+    fail(response?.errorCode || 'application_identity_usage_binding_unavailable');
+  }
+  return response;
+}
+async function requestPage(query, contextId, bindingContextId, recheck) {
   try {
     validateApplicationIdentityUsageQuery(query);
     const response = await chrome.runtime.sendMessage({ type: MESSAGE, query, recheck,
-      expectedContextId: contextId });
+      expectedContextId: contextId, expectedBindingContextId: bindingContextId });
     if (!response?.ok) fail(response?.errorCode || 'application_identity_usage_unavailable');
     if (response.contextId !== contextId) fail('application_identity_usage_context_changed');
     if (!response.snapshot) fail('application_identity_usage_invalid_response');
@@ -57,7 +69,7 @@ async function requestPage(query, contextId, recheck) {
     fail('application_identity_usage_invalid_response');
   }
 }
-async function readSnapshot(fromDate, toDate, view, contextId, recheck) {
+async function readSnapshot(fromDate, toDate, view, contextId, bindingContextId, recheck) {
   for (let attempt = 0; attempt < 2; attempt++) {
     let first = null;
     const subjects = [];
@@ -66,7 +78,7 @@ async function readSnapshot(fromDate, toDate, view, contextId, recheck) {
       for (let offset = 0; ; offset += PAGE_SIZE) {
         const query = { fromDate, toDate, view, offset,
           ...(first && offset > 0 ? { expectedRevision: first.revision } : {}) };
-        const page = await requestPage(query, contextId, recheck && offset === 0);
+        const page = await requestPage(query, contextId, bindingContextId, recheck && offset === 0);
         if (first && !samePageSummary(first, page)) fail('application_identity_usage_revision_changed');
         first ||= page;
         for (const subject of page.subjects) {
@@ -82,19 +94,19 @@ async function readSnapshot(fromDate, toDate, view, contextId, recheck) {
   }
   fail('application_identity_usage_revision_changed');
 }
-async function readRange(fromDate, toDate, contextId, recheck, force) {
-  const key = `${contextId}/${fromDate}/${toDate}`;
+async function readRange(fromDate, toDate, contextId, bindingContextId, recheck, force) {
+  const key = `${contextId}/${bindingContextId}/${fromDate}/${toDate}`;
   const cached = cache.get(key);
   if (!force && cached && Date.now() - cached.readAtMs < 30_000) return cached;
-  const base = await readSnapshot(fromDate, toDate, 'base', contextId, recheck);
+  const base = await readSnapshot(fromDate, toDate, 'base', contextId, bindingContextId, recheck);
   let product = null, productError = null;
-  try { product = await readSnapshot(fromDate, toDate, 'product', contextId, recheck); }
+  try { product = await readSnapshot(fromDate, toDate, 'product', contextId, bindingContextId, recheck); }
   catch (error) { productError = error?.message || 'application_identity_usage_unavailable'; }
   if (product && !sameBaseDays(base.base.days, product.base.days)) {
     product = null;
     productError = 'application_identity_usage_revision_changed';
   }
-  const result = { base, product, productError, readAtMs: Date.now(), contextId, fromDate, toDate };
+  const result = { base, product, productError, readAtMs: Date.now(), contextId, bindingContextId, fromDate, toDate };
   if (cache.size >= 4 && !cache.has(key)) cache.delete(cache.keys().next().value);
   cache.set(key, result);
   return result;
@@ -185,15 +197,18 @@ export async function getAdminApplicationIdentityUsageAnalysisView({ mode = 'day
     return { ...legacy, identityModel: false, legacyModel: true,
       meta: { ...legacy.meta, syncLabel: `旧版应用统计（未按基础实例与产品身份分层） · ${legacy.meta?.syncLabel || '本机数据'}` } };
   }
+  const binding = await bindingRead();
   const selectedDates = mode === 'week' ? weekDates(selectedDate) : [selectedDate];
   const currentDates = weekDates(today);
-  const selectedRange = await readRange(selectedDates[0], selectedDates.at(-1), context.contextId, recheck, force);
+  const selectedRange = await readRange(selectedDates[0], selectedDates.at(-1), context.contextId,
+    binding.bindingContextId, recheck, force);
   let currentRange = selectedDates[0] === currentDates[0]
     && selectedDates.at(-1) === currentDates.at(-1) ? selectedRange : null;
   let currentRangeError = null;
   if (!currentRange) {
     try {
-      currentRange = await readRange(currentDates[0], currentDates.at(-1), context.contextId, false, force);
+      currentRange = await readRange(currentDates[0], currentDates.at(-1), context.contextId,
+        binding.bindingContextId, false, force);
     } catch (error) {
       if (error?.message === 'application_identity_usage_context_changed') throw error;
       const latestContext = await contextRead(false);
@@ -203,8 +218,10 @@ export async function getAdminApplicationIdentityUsageAnalysisView({ mode = 'day
       currentRangeError = error?.message || 'application_identity_usage_unavailable';
     }
   }
+  const latestBinding = await bindingRead();
   const latestContext = await contextRead(false);
-  if (latestContext.contextId !== context.contextId || latestContext.identitySupported !== true) {
+  if (latestContext.contextId !== context.contextId || latestContext.identitySupported !== true
+    || latestBinding.bindingContextId !== binding.bindingContextId) {
     fail('application_identity_usage_context_changed');
   }
   const base = selectedRange.base.base;

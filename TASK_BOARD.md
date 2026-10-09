@@ -4225,3 +4225,6 @@ Checklist：
 - 每次只推进单主题小包
 - 完成后同步更新本板与 DECISIONS
 - 当前正式发布目标为 `V1-minimal release candidate`；V0 证据仅作为 baseline 保留，不作为 formal release 口径
+## 应用身份统计同孩子绑定隔离（2026-10-10，扩展侧实施中）
+
+应用身份只读统计在每次实际读取前必须建立或复核当前 Native connection 对应的可复用 V2 同孩子证明；同一 `createReusableSharedWebBinding` proof cache 负责复用。该 ensure 只做身份绑定，不启用共享访问，不构建/上传贡献，不改余额、账本或配额。应用统计快照、分页和30秒缓存均绑定证明摘要；切换孩子、断开/重连、分配变化或迟到响应时，整次读取拒绝发布。Native 读入口门禁由 Native 所属任务实施；扩展侧不改 Native 文件或协议字段。另将 `capture()` 的身份部分与共享配额策略 LKG 解耦，避免共享访问未启用时应用身份只读统计无法取得绑定上下文。仅当扩展与 Native 双侧门禁均完成后才能称安全闭环；不打包、安装、部署或托管。

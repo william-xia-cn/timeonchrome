@@ -59,11 +59,15 @@ function legacyPage(query) {
     applications: [], nextOffset: null };
 }
 
-async function load(onRead, identitySupported = true, getContextId = () => 'child-device-context') {
+async function load(onRead, identitySupported = true, getContextId = () => 'child-device-context',
+  getBindingId = () => 'b'.repeat(64)) {
   globalThis.__identityTestAccount = await import(`data:text/javascript;base64,${Buffer.from(accountSource).toString('base64')}`);
   globalThis.__identityTestContract = await import(`data:text/javascript;base64,${Buffer.from(contractSource).toString('base64')}`);
   globalThis.__identityTestLegacy = await import(`data:text/javascript;base64,${Buffer.from(legacySource).toString('base64')}`);
   globalThis.chrome = { runtime: { sendMessage: async message => {
+    if (message.type === 'TIMEONCHROME_APPLICATION_IDENTITY_BINDING_ENSURE') {
+      return { ok: true, bindingContextId: getBindingId(), expiresAtMs: fixedNow + 300_000 };
+    }
     if (message.contextOnly) return { ok: true, contextId: getContextId(), identitySupported, legacyAvailable: true,
       readUnit: identitySupported ? 'seconds' : 'milliseconds', available: true };
     return onRead(message);
@@ -152,7 +156,7 @@ async function main() {
     const pages = [];
     const paged = await load(async message => {
       const query = message.query;
-      pages.push(query);
+      pages.push({ ...query, expectedBindingContextId: message.expectedBindingContextId });
       const offset = query.offset;
       const rows = subjectRows(query, offset === 0 ? 100 : 1, offset);
       const page = snapshot(query, { subjects: rows, nextOffset: offset === 0 ? 100 : null });
@@ -171,8 +175,35 @@ async function main() {
         assert.equal(rangePages[0].offset, 0);
         assert.equal(rangePages[1].offset, 100);
         assert.equal(rangePages[1].expectedRevision, `${viewName}:revision-1`);
+        assert(rangePages.every(query => query.expectedBindingContextId === 'b'.repeat(64)),
+          'every page is fenced to the same reusable identity proof digest');
       }
     }
+
+    let bindingId = 'c'.repeat(64);
+    const bindingPages = [];
+    const bindingScopedCache = await load(async message => {
+      bindingPages.push(message);
+      return { ok: true, contextId: message.expectedContextId,
+        snapshot: snapshot(message.query, { subjects: subjectRows(message.query, 1) }) };
+    }, true, () => 'same-child-device', () => bindingId);
+    await bindingScopedCache.getAdminApplicationIdentityUsageAnalysisView({ mode: 'day' });
+    const firstBindingReadCount = bindingPages.length;
+    bindingId = 'd'.repeat(64);
+    await bindingScopedCache.getAdminApplicationIdentityUsageAnalysisView({ mode: 'day' });
+    assert(bindingPages.length > firstBindingReadCount,
+      'changing proof digest bypasses the previous range cache even when child context is unchanged');
+    assert(bindingPages.slice(firstBindingReadCount).every(message => message.expectedBindingContextId === 'd'.repeat(64)));
+
+    let bindingReads = 0;
+    const proofChangedDuringRead = await load(async message => {
+      bindingReads++;
+      return { ok: true, contextId: message.expectedContextId,
+        snapshot: snapshot(message.query, { subjects: subjectRows(message.query, 1) }) };
+    }, true, () => 'same-child-device', () => (++bindingReads <= 1 ? 'e'.repeat(64) : 'f'.repeat(64)));
+    await assert.rejects(() => proofChangedDuringRead.getAdminApplicationIdentityUsageAnalysisView({ mode: 'day', force: true }),
+      /application_identity_usage_context_changed/,
+      'a proof/assignment change before publication rejects the whole read');
 
     const wrongContext = await load(async message => ({ ok: true, contextId: 'different-child',
       snapshot: snapshot(message.query, { subjects: subjectRows(message.query, 1) }) }));

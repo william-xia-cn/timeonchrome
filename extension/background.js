@@ -1606,6 +1606,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     || msg?.type === 'TIMEONCHROME_SHARED_SYNC_DIAGNOSTICS_READ'
     || msg?.type === 'TIMEONCHROME_APPLICATION_USAGE_READ'
     || msg?.type === 'TIMEONCHROME_APPLICATION_IDENTITY_USAGE_READ'
+    || msg?.type === 'TIMEONCHROME_APPLICATION_IDENTITY_BINDING_ENSURE'
     || msg?.type === 'TIMEONCHROME_APPLICATION_USAGE_AVAILABLE'
     || msg?.type === 'SHARED_REMINDER_ACTION' || msg?.type === 'SHARED_REMINDER_DISMISSED') return false;
 
