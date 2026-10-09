@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "scope": {"machineId":"machine-a","childId":"child-a","localUserId":"user-a","assignmentVersion":1,"scanId":"11111111111111111111111111111111"},
+  "request": {
+    "schemaVersion":1,"childId":"child-a","localUserId":"user-a","assignmentVersion":1,"scanId":"11111111111111111111111111111111",
+    "links":[
+      {"variantKey":"entry-a","instanceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"variantKey":"entry-a","instanceId":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+      {"variantKey":"entry-b","instanceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+    ]
+  },
+  "cases": [
+    {"id":"same-request","patch":{},"requestValid":true,"receiptValid":true},
+    {"id":"wrong-child","patch":{"childId":"child-b"},"requestValid":false,"receiptValid":false},
+    {"id":"wrong-user","patch":{"localUserId":"user-b"},"requestValid":false,"receiptValid":false},
+    {"id":"wrong-assignment","patch":{"assignmentVersion":2},"requestValid":false,"receiptValid":false},
+    {"id":"wrong-scan","patch":{"scanId":"22222222222222222222222222222222"},"requestValid":false,"receiptValid":false},
+    {"id":"empty-is-not-uninstall","patch":{"links":[]},"requestValid":false,"receiptValid":false},
+    {"id":"no-product-claim","patch":{"productId":"chrome"},"requestValid":false,"receiptValid":false},
+    {"id":"partial-ack","patch":{"links":[{"variantKey":"entry-a","instanceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]},"requestValid":true,"receiptValid":false},
+    {"id":"wrong-ack-instance","patch":{"links":[{"variantKey":"entry-c","instanceId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}]},"requestValid":true,"receiptValid":false}
+  ]
+}

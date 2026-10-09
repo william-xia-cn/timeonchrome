@@ -3,6 +3,7 @@ import { parseProgramInstanceDescriptor, programInstanceId, type ProgramInstance
 export type AppPlatform = 'windows' | 'macos';
 
 export const PROGRAM_INSTANCE_REGISTRATION_CAPABILITY = 'program-instance-registration-v1';
+export const PROGRAM_INSTALLATION_LINK_CAPABILITY = 'program-installation-links-v1';
 export interface ProgramInstanceCapabilities {
   schemaVersion:1;
   enabled:boolean;
@@ -38,7 +39,8 @@ export function parseProgramInstanceCapabilities(value:unknown):ProgramInstanceC
   if(!mappingRecord(value)||!mappingKeys(value,['schemaVersion','enabled','capabilities'])||value.schemaVersion!==1
     ||typeof value.enabled!=='boolean'||!Array.isArray(value.capabilities)||value.capabilities.length>32
     ||!value.capabilities.every(mappingToken)||new Set(value.capabilities).size!==value.capabilities.length
-    ||value.enabled!==value.capabilities.includes(PROGRAM_INSTANCE_REGISTRATION_CAPABILITY))
+    ||value.enabled!==value.capabilities.includes(PROGRAM_INSTANCE_REGISTRATION_CAPABILITY)
+    ||!value.enabled&&value.capabilities.includes(PROGRAM_INSTALLATION_LINK_CAPABILITY))
     throw new Error('INVALID_PROGRAM_INSTANCE_CAPABILITIES');
   return {schemaVersion:1,enabled:value.enabled,capabilities:[...value.capabilities]};
 }
@@ -87,6 +89,15 @@ export interface ProgramInstanceRegistrationBatch {
   assignmentVersion: number;
   items: Array<{instance: ProgramInstanceDescriptor; evidenceRevision: number; evidence: ProductOwnershipEvidence}>;
 }
+/** 同次扫描的正向事实引用，不是产品归属，也不表达卸载或完整安装清单。 */
+export interface ProgramInstallationLinkBatch {
+  schemaVersion: 1;
+  childId: string;
+  localUserId: string;
+  assignmentVersion: number;
+  scanId: string;
+  links: Array<{variantKey: string; instanceId: string}>;
+}
 export interface ProgramInstanceMappingReadRequest {
   childId: string;
   localUserId: string;
@@ -114,6 +125,42 @@ const mappingKeys = (v:Record<string,unknown>,keys:string[]) => Object.keys(v).l
 const mappingToken = (v:unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 256 && !/[\u0000-\u001f\u007f]/.test(v);
 const mappingRevision = (v:unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 1;
 const mappingHash = (v:unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
+/** scope必须来自认证及扫描状态；调用者还须核对条目和实例的实际存在与范围。 */
+export function parseProgramInstallationLinkBatch(value: unknown,
+  scope: ProgramInstanceRegistrationScope & {scanId: string}): ProgramInstallationLinkBatch {
+  const fail = (): never => { throw new Error('INVALID_PROGRAM_INSTALLATION_LINKS'); };
+  if (!scope || !mappingToken(scope.machineId) || !mappingToken(scope.childId)
+    || !mappingToken(scope.localUserId) || scope.localUserId.length > 128 || !mappingRevision(scope.assignmentVersion)
+    || typeof scope.scanId !== 'string' || !/^[a-f0-9]{32}$/.test(scope.scanId)
+    || !mappingRecord(value) || !mappingKeys(value, ['schemaVersion','childId','localUserId','assignmentVersion','scanId','links'])
+    || value.schemaVersion !== 1 || value.childId !== scope.childId || value.localUserId !== scope.localUserId
+    || value.assignmentVersion !== scope.assignmentVersion || value.scanId !== scope.scanId
+    || !Array.isArray(value.links) || value.links.length < 1 || value.links.length > 100) return fail();
+  const links: ProgramInstallationLinkBatch['links'] = [], seen = new Set<string>();
+  for (const link of value.links) {
+    if (!mappingRecord(link) || !mappingKeys(link, ['variantKey','instanceId'])
+      || !mappingToken(link.variantKey) || !mappingHash(link.instanceId)) return fail();
+    const key = JSON.stringify([link.variantKey, link.instanceId]);
+    if (seen.has(key)) return fail();
+    seen.add(key);
+    links.push({variantKey:link.variantKey, instanceId:link.instanceId});
+  }
+  return {schemaVersion:1, childId:scope.childId, localUserId:scope.localUserId,
+    assignmentVersion:scope.assignmentVersion, scanId:scope.scanId, links};
+}
+/** 只确认本批实际引用；顺序可变，范围及二元组必须完整一致。 */
+export function parseProgramInstallationLinkReceipt(value:unknown,expected:ProgramInstallationLinkBatch,
+  machineId:string):ProgramInstallationLinkBatch {
+  try {
+    const scope={machineId,childId:expected.childId,localUserId:expected.localUserId,
+      assignmentVersion:expected.assignmentVersion,scanId:expected.scanId};
+    const sent=parseProgramInstallationLinkBatch(expected,scope),received=parseProgramInstallationLinkBatch(value,scope);
+    const keys=new Set(sent.links.map(link=>JSON.stringify([link.variantKey,link.instanceId])));
+    if(received.links.length!==sent.links.length||received.links.some(link=>!keys.has(JSON.stringify([link.variantKey,link.instanceId]))))
+      throw new Error('mismatched links');
+    return received;
+  } catch {throw new Error('INVALID_PROGRAM_INSTALLATION_RECEIPT');}
+}
 export function parseProgramInstanceMappingReadRequest(value:unknown):ProgramInstanceMappingReadRequest {
   if (!mappingRecord(value) || !mappingKeys(value,['childId','localUserId','assignmentVersion','instanceIds'])
     || !mappingToken(value.childId) || !mappingToken(value.localUserId) || !mappingRevision(value.assignmentVersion)

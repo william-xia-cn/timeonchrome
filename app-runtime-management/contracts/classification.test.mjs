@@ -5,6 +5,60 @@ import { parseApplicationKnowledge, parseApplicationKnowledgeV4, parseAppEvidenc
 import { parseProgramInstanceMappingReadRequest, parseProgramInstanceMappingReadResponse } from './dist/application-classification.js';
 import {parseProgramInstanceCapabilities,parseProgramInstanceRegistrationReceipt} from './dist/application-classification.js';
 import {evaluateProgramInstanceCondition,resolveProgramInstanceClassification} from './dist/application-classification.js';
+import {parseProgramInstallationLinkBatch,parseProgramInstallationLinkReceipt,PROGRAM_INSTALLATION_LINK_CAPABILITY} from './dist/application-classification.js';
+const installationVectors=JSON.parse(readFileSync(new URL('./program-installation-links-v1.vectors.json',import.meta.url),'utf8'));
+for(const item of installationVectors.cases) {
+  const value={...installationVectors.request,...item.patch};
+  const request=()=>parseProgramInstallationLinkBatch(value,installationVectors.scope);
+  const receipt=()=>parseProgramInstallationLinkReceipt(value,installationVectors.request,installationVectors.scope.machineId);
+  if(item.requestValid)assert.doesNotThrow(request,item.id);else assert.throws(request,undefined,item.id);
+  if(item.receiptValid)assert.doesNotThrow(receipt,item.id);else assert.throws(receipt,undefined,item.id);
+}
+const installScope={machineId:'machine-a',childId:'child-a',localUserId:'user-a',assignmentVersion:1,scanId:'1'.repeat(32)};
+const installLinks={schemaVersion:1,childId:'child-a',localUserId:'user-a',assignmentVersion:1,scanId:installScope.scanId,links:[
+  {variantKey:'entry-a',instanceId:'a'.repeat(64)},
+  {variantKey:'entry-a',instanceId:'b'.repeat(64)},
+  {variantKey:'entry-b',instanceId:'a'.repeat(64)}]};
+assert.deepEqual(parseProgramInstallationLinkBatch(installLinks,installScope),installLinks);
+const detachedLinks=parseProgramInstallationLinkBatch(installLinks,installScope);
+detachedLinks.links[0].variantKey='changed';assert.equal(installLinks.links[0].variantKey,'entry-a');
+// 跨孩子复用规则不意味着安装事实可以跨认证范围采用。
+for(const patch of [{childId:'child-b'},{localUserId:'user-b'},{assignmentVersion:2},{scanId:'2'.repeat(32)},
+  {schemaVersion:2},{machineId:'machine-a'},{productId:'product-a'},{links:[]},
+  {links:[installLinks.links[0],installLinks.links[0]]},
+  {links:[{variantKey:'entry-a',instanceId:'not-an-instance'}]},
+  {links:[{variantKey:'\n',instanceId:'a'.repeat(64)}]},
+  {links:[{...installLinks.links[0],productId:'product-a'}]},
+  {links:[{...installLinks.links[0],status:'uninstalled'}]},
+  {links:[{...installLinks.links[0],path:'/private/file'}]}])
+  assert.throws(()=>parseProgramInstallationLinkBatch({...installLinks,...patch},installScope),/INVALID_PROGRAM_INSTALLATION_LINKS/);
+for(const patch of [{machineId:''},{childId:''},{localUserId:''},{assignmentVersion:0},{scanId:''}])
+  assert.throws(()=>parseProgramInstallationLinkBatch(installLinks,{...installScope,...patch}));
+assert.throws(()=>parseProgramInstallationLinkBatch(installLinks,null));
+// 即使调用范围与请求一致，也不能接受实际inventory扫描协议不支持的格式。
+for(const scanId of ['scan-a','A'.repeat(32),'a'.repeat(31),'a'.repeat(33),null])
+  assert.throws(()=>parseProgramInstallationLinkBatch({...installLinks,scanId},{...installScope,scanId}));
+for(const length of [128,129]) {
+  const localUserId='u'.repeat(length),read=()=>parseProgramInstallationLinkBatch({...installLinks,localUserId},{...installScope,localUserId});
+  if(length===128)assert.equal(read().localUserId,localUserId);else assert.throws(read);
+}
+const maximumLinks={...installLinks,links:Array.from({length:100},(_,i)=>({variantKey:`entry-${i}`,instanceId:'a'.repeat(64)}))};
+assert.equal(parseProgramInstallationLinkBatch(maximumLinks,installScope).links.length,100);
+assert.throws(()=>parseProgramInstallationLinkBatch({...maximumLinks,links:[...maximumLinks.links,{variantKey:'overflow',instanceId:'b'.repeat(64)}]},installScope));
+// 同一正向事实可重放；接收端按扫描和二元组幂等，不产生用量或产品识别。
+assert.deepEqual(parseProgramInstallationLinkBatch(installLinks,installScope),parseProgramInstallationLinkBatch(installLinks,installScope));
+assert.deepEqual(parseProgramInstallationLinkReceipt(installLinks,installLinks,installScope.machineId),installLinks);
+const reverseReceipt={...installLinks,links:[...installLinks.links].reverse()};
+assert.deepEqual(parseProgramInstallationLinkReceipt(reverseReceipt,installLinks,installScope.machineId),reverseReceipt);
+for(const patch of [{childId:'child-b'},{localUserId:'user-b'},{assignmentVersion:2},{scanId:'2'.repeat(32)},
+  {links:installLinks.links.slice(1)}, {links:[...installLinks.links,installLinks.links[0]]},
+  {links:installLinks.links.map(link=>({...link,instanceId:'f'.repeat(64)}))},
+  {links:[...installLinks.links,{variantKey:'another',instanceId:'a'.repeat(64)}]}])
+  assert.throws(()=>parseProgramInstallationLinkReceipt({...installLinks,...patch},installLinks,installScope.machineId),/INVALID_PROGRAM_INSTALLATION_RECEIPT/);
+assert.throws(()=>parseProgramInstallationLinkReceipt(installLinks,null,installScope.machineId));
+const installationCaps={schemaVersion:1,enabled:true,capabilities:['program-instance-registration-v1',PROGRAM_INSTALLATION_LINK_CAPABILITY]};
+assert.deepEqual(parseProgramInstanceCapabilities(installationCaps),installationCaps);
+assert.throws(()=>parseProgramInstanceCapabilities({...installationCaps,enabled:false,capabilities:[PROGRAM_INSTALLATION_LINK_CAPABILITY]}));
 const registrationReceipt={schemaVersion:1,childId:'child-a',items:[{instanceId:'a'.repeat(64),evidenceRevision:2,evidenceHash:'b'.repeat(64)}]};
 assert.deepEqual(parseProgramInstanceRegistrationReceipt(registrationReceipt,registrationReceipt),registrationReceipt);
 assert.equal(parseProgramInstanceRegistrationReceipt({...registrationReceipt,items:[{...registrationReceipt.items[0],evidenceRevision:3,
