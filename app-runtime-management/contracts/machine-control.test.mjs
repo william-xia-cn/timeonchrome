@@ -59,4 +59,14 @@ const multiple=parseProgramInstancePolicyStatusReport({schemaVersion:1,users:[us
 assert.equal(multiple.users[1].state,'partial');
 assert.equal(multiple.users[0].catalogVersion,8);
 assert.equal(PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY,'program-instance-policy-status-v1');
+const adoptionVectors=JSON.parse(readFileSync(new URL('./program-policy-status.vectors.json',import.meta.url),'utf8'));
+assert.equal(adoptionVectors.capability,PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY);
+for(const vector of adoptionVectors.vectors){
+  if(vector.valid)assert.deepEqual(parseProgramInstancePolicyStatusReport(vector.input),vector.input,vector.name);
+  else assert.throws(()=>parseProgramInstancePolicyStatusReport(vector.input),/INVALID_PROGRAM_INSTANCE_POLICY_STATUS/,vector.name);
+}
+const machineSchema=JSON.parse(readFileSync(new URL('./runtime-machine-api-v2.schema.json',import.meta.url),'utf8')).$defs;
+assert.equal(machineSchema.programInstancePolicyStatus.properties.users.maxItems,100);
+assert.equal(machineSchema.programInstancePolicyUserStatus.additionalProperties,false);
+assert.deepEqual(machineSchema.programInstancePolicyUserStatus.required,Object.keys(userStatus));
 console.log('Program instance policy status contract PASS: bounded users, isolated assignments, unknown/partial vs accepted, no action or identity payload');

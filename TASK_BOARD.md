@@ -4,6 +4,10 @@
 
 ### 当前收口清单（覆盖下方各阶段的旧待办状态）
 
+- **1.45固定包核验：** build、machine-control（含12项共同JSON正反向量）、compatibility及diff通过；包173503字节、92文件逐一与源码／dist SHA256一致，包SHA256 `b4118dec1f07b9cc44eba89b68057e0f9249c2f84b310b65466677e65c004ffc`。1.44原包仍为`52333a21db1c4fa73c4da583f455b21b37a9e1bf3cd0f489152c118f48025f5c`。Matched＝可选诊断开发包；Missing＝Native真实汇总上报及跨端实机；Extra／Deviated＝无。只集中提交8个契约／文档／workspace锁文件，不推送或生成安装器。生产0020未应用，不得开始发送新字段。
+
+- **固定1.45开发契约（实施前）：** architecture-integration，将bec0ce3中的可选目录接纳报告集中固定为1.45.0，补既有machine schema定义及可跨语言读取的正反向量；保留1.44包不变，根lock仅workspace版本同步。仅build、machine-control、compatibility、包内容和hash检查；随后交原Native任务消费固定包，实际汇总基于应覆盖会话而非截断诊断列表，能力未声明不发送。只源码适配／隔离测试，不生成安装器、部署或执行生产迁移。
+
 - **目录接纳与管理入口集中源码审计：** 本批17文件包含系列／开发者草稿入口、最小接纳契约、0020本地迁移文件、心跳接收／家长读取和设备抽屉。Matched＝既有状态不被替代、新目录按账户单列、无报告不借用旧ACK、失效不标当前接纳、报告时间不称执行时间；devices/component、语法／diff、契约build/machine-control通过，复用未改动的knowledge及backend20项证据。agent-browser独立回环mock实际打开抽屉，1440×1000与390×844截图已目视；控件下拉／操作保留、文本换行正常，测试浏览器和夹具已关闭。Missing＝Native正式汇总上报、集中固定包、规则导入／范围、疑似强化迁移、控件获准复验及实机；Deviated／Extra＝无。本次准备集中本地提交，不推送、不发布或安装；1.44固定tgz保持不变，源码新增字段尚非已交付包。
 
 - **设备账户新版目录状态（实施前）：** standard-cloud，仅共用设备展示模块和实际抽屉消费、对应专项及UI说明；沿用云端programInstancePolicy，不用旧policyState推断新目录接纳。各状态有明确文本，缺失／失效未确认，时间为云端接收时间；不声称动作成功、不更改账户分配操作。最小devices/component、语法／diff及agent-browser隔离桌面／手机目视；不修改Native、真实家庭或部署。
