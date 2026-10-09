@@ -6,9 +6,44 @@ import { createUsageAccount, hashUsageAccountValue, canonicalUsageAccountJson,
   createUsageAccountV2, verifyUsageAccountManifestV2, parseApplicationUsageSeconds,
   allocateUsageAccountSeconds,parseUsageAccountRowsV2,validateUsageAccountDimensionsV2,
   APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY } from './dist/usage-account.js';
+import { createApplicationInstanceAccount, parseApplicationInstanceAccountRows, verifyApplicationInstanceAccountManifest,
+  validateApplicationInstanceAccountDimensions } from './dist/usage-account.js';
+
+const instanceStart=usageAccountDayStart('2026-10-09');
+const instanceHeader={schemaVersion:3,sourceKind:'application',durationUnit:'seconds',timezone:'Asia/Shanghai',childId:'child-a',
+  date:'2026-10-09',revision:1,generatedAtMs:instanceStart+200000,settledThroughMs:instanceStart+180000,
+  algorithmVersion:'application-instance-seconds-v1',rawFactCount:2,rawFactHash:'a'.repeat(64),
+  observationResolutionHash:await hashUsageAccountValue([]),complete:true,reasonCodes:[]};
+const instanceRows=[{kind:'total',hour:null,subjectKey:null,duration:180},
+  ...Array.from({length:24},(_,hour)=>({kind:'total',hour,subjectKey:null,duration:hour===0?180:0})),
+  ...['instance:'+'b'.repeat(64),'observation:'+'c'.repeat(64)].flatMap(subjectKey=>[
+    {kind:'subject',hour:null,subjectKey,duration:120},{kind:'subject',hour:0,subjectKey,duration:120}])];
+const instanceAccount=await createApplicationInstanceAccount(instanceHeader,instanceRows);
+assert.deepEqual(await verifyApplicationInstanceAccountManifest(instanceAccount.manifest),instanceAccount.manifest);
+assert.deepEqual(validateApplicationInstanceAccountDimensions(instanceAccount.rows),{total:180},'明细240不替代并集总量180');
+assert.equal(instanceRows[0].hour,null,'创建不排序修改调用方输入');
+assert(!('displayName' in instanceAccount.rows[0]));
+assert(!('associationVersion' in instanceAccount.manifest));
+assert.throws(()=>parseUsageAccountRowsV2(instanceAccount.rows),/USAGE_ACCOUNT_INVALID_FIELDS/);
+assert.throws(()=>parseApplicationInstanceAccountRows([{...instanceAccount.rows[0],displayName:'Product'}]),/USAGE_ACCOUNT_INVALID_FIELDS/);
+assert.throws(()=>parseApplicationInstanceAccountRows([{kind:'subject',hour:null,subjectKey:'product:browser',duration:120}]),/USAGE_ACCOUNT_INVALID_SUBJECT/);
+assert.throws(()=>parseApplicationInstanceAccountRows([{kind:'category',hour:null,subjectKey:null,duration:120}]),/USAGE_ACCOUNT_INVALID_ROW/);
+await assert.rejects(()=>verifyApplicationInstanceAccountManifest({...instanceAccount.manifest,childId:'child-b'}),/HASH_MISMATCH/);
+await assert.rejects(()=>verifyApplicationInstanceAccountManifest({...instanceAccount.manifest,policyVersions:[]}),/INVALID_FIELDS/);
+const resolvedRows=instanceRows.map(row=>({...row,subjectKey:row.subjectKey?.startsWith('observation:')?'instance:'+'d'.repeat(64):row.subjectKey}));
+const resolvedAccount=await createApplicationInstanceAccount({...instanceHeader,revision:2,observationResolutionHash:'e'.repeat(64)},resolvedRows);
+assert.equal(resolvedAccount.manifest.rawFactHash,instanceAccount.manifest.rawFactHash);
+assert.notEqual(resolvedAccount.manifest.manifestHash,instanceAccount.manifest.manifestHash);
+assert.equal(validateApplicationInstanceAccountDimensions(resolvedAccount.rows).total,180);
+assert.equal(instanceAccount.chunks[0].chunkHash,await hashUsageAccountValue(instanceAccount.chunks[0].rows));
 
 const vectors = JSON.parse(readFileSync(new URL('./usage-account.vectors.json', import.meta.url), 'utf8'));
 const schema = JSON.parse(readFileSync(new URL('./usage-account.schema.json', import.meta.url), 'utf8'));
+for(const field of ['rowCount','observationResolutionHash','rowsHash','manifestHash'])
+  assert.equal(instanceAccount.manifest[field],vectors.instanceV3Golden[field]);
+assert.equal(instanceAccount.chunks[0].chunkHash,vectors.instanceV3Golden.chunkHash);
+assert.deepEqual(schema.$defs.rowV3.required,Object.keys(instanceRows[0]));
+assert.deepEqual([...schema.$defs.manifestV3.required].sort(),Object.keys(instanceAccount.manifest).sort());
 assert.equal(schema.additionalProperties, false);
 assert.equal(schema.$defs.row.additionalProperties, false);
 assert.equal(schema.properties.rowCount.maximum, 10000);

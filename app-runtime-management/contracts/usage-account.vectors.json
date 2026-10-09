@@ -53,6 +53,14 @@
     { "id": "web-integer-seconds", "sourceKind": "web", "durationUnit": "seconds", "hour": 23, "duration": 61, "categories": [{ "category": "study", "duration": 61 }], "expectedTotal": 61 },
     { "id": "complete-zero", "sourceKind": "application", "durationUnit": "milliseconds", "hour": 0, "duration": 0, "categories": [], "expectedTotal": 0 }
   ],
+  "instanceV3Golden": {
+    "description": "2026-10-09 child-a，完整日总量180秒、0时180秒、其余小时0；instance:b×64与observation:c×64各日/0时120秒；revision=1、截止日初180000ms、生成日初200000ms、rawFactCount=2、rawFactHash=a×64、算法application-instance-seconds-v1、空解析集合。",
+    "rowCount": 29,
+    "observationResolutionHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "rowsHash": "fa15693a303e944ef3a13af0913fdf259e4e6caf8c911925f0cf7551f227c2c4",
+    "chunkHash": "fa15693a303e944ef3a13af0913fdf259e4e6caf8c911925f0cf7551f227c2c4",
+    "manifestHash": "15f85d2abec0972eaf357e8e10b8021abc706640a2a25ae54204f245845bb8b9"
+  },
   "canonicalHashVector": { "input": { "b": 2, "a": 1 }, "canonical": "{\"a\":1,\"b\":2}", "sha256": "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777" },
   "unicodeHashVector": { "input": { "a": "应用", "b": "<>&" }, "canonical": "{\"a\":\"应用\",\"b\":\"<>&\"}", "sha256": "3732e17de4a00fe7ad70592b0efca9b73d6ce689d98d5d595cdbf484406b0c97" }
 }

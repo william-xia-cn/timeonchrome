@@ -1,9 +1,107 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { resolveApplication, safeAutomatic, associateApplicationEvidence, isSpecialApplicationProduct } from './dist/application-classification.js';
-import { parseApplicationKnowledge, parseAppEvidence } from './dist/application-knowledge-validation.js';
+import { resolveApplication, safeAutomatic, associateApplicationEvidence, isSpecialApplicationProduct, resolveProductOwnership, buildProgramInstanceProductMapping, parseProductOwnershipEvidence, parseProgramInstanceRegistrationBatch } from './dist/application-classification.js';
+import { parseApplicationKnowledge, parseApplicationKnowledgeV4, parseAppEvidence } from './dist/application-knowledge-validation.js';
+import { parseProgramInstanceMappingReadRequest, parseProgramInstanceMappingReadResponse } from './dist/application-classification.js';
+const mappingRequest={childId:'child-a',localUserId:'user-a',assignmentVersion:1,instanceIds:['a'.repeat(64)]};
+const mappingResponse={schemaVersion:1,childId:'child-a',assignmentVersion:1,catalogVersion:2,
+  items:[{instanceId:'a'.repeat(64),evidenceRevision:1,status:'confirmed',productId:'product-a'}],products:[{id:'product-a',name:'Product A'}]};
+assert.deepEqual(parseProgramInstanceMappingReadRequest(mappingRequest),mappingRequest);
+assert.deepEqual(parseProgramInstanceMappingReadResponse(mappingResponse,mappingRequest),mappingResponse);
+for(const patch of [{childId:'child-b'},{assignmentVersion:2},{catalogVersion:null},{products:[]},{items:[]},
+  {items:[{...mappingResponse.items[0],status:'pending'}]},{products:[...mappingResponse.products,{id:'extra',name:'Extra'}]},
+  {items:[{...mappingResponse.items[0],instanceId:'b'.repeat(64)}]}])
+  assert.throws(()=>parseProgramInstanceMappingReadResponse({...mappingResponse,...patch},mappingRequest),/INVALID_PROGRAM_INSTANCE_MAPPING_RESPONSE/);
+for(const status of ['pending','unresolved','conflict']) {
+  const response={...mappingResponse,catalogVersion:status==='pending'?null:2,items:[{...mappingResponse.items[0],status,productId:null}],products:[]};
+  assert.deepEqual(parseProgramInstanceMappingReadResponse(response,mappingRequest),response);
+}
+for(const patch of [{instanceIds:[]},{instanceIds:['a'.repeat(64),'a'.repeat(64)]},{instanceIds:['name']},{localUserId:'\n'},
+  {assignmentVersion:0},{productId:'forged'}])
+  assert.throws(()=>parseProgramInstanceMappingReadRequest({...mappingRequest,...patch}),/INVALID_PROGRAM_INSTANCE_MAPPING_READ/);
+const detachedMapping=parseProgramInstanceMappingReadResponse(mappingResponse,mappingRequest);
+detachedMapping.products[0].name='Changed'; detachedMapping.items[0].status='pending';
+assert.equal(mappingResponse.products[0].name,'Product A'); assert.equal(mappingResponse.items[0].status,'confirmed');
 const vectors = JSON.parse(readFileSync(new URL('./application-classification.vectors.json', import.meta.url)));
 const legacyShape = result => ({productId:result.productId,classification:result.classification,status:result.status,ruleIds:result.ruleIds,suggestions:result.suggestions});
+// 新规则独立于孩子／实例：同证据在不同孩子及不同位置执行仍归同产品，实例不在这里合并。
+const ownershipRule = {id:'exact',revision:1,enabled:true,platform:'windows',productId:'browser',match:{kind:'binaryHash',sha256:'a'.repeat(64)}};
+const ownershipEvidence = {platform:'windows',verified:{binaryHash:'a'.repeat(64)}};
+const knowledgeV4={schemaVersion:4,version:1,products:[{id:'browser',name:'Browser',type:'other',catalogGroup:'specialApplication'}],
+  ownershipRules:[ownershipRule],rules:[],bindings:[{childId:'child-a',products:[{productId:'browser',classification:'other'}],ruleIds:[]}]};
+assert.deepEqual(parseApplicationKnowledgeV4(knowledgeV4),knowledgeV4);
+assert.notEqual(parseApplicationKnowledgeV4(knowledgeV4).ownershipRules[0].match,ownershipRule.match);
+assert.throws(()=>parseApplicationKnowledge(knowledgeV4));
+assert.throws(()=>parseApplicationKnowledgeV4({...knowledgeV4,schemaVersion:3}));
+assert.throws(()=>parseApplicationKnowledgeV4({...knowledgeV4,products:[{...knowledgeV4.products[0],selectors:[]}]}));
+assert.throws(()=>parseApplicationKnowledgeV4({...knowledgeV4,ownershipRules:[{...ownershipRule,productId:'missing'}]}));
+assert.throws(()=>parseApplicationKnowledgeV4({...knowledgeV4,ownershipRules:[{...ownershipRule,childId:'child-a'}]}));
+assert.throws(()=>parseApplicationKnowledgeV4({...knowledgeV4,bindings:[{childId:'child-a',products:[{productId:'missing',classification:'other'}],ruleIds:[]}]}));
+const registrationScope={machineId:'machine-a',childId:'child-a',localUserId:'user-a',assignmentVersion:1};
+const registration={schemaVersion:1,childId:'child-a',localUserId:'user-a',assignmentVersion:1,items:[{
+  instance:{machineId:'machine-a',platform:'windows',locationRef:'1'.repeat(32),executableSha256:'a'.repeat(64)},
+  evidenceRevision:1,evidence:ownershipEvidence}]};
+const registrationBefore=JSON.stringify(registration);
+const registered=await parseProgramInstanceRegistrationBatch(registration,registrationScope);
+assert.deepEqual(registered,registration);
+assert.notEqual(registered.items[0].instance,registration.items[0].instance);
+assert.notEqual(registered.items[0].evidence.verified,ownershipEvidence.verified);
+for(const change of [{childId:'child-b'},{localUserId:'user-b'},{assignmentVersion:2},{productId:'forged'},
+  {items:[registration.items[0],registration.items[0]]},{items:Array(101).fill(registration.items[0])}])
+  await assert.rejects(parseProgramInstanceRegistrationBatch({...registration,...change},registrationScope));
+for(const change of [{evidenceRevision:0},{evidenceRevision:1.5},{productId:'forged'},
+  {instance:{...registration.items[0].instance,machineId:'machine-b'}},
+  {evidence:{platform:'macos',verified:{}}},
+  {evidence:{platform:'windows',verified:{binaryHash:'b'.repeat(64)}}}])
+  await assert.rejects(parseProgramInstanceRegistrationBatch({...registration,items:[{...registration.items[0],...change}]},registrationScope));
+const anotherPosition={...registration.items[0],instance:{...registration.items[0].instance,locationRef:'2'.repeat(32)}};
+assert.equal((await parseProgramInstanceRegistrationBatch({...registration,items:[registration.items[0],anotherPosition]},registrationScope)).items.length,2);
+assert.equal((await parseProgramInstanceRegistrationBatch({...registration,items:[]},registrationScope)).items.length,0);
+assert.equal((await parseProgramInstanceRegistrationBatch({...registration,items:[{...registration.items[0],evidence:{platform:'windows',verified:{}}}]},registrationScope)).items.length,1);
+assert.equal(JSON.stringify(registration),registrationBefore);
+assert.deepEqual(parseProductOwnershipEvidence(ownershipEvidence),ownershipEvidence);
+assert.notEqual(parseProductOwnershipEvidence(ownershipEvidence).verified,ownershipEvidence.verified);
+assert.throws(()=>parseProductOwnershipEvidence({...ownershipEvidence,productId:'claimed'}),/INVALID_PRODUCT_OWNERSHIP_EVIDENCE/);
+assert.throws(()=>parseProductOwnershipEvidence({...ownershipEvidence,verified:{path:'C:\\private\\app.exe'}}),/INVALID_PRODUCT_OWNERSHIP_EVIDENCE/);
+assert.throws(()=>parseProductOwnershipEvidence({platform:'windows',verified:{macosSignerKey:'b'.repeat(64)}}),/INVALID_PRODUCT_OWNERSHIP_EVIDENCE/);
+assert.throws(()=>parseProductOwnershipEvidence({platform:'macos',verified:{binaryHash:'not-a-hash'}}),/INVALID_PRODUCT_OWNERSHIP_EVIDENCE/);
+assert.deepEqual(parseProductOwnershipEvidence({platform:'macos',verified:{}}),{platform:'macos',verified:{}});
+assert.deepEqual(resolveProductOwnership([ownershipRule],ownershipEvidence),{status:'confirmed',productId:'browser',ruleIds:['exact']});
+assert.equal(resolveProductOwnership([ownershipRule],{platform:'windows',verified:{}}).status,'unresolved');
+assert.equal(resolveProductOwnership([ownershipRule],{...ownershipEvidence,platform:'macos'}).status,'unresolved');
+assert.equal(resolveProductOwnership([{...ownershipRule,enabled:false}],ownershipEvidence).status,'unresolved');
+assert.equal(resolveProductOwnership([],ownershipEvidence).status,'unresolved');
+assert.deepEqual(resolveProductOwnership([ownershipRule,{...ownershipRule,id:'second'}],ownershipEvidence),{status:'confirmed',productId:'browser',ruleIds:['exact','second']});
+assert.equal(resolveProductOwnership([ownershipRule,{...ownershipRule,id:'other',productId:'different'}],ownershipEvidence).status,'conflict');
+assert.throws(()=>resolveProductOwnership([{...ownershipRule,childId:'child'}],ownershipEvidence),/INVALID_PRODUCT_OWNERSHIP_RULE/);
+assert.throws(()=>resolveProductOwnership([ownershipRule,ownershipRule],ownershipEvidence),/INVALID_PRODUCT_OWNERSHIP_RULE/);
+assert.throws(()=>resolveProductOwnership([{...ownershipRule,match:{kind:'name',name:'Chrome'}}],ownershipEvidence),/INVALID_PRODUCT_OWNERSHIP_RULE/);
+const aumidRule={...ownershipRule,match:{kind:'windowsAumid',aumid:'Fixture_family!Main'}};
+assert.equal(resolveProductOwnership([aumidRule],{platform:'windows',verified:{windowsAumid:'Fixture_family!Main'}}).status,'confirmed');
+assert.equal(resolveProductOwnership([aumidRule],{platform:'windows',verified:{windowsAumid:'Fixture_family!Other'}}).status,'unresolved');
+assert.throws(()=>resolveProductOwnership([{...aumidRule,match:{kind:'windowsAumid',aumid:'Fixture_family'}}],ownershipEvidence),/INVALID_PRODUCT_OWNERSHIP_RULE/);
+const macRule={...ownershipRule,platform:'macos',match:{kind:'macosSignature',signerKey:'b'.repeat(64),signingIdentifier:'fixture.browser'}};
+assert.equal(resolveProductOwnership([macRule],{platform:'macos',verified:{macosSignerKey:'b'.repeat(64)}}).status,'unresolved');
+assert.equal(resolveProductOwnership([macRule],{platform:'macos',verified:{macosSignerKey:'b'.repeat(64),macosSigningIdentifier:'fixture.browser'}}).status,'confirmed');
+assert.equal(resolveProductOwnership([macRule],{platform:'macos',verified:{macosSignerKey:'b'.repeat(64),macosSigningIdentifier:'fixture.other'}}).status,'unresolved');
+const seriesRule={...ownershipRule,match:{kind:'windowsFileSeries',fileSeriesKey:'c'.repeat(64)}};
+assert.equal(resolveProductOwnership([seriesRule],{platform:'windows',verified:{windowsFileSeriesKey:'c'.repeat(64)}}).status,'confirmed');
+const programInstances=[{instanceId:'machine-location-content-b',evidence:ownershipEvidence},
+  {instanceId:'machine-location-content-a',evidence:ownershipEvidence}];
+const mapA=buildProgramInstanceProductMapping('child-a',1,['browser'],[ownershipRule],programInstances);
+const mapB=buildProgramInstanceProductMapping('child-b',1,['browser'],[ownershipRule],programInstances);
+assert.notEqual(mapA.childId,mapB.childId);
+assert.deepEqual(mapA.items,mapB.items);
+assert.equal(mapA.items.length,2); // 同产品不折叠实例
+assert.deepEqual(mapA.items.map(item=>item.instanceId),['machine-location-content-a','machine-location-content-b']);
+assert.equal(Object.hasOwn(mapA.items[0],'canonicalName'),false);
+assert.equal(Object.hasOwn(mapA.items[0],'classification'),false);
+assert.equal(buildProgramInstanceProductMapping('child-a',2,['browser'],[],programInstances).items[0].status,'unresolved');
+assert.throws(()=>buildProgramInstanceProductMapping('child-a',1,[],[ownershipRule],programInstances),/PRODUCT_OWNERSHIP_TARGET_MISSING/);
+assert.throws(()=>buildProgramInstanceProductMapping('child-a',1,['browser'],[ownershipRule],[programInstances[0],programInstances[0]]),/INVALID_PROGRAM_INSTANCE_MAPPING/);
+assert.throws(()=>buildProgramInstanceProductMapping('child-a',1,['browser'],[ownershipRule],[{...programInstances[0],productId:'forced'}]),/INVALID_PROGRAM_INSTANCE_MAPPING/);
+assert.throws(()=>buildProgramInstanceProductMapping('',1,['browser'],[ownershipRule],programInstances),/INVALID_PROGRAM_INSTANCE_MAPPING/);
+assert.deepEqual(programInstances.map(item=>item.instanceId),['machine-location-content-b','machine-location-content-a']); // 不修改输入事实
 for (const vector of vectors.cases) assert.deepEqual(legacyShape(resolveApplication(vector.knowledge, vector.childId, vector.evidence, vector.previous)), vector.expected, vector.name);
 assert.equal(safeAutomatic({operator:'any',conditions:[]}),false);
 assert.equal(safeAutomatic({operator:'invalid',conditions:[{field:'binaryHash',value:'hash'}]}),false);
@@ -74,4 +172,6 @@ assert.throws(()=>parseAppEvidence({...aimlabs,values:{distributionKey:'unknown:
 const schema = JSON.parse(readFileSync(new URL('./application-knowledge.schema.json', import.meta.url)));
 assert.equal(schema.additionalProperties,false);
 assert.deepEqual(schema.required,Object.keys(valid));
+for (const platform of [['windows'], {toString:()=> 'windows'}, new String('macos'), null, 0])
+  assert.throws(()=>parseProductOwnershipEvidence({platform,verified:{}}),/INVALID_PRODUCT_OWNERSHIP_EVIDENCE/);
 console.log('classification vectors: '+vectors.cases.length+' PASS');

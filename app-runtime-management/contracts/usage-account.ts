@@ -66,6 +66,21 @@ export interface UsageAccountRowV2 extends UsageAccountRow {
 export interface UsageAccountChunkV2 extends Omit<UsageAccountChunk, 'rows'> {
   rows: UsageAccountRowV2[];
 }
+/** 程序实例基础统计：无产品名称、分类或配额；产品归集另行读取映射。 */
+export interface ApplicationInstanceAccountRow {
+  kind: 'total' | 'subject';
+  hour: number | null;
+  subjectKey: string | null;
+  duration: number;
+}
+export interface ApplicationInstanceAccountManifest extends Omit<UsageAccountManifestV2,
+  'schemaVersion'|'sourceKind'|'childId'|'policyVersions'|'associationVersion'|'correctionVersion'|'applicationUsage'> {
+  schemaVersion: 3;
+  sourceKind: 'application';
+  childId: string;
+  observationResolutionHash: string;
+}
+export const APPLICATION_INSTANCE_STATISTICS_CAPABILITY = 'application-instance-statistics-v1';
 export interface UsageAccountChunk {
   chunkIndex: number;
   rows: UsageAccountRow[];
@@ -393,6 +408,62 @@ export async function createUsageAccountV2(
     chunks.push({ chunkIndex: chunks.length, rows: chunkRows, chunkHash: await hashUsageAccountValue(chunkRows) });
   }
   return { manifest, rows, chunks };
+}
+
+export function parseApplicationInstanceAccountRows(value:unknown,maximum=USAGE_ACCOUNT_MAX_ROWS):ApplicationInstanceAccountRow[] {
+  if(!Array.isArray(value)||value.length>maximum) fail('USAGE_ACCOUNT_INVALID_ROWS');
+  let previous=''; const seen=new Set<string>();
+  return value.map(item=>{
+    const v=exact(item,['kind','hour','subjectKey','duration']);
+    if((v.kind!=='total'&&v.kind!=='subject') || !(v.hour===null||integer(v.hour)&&v.hour<24)
+      || !integer(v.duration)||v.duration>(v.hour===null?86400:3600)) fail('USAGE_ACCOUNT_INVALID_ROW');
+    if(v.kind==='subject' ? typeof v.subjectKey!=='string'||!/^(instance|observation):[a-f0-9]{64}$/.test(v.subjectKey)
+      : v.subjectKey!==null) fail('USAGE_ACCOUNT_INVALID_SUBJECT');
+    const row:ApplicationInstanceAccountRow={kind:v.kind,hour:v.hour===null?null:Number(v.hour),
+      subjectKey:v.subjectKey===null?null:String(v.subjectKey),duration:v.duration};
+    const key=canonicalUsageAccountJson([row.kind,row.hour,row.subjectKey]),canonical=canonicalUsageAccountJson(row);
+    if(seen.has(key)) fail('USAGE_ACCOUNT_DUPLICATE_ROW');
+    if(canonical<previous) fail('USAGE_ACCOUNT_ROWS_NOT_SORTED');
+    seen.add(key);previous=canonical;return row;
+  });
+}
+export function validateApplicationInstanceAccountDimensions(rows:ApplicationInstanceAccountRow[]):{total:number} {
+  const checked=parseApplicationInstanceAccountRows(rows);
+  // 仅复用数值维度守恒检查，不用占位显示名通过旧行解析或写入旧格式。
+  return validateDimensions(checked.map(row=>({...row,category:null,displayName:null})),true);
+}
+export function parseApplicationInstanceAccountManifest(value:unknown):ApplicationInstanceAccountManifest {
+  const fields=manifestFields.filter(key=>!['policyVersions','associationVersion','correctionVersion'].includes(key));
+  const v=exact(value,[...fields,'childId','observationResolutionHash']);
+  if(v.schemaVersion!==3||v.sourceKind!=='application'||v.durationUnit!=='seconds'||!identifier(v.childId))
+    fail('USAGE_ACCOUNT_INVALID_SCHEMA');
+  if(typeof v.observationResolutionHash!=='string'||!hashPattern.test(v.observationResolutionHash)) fail('USAGE_ACCOUNT_INVALID_HASH');
+  const {observationResolutionHash,...header}=v;
+  const validated=parseUsageAccountManifestV2({...header,schemaVersion:2,policyVersions:[],associationVersion:null,correctionVersion:0});
+  const {policyVersions:_policies,associationVersion:_association,correctionVersion:_correction,applicationUsage:_usage,...base}=validated;
+  return {...base,schemaVersion:3,sourceKind:'application',childId:v.childId,observationResolutionHash};
+}
+export async function verifyApplicationInstanceAccountManifest(value:unknown):Promise<ApplicationInstanceAccountManifest> {
+  const manifest=parseApplicationInstanceAccountManifest(value);
+  const {manifestHash,...body}=manifest;
+  if(await hashUsageAccountValue(body)!==manifestHash) fail('USAGE_ACCOUNT_MANIFEST_HASH_MISMATCH');
+  return manifest;
+}
+export async function createApplicationInstanceAccount(
+  header:Omit<ApplicationInstanceAccountManifest,'rowCount'|'chunkCount'|'rowsHash'|'manifestHash'>,
+  inputRows:ApplicationInstanceAccountRow[]) {
+  const rows=parseApplicationInstanceAccountRows([...inputRows].sort((a,b)=>{
+    const left=canonicalUsageAccountJson(a),right=canonicalUsageAccountJson(b);return left<right?-1:left>right?1:0;
+  }));
+  validateApplicationInstanceAccountDimensions(rows);
+  const body={...header,rowCount:rows.length,chunkCount:Math.ceil(rows.length/USAGE_ACCOUNT_CHUNK_ROWS),rowsHash:await hashUsageAccountValue(rows)};
+  const manifest=await verifyApplicationInstanceAccountManifest({...body,manifestHash:await hashUsageAccountValue(body)});
+  const chunks:Array<{chunkIndex:number;rows:ApplicationInstanceAccountRow[];chunkHash:string}>=[];
+  for(let i=0;i<rows.length;i+=USAGE_ACCOUNT_CHUNK_ROWS) {
+    const chunkRows=rows.slice(i,i+USAGE_ACCOUNT_CHUNK_ROWS);
+    chunks.push({chunkIndex:chunks.length,rows:chunkRows,chunkHash:await hashUsageAccountValue(chunkRows)});
+  }
+  return {manifest,rows,chunks};
 }
 /** 网页既有秒分配规则；输入为已确定总量和已生成切片，不负责并集或原账结算。 */
 export function allocateUsageAccountSeconds(slices: ReadonlyArray<{ startMs: number; endMs: number }>, totalSeconds: number): number[] {

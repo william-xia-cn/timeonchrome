@@ -34,6 +34,35 @@
     { "if": { "properties": { "complete": { "const": true } } }, "then": { "properties": { "reasonCodes": { "maxItems": 0 }, "settledThroughMs": { "type": "integer" } } }, "else": { "properties": { "reasonCodes": { "minItems": 1 } } } }
   ],
   "$defs": {
+    "manifestV3": {
+      "description": "程序实例基础秒统计；不携带产品名称、分类或配额投影。",
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion","sourceKind","durationUnit","timezone","date","revision","generatedAtMs","settledThroughMs","algorithmVersion","childId","observationResolutionHash","rawFactCount","rawFactHash","rowCount","chunkCount","rowsHash","complete","reasonCodes","manifestHash"],
+      "properties": {
+        "schemaVersion": {"const":3}, "sourceKind":{"const":"application"}, "durationUnit":{"const":"seconds"},
+        "timezone":{"const":"Asia/Shanghai"}, "date":{"$ref":"#/properties/date"},
+        "revision":{"$ref":"#/properties/revision"}, "generatedAtMs":{"$ref":"#/properties/generatedAtMs"},
+        "settledThroughMs":{"$ref":"#/properties/settledThroughMs"}, "algorithmVersion":{"$ref":"#/$defs/identifier"},
+        "childId":{"$ref":"#/$defs/identifier"}, "observationResolutionHash":{"$ref":"#/$defs/hash"},
+        "rawFactCount":{"$ref":"#/properties/rawFactCount"}, "rawFactHash":{"$ref":"#/$defs/hash"},
+        "rowCount":{"$ref":"#/properties/rowCount"}, "chunkCount":{"$ref":"#/properties/chunkCount"},
+        "rowsHash":{"$ref":"#/$defs/hash"}, "complete":{"type":"boolean"},
+        "reasonCodes":{"$ref":"#/properties/reasonCodes"}, "manifestHash":{"$ref":"#/$defs/hash"}
+      },
+      "allOf":[{"$ref":"#/allOf/2"}]
+    },
+    "rowV3": {
+      "type":"object", "additionalProperties":false, "required":["kind","hour","subjectKey","duration"],
+      "properties": {
+        "kind":{"enum":["total","subject"]}, "hour":{"$ref":"#/$defs/row/properties/hour"},
+        "subjectKey":{"type":["string","null"],"pattern":"^(instance|observation):[a-f0-9]{64}$"},
+        "duration":{"type":"integer","minimum":0,"maximum":86400}
+      },
+      "allOf":[
+        {"if":{"properties":{"kind":{"const":"total"}}},"then":{"properties":{"subjectKey":{"type":"null"}}},"else":{"properties":{"subjectKey":{"type":"string"}}}},
+        {"if":{"properties":{"hour":{"type":"integer"}}},"then":{"properties":{"duration":{"maximum":3600}}}}
+      ]
+    },
     "rowV2": {
       "type": "object", "additionalProperties": false,
       "required": ["kind","hour","category","subjectKey","displayName","duration"],

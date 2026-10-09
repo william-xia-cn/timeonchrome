@@ -4,7 +4,9 @@ import { createHash } from 'node:crypto';
 import { APPLICATION_CHECKPOINT_SECONDS, APPLICATION_RECOVERY_SECONDS, parseApplicationLedgerSegment,
   canonicalApplicationLedgerJson, applicationLedgerSegmentId, verifyApplicationLedgerSegment,
   applicationLedgerKey, splitApplicationLedgerDays, allocateApplicationLedgerHours,
-  applicationLedgerDayStart } from './dist/application-ledger.js';
+  applicationLedgerDayStart, parseApplicationObservationSegment, canonicalApplicationObservationJson,
+  applicationObservationSegmentId, verifyApplicationObservationSegment, programInstanceId,
+  canonicalProgramInstanceJson, parseProgramObservationResolution, applicationObservationSubject } from './dist/application-ledger.js';
 
 const vectors = JSON.parse(readFileSync(new URL('./application-ledger.vectors.json', import.meta.url), 'utf8'));
 const schema = JSON.parse(readFileSync(new URL('./application-ledger-v3.schema.json', import.meta.url), 'utf8'));
@@ -21,6 +23,52 @@ assert.equal(APPLICATION_CHECKPOINT_SECONDS, vectors.rules.checkpointSeconds);
 assert.equal(APPLICATION_RECOVERY_SECONDS, vectors.rules.estimateSeconds);
 const base = vectors.hashVector.segment;
 const before = JSON.stringify(base);
+const observed={...base,schemaVersion:4,application:{platform:'windows',observationRef:'1'.repeat(32)}};
+observed.id=await applicationObservationSegmentId(observed);
+assert.deepEqual(observed,vectors.observationHashVector.segment);
+assert.equal(canonicalApplicationObservationJson(observed),vectors.observationHashVector.canonical);
+const observationSchema=JSON.parse(readFileSync(new URL('./application-ledger-v4.schema.json',import.meta.url),'utf8'));
+assert.equal(observationSchema.properties.schemaVersion.const,4);
+assert.deepEqual(observationSchema.properties.application.required,['platform','observationRef']);
+assert.equal(observationSchema.properties.application.additionalProperties,false);
+assert.deepEqual(await verifyApplicationObservationSegment(observed),observed);
+assert.notEqual(observed.id,base.id);
+assert.throws(()=>parseApplicationLedgerSegment(observed),/APPLICATION_LEDGER_INVALID/);
+assert.throws(()=>parseApplicationObservationSegment(base),/APPLICATION_LEDGER_INVALID/);
+assert.throws(()=>parseApplicationObservationSegment({...observed,application:{...observed.application,productId:'claimed'}}),/APPLICATION_LEDGER_INVALID/);
+assert.throws(()=>parseApplicationObservationSegment({...observed,durationSeconds:180.1}),/APPLICATION_LEDGER_INVALID/);
+assert.throws(()=>parseApplicationObservationSegment({...observed,application:{...observed.application,observationRef:'C:/private'}}),/APPLICATION_LEDGER_INVALID/);
+await assert.rejects(verifyApplicationObservationSegment({...observed,childId:'another-child'}),/APPLICATION_LEDGER_INVALID/);
+assert.equal(createHash('sha256').update(canonicalApplicationObservationJson(observed)).digest('hex'),observed.id);
+const descriptor={machineId:'machine-a',platform:'windows',locationRef:'2'.repeat(32),executableSha256:'a'.repeat(64)};
+const instance=await programInstanceId(descriptor);
+assert.deepEqual(descriptor,vectors.programInstanceVector.descriptor);
+assert.equal(instance,vectors.programInstanceVector.id);
+assert.equal(createHash('sha256').update(canonicalProgramInstanceJson(descriptor)).digest('hex'),instance);
+for(const change of [{machineId:'machine-b'},{locationRef:'3'.repeat(32)},{executableSha256:'b'.repeat(64)}])
+  assert.notEqual(await programInstanceId({...descriptor,...change}),instance);
+await assert.rejects(programInstanceId({...descriptor,childId:'child-a'}),/APPLICATION_LEDGER_INVALID/);
+await assert.rejects(programInstanceId({...descriptor,path:'C:/private/app.exe'}),/APPLICATION_LEDGER_INVALID/);
+const observedBefore=JSON.stringify(observed);
+await programInstanceId(descriptor); // 内容确认在原账之外，不改变原账字节或ID。
+assert.equal(JSON.stringify(observed),observedBefore);
+const resolution={observationRef:observed.application.observationRef,instance:descriptor};
+for (const platform of [['windows'], {toString:()=> 'windows'}, new String('macos'), null, 0]) {
+  assert.throws(()=>parseProgramObservationResolution({...resolution,instance:{...descriptor,platform}}),/APPLICATION_LEDGER_INVALID/);
+  assert.throws(()=>parseApplicationObservationSegment({...observed,application:{...observed.application,platform}}),/APPLICATION_LEDGER_INVALID/);
+}
+assert.deepEqual(parseProgramObservationResolution(resolution),resolution);
+assert.notEqual(parseProgramObservationResolution(resolution).instance,descriptor);
+const unresolvedSubject=await applicationObservationSubject('machine-a','windows',resolution.observationRef);
+assert.match(unresolvedSubject,/^observation:[a-f0-9]{64}$/);
+assert.notEqual(await applicationObservationSubject('machine-b','windows',resolution.observationRef),unresolvedSubject);
+assert.equal(await applicationObservationSubject('machine-a','windows',resolution.observationRef,resolution),`instance:${instance}`);
+assert.equal(await applicationObservationSubject('machine-a','windows','4'.repeat(32),{...resolution,observationRef:'4'.repeat(32)}),`instance:${instance}`);
+await assert.rejects(applicationObservationSubject('machine-b','windows',resolution.observationRef,resolution),/APPLICATION_LEDGER_INVALID/);
+await assert.rejects(applicationObservationSubject('machine-a','macos',resolution.observationRef,resolution),/APPLICATION_LEDGER_INVALID/);
+await assert.rejects(applicationObservationSubject('machine-a','windows','5'.repeat(32),resolution),/APPLICATION_LEDGER_INVALID/);
+assert.throws(()=>parseProgramObservationResolution({...resolution,instanceId:instance}),/APPLICATION_LEDGER_INVALID/);
+assert.equal(JSON.stringify(observed),observedBefore,'解析只关联事实，不覆盖原账');
 assert.equal(canonicalApplicationLedgerJson(base), vectors.hashVector.canonical);
 assert.equal(createHash('sha256').update(vectors.hashVector.canonical, 'utf8').digest('hex'), base.id);
 assert.equal(await applicationLedgerSegmentId(base), base.id);

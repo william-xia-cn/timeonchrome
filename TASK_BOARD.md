@@ -1,5 +1,51 @@
 # TASK_BOARD
 
+## 2026-10-09 应用身份分阶段实施：待完成问题登记
+
+本条覆盖下文“仅讨论规则”的旧阶段状态。PO要求先登记、再连续分阶段执行；历史尽力而为，不追求完整迁移，不猜补或恢复已退出旧账。
+
+| 待完成项 | 已定位依据 | 责任／完成条件 |
+|---|---|---|
+| 程序实例标识 | Native WindowsApplicationIdentityDeriver混合包、签名、哈希及名称，不含位置 | Native：机器＋位置＋内容；扫描与运行共用异步证据和缓存；未知不阻断落账 |
+| 新旧契约边界 | application-ledger.ts严格校验字段，runtimeIdentity参与v3原账哈希 | 当前任务：不原地改旧字段语义；固定实例引用与共同用例，再由Native适配 |
+| 集中规则及孩子映射 | applicationIdentityProjection.ts按包／文件哈希先关联技术对象 | 当前任务：云端唯一匹配；实例不因同产品合并；规则跨孩子复用、结果按孩子隔离 |
+| 基础统计与产品归集 | ApplicationChildStatisticsReader混合基础事实、产品投影与名称 | Native基础统计、当前任务云端读取：识别失败不丢时长，产品名称不修改原账 |
+| 未识别管理及纠错 | 概念已确认，入口待改造 | 当前任务：人工修正规则、不直接改映射；缺证据保持未知 |
+| Windows贯通验证 | 旧模型实机结果不证明新模型通过 | 集中一次候选：安装应用、同产品不同位置、专用辅助、未知对象及孩子隔离 |
+| Mac与旧数据 | 新模型适配／实机证据缺失 | 所属端分别登记；历史尽力而为，不阻塞Windows新链路 |
+
+- **顺序：** 契约与共同用例→Native实例／统计及云端规则／映射／读取→集中联调。批内不逐零件发包，不重复要求PO继续。
+- **Native已下发实施，不再停留审核：** 本地契约1.40.0包SHA-256为ac64f23574b899f23897bb130494f0ffcc48583f8796e9f769b3bca1e3cafe72，build、compatibility、classification、application-ledger、usage-account聚焦校验通过，tar清单确认新schema/编译输出/向量。已向现有TimeWhere Native Host交付固定包，要求原账v4→实例/解析→schema3基础统计及真实Service事务接线与隔离测试；不制中间安装器、不装、不部署。当前任务继续云端schema3接收和产品归集；Native收到任务不等于已实施或通过。package-lock任务级例外仅同步workspace契约版本，旧包保留。
+- **基础统计格式已补齐：** 复核Native仍停在等待固定契约、未实施；本轮补usage-account schema3实例基础统计（Child＋整数秒＋instance/observation主体，不含产品名称／分类／配额），保留已有manifest/chunks传输结构，未新增原账发送。共同Schema与黄金hash已写入既有契约文件；build、usage-account及application-ledger聚焦测试通过，验证未知主体有效、明细240不替代并集180、解析后原始事实hash不变、旧格式拒绝新字段。此为契约阶段，尚未加入云端生产接收、统计读取或Native消费；下一步集中打包并交Native接线，同时补云端schema3接收与独立产品归集。不能把本轮函数／黄金向量通过称为链路完成。
+- **目录保存服务已接入隔离链路：** saveProgramInstanceCatalog复用Knowledge版本／审计表，以ETag条件保存、服务端递增版本，目录和审计同批提交；拒绝越界孩子及借身份编辑新增强化封锁。映射生成／读取测试已从手写SQL目录改为调用此保存服务。typecheck及7项聚焦D1测试通过，包含并发同版本只成功一次、审计冲突整批回滚、保存不改政策或映射。Matched为保存→规则物化→读取的隔离链路；Missing仍为管理HTTP及旧消费者切换、自动重建触发、Native和实机。未接生产写入口、未提交／部署；无新增审批项。
+- **映射读取共用契约已接线：** 新增请求／响应类型及严格解析，Worker已改为使用同一契约。响应逐项匹配请求实例、孩子和分配，确认产品必须来自同次目录；缺项、重复、跨范围、过期结果误带产品均拒绝，名称不进入原账。契约build、classification与application-ledger测试、backend typecheck及6项隔离D1测试通过。目录写入仍调用旧selectors政策投影，已确认须连同消费者切换，不能直接写schema4后沿用旧解析。当前未发布新契约包；Native接线和实机仍缺，不能标记全链路完成。
+- **职责／范围：** architecture-integration／standard-cloud；当前任务修改现有文档、契约、Runtime云端；Native本机由原所属会话实施，不越界改扩展。复用现有分支／工作树，无新治理文档。
+- **验证：** 先文档一致性和git diff --check；代码阶段仅实例／规则／隔离／未知保留与实际消费者聚焦测试、typecheck。网页计时、全平台和安装器测试排除；源码、测试、部署、实机分别记录。
+- **状态：** 待办已登记，契约草稿、机器登记HTTP入口、持久规则映射生成及机器映射读取已实现并通过隔离测试；Native真实消费者、目录管理切换和实机尚未完成。无安装、部署、清账、生产migration或共享启用；现有生产包不包含这些未提交改动。
+- **映射读取收口：** POST program-instances/mappings/read经已有机器鉴权，只读取当前用户最新有效孩子分配下已登记的实例；授权、目录及映射采用同一D1批次。目录／证据更新后旧映射返回pending且不携带旧产品，未识别与待更新分开；名称来自同次产品目录，不复制进原账。backend typecheck、6项program-instances隔离D1测试及git diff --check通过，包括真实路由读取、改名／撤销／证据更新、跨家庭、未知实例、重复输入及改绑后旧范围拒绝。Matched：本次有界读取；Missing：正式共享契约输出格式、目录写入消费者切换、物化触发、Native与统计／管理页面接线及实机；Deviated／Extra：无。下一步先补齐上述契约和目录切换，不产生中间安装包。
+- **本次续接核验：** 观测解析关系及基础统计主体选择已补齐；未解析保留独立主体，解析后只重建派生版本，不改原段。实例、证据及v4解析拒绝对象／数组伪平台，移除新解析中的强制类型转换。契约build、application-ledger.test.mjs和classification.test.mjs通过；旧v3黄金哈希及8项网页日／小时实际纯函数对照仍通过。Matched仅指当前契约函数；Missing为统计同步格式、真实接收持久化、两端消费者及实机贯通。下一阶段集中补齐统计／实例传输契约并交Native实现，不把本次聚焦测试当成链路验收。
+- **实例登记输入已补齐：** 孩子／用户／分配范围的有界增量批次，实例描述与证据分开，服务器授权范围独立传入校验。聚焦用例证明跨孩子／用户／机器／分配拒绝、证据平台及文件hash冲突拒绝、相同内容不同位置保留两项、重复实例拒绝、空证据合法且不改输入。build及两个契约测试通过。仍未接HTTP鉴权或持久化，不把范围比较当作真正认证；后续必须由真实机器鉴权和历史分配查询提供scope，不得用请求自填。未提交、未发布包。
+- **持久化结构已进入实现：** 已核实0008旧盘点表没有Child范围、版本化Knowledge只适合目录／规则，不能混用。新增0017开发脚本分别保存实例证据、历史分配确认的孩子范围及唯一规则映射；旧表／原账未修改。仅在内存SQLite执行0003＋0017，验证范围不匹配拒绝、改绑不搬旧范围、同实例不同孩子映射独立、重复映射和错误状态拒绝；`node test/program-instance-storage.test.mjs`及diff check通过。此证据仅为SQL约束，尚缺HTTP鉴权、证据版本替换事务和D1入口测试；未执行任何本地持久数据库或生产migration。0017须在最终生产发布范围中明确列出，不能随本轮测试自动应用。
+- **登记服务及D1事务已验证（覆盖上条相应缺项）：** programInstances.ts新增真实D1登记服务，重新查询机器家庭／平台／撤销及历史分配后解析输入；证据＋范围原子保存，事务内读取实际版本返回ACK。同版本冲突触发整批回滚；旧版重放返回实际较新版本、不覆盖。`npx vitest run test/program-instances.test.ts`三个隔离D1用例通过，包含跨家庭／孩子／用户拒绝、重复／迟到／更正、半批回滚、改绑后双孩子范围独立；backend typecheck和内存SQLite结构检查通过。Missing仍为HTTP路由、能力声明、规则生成及Native调用，不声称完整鉴权HTTP链通过；无生产操作。
+- **HTTP入口已接通（覆盖上一条路由缺项）：** GET program-instances/capabilities仅在0017所需表／约束存在时声明登记能力；POST program-instances复用requireMachine和有界JSON读取。四个聚焦D1测试通过，新增实际routeV2 Request→令牌认证→历史分配→事务→ACK与数据库逐项核对，验证无凭据、错误孩子、错误方法、超限请求、撤销机器。typecheck及diff check通过。此为隔离Worker/D1请求证据，不是生产或Native实机；下一项为规则目录新版读写、实例映射生成及读取，统计新格式与Native消费者仍待接线。
+- **新版目录及持久映射：** 新增明确schema4目录解析：products不再有selectors、ownershipRules唯一归属来源，原分类rules／bindings保留；旧解析拒绝新格式，不伪造selector兼容。materializeProgramInstanceMappings已从持久目录和已核验孩子实例范围生成并保存第三层，SQL写入核对当前目录版本及证据版本／摘要，不让在途旧计算覆盖新依据。契约build／分类与原账测试、backend typecheck、5项隔离D1测试及diff check通过；实证改名保持productId、撤销规则恢复未识别、跨孩子拒绝，实例证据版本不变。目录写入／消费者切换、后台触发、分页读取、Native及统计格式仍待接线；当前隔离测试直接存入合成目录，不冒称家长管理入口已完成。未发布契约、未部署0017或产品。
+- **第一阶段实际进展：** 现有classification契约加入独立ProductOwnershipRule／Evidence／Result及resolveProductOwnership；不带Child、分类或显示名，拒绝孩子例外和同ID重复规则。覆盖精确文件、完整AUMID、Windows已验证文件系列、Mac签名者＋签名标识；同产品多规则合流，异产品冲突，停用／删除返回未识别。契约build及classification.test.mjs通过（原26共同向量及新增17个断言）；首次普通沙箱build因D盘dist写权限EPERM未完成，经受控授权重跑成功，不是代码测试失败。尚未接生产入口／发布新包，不以纯函数通过称为链路完成。Native原会话已确认正在核对实例、原账及统计消费者接线。
+- **第三层契约进展：** buildProgramInstanceProductMapping已加入，逐实例生成孩子范围结果，引用规则集版本，不复制名称／分类；同产品两实例保留两行，拒绝悬空产品、重复实例及直接productId覆盖。新增12个断言验证跨孩子规则复用、结果隔离、撤销与输入不变；build和原分类聚焦测试再次通过。Matched仅为规则／映射纯函数；Missing仍为真实鉴权接收、持久化、采集及统计／管理消费者接线和实机证据，未开启新生产路径。
+- **持久化接线核查与输入边界：** applicationKnowledge.ts已有版本化JSON、条件更新和审计事务，可复用；但effectiveApplicationKnowledge会注入内置产品，policyStatements仍调用旧selectors投影，不能只把新规则追加进去称为单一来源。下一批需集中替换新格式对应的读取／写入／策略消费者，旧格式显式隔离。证据解析已拒绝路径、自报productId、跨平台字段及非哈希摘要，空证据合法；映射批量生成改为只校验一次规则集。新增7个证据断言及build／classification测试通过。Native会话仍active但最新进展转为另一个Mac同步任务，已要求保留本项核查回报、不打断其他任务；本项Native结论尚未收到，不冒称已完成。
+- **实际接线待改范围已收敛：** syncApplicationInventory当前按machine/localUser/runtimeIdentity存证据；listApplicationInventory读取家庭范围，policyStatements把同一证据集传给各孩子。新第三层不可直接沿用此输入：先取得该孩子的实例范围，再匹配可复用规则；扫描证据不自动赋予所有孩子实例管理记录。当前应用页面读取applicationAccounts发布的持久统计，不直接调用application-ledger.ts原账解析；不能把新增原账类型当成云端统计已接通。下一步须同Native一起固定实例观测／原账引用／统计subject三处交接，再集中接云端写入、映射和读取。Mac同步任务已结束，Native当前重新核查本项；仍无最终结论。
+- **Native第一阶段回报已收到（覆盖“尚无结论”）：** main@ffe0eb2静态核查确认身份进入原账canonical及foreground lane，不能事后覆盖；首次缺hash须不可变观测引用，后续解析关系独立。真实事务入口为RuntimeServiceCoordinator→MachineAccountingSession→MachineSegmentLedger，现有异步队列与probe可变路径尚不保证观测绑定；需原子观测及共用缓存。raw outbox无直接发送者，实际上传冻结统计manifest/chunks。已将引用选择及真实链路写入docs/DESIGN；下一步集中完成新格式与统计主体契约后交Native实现，不新建原账云上传。仍属静态证据，未冒称新模型实测通过。
+- **新原账引用契约已编码：** application-ledger.ts新增独立v4解析／canonical／hash／校验及机器＋平台＋本机opaque位置引用＋可执行文件hash的实例ID生成；旧v3和时间函数未修改。新增v4 JSON Schema，现有vectors保存固定新段与实例黄金值，原账及分类聚焦测试／build通过。确认缺产品仍可解析、Child改变使原账hash不同但不进入实例ID、位置或内容改变产生不同实例、v3/v4互不冒充、原输入不修改。Native最终直接消费者与可复用测试清单已收到，静态审核结束；待完成实例登记／解析关系及统计subject同步契约后集中交付固定包，未发布1.39.1新内容、未安装、未启生产新格式。
+
+## 2026-10-09 程序实例与应用身份三层模型（本层概念设计已固定，产品代码尚未改造）
+
+- **已确认并登记：** 程序实例（此前称代码实例）＝机器＋指定位置＋实际执行文件固定内容；原账与基础统计独立于产品识别；扫描/监测提供证据，规则生成映射，人工修正规则或原则而非直接改映射；未识别≠未归类；增加未识别程序实例管理层。完整口径见app-runtime-management/docs/DECISIONS.md的2026-10-09条款，根DECISIONS.md保留统一入口。
+- **实际状态：** 定义已确认，现有runtimeIdentity与新定义不等同；两仓代码、契约、存储和UI尚未按新定义完成核对或改造。此前名称选源补丁不等于此结构已实现；下文2.6.40/2.6.41记录仅为此前阶段证据，不作为本轮新的安装指令或当前版本核验。
+- **本轮收口：** 第一层产品归属原则由代码约束；第二层产品归属规则表跨Child ID复用、可宽可窄且无孩子特例；第三层程序实例产品归属表按Child ID隔离、仅规则生成，不手改、不自动反向改规则、不另建同义结果。Child ID不进入实例定义或识别依据。纠错区分依据/执行错误与规则/原则缺失，修正后重建映射；未识别合法、不猜配。此前人工直接确认映射的表述明确被取代。保留产品边界、原账独立及历史归集/分类分离原则。
+- **下一步：** 仅讨论第二层规则如何建立和表达。表结构、匹配算法、修订发布流程、同步协议、实例实现、历史数据处理与UI均未决定，不提前实施。
+- **上位产品原则已补齐：** 辅助工具而非严格监管；可靠性、可恢复性、性能与使用体验优先。识别后台进行、缓存优先、有界重试、低频补扫与运行时补漏；接受文件变化发现延迟，不每次启动全量哈希，不猜补历史替换时刻或改写原账。原账独立、Child隔离、防重复与未知如实表达的底线保留，不扩大猜测性强制封锁。
+- **尚未确认的讨论建议：** “产品特征规则＋确定文件规则”的具体分类、匹配冲突处理及人工审核建规机制仍待讨论，不将上一轮建议视为已批准实现，也不据此修改代码。
+- **本次范围与检查：** architecture-integration，纯文档对齐；仅根DECISIONS.md、TASK_BOARD.md及App Runtime现有决策文档。逐条对照已确认定义及git diff --check；无产品测试、CI发布或部署smoke需求。不改代码、数据、Native、扩展、分支或工作树，不安装、不部署、不启共享。
+
 ## 2026-10-07 Native新版统计名称丢失（2.6.40已安装／Windows链路通过，名称选源修复2.6.41待安装／Mac单列）
 
 - **最终名称选源补丁与唯一候选：** Native已集中推送`2829482b4f8bf560f7de4221d651e53a4d86b4e9`，只改Windows默认展示名为安全FileDescription→安全实际stem→安全ProductName；明确安全安装名保持。Reader及ModelVersion无diff，不加入分类名前移回退；产品/技术身份/分类/原账/秒数/队列均未改变。最终162项唯一聚焦通过（新增11项，含实际文件→库存→Reader/Store的守恒、新revision及出队），必要Service/Agent/Manager编译通过。唯一内部未签名候选2.6.41由此固定SHA生成，安装器SHA-256`70d80df8edbf0d2890f18f8958ce73f2d4b30a375c5b0b90d59ea6a914d49ae7`、manifest SHA-256`5eb91c7bc134631ba4352aa3569d8ff2776253f54973af65e38b71e1a40f06bd`由当前会话独立回算一致；Native报告固定`ffe0eb2b8ddec411bf8e3fb6c2d78dd5b1aad0ea`，13发布组件及11MSI持久组件版本/哈希核验通过。当前正式安装仍2.6.40，未启动安装器/UAC/热换Service，不部署未变云端，不操作R2/latest/共享。新名称仅在目标正常重新观测、文件可读、精确身份匹配并库存ACK后自然生成新派生版本；未再出现的历史主体不猜填。Matched＝最小源码/聚焦/候选；Missing＝2.6.41安装后的名称实读、原共享Mac名称任务实机回执。下文“修订中”保留为本轮前序定位记录，不作新待开发项。
