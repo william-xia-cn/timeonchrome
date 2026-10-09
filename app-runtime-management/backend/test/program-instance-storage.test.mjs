@@ -3,6 +3,12 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
+// D1远程分割器可能把裸CASE的END误认作trigger结束（workers-sdk#4727）。
+const installationSql = readFileSync(new URL('../migrations/0021_runtime_program_installation_links.sql', import.meta.url), 'utf8');
+assert.equal((installationSql.match(/SELECT \(CASE WHEN/g) || []).length, 2);
+assert.equal((installationSql.match(/ END\);/g) || []).length, 2);
+assert.doesNotMatch(installationSql, /SELECT CASE WHEN/);
+
 const db = new DatabaseSync(':memory:');
 try {
   db.exec('PRAGMA foreign_keys=ON');

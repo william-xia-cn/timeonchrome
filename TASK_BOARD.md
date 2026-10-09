@@ -2,6 +2,8 @@
 
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
+生产run37980792222：master c7b1411精确CI通过，0017–0020已应用；0021在D1远程解析报incomplete input，后续四资源均未部署。只读核实pending仅0021且其表/索引/trigger均不存在，失败已回滚。触发器含未括起CASE..END，符合Cloudflare workers-sdk#4727记录的远程分割缺陷；本地SQLite/Worker测试不复现远端解析。最小修订仅为两处CASE加括号，不改变条件、错误码或表结构；固定语法回归与安装引用34项复验后，沿现有分支PR合并，发布只预期0021，禁止重放0017–0020。
+
 PO明确批准职责检查最小修订：本批架构集成与标准云端可共同声明。新增且仅允许architecture-integration附加standard-cloud，既有单职责不变；扩展、Native、Task、Santa仍拒绝直接修改，公共文件仍需精确例外。不改变产品测试、生产审核、来源合并证明或部署授权。先补正反固定用例，再继续PR #248发布。
 
 上述测试入口复验：publication 82/82与独立SQLite通过；typecheck发现目录测试request默认UUID导致参数被推为UUID模板类型，补显式string以保留“另一孩子”拒绝用例。仅测试夹具类型，不改变接口Child校验或产品代码。
