@@ -4,6 +4,28 @@
 
 ### 当前收口清单（覆盖下方各阶段的旧待办状态）
 
+- **盘点隔离补验结果（2026-10-10）：** 新增实际机器认证inventory v2上传后回读用例通过：同内容不同位置的2实例保持独立、规则确认产品名称不被旧盘点名称覆盖、scope数量不增且未分配孩子仍为空。program-instances23/23及backend typecheck通过；首命令因D盘测试缓存写权限未启动，限定本地隔离权限后通过，不是断言失败。此证据仅证明两套事实不会隐式猜接，不代表安装事实引用／安装筛选已实现。Cloudflare／Worker技能审查复用现有鉴权、绑定SQL及事务，不改生产逻辑。本批仅测试及既有设计／任务记录，未安装部署。
+
+- **盘点与新映射隔离补验（实施前）：** standard-cloud，仅在现有program-instances专项增加真实机器认证盘点上传→既有新实例目录回读，验证旧同hash／旧名称条目不会覆盖规则确认产品、合并不同位置或增加未授权孩子scope。复用旧盘点存储，不新增产品真值或通过hash猜安装引用；本项不实现安装筛选。最小测试为该文件、typecheck、diff，不运行无关产品测试、不部署或迁移；Cloudflare／Worker技能用于事务及鉴权边界核对。
+
+- **控件本次单次复验失败，未交付（2026-10-10）：** 降级周读取后`currentBaseDays: currentBase.days`仍访问null，专项中途停止；不是原账或生产故障。根任务只读同时查出后续旧错误码断言与新context_changed不一致、分页断言未区分选定日和本周两个范围。已交所属端一次核对全部分支并保留强身份校验；本次授权已消耗，不自动再次运行。已集中申请本专项必要修复／复验收口授权，其余Native工作继续；不提交未通过实现，不安装发布。
+
+- **Native运行批次集中提交已核验：** 本地`0ed81fd`共13文件，包含正式运行采集／运输／Service／持久证据与专项；当前树仅保留原有未跟踪`__pycache__`。当前1.45与上一1.44各23项通过，不累计为46个独立案例。OS签名／AUMID采集为源码核对，专项注入证据验证后续管道，不等于真实采集矩阵已验收；本批未安装部署。扫描独立登记继续由同一活跃Native任务处理，安装引用及强化兼容仍未关闭。
+
+- **控件专项复验已获单次授权（2026-10-10）：** PO明确允许补跑一次`application-identity-usage-read-model.test.js`，已交原TimeOnChrome-Extension任务；下方“待批准”记录为旧状态，尚未取得本次通过结果。所属任务已回报运输层、Admin渲染及桌面／手机隔离目视通过，根任务核对当前源码和任务板一致，未将回报冒称真实安装验收。只读发现待核实两点：附加本周读取异常会抛弃已成功选定日期结果；baseRows缺席实例的完整性读取少一层base。要求最小修复、纳入本次专项，同时孩子／连接失效仍拒绝旧结果，不跨范围复用。仅原树源码与隔离测试，集中本地提交，不打包安装或发布。
+
+- **运行证据专项最新回读（2026-10-10）：** Native `.tmp/runtime-evidence/runtime-evidence.trx` 及 `runtime-evidence-previous.trx` 当前／上一兼容包实际均23/23通过（覆盖此前22项结果，并补运行盘点调度保持包上下文）。逐项确认包含正式运行调度→运输→Service→SQLite→冻结ACK、首次ACK删除后晚到证据重新入队及旧ACK不确认新版、同实例跨用户两种先后顺序共享快照版本、缺字段保留／冲突／明确撤回。首次新增4项中3项因隔离数据库目录缺失失败，修正夹具后以上正式专项通过；不将首次失败隐去。源码现以证据序号确认，并保留有界已登记运输凭据供晚到增强重新入队，未登记扫描对象仍拒绝。Matched仅为本批隔离链路，安装扫描实际接线、安装事实关联、强化兼容及实机仍Missing；Native原会话持续工作，不需重新安装或重启任务。
+
+- **晚到增强运输缺口（运行批次交叉核对）：** Agent实际persistResolution仍调用RecordAsync(capture,true)，初始ACK后FinishAsync删除该ref行；pipeline的acknowledged仅按ref记录，PrepareCaptureAsync不再持久化已ACK引用。当前草稿因此可能丢弃同代际后到的强证据（onlyExisting=false返回被忽略）。已通知Native集中覆盖首次binary ACK删除→晚到强证据→再入队／上传，以及旧ACK晚到场景；不能通过无条件发送未登记扫描观测绕开范围。未部署代码，不宣称生产已发生；待正式回归证明修复。
+
+- **运行证据修订回读（源码草稿，未验收）：** Native已改同(machine,instance)的evidence_head与候选集合，向各授权scope复制相同revision/hash而非各自递增；二次增强的prior不再设无效sequence=0，history副本表已移除。运行入口传实际包身份，后台复核进程/文件代际并读取签名系列，已知内容复用hash；packageContexts随有界路径缓存淘汰。当前仅确认这些源码差异存在，正式采集→Store→冻结ACK与多用户测试结果尚待，不把修订存在写成修复通过。Native原任务仍活跃，不重启、不另发安装包。
+
+- **强化测试证据补充：** 已回读ProgramInstancePolicyTests约54–71行，除检测函数外还明确断言切换后SetPolicy及Withdraw不恢复旧ProductBlockActive。因此可证明旧路径被关闭，不能证明强化功能已迁移；缺的是正式Coordinator切换前后有强化设置时仍保持获批功能的端到端隔离证据，而不是笼统“完全没有测试”。
+
+- **强化兼容缺口已定位（只读，2026-10-10）：** Native ProgramInstancePolicyBuilder.HasUnmigratedSuspectedPolicy检查旧策略suspectedMatchers；Coordinator约1626行在首次切换前阻止新模式，已下发后遇到该条件则发送Ready=false的空动作。Agent接纳后保持instanceConsumer；WindowsBlockedApplicationEnforcer约84–88行仅运行新实例或旧产品路径之一，IsProductBlockActive也在新模式返回false。因此“已切换后出现旧强化设置”尚无恢复旧强化执行的实现证据，不能宣称迁移覆盖。现有ProgramInstancePolicyTests只覆盖检测函数真假，不证明该转换；新schema4保存仅允许原有强化线索保留，不代表Native已消费。列入原强化迁移待办，须覆盖首次带强化、切换后新增／恢复／撤销、断线重连及单次动作；不允许将疑似执行命中写成确定产品身份。本轮只定位，不改终止逻辑或真实设置，不把开发分支缺口称已证实生产故障。
+
+- **Native运行证据草稿交叉核对（2026-10-10，未提交代码，不是生产故障）：** 当前EnqueueResolved按用户候选及scope独立revision，与云端(machine,instance)单一证据版本不一致，两个用户同实例可能同版异hash／覆盖；已交原Native任务统一实例快照和版本，Child授权scope仍独立。另外Store将非空候选构造为sequence=0后调用会拒绝该状态的Validate，须覆盖第二次增强正式Store路径；冻结ACK已有revision/hash条件，新history表须说明必要性，避免无限重复历史。原任务仍活跃实施，未安装／上传新代码；本项不扩展旧账或新的归属规则。
+
 - **扫描登记接收边界补验结果：** program-instances 22/22、backend typecheck及diff通过。新增用例实际机器认证路由→持久证据→规则映射→孩子目录读取，无应用统计清单时成功；同实例两个孩子必须分别有分配／登记，越界Child拒绝，重复上传保持1实例／2scope。Matched＝已有云端接收可复用及范围隔离，不需新增扫描上传接口；Missing＝Native扫描调度真实接线、安装事实显式引用、实机。此测试不证明本机未生成原账，由Native专项检查；本批只集中提交测试、设计和任务板，不部署安装。Cloudflare／Worker技能核对绑定参数与事务，未改云端生产逻辑。
 
 - **扫描无用量登记云端补验（实施前）：** standard-cloud，仅补program-instances隔离专项，实际机器认证路由登记→映射→孩子目录读取，验证无统计／原账前置、同实例不同孩子分别登记、未授权范围拒绝和重复登记不复制实体。最小运行该文件及typecheck、diff；不修改生产接收逻辑或新增线上协议。Cloudflare／Worker技能用于接收边界与参数化D1核对，不开展无关全面审查。

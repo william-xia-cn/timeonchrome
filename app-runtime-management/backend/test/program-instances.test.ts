@@ -309,6 +309,41 @@ it('家长实例列表按孩子隔离、分页不重项，规则过期不展示�
   expect((await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,value.childId,null)).items
     .every(item=>item.status==='unresolved'&&item.product===null)).toBe(true);
 });
+it('旧安装盘点不覆盖新产品映射，也不按同hash合并不同位置实例',async()=>{
+  const {machine,value,token}=await fixture();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machine_users_v2
+    (machine_id,local_user_id,display_name,first_seen_at_ms,last_seen_at_ms) VALUES(?1,?2,'测试用户',0,0)`)
+    .bind(machine.machineId,value.localUserId).run();
+  await saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId],'"application-knowledge-v0"',{
+    schemaVersion:4,version:0,products:[{id:'p',name:'规则确认产品',type:'other'}],rules:[],bindings:[],
+    ownershipRules:[{id:'r',revision:1,enabled:true,platform:'windows',productId:'p',
+      match:{kind:'binaryHash',sha256:'a'.repeat(64)}}],
+  },1);
+  const receipt=await registerProgramInstances(env.RUNTIME_DB,machine,{...value,items:[value.items[0],{
+    ...value.items[0],instance:{...value.items[0].instance,locationRef:'2'.repeat(32)},
+  }]},2);
+  await materializeProgramInstanceMappings(env.RUNTIME_DB,machine.accountId,value.childId,
+    receipt.items.map(item=>({machineId:machine.machineId,instanceId:item.instanceId})));
+  const before=await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,value.childId,null);
+  expect(before.items).toHaveLength(2);
+  expect(new Set(before.items.map(item=>item.instanceId)).size).toBe(2);
+  expect(before.items.every(item=>item.status==='confirmed'&&item.product?.name==='规则确认产品')).toBe(true);
+  const body={schemaVersion:2,batchId:'scan-legacy-independent',products:[],variants:[{
+    localUserId:value.localUserId,variantKey:'legacy-same-content',variantRole:'main',scope:'user',
+    sourceKind:'start-menu-user',status:'installed',evidence:{platform:'windows',runtimeIdentity:'legacy-same-content',
+      displayName:'与目录不同的旧扫描名称',values:{binaryHash:'a'.repeat(64)},verifiedFields:['binaryHash'],
+      discovery:{role:'application',nameSource:'appList',sourceKinds:['shortcut'],objectKind:'variant',
+        variantRole:'main',scope:'user',sourceKind:'start-menu-user',evidenceLevel:'strong'}},
+  }]};
+  const response=await routeV2(new Request('https://runtime.test/v2/machines/application-inventory',{
+    method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body),
+  }),env,3);
+  expect(await response!.json()).toMatchObject({status:'accepted',acceptedCount:1});
+  expect(await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,value.childId,null)).toEqual(before);
+  expect((await listChildProgramInstances(env.RUNTIME_DB,machine.accountId,'unassigned-child',null)).items).toEqual([]);
+  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_program_instance_scopes_v1 WHERE machine_id=?')
+    .bind(machine.machineId).first('n')).toBe(2);
+});
 it('无使用清单也可登记实例，同实例的两个孩子范围独立且不凭机器共享',async()=>{
   const {machine,value,token}=await fixture(),secondChild=crypto.randomUUID();
   const catalog={schemaVersion:4,version:0,products:[{id:'p',name:'应用',type:'other'}],
