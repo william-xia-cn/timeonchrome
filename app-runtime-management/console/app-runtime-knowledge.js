@@ -57,6 +57,19 @@
     }
     return {catalog,unconverted,requiresReview:true};
   }
+  function legacyResolutionValid(item,catalog){
+    const review=item.resolution;
+    return !!review&&typeof review.reason==='string'&&review.reason.trim().length>0
+      &&catalog.ownershipRules.some(rule=>rule.enabled&&rule.productId===item.productId
+        &&rule.platform===item.selector.platform&&JSON.stringify(rule)===JSON.stringify(review.rule));
+  }
+  function resolveLegacyOwnership(items,index,catalog,ruleId,reason){
+    const item=items[index],rule=catalog.ownershipRules.find(rule=>rule.id===ruleId);
+    if(!item||!rule||!rule.enabled||rule.productId!==item.productId||rule.platform!==item.selector.platform)
+      throw new Error('必须选择同一产品、同一平台的已启用替代规则');
+    if(typeof reason!=='string'||!reason.trim()||reason.length>1024)throw new Error('请填写具体核验依据（最多1024字）');
+    const next=clone(items);next[index].resolution={rule:clone(rule),reason:reason.trim()};return next;
+  }
   function ownershipEvidenceOptions(items) {
     const options=[],seen=new Set();
     for(const item of items){
@@ -376,8 +389,9 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
       const panel=$('#ownership-panel');if(!panel)return;
       if(!ownershipDraft){panel.innerHTML=`<p role="status">${esc(message)}</p>`;return;}
       const options=ownershipEvidenceOptions(instancePage?.items||[]);
+      const pending=ownershipUnconverted.filter(item=>!legacyResolutionValid(item,ownershipDraft));
       panel.innerHTML=`<section class="knowledge-editor"><h3>产品归属规则草稿</h3><p>${ownershipSaved?'目录已保存；实例映射待重建，终端执行尚未确认。':'未保存、未生效。'}规则可跨孩子复用，不直接修改实例归属。</p><p role="status">${esc(message||`基于目录版本 ${ownershipVersion}`)}</p>
-        ${ownershipUnconverted.length?`<details open><summary>仍有 ${ownershipUnconverted.length} 项旧规则需要核验（只可预览，不能保存）</summary><p>以下原条件未被转换，不会按名称猜配。原目录仍然有效。</p>${ownershipUnconverted.map(item=>`<article><strong>${esc(ownershipDraft.products.find(p=>p.id===item.productId)?.name||item.productId)}</strong><pre class="instance-evidence">${esc(JSON.stringify(item.selector,null,2))}</pre></article>`).join('')}</details>`:''}
+        ${ownershipUnconverted.length?`<details open><summary>仍有 ${pending.length} 项旧规则需要核验${pending.length?'（只可预览，不能保存）':''}</summary><p>原目录仍然有效。核实旧条件与新依据后，选择同产品替代规则；不能只凭名称确认。已确认项保留供回看，规则变更后必须重新核验。</p>${ownershipUnconverted.map((item,index)=>`<article><strong>${esc(ownershipDraft.products.find(p=>p.id===item.productId)?.name||item.productId)}</strong><pre class="instance-evidence">${esc(JSON.stringify(item.selector,null,2))}</pre>${legacyResolutionValid(item,ownershipDraft)?`<p>已核验替代：${esc(item.resolution.rule.id)} · ${esc(item.resolution.reason)}</p>`:`<label>同产品替代规则<select id="ownership-resolution-rule-${index}"><option value="">请选择规则</option>${ownershipDraft.ownershipRules.filter(rule=>rule.enabled&&rule.productId===item.productId&&rule.platform===item.selector.platform).map(rule=>`<option value="${esc(rule.id)}">${esc(rule.id+' · '+JSON.stringify(rule.match))}</option>`).join('')}</select></label><label>核验依据<textarea id="ownership-resolution-reason-${index}" maxlength="1024"></textarea></label><button data-ownership-resolve="${index}">确认此项替代依据</button>`}</article>`).join('')}</details>`:''}
         <label>已核验依据<select id="ownership-evidence"><option value="">请选择依据</option>${options.map((option,index)=>`<option value="${index}">${esc(option.platform+' · '+option.label+' · '+Object.values(option.match).slice(1).join(' / '))}</option>`).join('')}</select></label>
         <label>目标应用身份<select id="ownership-product"><option value="">新建产品草稿</option>${ownershipDraft.products.map((product,index)=>`<option value="${index}">${esc(product.name)}</option>`).join('')}</select></label>
         <label>新产品名称（选择已有产品时忽略）<input id="ownership-name" maxlength="256"></label><button id="ownership-add"${options.length?'':' disabled'}>加入规则草稿</button>
@@ -402,7 +416,7 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
         <details class="classification-expression-editor"><summary>系列／开发者规则条件</summary><p>仅这两种分类规则使用；不改变产品归属。新版实例没有的旧证据会保留未知，不能按名称猜配；自动规则须通过服务端安全校验。</p><label>新规则匹配条件 JSON<textarea id="ownership-class-match" rows="6" maxlength="16384">${esc(JSON.stringify({operator:'all',conditions:[]},null,2))}</textarea></label><label>新规则排除条件 JSON<textarea id="ownership-class-exclude" rows="4" maxlength="16384">[]</textarea></label></details>
         <label>解释<input id="ownership-class-reason" maxlength="256"></label><p id="ownership-class-error" role="alert"></p><button id="ownership-class-add">加入分类规则草稿</button></section>
         <section class="knowledge-editor"><h3>导入schema4目录</h3><p>逐项加入草稿，不删除未选择条目。包内孩子绑定及版本不导入；孩子明确分类不覆盖。产品／归属规则为家庭共用，分类规则仅批准当前孩子。还需通过云端预览和保存校验。</p><label>选择目录JSON<input id="ownership-import-file" type="file" accept="application/json"></label><p id="ownership-import-error" role="alert"></p>${ownershipImport?`<fieldset><legend>导入差异（未提交）</legend>${ownershipImport.changes.map((change,index)=>`<label><input type="checkbox" data-ownership-import-item="${index}"> ${esc(change.name)} · ${{products:'产品',ownershipRules:'归属规则',rules:'分类规则'}[change.kind]} · ${change.change==='modify'?'修改':'新增'}</label>`).join('')||'<p>没有新增或修改</p>'}<button id="ownership-import-apply"${ownershipImport.changes.length?'':' disabled'}>将所选差异加入草稿</button></fieldset>`:''}</section>
-        <div class="knowledge-filter"><button id="ownership-preview">云端预览当前孩子</button><button id="ownership-preview-next"${ownershipPreview?.nextAfterInstanceId?'':' disabled'}>预览下一页</button><button id="ownership-save"${ownershipSaving||ownershipSaved||ownershipUnconverted.length?' disabled':''}>${ownershipSaving?'正在保存…':'保存集中规则目录'}</button><button id="ownership-open">重新读取目录</button></div>
+        <div class="knowledge-filter"><button id="ownership-preview">云端预览当前孩子</button><button id="ownership-preview-next"${ownershipPreview?.nextAfterInstanceId?'':' disabled'}>预览下一页</button><button id="ownership-save"${ownershipSaving||ownershipSaved||pending.length?' disabled':''}>${ownershipSaving?'正在保存…':'保存集中规则目录'}</button><button id="ownership-open">重新读取目录</button></div>
         <p>保存影响当前家庭中符合规则的实例，不限于当前孩子或本页预览。重新读取会丢弃当前内存草稿；保存不代表终端已经执行。</p>
         <div aria-live="polite">${ownershipPreview?`<p>仅预览本页 ${ownershipPreview.items.length} 个实例，尚未生效。</p>${ownershipPreview.items.map(item=>{
           const describe=value=>`${ownershipStatus[value.status]||'未知'}${value.productId?' · '+(ownershipDraft.products.find(product=>product.id===value.productId)?.name||value.productId):''}`;
@@ -443,7 +457,7 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     }
     async function saveOwnership(){
       if(!ownershipDraft||ownershipSaving||ownershipSaved)return;
-      if(ownershipUnconverted.length){renderOwnership('仍有未转换规则，不能保存不完整的替代目录。');return;}
+      if(ownershipUnconverted.some(item=>!legacyResolutionValid(item,ownershipDraft))){renderOwnership('仍有未转换规则，不能保存不完整的替代目录。');return;}
       const key=lease(),generation=++ownershipGeneration,version=ownershipVersion;
       const submitted=clone(ownershipDraft);
       ownershipSaving=true;ownershipPreview=null;renderOwnership('正在保存集中规则目录…');
@@ -487,6 +501,16 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     }
     async function open(kind){const key=lease();if(kind==='identity'||['product','rule'].includes(kind)&&getContext().identityModel){$('#instance-dialog').showModal();instancePage=null;renderInstances();await openOwnership();return;}if(kind==='instance'){$('#instance-dialog').showModal();await readInstances();return;}await load();assertCurrent(key);if(kind==='product')renderProducts();else renderRules();$(`#${kind}-dialog`).showModal();}
     async function perform(button){
+      if(button.dataset.ownershipResolve!==undefined&&!ownershipSaving){
+        const index=Number(button.dataset.ownershipResolve);
+        try{
+          const next=resolveLegacyOwnership(ownershipUnconverted,index,ownershipDraft,
+            $(`#ownership-resolution-rule-${index}`).value,$(`#ownership-resolution-reason-${index}`).value);
+          invalidateOwnership();ownershipUnconverted=next;ownershipSaved=false;
+          renderOwnership('已记录此项替代依据；尚未保存，请重新预览。');
+        }catch(error){renderOwnership(error.message);}
+        return;
+      }
       if(button.id==='ownership-import-apply'&&ownershipImport&&!ownershipSaving){
         try{
           const selected=all('[data-ownership-import-item]:checked').map(input=>ownershipImport.changes[Number(input.dataset.ownershipImportItem)]?.key);
@@ -630,5 +654,5 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     function dispose(){if(disposed)return;disposed=true;for(const [type,handler]of Object.entries(listeners))root.removeEventListener(type,handler);for(const dialog of all('dialog[open]'))dialog.close();}
     return {open,publish,classify,dispose};
   }
-  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,installationSummaryHTML,ownershipEvidenceOptions,legacyOwnershipDraft,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
+  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,installationSummaryHTML,ownershipEvidenceOptions,legacyOwnershipDraft,legacyResolutionValid,resolveLegacyOwnership,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
 });
