@@ -129,7 +129,7 @@ function fixture(){
   assert.match(identity.element('#app-directory-title').textContent,/跟随分类规则/);
   assert.match(identity.element('#inventory-status').textContent,/不代表已安装/);
   assert.equal(identity.element('#open-products').disabled,false);
-  assert.equal(identity.element('#open-rules').disabled,true);
+  assert.equal(identity.element('#open-rules').disabled,false);
   assert.equal(identity.element('#directory-scope').disabled,true);
   assert.equal(identity.element('#directory-scope').value,'all');
   assert(identityCalls.includes('/v2/module/program-instance-catalog'));

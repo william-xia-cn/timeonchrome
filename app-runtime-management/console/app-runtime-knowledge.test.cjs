@@ -241,3 +241,47 @@ async function ownershipSaveTests(){
   component.dispose();console.log('PASS: catalog PUT, conditional version, duplicate guard, pending vs execution, retained conflict draft and late child response');
 }
 ownershipSaveTests().catch(error=>{console.error(error);process.exitCode=1;});
+
+{
+  const rule={id:'r',name:'原规则',kind:'family',platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]},exclude:[{operator:'any',conditions:[{field:'packageId',value:'legacy-evidence'}]}],classification:'study',mode:'automatic',type:'other',enabled:true,source:'parent-confirmed',reason:'既有依据'};
+  const original={...ownershipCatalog,rules:[rule],bindings:[{childId:'child-a',products:[],ruleIds:['r']},{childId:'child-b',products:[],ruleIds:['r']}]};
+  const before=JSON.stringify(original);
+  const revised=K.reviseCatalogClassification(original,{ruleId:'r',childId:'child-a',classification:'other',newId:'r2'});
+  assert.equal(JSON.stringify(original),before);
+  assert.deepEqual(revised.rules[1],{...rule,id:'r2',classification:'other'});
+  assert.deepEqual(revised.bindings[0].ruleIds,['r2']);assert.deepEqual(revised.bindings[1],original.bindings[1]);
+  assert.deepEqual(revised.ownershipRules,original.ownershipRules);
+  const stopped=K.toggleApproval(revised,'r2','child-a','unused');
+  assert.deepEqual(stopped.bindings[0].ruleIds,[]);assert.deepEqual(stopped.bindings[1],original.bindings[1]);
+  const resumed=K.toggleApproval(stopped,'r2','child-a','unused');assert.deepEqual(resumed.bindings[0].ruleIds,['r2']);
+  assert.throws(()=>K.reviseCatalogClassification(original,{ruleId:'r',childId:'child-a',classification:'invalid',newId:'r2'}));
+  assert.throws(()=>K.reviseCatalogClassification(original,{ruleId:'r',childId:'child-a',classification:'other',newId:'r'}));
+  console.log('PASS: classification revision preserves evidence, source rules, ownership mapping and other Child approvals');
+}
+
+async function newCatalogRuleContractTests(){
+  const {parseApplicationKnowledgeV4}=await import('@timeonchrome/app-runtime-contracts/classification-validation');
+  const {resolveProgramInstanceClassification}=await import('@timeonchrome/app-runtime-contracts/classification');
+  const input={id:'new-rule',name:'产品分类',kind:'product',productId:'product-a',type:'other',platform:'',mode:'automatic',classification:'other',reason:'家长明确配置',childId:'child-a'};
+  const added=K.addCatalogClassification(ownershipCatalog,input),parsed=parseApplicationKnowledgeV4(added);
+  assert.deepEqual(parsed,added);assert.deepEqual(parsed.bindings[0],ownershipCatalog.bindings[0]);assert.deepEqual(parsed.ownershipRules,[]);
+  assert.equal(ownershipCatalog.rules.length,0);
+  const context=catalog=>({schemaVersion:2,childId:'child-a',assignmentVersion:1,catalogVersion:catalog.version,
+    products:catalog.products,rules:catalog.rules,binding:catalog.bindings.find(b=>b.childId==='child-a'),
+    items:[{instanceId:'a'.repeat(64),status:'confirmed',productId:'product-a'}]});
+  const resolve=catalog=>resolveProgramInstanceClassification(context(catalog),'child-a','a'.repeat(64),verifiedInstance.evidence);
+  assert.equal(resolve(parsed).classification,'other');
+  const type=K.addCatalogClassification(ownershipCatalog,{...input,kind:'type',productId:undefined,type:'other',classification:'study'});
+  assert.equal(resolve(parseApplicationKnowledgeV4(type)).classification,'study');
+  const suggestion=K.addCatalogClassification(ownershipCatalog,{...input,mode:'suggestion'});
+  assert.equal(resolve(parseApplicationKnowledgeV4(suggestion)).status,'unclassified');
+  const differentPlatform=K.addCatalogClassification(ownershipCatalog,{...input,platform:'macos'});
+  assert.equal(resolve(parseApplicationKnowledgeV4(differentPlatform)).status,'unclassified');
+  const explicit=K.editOwnershipProduct(parsed,{childId:'child-a',productId:'product-a',name:'改名不改身份',classification:'composite'});
+  assert.equal(resolve(parseApplicationKnowledgeV4(explicit)).classification,'composite');
+  assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,productId:'测试应用'}),/集中目录/);
+  assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,kind:'type',type:'unknown'}),/客观产品类型/);
+  assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,reason:''}),/解释/);
+  console.log('PASS: actual v4 parser and classifier consume UI product/type drafts, suggestion/platform/explicit priority and Child isolation');
+}
+newCatalogRuleContractTests().catch(error=>{console.error(error);process.exitCode=1;});

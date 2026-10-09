@@ -343,8 +343,8 @@
       const choices=[['study','学习应用'],['composite','复合应用'],['restrictedEntertainment','受限娱乐应用'],['other','其他时间应用'],['blocked','黑名单应用'],['unclassified','明确未归类'],['following','跟随分类规则'],['special','特殊应用']];
       const category=product=>product.catalogGroup==='specialApplication'?'special':binding?.products.find(item=>item.productId===product.id)?.classification??'following';
       const platforms=product=>[...new Set(catalog.ownershipRules.filter(rule=>rule.enabled&&rule.productId===product.id).map(rule=>rule.platform))];
-      $('#open-products').disabled=false;$('#open-rules').disabled=true;
-      $('#open-rules').title='旧分类规则编辑尚未适配新版目录；当前可编辑孩子明确分类';
+      $('#open-products').disabled=false;$('#open-rules').disabled=false;
+      $('#open-rules').title='管理既有规则的孩子批准及分类结果；复杂条件编辑尚未适配';
       $('#app-category-nav').innerHTML=choices.map(([key,label])=>`<button class="app-category-item ${state.appCategory===key?'active':''}" data-app-category="${key}"><strong>${label}</strong><span>${catalog.products.filter(product=>category(product)===key).length}</span></button>`).join('');
       const search=($('#app-search').value||'').trim().toLowerCase(),platform=$('#management-platform').value;
       const items=catalog.products.filter(product=>category(product)===state.appCategory&&(!search||product.name.toLowerCase().includes(search))&&(!platform||platforms(product).includes(platform)));

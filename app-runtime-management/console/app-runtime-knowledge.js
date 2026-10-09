@@ -55,6 +55,23 @@
     return next;
   }
   const legacyGameSuggestionRuleId='builtin.type.game.restricted-suggestion';
+  function reviseCatalogClassification(catalog,{ruleId,childId,classification,newId}){
+    if(catalog?.schemaVersion!==4||!childId||!Object.hasOwn(labels,classification))throw new Error('目录、孩子或分类无效');
+    const rule=catalog.rules.find(item=>item.id===ruleId);
+    if(!rule||!newId||catalog.rules.some(item=>item.id===newId))throw new Error('规则已变化，请重新读取');
+    return reviseRule(catalog,{...clone(rule),id:newId,classification},[childId],rule.id);
+  }
+  function addCatalogClassification(catalog,{id,name,kind,productId,type,platform,mode,classification,reason,childId}){
+    if(catalog?.schemaVersion!==4||!childId||!id||catalog.rules.some(rule=>rule.id===id))throw new Error('目录、孩子或规则标识无效');
+    if(!name?.trim()||name.trim().length>256||!reason?.trim()||reason.trim().length>256)throw new Error('请填写规则名称及解释');
+    if(!['product','type'].includes(kind)||!['automatic','suggestion'].includes(mode)||!Object.hasOwn(labels,classification)||!['','windows','macos'].includes(platform))throw new Error('分类规则选项无效');
+    const product=catalog.products.find(item=>item.id===productId);
+    if(kind==='product'&&!product)throw new Error('请选择集中目录中的产品');
+    if(kind==='type'&&(!Object.hasOwn(types,type)||type==='unknown'))throw new Error('请选择已确定的客观产品类型');
+    const rule={id,name:name.trim(),kind,...(kind==='product'?{productId:product.id}:{}),...(platform?{platform}:{}),
+      match:{operator:'all',conditions:[]},exclude:[],mode,classification,type:kind==='product'?product.type:type,enabled:true,source:'parent-confirmed',reason:reason.trim()};
+    return reviseRule(catalog,rule,[childId],null);
+  }
   function withDefaultRecommendations(value){const next=clone(value);next.schemaVersion=Math.max(2,next.schemaVersion);next.rules=next.rules.filter(rule=>rule.id!==legacyGameSuggestionRuleId);for(const binding of next.bindings)binding.ruleIds=binding.ruleIds.filter(id=>id!==legacyGameSuggestionRuleId);return next;}
   const same = (a,b) => JSON.stringify(a)===JSON.stringify(b);
   function matched(product,evidence){return product.selectors.some(selector=>selector.platform===evidence.platform&&selector.match.conditions.length&&(selector.match.operator==='all'?selector.match.conditions.every:selector.match.conditions.some).call(selector.match.conditions,condition=>(condition.field==='runtimeIdentity'?evidence.runtimeIdentity:evidence.values[condition.field])===condition.value&&(!['runtimeIdentity','binaryHash','packageId','distributionKey','signerKey','fileSeriesKey'].includes(condition.field)||evidence.verifiedFields.includes(condition.field))));}
@@ -262,6 +279,19 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
           return `<fieldset><legend>${esc(product.name)}</legend><label>产品名称<input id="ownership-product-name-${index}" maxlength="256" value="${esc(product.name)}"></label><label>当前孩子分类<select id="ownership-product-class-${index}"><option value=""${classification===''?' selected':''}>跟随分类规则</option>${classOptions(classification)}</select></label><button data-ownership-product="${index}">更新产品草稿</button></fieldset>`;
         }).join('')||'<p>暂无产品，请先根据核验依据建立归属规则。</p>'}</section>
         <div>${ownershipDraft.ownershipRules.map((rule,index)=>`<article class="knowledge-item"><div><strong>${esc(ownershipDraft.products.find(product=>product.id===rule.productId)?.name||rule.productId)}</strong><small>${esc(rule.platform)} · ${rule.enabled?'草稿启用':'草稿停用'}</small><pre class="instance-evidence">${esc(JSON.stringify(rule.match,null,2))}</pre></div><button data-ownership-toggle="${index}">${rule.enabled?'停用草稿':'恢复草稿'}</button><button data-ownership-remove="${index}">移除草稿规则</button></article>`).join('')||'<p>暂无归属规则。</p>'}</div>
+        <section class="knowledge-editor"><h3>既有分类规则与当前孩子</h3><p>只修改分类结果或当前孩子批准状态，保留匹配及排除条件。复杂条件编辑尚未适配；缺少可核验依据时保持未知，不在页面猜测命中。${ownershipSaved?'目录已保存；终端执行尚未确认。':'此处仍是未提交草稿。'}</p>${ownershipDraft.rules.map((rule,index)=>{
+          const approved=rule.enabled&&ownershipDraft.bindings.find(item=>item.childId===getContext().childId)?.ruleIds.includes(rule.id);
+          return `<fieldset><legend>${esc(rule.name)}</legend><p>${esc(rule.kind)} · ${esc(rule.platform||'两个平台')} · ${rule.mode==='automatic'?'自动':'仅建议'} · ${rule.enabled?'规则启用':'规则停用'} · ${approved?'当前孩子已批准':'当前孩子未批准'}</p><details><summary>原匹配与排除条件</summary><pre class="instance-evidence">${esc(JSON.stringify({productId:rule.productId,type:rule.type,match:rule.match,exclude:rule.exclude},null,2))}</pre></details><label>分类结果<select id="ownership-rule-class-${index}">${classOptions(rule.classification)}</select></label><button data-ownership-classification="${index}">为当前孩子修订分类草稿</button><button data-ownership-approval="${index}">${approved?'停用当前孩子草稿':'批准当前孩子草稿'}</button></fieldset>`;
+        }).join('')||'<p>暂无自定义分类规则；产品明确分类仍可独立设置。</p>'}</section>
+        <section class="knowledge-editor"><h3>新增分类规则草稿</h3><p>只批准给当前孩子；不建立或修改产品归属。明确产品分类优先，建议规则不直接改变有效分类。</p>
+        <label>规则名称<input id="ownership-class-name" maxlength="256"></label>
+        <label>匹配对象<select id="ownership-class-kind"><option value="product">已确认产品</option><option value="type">客观产品类型</option></select></label>
+        <label>产品（产品规则使用）<select id="ownership-class-product"><option value="">请选择产品</option>${ownershipDraft.products.map((product,index)=>`<option value="${index}">${esc(product.name)}</option>`).join('')}</select></label>
+        <label>类型（类型规则使用）<select id="ownership-class-type">${Object.entries(types).filter(([key])=>key!=='unknown').map(([key,label])=>`<option value="${key}">${label}</option>`).join('')}</select></label>
+        <label>平台<select id="ownership-class-platform"><option value="">两个平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select></label>
+        <label>模式<select id="ownership-class-mode"><option value="suggestion">仅建议</option><option value="automatic">自动</option></select></label>
+        <label>结果<select id="ownership-class-result">${classOptions()}</select></label>
+        <label>解释<input id="ownership-class-reason" maxlength="256"></label><button id="ownership-class-add">加入分类规则草稿</button></section>
         <div class="knowledge-filter"><button id="ownership-preview">云端预览当前孩子</button><button id="ownership-preview-next"${ownershipPreview?.nextAfterInstanceId?'':' disabled'}>预览下一页</button><button id="ownership-save"${ownershipSaving||ownershipSaved?' disabled':''}>${ownershipSaving?'正在保存…':'保存集中规则目录'}</button><button id="ownership-open">重新读取目录</button></div>
         <p>保存影响当前家庭中符合规则的实例，不限于当前孩子或本页预览。重新读取会丢弃当前内存草稿；保存不代表终端已经执行。</p>
         <div aria-live="polite">${ownershipPreview?`<p>仅预览本页 ${ownershipPreview.items.length} 个实例，尚未生效。</p>${ownershipPreview.items.map(item=>{
@@ -338,9 +368,9 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
         renderInstances(`程序实例读取失败：${error.code||'PROGRAM_INSTANCES_UNAVAILABLE'}。请重试。`);
       }
     }
-    async function open(kind){const key=lease();if(kind==='identity'||kind==='product'&&getContext().identityModel){$('#instance-dialog').showModal();instancePage=null;renderInstances();await openOwnership();return;}if(kind==='instance'){$('#instance-dialog').showModal();await readInstances();return;}await load();assertCurrent(key);if(kind==='product')renderProducts();else renderRules();$(`#${kind}-dialog`).showModal();}
+    async function open(kind){const key=lease();if(kind==='identity'||['product','rule'].includes(kind)&&getContext().identityModel){$('#instance-dialog').showModal();instancePage=null;renderInstances();await openOwnership();return;}if(kind==='instance'){$('#instance-dialog').showModal();await readInstances();return;}await load();assertCurrent(key);if(kind==='product')renderProducts();else renderRules();$(`#${kind}-dialog`).showModal();}
     async function perform(button){
-      if(ownershipSaving&&(button.id.startsWith('ownership-')||button.dataset.ownershipToggle!==undefined||button.dataset.ownershipRemove!==undefined||button.dataset.ownershipProduct!==undefined))return;
+      if(ownershipSaving&&(button.id.startsWith('ownership-')||Object.keys(button.dataset).some(key=>key.startsWith('ownership'))))return;
       if(button.id==='open-products')await open('product');if(button.id==='open-rules')await open('rule');
       if(button.id==='open-instances')await open('instance');
       if(button.id==='instances-refresh')await readInstances();
@@ -349,6 +379,26 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
       if(button.id==='ownership-preview')await previewOwnership();
       if(button.id==='ownership-preview-next')await previewOwnership(true);
       if(button.id==='ownership-save')await saveOwnership();
+      if(button.id==='ownership-class-add'){
+        try{
+          const next=addCatalogClassification(ownershipDraft,{id:`rule-${crypto.randomUUID()}`,childId:getContext().childId,
+            name:$('#ownership-class-name').value,kind:$('#ownership-class-kind').value,
+            productId:ownershipDraft?.products[$('#ownership-class-product').value]?.id,type:$('#ownership-class-type').value,
+            platform:$('#ownership-class-platform').value,mode:$('#ownership-class-mode').value,
+            classification:$('#ownership-class-result').value,reason:$('#ownership-class-reason').value});
+          invalidateOwnership();ownershipDraft=next;ownershipSaved=false;renderOwnership('新分类规则已加入当前孩子草稿；尚未保存。');
+        }catch(error){renderOwnership(error.message);}
+      }
+      if(button.dataset.ownershipClassification!==undefined||button.dataset.ownershipApproval!==undefined){
+        const index=Number(button.dataset.ownershipClassification??button.dataset.ownershipApproval),rule=ownershipDraft?.rules[index];
+        if(!rule)return;
+        try{
+          const next=button.dataset.ownershipClassification!==undefined
+            ?reviseCatalogClassification(ownershipDraft,{ruleId:rule.id,childId:getContext().childId,classification:$(`#ownership-rule-class-${index}`).value,newId:`rule-${crypto.randomUUID()}`})
+            :toggleApproval(ownershipDraft,rule.id,getContext().childId,`rule-${crypto.randomUUID()}`);
+          invalidateOwnership();ownershipDraft=next;ownershipSaved=false;renderOwnership('当前孩子分类规则草稿已更新；尚未保存，其他孩子不变。');
+        }catch(error){renderOwnership(error.message);}
+      }
       if(button.dataset.ownershipProduct!==undefined){
         const index=Number(button.dataset.ownershipProduct),product=ownershipDraft?.products[index];
         if(!product)return;
@@ -441,5 +491,5 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     function dispose(){if(disposed)return;disposed=true;for(const [type,handler]of Object.entries(listeners))root.removeEventListener(type,handler);for(const dialog of all('dialog[open]'))dialog.close();}
     return {open,publish,classify,dispose};
   }
-  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,ownershipEvidenceOptions,addOwnershipDraft,editOwnershipProduct,mount};
+  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,ownershipEvidenceOptions,addOwnershipDraft,editOwnershipProduct,reviseCatalogClassification,addCatalogClassification,mount};
 });
