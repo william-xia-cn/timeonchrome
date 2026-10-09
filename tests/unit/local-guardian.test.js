@@ -1322,6 +1322,7 @@ async function run() {
   const identityPayloads = [];
   const identityStorage = { cloud_profile_id: 'child-identity-a', cloud_device_id: 'device-identity-a' };
   const identityCapability = 'application-identity-usage-read-v1';
+  let omitIdentityRequestId = false;
   const identityHost = await loadGuardian({ storage: identityStorage, policy,
     connectNative: () => createPort((payload, onMessage) => {
       identityPayloads.push(payload);
@@ -1332,7 +1333,7 @@ async function run() {
         complete: true, reasonCodes: [], totalSeconds: 180,
         hours: Array.from({ length: 24 }, (_, hour) => ({ hour, totalSeconds: hour === 11 ? 180 : 0 })),
       };
-      const response = { ok: true, receivedAt: Date.now(), requestId: payload.requestId,
+      const response = { ok: true, receivedAt: Date.now(), ...(omitIdentityRequestId ? {} : { requestId: payload.requestId }),
         supportedProtocols: [3], capabilities: ['health', identityCapability],
         ...(payload.messageType === 'getApplicationIdentityUsage' ? { applicationIdentityUsage: {
           schemaVersion: 3, durationUnit: 'seconds', timezone: 'Asia/Shanghai',
@@ -1358,6 +1359,16 @@ async function run() {
   assert.equal(identityRequest.protocolVersion, 3);
   assert.deepEqual(identityRequest.payload, identityQuery);
   assert.equal(identityRequest.extensionId, identityHost.runtime.id);
+  const guardianStatusBeforeInvalidIdentityResponse = identityStorage.local_guardian_status_v1;
+  omitIdentityRequestId = true;
+  const invalidIdentityResponse = await identityHost.module.requestApplicationIdentityUsage(identityQuery,
+    { expectedContextId: identityContext.contextId });
+  assert.equal(invalidIdentityResponse.ok, false);
+  assert.equal(invalidIdentityResponse.errorCode, 'application_identity_usage_invalid_response',
+    'a missing Native requestId stays an application-read error instead of being mislabeled as a heartbeat failure');
+  assert.deepEqual(identityStorage.local_guardian_status_v1, guardianStatusBeforeInvalidIdentityResponse,
+    'a business-read response error does not alter Guardian heartbeat status');
+  omitIdentityRequestId = false;
   const identityRequestCount = identityPayloads.length;
   identityStorage.cloud_profile_id = 'child-identity-b';
   assert.equal((await identityHost.module.requestApplicationIdentityUsage(identityQuery,

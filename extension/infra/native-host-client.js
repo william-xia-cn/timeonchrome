@@ -435,7 +435,7 @@ function ensureNativePort() {
     if (response?.requestId && pendingAck.requestId && response.requestId !== pendingAck.requestId) return;
     if ((pendingAck.sharedWeb || pendingAck.sharedQuotaRead || pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity || pendingAck.applicationIdentityRead)
       && response?.requestId !== pendingAck.requestId) {
-      rejectPendingAck(pendingAck.applicationIdentityRead ? 'application_identity_invalid_response'
+      rejectPendingAck(pendingAck.applicationIdentityRead ? 'application_identity_usage_invalid_response'
         : pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity ? 'shared_reminder_invalid_ack' : 'shared_quota_invalid_state');
       return;
     }

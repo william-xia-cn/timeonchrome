@@ -1,5 +1,9 @@
 # TASK_BOARD
 
+## Native 应用身份读取 requestId 错误码修正（2026-10-10）
+
+只读审查确认：Native 应用身份读取响应缺失或不匹配 `requestId` 时，扩展运输层原本返回 `application_identity_invalid_response`，但错误码允许列表仅含 `application_identity_usage_invalid_response`，导致错误被归一化为 `heartbeat_build_failed`。按架构任务授权，仅修正该诊断映射并补充缺失 `requestId` 回归；不改变请求/响应协议、身份范围、应用数据、账本、能力协商、共享退避或心跳行为。`node tests/unit/local-guardian.test.js` 与 `git diff --check` 已通过；已更新 PR #251，不打包、不部署、不托管。
+
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
 最新终端整合状态：仅移植应用身份只读统计，基于主线 `b79eb72`；排除 `806abac` 的来源统计影子功能。身份读模型、Admin 展示、Native Host 回归、契约构建、typecheck 和扩展根目录检查通过；未打包、安装或部署。
