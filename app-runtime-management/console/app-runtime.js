@@ -335,6 +335,32 @@
   }
   function renderAppDirectory() {
     state.actionApps = [];
+    $('#directory-scope').disabled=Boolean(state.identityCatalog)||Boolean(state.managementError);
+    $('#directory-scope').title=state.identityCatalog?'新版产品目录尚未提供安装／使用范围，不能按旧盘点筛选':'';
+    if(state.identityCatalog&&!state.managementError){
+      $('#directory-scope').value='all';
+      const catalog=state.identityCatalog,binding=catalog.bindings.find(item=>item.childId===state.childId);
+      const choices=[['study','学习应用'],['composite','复合应用'],['restrictedEntertainment','受限娱乐应用'],['other','其他时间应用'],['blocked','黑名单应用'],['unclassified','明确未归类'],['following','跟随分类规则'],['special','特殊应用']];
+      const category=product=>product.catalogGroup==='specialApplication'?'special':binding?.products.find(item=>item.productId===product.id)?.classification??'following';
+      const platforms=product=>[...new Set(catalog.ownershipRules.filter(rule=>rule.enabled&&rule.productId===product.id).map(rule=>rule.platform))];
+      $('#open-products').disabled=false;$('#open-rules').disabled=true;
+      $('#open-rules').title='旧分类规则编辑尚未适配新版目录；当前可编辑孩子明确分类';
+      $('#app-category-nav').innerHTML=choices.map(([key,label])=>`<button class="app-category-item ${state.appCategory===key?'active':''}" data-app-category="${key}"><strong>${label}</strong><span>${catalog.products.filter(product=>category(product)===key).length}</span></button>`).join('');
+      const search=($('#app-search').value||'').trim().toLowerCase(),platform=$('#management-platform').value;
+      const items=catalog.products.filter(product=>category(product)===state.appCategory&&(!search||product.name.toLowerCase().includes(search))&&(!platform||platforms(product).includes(platform)));
+      $('#app-directory-title').textContent=choices.find(([key])=>key===state.appCategory)?.[1]||'产品目录';
+      $('#app-directory-subtitle').textContent=`集中目录 v${catalog.version}；分类为当前孩子明确设置，跟随规则的实际分类以实例投影为准。`;
+      $('#inventory-status').textContent='平台仅表示已启用归属规则的范围，不代表已安装、盘点完整或终端已执行。';
+      const games=items.filter(product=>['game','gameLauncher','gameUtility'].includes(product.type));
+      const ordinary=items.filter(product=>!games.includes(product));
+      const cards=list=>list.map(product=>`<article class="record-card product-record"><div><strong>${escape(product.name)}</strong><p>${escape(platforms(product).map(value=>value==='macos'?'macOS':'Windows').join(' / ')||'尚无启用的归属规则')}</p><small>${escape(product.id)}</small></div><button data-edit-identity-product>编辑集中目录资料</button></article>`).join('')||'<p class="empty">当前栏目没有符合筛选的产品；不代表使用时长为零。</p>';
+      $('#managed-app-list').innerHTML=cards(ordinary);$('#game-app-list').innerHTML=cards(games);
+      $('#ordinary-app-count').textContent=`${ordinary.length} 个`;$('#game-app-count').textContent=`${games.length} 个`;
+      $('#system-tool-count').textContent='未区分';$('#system-tool-list').textContent='新版目录未记录系统来源属性，不按名称猜分组。';
+      $('#processed-count').textContent='未读取';$('#processed-records').textContent='旧处理历史未接入新版目录；程序实例记录可独立查看。';
+      $('#processed-history').hidden=true;
+      return;
+    }
     $('#open-products').disabled = Boolean(state.managementError);
     $('#open-rules').disabled = Boolean(state.managementError);
     if(state.managementError){
@@ -464,6 +490,7 @@
   }
   async function loadManagementState() {
     const childId = encodeURIComponent(state.childId);
+    state.identityCatalog=null;
     const policyPromise = runtime(`/v2/module/app-policy?childId=${childId}`);
     const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`);
     const sharedAccessPromise = runtime(`/v2/module/shared-access-policy?childId=${childId}`).then((result) => {
@@ -475,7 +502,16 @@
       state.sharedAccessError = error?.code || 'SHARED_ACCESS_POLICY_UNAVAILABLE';
     });
     const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`)));
-    const [policy, catalog, records] = await Promise.all([policyPromise, catalogPromise, recordsPromise, sharedAccessPromise]);
+    let results;
+    try{results=await Promise.all([policyPromise, catalogPromise, recordsPromise, sharedAccessPromise]);}
+    catch(error){
+      if(state.view!=='apps'||error?.code!=='APPLICATION_KNOWLEDGE_READER_NOT_ADAPTED')throw error;
+      const result=await runtime('/v2/module/program-instance-catalog');
+      if(result.state!=='available'||result.catalog?.schemaVersion!==4||result.catalog.version!==result.version)throw error;
+      state.identityCatalog=result.catalog;state.catalog={items:[],technicalItems:[]};state.records={pending:[],processed:[],technical:[]};
+      state.managementError=null;state.managementLoaded=true;state.appCategory='following';return;
+    }
+    const [policy, catalog, records] = results;
     state.policy = AppRuntimePolicy.normalize(policy);
     state.policyEtag = `"app-policy-v${state.policy.version}"`;
     state.catalog = catalog;
@@ -516,7 +552,7 @@
     } catch (error) {
       if(!live()||error?.code==='COMPONENT_CONTEXT_CHANGED')return;
       if(state.view===requestedView&&requestedView==='apps'&&error?.code!=='AUTH_RECOVERY_FAILED'){
-        state.managementError=error?.code||'APPLICATION_DIRECTORY_UNAVAILABLE';
+        state.identityCatalog=null;state.managementError=error?.code||'APPLICATION_DIRECTORY_UNAVAILABLE';
         state.managementLoaded=false;
         state.catalog={items:[],technicalItems:[]};
         state.records={pending:[],processed:[],technical:[]};
@@ -733,6 +769,7 @@
     if (button.dataset.appCategory) { state.appCategory = button.dataset.appCategory; renderAppDirectory(); }
     if (button.dataset.classifyIndex != null && button.dataset.classification) { const app = state.actionApps[Number(button.dataset.classifyIndex)]; if (app) { if(app.manageability!=='actionable')throw new Error('技术进程记录不能直接归类，请先确认产品身份');if(app.productId) await knowledgeManager.classify(app.productId,button.dataset.classification); else {const implementations=app.runtimeImplementations?.length?app.runtimeImplementations:[app];let next=state.policy;for(const implementation of implementations){if(!implementation.runtimeIdentity)throw new Error('此应用缺少可靠身份，请先在确定性应用列表确认');next=AppRuntimePolicy.classify(next,{...app,...implementation},button.dataset.classification);}await savePolicy(next);} showSuccess(`${app.displayName || '应用'} 分类已保存，等待设备实际应用`); } }
     if (button.dataset.manageVariants !== undefined) await knowledgeManager.open('product');
+    if (button.dataset.editIdentityProduct !== undefined) await knowledgeManager.open('identity');
     if (button.classList.contains('drawer-close')) closeDrawer();
     if (button.dataset.uninstall) { const result = mock ? { code: 'UNIN-STALL-CODE', expiresAtMs: Date.now() + 600000 } : await runtime(`/v2/module/machines/${encodeURIComponent(button.dataset.uninstall)}/uninstall-codes`, { method: 'POST', body: '{}' }); showCode('uninstall', result.code, result.expiresAtMs); $('#uninstall-dialog').showModal(); }
     if (button.dataset.revoke && !mock && confirm('吊销后这台电脑将停止采集和上传，确定继续？')) { await runtime(`/v2/module/machines/${encodeURIComponent(button.dataset.revoke)}/revoke`, { method: 'POST', body: '{}' }); closeDrawer(); await load(); }
@@ -773,7 +810,10 @@
   let knowledgeManager;
   function mountKnowledgeManager(){
     knowledgeManager?.dispose();
-    knowledgeManager = AppRuntimeKnowledge.mount({root,request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onSaved:async knowledge=>{
+    knowledgeManager = AppRuntimeKnowledge.mount({root,request:runtime,mock,onError:showError,getContext:()=>({children:state.children,childId:state.childId,identityModel:Boolean(state.identityCatalog),mockInventory:state.mockInventory,mockKnowledge:state.mockKnowledge}),onCatalogSaved:(catalog,childId)=>{
+      if(disposed||childId!==state.childId)return;
+      state.identityCatalog=catalog;state.managementError=null;renderAppDirectory();
+    },onSaved:async knowledge=>{
     if(!mock){await load();return;}
     state.mockKnowledge=knowledge;
     const binding=knowledge.bindings.find(item=>item.childId===state.childId);

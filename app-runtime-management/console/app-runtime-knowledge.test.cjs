@@ -8,6 +8,17 @@ const ownershipOptions=K.ownershipEvidenceOptions([verifiedInstance,verifiedInst
 assert.deepEqual(ownershipOptions.map(option=>option.match.kind),['binaryHash','windowsAumid','windowsFileSeries','macosSignature']);
 const ownershipCatalog={schemaVersion:4,version:7,products:[{id:'product-a',name:'测试应用',type:'other'}],ownershipRules:[],rules:[],bindings:[{childId:'child-b',products:[{productId:'product-a',classification:'study'}],ruleIds:[]}]};
 const draft=K.addOwnershipDraft(ownershipCatalog,ownershipOptions[0],{productId:'product-a',ruleId:'rule-a'});
+const renamed=K.editOwnershipProduct(draft,{productId:'product-a',name:'改名产品',childId:'child-a',classification:'other'});
+assert.equal(renamed.products[0].id,'product-a');assert.equal(renamed.products[0].name,'改名产品');
+assert.deepEqual(renamed.ownershipRules,draft.ownershipRules);
+assert.deepEqual(renamed.bindings.find(item=>item.childId==='child-b'),ownershipCatalog.bindings[0]);
+assert.equal(renamed.bindings.find(item=>item.childId==='child-a').products[0].classification,'other');
+assert.equal(draft.products[0].name,'测试应用');
+const following=K.editOwnershipProduct(renamed,{productId:'product-a',name:'改名产品',childId:'child-a',classification:''});
+assert.deepEqual(following.bindings.find(item=>item.childId==='child-a').products,[]);
+assert.deepEqual(following.bindings.find(item=>item.childId==='child-b'),ownershipCatalog.bindings[0]);
+assert.throws(()=>K.editOwnershipProduct(draft,{productId:'product-a',name:' ',childId:'child-a',classification:'study'}),/名称/);
+assert.throws(()=>K.editOwnershipProduct(draft,{productId:'product-a',name:'名称',childId:'child-a',classification:'invented'}),/分类无效/);
 assert.deepEqual(draft.bindings,ownershipCatalog.bindings);assert.equal(ownershipCatalog.ownershipRules.length,0);
 assert.deepEqual(Object.keys(draft.ownershipRules[0]).sort(),['enabled','id','match','platform','productId','revision']);
 assert.throws(()=>K.addOwnershipDraft(draft,ownershipOptions[0],{productId:'product-a',ruleId:'duplicate'}),/重复/);
@@ -192,13 +203,13 @@ async function ownershipPreviewTests(){
 ownershipPreviewTests().catch(error=>{console.error(error);process.exitCode=1;});
 
 async function ownershipSaveTests(){
-  const listeners={},elements={},pending=[],calls=[];let childId='child-a';
+  const listeners={},elements={},pending=[],calls=[],catalogSaves=[];let childId='child-a';
   const dialog={open:false,showModal(){this.open=true;},close(){this.open=false;}};
   const element=id=>elements[id]??(elements[id]={innerHTML:'',value:'',querySelectorAll:()=>[]});
   const root={ownerDocument:{},querySelector:s=>s==='#instance-dialog'?dialog:element(s),querySelectorAll:()=>[],
     addEventListener:(type,handler)=>listeners[type]=handler,removeEventListener:()=>{}};
   const component=K.mount({root,getContext:()=>({childId}),request:(url,options)=>{calls.push({url,options});return new Promise((resolve,reject)=>pending.push({resolve,reject}));},
-    onSaved:()=>assert.fail('new catalog must not refresh legacy consumers'),onError:()=>assert.fail('save errors remain in draft')});
+    onCatalogSaved:(catalog,child)=>catalogSaves.push({catalog,child}),onSaved:()=>assert.fail('new catalog must not refresh legacy consumers'),onError:()=>assert.fail('save errors remain in draft')});
   const click=(id,dataset={})=>listeners.click({target:{closest:()=>({id,dataset})}});
   const settle=()=>new Promise(resolve=>setImmediate(resolve));
   const opening=component.open('instance');pending.shift().resolve({childId,catalogVersion:7,items:[{...verifiedInstance,instanceId:'a'.repeat(64),machineId:'m',platform:'windows',status:'unresolved',evidenceRevision:1}],nextAfterInstanceId:null});await opening;
@@ -209,17 +220,24 @@ async function ownershipSaveTests(){
   click('ownership-save');click('ownership-open');click('ownership-add');assert.equal(calls.length,count);
   pending.shift().resolve({state:'available',version:8,catalog:{...ownershipCatalog,version:8},mappingState:'pending'});await settle();
   assert.match(element('#ownership-panel').innerHTML,/目录版本 8 已保存/);
+  assert.equal(catalogSaves.length,1);assert.equal(catalogSaves[0].child,'child-a');assert.equal(catalogSaves[0].catalog.version,8);
   assert.match(element('#ownership-panel').innerHTML,/终端执行尚未确认/);
   assert.doesNotMatch(element('#ownership-panel').innerHTML,/未保存、未生效/);
   click('ownership-save');assert.equal(calls.length,count);
+  element('#ownership-product-name-0').value='新版产品名';element('#ownership-product-class-0').value='other';
+  click('',{ownershipProduct:'0'});await settle();assert.match(element('#ownership-panel').innerHTML,/新版产品名/);
   element('#ownership-evidence').value='0';element('#ownership-product').value='0';click('ownership-add');await settle();
   click('ownership-save');const draft=JSON.parse(calls.at(-1).options.body);assert.equal(draft.ownershipRules.length,1);
+  assert.equal(draft.products[0].name,'新版产品名');
+  assert.equal(draft.bindings.find(item=>item.childId==='child-a').products[0].classification,'other');
+  assert.deepEqual(draft.bindings.find(item=>item.childId==='child-b'),ownershipCatalog.bindings[0]);
   pending.shift().reject(Object.assign(Error('private server content'),{code:'APPLICATION_KNOWLEDGE_CONFLICT'}));await settle();
   assert.match(element('#ownership-panel').innerHTML,/草稿已保留/);assert.doesNotMatch(element('#ownership-panel').innerHTML,/private server/);
   click('ownership-save');assert.deepEqual(JSON.parse(calls.at(-1).options.body),draft);
   childId='child-b';const prior=element('#ownership-panel').innerHTML;
   pending.shift().resolve({state:'available',version:9,catalog:{...draft,version:9},mappingState:'pending'});await settle();
   assert.equal(element('#ownership-panel').innerHTML,prior);
+  assert.equal(catalogSaves.length,1,'late child response cannot notify current catalogue');
   component.dispose();console.log('PASS: catalog PUT, conditional version, duplicate guard, pending vs execution, retained conflict draft and late child response');
 }
 ownershipSaveTests().catch(error=>{console.error(error);process.exitCode=1;});

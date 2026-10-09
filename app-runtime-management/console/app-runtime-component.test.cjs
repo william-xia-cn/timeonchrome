@@ -12,16 +12,16 @@ function fixture(){
   const element=selector=>{if(!elements.has(selector))elements.set(selector,{innerHTML:'',textContent:'',value:'',hidden:false,dataset:{},classList:{add(){},remove(){},toggle(){}},querySelector(nested){return element(selector+' '+nested);},setAttribute(){},addEventListener(type,handler){listeners.push([selector,type,handler]);},removeEventListener(type,handler){const index=listeners.findIndex(item=>item[0]===selector&&item[1]===type&&item[2]===handler);if(index>=0)listeners.splice(index,1);}});return elements.get(selector);};
   const document={currentScript:{dataset:{runtimeComponent:'true'}},querySelector(){throw Error('Global DOM query forbidden');},querySelectorAll(){throw Error('Global DOM query forbidden');}};
   const root={ownerDocument:document,querySelector(selector){queries.push(selector);return element(selector);},querySelectorAll(){return[];},addEventListener(type,handler){listeners.push(['root',type,handler]);},removeEventListener(type,handler){const index=listeners.findIndex(item=>item[0]==='root'&&item[1]===type&&item[2]===handler);if(index>=0)listeners.splice(index,1);}};
-  let knowledgeDisposed=0;
+  let knowledgeDisposed=0,knowledgeOptions;
   const context={document,window:{},location:{search:'',protocol:'https:',hostname:'fixture.test'},URL,URLSearchParams,Date,Map,Set,Blob,
     setTimeout,clearTimeout,setInterval,clearInterval,
     AppRuntimeSession:{createRecovery(){throw Error('Embedded code must not create a second session');}},
     AppRuntimePolicy:Policy,AppRuntimeDevices:Devices,AppRuntimeTime:{beijingRange:()=>({from:0,to:86400000,label:'fixture'})},
     AppRuntimeNetwork:{friendlyError:error=>error,catalogClassificationRecords:async()=>({pending:[],processed:[],technical:[]})},
     ComputerUsageView:{createReadCache:()=>({clear(){}}),create:()=>({invalidate(){}}),createIndependent:()=>({invalidate(){}})},
-    AppRuntimeKnowledge:{mount(options){assert.equal(options.root,root);return{dispose(){knowledgeDisposed++;}};}}};
+    AppRuntimeKnowledge:{mount(options){assert.equal(options.root,root);knowledgeOptions=options;return{dispose(){knowledgeDisposed++;}};}}};
   vm.runInNewContext(source,context,{filename:'app-runtime.js'});
-  return{mount:context.AppRuntimeManagement.mount,root,element,elements,listeners,queries,get knowledgeDisposed(){return knowledgeDisposed;}};
+  return{mount:context.AppRuntimeManagement.mount,root,element,elements,listeners,queries,get knowledgeDisposed(){return knowledgeDisposed;},get knowledgeOptions(){return knowledgeOptions;}};
 }
 (async()=>{
   // 执行实际读取函数，不复制其请求代际判断；只替换网络和绘制边界。
@@ -91,6 +91,7 @@ function fixture(){
   const invalid=fixture();assert.throws(()=>invalid.mount({root:invalid.root,view:'usage',request:async()=>{}}),/INVALID_RUNTIME_MANAGEMENT_VIEW/);
   const isolated=fixture();let catalogFails=true;
   const isolatedController=isolated.mount({root:isolated.root,view:'apps',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{
+    if(path==='/v2/module/program-instance-catalog')return {state:'legacy',version:1,catalog:null};
     if(path.includes('app-policy'))return Policy.defaultPolicy();
     if(path.includes('app-catalog')){if(catalogFails)throw Object.assign(new Error('private detail'),{code:'APPLICATION_KNOWLEDGE_READER_NOT_ADAPTED'});return{items:[],technicalItems:[],inventoryCoverage:[]};}
     if(path.includes('shared-access'))return{policy:null};
@@ -111,6 +112,35 @@ function fixture(){
   assert.doesNotMatch(isolated.element('#managed-app-list').innerHTML,/stale classify/);
   assert.equal(isolated.element('#load-empty-state').hidden,true);
   isolatedController.dispose();
+  const identity=fixture(),identityCalls=[];
+  const identityController=identity.mount({root:identity.root,view:'apps',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{
+    identityCalls.push(path);
+    if(path==='/v2/module/program-instance-catalog')return {state:'available',version:4,catalog:{schemaVersion:4,version:4,
+      products:[{id:'p',name:'新版产品',type:'other'},{id:'q',name:'另一孩子分类不串入',type:'other'}],
+      ownershipRules:[{id:'r',enabled:true,platform:'windows',productId:'p'}],rules:[],
+      bindings:[{childId:'other-child',products:[{productId:'q',classification:'blocked'}],ruleIds:[]}]}};
+    if(path.includes('shared-access'))return {policy:null};
+    throw Object.assign(Error('old reader'),{code:'APPLICATION_KNOWLEDGE_READER_NOT_ADAPTED'});
+  }});
+  await identityController.ready;
+  assert.equal(identity.element('#load-empty-state').hidden,true);
+  assert.match(identity.element('#managed-app-list').innerHTML,/新版产品/);
+  assert.match(identity.element('#managed-app-list').innerHTML,/另一孩子分类不串入/);
+  assert.match(identity.element('#app-directory-title').textContent,/跟随分类规则/);
+  assert.match(identity.element('#inventory-status').textContent,/不代表已安装/);
+  assert.equal(identity.element('#open-products').disabled,false);
+  assert.equal(identity.element('#open-rules').disabled,true);
+  assert.equal(identity.element('#directory-scope').disabled,true);
+  assert.equal(identity.element('#directory-scope').value,'all');
+  assert(identityCalls.includes('/v2/module/program-instance-catalog'));
+  const savedCatalog={schemaVersion:4,version:5,products:[{id:'p',name:'保存后新名称',type:'other'}],ownershipRules:[],rules:[],bindings:[]};
+  identity.knowledgeOptions.onCatalogSaved(savedCatalog,'other-child');
+  assert.doesNotMatch(identity.element('#managed-app-list').innerHTML,/保存后新名称/);
+  identity.knowledgeOptions.onCatalogSaved(savedCatalog,'a');
+  assert.match(identity.element('#managed-app-list').innerHTML,/保存后新名称/);
+  identityController.dispose();
+  identity.knowledgeOptions.onCatalogSaved({...savedCatalog,products:[]},'a');
+  assert.match(identity.element('#managed-app-list').innerHTML,/保存后新名称/,'disposed controller ignores notification');
   const system=fixture(),systemCalls=[];
   const systemController=system.mount({root:system.root,view:'system',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{
     systemCalls.push(path);
