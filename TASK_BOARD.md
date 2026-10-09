@@ -2,6 +2,10 @@
 
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
+04:20发布及真实入口收口：run37985721761成功，来源b79eb72；Guardian版本db20e9a4-4f80-41d7-832b-58dc12f00534，Runtime Pages866289f2-cb47-4f7c-acb4-b83cb035b597，Main Pagesfad51a2a-b9cd-42a7-b311-cb2518d8cc87。manifest确认Runtime版本仍889d6243，迁移为空、sharedAccessShadowPrepared=false、R2 latest仍2.3.1且哈希不变。已登录主控制台实例入口正常显示第一页50个登记实例，404消失；规则目录明确返回“现有目录尚待集中切换”，不存在新版目录。因此当前目录10仍legacy是Windows／Mac产品pending的共同前置缺口，不是应让终端重装或猜产品。下一步先核对安全目录转换，保留既有产品及孩子配置、不把旧身份绑定直接当新规则、不直接写第三层映射；尚未执行目录切换。Mac固定回报15bf75684ebe0c3fc28e55c0c2c41abd3f5a6b7a记录0.1.41的基础版本22/23/25 ACK／Published与页面对照，按Mac报告证据收录，不等于Windows独立复现；1.45/1.46源码增量仍待办。整体未完成。
+
+04:14真实登录读取取得新版基础上云证据：主控制台应用使用返回program-instance-v1、seconds、complete=true，今天总量482秒、7个基础条目，来源revision92、unsupportedSourceCount=0、截止04:13:44；页面呈现8分2秒。产品投影仍未完成，返回APPLICATION_PRODUCT_CATALOG_CHANGED、目录版本10、可用来源0/1，已交Native只读定位目录消费与投影，不重复安装。PR #250已合并为b79eb72a22504b8bd23539ea30b9666494bf60e0，精确SHA相关CI通过；生产run37985721761已启动并完成已授权环境审核，仅Guardian和两套Pages，Runtime及migration均不部署。运行结果与实例入口实测待补，不以已启动称发布完成。
+
 安装后实测补缺：2.6.42安装日志返回0，Native报告11正式组件哈希匹配、Service在线，本机身份基础读取schema3／seconds／revision85为available且complete，产品投影仍APPLICATION_PRODUCT_MISSING；尚未证明上传及云端采用。没有升级前受保护数据逐条基线，不宣称全部保留已逐条验证。主控制台实例入口实际返回RUNTIME_MANAGEMENT_NOT_FOUND，根因是Guardian固定白名单遗漏Runtime已实现的新实例路径。本次standard-cloud最小修订仅补既有目录、实例列表、使用读取、目录预览及保存的精确方法和参数；保留现有家庭鉴权、条件更新、参数拒绝及Service Binding。先运行管理网关专项、typecheck和diff；不改原账、统计、权限语义或运行服务，不新增迁移，不重复安装。修复、部署及真实验收分别记录。
 
 上述网关修订专项12/12、根typecheck及diff通过：逐条核对Runtime既有五条路径、方法和参数；未鉴权拒绝、跨孩子错误透传、未知／重复参数拒绝、条件更新409不重试均有固定回归。Matched为源码路由补齐与隔离验证；Missing为部署后真实入口复验及新统计上传／产品投影；Extra无。Native第三次自然读取基础revision85→87，产品仍missing，安装后报告已固定于Native文档提交12dcb5e8e6d33b019e48262c4bea999c8aefd77c；这是本机基础自然推进，不替代云端采用证据。
