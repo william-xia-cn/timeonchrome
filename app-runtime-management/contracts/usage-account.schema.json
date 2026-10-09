@@ -34,6 +34,16 @@
     { "if": { "properties": { "complete": { "const": true } } }, "then": { "properties": { "reasonCodes": { "maxItems": 0 }, "settledThroughMs": { "type": "integer" } } }, "else": { "properties": { "reasonCodes": { "minItems": 1 } } } }
   ],
   "$defs": {
+    "productProjectionReceipt": {
+      "description":"PUT /v2/machines/application-accounts/manifests/{manifestId}/product-projection 的接收ACK。需要application-product-projection-upload-v1能力；请求正文引用productProjection，最大1048576字节。ACK还必须与此次请求的manifestId、revision、projectionHash逐值相等。",
+      "type":"object","additionalProperties":false,
+      "required":["manifestId","revision","projectionHash","received"],
+      "properties":{
+        "manifestId":{"type":"string","pattern":"^aa1_[a-f0-9]{64}$"},
+        "revision":{"type":"integer","minimum":1,"maximum":9007199254740991},
+        "projectionHash":{"$ref":"#/$defs/hash"},"received":{"const":true}
+      }
+    },
     "productCategory": {"enum":["study","composite","restrictedEntertainment","unclassified","other","blocked","historicalUnknown"]},
     "productReasons": {"type":"array","maxItems":16,"uniqueItems":true,"items":{"type":"string","pattern":"^[A-Z][A-Z0-9_]{0,63}$"}},
     "productCompleteness": {

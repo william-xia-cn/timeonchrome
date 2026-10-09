@@ -1,6 +1,14 @@
 {
   "schemaVersion": 1,
   "timezone": "Asia/Shanghai",
+  "productProjectionUpload": {
+    "capability":"application-product-projection-upload-v1",
+    "method":"PUT",
+    "maxBytes":1048576,
+    "path":"/v2/machines/application-accounts/manifests/aa1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/product-projection",
+    "receipt":{"manifestId":"aa1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","revision":3,"projectionHash":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","received":true},
+    "invalidReceiptPatches":[{"manifestId":"aa1_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"revision":2},{"revision":4},{"revision":"3"},{"projectionHash":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},{"received":false},{"received":"true"}]
+  },
   "productProjectionGolden": {
     "description": "引用instanceV3Golden；Excel/Word各120秒，学习并集180秒，明细不能相加当总量。无名称、余额或重复孩子字段。",
     "body": {

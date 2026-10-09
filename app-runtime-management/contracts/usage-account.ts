@@ -503,6 +503,30 @@ export interface ApplicationProductStatisticsProjection {
   applicationUsage:ApplicationUsageSeconds;
   projectionHash:string;
 }
+/** PUT正文即ApplicationProductStatisticsProjection；不修改基础上传队列或发布水位。 */
+export const APPLICATION_PRODUCT_PROJECTION_UPLOAD_CAPABILITY = 'application-product-projection-upload-v1' as const;
+export const APPLICATION_PRODUCT_PROJECTION_MAX_BYTES = 1_048_576;
+export function applicationProductProjectionUploadPath(manifestId:string):string {
+  if(typeof manifestId!=='string'||!/^aa1_[a-f0-9]{64}$/.test(manifestId))
+    fail('APPLICATION_PRODUCT_MANIFEST_ID_INVALID');
+  return `/v2/machines/application-accounts/manifests/${manifestId}/product-projection`;
+}
+export interface ApplicationProductProjectionReceipt {
+  manifestId:string;
+  revision:number;
+  projectionHash:string;
+  received:true;
+}
+/** ACK须属于当前冻结的请求；单纯received不能确认另一个版本。 */
+export function verifyApplicationProductProjectionReceipt(value:unknown,manifestId:string,
+  expected:Pick<ApplicationProductStatisticsProjection,'revision'|'projectionHash'>):ApplicationProductProjectionReceipt {
+  applicationProductProjectionUploadPath(manifestId);
+  const v=exact(value,['manifestId','revision','projectionHash','received']);
+  if(!integer(expected.revision,1)||typeof expected.projectionHash!=='string'||!hashPattern.test(expected.projectionHash)
+    ||v.manifestId!==manifestId||v.revision!==expected.revision||v.projectionHash!==expected.projectionHash
+    ||v.received!==true) fail('APPLICATION_PRODUCT_RECEIPT_MISMATCH');
+  return {manifestId,revision:expected.revision,projectionHash:expected.projectionHash,received:true};
+}
 export function parseApplicationProductStatisticsProjection(value:unknown):ApplicationProductStatisticsProjection {
   const v=exact(value,['schemaVersion','baseManifestHash','revision','catalogVersion','generatedAtMs','complete',
     'reasonCodes','rows','applicationUsage','projectionHash']);

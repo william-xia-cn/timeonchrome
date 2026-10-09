@@ -1,5 +1,9 @@
 # App Runtime 决策记录
 
+## 2026-10-09 独立产品投影上传补齐（集中开发契约1.43.0）
+
+沿用1.42的基础／产品分视图，不更改原账、基础统计或分类语义。固定`application-product-projection-upload-v1`能力、机器鉴权PUT `/v2/machines/application-accounts/manifests/{manifestId}/product-projection`，正文直接为既有产品投影，最大1048576字节；成功ACK的manifestId、revision、projectionHash须与本次冻结请求完全一致，received只确认接收，不等于产品映射仍最新或执行生效。同请求重复不累加，更正可下降，产品上传失败不撤销基础统计。共同Schema及向量随包交付；1.42包保持不可变。云端能力按接收存储／防回流兼容就绪声明，不执行生产迁移。此包补齐此前遗漏的传输边界，不代表Native已经上传或实机链已完成。
+
 ## 2026-10-09 终端实例／产品只读视图（开发契约）
 
 沿用七日范围、100主体分页和冻结revision；新增协商能力，query的view为base或product，省略为base。基础视图不携名称／分类，产品视图来自独立投影；产品缺失不改变基础完整性，产品视图不可用时返回明确状态而非零用量。分页只作用于所选视图，不要求产品与实例条目一一对应。原schema2秒接口保留，不能以填充未归类或占位名称将实例行冒充旧产品行。

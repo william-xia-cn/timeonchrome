@@ -247,3 +247,23 @@ assert.throws(()=>parseUsageAccountRowsV2([{...subjectSeconds,classifications:['
 assert.throws(()=>parseUsageAccountRowsV2([{...subjectSeconds,classifications:['study','composite']}]), /INVALID_SUBJECT_CLASSIFICATIONS/);
 assert.throws(()=>parseUsageAccountRowsV2([{...row('total',null,51),classifications:['study']}]), /INVALID_FIELDS/);
 console.log('usage-account: golden vectors and compatibility/integrity checks passed');
+
+const upload = await import('./dist/usage-account.js');
+const productReceipt = vectors.productProjectionUpload.receipt;
+const productManifestId = productReceipt.manifestId;
+const productExpected = {revision:productReceipt.revision,projectionHash:productReceipt.projectionHash};
+assert.equal(upload.APPLICATION_PRODUCT_PROJECTION_UPLOAD_CAPABILITY,vectors.productProjectionUpload.capability);
+assert.equal(upload.APPLICATION_PRODUCT_PROJECTION_MAX_BYTES,vectors.productProjectionUpload.maxBytes);
+assert.equal(upload.applicationProductProjectionUploadPath(productManifestId),vectors.productProjectionUpload.path);
+assert.deepEqual(upload.verifyApplicationProductProjectionReceipt(productReceipt,productManifestId,productExpected),productReceipt);
+assert.deepEqual(upload.verifyApplicationProductProjectionReceipt(productReceipt,productManifestId,productExpected),productReceipt,
+  '重复确认是同一个版本，不产生累加结果');
+for(const patch of vectors.productProjectionUpload.invalidReceiptPatches) {
+  assert.throws(()=>upload.verifyApplicationProductProjectionReceipt({...productReceipt,...patch},productManifestId,productExpected),
+    /APPLICATION_PRODUCT_RECEIPT_MISMATCH/);
+}
+assert.throws(()=>upload.verifyApplicationProductProjectionReceipt({...productReceipt,childId:'extra'},productManifestId,productExpected),/INVALID_FIELDS/);
+for(const bad of ['',`aa1_${'A'.repeat(64)}`,`${productManifestId}/../commit`,null])
+  assert.throws(()=>upload.applicationProductProjectionUploadPath(bad),/APPLICATION_PRODUCT_MANIFEST_ID_INVALID/);
+assert.throws(()=>upload.verifyApplicationProductProjectionReceipt(productReceipt,productManifestId,{revision:0,projectionHash:'b'.repeat(64)}),/RECEIPT_MISMATCH/);
+console.log('product projection upload: exact request ACK and bounded path checks passed');
