@@ -2,6 +2,8 @@
 
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
+PR #248 发布前 CI 修复：console 独立任务在干净 runner 仅 npm ci 后运行知识测试，缺少契约 dist，报 ERR_MODULE_NOT_FOUND；本地通过依赖已构建产物。仅补该任务 build:app-runtime-contracts 前置及固定顺序回归，不改变产品或降低门禁。职责 architecture-integration，工作流文件作为精确任务例外；最小验证为契约构建、知识页面专项、CI 路由、发布配置和差异检查，不运行终端或全平台测试。
+
 PO集中发布授权（2026-10-10）：允许现有云端分支推送、PR及相关检查通过后合并；发布Runtime、Guardian与两套Pages；先核实生产pending，只执行0017–0021中未应用的迁移，发现其他pending即停止迁移步骤并报告。部署后核验新能力及Mac自动补发，不安装终端、不启共享、不发布Task／Santa、不改R2。本批复用已记录精确代码的专项及目视证据，CI按影响运行；发布与真实验收分别登记。本节此前待授权状态由本条覆盖，不以授权本身标为已发布。
 
 Mac实际安装后上传前置缺口（Native原任务回报，2026-10-10）：0.1.41／源码9f87cee的240秒自然观察报告本机基础读取及revision推进，上传停capability、APPLICATION_ACCOUNT_UNSUPPORTED、attemptCount=0；不是新统计已上传或发布。根任务核对最新origin/master edcb4de的applicationAccounts能力响应确无application-instance-statistics-v1和application-instance-seconds-v1，且无实例登记能力路由；新接收实现仅在未交付的云端分支。因此先交付兼容云端，不要求Mac降级、改统计或重复安装。新实例统计能力依赖基础七表及0018两个兼容trigger，产品投影另依赖0019，登记依赖0017、安装引用依赖0021。当前未直接读取生产机器认证响应，不能把源码对比冒称生产响应核验；已通过原Native任务转告，保留队列。Mac首次健康检查失败单列未定位，不与本次能力缺失合并。

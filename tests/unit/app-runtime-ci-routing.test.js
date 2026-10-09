@@ -73,6 +73,11 @@ for (const job of ['changes', 'contracts-worker-console', 'console', 'release-co
 }
 assert(/pull_request:\r?\n    types: \[opened, synchronize, reopened, edited\]\r?\n  push:/.test(workflow), 'PR workflow must provide gate including declaration edits, without path filters');
 assert(workflow.includes("if: needs.changes.outputs.console == 'true'"));
+const consoleJob = workflow.split('\n  console:')[1].split('\n  release-config:')[0];
+const contractsBuild = consoleJob.indexOf('run: npm run build:app-runtime-contracts');
+assert(contractsBuild > consoleJob.indexOf('run: npm ci'), 'console job must build contract exports after install');
+assert(contractsBuild < consoleJob.indexOf('run: node app-runtime-management/console/app-runtime-knowledge.test.cjs'),
+  'console knowledge tests require contract exports built in their own clean runner');
 assert(!workflow.includes('dotnet test app-runtime-management/agents/windows/'));
 assert(!workflow.includes('swift test --package-path app-runtime-management/agents/macos'));
 assert(workflow.includes("if: needs.changes.outputs.release_config == 'true'"));
