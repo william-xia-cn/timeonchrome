@@ -38,6 +38,8 @@ function moduleSource(instance) {
   return originalSource
     .replace(/from '\.\/mac-guardian-health.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/infra/mac-guardian-health.js')).href}'`)
     .replace(/from '\.\.\/core\/shared-web-native.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-web-native.js')).href}'`)
+    .replace(/import \{ APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, validateApplicationIdentityUsageQuery, validateApplicationIdentityUsageSnapshot \} from '\.\.\/core\/shared-contracts\/1\.43\.0\/application-usage-seconds\.js';/,
+      'const { APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, validateApplicationIdentityUsageQuery, validateApplicationIdentityUsageSnapshot } = globalThis.__GUARDIAN_APPLICATION_IDENTITY_CONTRACT;')
     .replace(/import \{ MANAGED_POLICY_KEYS, readManagedActivationPolicy \} from '\.\.\/core\/activation-gate\.js';/, `const MANAGED_POLICY_KEYS = globalThis.__guardianPolicyKeys;\nconst readManagedActivationPolicy = (...args) => globalThis.__guardianReadPolicy(...args);`)
     .replace(/import \{ readNativeHostDeploymentMarker, readNativeHostDevelopmentMarker \} from '\.\.\/core\/deployment-mode\.js';/, 'const readNativeHostDeploymentMarker = (...args) => globalThis.__guardianReadMarker(...args);\nconst readNativeHostDevelopmentMarker = (...args) => globalThis.__guardianReadDevelopmentMarker(...args);')
     .replace(/import \{ budgetedLocalSet \} from '\.\/storage-budget\.js';/, 'const budgetedLocalSet = (...args) => globalThis.__guardianBudgetedSet(...args);')
@@ -61,6 +63,12 @@ function moduleSource(instance) {
 }
 
 async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [], platform = 'win' } = {}) {
+  const identityContractSource = fs.readFileSync(path.join(root, 'extension', 'core', 'shared-contracts', '1.43.0', 'application-usage-seconds.js'), 'utf8')
+    .replace("import { parseApplicationUsageSeconds } from './usage-account.js';",
+      'const { parseApplicationUsageSeconds } = globalThis.__GUARDIAN_APPLICATION_USAGE_ACCOUNT;');
+  const identityAccountSource = fs.readFileSync(path.join(root, 'extension', 'core', 'shared-contracts', '1.43.0', 'usage-account.js'), 'utf8');
+  global.__GUARDIAN_APPLICATION_USAGE_ACCOUNT = await import(`data:text/javascript;base64,${Buffer.from(identityAccountSource).toString('base64')}`);
+  global.__GUARDIAN_APPLICATION_IDENTITY_CONTRACT = await import(`data:text/javascript;base64,${Buffer.from(identityContractSource).toString('base64')}`);
   const alarms = { onAlarm: createEvent(), created: [] };
   alarms.get = async () => null;
   alarms.create = async (name, options) => { alarms.created.push({ name, options }); };
@@ -1311,6 +1319,61 @@ async function run() {
   await waitFor(() => dualStorage.mac_guardian_health_status_v1.lastErrorCode === null);
   assert.deepStrictEqual(Object.keys(dualStorage).filter(key => key === 'usage_segments_v1'), [],
     'health tests must not create an authoritative ledger');
+  const identityPayloads = [];
+  const identityStorage = { cloud_profile_id: 'child-identity-a', cloud_device_id: 'device-identity-a' };
+  const identityCapability = 'application-identity-usage-read-v1';
+  const identityHost = await loadGuardian({ storage: identityStorage, policy,
+    connectNative: () => createPort((payload, onMessage) => {
+      identityPayloads.push(payload);
+      const generatedAtMs = Date.now();
+      const identityDay = {
+        date: payload.payload?.fromDate || '2026-10-07', status: 'available', baseRevision: 1,
+        manifestHash: 'a'.repeat(64), generatedAtMs, settledThroughMs: generatedAtMs,
+        complete: true, reasonCodes: [], totalSeconds: 180,
+        hours: Array.from({ length: 24 }, (_, hour) => ({ hour, totalSeconds: hour === 11 ? 180 : 0 })),
+      };
+      const response = { ok: true, receivedAt: Date.now(), requestId: payload.requestId,
+        supportedProtocols: [3], capabilities: ['health', identityCapability],
+        ...(payload.messageType === 'getApplicationIdentityUsage' ? { applicationIdentityUsage: {
+          schemaVersion: 3, durationUnit: 'seconds', timezone: 'Asia/Shanghai',
+          fromDate: payload.payload.fromDate, toDate: payload.payload.toDate, view: payload.payload.view || 'base',
+          revision: 'identity:revision-1',
+          base: { complete: true, reasonCodes: [], computedAtMs: generatedAtMs, lastSettledAtMs: generatedAtMs,
+            totalSeconds: 180, knownTotalSeconds: 180, days: [identityDay] },
+          product: null, subjects: [], nextOffset: null,
+        } } : {}) };
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+    }) });
+  await waitFor(() => identityHost.module.readNativeHostDiagnosticState().applicationIdentityUsageSupported === true);
+  const identityContext = await identityHost.module.requestApplicationIdentityUsageReadContext();
+  assert.equal(identityContext.ok, true);
+  assert.equal(identityContext.identitySupported, true);
+  const identityQuery = { fromDate: '2026-10-07', toDate: '2026-10-07', view: 'base', offset: 0 };
+  const nativeIdentityResult = await identityHost.module.requestApplicationIdentityUsage(identityQuery,
+    { expectedContextId: identityContext.contextId });
+  assert.equal(nativeIdentityResult.ok, true);
+  assert.equal(nativeIdentityResult.snapshot.base.totalSeconds, 180);
+  const identityRequest = identityPayloads.find(item => item.messageType === 'getApplicationIdentityUsage');
+  assert.equal(identityRequest.channel, 'application');
+  assert.equal(identityRequest.protocolVersion, 3);
+  assert.deepEqual(identityRequest.payload, identityQuery);
+  assert.equal(identityRequest.extensionId, identityHost.runtime.id);
+  const identityRequestCount = identityPayloads.length;
+  identityStorage.cloud_profile_id = 'child-identity-b';
+  assert.equal((await identityHost.module.requestApplicationIdentityUsage(identityQuery,
+    { expectedContextId: identityContext.contextId })).errorCode, 'application_identity_usage_context_changed');
+  assert.equal(identityPayloads.length, identityRequestCount, 'a changed child context must not reach Native');
+  assert.equal((await identityHost.module.requestApplicationIdentityUsage({ ...identityQuery, extra: 'not allowed' })).errorCode,
+    'application_identity_usage_query_invalid');
+
+  const legacyIdentityHost = await loadGuardian({ storage: { cloud_profile_id: 'child-legacy', cloud_device_id: 'device-legacy' }, policy,
+    connectNative: () => createPort((payload, onMessage) => queueMicrotask(() => onMessage.listeners.forEach(listener => listener({
+      ok: true, receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [3], capabilities: ['health', 'application-usage-seconds-read-v1'],
+    })))) });
+  await waitFor(() => legacyIdentityHost.module.readNativeHostDiagnosticState().applicationUsageSecondsSupported === true);
+  assert.equal((await legacyIdentityHost.module.requestApplicationIdentityUsage(identityQuery)).errorCode,
+    'application_identity_usage_unsupported');
+
   console.log('[Local Guardian] passed');
   process.exit(0);
 }

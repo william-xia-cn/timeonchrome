@@ -51,6 +51,7 @@ vm.runInNewContext([
   extractFunction('usageCategoryLabel'), extractFunction('usageTime'), extractFunction('usageStatusClass'),
   extractFunction('usageCategoryKeys'), extractFunction('filteredUsageRows'), extractFunction('usageTargetIcon'),
   extractFunction('usagePresentationView'), extractFunction('renderUsageLegend'),
+  extractFunction('identitySeconds'), extractFunction('renderIdentityUsageList'),
   extractFunction('renderUsageAnalysisList'), extractFunction('renderUsageDetail'),
   'this.renderUsageLegend = renderUsageLegend; this.renderUsageAnalysisList = renderUsageAnalysisList;',
   'this.usageAnalysisState = usageAnalysisState;'
@@ -125,5 +126,24 @@ const legacyMs = { ...partial, readUnit: 'milliseconds', totalSeconds: 2.5, cate
   categoryRows: partial.categoryRows.map(row => ({ ...row, seconds: 1.5 })) };
 context.renderUsageLegend(legacyMs);
 assert.match(element('usage-analysis-legend').innerHTML, /1秒 500毫秒/);
+
+const identityView = { ...partial, identityModel: true, totalSeconds: 180, knownTotalSeconds: 180,
+  selectedProductComplete: true,
+  identityProductProjectionStatus: '产品身份投影已验证；与基础实例账分开展示，不相加',
+  baseRows: [{ key: 'instance:base-a', label: '基础实例 · base-a', rangeSeconds: 180,
+    rangeKnownSeconds: 180, todaySeconds: 120, weekSeconds: 180, status: '产品身份未逐实例确认；不按名称推断' }],
+  targetRows: [{ key: 'product:catalog-word', label: '目录确认的产品', rangeSeconds: 90,
+    todaySeconds: 60, weekSeconds: 90, status: '目录确认的产品' }],
+  categoryRows: [{ key: 'app_study', label: '学习', seconds: 90, rangeKnownSeconds: 90, status: '独立产品投影' }],
+};
+state.listMode = 'targets';
+context.renderUsageAnalysisList(identityView);
+const identityTable = element('usage-analysis-table-wrap').innerHTML;
+assert.match(identityTable, /基础实例账/);
+assert.match(identityTable, /产品身份投影/);
+assert.match(identityTable, /基础实例 · base-a/);
+assert.match(identityTable, /目录确认的产品/);
+assert.match(identityTable, /绝不相加/);
+assert.equal(identityView.totalSeconds, 180, 'product projection must not replace the base primary total');
 
 console.log('Admin application renderer: partial known data visible, unknown values not zero, complete-zero and legacy-ms preserved');

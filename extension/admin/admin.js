@@ -22,8 +22,9 @@ import { getPrivacyConsentPageUrl } from '../core/privacy-consent.js';
 import { canUseChromeIdentityForAdmin, resolveActivationState } from '../core/activation-gate.js';
 import { readNativeHostDeploymentMarker } from '../core/deployment-mode.js';
 import { attachSharedSyncDiagnostics } from './shared-sync-diagnostics-view.js';
-import { getAdminApplicationUsageAnalysisView, applicationUsageErrorMessage,
+import { applicationUsageErrorMessage,
   APPLICATION_CATEGORY_LABELS } from '../stats/application-usage-read-model.js';
+import { getAdminApplicationIdentityUsageAnalysisView } from '../stats/application-identity-usage-read-model.js';
 import { readRestUsageSummary } from '../stats/rest-usage-summary.js';
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
@@ -3616,6 +3617,7 @@ function shiftUsageAnalysisDate(currentKey, days) {
 }
 
 function usageCategoryLabel(key) {
+  if (key === 'app_instance_total') return '基础实例用量';
   if (key?.startsWith('app_')) return APPLICATION_CATEGORY_LABELS[key.slice(4)] || '历史分类未知';
   return ({
     study: '学习',
@@ -3742,10 +3744,16 @@ function renderUsageAnalysisList(view) {
   const listModeEl = document.getElementById('usage-analysis-list-mode');
   const searchEl = document.getElementById('usage-analysis-search');
   if (listModeEl) listModeEl.value = usageAnalysisState.listMode;
-  if (listModeEl?.querySelector('[value="targets"]')) listModeEl.querySelector('[value="targets"]').textContent = view.kind === 'application' ? '应用' : '管理对象';
+  if (listModeEl?.querySelector('[value="targets"]')) listModeEl.querySelector('[value="targets"]').textContent = view.identityModel ? '产品' : view.kind === 'application' ? '应用' : '管理对象';
+  if (listModeEl?.querySelector('[value="categories"]')) listModeEl.querySelector('[value="categories"]').textContent = view.identityModel ? '产品分类' : '显示分类';
   if (searchEl) {
     searchEl.value = usageAnalysisState.query;
-    searchEl.placeholder = usageAnalysisState.listMode === 'categories' ? '搜索分类' : (view.searchTargetPlaceholder || '搜索管理对象');
+    searchEl.placeholder = usageAnalysisState.listMode === 'categories' ? (view.identityModel ? '搜索产品分类' : '搜索分类')
+      : (view.identityModel ? '搜索产品或实例' : view.searchTargetPlaceholder || '搜索管理对象');
+  }
+  if (view.identityModel) {
+    renderIdentityUsageList(view, wrap, detail);
+    return;
   }
   const rows = filteredUsageRows(view);
   const incompleteApplication = view.kind === 'application' && view.totalSeconds == null;
@@ -3810,11 +3818,76 @@ function renderUsageAnalysisList(view) {
   renderUsageDetail(view);
 }
 
+function identitySeconds(value, known = null) {
+  if (value != null) return usageTime(value);
+  return known != null && known > 0 ? `未知（已知 ${usageTime(known)}）` : '未知';
+}
+
+function renderIdentityUsageList(view, wrap, detail) {
+  const query = usageAnalysisState.query.trim().toLowerCase();
+  const baseRows = (view.baseRows || []).filter(row => !query || row.label.toLowerCase().includes(query));
+  const projectionRows = usageAnalysisState.listMode === 'categories'
+    ? (view.categoryRows || []).filter(row => !query || row.label.toLowerCase().includes(query))
+    : (view.targetRows || []).filter(row => !query || row.label.toLowerCase().includes(query));
+  const baseTable = baseRows.length ? `<table class="usage-analysis-table">
+    <thead><tr><th>基础实例（主账）</th><th>所选范围</th><th>今日时间</th><th>本周时间</th><th>身份说明</th></tr></thead>
+    <tbody>${baseRows.map(row => `<tr data-usage-detail-kind="identity-base" data-usage-detail-key="${escAttr(row.key)}">
+      <td>${escHtml(row.label)}</td><td>${identitySeconds(row.rangeSeconds, row.rangeKnownSeconds)}</td>
+      <td>${identitySeconds(row.todaySeconds)}</td><td>${identitySeconds(row.weekSeconds)}</td>
+      <td>${escHtml(row.status)}</td></tr>`).join('')}</tbody></table>`
+    : '<div class="usage-empty">当前范围没有可确认的基础实例明细；不代表零用量。</div>';
+  let projectionContent;
+  if (!view.selectedProductComplete && !view.categoryRows?.length && !view.targetRows?.length) {
+    projectionContent = `<div class="usage-empty">${escHtml(view.identityProductProjectionStatus)}；产品明细未知，不代表零用量。</div>`;
+  } else if (usageAnalysisState.listMode === 'categories') {
+    projectionContent = projectionRows.length ? `<table class="usage-analysis-table">
+      <thead><tr><th>产品分类</th><th>所选范围</th><th>说明</th></tr></thead>
+      <tbody>${projectionRows.map(row => `<tr data-usage-detail-kind="identity-category" data-usage-detail-key="${escAttr(row.key)}">
+        <td><span class="usage-target-name"><span class="usage-dot ${escAttr(row.key)}"></span>${escHtml(row.label)}</span></td>
+        <td>${identitySeconds(row.seconds, row.rangeKnownSeconds)}</td><td>${escHtml(row.status)}</td></tr>`).join('')}</tbody></table>`
+      : `<div class="usage-empty">${escHtml(view.identityProductProjectionStatus)}。</div>`;
+  } else {
+    projectionContent = projectionRows.length ? `<table class="usage-analysis-table">
+      <thead><tr><th>产品目录名称</th><th>所选范围</th><th>今日时间</th><th>本周时间</th><th>说明</th></tr></thead>
+      <tbody>${projectionRows.map(row => `<tr data-usage-detail-kind="identity-product" data-usage-detail-key="${escAttr(row.key)}">
+        <td>${escHtml(row.label)}</td><td>${identitySeconds(row.rangeSeconds, row.rangeKnownSeconds)}</td>
+        <td>${identitySeconds(row.todaySeconds)}</td><td>${identitySeconds(row.weekSeconds)}</td><td>${escHtml(row.status)}</td></tr>`).join('')}</tbody></table>`
+      : `<div class="usage-empty">${escHtml(view.identityProductProjectionStatus)}；不按基础实例名称猜测产品。</div>`;
+  }
+  wrap.innerHTML = `<section class="identity-usage-section"><h3>基础实例账</h3><p>以下用量构成应用主使用时间；无法识别产品身份时仍保留实例用量。</p>${baseTable}</section>
+    <section class="identity-usage-section"><h3>${usageAnalysisState.listMode === 'categories' ? '产品分类投影' : '产品身份投影'}</h3>
+      <p>${escHtml(view.identityProductProjectionStatus)}。产品投影与基础实例账可能重叠，绝不相加。</p>${projectionContent}</section>`;
+  wrap.querySelectorAll('[data-usage-detail-key]').forEach(row => {
+    row.addEventListener('click', () => {
+      usageAnalysisState.detail = { kind: row.dataset.usageDetailKind, key: row.dataset.usageDetailKey };
+      renderUsageDetail(view);
+    });
+  });
+  renderUsageDetail(view);
+}
+
 function renderUsageDetail(view) {
   view = usagePresentationView(view);
   const detail = document.getElementById('usage-analysis-detail');
   if (!detail || !usageAnalysisState.detail) {
     if (detail) detail.className = 'usage-detail-panel';
+    return;
+  }
+  if (view.identityModel) {
+    const selection = usageAnalysisState.detail;
+    const row = selection.kind === 'identity-base' ? view.baseRows.find(item => item.key === selection.key)
+      : selection.kind === 'identity-category' ? view.categoryRows.find(item => item.key === selection.key)
+        : view.targetRows.find(item => item.key === selection.key);
+    detail.className = row ? 'usage-detail-panel visible' : 'usage-detail-panel';
+    if (!row) { detail.innerHTML = ''; return; }
+    const amount = selection.kind === 'identity-category' ? identitySeconds(row.seconds, row.rangeKnownSeconds)
+      : identitySeconds(row.rangeSeconds, row.rangeKnownSeconds);
+    const note = selection.kind === 'identity-base'
+      ? '基础实例用量计入应用主使用时间。产品身份未逐实例确认，不按进程名或显示名推断。'
+      : '这是独立产品身份投影，不与基础实例账相加，也不进入网页配额。';
+    detail.innerHTML = `<strong>${escHtml(row.label)}</strong><p>当前范围：${escHtml(amount)}</p>
+      ${selection.kind !== 'identity-category' ? `<p>今日：${escHtml(identitySeconds(row.todaySeconds))} · 本周：${escHtml(identitySeconds(row.weekSeconds))}</p>` : ''}
+      <p>${escHtml(row.status || '')}。${escHtml(note)}</p>`;
     return;
   }
   if (view.kind === 'application') {
@@ -3978,12 +4051,20 @@ function renderUsageAnalysisView(view) {
   if (summaryTitle) summaryTitle.textContent = '本周每日结构';
   const mainTitle = document.getElementById('usage-analysis-main-title');
   if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : '24 小时分布';
+  if (view.identityModel) {
+    if (summaryTitle) summaryTitle.textContent = '基础实例每日主用量';
+    if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '基础实例每日主用量' : '基础实例每小时主用量';
+    const notice = document.getElementById('usage-analysis-app-notice');
+    if (notice) notice.textContent = `${view.warning ? view.warning + ' ' : ''}基础实例构成应用主用量；产品分类和名称是独立投影，可能与基础实例重叠，不能相加。${view.identityProductProjectionStatus}${view.incompleteDates ? `；基础统计不完整日期：${view.incompleteDates}，未知不代表零用量。` : ''}`;
+  }
   if (view.kind === 'application') {
-    if (summaryTitle) summaryTitle.textContent = '所选周分类明细（分类可能重叠）';
-    if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '每日分类明细（可能重叠）' : '小时分类明细（可能重叠）';
+    if (!view.identityModel) {
+      if (summaryTitle) summaryTitle.textContent = '所选周分类明细（分类可能重叠）';
+      if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '每日分类明细（可能重叠）' : '小时分类明细（可能重叠）';
+    }
     const notice = document.getElementById('usage-analysis-app-notice');
     const partialSeconds = view.readUnit === 'seconds' && view.totalSeconds == null;
-    if (notice) notice.textContent = `${view.warning || ''} 独立应用统计，不计网页配额；仅含已结算记录，明细可能重叠，不相加生成总量。${view.incompleteDates ? '不完整日期：' + view.incompleteDates + (partialSeconds
+    if (notice && !view.identityModel) notice.textContent = `${view.warning || ''} 独立应用统计，不计网页配额；仅含已结算记录，明细可能重叠，不相加生成总量。${view.incompleteDates ? '不完整日期：' + view.incompleteDates + (partialSeconds
       ? '；当前可见应用、分类和图表为已知部分，未显示部分不代表零用量。'
       : '，对应图表空白不代表零用量。') : ''}`;
   }
@@ -4036,7 +4117,8 @@ async function renderStatsPage({ force = false, retain = false, recheck = false 
     document.getElementById('usage-analysis-main-title').textContent = usageAnalysisState.mode === 'week'
       ? '每日分类明细（可能重叠）' : '小时分类明细（可能重叠）';
     document.getElementById('usage-analysis-search').placeholder = '搜索应用名称';
-    document.querySelector('#usage-analysis-list-mode option[value="targets"]').textContent = '应用';
+    document.querySelector('#usage-analysis-list-mode option[value="targets"]').textContent = '产品';
+    document.querySelector('#usage-analysis-list-mode option[value="categories"]').textContent = '产品分类';
   }
   if (!retain) {
     usageAnalysisLastView = null;
@@ -4045,7 +4127,7 @@ async function renderStatsPage({ force = false, retain = false, recheck = false 
     if (legend) legend.innerHTML = '';
   }
   try {
-    const getView = application ? getAdminApplicationUsageAnalysisView : usageAnalysisState.ledger === 'media'
+    const getView = application ? getAdminApplicationIdentityUsageAnalysisView : usageAnalysisState.ledger === 'media'
       ? getAdminMediaUsageAnalysisView
       : getAdminUsageAnalysisView;
     const usageView = await getView({

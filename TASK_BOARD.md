@@ -2,6 +2,8 @@
 
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
+最新终端整合状态：仅移植应用身份只读统计，基于主线 `b79eb72`；排除 `806abac` 的来源统计影子功能。身份读模型、Admin 展示、Native Host 回归、契约构建、typecheck 和扩展根目录检查通过；未打包、安装或部署。
+
 安装后实测补缺：2.6.42安装日志返回0，Native报告11正式组件哈希匹配、Service在线，本机身份基础读取schema3／seconds／revision85为available且complete，产品投影仍APPLICATION_PRODUCT_MISSING；尚未证明上传及云端采用。没有升级前受保护数据逐条基线，不宣称全部保留已逐条验证。主控制台实例入口实际返回RUNTIME_MANAGEMENT_NOT_FOUND，根因是Guardian固定白名单遗漏Runtime已实现的新实例路径。本次standard-cloud最小修订仅补既有目录、实例列表、使用读取、目录预览及保存的精确方法和参数；保留现有家庭鉴权、条件更新、参数拒绝及Service Binding。先运行管理网关专项、typecheck和diff；不改原账、统计、权限语义或运行服务，不新增迁移，不重复安装。修复、部署及真实验收分别记录。
 
 上述网关修订专项12/12、根typecheck及diff通过：逐条核对Runtime既有五条路径、方法和参数；未鉴权拒绝、跨孩子错误透传、未知／重复参数拒绝、条件更新409不重试均有固定回归。Matched为源码路由补齐与隔离验证；Missing为部署后真实入口复验及新统计上传／产品投影；Extra无。Native第三次自然读取基础revision85→87，产品仍missing，安装后报告已固定于Native文档提交12dcb5e8e6d33b019e48262c4bea999c8aefd77c；这是本机基础自然推进，不替代云端采用证据。
@@ -30,7 +32,6 @@ Windows生产者核验回报：Native确认Service在线2.6.40.0，11正式组�
 - Runtime health及既有鉴权smoke通过；新增实例登记能力与家长实例入口未鉴权均401。R2 latest发布前后均2.3.1、SHA256 `3109d6bbd147f5bfba88549a240dae42e84e724aa86bd1baef724d2df7b17563`。
 - 已沿原Native会话转交Mac：现有0.1.41保留pending自动重试，先以机器鉴权核实新实例登记／统计能力，再回报新revision、ACK和published。**尚缺Mac真实自动补发回报、当前家庭登录页面验收及终端候选联合验收；不能以部署或401证明它们完成。** Native另报main b76dd4f为独立CI节流变更，未混入本次云端发布。
 - Matched：源码集成、四资源发布、限定迁移、产物比对与未鉴权拒绝；Missing：上述真实联调；Extra：无新增分支、工作树、安装、共享启用或R2操作。发布证据本地任务板保存，后续随交付集中提交，不为证据单开PR。
-
 生产run37980792222：master c7b1411精确CI通过，0017–0020已应用；0021在D1远程解析报incomplete input，后续四资源均未部署。只读核实pending仅0021且其表/索引/trigger均不存在，失败已回滚。触发器含未括起CASE..END，符合Cloudflare workers-sdk#4727记录的远程分割缺陷；本地SQLite/Worker测试不复现远端解析。最小修订仅为两处CASE加括号，不改变条件、错误码或表结构；固定语法回归与安装引用34项复验后，沿现有分支PR合并，发布只预期0021，禁止重放0017–0020。
 
 PO明确批准职责检查最小修订：本批架构集成与标准云端可共同声明。新增且仅允许architecture-integration附加standard-cloud，既有单职责不变；扩展、Native、Task、Santa仍拒绝直接修改，公共文件仍需精确例外。不改变产品测试、生产审核、来源合并证明或部署授权。先补正反固定用例，再继续PR #248发布。
