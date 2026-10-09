@@ -120,6 +120,47 @@ async function test(name, run) { await run(); count++; console.log(`PASS ${name}
     assert.equal((await call(resource+'&cursor=raw')).status,400);
     for(const raw of ['usage-segments','media-segments']) assert.equal((await call(raw)).status,404);
   });
+  await test('instance page routes reach only the existing Runtime module endpoints', async()=>{
+    upstream=async()=>new Response('{}');
+    for(const [resource,method] of [
+      ['program-instance-directory?childId=child-a','GET'],
+      ['program-instances?childId=child-a&afterInstanceId=instance-a','GET'],
+      ['program-instance-catalog','GET'],
+      ['program-instance-catalog/preview?childId=child-a&afterInstanceId=instance-a','POST'],
+      ['program-instance-usage?childId=child-a&fromMs=0&toMs=86400000&platform=windows&machineId=m&userId=u&view=display','GET'],
+      ['program-instance-usage?childId=child-a&fromMs=0&toMs=86400000&includeIdentity=true&includeProducts=true','GET'],
+    ]) {
+      assert.equal((await call(resource,{method})).status,200,resource);
+      assert.equal(calls.at(-1).url,`https://app-runtime.internal/v2/module/${resource}`);
+    }
+    const previous=calls.length;
+    for(const resource of ['program-instances?childId=a&childId=b',
+      'program-instance-directory?accountId=another-family','program-instance-catalog?childId=a',
+      'program-instance-catalog/preview?url=https://outside.invalid','program-instance-usage?token=private'])
+      assert.equal((await call(resource)).status,resource.includes('/preview')?405:400);
+    assert.equal((await call('program-instance-catalog/preview?url=x',{method:'POST'})).status,400);
+    for(const resource of ['program-instances','program-instance-directory','program-instance-usage'])
+      assert.equal((await call(resource,{method:'PUT'})).status,405);
+    assert.equal((await call('program-instance-catalog/apply',{method:'POST'})).status,404);
+    assert.equal(calls.length,previous);
+    assert.equal((await call('program-instances?childId=child-a',{headers:{Authorization:''}})).status,401);
+    assert.equal(calls.length,previous);
+    upstream=async()=>new Response('{"code":"CHILD_NOT_FOUND"}',{status:404});
+    assert.equal((await call('program-instances?childId=other-child')).status,404);
+  });
+  await test('instance catalog writes preserve conditional update and do not retry conflicts', async()=>{
+    upstream=async(url,init)=>{
+      assert.equal(url,'https://app-runtime.internal/v2/module/program-instance-catalog');
+      assert.equal(init.method,'PUT'); assert.equal(init.headers.get('If-Match'),'"v3"');
+      assert.deepEqual(await new Response(init.body).json(),{rules:[]});
+      return new Response('{"code":"VERSION_CONFLICT"}',{status:409,headers:{ETag:'"v4"'}});
+    };
+    const previous=calls.length;
+    const response=await call('program-instance-catalog',{method:'PUT',headers:{'If-Match':'"v3"',
+      'Content-Type':'application/json'},body:JSON.stringify({rules:[]})});
+    assert.equal(response.status,409); assert.equal(response.headers.get('ETag'),'"v4"');
+    assert.equal(calls.length,previous+1);
+  });
   await test('upstream redirects and cookies never escape the management gateway', async()=>{
     upstream=async()=>new Response(null,{status:302,headers:{Location:'https://outside.invalid/?token=private'}});
     const response=await call('machines'); assert.equal(response.status,502);

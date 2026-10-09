@@ -30,6 +30,22 @@ test('application statistics notice has a real DOM target before requesting usag
   assert.match(secondsRenderer,/class="bar-part"/);
 });
 
+test('实际应用渲染区分缺失基础读数与有效零秒',()=>{
+  const script=require('node:fs').readFileSync(__dirname+'/app-runtime.js','utf8');
+  const renderer=script.slice(script.indexOf('function renderSecondsUsage'),script.indexOf('function observedApps'));
+  const nodes=new Map();
+  const $=key=>{if(!nodes.has(key))nodes.set(key,{textContent:'',innerHTML:'',classList:{remove(){}}});return nodes.get(key);};
+  const render=new Function('$','AppRuntimeTime','categoryLabels','categoryColors','state','escape','time',renderer+';return renderSecondsUsage;')($,require('./app-runtime-time.js'),{},{},{period:'day'},String,String);
+  for(const available of [null,0,12]){
+    render({totalDurationSeconds:null,availableTotalDurationSeconds:available,complete:false,missingDates:['2026-10-10'],
+      buckets:[],categories:[],applications:[],instances:[],productStatus:{complete:false}});
+    const notice=$('#outside-window-summary').textContent;
+    assert.equal(notice.includes('基础用量仍有效'),available!==null);
+    assert.equal(notice.includes('部分统计可用'),available!==null);
+    assert.equal(notice.includes('尚无可用基础统计'),available===null);
+  }
+});
+
 test('day range starts at Beijing midnight without double-applying UTC+8', () => {
   const range = beijingRange('day', 0, Date.parse('2026-09-01T12:00:00Z'));
   assert.equal(new Date(range.from).toISOString(), '2026-08-31T16:00:00.000Z');
