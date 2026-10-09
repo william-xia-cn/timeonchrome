@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": ["version", "effectiveAtMs", "classifications", "quotas"],
   "properties": {
+    "programInstanceExecutionPolicy": { "$ref": "#/$defs/programInstanceExecutionPolicy" },
     "version": { "type": "integer", "minimum": 0 },
     "effectiveAtMs": { "type": ["integer", "null"], "minimum": 0 },
     "productIdentityProjection": {
@@ -128,6 +129,40 @@
     }
   },
   "$defs": {
+    "programInstanceExecutionPolicy": {
+      "description": "完整产品封锁集合；仅协商program-instance-execution-policy-v1时发送。父策略绑定孩子及生效范围。解析器额外校验产品ID唯一、双线索全局唯一及规范JSON不超过64000 UTF-8字节。缺席不是解除，明确空集合才是解除。",
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "catalogVersion", "blockedProducts"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "catalogVersion": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "blockedProducts": {
+          "type": "array", "maxItems": 1000,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["productId", "suspectedMatchers"],
+            "properties": {
+              "productId": { "$ref": "#/$defs/executionText" },
+              "suspectedMatchers": {
+                "type": "array",
+                "items": {
+                  "type": "object", "additionalProperties": false,
+                  "required": ["signerKey", "productName"],
+                  "properties": {
+                    "signerKey": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                    "productName": { "$ref": "#/$defs/executionText" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "executionText": {
+      "type": "string", "minLength": 1, "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
     "quotaMinutes": {
       "type": ["integer", "null"],
       "minimum": 0,

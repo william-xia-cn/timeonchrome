@@ -2,6 +2,46 @@
 
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
+云端执行衔接集中提交审计：Matched 为目录／孩子策略／机器水位原子更新、新执行能力协商、严格执行契约1.47及旧盘点并发不得覆盖新策略；复用对应源码的program-instances 38项、产品封锁及机器能力专项、契约build/classification/machine-control/compatibility和typecheck通过证据，19文件职责检查及diff检查通过。根锁仅同步契约版本。此批无未批准Extra，不包含终端源码、安装包或生产操作；整体Missing仍有Native真实执行链与控件同孩子读取接线、生产目录转换和实机验收，不能把云端提交视为全部完成。
+
+控件只读审查已确认可复用现有V2签名绑定，不需新增协议字段：已交两端实施独立读取ensure及Native实际入口connection/user校验、分页和缓存的绑定代际隔离。必须复用同一证明缓存，不调用贡献queue/build/upload、共享余额或执行；未绑定／改绑／断开拒绝读取。Native当前隔离发送消费29项回归通过，固定1.47包哈希已核验，真实管道边界仍在补验；源码、安装、生产状态分开记录。2.6.42安装及Running再次确认，无重复安装。
+
+控件读取Child边界追加只读证据：固定控件现有applicationIdentityRead在native-host-client.js:957附近只比较本地context/connectionGeneration，请求无孩子证明；Native Coordinator ReadBrowserApplicationIdentityUsageAsync只取管道用户当前assignment。对照同文件ExchangeSourceStatisticsAsync已有SharedWebSourceBridge.Capture(connection,user)和IsCurrent检查，说明可复用已有核验，不需另建登录。控件已有createReusableSharedWebBinding，但封装在贡献同步器内，公开方法目前不能直接给独立读取建立绑定；已交所属控件任务核定最小复用范围，禁止要求贡献上传、余额或共享执行成功作为独立统计前提。此项仍未修复／验收，不以本地context隔离等同双方同Child。
+
+集中封存执行契约实施前：在现有1.46完整内容上形成1.47.0本地固定包，新增仅为新执行类型、可选策略字段、严格解析及共同向量。原1.46包不覆盖；根workspace锁只同步包版本，无依赖升级。执行contracts build、classification、machine-control、compatibility、包目录及SHA核对；不跑无关平台或安装器。Native先在隔离快照按固定包核验，正式主工作区锁与源码集中提交时再同步，不以本地包交付冒充部署。
+
+1.47.0本地固定包已交Native：178875字节、94文件，SHA256 `690af25548ab5865bd89062d3e715b4f5cef8cee19242bf8e92f52dee070c723`；1.46原包SHA256仍为`96faf6387250ba2a14a684307bdca9bc7e4d04f3254953e5af5be576001e0d5d`。build、classification、machine-control、compatibility通过，包内解析器、类型、schema和9个执行共同用例与已验证源码逐字节一致。主源码和发布交接锁尚未集中提交；Native实际包消费、Service→Agent接线与实机仍未完成，不以包交付作为完成。没有部署、安装、R2或共享启用操作。
+
+并发写入审查：旧盘点在读取legacy目录后、读取孩子策略前若恰逢新目录提交，旧policyStatements会以新的孩子版本为基线重新生成旧格式载荷，丢弃新执行字段。先在现有program-instances专项中精确插入该交错并复现，再在共同旧策略生成入口拒绝覆盖已存在的新执行上下文；不改变扫描事实接收、旧端语义或生产目录。新策略若在旧请求读取之后提交，原有孩子版本唯一约束仍使旧写入整批失败。最小测试仅该并发案例、目录专项及typecheck；不新增锁、表或迁移。
+
+并发案例已先复现失败（新策略版本2被旧请求写成3），共同入口增加4行保护后program-instances 38/38、backend typecheck、diff通过：新执行载荷与机器版本保持、扫描事实仍接收。这是隔离回归，不是线上切换验收。Native回报新DTO／范围绑定21项隔离通过，真实Service→Agent尚未接完；审查发现Native额外加16hint上限与新契约不一致，已要求沿既定总容量约束对齐，不把该偏离带入候选。
+
+公开契约补齐实施前（architecture-integration）：将已有新执行上下文接入RuntimeAppPolicyV1及现有policy schema，并在现有分类向量中固定普通封锁、强化、明确解除和非法载荷案例；跨产品唯一性及UTF-8容量继续由正式解析器验证，不以JSON schema代替语义校验。仅契约构建、分类专项、机器契约专项和diff；不发包、部署或改变执行语义。Native原始人类授权已定位至原聊天用户记录并转交核验，恢复所属任务实施，不重新索要同范围批准。
+
+该补齐已完成：公开RuntimeAppPolicyV1引用同一类型，现有policy schema新增可选字段及严格结构；现有分类向量新增9个跨端用例，正式解析器逐项验证，schema结构与边界固定检查。契约build、classification、machine-control及diff通过；没有将JSON schema结构检查声称为完整语义验证。Native已独立核验原始用户授权并明确开始现有快照DTO／执行接线，之前授权读取阻塞解除；实现结果仍待回报。未发布新包、未部署或重新安装。
+
+目录保存接线实施前：在既有同一次D1 batch内保存目录、审计、对应孩子新执行上下文及机器策略版本；保留原分类、配额、时间段和旧格式字段，不把v4塞入旧目录字段。更新已有孩子必须保留明确binding，解除使用空产品配置而非缺席binding。策略读取严格解析新增字段，普通策略编辑保留它；旧格式写入者是否仍会丢字段继续逐入口核对。最小回归覆盖保存后正式机器读取、解除、孩子／家庭隔离、存储失败全回滚和既有目录用例；不操作生产数据。
+
+上述保存／读取接线本地已完成：`programInstances.ts`同batch刷新明确binding的孩子策略和机器版本；`appPolicy.ts`严格读取并在普通编辑时保留新字段。`program-instances`＋`product-block-policy`共46项通过、backend typecheck通过；包含两孩子只递增一次机器版本、其他家庭不变、正式heartbeat→机器policy读取、解除、无声删除binding拒绝、机器版本冲突完整回滚、普通编辑不丢字段及损坏字段拒绝。既有盘点两入口在v4状态均跳过旧policyStatements，旧目录写入口拒绝v4；仍需审查并发切换及旧客户端执行连续性，不将保留旧载荷说成新版解除对旧端已生效。本批尚未集中提交、发1.47契约包、部署或制包。
+
+本轮接线 checklist（architecture-integration＋standard-cloud）：先把新执行能力接入真实机器 heartbeat 白名单和 policy 下发，能力变化进入 ETag，旧客户端不得收到新字段；随后目录保存与孩子策略原子刷新接通。只运行机器策略能力／产品封锁专项、typecheck 和 diff 检查，不发布半接线。控件错误码修复已由所属任务提交 `2fede6c` 到 PR #251；更正此前推断：应用身份读取分支独立捕获该异常，不进入心跳失败退避，本项只是稳定错误码修复，不存在已证实的心跳退避影响。Native 新执行实施仍未开始，正在核验原始任务授权，不以交接已发送代替实施进度。
+
+机器能力入口已接通：heartbeat 实际保存 `program-instance-execution-policy-v1`，policy 响应协商并使能力变化参与 ETag；非协商客户端过滤新增执行字段，不生成空解除、不改持久策略。聚焦 `product-block-policy`＋`runtime-api` 两项机器能力用例共11通过，73无关用例未运行；backend typecheck及diff通过。初轮夹具误引用未导出emptyQuotas导致1例失败，已仅改显式夹具后同范围复验通过。尚未接目录保存及策略规范化读取，不能把能力可见当成产品封锁实际生效；本批仍未提交／部署。
+
+云端执行编译已改用新结构 `buildProgramInstanceExecutionPolicy`，退出本批未提交的旧 `associationVersion` 载荷尝试。8/8新旧product-block-policy专项、backend typecheck、diff检查通过：普通封锁不因关闭强化消失；明确解除才删除产品；缺孩子binding/缺引用产品拒绝，不假造空集合；冲突双线索省略但确定产品封锁保留。输出由共享严格解析器复核，目录不变。下一步仍是目录保存原子刷新孩子策略和按机器能力下发；目前辅助编译尚未接保存入口，不单独提交或部署。Worker技能核对仅影响状态局部性/有界配置，未改bindings、密钥、数据库或兼容日期。
+
+读取范围审查新增事实：Native读取按管道Windows SID→当前受保护assignment→Child ID及machine/user/assignmentVersion分区；控件查询只带profile UUID，响应无Child ID，因此本地context防迟到不能证明两端同孩子。该缺口先固定真实入口后复用已有身份核验解决，不将“本机当前Windows用户”文案视为满足Child权威原则。另控件缺requestId路径拼写 `application_identity_invalid_response` 不在允许错误码中，会泛化成heartbeat_build_failed；已交所属任务仅修正为既有usage错误码并补局部回归。发送通道共用心跳退避是单列影响，未授权顺带重构，不冒称拼写修复会解除所有退避。
+
+新执行上下文契约源已实现（尚未发包）：`ProgramInstanceExecutionPolicyV1`／严格解析器／独立能力常量；完整blockedProducts集合与现有双线索表达执行，不复制归属规则或enhanced布尔，不借旧associationVersion。契约编译、classification专项及diff检查通过，覆盖合法/空集合、缺字段、未知字段、重复产品/线索、跨产品冲突、非法版本/文本/签名、UTF-8容量及独立副本。已按精确结构交Native在批准的干净快照实施；云端下发与Native真实执行尚未接通，未改1.46已交付包、未部署安装。下方旧ProductBlockPolicy形状的本地编译辅助仍待改为新结构后接入，不能发布为已完成。
+
+控件 PR #251 固定 `2fa5938` 静态复核：基础主总量仅取 base，产品及分类独立投影、不相加；分页固定 revision，缓存键含扩展孩子／连接上下文及日期，UI sequence 拒绝迟到渲染。依据为 `application-identity-usage-read-model.js:60–104/180–259`、`native-host-client.js:959–984/1339–1349` 和 `admin.js:4105–4154`。以上不等于两端孩子相同：请求仅带浏览器 profileId 和日期／view，schema3 响应不含 childId，扩展 cloud_profile_id 仅参与本地 context；已交 Native 追踪真实读取入口及改绑拒绝条件，未取得前不宣称 Child 隔离联调通过。真实 Native 读数及快速切换验收仍缺，暂不以 CI 成功代替。没有重跑已通过源码测试、打包或安装。
+
+本轮核验与纠偏：2.6.42 已安装、Service Running、安装器 SHA-256 与批准候选一致，不重复安装。控件 PR #251 的首轮失败是缺少 `Task-Role` 声明，补齐 `extension-local` 后 run `37991226880` 成功；源码仍为 `2fa5938d04692947e35121ed8c48ce155445f94f`，未合并、打包或实机验收。Native 固定 `95352f3` 的两项隔离载荷评估证明现有 1.46 旧执行接收链不能合法消费 v4：旧强化校验依赖旧投影，旧分类器依赖 selectors。下方“不新增共享协议版本”及“现有字段足够”的初步假设已失效；后续集中补齐明确的新执行契约及能力分支，不伪造旧投影或静默改变版本字段语义。原批准强化行为不变，当前生产目录和封锁不切换。
+
+独立强化投影编译本地实现：`buildProgramInstanceSuspectedPolicy` 从 v4 当前孩子 blocked+enhanced 读取原双线索，不复制 ownershipRules、不输出 strongMatchers；解除、关闭强化、孩子隔离、线索重复／冲突及源目录不变共7项新旧专项通过，backend typecheck通过。尚未接入保存／机器下发，不提交发布孤立函数。实际接收器核对发现 `MachinePolicy.ValidateProductBlockPolicy` 仍要求旧 ApplicationKnowledge 与 ProductIdentityProjection 的版本同源，现有 v4 目录不能仅靠复用字段名通过；已交 Native 核定合法载荷与兼容边界，不伪造旧投影。不把局部回归当成执行恢复。Native六文件与原未批准草稿重叠，已允许其仅在现有干净源码快照隔离实施／测试；原文件保留，回填前必须核对独立diff，不直接造成反向修改。
+
+目录读取／预览已集中提交 `fd5e6d8b9abe0c67a61b9cd882745305bc736a5a`，未部署。执行衔接进入最小修订：复用既有 ProductBlockPolicy 的目录版本和独立疑似字段，云端从当前 schema4 目录／孩子 binding 生成并撤销执行投影；Native 修空决定切换、整用户阻断及策略代际接线，保留原批准强化行为但不用于产品归属。具体范围见模块 DESIGN 同日“执行接线修订范围”。不新增共享协议版本或复杂迁移框架。云端仅相关策略／目录测试与类型检查；Native 仅对应本机执行隔离回归，不安装、制包或修改真实规则。当前封锁对象覆盖与真实解除验收仍待完成；不以这一设计登记视为已修复。
+
 执行切换只读核对已完成（Native 固定 SHA `95352f3c2dbbace1483c65c2369cc678c27a03a7`）：Coordinator 同时下发旧策略与新 offer 不代表并行执行；Agent 接受新 offer 后切到实例消费者，旧精确封锁不再执行，空 offer／撤回／租约到期不自动回退。未切换客户端仍执行旧策略，新目录解除不会自动解除旧策略封锁。`ProgramInstancePolicyBuilder.cs:12–13` 的 suspected 检查看当前用户全部产品；有旧 Firefox 疑似规则时，首次新模式被阻止，已切换模式则被清空且不恢复旧执行。依据为 Coordinator:1616–1685、Agent Program:382–389、enforcer:67–86/207、Builder:46/69 及现有 SwitchingConsumerCannotBeReenabledByLegacyPolicy 回归。必须集中解决目录／旧策略／实际执行模式衔接后才生产切换；尚未改规则、执行语义或生产目录。2.6.42 安装及 Service Running 已再次只读核实，不重复安装；扫描修复仍为源码状态。
 
 完整转换入口本地结果：knowledge专项通过；backend typecheck及program-instances 34/34通过，含非空旧产品、另一孩子绑定、内置目录和读取后原存储不变断言。GET在legacy返回完整legacyCatalog，页面实际生成草稿，未转换项可展开、只读预览可用、保存按钮及处理函数双重拒绝不完整替代；旧服务未提供完整目录时继续明确不可转换。隔离真实浏览器截图检查发现核验详情占编辑网格半列，已修正为展开时独占整行并重新目视确认。临时服务和验收页已关闭，未连接生产数据。Matched为读取／草稿／预览接线及保护既有配置；Missing为实际未转换规则逐项核验、正式目录切换和端到端产品投影，不能把本地通过称生产完成。尚未提交／部署。

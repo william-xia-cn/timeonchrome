@@ -1,11 +1,12 @@
 import { env } from 'cloudflare:workers';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { registerProgramInstances, materializeProgramInstanceMappings, readProgramInstanceMappings, saveProgramInstanceCatalog, refreshPendingProgramInstanceMappings } from '../src/programInstances';
 import type { MachineSelfResponse } from '../src/contracts';
 import { sha256Hex, randomToken } from '../src/crypto';
 import { routeV2 } from '../src/v2Routes';
 import { readChildProgramIdentityProjection, listChildProgramInstances } from '../src/programInstances';
-import { getApplicationKnowledge, putApplicationKnowledge, effectiveApplicationKnowledge } from '../src/applicationKnowledge';
+import { getApplicationKnowledge, putApplicationKnowledge, effectiveApplicationKnowledge, syncApplicationInventory } from '../src/applicationKnowledge';
+import * as appPolicyModule from '../src/appPolicy';
 import { getAppPolicy, putAppPolicy } from '../src/appPolicy';
 import { parseProductOwnershipEvidence, resolveProgramInstanceClassification,parseProgramInstallationLinkReceipt } from '@timeonchrome/app-runtime-contracts/classification';
 import { parseProgramInstanceProjectionContext } from '@timeonchrome/app-runtime-contracts/classification-validation';
@@ -444,7 +445,8 @@ it('规则目录实际读取按家庭鉴权，区分空与旧格式，拒绝不�
     legacyCatalog:effectiveApplicationKnowledge(legacy)});
   expect(await env.RUNTIME_DB.prepare('SELECT payload_json FROM runtime_application_knowledge_versions_v1 WHERE account_id=? AND version=1')
     .bind(machine.accountId).first('payload_json')).toBe(JSON.stringify(legacy));
-  const saved=await saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId],'"application-knowledge-v1"',catalog,2);
+  const saved=await saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId],'"application-knowledge-v1"',
+    {...catalog,bindings:[{childId:value.childId,products:[],ruleIds:[]}]},2);
   const ready=await routeV2(request(),env,3);
   expect(await ready!.json()).toEqual({state:'available',version:2,catalog:saved});
   expect(ready!.headers.get('etag')).toBe('"application-knowledge-v2"');
@@ -917,7 +919,7 @@ it('同家庭两孩子复用归属规则，改向冲突撤销通过规则重建�
     .rejects.toMatchObject({status:403});
 });
 
-it('目录与审计原子保存、服务端版本递增、过期编辑和未授权孩子拒绝，不写政策或映射',async()=>{
+it('无孩子binding的目录与审计原子保存、版本递增及冲突拒绝，不凭空生成执行或映射',async()=>{
   const {machine,value}=await fixture();
   const catalog={schemaVersion:4,version:999,products:[{id:'a',name:'A',type:'other'}],ownershipRules:[],rules:[],bindings:[]};
   const save=(expected:string,input:unknown=catalog)=>saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId],expected,input,1);
@@ -948,4 +950,120 @@ it('目录与审计原子保存、服务端版本递增、过期编辑和未授�
     .bind(machine.accountId).first('n')).toBe(0);
   expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_program_instance_mappings_v1 WHERE machine_id=?')
     .bind(machine.machineId).first('n')).toBe(0);
+});
+
+it('目录保存原子刷新孩子执行及机器版本，正式读取协商能力，解除不改原分类配额',async()=>{
+  const {machine,value,token}=await fixture(),foreign=await fixture();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machine_users_v2
+    (machine_id,local_user_id,display_name,first_seen_at_ms,last_seen_at_ms) VALUES(?1,?2,'测试',0,0)`)
+    .bind(machine.machineId,value.localUserId).run();
+  const original=await getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId);
+  const before=await putAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId,'"app-policy-v0"',{
+    classifications:[{platform:'windows',runtimeIdentity:'unrelated',displayName:'保留',classification:'study'}],
+    quotas:original.quotas,timeWindows:original.timeWindows},1);
+  const sibling=crypto.randomUUID();
+  const catalog={schemaVersion:4,version:0,products:[{id:'p',name:'产品',type:'other'}],ownershipRules:[],rules:[],
+    bindings:[{childId:value.childId,products:[{productId:'p',classification:'blocked'}],ruleIds:[]},
+      {childId:sibling,products:[{productId:'p',classification:'study'}],ruleIds:[]}]};
+  const save=(version:number,input:unknown=catalog)=>saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,
+    [value.childId,sibling],`"application-knowledge-v${version}"`,input,version+10);
+  const read=()=>routeV2(new Request('https://runtime.test/v2/machines/policy',
+    {headers:{authorization:`Bearer ${token}`}}),env,20);
+  await save(0);
+  const saved=await getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId);
+  expect(saved).toMatchObject({version:before.version+1,programInstanceExecutionPolicy:{schemaVersion:1,catalogVersion:1,
+    blockedProducts:[{productId:'p',suspectedMatchers:[]}]}});
+  expect(saved.classifications).toEqual(before.classifications);
+  expect(saved.quotas).toEqual(before.quotas);
+  expect(saved.timeWindows).toEqual(before.timeWindows);
+  expect(saved.applicationKnowledge).toEqual(before.applicationKnowledge);
+  expect((await getAppPolicy(env.RUNTIME_DB,machine.accountId,sibling)).programInstanceExecutionPolicy?.blockedProducts).toEqual([]);
+  expect((await getAppPolicy(env.RUNTIME_DB,foreign.machine.accountId,foreign.value.childId)).version).toBe(0);
+  const legacy=await (await read())!.json<{appPolicies:Array<{policy:Record<string,unknown>}>}>();
+  expect(legacy.appPolicies[0].policy).not.toHaveProperty('programInstanceExecutionPolicy');
+  expect((await routeV2(new Request('https://runtime.test/v2/machines/heartbeat',{method:'POST',
+    headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify({serviceVersion:'fixture',
+      osVersion:'11',architecture:'x64',tamperCount:0,policyState:'pending',
+      capabilities:['program-instance-execution-policy-v1']})}),env,20))!.status).toBe(200);
+  const capable=await (await read())!.json<{version:number;appPolicies:Array<{policy:Record<string,unknown>}>}>();
+  expect(capable.version).toBe(3); // initial + ordinary policy + one catalog save (two children)
+  expect(capable.appPolicies[0].policy.programInstanceExecutionPolicy).toEqual(saved.programInstanceExecutionPolicy);
+  await expect(save(1,{...catalog,bindings:[]})).rejects.toMatchObject({code:'PROGRAM_INSTANCE_EXECUTION_SCOPE_MISSING'});
+  await save(1,{...catalog,bindings:catalog.bindings.map(binding=>({...binding,products:[]}))});
+  const cleared=await getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId);
+  expect(cleared.programInstanceExecutionPolicy).toEqual({schemaVersion:1,catalogVersion:2,blockedProducts:[]});
+  expect(cleared.classifications).toEqual(before.classifications);
+  const edited=await putAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId,`"app-policy-v${cleared.version}"`,{
+    classifications:cleared.classifications,quotas:cleared.quotas,timeWindows:cleared.timeWindows},30);
+  expect(edited.programInstanceExecutionPolicy).toEqual(cleared.programInstanceExecutionPolicy);
+  expect((await getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId)).programInstanceExecutionPolicy)
+    .toEqual(cleared.programInstanceExecutionPolicy);
+  expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version FROM runtime_machines_v2 WHERE id=?')
+    .bind(foreign.machine.machineId).first('desired_policy_version')).toBe(1);
+  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_program_instance_mappings_v1 WHERE machine_id=?')
+    .bind(machine.machineId).first('n')).toBe(0);
+});
+
+it('已读取旧目录的盘点不能在新目录提交后覆盖孩子新执行策略',async()=>{
+  const {machine,value}=await fixture();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machine_users_v2
+    (machine_id,local_user_id,display_name,first_seen_at_ms,last_seen_at_ms) VALUES(?1,?2,'测试',0,0)`)
+    .bind(machine.machineId,value.localUserId).run();
+  const base=await getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId);
+  await putAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId,'"app-policy-v0"',{
+    classifications:[],quotas:base.quotas,timeWindows:base.timeWindows},1);
+  const originalRead=appPolicyModule.getAppPolicy;
+  const readHook=vi.spyOn(appPolicyModule,'getAppPolicy').mockImplementationOnce(async(...args)=>{
+    readHook.mockRestore();
+    // Inventory has already read the legacy catalog. Commit the new catalog
+    // before it reads the latest Child policy: no stale child-version conflict protects this order.
+    await saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId],
+      '"application-knowledge-v0"',{schemaVersion:4,version:0,products:[{id:'p',name:'产品',type:'other'}],
+        ownershipRules:[],rules:[],bindings:[{childId:value.childId,
+          products:[{productId:'p',classification:'blocked'}],ruleIds:[]}]},2);
+    return originalRead(...args);
+  });
+  try {
+    expect(await syncApplicationInventory(env.RUNTIME_DB,machine.accountId,machine.machineId,'windows',{
+      schemaVersion:1,batchId:'late-legacy-inventory',observations:[{localUserId:value.localUserId,
+        status:'runtimeObserved',evidence:{platform:'windows',runtimeIdentity:'observed',displayName:'观察标签',
+          values:{},verifiedFields:[]}}]},3)).toMatchObject({status:'accepted',acceptedCount:1});
+  } finally { readHook.mockRestore(); }
+  const policy=await originalRead(env.RUNTIME_DB,machine.accountId,value.childId);
+  expect(policy.version).toBe(2);
+  expect(policy.programInstanceExecutionPolicy).toEqual({schemaVersion:1,catalogVersion:1,
+    blockedProducts:[{productId:'p',suspectedMatchers:[]}]});
+  expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version FROM runtime_machines_v2 WHERE id=?')
+    .bind(machine.machineId).first('desired_policy_version')).toBe(3);
+  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_inventory_v1 WHERE machine_id=?')
+    .bind(machine.machineId).first('n')).toBe(1);
+});
+
+it('持久策略执行字段损坏不能被规范化读取当成缺席或空解除',async()=>{
+  const {machine,value}=await fixture();
+  const {version,effectiveAtMs,...base}=await getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
+    (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms)
+    VALUES(?1,?2,1,?3,'invalid-fixture',0,0)`).bind(machine.accountId,value.childId,
+      JSON.stringify({...base,programInstanceExecutionPolicy:{schemaVersion:1,catalogVersion:1}})).run();
+  await expect(getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId)).rejects.toThrow();
+});
+
+it('执行策略写入失败回滚目录审计与全部孩子策略，不能出现半更新',async()=>{
+  const {machine,value}=await fixture();
+  const catalog={schemaVersion:4,version:0,products:[],ownershipRules:[],rules:[],
+    bindings:[{childId:value.childId,products:[],ruleIds:[]}]};
+  // Reserve the next machine generation to force a failure after the catalog
+  // and Child inserts; D1 must roll back those earlier writes too.
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machine_policy_versions_v2
+    (machine_id,version,payload_hash,created_at_ms) VALUES(?1,2,'reserved',0)`).bind(machine.machineId).run();
+  await expect(saveProgramInstanceCatalog(env.RUNTIME_DB,machine.accountId,[value.childId],
+    '"application-knowledge-v0"',catalog,1)).rejects.toMatchObject({status:412});
+  for(const table of ['runtime_application_knowledge_versions_v1','runtime_application_knowledge_audit_v1',
+    'runtime_child_app_policy_versions_v1']) {
+    expect(await env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE account_id=?`)
+      .bind(machine.accountId).first('n')).toBe(0);
+  }
+  expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version FROM runtime_machines_v2 WHERE id=?')
+    .bind(machine.machineId).first('desired_policy_version')).toBe(1);
 });

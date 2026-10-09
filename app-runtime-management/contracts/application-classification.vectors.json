@@ -1,5 +1,16 @@
 {
   "schemaVersion": 1,
+  "executionPolicyCases": [
+    {"name":"ordinary-product-remains-blocked-without-suspected-hints","valid":true,"input":{"schemaVersion":1,"catalogVersion":11,"blockedProducts":[{"productId":"fixture-browser","suspectedMatchers":[]}]}},
+    {"name":"reviewed-two-clue-execution-not-ownership","valid":true,"input":{"schemaVersion":1,"catalogVersion":11,"blockedProducts":[{"productId":"fixture-browser","suspectedMatchers":[{"signerKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","productName":"Fixture Browser"}]}]}},
+    {"name":"explicit-empty-unblocks","valid":true,"input":{"schemaVersion":1,"catalogVersion":12,"blockedProducts":[]}},
+    {"name":"missing-field-is-not-unblock","valid":false,"input":{"schemaVersion":1,"catalogVersion":12}},
+    {"name":"null-is-not-unblock","valid":false,"input":null},
+    {"name":"future-schema-is-not-unblock","valid":false,"input":{"schemaVersion":2,"catalogVersion":12,"blockedProducts":[]}},
+    {"name":"no-redundant-child-authority","valid":false,"input":{"schemaVersion":1,"catalogVersion":12,"blockedProducts":[],"childId":"child-a"}},
+    {"name":"duplicate-product-rejected","valid":false,"input":{"schemaVersion":1,"catalogVersion":12,"blockedProducts":[{"productId":"fixture","suspectedMatchers":[]},{"productId":"fixture","suspectedMatchers":[]}]}},
+    {"name":"hint-conflict-between-products-rejected","valid":false,"input":{"schemaVersion":1,"catalogVersion":12,"blockedProducts":[{"productId":"one","suspectedMatchers":[{"signerKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","productName":"Fixture"}]},{"productId":"two","suspectedMatchers":[{"signerKey":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","productName":"Fixture"}]}]}}
+  ],
   "instanceConditionCases": [
     {"name":"missing-exclusion-is-unknown","expression":{"operator":"all","conditions":[{"field":"signerKey","value":"signer"}]},"evidence":{"platform":"windows","verified":{}},"expected":null},
     {"name":"series-fields-are-not-aliases","expression":{"operator":"all","conditions":[{"field":"fileSeriesKey","value":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}]},"evidence":{"platform":"windows","verified":{"windowsFileSeriesKey":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}},"expected":null},

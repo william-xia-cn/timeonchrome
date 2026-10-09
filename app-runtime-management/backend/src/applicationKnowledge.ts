@@ -146,6 +146,10 @@ async function policyStatements(db: D1Database, accountId: string, knowledge: Ap
   for (const childId of childIds) {
     const migrateBlockedEntries = migrateBlockedChildIds.includes(childId);
     const current = await getAppPolicy(db, accountId, childId);
+    // An inventory request may have read the legacy catalog before a v4 save.
+    // Do not overwrite the new execution context with a freshly built legacy policy.
+    // If v4 commits after this read, the existing child-version uniqueness rolls back the stale batch.
+    if (current.programInstanceExecutionPolicy) continue;
     const correctionWeek = repairWeekStart ?? (preserveRepairWindow ? current.repairWeekStart : undefined);
     const previous = current.resolvedApplications ?? [];
     const blockedProducts = new Set(effectiveKnowledge.bindings.find(item => item.childId === childId)?.products

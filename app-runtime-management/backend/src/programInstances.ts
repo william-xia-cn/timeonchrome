@@ -11,6 +11,9 @@ import { HttpError } from './http';
 import { isRecord } from './validation';
 import {readProgramInstallationSummaries} from './programInstallationLinks';
 import {readRecentProgramInstanceUsage} from './programInstanceStatistics';
+import {getAppPolicy} from './appPolicy';
+import {buildProgramInstanceExecutionPolicy} from './productBlockPolicy';
+import {sha256Hex} from './crypto';
 
 const fail = (status: number, code: string): never => { throw new HttpError(status, code, code); };
 
@@ -133,7 +136,7 @@ export async function previewProgramInstanceCatalog(db:D1Database,accountId:stri
     nextAfterInstanceId:page.nextAfterInstanceId};
 }
 
-/** 调用者提供家长鉴权后的家庭及孩子集合；目录与审计原子保存，映射由有界恢复任务重建。 */
+/** 调用者提供家长鉴权后的家庭及孩子集合；目录、审计与执行策略原子保存，映射由有界恢复任务重建。 */
 export async function saveProgramInstanceCatalog(db:D1Database,accountId:string,childIds:readonly string[],
   expected:string|null,input:unknown,nowMs:number) {
   const next=(()=>{try {return parseApplicationKnowledgeV4(input);} catch(error) {
@@ -164,6 +167,32 @@ export async function saveProgramInstanceCatalog(db:D1Database,accountId:string,
   }
   next.version=(current?.version??0)+1;
   const payload=canonicalUsageAccountJson(next),hash=await hashUsageAccountValue(next);
+  const executionStatements:D1PreparedStatement[]=[];
+  // Missing is not an explicit unblock. A removed product can be represented
+  // by a retained, empty Child binding without fabricating a missing scope.
+  for(const prior of oldBindings) if(isRecord(prior)&&typeof prior.childId==='string'
+    &&childIds.includes(prior.childId)&&!next.bindings.some(binding=>binding.childId===prior.childId))
+    return fail(409,'PROGRAM_INSTANCE_EXECUTION_SCOPE_MISSING');
+  for(const binding of next.bindings) {
+    const currentPolicy=await getAppPolicy(db,accountId,binding.childId);
+    const {version:policyVersion,effectiveAtMs:previousEffectiveAt,...unchanged}=currentPolicy;
+    const policyBody=canonicalUsageAccountJson({...unchanged,
+      programInstanceExecutionPolicy:buildProgramInstanceExecutionPolicy(next,binding.childId)});
+    executionStatements.push(db.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
+      (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms)
+      VALUES(?1,?2,?3,?4,?5,?6,?6)`)
+      .bind(accountId,binding.childId,policyVersion+1,policyBody,await sha256Hex(policyBody),nowMs));
+  }
+  // Reuse the existing family catalog refresh convention; one increment per
+  // machine, even when several of its users belong to different children.
+  if(executionStatements.length) {
+  executionStatements.push(db.prepare(`UPDATE runtime_machines_v2 SET desired_policy_version=desired_policy_version+1,
+    policy_state='pending',policy_error=NULL,updated_at_ms=?2 WHERE account_id=?1 AND revoked_at_ms IS NULL`)
+    .bind(accountId,nowMs));
+  executionStatements.push(db.prepare(`INSERT INTO runtime_machine_policy_versions_v2(machine_id,version,payload_hash,created_at_ms)
+    SELECT id,desired_policy_version,?2,?3 FROM runtime_machines_v2 WHERE account_id=?1 AND revoked_at_ms IS NULL`)
+    .bind(accountId,hash,nowMs));
+  }
   try {
     await db.batch([
       db.prepare(`INSERT INTO runtime_application_knowledge_versions_v1
@@ -172,9 +201,10 @@ export async function saveProgramInstanceCatalog(db:D1Database,accountId:string,
       db.prepare(`INSERT INTO runtime_application_knowledge_audit_v1
         (account_id,version,action,previous_hash,next_hash,created_at_ms) VALUES(?1,?2,'publish',?3,?4,?5)`)
         .bind(accountId,next.version,current?.payload_hash??null,hash,nowMs),
+      ...executionStatements,
     ]);
   } catch(error) {
-    if(error instanceof Error && /UNIQUE constraint failed: runtime_application_knowledge_(versions|audit)_v1/.test(error.message))
+    if(error instanceof Error && /UNIQUE constraint failed: runtime_(application_knowledge_(versions|audit)_v1|child_app_policy_versions_v1|machine_policy_versions_v2)/.test(error.message))
       return fail(412,'APPLICATION_KNOWLEDGE_CONFLICT');
     throw error;
   }

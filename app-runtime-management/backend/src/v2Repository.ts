@@ -16,6 +16,7 @@ import type { AppPolicyDocument } from './contracts';
 import { getLoggingPolicy } from './terminalLogging';
 import {programPolicyStatusReady} from './programPolicyStatus';
 import {PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY} from '@timeonchrome/app-runtime-contracts';
+import {PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY} from '@timeonchrome/app-runtime-contracts/classification';
 
 type PolicyState = MachineSelfResponse['policyState'];
 
@@ -434,14 +435,16 @@ export async function getMachinePolicy(
     if(Array.isArray(parsed))reportedCapabilities=parsed.filter((v):v is string=>typeof v==='string'); }
   catch { /* Malformed legacy heartbeat cannot enable a new policy category. */ }
   const supportsOther=reportedCapabilities.includes('application-other-v1');
+  const supportsProgramExecution=reportedCapabilities.includes(PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY);
   const appPolicies = await Promise.all([...childIds].map(async (childId) => ({
     childId,
-    policy: projectAppPolicyForMachine(await getAppPolicy(database, machine.accountId, childId),supportsOther),
+    policy: projectAppPolicyForMachine(await getAppPolicy(database, machine.accountId, childId),supportsOther,supportsProgramExecution),
   })));
   const loggingPolicy = await getLoggingPolicy(database, machine.accountId, machine.machineId);
   const policy = {
     capabilities: ['heartbeat-os-version-v1', 'uninstall-operation-receipt-v1',
       ...(await programPolicyStatusReady(database)?[PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY]:[]),
+      ...(supportsProgramExecution?[PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY]:[]),
       ...(supportsOther?['application-other-v1']:[])],
     version: machine.desiredPolicyVersion,
     defaultChildId: machine.defaultChildId,
@@ -453,14 +456,18 @@ export async function getMachinePolicy(
 }
 
 /** Wire-only compatibility projection; the saved Child policy and history stay unchanged. */
-export function projectAppPolicyForMachine(policy:AppPolicyDocument,supportsOther:boolean):AppPolicyDocument {
-  if(supportsOther)return policy;
+export function projectAppPolicyForMachine(policy:AppPolicyDocument,supportsOther:boolean,supportsProgramExecution=false):AppPolicyDocument {
+  // Receiver projection must not mutate the persisted Child policy or imply an
+  // empty execution list when the client has not negotiated this format.
+  const projected={...policy};
+  if(!supportsProgramExecution)delete projected.programInstanceExecutionPolicy;
+  if(supportsOther)return projected;
   const walk=(value:unknown):unknown=>Array.isArray(value)?value.map(walk)
     :value!==null&&typeof value==='object'
       ?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,
         key==='classification'&&item==='other'?'unclassified':walk(item)]))
       :value;
-  return walk(policy) as AppPolicyDocument;
+  return walk(projected) as AppPolicyDocument;
 }
 
 export async function machinePolicyEtag(machineId:string,version:number,capabilities:readonly string[]):Promise<string> {
@@ -500,7 +507,8 @@ export async function recordMachineHeartbeat(
       policy_state=?6, capabilities_json=?8, last_seen_at_ms=?5, updated_at_ms=?5 WHERE id=?7
   `).bind(input.serviceVersion, input.osVersion, input.architecture, input.tamperCount,
     nowMs, input.policyState, machine.machineId,
-    JSON.stringify(['product-block-v1','application-other-v1'].filter(value=>input.capabilities?.includes(value)))).run();
+    JSON.stringify(['product-block-v1','application-other-v1',PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY]
+      .filter(value=>input.capabilities?.includes(value)))).run();
 }
 
 export async function persistMachineSegments(
