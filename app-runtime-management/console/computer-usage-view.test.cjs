@@ -23,6 +23,16 @@ const identityHtml=view.independentSummary({model:'program-instance-v1',source:'
 assert.ok(identityHtml.includes('<strong>1分 0秒</strong>'),'base total is not summed from overlapping instances');
 assert.ok(identityHtml.includes('产品／分类投影尚未完整'));assert.ok(identityHtml.includes('基础程序实例（2）'));
 assert.ok(identityHtml.includes('instance:&lt;unsafe&gt;'));assert.ok(!identityHtml.includes('<unsafe>'));
+for(const available of [null,0,12]){
+  const missing=view.independentSummary({model:'program-instance-v1',source:'application',durationUnit:'seconds',
+    complete:false,totalDuration:null,availableTotalDuration:available,instances:[],categories:[],applications:[],buckets:[],
+    productStatus:{complete:false},statistics:{producer:'native',stale:true},
+    days:[{reasonCodes:['APPLICATION_INSTANCE_STATISTICS_SOURCE_NOT_ADAPTED','<unsafe>']}]});
+  assert.equal(missing.includes('基础用量仍有效'),available!==null);
+  assert.equal(missing.includes('基础用量尚不可用'),available===null);
+  assert.equal(missing.includes('更新中，保留已有有效读数'),available!==null);
+  if(available===null){assert(missing.includes('APPLICATION_INSTANCE_STATISTICS_SOURCE_NOT_ADAPTED'));assert(missing.includes('&lt;unsafe&gt;'));}
+}
 for(const file of ['app-runtime.yml','app-runtime-main-console.yml']){
   const workflow=fs.readFileSync(path.join(__dirname,'../../.github/workflows',file),'utf8');
   assert.ok(workflow.includes('node app-runtime-management/console/computer-usage-view.test.cjs'),'renderer regression must run in '+file);

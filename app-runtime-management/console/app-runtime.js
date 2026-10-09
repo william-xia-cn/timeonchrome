@@ -247,6 +247,7 @@
 
   function renderSecondsUsage(usage) {
     const fmt=AppRuntimeTime.formatSeconds,label=category=>categoryLabels[category]||(category==='historicalUnknown'?'历史分类未知':'未知分类');
+    const hasBaseUsage=[usage.totalDurationSeconds,usage.availableTotalDurationSeconds].some(value=>Number.isFinite(value)&&value>=0);
     $('#total-time').textContent=fmt(usage.totalDurationSeconds);
     $('#quota-state').textContent='独立统计，配额另行核算';
     $('#quota-state').classList.remove('danger-text');
@@ -255,6 +256,7 @@
     $('#outside-window-summary').textContent=usage.noNewRecordDates?.length
       ?`无新版应用记录：${usage.noNewRecordDates.join('、')}；旧应用账已退出，空白不代表零用量。`
       :usage.complete?'已结算应用统计；分类明细可能重叠，不相加生成总量。'
+      :!hasBaseUsage?'当前范围尚无可用基础统计；不代表零用量。'
       :`部分统计可用：${fmt(usage.availableTotalDurationSeconds)}；不完整日期：${usage.missingDates.join('、')}。空白不代表零用量。`;
     const max=Math.max(1,...usage.buckets.map(item=>item.durationSeconds??0));
     $('#usage-chart').innerHTML=usage.buckets.map(item=>{
@@ -267,7 +269,7 @@
     $('#category-ranking').className='list';
     $('#category-ranking').innerHTML=usage.categories.map(item=>`<button class="category-row" data-usage-category="${escape(item.classification)}"><span class="app-icon">${escape(label(item.classification).slice(0,1))}</span><div><strong>${escape(label(item.classification))}</strong><small>分类明细可能重叠</small></div><strong>${fmt(item.durationSeconds)}</strong></button>`).join('')||(usage.complete?'暂无分类记录':'尚无可用分类明细');
     if(usage.productStatus?.complete===false){
-      $('#outside-window-summary').textContent+=' 产品／分类投影尚未完整，基础用量仍有效。';
+      $('#outside-window-summary').textContent+=hasBaseUsage?' 产品／分类投影尚未完整，基础用量仍有效。':' 产品／分类投影尚未完整，基础用量尚不可用。';
       if(!usage.applications.length)$('#app-ranking').textContent='产品明细待更新；基础实例见下方。';
       if(!usage.categories.length)$('#category-ranking').textContent='分类明细待更新；未识别不等于未归类。';
     }

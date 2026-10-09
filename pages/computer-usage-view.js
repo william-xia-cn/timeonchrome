@@ -100,10 +100,15 @@ const valueOf=item=>seconds?item.duration:item.durationMs;
 const title={application:'应用使用',web:'网页使用',media:'网页媒体使用'}[snapshot.source];
 const stats=snapshot.source==='application'?snapshot.statistics:null;
 const identity=snapshot.source==='application'&&snapshot.model==='program-instance-v1';
-const productNotice=identity&&snapshot.productStatus?.complete===false?'<p>产品／分类投影尚未完整；基础用量仍有效。未识别不等于未归类。</p>':'';
+const hasBaseUsage=(seconds?[snapshot.totalDuration,snapshot.availableTotalDuration]:[snapshot.totalDurationMs,snapshot.availableTotalDurationMs]).some(value=>Number.isFinite(value)&&value>=0);
+const productNotice=identity&&snapshot.productStatus?.complete===false?'<p>产品／分类投影尚未完整；'+(hasBaseUsage?'基础用量仍有效。':'基础用量尚不可用。')+'未识别不等于未归类。</p>':'';
 const instanceDetails=identity?'<section><details><summary>基础程序实例（'+(snapshot.instances||[]).length+'）</summary><p>实例明细可能重叠，不相加生成总量。</p><ul>'+(snapshot.instances||[]).map(item=>'<li><code>'+esc(item.subjectKey)+'</code> · '+format(valueOf(item))+'</li>').join('')+'</ul></details></section>':'';
 const sourceLabel={native:'Service 已发布持久化统计','legacy-server':'旧云端兼容统计（非最新 Service 统计）',mixed:'混合来源（部分为旧云端兼容统计）'};
 let sourceInfo=snapshot.source==='application'?'<p>统计来源：'+esc(sourceLabel[stats?.producer]||'旧接口未报告来源，不能确认最新 Service 统计')+' · '+esc(stats?.stale?'更新中，保留已有有效读数':'已读取')+'</p><p>统计更新时间：'+esc(Number.isSafeInteger(stats?.computedAtMs)?time(stats.computedAtMs):'未报告')+' · 结算截止：'+esc(stats?.settledThroughByDate?.length?stats.settledThroughByDate.map(item=>item.date+' '+(Number.isSafeInteger(item.settledThroughMs)?time(item.settledThroughMs):'未能确认')).join('；'):'未能确认')+'</p>':'';
+if(identity&&!hasBaseUsage){
+const codes=[...new Set((snapshot.days||[]).flatMap(day=>day.reasonCodes||[]))];
+sourceInfo='<p>统计来源：新版程序实例统计，当前范围尚无可用读数；不代表零用量。</p>'+(codes.length?'<details><summary>来源状态与诊断详情</summary><p>'+codes.map(esc).join('；')+'</p></details>':'');
+}
 if(snapshot.source==='application'&&snapshot.days?.some(day=>day.reasonCodes?.includes('APPLICATION_V3_RECORDS_NOT_AVAILABLE'))){
 if(snapshot.availableTotalDuration==null&&snapshot.availableTotalDurationMs==null)sourceInfo='<p>统计来源：新版应用统计，当前范围尚无已发布记录。</p>';
 sourceInfo+='<p>无新版应用记录：'+esc(snapshot.days.filter(day=>day.reasonCodes?.includes('APPLICATION_V3_RECORDS_NOT_AVAILABLE')).map(day=>day.date).join('、'))+'。旧应用账已退出，空白不代表零用量。</p>';
