@@ -2,6 +2,8 @@
 
 ## 应用身份集中交付当前状态（2026-10-10，覆盖下方阶段记录）
 
+PO明确批准职责检查最小修订：本批架构集成与标准云端可共同声明。新增且仅允许architecture-integration附加standard-cloud，既有单职责不变；扩展、Native、Task、Santa仍拒绝直接修改，公共文件仍需精确例外。不改变产品测试、生产审核、来源合并证明或部署授权。先补正反固定用例，再继续PR #248发布。
+
 上述测试入口复验：publication 82/82与独立SQLite通过；typecheck发现目录测试request默认UUID导致参数被推为UUID模板类型，补显式string以保留“另一孩子”拒绝用例。仅测试夹具类型，不改变接口Child校验或产品代码。
 
 Worker CI 后续定位：303项通过，旧生产者捕获比较因新增实例能力字段失败；独立node:sqlite脚本被Vitest Worker环境误收集报Illegal constructor。修订仅测试接线：SQLite脚本在npm test前由Node执行并精确排除Worker收集；旧捕获统计及ACK不改，新增能力明确断言后再比较旧能力集合。使用Cloudflare技能核对运行环境边界；只复验上述失败文件、存储脚本、typecheck及diff，不扩大产品行为。

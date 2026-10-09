@@ -10,6 +10,21 @@ assert.equal(check('extension-local', ['app-runtime-management/contracts/src/ind
 assert.equal(check('standard-cloud', ['app-runtime-management/contracts/src/index.ts']).length, 1);
 assert.equal(check('architecture-integration', ['app-runtime-management/backend/src/index.ts']).length, 1);
 assert.equal(check('architecture-integration', ['workers/src/index.ts']).length, 1);
+const joint = declaration('Task-Role: architecture-integration\nTask-Additional-Role: standard-cloud');
+assert.deepEqual(checkScope(['contracts/shared.js','app-runtime-management/backend/package.json',
+  'app-runtime-management/backend/test/example.ts','app-runtime-management/console/index.html','workers/src/index.ts','pages/index.html'], joint), []);
+for (const file of ['extension/background.js','dist/package-extension/a.js','agents/Service/a.cs',
+  'extension/modules/task/domain.js','workers/src/modules/task/router.ts','native-app-control/a.ts','pages/native-apps/index.html']) {
+  assert.equal(checkScope([file], {...joint, exceptions:{[file]:'joint task'}}).length, 1);
+}
+assert.equal(checkScope(['package-lock.json'], joint).length, 1);
+for (const body of ['Task-Role: standard-cloud\nTask-Additional-Role: architecture-integration',
+  'Task-Role: architecture-integration\nTask-Additional-Role: extension-local',
+  'Task-Role: architecture-integration\nTask-Additional-Role:',
+  'Task-Role: architecture-integration\nTask-Additional-Role: standard-cloud\nTask-Additional-Role: standard-cloud']) {
+  assert.throws(()=>declaration(body));
+}
+assert.throws(()=>checkScope([], {role:'standard-cloud',additionalRole:'extension-local'}));
 assert.deepEqual(check('extension-local', ['extension/background.js', 'tests/unit/local-guardian.test.js']), []);
 assert.deepEqual(check('task-local', ['extension/modules/task/domain.js', 'pages/task/index.html', 'workers/src/modules/task/router.ts', 'workers/migrations/021_task_management_v1.sql']), []);
 assert.equal(check('task-local', ['extension/background.js']).length, 1);
