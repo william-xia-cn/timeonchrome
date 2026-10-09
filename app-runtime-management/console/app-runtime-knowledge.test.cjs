@@ -13,8 +13,22 @@ const K=require('./app-runtime-knowledge');
   assert.equal(K.legacyResolutionValid(resolved[0],catalog),true);
   assert.deepEqual(resolved[0].selector,old[0].selector);
   assert.equal(JSON.stringify({old,catalog}),before);
-  for(const changed of [[],[{...rule,enabled:false}],[{...rule,revision:2}],[{...rule,match:{kind:'binaryHash',sha256:'b'.repeat(64)}}]])
+  const deferred=K.deferLegacyOwnership(resolved,0,'缺少现存可靠依据，旧条件留在历史');
+  assert.equal(K.legacyResolutionValid(deferred[0],catalog),false,'deferred is not identified');
+  assert.equal(K.legacyDispositionComplete(deferred[0],catalog),true);
+  assert.deepEqual(deferred[0].selector,old[0].selector);
+  assert.equal(Object.hasOwn(deferred[0].resolution,'rule'),false);
+  assert.equal(JSON.stringify({old,catalog}),before);
+  assert.throws(()=>K.deferLegacyOwnership(old,0,' '),/暂留原因/);
+  assert.throws(()=>K.deferLegacyOwnership(old,0,'x'.repeat(1025)),/暂留原因/);
+  assert.throws(()=>K.deferLegacyOwnership(old,9,'依据不足'),/旧条件/);
+  const rereviewed=K.resolveLegacyOwnership(deferred,0,catalog,rule.id,'后续核验成功');
+  assert.equal(K.legacyResolutionValid(rereviewed[0],catalog),true);
+  assert.equal(Object.hasOwn(rereviewed[0].resolution,'kind'),false);
+  for(const changed of [[],[{...rule,enabled:false}],[{...rule,revision:2}],[{...rule,match:{kind:'binaryHash',sha256:'b'.repeat(64)}}]]){
     assert.equal(K.legacyResolutionValid(resolved[0],{ownershipRules:changed}),false);
+    assert.equal(K.legacyDispositionComplete(resolved[0],{ownershipRules:changed}),false);
+  }
   console.log('PASS: reviewed legacy replacement is product/platform bound, preserves input and expires on rule changes');
 }
 assert.match(K.installationSummaryHTML(undefined),/尚无安装引用信息/);
@@ -358,6 +372,16 @@ async function legacyResolutionLifecycleTests(){
   await click('',{ownershipResolve:'0'});
   assert.match(element('#ownership-panel').innerHTML,/请填写具体核验依据/);
   await click('ownership-save');assert.equal(calls.length,1);
+  await click('',{ownershipDefer:'0'});
+  assert.match(element('#ownership-panel').innerHTML,/请填写暂留原因/);
+  await click('ownership-save');assert.equal(calls.length,1);
+  element('#ownership-resolution-reason-0').value='无法证明旧身份与当前文件等价';
+  await click('',{ownershipDefer:'0'});
+  assert.match(element('#ownership-panel').innerHTML,/暂留历史（未作为新规则，不代表已识别）/);
+  assert.doesNotMatch(element('#ownership-panel').innerHTML,/已核验替代：/);
+  assert.doesNotMatch(element('#ownership-panel').innerHTML,/id="ownership-save" disabled/);
+  await click('',{ownershipReview:'0'});
+  await click('ownership-save');assert.equal(calls.length,1,'reopened review blocks save');
   element('#ownership-resolution-reason-0').value='同扫描安装引用及文件内容核对一致';
   await click('',{ownershipResolve:'0'});
   assert.match(element('#ownership-panel').innerHTML,/仍有 0 项旧规则/);
@@ -379,6 +403,32 @@ async function legacyResolutionLifecycleTests(){
   console.log('PASS: actual legacy review events gate saving, invalidate changed rules and preserve products and Child bindings');
 }
 legacyResolutionLifecycleTests().catch(error=>{console.error(error);process.exitCode=1;});
+
+async function legacyDeferredSaveTests(){
+  const listeners={},elements={},calls=[];
+  const element=id=>elements[id]||(elements[id]={innerHTML:'',value:'',querySelectorAll:()=>[]});
+  const dialog={open:false,showModal(){this.open=true;},close(){this.open=false;}};
+  const legacy={schemaVersion:3,version:10,products:[{id:'p',name:'历史产品',type:'game',selectors:[{platform:'windows',match:{operator:'all',conditions:[{field:'distributionKey',value:'old-only'}]}}]}],rules:[],bindings:[{childId:'child-a',products:[{productId:'p',classification:'blocked',enhancedBlocking:true}],ruleIds:[]}]};
+  const before=JSON.stringify(legacy);
+  const root={ownerDocument:{},querySelector:s=>s==='#instance-dialog'?dialog:element(s),querySelectorAll:()=>[],addEventListener:(type,fn)=>listeners[type]=fn,removeEventListener:()=>{}};
+  const component=K.mount({root,getContext:()=>({childId:'child-a'}),request:async(url,options)=>{
+    calls.push({url,options});
+    return options?.method==='PUT'?{state:'available',version:11,catalog:{...JSON.parse(options.body),version:11},mappingState:'pending'}:{state:'legacy',version:10,legacyCatalog:legacy};
+  },onCatalogSaved:()=>{},onError:error=>assert.fail(String(error))});
+  const click=async(id='',dataset={})=>{listeners.click({target:{closest:()=>({id,dataset})}});await new Promise(resolve=>setImmediate(resolve));};
+  await component.open('identity');
+  element('#ownership-resolution-reason-0').value='没有现存安装依据，按批准范围暂留旧目录历史';
+  await click('',{ownershipDefer:'0'});await click('ownership-save');
+  assert.equal(calls.length,2);
+  const saved=JSON.parse(calls[1].options.body);
+  assert.deepEqual(saved.products,[{id:'p',name:'历史产品',type:'game'}]);
+  assert.deepEqual(saved.bindings,legacy.bindings);assert.deepEqual(saved.ownershipRules,[]);
+  assert.equal(JSON.stringify(legacy),before);assert.equal(Object.hasOwn(saved,'resolution'),false);
+  assert.equal(calls[1].options.headers['If-Match'],'"application-knowledge-v10"');
+  component.dispose();
+  console.log('PASS: explicit historical deferral saves unchanged products/bindings without inventing ownership rules');
+}
+legacyDeferredSaveTests().catch(error=>{console.error(error);process.exitCode=1;});
 
 {
   const rule={id:'r',name:'原规则',kind:'family',platform:'windows',match:{operator:'all',conditions:[{field:'binaryHash',value:'a'.repeat(64)}]},exclude:[{operator:'any',conditions:[{field:'packageId',value:'legacy-evidence'}]}],classification:'study',mode:'automatic',type:'other',enabled:true,source:'parent-confirmed',reason:'既有依据'};

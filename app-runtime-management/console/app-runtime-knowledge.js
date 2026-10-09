@@ -70,6 +70,18 @@
     if(typeof reason!=='string'||!reason.trim()||reason.length>1024)throw new Error('请填写具体核验依据（最多1024字）');
     const next=clone(items);next[index].resolution={rule:clone(rule),reason:reason.trim()};return next;
   }
+  function legacyDeferred(item){
+    return item.resolution?.kind==='deferred'&&typeof item.resolution.reason==='string'
+      &&item.resolution.reason.trim().length>0&&item.resolution.reason.length<=1024;
+  }
+  function legacyDispositionComplete(item,catalog){
+    return legacyDeferred(item)||legacyResolutionValid(item,catalog);
+  }
+  function deferLegacyOwnership(items,index,reason){
+    if(!Number.isInteger(index)||!items[index])throw new Error('旧条件已变化，请重新读取');
+    if(typeof reason!=='string'||!reason.trim()||reason.length>1024)throw new Error('请填写暂留原因（最多1024字）');
+    const next=clone(items);next[index].resolution={kind:'deferred',reason:reason.trim()};return next;
+  }
   function ownershipEvidenceOptions(items) {
     const options=[],seen=new Set();
     for(const item of items){
@@ -389,9 +401,9 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
       const panel=$('#ownership-panel');if(!panel)return;
       if(!ownershipDraft){panel.innerHTML=`<p role="status">${esc(message)}</p>`;return;}
       const options=ownershipEvidenceOptions(instancePage?.items||[]);
-      const pending=ownershipUnconverted.filter(item=>!legacyResolutionValid(item,ownershipDraft));
+      const pending=ownershipUnconverted.filter(item=>!legacyDispositionComplete(item,ownershipDraft));
       panel.innerHTML=`<section class="knowledge-editor"><h3>产品归属规则草稿</h3><p>${ownershipSaved?'目录已保存；实例映射待重建，终端执行尚未确认。':'未保存、未生效。'}规则可跨孩子复用，不直接修改实例归属。</p><p role="status">${esc(message||`基于目录版本 ${ownershipVersion}`)}</p>
-        ${ownershipUnconverted.length?`<details open><summary>仍有 ${pending.length} 项旧规则需要核验${pending.length?'（只可预览，不能保存）':''}</summary><p>原目录仍然有效。核实旧条件与新依据后，选择同产品替代规则；不能只凭名称确认。已确认项保留供回看，规则变更后必须重新核验。</p>${ownershipUnconverted.map((item,index)=>`<article><strong>${esc(ownershipDraft.products.find(p=>p.id===item.productId)?.name||item.productId)}</strong><pre class="instance-evidence">${esc(JSON.stringify(item.selector,null,2))}</pre>${legacyResolutionValid(item,ownershipDraft)?`<p>已核验替代：${esc(item.resolution.rule.id)} · ${esc(item.resolution.reason)}</p>`:`<label>同产品替代规则<select id="ownership-resolution-rule-${index}"><option value="">请选择规则</option>${ownershipDraft.ownershipRules.filter(rule=>rule.enabled&&rule.productId===item.productId&&rule.platform===item.selector.platform).map(rule=>`<option value="${esc(rule.id)}">${esc(rule.id+' · '+JSON.stringify(rule.match))}</option>`).join('')}</select></label><label>核验依据<textarea id="ownership-resolution-reason-${index}" maxlength="1024"></textarea></label><button data-ownership-resolve="${index}">确认此项替代依据</button>`}</article>`).join('')}</details>`:''}
+        ${ownershipUnconverted.length?`<details open><summary>仍有 ${pending.length} 项旧规则需要处置${pending.length?'（只可预览，不能保存）':''}</summary><p>核实后选择同产品替代规则；无法证明的旧条件可暂留历史，不在新目录启用，不代表已识别。产品和已有配置保留，原条件保留在旧目录历史。草稿理由仅供本次回看，规则变更后必须重新核验。</p>${ownershipUnconverted.map((item,index)=>`<article><strong>${esc(ownershipDraft.products.find(p=>p.id===item.productId)?.name||item.productId)}</strong><pre class="instance-evidence">${esc(JSON.stringify(item.selector,null,2))}</pre>${legacyDeferred(item)?`<p>暂留历史（未作为新规则，不代表已识别）：${esc(item.resolution.reason)}</p><button data-ownership-review="${index}">重新处置</button>`:legacyResolutionValid(item,ownershipDraft)?`<p>已核验替代：${esc(item.resolution.rule.id)} · ${esc(item.resolution.reason)}</p><button data-ownership-review="${index}">重新处置</button>`:`<label>同产品替代规则<select id="ownership-resolution-rule-${index}"><option value="">请选择规则</option>${ownershipDraft.ownershipRules.filter(rule=>rule.enabled&&rule.productId===item.productId&&rule.platform===item.selector.platform).map(rule=>`<option value="${esc(rule.id)}">${esc(rule.id+' · '+JSON.stringify(rule.match))}</option>`).join('')}</select></label><label>核验依据或暂留原因<textarea id="ownership-resolution-reason-${index}" maxlength="1024"></textarea></label><button data-ownership-resolve="${index}">确认此项替代依据</button><button data-ownership-defer="${index}">此项暂留历史，不启用</button>`}</article>`).join('')}</details>`:''}
         <label>已核验依据<select id="ownership-evidence"><option value="">请选择依据</option>${options.map((option,index)=>`<option value="${index}">${esc(option.platform+' · '+option.label+' · '+Object.values(option.match).slice(1).join(' / '))}</option>`).join('')}</select></label>
         <label>目标应用身份<select id="ownership-product"><option value="">新建产品草稿</option>${ownershipDraft.products.map((product,index)=>`<option value="${index}">${esc(product.name)}</option>`).join('')}</select></label>
         <label>新产品名称（选择已有产品时忽略）<input id="ownership-name" maxlength="256"></label><button id="ownership-add"${options.length?'':' disabled'}>加入规则草稿</button>
@@ -457,7 +469,7 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     }
     async function saveOwnership(){
       if(!ownershipDraft||ownershipSaving||ownershipSaved)return;
-      if(ownershipUnconverted.some(item=>!legacyResolutionValid(item,ownershipDraft))){renderOwnership('仍有未转换规则，不能保存不完整的替代目录。');return;}
+      if(ownershipUnconverted.some(item=>!legacyDispositionComplete(item,ownershipDraft))){renderOwnership('仍有未转换规则尚未处置，不能保存不完整的替代目录。');return;}
       const key=lease(),generation=++ownershipGeneration,version=ownershipVersion;
       const submitted=clone(ownershipDraft);
       ownershipSaving=true;ownershipPreview=null;renderOwnership('正在保存集中规则目录…');
@@ -501,6 +513,22 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     }
     async function open(kind){const key=lease();if(kind==='identity'||['product','rule'].includes(kind)&&getContext().identityModel){$('#instance-dialog').showModal();instancePage=null;renderInstances();await openOwnership();return;}if(kind==='instance'){$('#instance-dialog').showModal();await readInstances();return;}await load();assertCurrent(key);if(kind==='product')renderProducts();else renderRules();$(`#${kind}-dialog`).showModal();}
     async function perform(button){
+      if(button.dataset.ownershipDefer!==undefined&&!ownershipSaving){
+        const index=Number(button.dataset.ownershipDefer);
+        try{
+          const next=deferLegacyOwnership(ownershipUnconverted,index,$(`#ownership-resolution-reason-${index}`).value);
+          invalidateOwnership();ownershipUnconverted=next;ownershipSaved=false;
+          renderOwnership('已记录暂留历史；未生成替代规则，尚未保存，请重新预览。');
+        }catch(error){renderOwnership(error.message);}
+        return;
+      }
+      if(button.dataset.ownershipReview!==undefined&&!ownershipSaving){
+        const index=Number(button.dataset.ownershipReview);
+        if(Number.isInteger(index)&&ownershipUnconverted[index]){
+          invalidateOwnership();delete ownershipUnconverted[index].resolution;ownershipSaved=false;renderOwnership();
+        }
+        return;
+      }
       if(button.dataset.ownershipResolve!==undefined&&!ownershipSaving){
         const index=Number(button.dataset.ownershipResolve);
         try{
@@ -654,5 +682,5 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     function dispose(){if(disposed)return;disposed=true;for(const [type,handler]of Object.entries(listeners))root.removeEventListener(type,handler);for(const dialog of all('dialog[open]'))dialog.close();}
     return {open,publish,classify,dispose};
   }
-  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,installationSummaryHTML,ownershipEvidenceOptions,legacyOwnershipDraft,legacyResolutionValid,resolveLegacyOwnership,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
+  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,installationSummaryHTML,ownershipEvidenceOptions,legacyOwnershipDraft,legacyResolutionValid,resolveLegacyOwnership,legacyDispositionComplete,deferLegacyOwnership,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
 });
