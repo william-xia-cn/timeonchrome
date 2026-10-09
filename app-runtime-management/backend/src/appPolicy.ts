@@ -14,7 +14,7 @@ import { HttpError } from './http';
 import type { RuntimeLogCategory } from './contracts';
 import { queryTerminalLogs } from './terminalLogging';
 import { isRecord } from './validation';
-import { identifyProducts, associateApplicationEvidence } from '@timeonchrome/app-runtime-contracts/classification';
+import { identifyProducts, associateApplicationEvidence, parseProgramInstanceExecutionPolicy } from '@timeonchrome/app-runtime-contracts/classification';
 import { defaultGameGroupRuleId, defaultSystemApplicationRuleId, effectiveApplicationKnowledge,
   listApplicationInventory, queryInventoryScanStatus, resolveEffectiveApplication, resolvePolicyApplications } from './applicationKnowledge';
 import { buildProductIdentityProjection, includeHistoricalStandaloneIdentities, projectExplicitApplicationClassifications } from './applicationIdentityProjection';
@@ -305,6 +305,8 @@ function normalizeStoredPolicy(
       ? { productIdentityProjection: payload.productIdentityProjection } : {}),
     ...('productBlockPolicy' in payload && payload.productBlockPolicy
       ? { productBlockPolicy: payload.productBlockPolicy } : {}),
+    ...(Object.hasOwn(payload,'programInstanceExecutionPolicy')
+      ? { programInstanceExecutionPolicy: parseProgramInstanceExecutionPolicy(payload.programInstanceExecutionPolicy) } : {}),
     ...('repairWeekStart' in payload && payload.repairWeekStart === '2026-09-21' ? { repairWeekStart: '2026-09-21' as const } : {}),
     ...('weekReclassification' in payload && payload.weekReclassification
       ? { weekReclassification: payload.weekReclassification } : {}) };
@@ -412,6 +414,7 @@ export async function putAppPolicy(
   const resolvedApplications = resolvePolicyApplications(knowledge, childId,
     observed, update.classifications, current.resolvedApplications);
   const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
+    ...(current.programInstanceExecutionPolicy ? {programInstanceExecutionPolicy:current.programInstanceExecutionPolicy} : {}),
     applicationKnowledge: knowledge, resolvedApplications });
   completeUpdate.productIdentityProjection = await includeHistoricalStandaloneIdentities(database,accountId,childId,
     await buildProductIdentityProjection(observed, knowledge, update.classifications),nowMs,knowledge);

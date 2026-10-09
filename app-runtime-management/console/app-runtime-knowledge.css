@@ -23,6 +23,7 @@
 .knowledge-body legend{color:var(--muted);font-size:13px}
 .knowledge-editor{display:grid;grid-template-columns:1fr 1fr;gap:13px;border:1px solid var(--border);border-radius:12px;background:#fff;padding:17px;margin-top:18px}
 .knowledge-editor>h3,.knowledge-editor>p,.knowledge-editor>fieldset{grid-column:1/-1;margin-top:0}
+#ownership-panel .knowledge-editor>details[open]{grid-column:1/-1;min-width:0}
 .knowledge-editor>label,.knowledge-item>label{display:grid;gap:6px;font-size:13px}
 .knowledge-editor>label:has(input[type=checkbox]){display:flex;align-items:center;gap:8px}
 .knowledge-item{display:flex;align-items:center;flex-wrap:wrap;gap:12px;padding:14px 16px;background:#fff;border:1px solid var(--border);border-radius:11px;margin:9px 0}

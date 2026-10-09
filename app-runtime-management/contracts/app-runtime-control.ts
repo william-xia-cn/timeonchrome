@@ -219,6 +219,8 @@ export type RuntimeApplicationClassification =
   | 'blocked';
 
 export interface RuntimeAppPolicyV1 {
+  /** 仅协商新执行能力时下发；缺席不代表解除，范围由父孩子策略绑定。 */
+  programInstanceExecutionPolicy?: import('./application-classification.js').ProgramInstanceExecutionPolicyV1;
   weekReclassification?: RuntimeWeekReclassification;
   version: number;
   effectiveAtMs: number | null;

@@ -503,6 +503,33 @@ describe('Runtime product API', () => {
     expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':`"policy-${enrolled.machineId}-${policy.version}"`}})).status).toBe(200);
   });
 
+  it('program execution capability survives heartbeat and invalidates the machine policy ETag', async () => {
+    const {enrolled}=await createMachineWithUser();
+    const headers=bearer(enrolled.machineToken);
+    const capability='program-instance-execution-policy-v1';
+    const before=await call('/v2/machines/policy',{headers});
+    const previous=await before.json<{version:number;capabilities:string[];appPolicies:unknown[]}>();
+    const heartbeat=async(capabilities:string[])=>call('/v2/machines/heartbeat',{
+      method:'POST',headers,body:JSON.stringify({serviceVersion:'fixture',osVersion:'11',architecture:'x64',
+        tamperCount:0,policyState:'applied',capabilities})});
+    expect(previous.capabilities).not.toContain(capability);
+    expect((await heartbeat([capability,'unknown-future-capability'])).status).toBe(200);
+    const stored=await env.RUNTIME_DB.prepare('SELECT capabilities_json FROM runtime_machines_v2 WHERE id=?')
+      .bind(enrolled.machineId).first<{capabilities_json:string}>();
+    expect(JSON.parse(stored!.capabilities_json)).toEqual([capability]);
+    const capable=await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':before.headers.get('etag')!}});
+    expect(capable.status).toBe(200);
+    const current=await capable.json<{version:number;capabilities:string[];appPolicies:unknown[]}>();
+    expect(current.capabilities).toContain(capability);
+    expect(current.version).toBe(previous.version);
+    expect(current.appPolicies).toEqual(previous.appPolicies);
+    expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':capable.headers.get('etag')!}})).status).toBe(304);
+    expect((await heartbeat([])).status).toBe(200);
+    const downgraded=await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':capable.headers.get('etag')!}});
+    expect(downgraded.status).toBe(200);
+    expect((await downgraded.json<{capabilities:string[]}>()).capabilities).not.toContain(capability);
+  });
+
   it('stores other classification in additive history without rewriting the original table', async () => {
     const {account,enrolled}=await createMachineWithUser();
     const before=await call('/v2/module/app-policy?childId=child-a',{headers:bearer(account)});
