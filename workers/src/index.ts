@@ -340,7 +340,8 @@ export default {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-TimeOnChrome-Version, X-TimeOnChrome-Device-Id, X-TimeOnChrome-Request-Id',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-TimeOnChrome-Version, X-TimeOnChrome-Device-Id, X-TimeOnChrome-Request-Id'
+        + (path.startsWith('/app-runtime/manage/v1/') ? ', If-Match' : ''),
     };
 
     if (request.method === 'OPTIONS') {
