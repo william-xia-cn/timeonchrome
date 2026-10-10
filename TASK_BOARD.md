@@ -1,6 +1,16 @@
 # TASK_BOARD
 
+## 目录切换真实预检阻断（2026-10-10）
+
+旧条件暂留入口已随PR #256合入master `4eeecad25b1b92ad84605c6c078691d1f04c2945`；production run38003808155仅发布两套Pages，公开脚本与该SHA一致。Runtime Pages cb801a30-a68a-4cdb-bd1c-2be9d26c65e6，主Pages 09036f1c-e322-4283-ab96-8c8ecbf179ee；Worker、Guardian、R2未变化，无migration。生产草稿保留23产品、13条可靠规则；28项旧条件暂留历史、Chrome一项已核验替代，尚未保存。
+
+真实主控制台预览失败已定位为Guardian OPTIONS未允许If-Match，浏览器Network.loadingFailed明确HeaderDisallowedByPreflightResponse / if-match；200只是OPTIONS，不是POST成功。PO已批准最小修复并仅补发Guardian Worker。standard-cloud小修：workers/src/index.ts仅在既有Runtime管理网关范围允许If-Match，保留版本头转发、鉴权与条件更新；补现有网关专项的正式fetch预检回归，验证POST/PUT及非网关范围、条件头转发。仅相关测试、typecheck、差异检查及精确SHA相关CI；不部署Runtime/Pages、不改数据库、原账、配置、共享开关。部署后复验原草稿，再条件保存并核对产品和绑定不变。
+
+Native扫描入口修复332a2d8已提交：Steam有界声明入口与DisplayIcon接线，1.47/1.46专项各46通过；尚未安装或重扫。另4项统计接线回归暴露既有可选执行上下文null序列化错误，已交Native单独最小修复，不能将其记为扫描回归通过或产品归属全链路完成。
+
 ## 旧条件暂留历史入口（2026-10-10，PO已批准）
+
+Guardian跨域最小补丁本地验证：正式fetch入口OPTIONS覆盖目录POST/PUT、非网关保持原范围；实际网关仍转发If-Match，401鉴权与412冲突均保留。网关专项14/14、typecheck、diff通过。Matched：仅允许既有条件头，无Deviated/Extra；尚待提交／Guardian发布及真实预览复验，不把本地通过称为目录切换成功。
 
 本地实施与验证完成：暂留原因必填，暂留不生成规则、不冒称已识别；可重新处置，已核验规则修改仍使确认失效。knowledge专项全部通过，实际事件回归验证条件PUT、原产品／分类／强化绑定保留、无依据产品不造规则。隔离内置浏览器桌面及390px移动目视通过，暂留说明、原条件和重新处置入口可读，完成处置后保存可用；未触及生产数据。首次预览服务受沙箱网络隔离影响超时，正常本机进程启动后可访问。Matched：批准语义、保留配置、独立状态及最小范围；无Deviated/Extra。尚未提交部署、生产目录未切换，不能把入口通过称为归属完成。
 
