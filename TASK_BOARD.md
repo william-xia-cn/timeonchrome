@@ -1,5 +1,19 @@
 # TASK_BOARD
 
+## COMPLETED（本地实现／隔离验证，未部署）：网站分类删除／移动与有效审批规则一致性修复（2026-10-13）
+
+PO已授权修复。职责：standard-cloud；复用现有云端工作树。页面删除自定义主机或移动分类时，目前只改custom清单，遗留同目标`siteClassificationRulesV1`阻止重新添加且可能继续生效。先更新本条再实施，不修改审批历史或网页记账线。
+
+实施清单：`pages/index.html`精确目标识别→删除／移动同步移除该host有效规则，由custom清单表达新分类→网站保存一次提交清单和有效规则，沿用expectedVersion与配置审计→没有custom清单的host规则在所属分类中可见并可删除／移动。保留系统配置、父子域、精确URL及YouTube对象规则；不得绕过重复或父域保护校验。
+
+变更等级：Console配置操作。最小验证：页面实际函数隔离回归（删除→保存→读取→重新添加、四分类移动、规则单独存在、URL／父子域／系统隔离、版本冲突）、既有site-access-conflicts与pages-config-v12-fields测试、页面脚本语法及git diff --check；使用隔离mock做桌面／移动目视核对。必要CI仅页面相关；无部署smoke，本次不发布、不直接修改家庭配置，不跑原账、Native、安装器或产品全量测试。
+
+结果：`pages/index.html`删除／移动仅撤销精确同host的有效规则（与既有www／m别名语义一致，wildcard独立），新分类由custom清单表达；同一PUT同时提交清单、剩余有效规则及expectedVersion。仅规则存在的host可见、可删除／移动，同分类custom／system已有条目不重复显示。添加入口拒绝仍已归类的host，不暗中移动。受限／黑名单父域与wildcard子范围保持保护；精确URL、YouTube和其他用途规则没有被主机操作删除。历史审批表不写入，Worker版本／审计路径复用。
+
+聚焦证据：`node tests/unit/pages-site-classification-edit.test.js`11/11、`node tests/unit/site-access-conflicts.test.js`12/12、`node tests/unit/pages-config-v12-fields.test.js`242/242 PASS；新增回归实际执行页面函数并用既有共享分类读取器验证有效结果。测试适配曾误传归一化包装对象，修正为读取`.config`；父域场景捕获到页面旧matchDomain只做精确／wildcard匹配，补充明确父域保护后通过，不放宽共享校验器。
+
+隔离mock浏览器：真实点击删除127.0.0.1→保存（版本8→9，一次PUT包含规则）→重新加载→学习添加并保存（9→10）；移动端仅规则host归学习并保存（10→11），原URL规则保留。桌面1440×1000、移动390×844截图已目视核对，移动scrollWidth=390。证据位于忽略目录`.tmp/site-edit-desktop.png`、`.tmp/site-edit-mobile.png`、`.tmp/site-edit-mobile-result.png`；仅模拟档案，本地接口，未使用登录Profile。Matched＝精确操作／可见性／原子保存／并发保护／隔离验证；Deviated/Missing/Extra＝无（本地修复范围）。本批代码、测试及本条记录集中本地提交，其他既有文档草稿保留；未合并、未部署、未做真实家庭在线验收。线上仍需发布后复验，不将mock称为线上通过。
+
 ## 目录切换真实预检阻断（2026-10-10）
 
 旧条件暂留入口已随PR #256合入master `4eeecad25b1b92ad84605c6c078691d1f04c2945`；production run38003808155仅发布两套Pages，公开脚本与该SHA一致。Runtime Pages cb801a30-a68a-4cdb-bd1c-2be9d26c65e6，主Pages 09036f1c-e322-4283-ab96-8c8ecbf179ee；Worker、Guardian、R2未变化，无migration。生产草稿保留23产品、13条可靠规则；28项旧条件暂留历史、Chrome一项已核验替代，尚未保存。

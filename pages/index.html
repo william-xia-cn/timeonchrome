@@ -2851,7 +2851,13 @@ function getSiteAccessListsForValidation(config = remoteConfig, defaults = siteA
     { category: 'restricted', label: '受限娱乐网站', key: 'customRestrictedEntertainmentList', values: [...(defaults.defaultRestrictedEntertainmentSites || []), ...customOrEffective('customRestrictedEntertainmentList', 'restrictedEntertainmentList', defaults.defaultRestrictedEntertainmentSites)] },
     { category: 'blocked', label: '黑名单网站', key: 'customBlockedSites', values: [...(defaults.defaultBlockedSites || []), ...customOrEffective('customBlockedSites', 'unsafeList', defaults.defaultBlockedSites)] },
   ];
-  return groups.flatMap(group => group.values.map(value => ({ ...group, value })));
+  const entries = groups.flatMap(group => group.values.map(value => ({ ...group, value })));
+  for (const rule of Array.isArray(config?.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : []) {
+    if (!isHostSiteClassificationRule(rule)) continue;
+    const group = groups.find(item => item.category === siteRuleManagementKey(rule));
+    if (group) entries.push({ ...group, key: 'siteClassificationRulesV1', value: siteRuleValue(rule) });
+  }
+  return entries;
 }
 
 function findSiteAccessExactConflicts(config = remoteConfig, defaults = siteAccessDefaults || {}) {
@@ -2901,7 +2907,11 @@ function findProtectedSiteAccessScope(value, targetPolicy, config = remoteConfig
     if (!entryValue) continue;
     const entryKey = normalizeSiteAccessHostKey(entryValue);
     if (!entryKey || entryKey === targetKey) continue;
-    if (!matchDomain(normalized, entryValue)) continue;
+    const targetHost = String(targetKey || '').replace(/^host(?:-wildcard)?:/, '');
+    const parentHost = String(entryKey || '').replace(/^host:/, '');
+    if (!matchDomain(normalized, entryValue)
+      && !(targetKey && entryKey.startsWith('host:')
+        && (targetHost === parentHost || targetHost.endsWith('.' + parentHost)))) continue;
     if (entry.category === 'blocked' && !targetIsBlocked) return entry;
     if (entry.category === 'restricted' && targetIsLearningOrComposite) return entry;
   }
@@ -2954,6 +2964,12 @@ function validateRulesSiteAdd(value, targetPolicy) {
       }
       return { ok: false, value: normalized, message: `该网站已在用户自定义配置的${def.label}中；请点击已有网站的“归为…”操作移动分类` };
     }
+  }
+  const hostRule = (remoteConfig?.siteClassificationRulesV1 || []).find(rule =>
+    isHostSiteClassificationRule(rule) && siteRuleDecision(rule)
+    && normalizeSiteAccessHostKey(siteRuleValue(rule)) === normalizeSiteAccessHostKey(normalized));
+  if (hostRule) {
+    return { ok: false, value: normalized, message: '该网站已在主机分类规则中；请点击已有网站的“归为…”操作移动分类' };
   }
   const protectedScope = findProtectedSiteAccessScope(normalized, targetDef.key);
   if (protectedScope) {
@@ -3070,7 +3086,11 @@ function getRulesPolicyModel() {
     }
     const system = getPolicyDefaultList(def);
     const custom = getPolicyCustomList(def);
-    const rules = approvedUrlRulesForListKey(def.customKey);
+    const visibleHosts = new Set([...system, ...custom].map(normalizeSiteAccessHostKey));
+    const hostRules = uniqueSiteRules((remoteConfig?.siteClassificationRulesV1 || []).filter(rule =>
+      isHostSiteClassificationRule(rule) && siteRuleManagementKey(rule) === def.key
+      && !visibleHosts.has(normalizeSiteAccessHostKey(siteRuleValue(rule)))));
+    const rules = [...approvedUrlRulesForListKey(def.customKey), ...hostRules];
     return { ...def, system, custom, rules, usedUnclassified: [] };
   });
 }
@@ -3139,6 +3159,9 @@ function buildCustomSiteAccessPayload(config = remoteConfig || {}) {
     customCompositeList: config.customCompositeList || [],
     customRestrictedEntertainmentList: config.customRestrictedEntertainmentList || [],
     customBlockedSites: config.customBlockedSites || [],
+    ...(Array.isArray(config.siteClassificationRulesV1) ? {
+      siteClassificationRulesV1: config.siteClassificationRulesV1.map(rule => ({ ...rule })),
+    } : {}),
     ...(Array.isArray(config.siteUsageClassificationRulesV1) ? {
       siteUsageClassificationRulesV1: config.siteUsageClassificationRulesV1.map(rule => ({
         classification: 'other', targetType: rule.targetType,
@@ -3263,13 +3286,18 @@ function renderRulesSiteRow(entry, idx) {
     actionHtml = '<div class="rules-site-actions"><span class="rules-site-badge">其他时间；访问权限独立</span></div>';
   } else if (entry.source === 'rule') {
     const specialRule = isYouTubeSpecialRuleValue(entry.value);
-    const options = specialRule
+    const hostRule = isHostSiteClassificationRule(entry.rule);
+    const options = hostRule
+      ? classificationPolicyDefs().filter(def => def.key !== entry.classification)
+        .map(def => `<button class="rules-site-action-btn" onclick="classifyRulesSiteEntry(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`).join('')
+      : specialRule
       ? classificationPolicyDefs()
         .filter(def => ['study', 'composite'].includes(def.key) && def.key !== entry.classification)
         .map(def => `<button class="rules-site-action-btn" onclick="classifySpecialSiteRule(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
         .join('')
       : '';
-    actionHtml = `<div class="rules-site-actions"><span class="rules-site-badge">${specialRule ? '特殊对象规则' : '规则项'}</span>${options}</div>`;
+    const deleteButton = hostRule ? `<button class="rules-site-action-btn danger" onclick="deleteRulesCustomSite(${idx})">删除</button>` : '';
+    actionHtml = `<div class="rules-site-actions"><span class="rules-site-badge">${hostRule ? '主机分类规则' : specialRule ? '特殊对象规则' : '规则项'}</span>${options}${deleteButton}</div>`;
   } else if (entry.source === 'system') {
     const disabled = !systemAccessCanWrite;
     actionHtml = `<div class="rules-site-actions"><button class="rules-site-action-btn" ${disabled ? 'disabled title="需要系统管理员权限"' : ''} onclick="openSystemSiteCategoryEditor(${idx})">编辑分类</button>${disabled ? '<span class="rules-site-badge">只读</span>' : ''}</div>`;
@@ -3835,15 +3863,33 @@ window.deleteRulesOtherUsage = idx => {
   if (entry?.source === 'usage') return saveOtherUsageTarget(entry.value, true);
 };
 
+function isHostSiteClassificationRule(rule = {}) {
+  return (rule.targetType || rule.type || rule.decisionTargetType || rule.requestedTargetType) === 'host';
+}
+
+function removeExactHostClassificationRules(config, value) {
+  const key = normalizeSiteAccessHostKey(value);
+  if (!key || !Array.isArray(config.siteClassificationRulesV1)) return;
+  config.siteClassificationRulesV1 = config.siteClassificationRulesV1.filter(rule =>
+    !isHostSiteClassificationRule(rule) || normalizeSiteAccessHostKey(siteRuleValue(rule)) !== key);
+}
+
 function moveCustomSiteToPolicy(value, policy) {
   const normalized = normalizeSiteAccessInput(value);
   const def = classificationPolicyDefs().find(item => item.key === policy);
   if (!normalized || !def) return false;
   const nextConfig = { ...remoteConfig };
+  const targetKey = normalizeSiteAccessHostKey(normalized);
   for (const item of classificationPolicyDefs()) {
-    nextConfig[item.customKey] = (nextConfig[item.customKey] || []).filter(d => !matchDomain(normalized, d) || !matchDomain(d, normalized));
+    nextConfig[item.customKey] = getPolicyCustomList(item).filter(d => normalizeSiteAccessHostKey(d) !== targetKey);
   }
+  removeExactHostClassificationRules(nextConfig, normalized);
   nextConfig[def.customKey] = uniqueSiteAccessValues([...(nextConfig[def.customKey] || []), normalized]);
+  const protectedScope = findProtectedSiteAccessScope(normalized, policy, nextConfig);
+  if (protectedScope) {
+    toast(formatProtectedSiteAccessScopeMessage(protectedScope, def), false);
+    return false;
+  }
   const conflicts = findSiteAccessExactConflicts(nextConfig);
   if (conflicts.length > 0) {
     toast(formatSiteAccessConflict(conflicts[0]), false);
@@ -3862,10 +3908,14 @@ function moveCustomSiteToPolicy(value, policy) {
 
 window.deleteRulesCustomSite = (idx) => {
   const entry = window._rulesSiteDirectoryEntries?.[idx];
-  if (!entry || entry.source !== 'custom') return;
+  if (!entry || !(entry.source === 'custom' || entry.source === 'rule' && isHostSiteClassificationRule(entry.rule))) return;
   const def = classificationPolicyDefs().find(item => item.key === entry.classification);
   if (!def) return;
-  remoteConfig[def.customKey] = (remoteConfig[def.customKey] || []).filter(d => d !== entry.value);
+  const nextConfig = { ...remoteConfig };
+  const key = normalizeSiteAccessHostKey(entry.value);
+  nextConfig[def.customKey] = getPolicyCustomList(def).filter(d => normalizeSiteAccessHostKey(d) !== key);
+  removeExactHostClassificationRules(nextConfig, entry.value);
+  remoteConfig = nextConfig;
   renderRulesPage();
   toast('已删除，点击保存后同步');
 };
@@ -3983,7 +4033,7 @@ window.classifyRulesSiteEntry = async (idx, targetPolicy) => {
   const def = classificationPolicyDefs().find(item => item.key === targetPolicy);
   if (!entry || !def) return;
   try {
-    if (entry.source === 'custom') {
+    if (entry.source === 'custom' || entry.source === 'rule' && isHostSiteClassificationRule(entry.rule)) {
       moveCustomSiteToPolicy(entry.value, targetPolicy);
       return;
     }
@@ -4236,6 +4286,7 @@ function canonicalDisplayUrlValue(value) {
 }
 
 function siteRuleTypeLabel(rule = {}) {
+  if (isHostSiteClassificationRule(rule)) return '主机分类';
   const value = siteRuleValue(rule);
   if (/^https:\/\/www\.youtube\.com\/playlist\?list=/i.test(value)) return 'YouTube 播放列表';
   if (/^https:\/\/www\.youtube\.com\/watch\?v=/i.test(value)) return 'YouTube 视频';
@@ -5620,7 +5671,7 @@ async function applySystemAccessConfigImport() {
   }
 }
 
-// 保存网站访问配置（只提交 custom 字段，后端自动合并缺省值）
+// 一次保存自定义清单与有效规则，后端合并系统值并执行版本／审计保护。
 async function saveSiteAccessConfig() {
   if (!currentProfileId || !remoteConfig) return;
   const profileId = currentProfileId;
