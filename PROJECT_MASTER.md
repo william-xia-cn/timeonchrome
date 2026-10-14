@@ -1,5 +1,15 @@
 # PROJECT_MASTER
 
+## 2026-10-15 停用时间与云端修复已部署
+
+PO批准PR #258/#259合入master，并批准网站分类编辑、Native本机应用命名、停用配置三项一起上线；唯一Runtime迁移0022另获明确批准。发布源码为9fbac07b9eeb4d14007685cb379025b016404490，生产运行38610781351成功，精确SHA Runtime/Guardian/Main门禁通过。契约1.48.0；只应用0022_runtime_native_application_identifications.sql，无Guardian迁移，无共享执行准备。
+
+实际发布：Runtime Worker afda75fe-d246-4d34-a797-6932c6804c03；Guardian 3802a931-db24-453f-89f7-8641f2ce3850；独立Pages 2064dcb5-002a-4548-93a8-aaa6c311b7f7；主Pages d461b99b-3d48-4fb3-9027-d241f54ef06c。稳定域名及deployment域名的停用模块、两站Native命名JS与Git blob逐字节一致；只读迁移列表为空。R2 latest仍2.3.1及原哈希；CRX feed实查仍1.7.45，本次不托管。
+
+控件源码已合入，现有1.7.46 unpacked候选完整备份后只同步7个停用相关文件，key/manifest/部署配置与storage保持不变；本轮未重载Chrome，不能声明终端已生效。网站类型例外门禁和边界复核已实现，停用配置默认关闭，未修改家庭策略。Native停用应用关闭仍未实现；本轮仅发布Native命名云端接收及展示，不安装Native，也不宣称所有终端已有新命名生产者。原账/统计/配额语义没有改动；真实停用到点与原账对照仍需隔离验收。
+
+发布摘要文件由production workflow保存在本次运行artifact；正文不包含家庭ID、token或浏览信息。原工作区草稿保留，不清理、不强制覆盖。
+
 ## 控件1.7.46内部候选准备（2026-10-10，未托管）
 
 线上更新源仍为已托管 `1.7.45`；本轮只在固定 `extension-local` 分支上基于集成源码 `71788f1` 准备 `1.7.46` 内部 unpacked 候选。候选用于同孩子 Native 绑定隔离；共享执行保持关闭，不改网页原账、配额、家庭配置或R2。候选输出必须与现有Chrome加载目录隔离，不重载、不安装、不托管。真实Native联调及最终发布仍单独验收。

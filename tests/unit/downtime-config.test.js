@@ -109,21 +109,31 @@ test('the real import normalizer does not clear downtime from old backups', () =
 async function verifySave() {
   const elements = { 'downtime-enabled': { checked: true }, 'downtime-config-error': { textContent: '' }, 'save-downtime-btn': { disabled: false } };
   const calls = [];
-  const row = { querySelector: selector => ({ value: selector.includes('start') ? '8:00' : '24:00' }) };
+  const row = { querySelector: selector => selector.includes('midnight') ? { checked: true }
+    : ({ value: selector.includes('start') ? '8:00' : '00:00' }) };
   const ctx = { window: { TimeOnChromeDowntime: helper }, currentProfileId: 'isolated-child', remoteConfig: {},
+    downtimeRenderedProfile: 'isolated-child', downtimeSaving: false, downtimeDraft: null, remoteConfigVersion: 7,
     cloudRulesManagementActiveTab: 'downtime', document: {
       getElementById: id => elements[id],
       querySelector: selector => ({ querySelectorAll: () => selector.includes('monday') ? [row] : [] }),
       querySelectorAll: selector => [{ value: selector.includes('allowedWebsiteTypes') ? 'study' : 'other' }],
-    }, saveProfileConfig: async (payload, reason) => { calls.push({ payload: json(payload), reason }); },
-    api: async url => { calls.push({ url }); return {}; }, applyProfileConfigResponse: () => {}, renderDowntimePage: () => {}, toast: () => {} };
-  vm.runInNewContext(pageFunction('saveDowntimeConfig'), ctx);
+    }, saveProfileConfig: async (payload, reason) => { calls.push({ payload: json(payload), reason }); ctx.remoteConfigVersion = 8; return { version: 8 }; },
+    api: async url => { calls.push({ url }); return { version: 8 }; }, applyProfileConfigResponse: () => {}, renderDowntimePage: () => {}, toast: () => {},
+    updateDowntimeInputs: () => { elements['save-downtime-btn'].disabled = ctx.downtimeSaving; } };
+  vm.runInNewContext(pageFunction('readDowntimeEditor') + '\n' + pageFunction('saveDowntimeConfig'), ctx);
   await ctx.saveDowntimeConfig();
   assert.deepEqual(Object.keys(calls[0].payload), ['downtimeConfig']);
   assert.equal(calls[0].reason, 'downtime_config_save');
   assert.deepEqual(calls[0].payload.downtimeConfig.windowsByWeekday.monday, [{ start: '08:00', end: '24:00' }]);
   assert.equal(calls[1].url, '/profiles/isolated-child/config');
   assert.equal(elements['save-downtime-btn'].disabled, false);
+  count++;
+  calls.length = 0;
+  ctx.downtimeDraft = { profileId: 'isolated-child', baseVersion: 6, dirty: true };
+  await ctx.saveDowntimeConfig();
+  assert.equal(calls.length, 0, 'stale draft cannot silently use the latest version');
+  assert(elements['downtime-config-error'].textContent.includes('云端配置已变化'));
+  ctx.downtimeDraft = null;
   count++;
   calls.length = 0;
   ctx.saveProfileConfig = async () => { ctx.currentProfileId = 'another-child'; };
@@ -135,6 +145,28 @@ async function verifySave() {
   await ctx.saveDowntimeConfig();
   assert.equal(elements['downtime-config-error'].textContent, '配置版本冲突');
   assert.equal(elements['save-downtime-btn'].disabled, false);
+  count++;
+  ctx.saveProfileConfig = async () => { ctx.remoteConfigVersion = 9; return { version: 9 }; };
+  ctx.api = async () => ({ version: 10 });
+  let applied = false;
+  ctx.applyProfileConfigResponse = () => { applied = true; };
+  await ctx.saveDowntimeConfig();
+  assert.equal(applied, false, 'later GET version must not replace saved state');
+  assert(elements['downtime-config-error'].textContent.includes('云端版本已变化'));
+  count++;
+  ctx.remoteConfig = { downtimeConfig: helper.normalize(active) };
+  elements['downtime-enabled'].checked = false;
+  row.querySelector = selector => selector.includes('midnight') ? { checked: false }
+    : { value: selector.includes('start') ? '10:00' : '' };
+  calls.length = 0;
+  let notice = '';
+  ctx.toast = message => { notice = message; };
+  ctx.saveProfileConfig = async payload => { calls.push(json(payload)); ctx.remoteConfigVersion = 11; return { version: 11 }; };
+  ctx.api = async () => ({ version: 11 });
+  await ctx.saveDowntimeConfig();
+  assert.equal(calls[0].downtimeConfig.enabled, false);
+  assert.deepEqual(calls[0].downtimeConfig.windowsByWeekday, json(helper.normalize(active).windowsByWeekday));
+  assert(notice.includes('未完成的时段修改未保存'));
   count++;
   console.log(`downtime configuration: ${count}/${count} tests passed`);
 }
