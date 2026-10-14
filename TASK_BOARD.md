@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## COMPLETED：三项云端发布与控件停用候选更新（2026-10-15）
+
+- PR #258/#259已按PO明确授权合入；production 38610781351基于master 9fbac07成功，精确Runtime/Guardian/Main CI通过。唯一0022已执行，部署后只读无待迁移；Guardian/Runtime/两套Pages均成功且smoke通过。
+- 公开停用模块及两套Native命名脚本在稳定域名/deployment域名与源码逐字节一致。CRX/feed未改，线上托管仍1.7.45；R2 latest仍2.3.1。
+- 1.7.46本地unpacked候选已完整备份并更新7文件，身份、绑定与storage未变；未自动重载，真实终端生效不能提前确认。停用默认关闭，家庭配置未写入；Native应用关闭/原账对照实机验收仍待完成。
+- 提交审计：无未授权产品语义或历史账修改；配置14、Pages242、配置域30、真实路由/并发、3项CI夹具及隔离周提醒UI smoke通过；控件Reminder浏览器12/12、相关单测/静态检查通过。旧失败已按PO授权与真实依赖修订，不降低断言。
+- 已恢复原三份云端草稿，autostash恢复副本保留。本条仅记录已发生发布，详细版本见PROJECT_MASTER顶部；不顺带合入旧治理草稿。
+
 ## 停用时间网站接线说明同步（2026-10-15）
 
 发布CI定位：device-shared-access-policy及rest-weekly-cloud的隔离夹具遗漏真实downtime默认值依赖，runtime-management-loader遗漏网站编辑的新辅助函数；仅补真实依赖/空保护配置夹具，不改路由、配额或分类行为。修订PR职责为architecture-integration＋standard-cloud并列精确测试例外。PO批准三项云端一起发布，并明确批准唯一生产0022及Runtime Worker；GitHub凭据正常，先前受限环境检查是假阴性。最小复验为上述三项失败专项，通过后提交测试修复、等待CI，生产workflow仍为精确master SHA门禁。
