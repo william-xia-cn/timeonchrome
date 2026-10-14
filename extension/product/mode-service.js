@@ -24,6 +24,7 @@ import { getModeWindowStatus, hasTimeWindowsDaily, reminderReasonForModeWindow }
 import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { createTimingAuditId } from '../core/timing-trace.js';
 import { restQuotaReminderReason } from '../core/quota-state-facts.js';
+import { readDowntimeConfig, evaluateWebsiteDowntime } from '../core/downtime.js';
 
 export const REST_EXIT_GRACE_MS = 30_000;
 
@@ -726,6 +727,19 @@ async function handleAccessObserved(event = {}) {
   let siteClassificationRequestSyncNeeded = false;
   let siteClassificationRequestForSync = null;
   let siteClassification = resolveSiteAccessClassification(config, siteClassificationRecords, { url, specialSiteTargets: event.specialSiteTargets || [] });
+  if (siteClassification.classification === 'blocked') {
+    return baseDecision({ access: 'reminder', reminder: { reason: 'unsafe', params: {} }, domain, config });
+  }
+  const downtimePolicy = readDowntimeConfig(config.downtimeConfig);
+  if (downtimePolicy.ok) {
+    const type = siteClassification.classification === 'rejected' ? 'restricted' : siteClassification.classification;
+    const downtime = evaluateWebsiteDowntime(downtimePolicy.config, type, nowMs);
+    if (downtime.blocked === true) {
+      return baseDecision({ access: 'reminder', reminder: { reason: 'downtime',
+        params: { downtimeUntilMs: downtime.activeUntilMs } }, domain, config });
+    }
+  }
+  if (event.downtimeOnly === true) return baseDecision({ access: 'ignore', reason: 'downtime_allowed', domain, config });
   const tabId = Number(event.tabId);
   const normalizedInitialClassification = siteClassification.classification || 'unclassified';
   if (normalizedInitialClassification === 'unclassified' || normalizedInitialClassification === 'pending_composite') {

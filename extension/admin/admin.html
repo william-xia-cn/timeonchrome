@@ -1227,6 +1227,11 @@
     .usage-rest-summary-parts { font-weight: 400; }
     .usage-rest-summary-note { margin: 0 0 6px; }
     .rules-tabs button[hidden] { display: none; }
+    .rules-downtime-summary p { margin: 10px 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+    .rules-downtime-table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 13px; }
+    .rules-downtime-table th, .rules-downtime-table td { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+    .rules-downtime-table th[scope="row"] { width: 70px; white-space: nowrap; }
+    .rules-downtime-table td { overflow-wrap: anywhere; }
     .rules-panel {
       display: none;
     }
@@ -1996,6 +2001,7 @@
         <button type="button" class="active" data-rules-tab="quota-management">时间配额</button>
         <button type="button" data-rules-tab="autonomy-management">自主度配置</button>
         <button type="button" data-rules-tab="schedule-management">时间段管理</button>
+        <button type="button" data-rules-tab="downtime-management">停用时间</button>
         <button type="button" data-rules-tab="classification-requests" hidden>网站归类记录</button>
       </div>
 
@@ -2114,6 +2120,11 @@
           </div>
           <div id="rules-schedule-display">暂无配置</div>
         </div>
+      </div>
+
+      <div class="rules-panel" data-rules-panel="downtime-management">
+        <div class="card-header"><div><div class="card-title">停用时间</div><div class="card-subtitle">家长云端配置 · 本机只读</div></div></div>
+        <div id="rules-downtime-display">加载停用时间配置中…</div>
       </div>
 
       <div class="rules-panel" data-rules-panel="classification-requests">
