@@ -1,10 +1,12 @@
 # TASK_BOARD
 
-## NOW：停用配置同版本补齐取证与修复（2026-10-15）
+## COMPLETED：停用配置同版本补齐修复（2026-10-15，当前unpacked已更新、待重载）
 
 配置原始下发/规范化保留downtimeConfig，但shouldSaveDespiteVersionSkip只检查默认网站清单；同版本元数据存在而guardian_config缺少/错误停用字段时会跳过，已可用隔离pullCloudConfig复现。增加停用字段的规范化对照，仅在完整版本等于已应用版本时允许补齐；云端更旧响应不得因停用差异覆盖新配置。新增实际pull路径专项，保持其他终端私有字段、站点配置与配额不变。现场原因等待终端表现确认，不通过修改家庭配置或清空缓存取证。
 
 职责extension-local；只改云配置读取与直接测试，不改网页计时/记账/上传确认或Native。新增pullCloudConfig补齐/退化/失败/关闭/跨版本专项、已有Admin配置读取与typecheck通过；逐项Matched，无额外语义修改。PO已批准验证后提交合入master、部署云端编辑并备份更新当前unpacked；不托管、不升级版本、不修改家庭配置。现场生效仍需当前扩展重新加载后确认。
+
+源码b9279a8，经PR261合入ec69f71；当前unpacked完整187文件备份并逐文件校验后只更新infra/cloud-sync.js，SHA256=09b35db0178d08b2ed78c6502f2c7065e3705db28740be09f71acad4a1938b69。manifest及部署身份未变、storage未动，未自动重载。主Pages修订生产38617013395成功，托管feed仍未更新；现场恢复不能用源码专项替代。
 
 ## NOW：停用时间编辑可用性及同步补齐（2026-10-15，PO要求修订）
 
