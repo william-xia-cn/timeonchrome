@@ -6,6 +6,24 @@
   const labels = {study:'学习',composite:'复合',restrictedEntertainment:'受限娱乐',other:'其他',unclassified:'未归类',blocked:'黑名单'};
   const types = {game:'游戏',gameLauncher:'游戏平台／启动器',gameUtility:'游戏工具',onlineVideo:'在线视频',mediaPlayer:'影音播放器',other:'其他',unknown:'未知'};
   const resolutionLabels={explicit:'孩子明确分类',automatic:'自动规则',suggestion:'仅建议，不改变有效分类',conflict:'规则冲突，保留原有效分类',unclassified:'未归类'};
+  function nativeIdentificationHTML(value){
+    const esc=escapeHtml;
+    if(!value||value.state==='missing')return '<p>尚无本机命名登记。</p>';
+    if(value.state==='unavailable')return '<p>本机命名暂不可读；现有管理配置保持。</p>';
+    if(value.state==='invalidated')return '<p>本机命名已失效；实例和管理配置仍保留。</p>';
+    if(!Array.isArray(value.sources))return '<p>本机命名暂不可读。</p>';
+    const labels={identified:'本机明确规则命中','dynamic-registry':'本机目录动态识别','dynamic-process':'本机程序名称动态识别'};
+    return `<div>${value.state==='multiple-sources'?'<p>多个用户来源分别登记，不能视为同一应用。</p>':''}${value.sources.map(source=>
+      `<div><small>本机最近登记 · ${esc(new Date(source.observedAtMs).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}))}（北京时间）</small>${source.identifications===null?'<p>此来源命名已失效。</p>':(source.identifications||[]).map(item=>
+        `<p><strong>${esc(item.name)}</strong><br>${esc(labels[item.status]||'本机来源未知')}${item.status!=='identified'?'；动态名称不代表确定产品权限':''}<br><small>${esc((item.evidence||[]).join(' · '))}</small></p>`).join('')}</div>`).join('')}<p>这些是程序实例的本机命名登记，不相加为应用数量。</p></div>`;
+  }
+  function nativeInstanceTitle(item){
+    const value=item.nativeIdentification;
+    if(value?.state==='available'&&value.sources?.length===1&&value.sources[0].identifications?.length===1)
+      return value.sources[0].identifications[0].name;
+    if(value?.sources?.some(source=>source.identifications?.length))return '程序实例的多项本机命名';
+    return item.status==='confirmed'?item.product?.name:'未取得本机名称的程序实例';
+  }
   const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   function installationSummaryHTML(summary){
     const unavailable=code=>`<p class="instance-evidence">安装引用暂不可读：${escapeHtml(code||'PROGRAM_INSTALLATION_READ_UNAVAILABLE')}</p>`;
@@ -491,7 +509,7 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     }
     function renderInstances(message='') {
       const items=instancePage?.items||[];
-      $('#instance-panel').innerHTML=`<p>未识别不影响原始落账和基础统计。纠错应修正规则或采集依据，不直接修改实例归属。</p><p role="status">${esc(message||`目录版本：${instancePage?.catalogVersion??'尚无新版目录'}`)}</p><div class="knowledge-filter"><button id="instances-refresh">刷新／重试</button><button id="instances-next"${instancePage?.nextAfterInstanceId?'':' disabled'}>下一页</button><button id="ownership-open"${items.length?'':' disabled'}>规则草稿与预览</button></div>${items.map(item=>`<article class="knowledge-item"><div><strong>${esc(item.status==='confirmed'?item.product?.name:'未识别程序实例')}</strong><small>${item.platform==='macos'?'macOS':'Windows'} · ${{confirmed:'已确认',pending:'待更新',unresolved:'未识别',conflict:'归属冲突'}[item.status]||'未知状态'} · ${esc(item.instanceId.slice(0,12))}</small><details><summary>实例与核验依据</summary><p class="instance-evidence">实例：${esc(item.instanceId)}<br>电脑：${esc(item.machineId)}<br>证据修订：${esc(item.evidenceRevision)}</p><pre class="instance-evidence">${esc(JSON.stringify(item.evidence,null,2))}</pre>${installationSummaryHTML(item.installation)}</details></div></article>`).join('')||'<p class="empty">尚无可显示的已登记实例；不代表使用时长为零。</p>'}<div id="ownership-panel"></div>`;
+      $('#instance-panel').innerHTML=`<p>未识别不影响原始落账和基础统计。纠错应修正规则或采集依据，不直接修改实例归属。</p><p role="status">${esc(message||`目录版本：${instancePage?.catalogVersion??'尚无新版目录'}`)}</p><div class="knowledge-filter"><button id="instances-refresh">刷新／重试</button><button id="instances-next"${instancePage?.nextAfterInstanceId?'':' disabled'}>下一页</button><button id="ownership-open"${items.length?'':' disabled'}>规则草稿与预览</button></div>${items.map(item=>`<article class="knowledge-item"><div><strong>${esc(nativeInstanceTitle(item))}</strong><small>${item.platform==='macos'?'macOS':'Windows'} · 云端产品归属：${{confirmed:'已确认',pending:'待更新',unresolved:'未识别',conflict:'归属冲突'}[item.status]||'未知状态'}${item.product?` · ${esc(item.product.name)}`:''} · ${esc(item.instanceId.slice(0,12))}</small>${nativeIdentificationHTML(item.nativeIdentification)}<details><summary>实例与核验依据</summary><p class="instance-evidence">实例：${esc(item.instanceId)}<br>电脑：${esc(item.machineId)}<br>证据修订：${esc(item.evidenceRevision)}</p><pre class="instance-evidence">${esc(JSON.stringify(item.evidence,null,2))}</pre>${installationSummaryHTML(item.installation)}</details></div></article>`).join('')||'<p class="empty">尚无可显示的已登记实例；不代表使用时长为零。</p>'}<div id="ownership-panel"></div>`;
     }
     async function readInstances(next=false) {
       const key=lease(),generation=++instanceGeneration,cursor=next?instancePage?.nextAfterInstanceId:null;
@@ -682,5 +700,5 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     function dispose(){if(disposed)return;disposed=true;for(const [type,handler]of Object.entries(listeners))root.removeEventListener(type,handler);for(const dialog of all('dialog[open]'))dialog.close();}
     return {open,publish,classify,dispose};
   }
-  return {empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,installationSummaryHTML,ownershipEvidenceOptions,legacyOwnershipDraft,legacyResolutionValid,resolveLegacyOwnership,legacyDispositionComplete,deferLegacyOwnership,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
+  return {nativeIdentificationHTML,nativeInstanceTitle,empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,installationSummaryHTML,ownershipEvidenceOptions,legacyOwnershipDraft,legacyResolutionValid,resolveLegacyOwnership,legacyDispositionComplete,deferLegacyOwnership,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
 });

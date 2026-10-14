@@ -1,5 +1,15 @@
 # TASK_BOARD
 
+## NOW：Windows本机应用身份云端命名接入（2026-10-15）
+
+PO在Native Host 02明确授权架构推进；固定95cca6e汇总已读取，96静态／86潜在覆盖不作为运行识别率。职责architecture-integration＋standard-cloud，复用现有云端分支，不新建worktree。先文档再代码：新增独立兼容命名契约和能力→已认证实例范围的接收／单调更新／显式失效→实例命名读取→共用管理组件展示→Native固定契约最小生产者交接。保留现有未提交文档草稿。产品统计名称及投影未改，不把多项实例命名变成产品数量。
+
+必要本地验证：新契约及兼容、Runtime本机命名专项（实际隔离D1和route）、既有program-instances、共用knowledge页面专项／隔离目视、契约与Worker typecheck、Worker dry-run及diff。不跑网页原账／配额／Native安装器／无关全平台；不改变管理阻止键，任何动态命名不成为产品权限。新增0022仅源码，生产迁移／发布／安装本轮未授权。
+
+本地结果：契约1.48.0及两项固定canonical哈希向量PASS；Worker新专项和原实例47/47 PASS；knowledge组件14组直接回归PASS；build/typecheck、Runtime dry-run、模块边界和diff通过。实际机器鉴权route→D1持久化→家长会话实例GET已隔离贯通，已有productId/descriptor/Verified/原实例字段逐项不变。桌面及390px手机mock截图已目视：明确名称、动态名称、多项命名、缺失/不可读与XSS转义；4卡片，无错误，scrollWidth=390。截图在agent-browser本机临时目录，不入Git；没有使用真实家庭或实际Chrome Profile。初测失败来自两项旧能力断言、两项排序断言与helper转义作用域，修正后通过。
+
+Matched：独立命名接收/隔离/修订替换/显式失效、现有管理键不变、实例页面读取及目视。Deviated/Extra：无（本批源码边界）。Missing：Native持久生产者及真实上传、生产0022/Worker/Pages发布、实机验收；不能称产品归属全集或完整端云链已完成。Native固定交接要求精确原ref/代际/scope→受理instanceId，不从有限历史拼全量；本机源顺序不可证明时保留冲突；超限不截断，云端仅带日期显示最近登记。旧275扫描核验、Mac、共享和历史重建不恢复。
+
 ## COMPLETED（本地实现／隔离验证，未部署）：网站分类删除／移动与有效审批规则一致性修复（2026-10-13）
 
 PO已授权修复。职责：standard-cloud；复用现有云端工作树。页面删除自定义主机或移动分类时，目前只改custom清单，遗留同目标`siteClassificationRulesV1`阻止重新添加且可能继续生效。先更新本条再实施，不修改审批历史或网页记账线。

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "description": "输入先经契约校验；identifications及evidence按ASCII排序，再按usage-account canonical JSON进行SHA-256。用于Native接收端一致性，不是产品规则。",
+  "cases": [
+    {
+      "name": "多个本机名称，不合并；ASCII排序与中文保留",
+      "item": {
+        "instanceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 1, "observedAtMs": 1,
+        "identifications": [
+          { "nativeId": "z-app", "name": "本机应用乙", "status": "identified", "evidence": ["os-application-aumid", "explicit-window-aumid"] },
+          { "nativeId": "A-app", "name": "本机应用甲", "status": "identified", "evidence": [] }
+        ]
+      },
+      "payloadHash": "567c8159919a46b054259aa663523e8dbe54711cbb6c486f133e8467a81dcc4f"
+    },
+    {
+      "name": "显式失效，旧修订不能复活",
+      "item": {
+        "instanceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revision": 2, "observedAtMs": 2, "identifications": null
+      },
+      "payloadHash": "af3cf3eaf4b610456edc102ea41f5bd2c76bb5d24acedca56f7d904e0674db46"
+    }
+  ]
+}
