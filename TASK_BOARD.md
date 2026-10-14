@@ -31,6 +31,79 @@ PO追加授权更新、提交、部署；先按当前主线规则修订4项过�
 - 检查通过：`node tests/unit/downtime.test.js`；`Get-Content extension/core/downtime.js -Raw | node --input-type=module --check`；`git diff --check`。纯判定模块没有UI或运行入口变更，未跑全量/平台/进程动作测试。
 - 实施一致性：本轮“仅准备当前控件、不发送”范围Matched；未改网页计时/原账/聚合/配额、现有候选、Native、云端和共享契约。完整停用功能仍Missing：跨端契约、配置UI与下发、实际网站阻断/到点复核及应用关闭，不能将16项单测称为真实整机验收。不提交、不发布。
 - 上述第一批记录由PO后续配置范围更新：配置UI及Guardian字段已完成，Native/网站实际执行仍未实施。最新验证为判定/配置读取19/19、Admin新增只读专项及真实同步规范化、导航10/10、typecheck/扩展根检查；两侧桌面与390px窄屏隔离截图已目视，新面板无溢出，Admin整页既有手机侧栏压缩保留。不修改当前Chrome候选，未重载/安装/部署/托管，未发送其他会话。
+## 目录切换真实预检阻断（2026-10-10）
+
+旧条件暂留入口已随PR #256合入master `4eeecad25b1b92ad84605c6c078691d1f04c2945`；production run38003808155仅发布两套Pages，公开脚本与该SHA一致。Runtime Pages cb801a30-a68a-4cdb-bd1c-2be9d26c65e6，主Pages 09036f1c-e322-4283-ab96-8c8ecbf179ee；Worker、Guardian、R2未变化，无migration。生产草稿保留23产品、13条可靠规则；28项旧条件暂留历史、Chrome一项已核验替代，尚未保存。
+
+真实主控制台预览失败已定位为Guardian OPTIONS未允许If-Match，浏览器Network.loadingFailed明确HeaderDisallowedByPreflightResponse / if-match；200只是OPTIONS，不是POST成功。PO已批准最小修复并仅补发Guardian Worker。standard-cloud小修：workers/src/index.ts仅在既有Runtime管理网关范围允许If-Match，保留版本头转发、鉴权与条件更新；补现有网关专项的正式fetch预检回归，验证POST/PUT及非网关范围、条件头转发。仅相关测试、typecheck、差异检查及精确SHA相关CI；不部署Runtime/Pages、不改数据库、原账、配置、共享开关。部署后复验原草稿，再条件保存并核对产品和绑定不变。
+
+Native扫描入口修复332a2d8已提交：Steam有界声明入口与DisplayIcon接线，1.47/1.46专项各46通过；尚未安装或重扫。另4项统计接线回归暴露既有可选执行上下文null序列化错误，已交Native单独最小修复，不能将其记为扫描回归通过或产品归属全链路完成。
+
+## 旧条件暂留历史入口（2026-10-10，PO已批准）
+
+Guardian跨域最小补丁本地验证：正式fetch入口OPTIONS覆盖目录POST/PUT、非网关保持原范围；实际网关仍转发If-Match，401鉴权与412冲突均保留。网关专项14/14、typecheck、diff通过。Matched：仅允许既有条件头，无Deviated/Extra；尚待提交／Guardian发布及真实预览复验，不把本地通过称为目录切换成功。
+
+本地实施与验证完成：暂留原因必填，暂留不生成规则、不冒称已识别；可重新处置，已核验规则修改仍使确认失效。knowledge专项全部通过，实际事件回归验证条件PUT、原产品／分类／强化绑定保留、无依据产品不造规则。隔离内置浏览器桌面及390px移动目视通过，暂留说明、原条件和重新处置入口可读，完成处置后保存可用；未触及生产数据。首次预览服务受沙箱网络隔离影响超时，正常本机进程启动后可访问。Matched：批准语义、保留配置、独立状态及最小范围；无Deviated/Extra。尚未提交部署、生产目录未切换，不能把入口通过称为归属完成。
+
+职责standard-cloud＋architecture-integration文档；仅现有knowledge页面、专项测试与决策。逐项添加暂留历史处置，保持替代核验与暂留状态独立，未知不产生规则。保留23产品、分类与Firefox设置。最小验证：knowledge专项、已有非空旧目录保存回归、隔离桌面／移动目视、diff；CI仅相关Console，发布smoke检查两站脚本；排除Native、扩展、原账、migration、共享及全平台测试。先完成入口与证据，再执行已授权生产目录预览／条件更新；当前尚未切换。
+
+## 产品归属真实依据核验续进（2026-10-10）
+
+切换保障补证（standard-cloud，仅测试）：新增非空旧目录到v4保存回归，核对旧payload逐字保留、无新依据产品继续存在、孩子分类／强化线索保留、既有配额和时间窗不变、新映射由正式规则生成。仅改program-instances专项及本任务板，运行该命名案例与diff，不重跑全平台、不改产品实现或生产目录。历史无依据旧条件是否退出新有效规则已集中请求PO裁决，未获答复不执行生产切换。
+
+该命名回归已通过：1 passed / 38 skipped，使用本地隔离D1及正式save/read/materialize函数；旧版本payload逐字不变、审计previous_hash对应原版本，现有分类绑定及强化封锁保留，新映射由pending转confirmed。第一次启动被D盘Vite临时目录沙箱EPERM阻止，获准本地执行后通过，不是产品测试失败。此证据不等于生产策略已切换或终端实际封锁已验收；没有放开页面未核验保存门槛。
+
+已将8项有现存本机强依据且在已读取云端实例中精确存在的规则整理为本地.tmp候选数组（Chrome/Excel/Steam/EA文件系列、完美世界精确内容、GameBar/Solitaire/Xbox完整AUMID），不含孩子信息或分类，不替代完整目录、不上传。正式契约parseProductOwnershipRules校验通过，8项各自输入均由正式匹配器确定命中目标；Xbox AppL与空依据保持unresolved。这仅为候选结构／精确匹配验证，生产目录与第三层映射均未改变。旧规则、产品及孩子绑定仍须合并预览保留；不以候选8项代替全部功能完成。
+
+Native进一步说明Steam生产代码没有appinfo解析器，仅有manifest读取；同意将必要的本地v41有界只读解析纳入该入口修复，限定已安装appid、16MiB、结构与启动项上限及既有20秒捕获预算，不支持／损坏独立跳过，不增加网络、全目录EXE扫描或产品猜配。DisplayIcon接线独立推进，仍集中源码和隔离证据后交付，不制中间包。
+
+固定安装源码追踪已定位：2.6.43候选fbdc0836a0de0b27ce8c983359ab736c40fba1ab的Steam分发扫描仅生成安装观察，不将明确游戏入口送入ProgramFiles；ExecutableFromDisplayIcon只有定义／测试，生产注册表扫描没有调用。维护标签并不禁止实例捕获，故不是有意过滤或已证实的上传丢失。已交Native按既有职责最小接线上述两入口：只采集明确声明且现存EXE、复用稳定文件核验和同扫描引用，不遍历全部EXE，不根据安装关系直接生成产品归属，不改原账／执行，不安装／重扫；新增隔离回归验证真实programDiscovery接线。历史缺manifest及OpenAI名称冲突保持独立，不扩大为本批修复。
+
+Native只读核验已完成：13个旧Steam appid中8个有当前安装manifest、精确appid启动配置及现存入口；5个无当前安装manifest，保留未核验，不为旧记录扩大搜索或启动游戏。8项中的Apex仅证明保护启动器，不作为游戏主体或共用工具归属证明。对已读取当前孩子234实例的verified.binaryHash精确比对，9个声明入口（含CS旧启动项）、EA离线安装器及Steam卸载器均未命中；此前Excel/Steam/EA/PerfectWorld主程序与3个Store主入口各命中1项。此结果只说明当前读取范围没有这些hash，不证明所有孩子或所有云端数据缺失。已交原Native任务只读追踪固定2.6.43扫描调用，确认分发扫描到实例登记的实际覆盖与过滤，不重新扫描、不改代码、不UAC、不安装。
+
+OpenAI包核验：当前用户仅找到OpenAI.Codex注册包，包manifest和开始菜单显示ChatGPT，主文件产品信息为Codex；未发现另一个相关独立注册包。名称冲突属于实际安装元数据，不能仅凭包名将原ChatGPT产品判为错误并擅自拆分／改名。暂保留产品与分类，不将7条旧技术身份自动等同当前包入口。生产目录仍为旧版10，新映射尚未生成；不得声称产品归属已经完成。
+
+本轮没有生产目录写入、部署或安装。下一步区分可确认的新规则、当前扫描缺项及仅历史残留；历史缺项不得伪造匹配，也不应把基础统计阻塞。现有转换入口要求全部旧条件提供替代证明，5个无现存安装的历史产品尚无替代依据，集中切换仍未满足该入口要求；此约束与历史尽力而为的边界需明确处理，不能虚填核验理由放行。
+
+## 产品归属核验入口已发布（2026-10-10）
+
+PR #255合入master `68c861c9bb6368f20cebaf5956874f72e9120642`。专项与隔离桌面／移动目视通过，精确主线App Runtime run38000894417、Main Console run38000982341通过；production run38001085733成功，仅deployedResources=runtimePages/mainPages。独立Pages `d1cef606-da9e-49ee-bca5-3bc7607adb00`，主Pages `98aac391-8405-471c-ad22-ff9ce79ab0e9`；两站公开JS一致且包含resolveLegacyOwnership。Worker、Guardian、R2与前次manifest一致，无迁移或共享准备。生产目录没有写入，29项旧规则仍待真实依据转换，不把页面修复当作产品映射通过。
+
+控件1.7.46重载现有用户手工证据：控件会话收到版本与原扩展ID一致的真实页面信息，标记PASS_WITH_MANUAL_EVIDENCE；不再列“是否重载成功”待办，绑定／通信／产品读取仍需验收。Native现有Windows只读任务正在复算旧安装键与新依据关系，不新增UAC、安装包或采集设计。
+
+真实依据增量：Native普通权限核实的Excel、Steam、EA、PerfectWorld当前文件hash，以及GameBar、Solitaire、Xbox清单主入口完整AUMID，均在已读取234实例的verified字段中逐字段精确命中各1项；Xbox AppL不视为App。旧Excel哈希已变更，保留旧规则不伪称当前命中。13个Steam appid已确认安装记录，但入口文件依据仍核对中；上述为规则建立证据，不代表生产目录已保存。生产新核验入口已真实登录回读，29项核验控件存在、未核验保存禁用。没有改写实际产品规则、分类或账本。
+
+## 旧规则核验收口入口修复（本地验证通过，2026-10-10）
+
+standard-cloud范围：仅knowledge页面及其专项测试。已证实待核验项只能生成、不能完成核验，导致完整转换无法保存。补充逐项选择同产品同平台已启用规则、填写核验依据后加入替代确认；保留原条件和所选规则快照供回看。删除、停用或修改被选规则使确认失效，未完成项仍阻止保存，不新增猜配、不直接修改实例映射。验证同产品约束、空依据拒绝、规则变更失效、未核验保存拒绝、原产品及孩子配置不变；仅knowledge专项、隔离目视与diff，不运行终端/原账/全平台测试。本次本地修复不自动保存生产目录。
+
+实施结果：已接入实际确认与保存按钮。`node app-runtime-management/console/app-runtime-knowledge.test.cjs`通过，新增事件回归证明空依据和规则变更均阻止PUT，核验后条件更新可提交且产品／孩子绑定不变；第一次仅测试夹具缺少querySelectorAll，补齐后通过。内置浏览器隔离夹具桌面与390px移动目视通过，旧条件、替代选择、核验输入和确认结果可见；截图仅保留本地.tmp，不含真实家庭。审核Matched：同产品／平台约束、保留原条件、失效复核、不直接改映射；本补丁无Deviated/Extra。核验理由与规则快照仅保留当前草稿，不宣称持久审计记录。生产目录仍未转换，端到端产品映射仍Missing；本补丁尚未部署。
+
+## 应用身份实机核验增量（2026-10-10，集中升级后）
+
+云端真实依据核对：经已登录独立站读取当前Windows孩子5页共234实例，末页无下一页。Firefox两条原文件系列均在新verified.windowsFileSeriesKey中精确存在；Chrome原文件系列亦精确存在，已安装源码的系列算法包含经验签signerKey；ChatGPT/Codex完整AUMID规则命中已登记实例，且一个旧runtimeIdentity与同扫描安装引用variantKey精确相同。Excel两个旧binaryHash未在本轮实例中直接出现，需要继续查安装链，不能按名称替代。以上证明证据可取得，不代表目录已保存／映射已生成；没有再次UAC或修改生产规则。
+
+主Pages补发已完成：production run37999475648成功，唯一deployedResources=mainPages，deployment b3634bbd-21b8-4020-8e04-cf152928e584，source edb8b47。Runtime Worker、Guardian、独立Pages和R2 latest与前次manifest一致，migrations为空。线上主站管理JS与独立站逐字符一致，并包含完整旧目录读取及转换草稿；已排除旧组件遗漏发布。
+
+只读UAC诊断失败根因已由Native代码追踪确认：脚本将SID与派生localUserId直接比较，而正式Service通过机器身份派生后比较，属于诊断身份域错误；不据此修改配对或采集。后续改用现有已认证云端实例页面的verified及同扫描安装引用核对，不重复UAC。另已查明页面ownershipUnconverted仅在读取目录时赋值，新增规则／导入无法清除已核验替代项，因此当前29项转换草稿没有完整收口操作路径；修订须保留逐项依据与同产品约束，不可直接清空列表或放开不完整保存。
+
+后续增量：控件所属任务已备份原1.7.45加载目录并替换为1.7.46，184文件树hash与批准候选一致、key不变；正确Chrome Profile实际重载仍待验证，工具拒绝不可靠定位，未卸载或清Storage。正式Native Manager认证读取base/product同父revision148，基础完整非零，产品层明确APPLICATION_PRODUCT_MISSING。一次获准只读UAC脚本在用户／孩子范围断言失败，未导出扫描证据；这是诊断失败，不是采集错误，已禁止重复弹出并要求先定位断言。
+
+PO已批准仅补发主Pages。精确master edb8b47的Main Console检查37999438339成功，Pages-only生产run37999475648已启动并完成production审核；其余所有部署、迁移和共享准备输入为false。运行完成及线上回读尚待核实，不能提前记为已上线。
+
+Native所属任务已完成唯一2.6.43安装：exitCode=0，正式11组件版本及内嵌SHA一致，Service Running；受限一致备份quick_check通过，配对凭据/HMAC、既有原账与冻结统计保留，outbox既有主键保留。此项是安装与数据保留证据，不代表产品归属通过。控件1.7.46原目录更新／正确Profile重载仍在执行，未确认成功。
+
+真实家长登录发现部署差异：主控制台从自身`runtime-management-component/app-runtime-knowledge.js`加载旧组件，仍显示“不能自动把旧身份规则当成新版规则”，公开脚本不包含legacyOwnershipDraft/data.legacyCatalog；本次已部署的独立Runtime站经现有SSO登录可读取完整转换草稿。主Pages尚未更新，不可宣称两套管理入口都已更新。
+
+独立站真实目录仍为旧版，23产品完整保留，5条归属规则可直接转换，29条待核验（7条旧runtimeIdentity、5条productKey、16条distributionKey、1条Chrome复合条件）。新扫描已有完整AUMID和已核验文件系列进入真实依据列表，但映射尚未生成；已要求Native提供对应实际实例与旧依据的脱敏核对结果。未保存草稿、未转换生产目录、未改变分类或共享开关。下一步是完成证据关联与目录转换，再核对实例→产品→统计／管理，不继续把制包当作归属完成。
+
+## 应用身份集中发布核验（2026-10-10 06:15，北京时间）
+
+最终内部候选已核验，安装／重载尚待本次集中确认：Windows2.6.43源码`fbdc0836a0de0b27ce8c983359ab736c40fba1ab`，固定1.47包；521导出文件一致、MSI内11正式组件及两迁移组件核对，原八份草稿保留。安装器120812435字节／SHA256 `dea18e3ce8693eb7d959fa06c235c5c6768dd48c0b2b833853c8675ef433ca39`；MSI61871862字节／SHA256 `ea642fdb772fcc6dcfe2c2d69eaa530807532f71d36a2dcfbb7235607da5cecb`，架构侧已独立复算并通过现有artifact verifier。控件1.7.46内部候选来自`edb8b47`，184文件／2501659字节，树SHA256 `248994bef8e1dff3c9ccc9e6d6240095743e606af598183141ee99a03fa4c7cb`已独立复算；按相对路径排序，对路径UTF-8、NUL、文件原字节、NUL依次SHA256。稳定扩展ID未变，原加载目录和线上1.7.45未修改。候选存在不表示已安装、已重载或产品识别通过。
+
+PR #253交接锁、PR #254控件内部版本已合入，固定master `edb8b4761e20b640bf104d7511a229eff17e80b6`。生产run `37998110066`成功，仅部署Runtime Worker `73658511-c209-433a-b2d5-491f56b26e8c`及独立Pages `eb81b78b-2825-400e-bf08-73f88c05feb6`；契约1.47.0，无迁移、无shared shadow准备。Guardian仍`db20e9a4`、主Pages仍`fad51a2a`，R2 latest仍2.3.1及原SHA256，生产目录尚未转换。
+
+线上知识目录JS/CSS在生产别名与本次部署域名均逐字节等于固定Git源码；首次使用Windows工作文件比较出现CRLF差异，已改用Git blob复核通过，不是重复部署或产品故障。JS SHA256 `6db81157654193cac2b7356b02479c63142811505ade7ad94d4e204c214c342b`，CSS `42c6cb3e52eda9cdb1963067204b46c69d6372984f03d7254b4248c5df43a01c`。公开健康与未鉴权拒绝由本次工作流通过；这些是发布smoke，不代替真实家庭目录切换和产品归属验收。Native候选2.6.43从干净`fbdc0836a0de0b27ce8c983359ab736c40fba1ab`导出构建中；控件1.7.46候选已生成但未更新原加载目录、未重载或托管。共享执行保持关闭。
 
 ## 控件1.7.46内部候选准备（2026-10-10）
 

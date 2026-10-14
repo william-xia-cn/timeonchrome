@@ -17,6 +17,8 @@ function load(relative) {
   vm.runInNewContext(compiled, { module, exports: module.exports, Request, Response, URL, Headers,
     TextEncoder, TextDecoder, ArrayBuffer, Uint8Array, btoa, atob, crypto, console, Date,
     require(name) {
+      // 正式 fetch/CORS 入口保留；无关路由不执行，不加载其存储或计时依赖。
+      if (relative === 'workers/src/index.ts' && name !== './services/appRuntimeManagementGateway') return {};
       if (name === '@timeonchrome/app-runtime-contracts') return {
         APP_RUNTIME_ACCOUNT_AUDIENCE: 'app-runtime-management:account',
       };
@@ -175,6 +177,40 @@ async function test(name, run) { await run(); count++; console.log(`PASS ${name}
     const response=await call('machines'); assert.equal(response.status,503);
     assert.deepEqual(await response.json(),{error:'RUNTIME_MANAGEMENT_UNAVAILABLE',code:'RUNTIME_MANAGEMENT_UNAVAILABLE'});
   });
-  assert.ok(fs.readFileSync(path.join(root,'workers/src/index.ts'),'utf8').includes("handleAppRuntimeManagement(request, env)"));
+  const worker = load('workers/src/index.ts').default;
+  await test('real Worker preflight permits conditional catalog requests only in Runtime gateway scope', async()=>{
+    const previous=calls.length, previousReads=reads;
+    for (const [resource,method] of [['program-instance-catalog/preview?childId=child-a','POST'],['program-instance-catalog','PUT']]) {
+      const response=await worker.fetch(request(resource,{method:'OPTIONS',headers:{
+        Origin:'https://timeonchrome-console.pages.dev',
+        'Access-Control-Request-Method':method,
+        'Access-Control-Request-Headers':'authorization,content-type,if-match',
+      }}),env,{});
+      assert.equal(response.status,200);
+      const allowed=response.headers.get('Access-Control-Allow-Headers').toLowerCase().split(',').map(x=>x.trim());
+      for(const header of ['authorization','content-type','if-match'])assert.ok(allowed.includes(header),header);
+      assert.ok(response.headers.get('Access-Control-Allow-Methods').split(',').map(x=>x.trim()).includes(method));
+      assert.equal(response.headers.get('Access-Control-Allow-Origin'),'*');
+    }
+    const other=await worker.fetch(new Request('https://guardian.invalid/auth/login',{method:'OPTIONS'}),env,{});
+    assert.ok(!other.headers.get('Access-Control-Allow-Headers').toLowerCase().includes('if-match'));
+    assert.equal(calls.length,previous);assert.equal(reads,previousReads);
+  });
+  await test('real Worker catalog POST and PUT retain If-Match, authentication and conflict responses', async()=>{
+    upstream=async(url,init)=>{
+      assert.equal(init.headers.get('If-Match'),'"application-knowledge-v10"');
+      return new Response('{"code":"APPLICATION_KNOWLEDGE_CONFLICT"}',{status:412});
+    };
+    for(const [resource,method] of [['program-instance-catalog/preview?childId=child-a','POST'],['program-instance-catalog','PUT']]){
+      const previous=calls.length;
+      const response=await worker.fetch(request(resource,{method,headers:{'If-Match':'"application-knowledge-v10"',
+        'Content-Type':'application/json'},body:'{}'}),env,{});
+      assert.equal(response.status,412);assert.equal(calls.length,previous+1);
+      assert.equal(response.headers.get('Access-Control-Allow-Origin'),'*');
+      assert.equal((await response.json()).code,'APPLICATION_KNOWLEDGE_CONFLICT');
+      const rejected=await worker.fetch(request(resource,{method,headers:{Authorization:''}}),env,{});
+      assert.equal(rejected.status,401);assert.equal(calls.length,previous+1);
+    }
+  });
   console.log(`app runtime management gateway: ${count}/${count} PASS`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
