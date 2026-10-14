@@ -4,6 +4,8 @@
 
 发布CI定位：device-shared-access-policy及rest-weekly-cloud的隔离夹具遗漏真实downtime默认值依赖，runtime-management-loader遗漏网站编辑的新辅助函数；仅补真实依赖/空保护配置夹具，不改路由、配额或分类行为。修订PR职责为architecture-integration＋standard-cloud并列精确测试例外。PO批准三项云端一起发布，并明确批准唯一生产0022及Runtime Worker；GitHub凭据正常，先前受限环境检查是假阴性。最小复验为上述三项失败专项，通过后提交测试修复、等待CI，生产workflow仍为精确master SHA门禁。
 
+三项隔离单测复验及对应CI已通过；周提醒后续UI门定位file://夹具未允许本地ES模块，新增模块因CORS未加载导致导出失败。仅为隔离浏览器添加allow-file-access-from-files并等真实模块就绪，所有HTTP请求继续阻断，不改生产页面或削弱业务断言；复验该单一UI smoke。
+
 PO已批准更新、提交、部署。配置专项14项、Pages242项、配置域30项、真实路由权限/CAS/审计及typecheck复验通过；仅提交本次停用配置补丁，其他Native命名/历史治理草稿与未发布提交不得混入停用上线。生产workflow要求master精确SHA及对应CI；GitHub CLI当前认证失效，尚未执行部署，不把源码提交写成已上线。
 
 PO要求独立接入控件网站门禁，配置页不再将所有终端执行统称待接入；改为提示网站需新控件支持，Native应用执行仍待接入。本批仅调整该说明，不部署、不变更生产档案，不以源码已实现推断设备已安装。
