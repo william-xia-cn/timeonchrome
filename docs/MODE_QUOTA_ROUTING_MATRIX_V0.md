@@ -1,5 +1,9 @@
 # TimeOnChrome V0 Mode Transition / Quota Routing Matrix
 
+## 停用时间独立门禁（2026-10-15，PO批准）
+
+黑名单仍返回unsafe；其后先于配额执行停用检查。有效downtimeConfig时段内，网站未命中类型例外返回reminder/downtime，不改变模式。例外只通过停用层，后续原有时间窗、配额及确认仍生效。未知/待归类不算明确复合例外；rejected按restricted处理。downtime页面只提供返回，禁止继续、滑动确认、借用或分类申请放行，显示连续时段的北京时间结束时刻；整周连续停用无结束边界则不显示虚假时刻。后台到点复核仅执行拒绝，不为例外页面切换模式。缺配置/关闭保留既有路由；非法配置不据此新增限制，Admin显示不可读取。该门禁不改变网页落账语义或历史账。
+
 ## 1) Purpose
 This document is the single canonical V0 source of truth for mode transition, quota routing, Reminder behavior, in-page notices, and mode-boundary accounting semantics across:
 - current mode

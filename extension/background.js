@@ -37,7 +37,9 @@ import { normalizeRuntimeSiteAccessConfig } from './core/site-access-config-norm
 import { runClassificationSyncEffects } from './core/classification-effective-boundary.js';
 import { acceptPrivacyConsent, getPrivacyConsentPageUrl } from './core/privacy-consent.js';
 import { resolveActivationState } from './core/activation-gate.js';
-import { getSiteClassificationSpecialTargets } from './core/site-classification.js';
+import { getSiteClassificationSpecialTargets, resolveSiteAccessClassification } from './core/site-classification.js';
+import { getSiteClassificationRequestRecords } from './infra/storage.js';
+import { createDowntimeEnforcement } from './product/downtime-enforcement.js';
 import { getQuotaUsageForConfig, getQuotaAccountingVersion, buildQuotaStateFromUsage } from './product/quota.js';
 import { configureRestUsageReminder, evaluateRestUsageReminder as evaluateLegacyRestUsageReminder, handleRestUsageReminderAction, restoreRestUsageReminderForTab, suspendLegacyRestUsageReminder, REST_USAGE_REMINDER_DEADLINE_ALARM, REST_USAGE_REMINDER_RETRY_ALARM } from './product/rest-usage-reminder.js';
 import { isSharedAccessRuntimeEnabled } from './product/shared-access-runtime.js';
@@ -114,6 +116,17 @@ let privacyConsentAccepted = false;
 let runtimeActivationState = { activated: false, activationMode: 'disabled', reason: 'privacy_consent_required' };
 let localGuardianBootstrapState = 'booting';
 
+const downtimeEnforcement = createDowntimeEnforcement({
+  api: chrome, getConfig, configKey: CONFIG_KEY, recordsKey: SITE_CLASSIFICATION_REQUESTS_KEY,
+  getRecords: () => getSiteClassificationRequestRecords({ includeAll: true }),
+  classify: resolveSiteAccessClassification, specialTargets: getTabSpecialSiteTargets,
+  allowed: async () => { await ensureBootstrapped('downtime'); return isMonitoringEnabled(); },
+  recheck: reevaluateTabById,
+  onError: code => logClientEventBestEffort({ level: 'warning', category: 'access', eventCode: code,
+    module: 'product/downtime-enforcement', reason: code, message: '停用时间页面复核暂未完成，将在下次检查重试。' }),
+});
+downtimeEnforcement.register();
+
 configureLocalGuardianStateProvider(() => ({
   bootstrapState: localGuardianBootstrapState,
   activationState: runtimeActivationState,
@@ -173,6 +186,7 @@ async function bootstrapServiceWorker(reason) {
     await setupAlarms();
     scheduleModeBoundaryDrain(`bootstrap:${reason}`);
     localGuardianBootstrapState = 'ready';
+    downtimeEnforcement.start().catch(() => {});
     initSharedAccessIntegration({ onExecutionChanged: suspendLegacyRestUsageReminder, allowed: async () => {
       const activation = await resolveActivationState();
       return activation.activated === true && getSyncState().monitoringEnabled !== 0;
@@ -305,6 +319,12 @@ async function dispatchModeEvent(event = {}, options = {}) {
     auditId,
     monitoringEnabled: event.monitoringEnabled ?? getSyncState().monitoringEnabled,
   });
+  if (decision.reminder?.reason === 'downtime') {
+    const target = await chrome.tabs.get(event.tabId).catch(() => null);
+    if (!target || target.url !== event.url || (event.downtimeOnly && !isMonitoringEnabled())) {
+      return { ok: true, blocked: false, reason: 'downtime_target_changed' };
+    }
+  }
   const result = await executeModeDecision(decision, {
     tabId: event.tabId,
     domain: decision.domain || event.domain || extractDomain(event.url || ''),
@@ -1141,6 +1161,8 @@ async function reevaluateTabById(tabId, options = {}) {
   }
   if (!tab?.url) return;
 
+  if (options.expectedUrl && (tab.url !== options.expectedUrl || tab.windowId !== options.expectedWindowId)) return;
+
   // Avoid periodic self-redirect loops while user is interacting with reminder UI.
   if (tab.url.includes('reminder.html')) {
     return;
@@ -1156,6 +1178,8 @@ async function reevaluateTabById(tabId, options = {}) {
     url: targetUrl,
     incognito: tab?.incognito === true,
     foreground,
+    specialSiteTargets: getTabSpecialSiteTargets(tabId, targetUrl),
+    downtimeOnly: options.downtimeOnly === true,
   }, { recheck: false });
   scheduleModeBoundaryDrain('reevaluateTab');
   if (!result.blocked && targetUrl !== tab.url) {
