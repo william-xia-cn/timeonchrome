@@ -1,10 +1,18 @@
 # TASK_BOARD
 
-## NOW：停用配置同版本补齐取证与修复（2026-10-15）
+## COMPLETED：停用与黑名单阻断页关闭按钮（2026-10-15，当前unpacked已更新）
+
+仅修改reminder.js中downtime/unsafe（含blacklist别名）的动作：显示“关闭此标签页”，通过tabs.getCurrent/remove关闭当前页，失败留在阻断页显示明确错误，不执行history.back或导航兜底。普通确认、时间窗和配额页返回行为不变，不改记账、配置或Native。PO要求继续完成提交推送及当前unpacked更新；完整备份核验后仅同步reminder.js，不重装、不清storage、不改版本/云端/托管feed。
+
+验证：Reminder单测91/91、完整Reminder隔离浏览器门14/14（真实当前页关闭、blacklist别名、缺当前tab/关闭失败留页），补齐黑名单截图专项1/1、typecheck/diff通过。停用与黑名单桌面/390px截图已目视，无溢出。实施审计全部Matched，无额外行为变更；原并发文档草稿保留。当前1.7.46 unpacked完整187文件备份并逐文件校验后，仅同步reminder.js，SHA256=00b21444dd97ea2d1118f34ebf021926dfb051d38b271c3acfab805ac133dde6；其他文件、身份及storage未变。已打开旧Reminder页仍需刷新以载入新脚本，不卸载、不重绑。
+
+## COMPLETED：停用配置同版本补齐修复（2026-10-15，当前unpacked已更新、待重载）
 
 配置原始下发/规范化保留downtimeConfig，但shouldSaveDespiteVersionSkip只检查默认网站清单；同版本元数据存在而guardian_config缺少/错误停用字段时会跳过，已可用隔离pullCloudConfig复现。增加停用字段的规范化对照，仅在完整版本等于已应用版本时允许补齐；云端更旧响应不得因停用差异覆盖新配置。新增实际pull路径专项，保持其他终端私有字段、站点配置与配额不变。现场原因等待终端表现确认，不通过修改家庭配置或清空缓存取证。
 
 职责extension-local；只改云配置读取与直接测试，不改网页计时/记账/上传确认或Native。新增pullCloudConfig补齐/退化/失败/关闭/跨版本专项、已有Admin配置读取与typecheck通过；逐项Matched，无额外语义修改。PO已批准验证后提交合入master、部署云端编辑并备份更新当前unpacked；不托管、不升级版本、不修改家庭配置。现场生效仍需当前扩展重新加载后确认。
+
+源码b9279a8，经PR261合入ec69f71；当前unpacked完整187文件备份并逐文件校验后只更新infra/cloud-sync.js，SHA256=09b35db0178d08b2ed78c6502f2c7065e3705db28740be09f71acad4a1938b69。manifest及部署身份未变、storage未动，未自动重载。主Pages修订生产38617013395成功，托管feed仍未更新；现场恢复不能用源码专项替代。
 
 ## NOW：停用时间编辑可用性及同步补齐（2026-10-15，PO要求修订）
 
