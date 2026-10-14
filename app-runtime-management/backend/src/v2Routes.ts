@@ -15,6 +15,8 @@ import { machineUsageCorrections } from './applicationUsageCorrections';
 import { readPersistentApplicationUsage } from './applicationStatistics';
 import { readNativeApplicationStatisticsRangeSeconds } from './applicationStatisticsNative';
 import { readProgramInstanceStatistics } from './programInstanceStatistics';
+import { receiveNativeApplicationIdentifications, nativeApplicationIdentificationStorageReady,
+  NATIVE_APPLICATION_IDENTIFICATION_CAPABILITY } from './nativeApplicationIdentifications';
 import { readApplicationProductProjections, readApplicationIdentityUsage } from './applicationProductProjections';
 import { requireApplicationLegacyEnabled, readApplicationLedgerRetirement } from './applicationLedgerRetirement';
 import { SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsQuery, validateSourceStatisticsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
@@ -802,8 +804,15 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     if (request.method !== 'GET') return methodNotAllowed('GET');
     const enabled = await programInstanceStorageReady(env.RUNTIME_DB);
     const installationEnabled = enabled && await programInstallationStorageReady(env.RUNTIME_DB);
+    const nativeIdentificationEnabled = enabled && await nativeApplicationIdentificationStorageReady(env.RUNTIME_DB);
     return jsonResponse({schemaVersion: 1, enabled,
-      capabilities: enabled ? [PROGRAM_INSTANCE_REGISTRATION_CAPABILITY,...(installationEnabled?[PROGRAM_INSTALLATION_LINK_CAPABILITY]:[])] : []});
+      capabilities: enabled ? [PROGRAM_INSTANCE_REGISTRATION_CAPABILITY,...(installationEnabled?[PROGRAM_INSTALLATION_LINK_CAPABILITY]:[]),
+        ...(nativeIdentificationEnabled?[NATIVE_APPLICATION_IDENTIFICATION_CAPABILITY]:[])] : []});
+  }
+  if (url.pathname === '/v2/machines/program-instances/local-identifications') {
+    if (request.method !== 'POST') return methodNotAllowed('POST');
+    return jsonResponse(await receiveNativeApplicationIdentifications(env.RUNTIME_DB,machine,
+      await readJsonBody(request),nowMs));
   }
   if (url.pathname === '/v2/machines/program-instances/installation-links') {
     if (request.method !== 'POST') return methodNotAllowed('POST');

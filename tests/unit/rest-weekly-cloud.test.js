@@ -10,7 +10,13 @@ function extract(text, names, globals = {}) {
   vm.runInContext(ts.transpileModule(nodes.map(n => n.getText(source)).join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
   return context;
 }
-const worker = extract(fs.readFileSync('workers/src/routes/profiles.ts', 'utf8'), ['buildSchemaDefaults', 'validateRestConfig']);
+const downtimeExports = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('pages/downtime-config.js', 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+}).outputText, { exports: downtimeExports });
+const worker = extract(fs.readFileSync('workers/src/routes/profiles.ts', 'utf8'), ['buildSchemaDefaults', 'validateRestConfig'], {
+  defaultDowntimeConfig: downtimeExports.defaultDowntimeConfig,
+});
 assert.equal(worker.buildSchemaDefaults().restConfig.weeklyFirstReminderMinutes, 840);
 for (const value of [null, 1, 840, 10080]) assert.equal(worker.validateRestConfig({ restConfig: { weeklyFirstReminderMinutes: value } }), null);
 for (const value of [0, -1, 10081, 1.5, '840', true]) assert.ok(worker.validateRestConfig({ restConfig: { weeklyFirstReminderMinutes: value } }));

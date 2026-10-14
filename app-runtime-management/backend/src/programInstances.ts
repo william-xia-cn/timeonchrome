@@ -14,6 +14,7 @@ import {readRecentProgramInstanceUsage} from './programInstanceStatistics';
 import {getAppPolicy} from './appPolicy';
 import {buildProgramInstanceExecutionPolicy} from './productBlockPolicy';
 import {sha256Hex} from './crypto';
+import {readNativeApplicationIdentifications} from './nativeApplicationIdentifications';
 
 const fail = (status: number, code: string): never => { throw new HttpError(status, code, code); };
 
@@ -60,6 +61,9 @@ export async function listChildProgramInstances(db:D1Database,accountId:string,c
   const rows=results[1].results.filter((row):row is Row=>'instance_id' in row);
   const installations=await readProgramInstallationSummaries(db,accountId,childId,
     rows.slice(0,50).map(row=>({machineId:row.machine_id,instanceId:row.instance_id})));
+  const nativeNames=await readNativeApplicationIdentifications(db,accountId,childId,
+    rows.slice(0,50).map(row=>({machineId:row.machine_id,instanceId:row.instance_id})))
+    .catch(()=>new Map()); // 命名不可读不阻挡原实例、安装或管理键。
   const items=rows.slice(0,50).map(row=>{
     const current=catalog&&row.rule_set_version===catalog.version&&row.mapped_evidence_revision===row.evidence_revision;
     const product=current&&row.product_id?catalog.products.find(product=>product.id===row.product_id):undefined;
@@ -67,7 +71,7 @@ export async function listChildProgramInstances(db:D1Database,accountId:string,c
     return {instanceId:row.instance_id,machineId:row.machine_id,platform:row.platform,
       evidenceRevision:row.evidence_revision,evidence:parseProductOwnershipEvidence(JSON.parse(row.evidence_json)),
       updatedAtMs:row.updated_at_ms,status,product:status==='confirmed'?{id:product!.id,name:product!.name}:null,
-      installation:installations.get(row.instance_id)!};
+      installation:installations.get(row.instance_id)!,nativeIdentification:nativeNames.get(`${row.machine_id}:${row.instance_id}`)??{state:'unavailable',sources:[]}};
   });
   return {schemaVersion:1,childId,catalogVersion:catalog?.version??null,items,
     nextAfterInstanceId:rows.length>50?items[items.length-1].instanceId:null};

@@ -222,7 +222,7 @@ it('安装引用存储未就绪明确503，原程序实例登记不受影响',as
     await expect(routeV2(f.request(),env,2)).rejects.toMatchObject({code:'PROGRAM_INSTALLATION_STORAGE_UNAVAILABLE'});
     const caps=await routeV2(new Request('https://runtime.test/v2/machines/program-instances/capabilities',{
       headers:{authorization:`Bearer ${f.token}`}}),env,2);
-    expect(await caps!.json()).toEqual({schemaVersion:1,enabled:true,capabilities:['program-instance-registration-v1']});
+    expect(await caps!.json()).toEqual({schemaVersion:1,enabled:true,capabilities:['program-instance-registration-v1','native-application-identification-v1']});
     expect((await registerProgramInstances(env.RUNTIME_DB,f.machine,f.value,3)).items).toHaveLength(1);
     const page=await listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,f.value.childId,null);
     expect(page.items).toHaveLength(1);
@@ -738,7 +738,7 @@ it('真实机器路由认证→能力→登记→持久化→ACK；无凭据与�
     ...(body===undefined?{}:{body:JSON.stringify(body)})});
   await expect(routeV2(request('program-instances/capabilities',undefined,''),env,1)).rejects.toMatchObject({status:401});
   const caps=await routeV2(request('program-instances/capabilities'),env,2);
-  expect(await caps!.json()).toEqual({schemaVersion:1,enabled:true,capabilities:['program-instance-registration-v1','program-installation-links-v1']});
+  expect(await caps!.json()).toEqual({schemaVersion:1,enabled:true,capabilities:['program-instance-registration-v1','program-installation-links-v1','native-application-identification-v1']});
   expect((await routeV2(request('program-instances'),env,3))!.status).toBe(405);
   await expect(routeV2(request('program-instances',{...value,childId:'wrong'}),env,4)).rejects.toMatchObject({status:403});
   const response=await routeV2(request('program-instances',value),env,5);

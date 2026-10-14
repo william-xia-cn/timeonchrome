@@ -83,15 +83,18 @@ function fixture({hold=false,invalid=false,holdStyles=false}={}){
   const identityCode=html.slice(html.indexOf('function canonicalSiteIdentityHost('),html.indexOf('function getSiteAccessListsForValidation('));
   const payloadCode=html.slice(html.indexOf('function buildCustomSiteAccessPayload('),html.indexOf('function isYouTubeRootDomain('));
   const moveCode=html.slice(html.indexOf('function moveCustomSiteToPolicy('),html.indexOf('window.deleteRulesCustomSite'));
+  const customListCode=html.slice(html.indexOf('function getPolicyCustomList('),html.indexOf('function getRulesPolicyModel('));
+  const hostRuleCode=html.slice(html.indexOf('function isHostSiteClassificationRule('),html.indexOf('function moveCustomSiteToPolicy('));
   const originalConfig={customStudyList:[],customCompositeList:['example.test'],timeQuota:{unchanged:true},siteUsageClassificationRulesV1:[
     {id:'old-host',classification:'other',targetType:'host',normalizedValue:'www.example.test'},
     {id:'page',classification:'other',targetType:'url',normalizedValue:'https://example.test/settings'},
     {id:'other-host',classification:'other',targetType:'host',normalizedValue:'another.test'}]};
-  const moveContext={URL,remoteConfig:originalConfig,
+  const moveContext={URL,remoteConfig:originalConfig,siteAccessDefaults:{},
+    findProtectedSiteAccessScope:()=>null,
     classificationPolicyDefs:()=>[{key:'study',label:'学习网站',customKey:'customStudyList'},{key:'composite',customKey:'customCompositeList'}],
     matchDomain:(a,b)=>a===b,uniqueSiteAccessValues:value=>[...new Set(value)],
     findSiteAccessExactConflicts:()=>[],renderRulesPage:()=>{},toast:()=>{}};
-  vm.runInNewContext(identityCode+payloadCode+moveCode,moveContext);
+  vm.runInNewContext(identityCode+payloadCode+customListCode+hostRuleCode+moveCode,moveContext);
   assert.equal(moveContext.moveCustomSiteToPolicy('example.test','study'),true);
   assert.deepEqual(JSON.parse(JSON.stringify(moveContext.remoteConfig.siteUsageClassificationRulesV1)).map(rule=>rule.id),['page','other-host']);
   assert.equal(originalConfig.siteUsageClassificationRulesV1.length,3,'never mutate source config');
