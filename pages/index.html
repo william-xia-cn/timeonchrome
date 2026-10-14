@@ -543,7 +543,15 @@
     .downtime-day-title strong { padding-top: 6px; white-space: nowrap; }
     .downtime-icon { width: 30px; height: 30px; flex: none; border: 1px solid var(--border); border-radius: 6px; background: white; color: var(--text); font-size: 19px; cursor: pointer; }
     .downtime-window { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-    .downtime-window input { width: 86px; min-width: 0; padding: 7px 8px; text-align: center; border: 1px solid var(--border); border-radius: 6px; }
+    .downtime-window input[type="time"] { width: 130px; min-width: 0; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; }
+    .downtime-window input[type="checkbox"] { width: 16px; height: 16px; }
+    .downtime-midnight { display: flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+    .downtime-window [aria-invalid="true"] { border-color: var(--danger); }
+    .downtime-row-error { color: var(--danger); width: 100%; font-size: 12px; }
+    .downtime-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0 14px; }
+    .downtime-copy select, .downtime-copy button, .downtime-reload { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: white; color: var(--text); font-size: 13px; }
+    .downtime-reload { white-space: nowrap; flex: none; }
+    .downtime-midnight-value { width: 130px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; }
     .downtime-types { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
     .downtime-types legend { padding: 0 0 12px; font-size: 14px; font-weight: 650; }
     .downtime-types label { display: flex; align-items: center; gap: 8px; padding: 7px 0; font-size: 13px; }
@@ -1464,6 +1472,12 @@
         <p id="downtime-config-error" role="alert" style="color:var(--danger)"></p>
         <fieldset id="downtime-fields">
           <h3>每周停用时段 <span class="weekly-rest-meta">北京时间</span></h3>
+          <div class="downtime-copy">
+            <label for="downtime-copy-source">复制来源</label><select id="downtime-copy-source" aria-label="复制来源星期"></select>
+            <button type="button" data-downtime-copy="weekdays">复制到工作日</button>
+            <button type="button" data-downtime-copy="weekend">复制到周末</button>
+            <button type="button" data-downtime-copy="all">复制到每天</button>
+          </div>
           <div id="downtime-days" class="downtime-days"></div>
           <p class="weekly-rest-meta">结束时间可为 24:00；结束早于开始表示次日结束。</p>
           <h3>停用时间内允许的类型</h3>
@@ -1473,7 +1487,7 @@
           </div>
         </fieldset>
         <p class="weekly-rest-meta">未归类、未识别内容不属于例外。黑名单、原有时间窗和硬配额仍然生效。</p>
-        <div class="save-bar"><button class="btn-save" id="save-downtime-btn">保存停用时间</button></div>
+        <div class="save-bar"><button class="btn-save" id="save-downtime-btn">保存停用时间</button><button type="button" class="downtime-reload" id="reload-downtime-btn">重新载入</button></div>
       </section>
 
       <!-- 配置文件 -->
@@ -6036,12 +6050,34 @@ function setupQuota() {
   document.getElementById('save-quota-btn').addEventListener('click', saveTimeQuotaConfig);
 }
 
+let downtimeDraft = null;
+let downtimeRenderedProfile = null;
+let downtimeSaving = false;
+
 function setupDowntime() {
-  document.getElementById('downtime-enabled').addEventListener('change', updateDowntimeInputs);
+  document.getElementById('downtime-enabled').addEventListener('change', () => { captureDowntimeDraft(); updateDowntimeInputs(); });
   document.getElementById('save-downtime-btn').addEventListener('click', saveDowntimeConfig);
+  document.getElementById('reload-downtime-btn').addEventListener('click', async () => {
+    if (downtimeSaving || downtimeDraft?.dirty && !confirm('重新载入会放弃未保存的停用时间修改，是否继续？')) return;
+    const id = currentProfileId;
+    try {
+      const result = await api(`/profiles/${id}/config`);
+      if (currentProfileId !== id) return;
+      applyProfileConfigResponse(result); downtimeDraft = null; renderDowntimePage();
+    } catch { document.getElementById('downtime-config-error').textContent = '重新载入失败，当前修改已保留。'; }
+  });
+  document.getElementById('downtime-fields').addEventListener('change', event => {
+    const copy = event.target.closest('[data-downtime-copy]');
+    if (copy) return;
+    const row = event.target.closest('.downtime-window');
+    if (row) updateDowntimeNextDay(row);
+    captureDowntimeDraft();
+  });
+  document.querySelectorAll('[data-downtime-copy]').forEach(button => button.addEventListener('click', () => copyDowntimeDays(button.dataset.downtimeCopy)));
   document.getElementById('downtime-days').addEventListener('input', event => {
     const row = event.target.closest('.downtime-window');
     if (row) updateDowntimeNextDay(row);
+    captureDowntimeDraft();
   });
   document.getElementById('downtime-days').addEventListener('click', event => {
     const button = event.target.closest('[data-downtime-add], [data-downtime-remove]');
@@ -6057,25 +6093,76 @@ function setupDowntime() {
       group.querySelector('.downtime-empty')?.remove();
       if (!group.querySelector('.downtime-window')) group.insertAdjacentHTML('beforeend', '<span class="weekly-rest-meta downtime-empty">无停用时段</span>');
     });
+    captureDowntimeDraft();
   });
+}
+
+function readDowntimeEditor(includeEmpty = true) {
+  const helper = window.TimeOnChromeDowntime;
+  return { schemaVersion: 1, enabled: document.getElementById('downtime-enabled').checked,
+    windowsByWeekday: Object.fromEntries(helper.days.map(day => [day,
+      [...document.querySelector(`[data-downtime-windows="${day}"]`).querySelectorAll('.downtime-window')].map(row => ({
+        start: helper.normalizeClock(row.querySelector('[data-downtime-start]').value),
+        end: row.querySelector('[data-downtime-midnight]').checked ? '24:00' : helper.normalizeClock(row.querySelector('[data-downtime-end]').value),
+      })).filter(item => includeEmpty || item.start || item.end)])),
+    allowedWebsiteTypes: [...document.querySelectorAll('[data-downtime-type="allowedWebsiteTypes"]:checked')].map(input => input.value),
+    allowedApplicationTypes: [...document.querySelectorAll('[data-downtime-type="allowedApplicationTypes"]:checked')].map(input => input.value) };
+}
+
+function captureDowntimeDraft() {
+  if (downtimeSaving || downtimeRenderedProfile !== currentProfileId) return;
+  downtimeDraft = { profileId: currentProfileId, baseVersion: downtimeDraft?.profileId === currentProfileId
+    ? downtimeDraft.baseVersion : remoteConfigVersion, policy: readDowntimeEditor(), dirty: true };
+  updateDowntimeInputs();
+}
+
+function copyDowntimeDays(scope) {
+  if (downtimeSaving) return;
+  const helper = window.TimeOnChromeDowntime;
+  const source = document.getElementById('downtime-copy-source').value;
+  const policy = readDowntimeEditor(false);
+  const windows = policy.windowsByWeekday[source];
+  const error = helper.validate({ ...policy, windowsByWeekday: { [source]: windows } });
+  if (!windows.length || error) { document.getElementById('downtime-config-error').textContent = error || '请先设置来源星期的停用时段。'; return; }
+  const targets = (scope === 'weekdays' ? helper.days.slice(0, 5) : scope === 'weekend' ? helper.days.slice(5) : helper.days).filter(day => day !== source);
+  const changed = targets.filter(day => JSON.stringify(policy.windowsByWeekday[day]) !== JSON.stringify(windows));
+  if (!changed.length) return;
+  if (changed.some(day => policy.windowsByWeekday[day].length) && !confirm('复制会替换目标星期已有的停用时段，是否继续？')) return;
+  for (const day of changed) document.querySelector(`[data-downtime-windows="${day}"]`).innerHTML = windows.map(item => downtimeWindowHtml(day, item)).join('');
+  document.getElementById('downtime-config-error').textContent = '';
+  captureDowntimeDraft();
 }
 
 function downtimeWindowHtml(day, item) {
   const label = window.TimeOnChromeDowntime.dayLabels[window.TimeOnChromeDowntime.days.indexOf(day)];
-  return `<div class="downtime-window"><input type="text" inputmode="numeric" maxlength="5" data-downtime-start aria-label="${label}停用开始" placeholder="00:00" value="${htmlEscape(item.start)}"><span>至</span><input type="text" inputmode="numeric" maxlength="5" data-downtime-end aria-label="${label}停用结束" placeholder="24:00" value="${htmlEscape(item.end)}"><span class="weekly-rest-meta" data-downtime-next-day>${item.start && item.end && item.end < item.start ? '次日' : ''}</span><button type="button" class="downtime-icon" data-downtime-remove title="删除此时段" aria-label="删除${label}停用时段">×</button></div>`;
+  const midnight = item.end === '24:00';
+  return `<div class="downtime-window"><input type="time" step="60" data-downtime-start aria-label="${label}停用开始" value="${htmlEscape(item.start)}"><span>至</span><input type="time" step="60" data-downtime-end aria-label="${label}停用结束" value="${midnight ? '00:00' : htmlEscape(item.end)}"${midnight ? ' disabled hidden' : ''}><span class="downtime-midnight-value" data-downtime-midnight-value${midnight ? '' : ' hidden'}>24:00</span><label class="downtime-midnight"><input type="checkbox" data-downtime-midnight${midnight ? ' checked' : ''}>当天24:00</label><span class="weekly-rest-meta" data-downtime-next-day>${!midnight && item.start && item.end && item.end < item.start ? '次日' : ''}</span><button type="button" class="downtime-icon" data-downtime-remove title="删除此时段" aria-label="删除${label}停用时段">×</button><span class="downtime-row-error" data-downtime-row-error></span></div>`;
 }
 
 function updateDowntimeNextDay(row) {
   const start = window.TimeOnChromeDowntime.normalizeClock(row.querySelector('[data-downtime-start]').value);
-  const end = window.TimeOnChromeDowntime.normalizeClock(row.querySelector('[data-downtime-end]').value);
+  const midnight = row.querySelector('[data-downtime-midnight]').checked;
+  const endInput = row.querySelector('[data-downtime-end]');
+  endInput.disabled = midnight;
+  endInput.hidden = midnight;
+  const midnightValue = row.querySelector('[data-downtime-midnight-value]');
+  if (midnightValue) midnightValue.hidden = !midnight;
+  const end = midnight ? '24:00' : window.TimeOnChromeDowntime.normalizeClock(endInput.value);
   const clock = value => /^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(value);
   row.querySelector('[data-downtime-next-day]').textContent = clock(start) && clock(end) && end < start ? '次日' : '';
+  row.querySelector('[data-downtime-row-error]').textContent = '';
+  row.querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
 }
 
 function updateDowntimeInputs() {
   const enabled = document.getElementById('downtime-enabled').checked;
-  document.getElementById('downtime-fields').disabled = !enabled;
-  document.getElementById('downtime-config-status').textContent = enabled ? '配置已开启 · 网站需新控件支持' : '配置未启用';
+  document.getElementById('downtime-fields').disabled = downtimeSaving;
+  document.getElementById('downtime-enabled').disabled = downtimeSaving;
+  document.getElementById('save-downtime-btn').disabled = downtimeSaving;
+  document.getElementById('reload-downtime-btn').disabled = downtimeSaving;
+  const stale = downtimeDraft?.dirty && downtimeDraft.baseVersion !== remoteConfigVersion;
+  document.getElementById('downtime-config-status').textContent = stale ? '云端版本已变化，请重新载入后保存'
+    : `${enabled ? '已开启' : '未启用，可预先配置'}${downtimeDraft?.dirty ? ' · 有未保存修改' : ''}`;
 }
 
 function renderDowntimePage() {
@@ -6083,7 +6170,8 @@ function renderDowntimePage() {
   const error = document.getElementById('downtime-config-error');
   error.textContent = '';
   let view;
-  try { view = helper.normalize(remoteConfig?.downtimeConfig); }
+  try { view = downtimeDraft?.profileId === currentProfileId && downtimeDraft.dirty
+    ? downtimeDraft.policy : helper.normalize(remoteConfig?.downtimeConfig); }
   catch (failure) {
     error.textContent = failure.message;
     document.getElementById('save-downtime-btn').disabled = true;
@@ -6095,6 +6183,9 @@ function renderDowntimePage() {
     document.getElementById('downtime-application-types').textContent = '';
     return;
   }
+  if (downtimeDraft?.profileId !== currentProfileId) downtimeDraft = null;
+  downtimeRenderedProfile = currentProfileId;
+  document.getElementById('downtime-copy-source').innerHTML = helper.days.map((day, index) => `<option value="${day}">${helper.dayLabels[index]}</option>`).join('');
   document.getElementById('save-downtime-btn').disabled = false;
   document.getElementById('downtime-enabled').disabled = false;
   document.getElementById('downtime-enabled').checked = view.enabled;
@@ -6109,35 +6200,54 @@ function renderDowntimePage() {
 }
 
 async function saveDowntimeConfig() {
-  if (!currentProfileId || !remoteConfig) return;
+  if (!currentProfileId || !remoteConfig || downtimeSaving) return;
   const profileId = currentProfileId;
   const helper = window.TimeOnChromeDowntime;
-  const policy = { schemaVersion: 1, enabled: document.getElementById('downtime-enabled').checked,
-    windowsByWeekday: Object.fromEntries(helper.days.map(day => [day,
-      [...document.querySelector(`[data-downtime-windows="${day}"]`).querySelectorAll('.downtime-window')].map(row => ({
-        start: helper.normalizeClock(row.querySelector('[data-downtime-start]').value),
-        end: helper.normalizeClock(row.querySelector('[data-downtime-end]').value),
-      }))])),
-    allowedWebsiteTypes: [...document.querySelectorAll('[data-downtime-type="allowedWebsiteTypes"]:checked')].map(input => input.value),
-    allowedApplicationTypes: [...document.querySelectorAll('[data-downtime-type="allowedApplicationTypes"]:checked')].map(input => input.value),
-  };
+  if (downtimeRenderedProfile !== profileId) {
+    document.getElementById('downtime-config-error').textContent = '当前档案配置尚未加载，请稍后重试。'; return;
+  }
+  let policy = readDowntimeEditor(false);
   const error = document.getElementById('downtime-config-error');
+  if (downtimeDraft?.dirty && downtimeDraft.profileId === profileId && downtimeDraft.baseVersion !== remoteConfigVersion) {
+    error.textContent = '云端配置已变化，当前草稿未覆盖云端。请重新载入后修改。'; return;
+  }
+  let closingIncompleteDraft = false;
+  if (!policy.enabled && helper.validate(policy)) {
+    policy = { ...helper.normalize(remoteConfig.downtimeConfig), enabled: false };
+    closingIncompleteDraft = true;
+  }
   error.textContent = helper.validate(policy) || '';
-  if (error.textContent) return;
-  const button = document.getElementById('save-downtime-btn');
-  button.disabled = true;
+  if (error.textContent) {
+    document.querySelectorAll('.downtime-window').forEach(row => {
+      const start = row.querySelector('[data-downtime-start]'), end = row.querySelector('[data-downtime-end]');
+      if ((start.value || end.value || row.querySelector('[data-downtime-midnight]').checked) && (!start.value || !end.value && !row.querySelector('[data-downtime-midnight]').checked || start.value === end.value && !row.querySelector('[data-downtime-midnight]').checked)) {
+        row.querySelector('[data-downtime-row-error]').textContent = '请填写完整且起止不同的时段。';
+        start.setAttribute('aria-invalid', 'true'); end.setAttribute('aria-invalid', 'true');
+      }
+    }); return;
+  }
+  downtimeSaving = true; updateDowntimeInputs();
+  let saved = false;
   try {
-    await saveProfileConfig({ downtimeConfig: helper.normalize(policy) }, 'downtime_config_save');
+    const normalized = helper.normalize(policy);
+    const write = await saveProfileConfig({ downtimeConfig: normalized }, 'downtime_config_save');
+    saved = true;
     if (currentProfileId !== profileId) return;
+    const version = Number(write.version);
+    if (remoteConfigVersion !== version) { error.textContent = '保存已完成，但页面版本已变化，请重新载入确认。'; return; }
+    remoteConfig = { ...remoteConfig, downtimeConfig: normalized }; downtimeDraft = null;
     const result = await api(`/profiles/${profileId}/config`);
-    if (currentProfileId !== profileId) return;
+    if (currentProfileId !== profileId || remoteConfigVersion !== version || Number(result.version) !== version) {
+      if (currentProfileId === profileId) error.textContent = '保存已完成，但云端版本已变化，请重新载入确认。'; return;
+    }
     applyProfileConfigResponse(result);
     if (cloudRulesManagementActiveTab === 'downtime') renderDowntimePage();
-    toast('停用时间配置已保存，网站执行需新控件支持');
+    toast(closingIncompleteDraft ? '停用时间已关闭；未完成的时段修改未保存。' : '停用时间配置已保存，网站执行需新控件支持');
   } catch (failure) {
-    if (currentProfileId === profileId) error.textContent = failure.message || '保存失败';
+    if (currentProfileId === profileId) error.textContent = saved ? '保存已成功，但最新配置回读失败，请重新载入确认。' : failure.message || '保存失败';
   } finally {
-    if (currentProfileId === profileId) button.disabled = false;
+    downtimeSaving = false;
+    if (downtimeRenderedProfile === currentProfileId) updateDowntimeInputs();
   }
 }
 
