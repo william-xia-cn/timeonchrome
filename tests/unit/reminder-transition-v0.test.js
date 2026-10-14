@@ -236,7 +236,7 @@ async function run() {
   expectTrue('unsafe is known reason', !unsafe.isUnknownReason);
   expect('unsafe title', unsafe.config.title, '此网站不可访问');
   expect('unsafe subtitle', unsafe.config.subtitle, '该网站属于禁止访问范围。');
-  expectTrue('unsafe has only back', JSON.stringify(unsafe.config.actions) === JSON.stringify(['back']));
+  expectTrue('unsafe has only close', JSON.stringify(unsafe.config.actions) === JSON.stringify(['closeBlockedTab']));
   expectTrue('unsafe has no borrow', !unsafe.config.actions.includes('borrowTime'));
   expectTrue('unsafe has no addComposite', !unsafe.config.actions.includes('addComposite'));
 
