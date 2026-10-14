@@ -1,5 +1,21 @@
 # TASK_BOARD
 
+## NOW：Windows本机应用身份云端命名接入（2026-10-15）
+
+PO在Native Host 02明确授权架构推进；固定95cca6e汇总已读取，96静态／86潜在覆盖不作为运行识别率。职责architecture-integration＋standard-cloud，复用现有云端分支，不新建worktree。先文档再代码：新增独立兼容命名契约和能力→已认证实例范围的接收／单调更新／显式失效→实例命名读取→共用管理组件展示→Native固定契约最小生产者交接。保留现有未提交文档草稿。产品统计名称及投影未改，不把多项实例命名变成产品数量。
+
+必要本地验证：新契约及兼容、Runtime本机命名专项（实际隔离D1和route）、既有program-instances、共用knowledge页面专项／隔离目视、契约与Worker typecheck、Worker dry-run及diff。不跑网页原账／配额／Native安装器／无关全平台；不改变管理阻止键，任何动态命名不成为产品权限。新增0022仅源码，生产迁移／发布／安装本轮未授权。
+
+本地结果：契约1.48.0及两项固定canonical哈希向量PASS；Worker新专项和原实例47/47 PASS；knowledge组件14组直接回归PASS；build/typecheck、Runtime dry-run、模块边界和diff通过。实际机器鉴权route→D1持久化→家长会话实例GET已隔离贯通，已有productId/descriptor/Verified/原实例字段逐项不变。桌面及390px手机mock截图已目视：明确名称、动态名称、多项命名、缺失/不可读与XSS转义；4卡片，无错误，scrollWidth=390。截图在agent-browser本机临时目录，不入Git；没有使用真实家庭或实际Chrome Profile。初测失败来自两项旧能力断言、两项排序断言与helper转义作用域，修正后通过。
+
+Matched：独立命名接收/隔离/修订替换/显式失效、现有管理键不变、实例页面读取及目视。Deviated/Extra：无（本批源码边界）。Missing：Native持久生产者及真实上传、生产0022/Worker/Pages发布、实机验收；不能称产品归属全集或完整端云链已完成。Native固定交接要求精确原ref/代际/scope→受理instanceId，不从有限历史拼全量；本机源顺序不可证明时保留冲突；超限不截断，云端仅带日期显示最近登记。旧275扫描核验、Mac、共享和历史重建不恢复。
+
+2026-10-15接收Native最终源码：main远端实查为`ea2742d193bfb19e1daecc6195b941af3c47d27d`，契约包SHA与本批固定包一致；逐项比对本批17个C#源/项目文件与隔离测试导出，全部一致。读取原始TRX：最终1.48组合91/91、旧1.47兼容26/26，无失败；重叠用例不相加。新增独立Agent命名序列/队列、冻结完整scope、精确ref/代际关联、原实例受理后发送及完整scope ACK已提交。架构抽查发现原慢哈希解析无隔离await命名ResolvePending的耦合，Native已最小修正，仅隔离非取消异常；SQLite缺列/JSON缺必填两项真实Service故障注入通过，原捕获成功、命名不假ACK。已核对日志写入也是best-effort，不让诊断失败改变原解析。
+
+上段Missing中的“Native持久生产者”已由固定源码及隔离证据收口；尚缺实际新版运行上传、生产专项0022/Worker/两套Pages发布及真实页面联调。已安装2.6.50不含本次上传代码，没有新候选或安装；不能称线上链路通过。Native报告[固定接线与验收证据](D:/Codex/TimeWhereNative/agents/windows/WINDOWS-NATIVE-APPLICATION-NAMING-1.48-2026-10-15.md)。队列维护、显式撤销后的恢复及Mac未验单列，不重新启动旧全量核验；任何后续发布需明确专项生产范围，不能顺带应用其他迁移或改共享开关。
+
+2026-10-15 PO已集中批准本批Runtime Worker、两套Pages、唯一专项0022及一个最终Native候选安装/真实联调；原账、分类/封锁键、配对、R2和共享开关不变。生产待迁移实查仅0022。云端工作线及PR259另外含停用时间/网站编辑，不能捎带本批部署；复用已存在且无工作树/开放PR占用的codex/d114-integration，通过独立临时Git索引从当前master接入本批19路径，保持现有云端分支和所有草稿不动，不新建分支/worktree。部署只取本批已集成master SHA，复用精确代码证据；Native2.6.51由固定ea2742d导出，安装及真实ACK仍待实际证据。不重复全平台/原账测试，也不因纯证据文档追加重跑。
+
 ## 目录切换真实预检阻断（2026-10-10）
 
 旧条件暂留入口已随PR #256合入master `4eeecad25b1b92ad84605c6c078691d1f04c2945`；production run38003808155仅发布两套Pages，公开脚本与该SHA一致。Runtime Pages cb801a30-a68a-4cdb-bd1c-2be9d26c65e6，主Pages 09036f1c-e322-4283-ab96-8c8ecbf179ee；Worker、Guardian、R2未变化，无migration。生产草稿保留23产品、13条可靠规则；28项旧条件暂留历史、Chrome一项已核验替代，尚未保存。

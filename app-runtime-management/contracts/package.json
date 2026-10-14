@@ -1,9 +1,13 @@
 {
   "name": "@timeonchrome/app-runtime-contracts",
-  "version": "1.47.0",
+  "version": "1.48.0",
   "private": false,
   "type": "module",
   "exports": {
+    "./native-application-identification": {
+      "types": "./dist/native-application-identification.d.ts",
+      "default": "./dist/native-application-identification.js"
+    },
     "./source-statistics": {
       "types": "./dist/source-statistics.d.ts",
       "default": "./dist/source-statistics.js"
@@ -58,6 +62,7 @@
     }
   },
   "files": [
+    "native-application-identification.ts",
     "source-statistics.ts",
     "application-usage-seconds.ts",
     "application-ledger.ts",
@@ -75,12 +80,13 @@
     "dist"
   ],
   "scripts": {
+    "test:native-application-identification": "node native-application-identification.test.mjs",
     "test:source-statistics": "node source-statistics.test.mjs",
     "test:application-usage-seconds": "node application-usage-seconds.test.mjs",
     "test:application-ledger": "node application-ledger.test.mjs",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node contract-compatibility.test.cjs && node source-statistics.test.mjs && node application-usage-seconds.test.mjs && node classification.test.mjs && node machine-control.test.mjs && node computer-usage.test.mjs && node usage-account.test.mjs && node shared-access.test.mjs && node shared-quota-execution.test.mjs && node shared-reminder-lifecycle.test.mjs && node shared-web-sync.test.mjs"
+    "test": "node contract-compatibility.test.cjs && node native-application-identification.test.mjs && node source-statistics.test.mjs && node application-usage-seconds.test.mjs && node classification.test.mjs && node machine-control.test.mjs && node computer-usage.test.mjs && node usage-account.test.mjs && node shared-access.test.mjs && node shared-quota-execution.test.mjs && node shared-reminder-lifecycle.test.mjs && node shared-web-sync.test.mjs"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

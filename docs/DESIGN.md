@@ -1,5 +1,15 @@
 # TimeOnChrome — 技术设计文档
 
+## Native本机命名元数据的云端接线（2026-10-15，开发契约1.48.0）
+
+沿既有机器鉴权：capabilities声明native-application-identification-v1，仅0022表及两个约束trigger就绪时可用。POST /v2/machines/program-instances/local-identifications接收schemaVersion/childId/localUserId/assignmentVersion/items；正文上限262144字节、最多50项。每项引用已登记instanceId，revision持久单调、observedAtMs固定该次变更；identifications为1～16项完整已登记集合或null显式失效。项字段固定nativeId/name/status/evidence，禁止目录、路径、SID、窗口、PID及自由诊断值。状态沿用Native identified/dynamic-registry/dynamic-process，不升级为Verified或产品权限。
+
+持久键为(child,machine,instance,user,assignment)，最新protected分配与原实例scope均须存在。D1 batch原子更新＋读取回执；旧revision不覆盖，同revision不同hash拒绝，ACK回传scope及逐项instanceId/revision/payloadHash。hash使用规范化完整item的canonical JSON SHA-256：nativeId与evidence采用ASCII序，字段名按既有usage-account规则排序，UTF-8不增加BOM；revision和observedAtMs包括在hash中。重试沿用冻结item。共同向量见native-application-identification-v1.vectors.json；不得把较新ACK视为旧item已逐字存储。
+
+现有GET /v2/module/program-instances分页结果增加nativeIdentification，state=available/missing/invalidated/multiple-sources/unavailable；sources返回不透明sourceKey、修订、观察／接收时间及登记数组。沿当前家长家庭／孩子权限和当前分配读取，旧分配不冒充当前。每次最多100个实例引用、每实例最多8来源；超限明确不可读；表缺失或读取错误不阻挡原实例页面。日期表示最近成功登记，非实时完整、在线或执行证明。
+
+一个instanceId可承载多个PWA／应用名称，数组分项展示、不随意选一项、不相加为产品数量。完整快照缺失/超限时Native保留本机诊断和待发，不截断为成功；云端保留带日期的最近登记。共用knowledge组件只修改实例管理展示，产品目录、统计投影、分类和封锁键不变。0022仅准备源码，本轮未应用生产；Native生产者、云端部署与真实页面仍须分开验收。
+
 ### 应用身份统计的连接证明围栏（2026-10-10）
 
 应用身份统计每次读取前使用共享 V2 reusable source binding 建立同孩子身份连接证明；该流程复用共享贡献模块已有的 `createReusableSharedWebBinding` 与内存 proof cache，但不启用共享访问、生成贡献队列、上传贡献或读取/修改共享余额。证明上下文只取已绑定的云端 profile/device 身份，不依赖共享访问策略 LKG。读模型在读取开始与结束时复核证明摘要，并将分页与缓存键绑定该摘要；期间孩子分配、Native connection 或证明变化时拒绝整份结果。Native 端还必须在实际应用身份读取入口校验同一连接证明；扩展侧校验不能替代 Native 门禁。此设计不增加 Native 协议字段、持久证明缓存或第二套认证。

@@ -1,6 +1,27 @@
 const assert=require('node:assert/strict');
 const K=require('./app-runtime-knowledge');
 {
+  const identified={nativeId:'audit-app-1',name:'<本机名称>',status:'identified',evidence:['os-application-aumid']};
+  const naming=entries=>({state:'available',sources:[{sourceKey:'opaque',revision:1,observedAtMs:0,receivedAtMs:1,identifications:entries}]});
+  const item={status:'confirmed',product:{id:'existing-key',name:'旧云端名称'},nativeIdentification:naming([identified])};
+  assert.equal(K.nativeInstanceTitle(item),identified.name);
+  const html=K.nativeIdentificationHTML(item.nativeIdentification);
+  assert.match(html,/&lt;本机名称&gt;/);assert.doesNotMatch(html,/<本机名称>/);
+  assert.match(html,/本机明确规则命中/);assert.match(html,/北京时间/);
+  for(const status of ['dynamic-registry','dynamic-process']){
+    const result=K.nativeIdentificationHTML(naming([{...identified,status}]));
+    assert.match(result,/动态/);assert.match(result,/不代表确定产品权限/);
+  }
+  assert.match(K.nativeIdentificationHTML(undefined),/尚无本机命名/);
+  assert.match(K.nativeIdentificationHTML({state:'invalidated'}),/已失效/);
+  assert.match(K.nativeIdentificationHTML({state:'unavailable'}),/暂不可读/);
+  assert.match(K.nativeInstanceTitle({...item,nativeIdentification:naming([identified,{...identified,nativeId:'pwa-2'}])}),/多项本机命名/);
+  assert.match(K.nativeIdentificationHTML({state:'multiple-sources',sources:[naming([identified]).sources[0],naming([identified]).sources[0]]}),/多个用户来源/);
+  assert.deepEqual(K.ownershipEvidenceOptions([{nativeIdentification:item.nativeIdentification,evidence:{platform:'windows',verified:{}}}]),[]);
+  assert.equal(item.product.id,'existing-key');
+  console.log('PASS: Native names and sources display, escaped, multiple registrations, missing/invalidation, no rule or key promotion');
+}
+{
   const old=[{productId:'p',selector:{platform:'windows',match:{operator:'all',conditions:[{field:'runtimeIdentity',value:'old'}]}}}];
   const rule={id:'replacement',revision:1,enabled:true,productId:'p',platform:'windows',match:{kind:'binaryHash',sha256:'a'.repeat(64)}};
   const catalog={ownershipRules:[rule]},before=JSON.stringify({old,catalog});
