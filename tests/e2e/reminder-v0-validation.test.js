@@ -130,19 +130,18 @@ async function dragSlider(page, trackSelector, thumbSelector) {
 
 // ── T-R1: study_mode (Case #5) ───────────────────────────────────────────────
 
-test('T-R1: study_mode explains popup application path, rest slider dispatches REQUEST_MODE_CHANGE', async () => {
+test('T-R1: legacy study_mode explains automatic pending record, return only', async () => {
   const page = await openReminderPage('reason=study_mode&domain=example.com');
 
   // Title / subtitle
   await expect(page.locator('#mainTitle')).toHaveText('你正在打开未归类网站');
   const subtitleText = await page.locator('#subtitle').textContent();
-  expect(subtitleText).toContain('休息时间');
-  expect(subtitleText).toContain('申请网站归类');
+  expect(subtitleText).toContain('自动生成未归类网站访问记录');
+  expect(subtitleText).toContain('待归类时间');
 
   // Rest slider visible
-  await expect(page.locator('#slideTrack')).toBeVisible();
-  await expect(page.locator('#slideThumb')).toBeVisible();
-  await expect(page.locator('#slideThumb')).toHaveText('确认进入休息时间');
+  await expect(page.locator('#slideTrack')).toBeHidden();
+  await expect(page.locator('#slideThumb')).toBeHidden();
 
   // Application entry is in popup, not reminder
   await expect(page.locator('#dualPathCompositeSection')).toBeHidden();
@@ -158,10 +157,8 @@ test('T-R1: study_mode explains popup application path, rest slider dispatches R
 
   // Drag rest slider → REQUEST_MODE_CHANGE(rest)
   await clearCalls(page);
-  await dragSlider(page, '#slideTrack', '#slideThumb');
   const calls = await getCalls(page);
-  expect(calls.length).toBeGreaterThanOrEqual(1);
-  expect(calls[0]).toEqual({ type: 'REQUEST_MODE_CHANGE', toMode: 'rest', source: 'reminder', reason: 'reminder_confirm_rest' });
+  expect(calls.some(call => call.type === 'REQUEST_MODE_CHANGE')).toBe(false);
 
   await page.close();
 });
@@ -173,8 +170,8 @@ test('T-R2a: study_mode&restLocked=1 hides rest slider and does not dispatch REQ
 
   await expect(page.locator('#mainTitle')).toHaveText('你正在打开未归类网站');
   const subtitleText = await page.locator('#subtitle').textContent();
-  expect(subtitleText).toContain('休息时间');
-  expect(subtitleText).toContain('申请网站归类');
+  expect(subtitleText).toContain('自动生成未归类网站访问记录');
+  expect(subtitleText).toContain('待归类时间');
 
   // Rest slider hidden when quota is already exhausted.
   await expect(page.locator('#slideTrack')).toBeHidden();
@@ -289,7 +286,7 @@ test('T-R4: to_rest_confirm unclassified keeps rest path only in reminder', asyn
   const page = await openReminderPage('reason=to_rest_confirm&siteType=unclassified&domain=example.com&sourceTabId=123');
 
   // Title per docs/MODE_TRANSITION_UX_V0.md §8.5: 未归类网站：你正在打开未归类网站
-  await expect(page.locator('#mainTitle')).toHaveText('你正在打开未归类网站');
+  await expect(page.locator('#mainTitle')).toHaveText('待归类时间暂不可用');
 
   const subtitleText = await page.locator('#subtitle').textContent();
   expect(subtitleText).toContain('休息时间');
@@ -329,7 +326,7 @@ test('T-R5: to_rest_confirm restricted does not expose application entry, rest s
 
   const subtitleText = await page.locator('#subtitle').textContent();
   expect(subtitleText).toContain('休息时间');
-  expect(subtitleText).toContain('待归类时间');
+  expect(subtitleText).toContain('不会计入「学习时间」');
 
   // Rest slider visible
   await expect(page.locator('#slideTrack')).toBeVisible();
@@ -410,6 +407,23 @@ test('T-R7: quota_composite_and_rest shows only return button, no continue actio
 });
 
 // ── T-R8: unsafe (hard blocked) ──────────────────────────────────────────────
+
+test('Downtime: distinct reason, Beijing end, return only even with Rest lock', async () => {
+  const until = Date.parse('2026-10-12T23:00:00Z');
+  const page = await openReminderPage(`reason=downtime&domain=rest.test&downtimeUntilMs=${until}&restLocked=1`);
+  await expect(page.locator('#mainTitle')).toHaveText('当前为停用时间');
+  await expect(page.locator('#subtitle')).toContainText('07:00');
+  await expect(page.locator('#subtitle')).toContainText('北京时间');
+  await expect(page.locator('#slideTrack')).toBeHidden();
+  await expect(page.locator('#actions .btn')).toHaveCount(1);
+  await expect(page.locator('#actions .btn')).toHaveText('返回');
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: '.artifacts/downtime-reminder-mobile.png' });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.screenshot({ path: '.artifacts/downtime-reminder-desktop.png' });
+  await page.close();
+});
 
 test('T-R8: unsafe shows only return button, no borrow/apply/continue', async () => {
   const page = await openReminderPage('reason=unsafe&domain=tiktok.com');

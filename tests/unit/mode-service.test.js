@@ -34,6 +34,8 @@ function section(name) {
 }
 
 function loadModeService(stubs = {}) {
+  const downtimeSource = fs.readFileSync(path.join(__dirname, '../../extension/core/downtime.js'), 'utf8');
+  const downtime = new Function(`${downtimeSource.replace(/export (function|const) /g, '$1 ')}\nreturn { readDowntimeConfig, evaluateWebsiteDowntime };`)();
   const abs = path.join(__dirname, '..', '..', 'extension', 'product', 'mode-service.js');
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
@@ -43,6 +45,7 @@ function loadModeService(stubs = {}) {
   code = code.replace(/export\s*\{[^}]*\};?\s*$/gm, '');
 
   const context = {
+    ...downtime,
     isSharedAccessRuntimeEnabled: () => false,
     console,
     Date,
@@ -122,6 +125,35 @@ this.__modeService = {
 }
 
 (async function main() {
+  section('Downtime website gate before quota; exceptions do not bypass existing restrictions');
+  {
+    const nowMs = Date.parse('2026-10-12T14:00:00Z');
+    const cfg = { enabled: true, mode: 'study', studyList: ['study.test'], compositeList: ['composite.test'],
+      restrictedEntertainmentList: ['rest.test'], unsafeList: ['blocked.test'], quotaState: {},
+      downtimeConfig: { schemaVersion: 1, enabled: true, windowsByWeekday: { monday: [{ start: '22:00', end: '07:00' }] },
+        allowedWebsiteTypes: ['study', 'composite'], allowedApplicationTypes: [] } };
+    let quotaReads = 0;
+    const svc = loadModeService({ getConfig: async () => cfg,
+      evaluateQuotaState: async () => { quotaReads++; throw new Error('unavailable'); } });
+    cfg.timeQuota = { accountingVersion: 2 };
+    const access = host => svc.handleModeEvent({ type: 'ACCESS_OBSERVED', url: `https://${host}`, tabId: 7, nowMs });
+    const denied = await access('rest.test');
+    expect('restricted denied independently of quota', denied.reminder?.reason, 'downtime');
+    expect('no quota read on downtime denial', quotaReads, 0);
+    expect('blocked result has no mode change', denied.modeChange, null);
+    expect('blacklist remains higher priority', (await access('blocked.test')).reminder?.reason, 'unsafe');
+    expect('unknown is not composite exception', (await access('unknown.test')).reminder?.reason, 'downtime');
+    cfg.quotaState = { onlineLocked: true };
+    cfg.timeQuota = {};
+    expect('study exception still checks online quota', (await access('study.test')).reminder?.reason, 'quota_online');
+    expect('composite exception still checks online quota', (await access('composite.test')).reminder?.reason, 'quota_online');
+    const scan = await svc.handleModeEvent({ type: 'ACCESS_OBSERVED', url: 'https://study.test', nowMs, downtimeOnly: true });
+    expect('background exception does not enter routing', scan.access, 'ignore');
+    cfg.downtimeConfig.enabled = false;
+    expect('disabled retains existing route', (await access('rest.test')).reminder?.reason, 'quota_online');
+    cfg.downtimeConfig.enabled = true;
+    expect('end exclusive', (await svc.handleModeEvent({ type: 'ACCESS_OBSERVED', url: 'https://rest.test', nowMs: Date.parse('2026-10-12T23:00:00Z') })).reminder?.reason, 'quota_online');
+  }
   section('MSVC-1 mode commit writes single runtime truth and Rest Exit Grace');
   {
     const writes = [];
@@ -1310,7 +1342,7 @@ this.__modeService = {
         foreground: true, nowMs: at });
       expect(test.name, { access: result.access, reason: result.reminder?.reason, mode: result.modeChange?.toMode },
         { access: test.access ?? 'reminder', reason: test.reason, mode: test.mode });
-      expect('one quota snapshot: ' + test.name, reads, 1);
+      expect('quota snapshot only after blacklist: ' + test.name, reads, test.nature === 'blocked' ? 0 : 1);
     }
   }
   if (failed > 0) {

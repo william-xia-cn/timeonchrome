@@ -237,6 +237,11 @@
       subtitle: '已达到每周休息时间上限。请返回。',
       actions: ['backGeneric']
     },
+    downtime: {
+      icon: 'notice', title: '当前为停用时间',
+      subtitle: '此网站不在停用时间例外中，请在停用时段结束后再访问。',
+      actions: ['backGeneric']
+    },
     accounting_unavailable: {
       icon: 'notice', title: '记账数据暂不可用',
       subtitle: '为避免休息时间漏记，受限娱乐网站暂时不可用。学习和复合网站不受影响。',
@@ -373,7 +378,7 @@
     'to_rest_slide_confirm', 'restricted_study_mode',
     'quota_composite_and_rest', 'rest_locked', 'daily_rest_locked', 'weekly_rest_locked', 'quota_locked', 'quota_rest',
     'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule',
-    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked', 'accounting_unavailable'
+    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked', 'accounting_unavailable', 'downtime'
   ]);
 
   var config;
@@ -395,7 +400,15 @@
       actions: [originMode === 'study' ? 'backToStudy' : 'backGeneric'],
     };
   }
-  if (params.get('restLocked') === '1') {
+  if (effectiveReason === 'downtime') {
+    const until = Number(params.get('downtimeUntilMs'));
+    if (Number.isFinite(until) && until > 0 && Number.isFinite(new Date(until).getTime())) {
+      const end = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai',
+        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(until));
+      config = { ...config, subtitle: `此网站不在停用时间例外中。本次停用至 ${end}（北京时间），请结束后再访问。` };
+    }
+  }
+  if (params.get('restLocked') === '1' && effectiveReason !== 'downtime') {
     disableRestEntry(effectiveReason === 'weekly_rest_locked'
       ? '本周的休息时间已用完，当前不能继续访问。'
       : '今天的休息时间已用完，当前不能继续访问。');

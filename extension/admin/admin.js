@@ -26,6 +26,7 @@ import { applicationUsageErrorMessage,
   APPLICATION_CATEGORY_LABELS } from '../stats/application-usage-read-model.js';
 import { getAdminApplicationIdentityUsageAnalysisView } from '../stats/application-identity-usage-read-model.js';
 import { readRestUsageSummary } from '../stats/rest-usage-summary.js';
+import { readDowntimeConfig, DOWNTIME_DAY_LABELS, DOWNTIME_WEBSITE_LABELS, DOWNTIME_APPLICATION_LABELS } from '../core/downtime.js';
 
 const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -127,7 +128,7 @@ let mediaSettlementLabel = '今日';
 let systemManagementActiveTab = 'device-status';
 let rulesActiveSection = 'rules';
 const rulesSectionTabs = {
-  rules: ['quota-management', 'autonomy-management', 'schedule-management'],
+  rules: ['quota-management', 'autonomy-management', 'schedule-management', 'downtime-management'],
   sites: ['site-management', 'classification-requests'],
 };
 const rulesSelectedTabs = { rules: 'quota-management', sites: 'site-management' };
@@ -1211,6 +1212,7 @@ function setRulesPageError(message) {
     'rules-weekly-plan-display',
     'rules-domain-quotas-display',
     'rules-schedule-display',
+    'rules-downtime-display',
     'rules-learning-request-display',
     'rules-unclassified-record-display',
   ].forEach((id) => {
@@ -2490,6 +2492,33 @@ function renderAdminRulesSiteManagement() {
     renderAdminRulesGroup('已批准精确规则', '来自网站归类审批后的精确 URL 或特殊对象规则，本机不可审批', uniqueSiteRules(def.targetRules), '已批准精确规则'),
   ].join('');
 }
+function renderDowntimeSection() {
+  const host = document.getElementById('rules-downtime-display');
+  if (!host) return;
+  const view = readDowntimeConfig(config?.downtimeConfig);
+  if (!view.ok) {
+    host.innerHTML = '<p style="color:var(--danger)">停用时间配置暂不可读取，请重新同步。</p>';
+    return;
+  }
+  const policy = view.config;
+  const websites = policy.allowedWebsiteTypes.map(type => DOWNTIME_WEBSITE_LABELS[type]).join('、') || '无';
+  const applications = policy.allowedApplicationTypes.map(type => DOWNTIME_APPLICATION_LABELS[type]).join('、') || '无';
+  const rows = Object.entries(policy.windowsByWeekday).map(([day, windows], index) => {
+    const ranges = windows.map(item => `${item.start} 至 ${item.end}${item.end < item.start ? '（次日）' : ''}`).join('、') || '无停用时段';
+    return `<tr><th scope="row">${DOWNTIME_DAY_LABELS[index]}</th><td>${escHtml(ranges)}</td></tr>`;
+  }).join('');
+  host.innerHTML = `<div class="rules-downtime-summary">
+    <p><strong>配置状态：</strong>${policy.enabled ? '已开启' : '未启用'}${view.configured ? '' : '（尚未设置）'}</p>
+    <p><strong>网站执行：</strong>已接入；按当前配置检查</p>
+    <p><strong>应用执行：</strong>待接入</p>
+    <p><strong>网站例外：</strong>${escHtml(websites)}</p>
+    <p><strong>应用例外：</strong>${escHtml(applications)}</p>
+    <p><strong>应用执行方式：</strong>关闭不允许的应用</p>
+    <table class="rules-downtime-table" aria-label="每周停用时段（北京时间）"><thead><tr><th>星期</th><th>停用时段（北京时间）</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="rules-reminder-note">类型例外仍受黑名单、原有时间窗和硬配额约束。未归类、未识别内容不属于例外。</p>
+  </div>`;
+}
+
 function renderRulesPage() {
   syncRulesTabs();
   renderRulesCloudSummary();
@@ -2503,6 +2532,7 @@ function renderRulesPage() {
   renderQuotaSection();
   renderAutonomySection();
   renderScheduleSection();
+  renderDowntimeSection();
   renderSiteClassificationRequestSection();
   void refreshAdminRulesCloudReadModel();
 }
