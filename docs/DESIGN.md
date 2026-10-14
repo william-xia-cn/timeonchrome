@@ -10,6 +10,14 @@
 
 一个instanceId可承载多个PWA／应用名称，数组分项展示、不随意选一项、不相加为产品数量。完整快照缺失/超限时Native保留本机诊断和待发，不截断为成功；云端保留带日期的最近登记。共用knowledge组件只修改实例管理展示，产品目录、统计投影、分类和封锁键不变。0022仅准备源码，本轮未应用生产；Native生产者、云端部署与真实页面仍须分开验收。
 
+## 停用时间配置（2026-10-15，PO要求云端与控件同步增加）
+
+本批standard-cloud范围为Guardian profile配置、主Pages编辑及直接专项；不修改Native或共享执行契约。新增独立downtimeConfig整份对象：schemaVersion=1、enabled、windowsByWeekday（七天列表，缺日按空）、allowedWebsiteTypes（study/composite/restricted/other）、allowedApplicationTypes（study/composite/restrictedEntertainment/other）。旧档案无此项按关闭；默认空时段/无例外。按北京时间、半开时段，支持跨午夜及结束24:00，同值起止拒绝；每日至多32段，字段/类型严格校验。配置整份替换，空例外必须真实清除；沿用expectedVersion、审计与原有设备配置下发，不执行migration。
+
+Pages访问管理在时间段管理之后增加停用时间Tab：开关、七天多时段、网站/应用类型例外、独立保存；应用动作固定关闭。类型例外只通过停用层，现有黑名单/时间窗/硬配额继续有效。策略配置与执行状态分别显示，当前执行待终端/Native接入，不宣称保存等于电脑已受控。控件负责同名只读展示；页面及API不下发云端配额锁，不改变账本与配额算法。
+
+导出新增独立downtime字段，导入校验后显示可选差异；未携带该字段的旧备份不得关闭/覆盖现有策略。整份配置无具体域名、应用身份、进程或token，数据按当前profile权限隔离。必要验证为新增停用配置/IO专项、既有Pages配置与并发保护专项、typecheck/diff及隔离桌面/390px手机目视；不跑全量，不调用生产、不部署、不提升版本。当前云端已有未提交内容保持原样。
+
 ### 应用身份统计的连接证明围栏（2026-10-10）
 
 应用身份统计每次读取前使用共享 V2 reusable source binding 建立同孩子身份连接证明；该流程复用共享贡献模块已有的 `createReusableSharedWebBinding` 与内存 proof cache，但不启用共享访问、生成贡献队列、上传贡献或读取/修改共享余额。证明上下文只取已绑定的云端 profile/device 身份，不依赖共享访问策略 LKG。读模型在读取开始与结束时复核证明摘要，并将分页与缓存键绑定该摘要；期间孩子分配、Native connection 或证明变化时拒绝整份结果。Native 端还必须在实际应用身份读取入口校验同一连接证明；扩展侧校验不能替代 Native 门禁。此设计不增加 Native 协议字段、持久证明缓存或第二套认证。

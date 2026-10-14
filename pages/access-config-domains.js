@@ -11,7 +11,7 @@
   const autonomy = ['restrictedEntryConfirmationRequired', 'softReminderTimeoutAction'];
   const windows = ['studyWindows', 'compositeWindows', 'restWindows'];
   const websiteFields = ['customStudyList', 'customCompositeList', 'customRestrictedEntertainmentList', 'customBlockedSites', 'siteClassificationRulesV1', 'siteUsageClassificationRulesV1', 'domainQuotas'];
-  const publicAreas = new Set(['weekly-quota', 'rest-reminder', 'autonomy', 'time-window']);
+  const publicAreas = new Set(['weekly-quota', 'rest-reminder', 'autonomy', 'time-window', 'downtime']);
   const websiteAreas = new Set(['site-list', 'rule', 'usage-rule', 'domain-quota', 'unclassified-notification']);
   const clone = value => JSON.parse(JSON.stringify(value));
   const own = (value, key) => value && Object.prototype.hasOwnProperty.call(value, key);
@@ -37,6 +37,8 @@
         autonomyConfig: pick(source.quota?.autonomyConfig, ['restrictedEntryConfirmationRequired', 'softReminderTimeoutAction']),
       };
       result.timeWindows = { daily: days(source.timeWindows?.daily, windows) };
+      if (own(source, 'downtime')) result.downtime = pick(source.downtime,
+        ['schemaVersion', 'enabled', 'windowsByWeekday', 'allowedWebsiteTypes', 'allowedApplicationTypes']);
     } else {
       result.siteAccess = {
         customLists: pick(source.siteAccess?.customLists, ['studySites', 'compositeSites', 'restrictedEntertainmentSites', 'blockedSites']),
@@ -100,6 +102,7 @@
       const fieldAreas = ['site-list', 'site-list', 'site-list', 'site-list', 'rule', 'usage-rule', 'domain-quota'];
       websiteFields.forEach((field, index) => { if (selectedAreas.has(fieldAreas[index])) result[field] = clone(candidate[field]); });
     } else {
+      if (selectedAreas.has('downtime')) result.downtimeConfig = clone(candidate.downtimeConfig);
       if (selectedAreas.has('rest-reminder')) result.restConfig = pick(candidate.restConfig, selectedDiffs.filter(diff => diff.area === 'rest-reminder').map(diff => diff.key));
       if (selectedAreas.has('autonomy')) result.autonomyConfig = pick(candidate.autonomyConfig, selectedDiffs.filter(diff => diff.area === 'autonomy').map(diff => diff.key));
       if (selectedAreas.has('time-window')) {

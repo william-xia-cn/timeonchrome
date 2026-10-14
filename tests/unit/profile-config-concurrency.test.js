@@ -141,6 +141,7 @@ vm.runInNewContext(ts.transpileModule(profiles, {
       verifyAccountToken: async request => request.headers.get('x-test-account'),
     };
     if (name.endsWith('/site-classification.js')) return siteCore;
+    if (name.endsWith('/downtime-config.js')) return loadCore(path.join(root, 'pages/downtime-config.js'));
     if (name.endsWith('/system-access-config')) return {
       getSystemAccessConfig: async () => ({ defaultStudySites: [], defaultCompositeSites: [], defaultUserCompositeSites: [], defaultRestrictedEntertainmentSites: [], defaultBlockedSites: [] }),
       mergeWithDefaults: (custom, defaults) => [...new Set([...custom, ...defaults])],
@@ -226,6 +227,44 @@ async function verifyOtherUsageRoute() {
   assert.deepStrictEqual(afterShadow.timeWindows, beforeShadow.timeWindows);
   assert.deepStrictEqual(afterShadow.siteUsageClassificationRulesV1, beforeShadow.siteUsageClassificationRulesV1);
   assert.deepStrictEqual(afterShadow.sharedAccessRolloutV1, { schemaVersion: 1, stage: 'shadow' });
+  const downtime = { schemaVersion: 1, enabled: true,
+    windowsByWeekday: { monday: [{ start: '22:00', end: '07:00' }] },
+    allowedWebsiteTypes: ['study'], allowedApplicationTypes: ['study'] };
+  const beforeDowntime = JSON.parse(current().config);
+  response = await put({ downtimeConfig: downtime }, { account: 'family-b' });
+  assert.equal(response.status, 404);
+  response = await put({ downtimeConfig: downtime }, { version: 0 });
+  assert.equal(response.status, 409);
+  for (const invalid of [null, { ...downtime, enabled: 'true' }, { ...downtime, allowedWebsiteTypes: ['blocked'] },
+    { ...downtime, allowedApplicationTypes: ['unclassified'] },
+    { ...downtime, windowsByWeekday: { monday: [{ start: '24:00', end: '07:00' }] } }]) {
+    response = await put({ downtimeConfig: invalid });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, 'INVALID_DOWNTIME_CONFIG');
+    assert.deepStrictEqual(JSON.parse(current().config), beforeDowntime);
+  }
+  response = await put({ downtimeConfig: downtime });
+  assert.equal(response.status, 200);
+  const savedDowntime = JSON.parse(current().config).downtimeConfig;
+  assert.equal(savedDowntime.enabled, true);
+  assert.deepStrictEqual(savedDowntime.windowsByWeekday.monday, downtime.windowsByWeekday.monday);
+  assert.deepStrictEqual(savedDowntime.windowsByWeekday.tuesday, []);
+  assert.deepStrictEqual(JSON.parse(current().config).timeQuota, beforeDowntime.timeQuota);
+  const downtimeAudit = store.prepare('SELECT changed_keys_json FROM profile_config_history_v1 WHERE profile_id=? AND version=?').get('child-a', current().version);
+  assert(JSON.parse(downtimeAudit.changed_keys_json).includes('downtimeConfig'));
+  const unchangedVersion = current().version;
+  response = await put({ downtimeConfig: downtime });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).noChange, true);
+  assert.equal(current().version, unchangedVersion);
+  response = await put({ domainQuotas: JSON.parse(current().config).domainQuotas });
+  assert.equal(response.status, 200);
+  assert.deepStrictEqual(JSON.parse(current().config).downtimeConfig, savedDowntime);
+  response = await put({ downtimeConfig: { ...downtime, enabled: false, allowedWebsiteTypes: [], allowedApplicationTypes: [] } });
+  assert.equal(response.status, 200);
+  assert.equal(JSON.parse(current().config).downtimeConfig.enabled, false);
+  assert.deepStrictEqual(JSON.parse(current().config).downtimeConfig.allowedWebsiteTypes, []);
+  console.log('[Downtime Profile Route] owner/version/validation/preserve/replace/audit passed');
   beforeBatch = () => {
     const latest = current();
     const concurrent = { ...JSON.parse(latest.config), concurrentFixture: true };
