@@ -1,5 +1,49 @@
 # TASK_BOARD
 
+## 停用时间网站接线说明同步（2026-10-15）
+
+发布CI定位：device-shared-access-policy及rest-weekly-cloud的隔离夹具遗漏真实downtime默认值依赖，runtime-management-loader遗漏网站编辑的新辅助函数；仅补真实依赖/空保护配置夹具，不改路由、配额或分类行为。修订PR职责为architecture-integration＋standard-cloud并列精确测试例外。PO批准三项云端一起发布，并明确批准唯一生产0022及Runtime Worker；GitHub凭据正常，先前受限环境检查是假阴性。最小复验为上述三项失败专项，通过后提交测试修复、等待CI，生产workflow仍为精确master SHA门禁。
+
+三项隔离单测复验及对应CI已通过；周提醒后续UI门定位file://夹具未允许本地ES模块，新增模块因CORS未加载导致导出失败。仅为隔离浏览器添加allow-file-access-from-files并等真实模块就绪，所有HTTP请求继续阻断，不改生产页面或削弱业务断言；复验该单一UI smoke。
+
+PO已批准更新、提交、部署。配置专项14项、Pages242项、配置域30项、真实路由权限/CAS/审计及typecheck复验通过；仅提交本次停用配置补丁，其他Native命名/历史治理草稿与未发布提交不得混入停用上线。生产workflow要求master精确SHA及对应CI；GitHub CLI当前认证失效，尚未执行部署，不把源码提交写成已上线。
+
+PO要求独立接入控件网站门禁，配置页不再将所有终端执行统称待接入；改为提示网站需新控件支持，Native应用执行仍待接入。本批仅调整该说明，不部署、不变更生产档案，不以源码已实现推断设备已安装。
+
+## 停用时间配置（2026-10-15，standard-cloud，配置源码完成；执行未接入）
+
+- PO已明确要求云端与控件新增配置项，首阶段只支持网站/应用类型例外，非例外应用采用关闭方式。云端仅配置与下发，不结束本机程序、不启用真实家庭策略。
+- 实施清单：新增downtimeConfig严格校验/默认关闭/白名单保存，复用版本冲突和审计；Pages停用时间Tab、七天多时段、两类例外、独立保存；配置导入导出与旧备份不覆盖；中文文案及桌面/手机目视。
+- 最小测试：新增downtime配置/IO专项、pages-config-v12-fields与配置并发直接专项、typecheck/diff；保留已有未提交文档及契约包，不提交/部署。控件只读展示由extension-local阶段实施；跨Native执行契约/能力与实际关闭仍未实施。
+- [x] 源码完成：新增pages/downtime-config.js供Pages和Guardian复用同一校验/规范化；profile白名单与默认关闭、整份替换，独立保存sourceAction=downtime_config_save；配置域只允许综合访问导入停用策略，旧备份缺失不覆盖。Pages新增停用Tab、七天多段、类型复选框、次日标记及错误提示。
+- [x] 验证：downtime-config 14/14、Pages配置242/242、配置域30/30；真实Profile路由内存SQLite验证权限隔离、版本冲突、非法配置不变、幂等/整份替换和审计；typecheck与本任务diff通过。
+- [x] 隔离Playwright CLI在1440px/390px验证新增删除、8:00→08:00、24:00保存、无效起止拒绝与手机换行，新面板无水平溢出；桌面/手机截图已目视。证据在本机临时toc-downtime-cloud-*.png，不是生产/Native验收；测试服务和浏览器已关闭。
+- 实施审计：配置编辑/校验/保存/导入导出及终端只读均Matched；实际网站阻断/应用关闭为未接入，配置状态明确“执行待接入”。未修改Native/共享契约/账本/配额、候选/生产配置；不提交/部署。当前工作树另有其他会话的并发改动，按文件保留，不混入本任务。
+
+## NOW：Windows本机应用身份云端命名接入（2026-10-15）
+
+PO在Native Host 02明确授权架构推进；固定95cca6e汇总已读取，96静态／86潜在覆盖不作为运行识别率。职责architecture-integration＋standard-cloud，复用现有云端分支，不新建worktree。先文档再代码：新增独立兼容命名契约和能力→已认证实例范围的接收／单调更新／显式失效→实例命名读取→共用管理组件展示→Native固定契约最小生产者交接。保留现有未提交文档草稿。产品统计名称及投影未改，不把多项实例命名变成产品数量。
+
+必要本地验证：新契约及兼容、Runtime本机命名专项（实际隔离D1和route）、既有program-instances、共用knowledge页面专项／隔离目视、契约与Worker typecheck、Worker dry-run及diff。不跑网页原账／配额／Native安装器／无关全平台；不改变管理阻止键，任何动态命名不成为产品权限。新增0022仅源码，生产迁移／发布／安装本轮未授权。
+
+本地结果：契约1.48.0及两项固定canonical哈希向量PASS；Worker新专项和原实例47/47 PASS；knowledge组件14组直接回归PASS；build/typecheck、Runtime dry-run、模块边界和diff通过。实际机器鉴权route→D1持久化→家长会话实例GET已隔离贯通，已有productId/descriptor/Verified/原实例字段逐项不变。桌面及390px手机mock截图已目视：明确名称、动态名称、多项命名、缺失/不可读与XSS转义；4卡片，无错误，scrollWidth=390。截图在agent-browser本机临时目录，不入Git；没有使用真实家庭或实际Chrome Profile。初测失败来自两项旧能力断言、两项排序断言与helper转义作用域，修正后通过。
+
+Matched：独立命名接收/隔离/修订替换/显式失效、现有管理键不变、实例页面读取及目视。Deviated/Extra：无（本批源码边界）。Missing：Native持久生产者及真实上传、生产0022/Worker/Pages发布、实机验收；不能称产品归属全集或完整端云链已完成。Native固定交接要求精确原ref/代际/scope→受理instanceId，不从有限历史拼全量；本机源顺序不可证明时保留冲突；超限不截断，云端仅带日期显示最近登记。旧275扫描核验、Mac、共享和历史重建不恢复。
+
+## COMPLETED（本地实现／隔离验证，未部署）：网站分类删除／移动与有效审批规则一致性修复（2026-10-13）
+
+PO已授权修复。职责：standard-cloud；复用现有云端工作树。页面删除自定义主机或移动分类时，目前只改custom清单，遗留同目标`siteClassificationRulesV1`阻止重新添加且可能继续生效。先更新本条再实施，不修改审批历史或网页记账线。
+
+实施清单：`pages/index.html`精确目标识别→删除／移动同步移除该host有效规则，由custom清单表达新分类→网站保存一次提交清单和有效规则，沿用expectedVersion与配置审计→没有custom清单的host规则在所属分类中可见并可删除／移动。保留系统配置、父子域、精确URL及YouTube对象规则；不得绕过重复或父域保护校验。
+
+变更等级：Console配置操作。最小验证：页面实际函数隔离回归（删除→保存→读取→重新添加、四分类移动、规则单独存在、URL／父子域／系统隔离、版本冲突）、既有site-access-conflicts与pages-config-v12-fields测试、页面脚本语法及git diff --check；使用隔离mock做桌面／移动目视核对。必要CI仅页面相关；无部署smoke，本次不发布、不直接修改家庭配置，不跑原账、Native、安装器或产品全量测试。
+
+结果：`pages/index.html`删除／移动仅撤销精确同host的有效规则（与既有www／m别名语义一致，wildcard独立），新分类由custom清单表达；同一PUT同时提交清单、剩余有效规则及expectedVersion。仅规则存在的host可见、可删除／移动，同分类custom／system已有条目不重复显示。添加入口拒绝仍已归类的host，不暗中移动。受限／黑名单父域与wildcard子范围保持保护；精确URL、YouTube和其他用途规则没有被主机操作删除。历史审批表不写入，Worker版本／审计路径复用。
+
+聚焦证据：`node tests/unit/pages-site-classification-edit.test.js`11/11、`node tests/unit/site-access-conflicts.test.js`12/12、`node tests/unit/pages-config-v12-fields.test.js`242/242 PASS；新增回归实际执行页面函数并用既有共享分类读取器验证有效结果。测试适配曾误传归一化包装对象，修正为读取`.config`；父域场景捕获到页面旧matchDomain只做精确／wildcard匹配，补充明确父域保护后通过，不放宽共享校验器。
+
+隔离mock浏览器：真实点击删除127.0.0.1→保存（版本8→9，一次PUT包含规则）→重新加载→学习添加并保存（9→10）；移动端仅规则host归学习并保存（10→11），原URL规则保留。桌面1440×1000、移动390×844截图已目视核对，移动scrollWidth=390。证据位于忽略目录`.tmp/site-edit-desktop.png`、`.tmp/site-edit-mobile.png`、`.tmp/site-edit-mobile-result.png`；仅模拟档案，本地接口，未使用登录Profile。Matched＝精确操作／可见性／原子保存／并发保护／隔离验证；Deviated/Missing/Extra＝无（本地修复范围）。本批代码、测试及本条记录集中本地提交，其他既有文档草稿保留；未合并、未部署、未做真实家庭在线验收。线上仍需发布后复验，不将mock称为线上通过。
+
 ## 停用时间网站执行接线（2026-10-15）
 
 PO追加授权更新、提交、部署；先按当前主线规则修订4项过期Reminder浏览器断言并复验，只改测试不改产品行为。云端仅部署Guardian/主Pages，本地生成更新候选，不托管CRX、不修改家庭停用开关。分别提交本功能补丁，保留其他并发草稿。

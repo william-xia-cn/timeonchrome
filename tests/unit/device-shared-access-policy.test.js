@@ -17,9 +17,11 @@ function load(relative, dependencies) {
 (async () => {
   const contract = await import('../../app-runtime-management/contracts/dist/shared-access.js');
   const quota = load('extension/core/quota-config.js', {});
+  const downtime = load('pages/downtime-config.js', {});
   const { readSharedAccessPolicyForChild, normalizeSharedAccessRolloutV1 } = load('workers/src/routes/profiles.ts', {
     '@timeonchrome/app-runtime-contracts/shared-access': contract,
     '../../../extension/core/quota-config.js': quota,
+    '../../../pages/downtime-config.js': downtime,
   });
   let identity = { profileId: 'bound-child', deviceId: 'bound-device', unbound: false };
   let missing = false, fail = false;
@@ -143,6 +145,7 @@ function load(relative, dependencies) {
     '../config/system-access-config':{getSystemAccessConfig:async()=>({defaultCompositeSites:[],defaultUserCompositeSites:[]}),mergeWithDefaults:()=>[]},
     '@timeonchrome/app-runtime-contracts/shared-access':contract,
     '../../../extension/core/quota-config.js':quota,
+    '../../../pages/downtime-config.js':downtime,
   }).profilesRouter;
   let writes=0;
   const parentEnv={DB:{prepare(sql){return {bind(...args){return {

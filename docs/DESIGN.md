@@ -1,5 +1,22 @@
 # TimeOnChrome — 技术设计文档
 
+## Native本机命名元数据的云端接线（2026-10-15，开发契约1.48.0）
+
+沿既有机器鉴权：capabilities声明native-application-identification-v1，仅0022表及两个约束trigger就绪时可用。POST /v2/machines/program-instances/local-identifications接收schemaVersion/childId/localUserId/assignmentVersion/items；正文上限262144字节、最多50项。每项引用已登记instanceId，revision持久单调、observedAtMs固定该次变更；identifications为1～16项完整已登记集合或null显式失效。项字段固定nativeId/name/status/evidence，禁止目录、路径、SID、窗口、PID及自由诊断值。状态沿用Native identified/dynamic-registry/dynamic-process，不升级为Verified或产品权限。
+
+持久键为(child,machine,instance,user,assignment)，最新protected分配与原实例scope均须存在。D1 batch原子更新＋读取回执；旧revision不覆盖，同revision不同hash拒绝，ACK回传scope及逐项instanceId/revision/payloadHash。hash使用规范化完整item的canonical JSON SHA-256：nativeId与evidence采用ASCII序，字段名按既有usage-account规则排序，UTF-8不增加BOM；revision和observedAtMs包括在hash中。重试沿用冻结item。共同向量见native-application-identification-v1.vectors.json；不得把较新ACK视为旧item已逐字存储。
+
+现有GET /v2/module/program-instances分页结果增加nativeIdentification，state=available/missing/invalidated/multiple-sources/unavailable；sources返回不透明sourceKey、修订、观察／接收时间及登记数组。沿当前家长家庭／孩子权限和当前分配读取，旧分配不冒充当前。每次最多100个实例引用、每实例最多8来源；超限明确不可读；表缺失或读取错误不阻挡原实例页面。日期表示最近成功登记，非实时完整、在线或执行证明。
+
+一个instanceId可承载多个PWA／应用名称，数组分项展示、不随意选一项、不相加为产品数量。完整快照缺失/超限时Native保留本机诊断和待发，不截断为成功；云端保留带日期的最近登记。共用knowledge组件只修改实例管理展示，产品目录、统计投影、分类和封锁键不变。0022仅准备源码，本轮未应用生产；Native生产者、云端部署与真实页面仍须分开验收。
+
+## 停用时间配置（2026-10-15，PO要求云端与控件同步增加）
+
+本批standard-cloud范围为Guardian profile配置、主Pages编辑及直接专项；不修改Native或共享执行契约。新增独立downtimeConfig整份对象：schemaVersion=1、enabled、windowsByWeekday（七天列表，缺日按空）、allowedWebsiteTypes（study/composite/restricted/other）、allowedApplicationTypes（study/composite/restrictedEntertainment/other）。旧档案无此项按关闭；默认空时段/无例外。按北京时间、半开时段，支持跨午夜及结束24:00，同值起止拒绝；每日至多32段，字段/类型严格校验。配置整份替换，空例外必须真实清除；沿用expectedVersion、审计与原有设备配置下发，不执行migration。
+
+Pages访问管理在时间段管理之后增加停用时间Tab：开关、七天多时段、网站/应用类型例外、独立保存；应用动作固定关闭。类型例外只通过停用层，现有黑名单/时间窗/硬配额继续有效。策略配置与执行状态分别显示，当前执行待终端/Native接入，不宣称保存等于电脑已受控。控件负责同名只读展示；页面及API不下发云端配额锁，不改变账本与配额算法。
+
+导出新增独立downtime字段，导入校验后显示可选差异；未携带该字段的旧备份不得关闭/覆盖现有策略。整份配置无具体域名、应用身份、进程或token，数据按当前profile权限隔离。必要验证为新增停用配置/IO专项、既有Pages配置与并发保护专项、typecheck/diff及隔离桌面/390px手机目视；不跑全量，不调用生产、不部署、不提升版本。当前云端已有未提交内容保持原样。
 ## 停用时间网站执行接线（2026-10-15，PO明确要求接入）
 
 网站门禁不依赖Native应用执行契约。在现有ACCESS_OBSERVED中，按当前有效网站分类先检查黑名单，再检查独立downtimeConfig；停用层拒绝使用既有Reminder导航，reason=downtime，仅提供返回，不提供继续或借用。rejected按受限娱乐检查，待归类不冒充复合例外。允许通过停用层的页面继续原有路由。未配置/关闭完全保持原行为；非法配置仍报告未知，不据此自行形成新限制。

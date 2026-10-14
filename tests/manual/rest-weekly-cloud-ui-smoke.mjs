@@ -5,11 +5,12 @@ import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 const output = resolve('output/playwright');
 mkdirSync(output, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, args: ['--allow-file-access-from-files'] });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.route(/^https?:/, route => route.abort());
   await page.goto(pathToFileURL(resolve('pages/index.html')).href);
+  await page.waitForFunction(() => !!window.TimeOnChromeDowntime);
   await page.evaluate(() => {
     showScreen('main'); currentProfileId = 'mock-profile'; remoteConfig = { restConfig: {}, autonomyConfig: {} };
     document.querySelectorAll('.page').forEach(n => n.classList.remove('active'));

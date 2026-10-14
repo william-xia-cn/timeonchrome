@@ -8,6 +8,7 @@ import { projectLegacySharedAccessPolicy, type UnifiedChildAccessPolicyV1 } from
 import { nativeChildDeletedOutboxStatement } from '../services/nativeAppIdentityBridge';
 import { appRuntimeChildDeletedOutboxStatement } from '../services/appRuntimeIdentityBridge';
 import { readSharedAccessDayState, type SharedAccessStateEnv } from '../services/sharedAccessState';
+import { defaultDowntimeConfig, validateDowntimeConfig, normalizeDowntimeConfig } from '../../../pages/downtime-config.js';
 
 type DeviceRecoveryActionBody = {
   action?: string;
@@ -201,6 +202,7 @@ function buildSchemaDefaults(): object {
     },
     restConfig:         { reminderInterval: 15, maxRestDuration: 60, firstReminderMinutes: 120, repeatReminderMinutes: 60, weeklyFirstReminderMinutes: 840 },
     autonomyConfig:     { restrictedEntryConfirmationRequired: true, softReminderTimeoutAction: 'end_rest' },
+    downtimeConfig:     defaultDowntimeConfig(),
     autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
     clientLoggingPolicyV1: {
       localEnabled: true,
@@ -866,12 +868,17 @@ export const profilesRouter = {
           'dailyUndeterminedQuota', 'weeklyRestQuota',
           'domainQuotas', 'classificationRules', 'siteClassificationRulesV1', 'siteUsageClassificationRulesV1',
           'quotaState', 'schedule',
-          'restConfig', 'autonomyConfig', 'autoStudyConfig', 'compositeReviewConfig',
+          'restConfig', 'autonomyConfig', 'downtimeConfig', 'autoStudyConfig', 'compositeReviewConfig',
           'clientLoggingPolicyV1',
           'timeQuota', 'timeWindows', 'sharedAccessRolloutV1',
         ]);
 
         const incomingConfig = data as Record<string, unknown>;
+        if (Object.hasOwn(incomingConfig, 'downtimeConfig')) {
+          const error = validateDowntimeConfig(incomingConfig.downtimeConfig);
+          if (error) return json({ error, code: 'INVALID_DOWNTIME_CONFIG' }, 400);
+          incomingConfig.downtimeConfig = normalizeDowntimeConfig(incomingConfig.downtimeConfig);
+        }
         if (Object.hasOwn(incomingConfig, 'sharedAccessRolloutV1')) {
           const rollout = normalizeSharedAccessRolloutV1(incomingConfig.sharedAccessRolloutV1);
           if (!rollout) return json({code:'INVALID_SHARED_ACCESS_ROLLOUT'},400);
