@@ -1,4 +1,5 @@
 import { HttpError } from './http';
+import {APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM} from '@timeonchrome/app-runtime-contracts/usage-account';
 
 export const V3_ONLY_ALGORITHMS = ['windows-application-v3-only-seconds-v1', 'macos-application-v3-only-seconds-v1'] as const;
 type Watermark = {machineId:string;localUserId:string;assignmentVersion:number;date:string;revision:number};
@@ -14,7 +15,8 @@ export async function readApplicationLedgerRetirement(db:D1Database,accountId:st
 }
 export function isV3OnlyApplicationManifest(value:{schemaVersion:number;durationUnit:string;childId?:string;algorithmVersion:string},child:string) {
   return value.schemaVersion===2&&value.durationUnit==='seconds'&&value.childId===child
-    &&V3_ONLY_ALGORITHMS.some(algorithm=>algorithm===value.algorithmVersion);
+    &&(V3_ONLY_ALGORITHMS.some(algorithm=>algorithm===value.algorithmVersion)
+      ||value.algorithmVersion===APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM);
 }
 export async function requireCurrentApplicationManifest(db:D1Database,accountId:string,child:string,
   manifest:{schemaVersion:number;durationUnit:string;childId?:string;algorithmVersion:string}) {
@@ -35,9 +37,21 @@ export function retiredApplicationRevision(retirement:ApplicationLedgerRetiremen
     &&row.assignmentVersion===scope.assignmentVersion&&row.date===scope.date).map(row=>row.revision));
 }
 
+/** 新来源已被接收后，旧统计仍可留存，但不能重新成为该来源的上传权威。 */
+export async function requireApplicationStatisticsProducer(db:D1Database,scope:{accountId:string;childId:string;
+  machineId:string;localUserId:string;assignmentVersion:number},algorithmVersion:string) {
+  if(algorithmVersion===APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM)return;
+  const fixed=await db.prepare(`SELECT 1 AS present FROM runtime_application_account_manifests_v1
+    WHERE account_id=?1 AND child_id=?2 AND machine_id=?3 AND local_user_id=?4 AND assignment_version=?5
+      AND state='received' AND json_extract(manifest_json,'$.algorithmVersion')=?6 LIMIT 1`)
+    .bind(scope.accountId,scope.childId,scope.machineId,scope.localUserId,scope.assignmentVersion,
+      APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM).first();
+  if(fixed)throw new HttpError(409,'APPLICATION_STATISTICS_PRODUCER_SUPERSEDED','该来源已采用固定应用身份统计，旧生产格式不再更新。');
+}
+
 const oldManifests=`SELECT id FROM runtime_application_account_manifests_v1 WHERE account_id=?1
   AND COALESCE(json_extract(manifest_json,'$.algorithmVersion'),'') NOT IN
-    ('windows-application-v3-only-seconds-v1','macos-application-v3-only-seconds-v1','application-instance-seconds-v1')`;
+    ('windows-application-v3-only-seconds-v1','macos-application-v3-only-seconds-v1','application-instance-seconds-v1','application-fixed-identity-seconds-v1')`;
 const legacyScopes:Record<string,string>={
   runtime_usage_segments:'device_id IN (SELECT id FROM runtime_devices WHERE account_id=?1)',
   runtime_app_hourly_stats_v1:'device_id IN (SELECT id FROM runtime_devices WHERE account_id=?1)',
@@ -102,7 +116,7 @@ export async function retireApplicationLedger(db:D1Database,accountId:string,bac
       SELECT machine_id,local_user_id,assignment_version,date,MAX(revision) AS revision
       FROM runtime_application_account_manifests_v1 WHERE account_id=?1
         AND COALESCE(json_extract(manifest_json,'$.algorithmVersion'),'') NOT IN
-          ('windows-application-v3-only-seconds-v1','macos-application-v3-only-seconds-v1','application-instance-seconds-v1')
+          ('windows-application-v3-only-seconds-v1','macos-application-v3-only-seconds-v1','application-instance-seconds-v1','application-fixed-identity-seconds-v1')
       GROUP BY machine_id,local_user_id,assignment_version,date)`)
     .bind(accountId,now,backupSha256,JSON.stringify(inventory.tables))];
   for(const [table,where]of Object.entries(legacyScopes))statements.push(db.prepare(`DELETE FROM ${table} WHERE ${where}`).bind(accountId));

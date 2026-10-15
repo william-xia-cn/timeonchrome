@@ -2,6 +2,9 @@
 export const USAGE_ACCOUNT_CHUNK_ROWS = 100;
 export const USAGE_ACCOUNT_MAX_ROWS = 10_000;
 export const APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY = 'application-statistics-child-scope-v1' as const;
+/** 原账固定 NativeId 的单一统计，不是旧实例统计的后置身份投影。 */
+export const APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM = 'application-fixed-identity-seconds-v1' as const;
+export const APPLICATION_FIXED_IDENTITY_STATISTICS_CAPABILITY = 'application-fixed-identity-statistics-v1' as const;
 export type UsageAccountSource = 'application' | 'web' | 'webMedia';
 export type UsageAccountUnit = 'milliseconds' | 'seconds';
 /** 同版实际用量视图；不含配置、配额余额、借用或第二个发布版本。 */
@@ -230,7 +233,7 @@ export async function verifyUsageAccountManifest(value: unknown): Promise<UsageA
   if (await hashUsageAccountValue(body) !== manifestHash) fail('USAGE_ACCOUNT_MANIFEST_HASH_MISMATCH');
   return manifest;
 }
-export function parseUsageAccountRows(value: unknown, maximum = USAGE_ACCOUNT_MAX_ROWS): UsageAccountRow[] {
+export function parseUsageAccountRows(value: unknown, maximum = USAGE_ACCOUNT_MAX_ROWS, fixedIdentity = false): UsageAccountRow[] {
   if (!Array.isArray(value) || value.length > maximum) fail('USAGE_ACCOUNT_INVALID_ROWS');
   const identities = new Set<string>();
   let previous = '';
@@ -242,8 +245,12 @@ export function parseUsageAccountRows(value: unknown, maximum = USAGE_ACCOUNT_MA
     if (v.kind === 'category' ? !identifier(v.category) : v.category !== null)
       fail('USAGE_ACCOUNT_INVALID_CATEGORY');
     if (v.kind === 'subject') {
-      if (!identifier(v.subjectKey) || typeof v.displayName !== 'string' || v.displayName.length < 1
-        || v.displayName.length > 128 || /[\x00-\x1f\x7f\\/@]/.test(v.displayName))
+      const validIdentity = fixedIdentity
+        ? typeof v.subjectKey === 'string' && /^[A-Za-z0-9_.:-]{1,256}$/.test(v.subjectKey)
+        : identifier(v.subjectKey);
+      if (!validIdentity || typeof v.displayName !== 'string' || v.displayName.length < 1
+        || v.displayName.length > (fixedIdentity ? 512 : 128)
+        || (fixedIdentity ? /[\x00-\x1f\x7f]/ : /[\x00-\x1f\x7f\\/@]/).test(v.displayName))
         fail('USAGE_ACCOUNT_INVALID_SUBJECT');
     } else if (v.subjectKey !== null || v.displayName !== null) fail('USAGE_ACCOUNT_INVALID_SUBJECT');
     const row: UsageAccountRow = { kind: v.kind, hour: v.hour === null ? null : Number(v.hour),
@@ -262,8 +269,8 @@ export function validateUsageAccountDimensions(rows: UsageAccountRow[]): { total
   return validateDimensions(rows, false);
 }
 /** 日内独立定秒的各维度自身守恒；小时分配不要求跨维度父子上界。 */
-export function validateUsageAccountDimensionsV2(rows: UsageAccountRowV2[]): { total: number } {
-  parseUsageAccountRowsV2(rows);
+export function validateUsageAccountDimensionsV2(rows: UsageAccountRowV2[], algorithmVersion?: string): { total: number } {
+  parseUsageAccountRowsV2(rows, USAGE_ACCOUNT_MAX_ROWS, algorithmVersion);
   return validateDimensions(rows, true);
 }
 function validateDimensions(rows: UsageAccountRow[], independentHourlySeconds: boolean): { total: number } {
@@ -360,7 +367,7 @@ export async function verifyUsageAccountManifestV2(value: unknown): Promise<Usag
 export async function verifyApplicationAccountManifest(value: unknown): Promise<UsageAccountManifest | UsageAccountManifestV2> {
   return record(value) && value.schemaVersion === 2 ? verifyUsageAccountManifestV2(value) : verifyUsageAccountManifest(value);
 }
-export function parseUsageAccountRowsV2(value: unknown, maximum = USAGE_ACCOUNT_MAX_ROWS): UsageAccountRowV2[] {
+export function parseUsageAccountRowsV2(value: unknown, maximum = USAGE_ACCOUNT_MAX_ROWS, algorithmVersion?: string): UsageAccountRowV2[] {
   if (!Array.isArray(value) || value.length > maximum) fail('USAGE_ACCOUNT_INVALID_ROWS');
   const identities = new Set<string>();
   const categories = new Set(['study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked', 'historicalUnknown']);
@@ -368,10 +375,12 @@ export function parseUsageAccountRowsV2(value: unknown, maximum = USAGE_ACCOUNT_
   return value.map(item => {
     const v = exact(item, record(item) && item.kind === 'subject' ? [...rowFields, 'classifications'] : rowFields);
     const { classifications, ...base } = v;
-    const row: UsageAccountRowV2 = parseUsageAccountRows([base], 1)[0]!;
+    const row: UsageAccountRowV2 = parseUsageAccountRows([base], 1,
+      algorithmVersion === APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM)[0]!;
     if (row.duration > (row.hour === null ? 86400 : 3600)) fail('USAGE_ACCOUNT_INVALID_ROW');
     if (row.kind === 'subject') {
-      if (!Array.isArray(classifications) || classifications.length < 1 || classifications.length > categories.size
+      const minimumClassifications = algorithmVersion === APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM && row.duration === 0 ? 0 : 1;
+      if (!Array.isArray(classifications) || classifications.length < minimumClassifications || classifications.length > categories.size
         || !orderedUnique(classifications, c => typeof c === 'string' && categories.has(c)))
         fail('USAGE_ACCOUNT_INVALID_SUBJECT_CLASSIFICATIONS');
       row.classifications = classifications.map(String);
@@ -386,8 +395,8 @@ export function parseUsageAccountRowsV2(value: unknown, maximum = USAGE_ACCOUNT_
   });
 }
 export function parseApplicationAccountRows(value: unknown, schemaVersion: 1 | 2,
-  maximum = USAGE_ACCOUNT_MAX_ROWS): UsageAccountRowV2[] {
-  return schemaVersion === 2 ? parseUsageAccountRowsV2(value, maximum) : parseUsageAccountRows(value, maximum);
+  maximum = USAGE_ACCOUNT_MAX_ROWS, algorithmVersion?: string): UsageAccountRowV2[] {
+  return schemaVersion === 2 ? parseUsageAccountRowsV2(value, maximum, algorithmVersion) : parseUsageAccountRows(value, maximum);
 }
 export async function createUsageAccountV2(
   header: Omit<UsageAccountManifestV2, 'rowCount' | 'chunkCount' | 'rowsHash' | 'manifestHash'>,
@@ -397,7 +406,7 @@ export async function createUsageAccountV2(
     const left = canonicalUsageAccountJson(a), right = canonicalUsageAccountJson(b);
     return left < right ? -1 : left > right ? 1 : 0;
   });
-  validateUsageAccountDimensionsV2(rows);
+  validateUsageAccountDimensionsV2(rows, header.algorithmVersion);
   if (rows.some(row => row.duration > (row.hour === null ? 86400 : 3600))) fail('USAGE_ACCOUNT_INVALID_ROW');
   const base = { ...header, rowCount: rows.length, chunkCount: Math.ceil(rows.length / USAGE_ACCOUNT_CHUNK_ROWS),
     rowsHash: await hashUsageAccountValue(rows) };

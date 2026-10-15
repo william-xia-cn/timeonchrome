@@ -1,11 +1,13 @@
 import {parseUsageAccountRows,parseUsageAccountRowsV2,verifyUsageAccountManifestV2,validateUsageAccountDimensions,validateUsageAccountDimensionsV2,
-  hashUsageAccountValue,type UsageAccountRow,type UsageAccountManifest,type UsageAccountRowV2,type ApplicationUsageSeconds} from '@timeonchrome/app-runtime-contracts/usage-account';
+  hashUsageAccountValue,APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,type UsageAccountRow,type UsageAccountManifest,type UsageAccountRowV2,type ApplicationUsageSeconds} from '@timeonchrome/app-runtime-contracts/usage-account';
 import {HttpError} from './http';
 import type {StatisticsValue} from './applicationStatistics';
 import { normalizeApplicationUsageClock } from './applicationUsageClock';
 import { verifyApplicationAccountPublication,isReadableApplicationAccountSnapshot } from './applicationAccountPublication';
 import { readApplicationLedgerRetirement, isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
-type Filters={machineId?:string;localUserId?:string;platform?:string};
+import {nativeApplicationManagementTargetKey,type NativeApplicationManagementTarget} from '@timeonchrome/app-runtime-contracts/native-application-identification';
+type Filters={machineId?:string;localUserId?:string;platform?:string;fixedIdentityOnly?:boolean};
+type StatisticsRow=UsageAccountRowV2&{target?:NativeApplicationManagementTarget};
 const DAY=86400000,OFFSET=8*3600000;
 function mergeApplicationUsage(values:Array<ApplicationUsageSeconds|undefined|null>):ApplicationUsageSeconds|null {
   if(!values.length||values.some(value=>!value))return null;
@@ -37,19 +39,21 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
     .all<{manifest_id:string;revision:number;machine_id:string;local_user_id:string;assignment_version:number;
       manifest_json:string;manifest_hash:string}>();
   if(heads.results.length>100)throw new HttpError(503,'APPLICATION_STATISTICS_SOURCE_LIMIT','统计来源超过单次读取限制。');
-  const merged=new Map<string,UsageAccountRowV2>(),references:Array<{manifestId:string;revision:number;hash:string;settledThroughMs:number|null}>=[];
+  const merged=new Map<string,StatisticsRow>(),references:Array<{manifestId:string;revision:number;hash:string;settledThroughMs:number|null}>=[];
   let count=0,legacySourceCount=0;
   let complete=true;
   const reasonCodes=new Set<string>();
   const applicationUsage:Array<ApplicationUsageSeconds|undefined>=[];
   for(const head of heads.results){
     const value=JSON.parse(head.manifest_json);
+    if(filters.fixedIdentityOnly&&value.algorithmVersion!==APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM){legacySourceCount++;continue;}
     if(retirement&&!isV3OnlyApplicationManifest(value,child))continue;
     if(value.schemaVersion!==2){legacySourceCount++;continue;}
     const manifest=await verifyUsageAccountManifestV2(value);
     if(manifest.childId!==undefined&&manifest.childId!==child)
       throw new HttpError(503,'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH','统计清单孩子与读取范围不一致。');
-    if((retirement?!manifest.complete:!isReadableApplicationAccountSnapshot(manifest))||manifest.date!==date||manifest.sourceKind!=='application'
+    const fixedIdentity=manifest.algorithmVersion===APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM;
+    if((retirement&&!fixedIdentity?!manifest.complete:!isReadableApplicationAccountSnapshot(manifest))||manifest.date!==date||manifest.sourceKind!=='application'
       ||manifest.revision!==head.revision||manifest.manifestHash!==head.manifest_hash)
       throw new HttpError(503,'APPLICATION_STATISTICS_INVALID_PUBLICATION','已发布统计范围无效。');
     const chunks=await db.prepare(`SELECT chunk_index,rows_json FROM runtime_application_account_chunks_v1
@@ -57,10 +61,10 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
       .all<{chunk_index:number;rows_json:string}>();
     if(chunks.results.length!==manifest.chunkCount||chunks.results.some((chunk,index)=>chunk.chunk_index!==index))
       throw new HttpError(503,'APPLICATION_STATISTICS_CHUNKS_MISSING','已发布统计分块不完整。');
-    const rows=parseUsageAccountRowsV2(chunks.results.flatMap(chunk=>JSON.parse(chunk.rows_json)));
+    const rows=parseUsageAccountRowsV2(chunks.results.flatMap(chunk=>JSON.parse(chunk.rows_json)),10000,manifest.algorithmVersion);
     if(rows.length!==manifest.rowCount||await hashUsageAccountValue(rows)!==manifest.rowsHash)
       throw new HttpError(503,'APPLICATION_STATISTICS_HASH_MISMATCH','已发布统计完整性校验失败。');
-    validateUsageAccountDimensionsV2(rows);
+    validateUsageAccountDimensionsV2(rows,manifest.algorithmVersion);
     complete=complete&&manifest.complete;
     for(const reason of manifest.reasonCodes)reasonCodes.add(reason);
     count+=rows.length;
@@ -68,11 +72,13 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
     references.push({manifestId:head.manifest_id,revision:head.revision,hash:head.manifest_hash,settledThroughMs:manifest.settledThroughMs});
     applicationUsage.push(manifest.applicationUsage);
     for(const row of rows){
-      const key=JSON.stringify([row.kind,row.hour,row.category,row.subjectKey]),prior=merged.get(key);
+      const target=fixedIdentity&&row.kind==='subject'?{machineId:head.machine_id,nativeId:row.subjectKey!}:undefined;
+      const subjectKey=target?nativeApplicationManagementTargetKey(target):row.subjectKey;
+      const key=JSON.stringify([row.kind,row.hour,row.category,subjectKey]),prior=merged.get(key);
       if(prior){prior.duration+=row.duration;
         if(!Number.isSafeInteger(prior.duration))throw new HttpError(503,'APPLICATION_STATISTICS_DURATION_OVERFLOW','统计时长超出安全范围。');
         if(row.kind==='subject')prior.classifications=[...new Set([...(prior.classifications??[]),...row.classifications!])].sort();
-      }else merged.set(key,{...row,...(row.classifications?{classifications:[...row.classifications]}:{})});
+      }else merged.set(key,{...row,subjectKey,...(target?{target}:{}),...(row.classifications?{classifications:[...row.classifications]}:{})});
     }
   }
   if(references.length===0)return null;
@@ -92,7 +98,7 @@ export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,
     const date=new Date(cursor+OFFSET).toISOString().slice(0,10);
     days.push({date,snapshot:await readNativeApplicationStatisticsSeconds(db,account,child,date,filters)});
   }
-  const merged=new Map<string,UsageAccountRowV2>();
+  const merged=new Map<string,StatisticsRow>();
   for(const day of days)for(const row of day.snapshot?.rows??[]){
     if(row.hour!==null)continue;
     const key=JSON.stringify([row.kind,row.category,row.subjectKey]),prior=merged.get(key);
