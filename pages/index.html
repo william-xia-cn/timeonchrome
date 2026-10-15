@@ -1379,8 +1379,14 @@
         </div>
 
         <div class="card">
+          <div class="autonomy-control-row">
+            <div class="autonomy-control-copy"><div class="autonomy-control-title">时间段自主控制</div><div class="autonomy-control-note">开启后，各类网站在时间窗外需手动输入“适合使用”确认；60秒未确认强制阻断。黑名单、停用时间和硬限额仍强制执行。</div></div>
+            <label class="toggle" title="时间段自主控制"><input type="checkbox" id="a-time-window-advisory"><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+          </div>
+        </div>
+        <div class="card">
           <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/restricted.svg" alt="">进入受限娱乐网站</div><div class="card-subtitle">仅在时间窗和硬配额允许进入时生效</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/restricted.svg" alt="">进入受限娱乐网站</div><div class="card-subtitle">时间窗内沿用进入确认；时间窗外开启自主控制时使用文字确认</div></div>
           </div>
           <div class="autonomy-control-row">
             <div class="autonomy-control-copy">
@@ -1419,19 +1425,13 @@
                 <span class="quota-control-label">今日休息软限额（分钟）</span>
                 <span class="rest-reminder-input"><input class="quota-input" type="number" id="a-rest-first-reminder" min="1" max="1440" step="1" inputmode="numeric" aria-label="今日休息软限额分钟"><span class="quota-unit">分钟</span></span>
               </label>
-              <label class="rest-reminder-field" for="a-rest-repeat-reminder">
-                <span class="quota-control-label">超额后提醒间隔（分钟）</span>
-                <span class="rest-reminder-input"><input class="quota-input" type="number" id="a-rest-repeat-reminder" min="1" max="1440" step="1" inputmode="numeric" aria-label="超额后提醒间隔分钟"><span class="quota-unit">分钟</span></span>
-              </label>
+              <div class="rest-reminder-field"><span class="quota-control-label">超额后提醒节奏</span><span>首次确认后新增1小时，之后每新增30分钟提醒</span></div>
             </div>
             <div>
               <div class="quota-control-label" style="margin-bottom:7px;">提醒显示 60 秒后仍未处理</div>
-              <div class="autonomy-segmented" id="a-rest-timeout-actions" role="radiogroup" aria-label="软限额提醒无人响应动作">
-                <label><input type="radio" name="a-rest-timeout-action" value="end_rest"><span>结束休息</span></label>
-                <label><input type="radio" name="a-rest-timeout-action" value="continue"><span>默认继续</span></label>
-              </div>
+              <div id="a-rest-timeout-actions">强制阻断；必须手动输入“适合使用”并确认才可继续</div>
             </div>
-            <div class="weekly-rest-meta">默认今日 2 小时、本周 14 小时；日周共用超额后提醒间隔，默认 60 分钟。同时到期合并提醒，最多可能晚一个 3 分钟网页结算周期。软配额不替代硬上限。</div>
+            <div class="weekly-rest-meta">默认今日2小时、本周14小时。日周同时到期合并提醒；按实际新增休息用量推进，最多可能晚一个3分钟网页结算周期。软配额不替代硬上限。</div>
           </div>
         </div>
 
@@ -1441,7 +1441,7 @@
           </div>
           <div class="autonomy-guardrails">
             <div class="autonomy-guardrail">黑名单网站始终阻止访问</div>
-            <div class="autonomy-guardrail">学习、复合和休息时间窗始终生效</div>
+            <div class="autonomy-guardrail">停用时间始终强制执行</div>
             <div class="autonomy-guardrail">每日和每周硬配额始终生效</div>
             <div class="autonomy-guardrail">单站点配额始终生效</div>
           </div>
@@ -1455,6 +1455,7 @@
           <div class="card-header">
             <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">每日时段配置</div><div class="card-subtitle">在线时段 = 学习时段 ∪ 复合时段 ∪ 休息时段（只读自动合并）</div></div>
           </div>
+          <p id="time-window-control-mode" class="weekly-rest-meta"></p>
           <div id="time-windows-table" style="overflow-x:auto;">
             <!-- per-day table rendered by JS -->
           </div>
@@ -4470,12 +4471,13 @@ function buildProfileConfigExportData(classificationRequests = [], notificationS
         firstReminderMinutes: cfg.restConfig?.firstReminderMinutes === null
           ? null
           : quotaFiniteNumber(cfg.restConfig?.firstReminderMinutes) ?? 120,
-        repeatReminderMinutes: quotaFiniteNumber(cfg.restConfig?.repeatReminderMinutes) ?? 60,
+        repeatReminderMinutes: 60,
         weeklyFirstReminderMinutes: cfg.restConfig?.weeklyFirstReminderMinutes === null ? null : quotaFiniteNumber(cfg.restConfig?.weeklyFirstReminderMinutes) ?? 840,
       },
       autonomyConfig: {
         restrictedEntryConfirmationRequired: cfg.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
-        softReminderTimeoutAction: cfg.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
+        timeWindowAdvisoryEnabled: cfg.autonomyConfig?.timeWindowAdvisoryEnabled === true,
+        softReminderTimeoutAction: 'end_rest',
       },
       domainQuotas: cfg.domainQuotas || {},
       legacyQuotaSnapshot: {
@@ -4866,6 +4868,9 @@ function normalizeProfileConfigImportData(data) {
   const importedAutonomy = data.quota?.autonomyConfig && typeof data.quota.autonomyConfig === 'object'
     ? data.quota.autonomyConfig
     : {};
+  if (Object.hasOwn(importedAutonomy, 'timeWindowAdvisoryEnabled') && typeof importedAutonomy.timeWindowAdvisoryEnabled !== 'boolean') {
+    throw new Error('时间段自主控制必须是布尔值');
+  }
   const importedUnclassifiedNotification = data.notifications?.unclassifiedUsage
     && typeof data.notifications.unclassifiedUsage === 'object'
     ? profileNotificationSettingsView(data.notifications.unclassifiedUsage)
@@ -4888,12 +4893,13 @@ function normalizeProfileConfigImportData(data) {
     },
     restConfig: {
       firstReminderMinutes: importedFirstReminder === undefined ? 120 : importedFirstReminder,
-      repeatReminderMinutes: importedRepeatReminder === undefined ? 60 : importedRepeatReminder,
+      repeatReminderMinutes: 60,
       weeklyFirstReminderMinutes: importedWeeklyReminder,
     },
     autonomyConfig: {
       restrictedEntryConfirmationRequired: importedAutonomy.restrictedEntryConfirmationRequired !== false,
-      softReminderTimeoutAction: importedAutonomy.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
+      timeWindowAdvisoryEnabled: Object.hasOwn(importedAutonomy, 'timeWindowAdvisoryEnabled') ? importedAutonomy.timeWindowAdvisoryEnabled : undefined,
+      softReminderTimeoutAction: 'end_rest',
     },
     downtimeConfig: Object.hasOwn(data, 'downtime') ? window.TimeOnChromeDowntime.normalize(data.downtime) : undefined,
     unclassifiedUsageNotification: importedUnclassifiedNotification,
@@ -5030,30 +5036,22 @@ function buildProfileConfigImportDiffs(importedConfig) {
   } else {
     addConfigImportDiff(diffs, { type: 'modify', area: 'rest-reminder', key: 'firstReminderMinutes', label: '今日休息软限额', currentValue: configImportValueLabel(currentFirstReminder), importedValue: configImportValueLabel(importedFirstReminder), importedRawValue: importedFirstReminder });
   }
-  const currentRepeatReminder = quotaFiniteNumber(remoteConfig?.restConfig?.repeatReminderMinutes) ?? 60;
   const currentWeeklyReminder = remoteConfig?.restConfig?.weeklyFirstReminderMinutes === null ? null : quotaFiniteNumber(remoteConfig?.restConfig?.weeklyFirstReminderMinutes) ?? 840;
   const importedWeeklyReminder = importedConfig?.restConfig?.weeklyFirstReminderMinutes === null ? null : quotaFiniteNumber(importedConfig?.restConfig?.weeklyFirstReminderMinutes) ?? 840;
   addConfigImportDiff(diffs, { type: currentWeeklyReminder === importedWeeklyReminder ? 'same' : 'modify', area: 'rest-reminder', key: 'weeklyFirstReminderMinutes', label: '本周休息软配额', currentValue: configImportValueLabel(currentWeeklyReminder), importedValue: configImportValueLabel(importedWeeklyReminder), importedRawValue: importedWeeklyReminder });
-  const importedRepeatReminder = quotaFiniteNumber(importedConfig?.restConfig?.repeatReminderMinutes) ?? 60;
-  if (configImportJsonKey(currentRepeatReminder) === configImportJsonKey(importedRepeatReminder)) {
-    addConfigImportDiff(diffs, { type: 'same', area: 'rest-reminder', key: 'repeatReminderMinutes', label: '超额后提醒间隔', currentValue: configImportValueLabel(currentRepeatReminder), importedValue: configImportValueLabel(importedRepeatReminder) });
-  } else {
-    addConfigImportDiff(diffs, { type: 'modify', area: 'rest-reminder', key: 'repeatReminderMinutes', label: '超额后提醒间隔', currentValue: configImportValueLabel(currentRepeatReminder), importedValue: configImportValueLabel(importedRepeatReminder), importedRawValue: importedRepeatReminder });
-  }
 
   const currentEntryConfirmation = remoteConfig?.autonomyConfig?.restrictedEntryConfirmationRequired !== false;
+  if (typeof importedConfig?.autonomyConfig?.timeWindowAdvisoryEnabled === 'boolean') {
+    const before = remoteConfig?.autonomyConfig?.timeWindowAdvisoryEnabled === true;
+    const after = importedConfig.autonomyConfig.timeWindowAdvisoryEnabled;
+    addConfigImportDiff(diffs, { type: before === after ? 'same' : 'modify', area: 'autonomy', key: 'timeWindowAdvisoryEnabled',
+      label: '时间段自主控制', currentValue: before ? '建议模式' : '强制模式', importedValue: after ? '建议模式' : '强制模式', importedRawValue: after });
+  }
   const importedEntryConfirmation = importedConfig?.autonomyConfig?.restrictedEntryConfirmationRequired !== false;
   if (currentEntryConfirmation === importedEntryConfirmation) {
     addConfigImportDiff(diffs, { type: 'same', area: 'autonomy', key: 'restrictedEntryConfirmationRequired', label: '进入休息内容前需要确认', currentValue: currentEntryConfirmation ? '开启' : '关闭', importedValue: importedEntryConfirmation ? '开启' : '关闭' });
   } else {
     addConfigImportDiff(diffs, { type: 'modify', area: 'autonomy', key: 'restrictedEntryConfirmationRequired', label: '进入休息内容前需要确认', currentValue: currentEntryConfirmation ? '开启' : '关闭', importedValue: importedEntryConfirmation ? '开启' : '关闭', importedRawValue: importedEntryConfirmation });
-  }
-  const currentTimeoutAction = remoteConfig?.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest';
-  const importedTimeoutAction = importedConfig?.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest';
-  if (currentTimeoutAction === importedTimeoutAction) {
-    addConfigImportDiff(diffs, { type: 'same', area: 'autonomy', key: 'softReminderTimeoutAction', label: '软限额提醒无人响应', currentValue: currentTimeoutAction === 'continue' ? '默认继续' : '结束休息', importedValue: importedTimeoutAction === 'continue' ? '默认继续' : '结束休息' });
-  } else {
-    addConfigImportDiff(diffs, { type: 'modify', area: 'autonomy', key: 'softReminderTimeoutAction', label: '软限额提醒无人响应', currentValue: currentTimeoutAction === 'continue' ? '默认继续' : '结束休息', importedValue: importedTimeoutAction === 'continue' ? '默认继续' : '结束休息', importedRawValue: importedTimeoutAction });
   }
 
   if (importedConfig.unclassifiedUsageNotification) {
@@ -5144,12 +5142,13 @@ function buildProfileConfigImportPayload(selectedDiffs) {
       firstReminderMinutes: remoteConfig?.restConfig?.firstReminderMinutes === null
         ? null
         : quotaFiniteNumber(remoteConfig?.restConfig?.firstReminderMinutes) ?? 120,
-      repeatReminderMinutes: quotaFiniteNumber(remoteConfig?.restConfig?.repeatReminderMinutes) ?? 60,
+      repeatReminderMinutes: 60,
       weeklyFirstReminderMinutes: remoteConfig?.restConfig?.weeklyFirstReminderMinutes === null ? null : quotaFiniteNumber(remoteConfig?.restConfig?.weeklyFirstReminderMinutes) ?? 840,
     },
     autonomyConfig: {
       restrictedEntryConfirmationRequired: remoteConfig?.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
-      softReminderTimeoutAction: remoteConfig?.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
+      timeWindowAdvisoryEnabled: remoteConfig?.autonomyConfig?.timeWindowAdvisoryEnabled === true,
+      softReminderTimeoutAction: 'end_rest',
     },
     domainQuotas: { ...(remoteConfig?.domainQuotas || {}) },
     timeWindows: { daily: sanitizeTimeWindowsDailyForConfigIo(remoteConfig?.timeWindows?.daily || {}) },
@@ -5787,11 +5786,12 @@ function validRestReminderMinutes(value) {
 
 function autonomyConfigView(config = {}) {
   return {
+    timeWindowAdvisoryEnabled: config?.autonomyConfig?.timeWindowAdvisoryEnabled === true,
     restrictedEntryConfirmationRequired: config?.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
-    softReminderTimeoutAction: config?.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
+    softReminderTimeoutAction: 'end_rest',
     reminderEnabled: config?.restConfig?.firstReminderMinutes !== null,
     firstReminderMinutes: quotaFiniteNumber(config?.restConfig?.firstReminderMinutes) ?? 120,
-    repeatReminderMinutes: quotaFiniteNumber(config?.restConfig?.repeatReminderMinutes) ?? 60,
+    repeatReminderMinutes: 60,
     weeklyReminderEnabled: config?.restConfig?.weeklyFirstReminderMinutes !== null,
     weeklyFirstReminderMinutes: quotaFiniteNumber(config?.restConfig?.weeklyFirstReminderMinutes) ?? 840,
   };
@@ -5810,12 +5810,10 @@ function updateAutonomyInputs() {
 
   const confirmationRequired = document.getElementById('a-restricted-entry-confirmation')?.checked !== false;
   const first = Number(document.getElementById('a-rest-first-reminder')?.value) || 120;
-  const repeat = Number(document.getElementById('a-rest-repeat-reminder')?.value) || 60;
-  const timeoutAction = document.querySelector('input[name="a-rest-timeout-action"]:checked')?.value === 'continue' ? 'continue' : 'end_rest';
   document.getElementById('autonomy-summary-entry').textContent = confirmationRequired ? '完整确认' : '短提示后直接进入';
   const weeklyMinutes = Number(document.getElementById('a-rest-weekly-hours')?.value) * 60 + Number(document.getElementById('a-rest-weekly-minutes')?.value);
-  document.getElementById('autonomy-summary-reminder').textContent = `今日 ${enabled ? first + '分' : '关闭'} · 本周 ${weeklyEnabled ? Math.floor(weeklyMinutes / 60) + '小时' + (weeklyMinutes % 60 ? weeklyMinutes % 60 + '分' : '') : '关闭'}${enabled || weeklyEnabled ? '；每 ' + repeat + ' 分再次提醒' : ''}`;
-  document.getElementById('autonomy-summary-timeout').textContent = enabled || weeklyEnabled ? (timeoutAction === 'continue' ? '默认继续' : '结束休息') : '启用提醒后生效';
+  document.getElementById('autonomy-summary-reminder').textContent = `今日 ${enabled ? first + '分' : '关闭'} · 本周 ${weeklyEnabled ? Math.floor(weeklyMinutes / 60) + '小时' + (weeklyMinutes % 60 ? weeklyMinutes % 60 + '分' : '') : '关闭'}；首次继续后新增1小时，之后30分钟`;
+  document.getElementById('autonomy-summary-timeout').textContent = '60秒未确认强制阻断';
 }
 
 function quotaLegacyMinutes(value, fallback) {
@@ -6252,10 +6250,10 @@ async function saveDowntimeConfig() {
 }
 
 function setupAutonomy() {
+  document.getElementById('a-time-window-advisory').addEventListener('change', updateAutonomyInputs);
   document.getElementById('a-restricted-entry-confirmation').addEventListener('change', updateAutonomyInputs);
   document.getElementById('a-rest-reminder-enabled').addEventListener('change', updateAutonomyInputs);
   document.getElementById('a-rest-first-reminder').addEventListener('input', updateAutonomyInputs);
-  document.getElementById('a-rest-repeat-reminder').addEventListener('input', updateAutonomyInputs);
   document.getElementById('a-rest-weekly-enabled').addEventListener('change', updateAutonomyInputs);
   document.getElementById('a-rest-weekly-hours').addEventListener('input', updateAutonomyInputs);
   document.getElementById('a-rest-weekly-minutes').addEventListener('input', updateAutonomyInputs);
@@ -6267,10 +6265,10 @@ function setupAutonomy() {
 
 function renderAutonomyPage() {
   const view = autonomyConfigView(remoteConfig || {});
+  document.getElementById('a-time-window-advisory').checked = view.timeWindowAdvisoryEnabled;
   document.getElementById('a-restricted-entry-confirmation').checked = view.restrictedEntryConfirmationRequired;
   document.getElementById('a-rest-reminder-enabled').checked = view.reminderEnabled;
   document.getElementById('a-rest-first-reminder').value = String(view.firstReminderMinutes);
-  document.getElementById('a-rest-repeat-reminder').value = String(view.repeatReminderMinutes);
   document.getElementById('a-rest-weekly-enabled').checked = view.weeklyReminderEnabled;
   document.getElementById('a-rest-weekly-hours').value = String(Math.floor(view.weeklyFirstReminderMinutes / 60));
   document.getElementById('a-rest-weekly-minutes').value = String(view.weeklyFirstReminderMinutes % 60);
@@ -6283,7 +6281,7 @@ async function saveAutonomyConfig() {
   if (!currentProfileId || !remoteConfig) return;
   const reminderEnabled = document.getElementById('a-rest-reminder-enabled').checked;
   const firstReminderMinutes = Number(document.getElementById('a-rest-first-reminder').value);
-  const repeatReminderMinutes = Number(document.getElementById('a-rest-repeat-reminder').value);
+  const repeatReminderMinutes = 60;
   const weeklyEnabled = document.getElementById('a-rest-weekly-enabled').checked;
   const weeklyHours = Number(document.getElementById('a-rest-weekly-hours').value);
   const weeklyMinutes = Number(document.getElementById('a-rest-weekly-minutes').value);
@@ -6300,12 +6298,11 @@ async function saveAutonomyConfig() {
     return;
   }
 
-  const timeoutAction = document.querySelector('input[name="a-rest-timeout-action"]:checked')?.value === 'continue'
-    ? 'continue'
-    : 'end_rest';
+  const timeoutAction = 'end_rest';
   const payload = {
     autonomyConfig: {
       restrictedEntryConfirmationRequired: document.getElementById('a-restricted-entry-confirmation').checked,
+      timeWindowAdvisoryEnabled: document.getElementById('a-time-window-advisory').checked,
       softReminderTimeoutAction: timeoutAction,
     },
     restConfig: {
@@ -6872,6 +6869,9 @@ function ensureTimeWindowsDaily() {
 }
 
 function renderSchedulePage() {
+  const modeLabel = document.getElementById('time-window-control-mode');
+  if (modeLabel) modeLabel.textContent = remoteConfig?.autonomyConfig?.timeWindowAdvisoryEnabled === true
+    ? '建议模式：时间窗外需输入“适合使用”确认；60秒未确认强制阻断' : '强制模式：时间窗外禁止访问';
   ensureTimeWindowsDaily();
   const container = document.getElementById('time-windows-table');
   if (!container) return;

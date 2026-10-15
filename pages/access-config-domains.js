@@ -8,7 +8,7 @@
   const publicMinutes = ['studyMinutes', 'compositeMinutes', 'restMinutes'];
   const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
   const reminders = ['firstReminderMinutes', 'repeatReminderMinutes', 'weeklyFirstReminderMinutes'];
-  const autonomy = ['restrictedEntryConfirmationRequired', 'softReminderTimeoutAction'];
+  const autonomy = ['restrictedEntryConfirmationRequired', 'softReminderTimeoutAction', 'timeWindowAdvisoryEnabled'];
   const windows = ['studyWindows', 'compositeWindows', 'restWindows'];
   const websiteFields = ['customStudyList', 'customCompositeList', 'customRestrictedEntertainmentList', 'customBlockedSites', 'siteClassificationRulesV1', 'siteUsageClassificationRulesV1', 'domainQuotas'];
   const publicAreas = new Set(['weekly-quota', 'rest-reminder', 'autonomy', 'time-window', 'downtime']);
@@ -34,7 +34,7 @@
       result.quota = {
         timeQuota: { ...pick(source.quota?.timeQuota, ['accountingVersion']), daily: days(source.quota?.timeQuota?.daily, publicMinutes), weekly: pick(source.quota?.timeQuota?.weekly, ['restMinutes']) },
         restConfig: pick(source.quota?.restConfig, ['firstReminderMinutes', 'repeatReminderMinutes', 'weeklyFirstReminderMinutes']),
-        autonomyConfig: pick(source.quota?.autonomyConfig, ['restrictedEntryConfirmationRequired', 'softReminderTimeoutAction']),
+        autonomyConfig: pick(source.quota?.autonomyConfig, ['restrictedEntryConfirmationRequired', 'softReminderTimeoutAction', 'timeWindowAdvisoryEnabled']),
       };
       result.timeWindows = { daily: days(source.timeWindows?.daily, windows) };
       if (own(source, 'downtime')) result.downtime = pick(source.downtime,

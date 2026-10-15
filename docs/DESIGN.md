@@ -1,5 +1,9 @@
 # TimeOnChrome — 技术设计文档
 
+## 时间窗自主控制配置（2026-10-15，PO批准）
+
+autonomyConfig.timeWindowAdvisoryEnabled为可选布尔，缺省false，Pages编辑、导入导出与终端只读一致；旧repeatReminderMinutes/softReminderTimeoutAction仅兼容，新文字提醒固定60秒未处理强制阻断、首次确认后新增60分钟再提醒、之后30分钟。全部网站性质的时间窗纳入建议，黑名单/停用/硬配额不变。仅实现，不发布、不修改生产档案。
+
 ## Native本机命名元数据的云端接线（2026-10-15，开发契约1.48.0）
 
 沿既有机器鉴权：capabilities声明native-application-identification-v1，仅0022表及两个约束trigger就绪时可用。POST /v2/machines/program-instances/local-identifications接收schemaVersion/childId/localUserId/assignmentVersion/items；正文上限262144字节、最多50项。每项引用已登记instanceId，revision持久单调、observedAtMs固定该次变更；identifications为1～16项完整已登记集合或null显式失效。项字段固定nativeId/name/status/evidence，禁止目录、路径、SID、窗口、PID及自由诊断值。状态沿用Native identified/dynamic-registry/dynamic-process，不升级为Verified或产品权限。
