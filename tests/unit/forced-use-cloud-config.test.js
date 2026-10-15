@@ -45,4 +45,47 @@ assert.match(text, /'forcedUsePolicyV1', 'downtimeConfig'/);
 assert.match(text, /validateForcedUsePolicy\(incomingConfig\)/);
 assert.match(page, /支持此配置的非共享终端同步后生效。共享提醒仍待单独验收/);
 assert.doesNotMatch(page, /须待终端与共享提醒契约验收后才会执行/);
+const executionNode = source.statements.find(item => ts.isFunctionDeclaration(item)
+  && item.name?.text === 'validateForcedUseExecutionConfig');
+vm.runInContext(ts.transpileModule(executionNode.getText(source), {
+  compilerOptions: { target: ts.ScriptTarget.ES2022 },
+}).outputText, context);
+const checkExecution = (config, incoming) => context.validateForcedUseExecutionConfig(config, incoming);
+for (const accountingVersion of [undefined, 1]) {
+  assert.ok(checkExecution({ forcedUsePolicyV1: valid, timeQuota: { accountingVersion } }, { forcedUsePolicyV1: valid }));
+}
+assert.equal(checkExecution({ forcedUsePolicyV1: valid, timeQuota: { accountingVersion: 2 } }, { forcedUsePolicyV1: valid }), null);
+assert.ok(checkExecution({ forcedUsePolicyV1: valid, timeQuota: { accountingVersion: 1 } }, { timeQuota: { accountingVersion: 1 } }));
+assert.equal(checkExecution({ forcedUsePolicyV1: { ...valid, enabled: false } }, { forcedUsePolicyV1: { ...valid, enabled: false } }), null);
+assert.equal(checkExecution({ forcedUsePolicyV1: valid, timeQuota: { accountingVersion: 1 } }, { studyList: ['study.example'] }), null,
+  'unrelated edits do not block old malformed combinations');
+assert.match(text, /validateForcedUseExecutionConfig\(mergedConfig, incomingConfig\)/);
+assert.match(text, /FORCED_USE_REQUIRES_V2_ACCOUNTING/);
+
+const pageSource = ts.createSourceFile('page.js', page.split('<script>')[1].split('</script>')[0], ts.ScriptTarget.Latest, true);
+const names = ['validateImportedForcedUsePolicy', 'hasUnifiedForcedUseConfig', 'buildUnifiedForcedUsePatch', 'confirmUnifiedForcedUseSave'];
+const functions = pageSource.statements.filter(item => ts.isFunctionDeclaration(item) && names.includes(item.name?.text));
+assert.equal(functions.length, names.length);
+const pageContext = vm.createContext({
+  FORCED_USE_LIMIT_FIELDS: Object.keys(valid.quotaOverrunMinutes).map(key => [key, key]),
+  window: { confirm: () => false },
+});
+vm.runInContext(functions.map(item => item.getText(pageSource)).join('\n'), pageContext);
+const existing = { timeQuota: { accountingVersion: 1, daily: { monday: { restMinutes: 240 } }, weekly: { restMinutes: 840 } },
+  restConfig: { firstReminderMinutes: 120, weeklyFirstReminderMinutes: 840 }, domainQuotas: { 'site.example': 60 } };
+const before = JSON.stringify(existing);
+const patch = JSON.parse(JSON.stringify(pageContext.buildUnifiedForcedUsePatch(existing, valid)));
+assert.equal(patch.timeQuota.accountingVersion, 2);
+assert.deepEqual(patch.timeQuota.daily, existing.timeQuota.daily);
+assert.deepEqual(patch.timeQuota.weekly, existing.timeQuota.weekly);
+assert.deepEqual(patch.forcedUsePolicyV1, valid);
+assert.equal(patch.restConfig, undefined, 'old reminder thresholds are not rewritten');
+assert.equal(patch.domainQuotas, undefined, 'site limits are not rewritten');
+assert.equal(JSON.stringify(existing), before, 'preparing a transition does not mutate saved configuration');
+assert.equal(pageContext.confirmUnifiedForcedUseSave(existing), false);
+pageContext.window.confirm = () => true;
+assert.equal(pageContext.confirmUnifiedForcedUseSave(existing), true);
+pageContext.window.confirm = () => { throw Error('already migrated must not prompt again'); };
+assert.equal(pageContext.confirmUnifiedForcedUseSave(patch), true);
+assert.doesNotMatch(page, /id="(?:a-rest-reminder-enabled|a-rest-first-reminder|a-rest-weekly-enabled|a-schedule-reminder-interval|a-forced-use-enabled)"/);
 console.log('forced-use-cloud-config: passed');

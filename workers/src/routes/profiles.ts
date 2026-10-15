@@ -491,6 +491,15 @@ function validateForcedUsePolicy(config: Record<string, unknown>): string | null
   return null;
 }
 
+function validateForcedUseExecutionConfig(config: Record<string, unknown>, incoming: Record<string, unknown>): string | null {
+  const quotaPatch = incoming.timeQuota as any;
+  const relevant = Object.hasOwn(incoming, 'forcedUsePolicyV1')
+    || quotaPatch && Object.hasOwn(quotaPatch, 'accountingVersion');
+  if (!relevant || (config.forcedUsePolicyV1 as any)?.enabled !== true) return null;
+  return Number((config.timeQuota as any)?.accountingVersion) === 2 ? null
+    : '统一强行使用需要V2配额计算，请与自主度配置一起保存';
+}
+
 // 当 timeQuota 中所有天的某个字段值完全一致且为有限值时，同步对应的 daily legacy 字段。
 // weeklyRestQuota 不再由每日配额派生。
 function syncLegacyQuota(config: Record<string, unknown>): void {
@@ -1000,6 +1009,11 @@ export const profilesRouter = {
               mergedConfig[key] = value;
             }
           }
+        }
+
+        const forcedUseExecutionError = validateForcedUseExecutionConfig(mergedConfig, incomingConfig);
+        if (forcedUseExecutionError) {
+          return json({ error: forcedUseExecutionError, code: 'FORCED_USE_REQUIRES_V2_ACCOUNTING' }, 400);
         }
 
         // 3. 懒迁移：旧 Profile 没有 custom 字段时，从 effective 反推

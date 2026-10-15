@@ -407,16 +407,18 @@ async function main() {
 
   const cloudRoot = process.env.TOC_CLOUD_TEST_ROOT || path.join(__dirname, '..', '..');
   const pages = fs.readFileSync(path.join(cloudRoot, 'pages', 'index.html'), 'utf8');
-  check('Pages exposes soft-limit and advisory controls without obsolete interval input', ['a-rest-reminder-enabled', 'a-rest-first-reminder', 'a-time-window-advisory'].every(id => pages.includes(`id="${id}"`)) && !pages.includes('id="a-rest-repeat-reminder"'));
+  check('Pages exposes one unified interval and advisory control', ['a-forced-use-interval', 'a-time-window-advisory'].every(id => pages.includes(`id="${id}"`)) && !pages.includes('id="a-rest-reminder-enabled"'));
   check('Pages keeps mandatory timeout instead of default-continue controls', pages.includes('60秒未确认') && !/<input\b[^>]*\bname="a-rest-timeout-action"/i.test(pages));
   check('Pages uses one-to-1440 validation', pages.includes('validRestReminderMinutes') && pages.includes('number <= 1440'));
-  check('Pages saves and exports fixed compatibility interval', pages.includes('repeatReminderMinutes: 60') && pages.includes('repeatReminderMinutes,'));
+  check('Pages retains old fixed interval only for compatibility and saves unified prerequisites', pages.includes('repeatReminderMinutes: 60') && pages.includes('buildUnifiedForcedUsePatch(remoteConfig'));
   check('content timeout only blocks', content.includes("const timeoutAction = 'end'") && content.includes("restReminderResolveAction?.(timeoutAction)"));
 
   const worker = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'profiles.ts'), 'utf8');
   check('Worker validates both reminder fields', worker.includes('restConfig.repeatReminderMinutes') && worker.includes('1-1440 的整数分钟'));
   check('Worker validates autonomy boolean and timeout enum', worker.includes('autonomyConfig.restrictedEntryConfirmationRequired 必须是布尔值') && worker.includes('autonomyConfig.softReminderTimeoutAction 必须是 end_rest 或 continue'));
-  check('Worker allows autonomy config in controlled profile writes', /'restConfig',\s*'autonomyConfig',\s*(?:'downtimeConfig',\s*)?'autoStudyConfig'/.test(worker));
+  const allowedConfigKeys = worker.match(/const ALLOWED_KEYS = new Set\(\[([\s\S]*?)\]\);/)?.[1] || '';
+  check('Worker allows reminder and unified autonomy fields in controlled profile writes',
+    ['restConfig', 'autonomyConfig', 'forcedUsePolicyV1'].every(key => allowedConfigKeys.includes(`'${key}'`)));
   check('Worker deep merges rest and autonomy config', worker.includes("key === 'restConfig' || key === 'autonomyConfig'") && worker.includes('mergedConfig[key] ='));
 
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'product', 'rest-usage-reminder.js'), 'utf8');
