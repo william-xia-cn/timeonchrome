@@ -85,6 +85,27 @@ async function testDefaultLocalPolicy() {
   check('unbound log keeps null profile/device', result.logs[0].profileId === null && result.logs[0].deviceId === null && result.logs[0].bindingState === 'unbound');
 }
 
+async function testDefaultAccessUpload() {
+  mockLocal.reset();
+  await mockLocal.set({ cloud_profile_id: 'p', cloud_device_id: 'd', cloud_device_token: 'test-only' });
+  await logs.logClientEvent({ level: 'info', category: 'access', eventCode: 'access_management_decision',
+    details: { auditId: 'access-test', access: 'allow' } });
+  const stored = (await logs.getClientLogs()).logs;
+  check('default access summary is persistent and pending', stored.length === 1 && stored[0].uploadStatus === 'pending');
+  check('default warning upload', logs.shouldUploadClientLog({ level: 'warning', category: 'access' }, {}));
+  check('default detailed info remains off', !logs.shouldUploadClientLog({ level: 'info', category: 'access', eventCode: 'verbose' }, {}));
+  for (const policy of [
+    { policyVersion: 2, uploadEnabled: false },
+    { policyVersion: 2, uploadEnabled: true, expiresAt: Date.now() - 1000 },
+    { uploadEnabled: true, expiresAt: Date.now() - 1000 },
+    { policyVersion: 2, uploadEnabled: true, targetDeviceIds: ['another-device'] },
+  ]) check('explicit off/expiry/device restriction wins', !logs.shouldUploadClientLog(stored[0], policy));
+  check('legacy policy is not promoted to permanent info', !logs.shouldUploadClientLog(stored[0], { uploadEnabled: true }));
+  await mockLocal.set({ guardian_config: { clientLoggingPolicyV1: { policyVersion: 2, uploadEnabled: false } } });
+  const pending = await logs.getPendingClientLogsForUpload();
+  check('disabling upload also stops queued summaries', pending.logs.length === 0);
+}
+
 async function testBoundIdentityAndRedaction() {
   mockLocal.reset();
   await mockLocal.set({
@@ -289,6 +310,7 @@ function testStaticWiring() {
 
 (async () => {
   await testDefaultLocalPolicy();
+  await testDefaultAccessUpload();
   await testBoundIdentityAndRedaction();
   await testUploadPolicyAndTtl();
   await testRetentionMaxEntries();

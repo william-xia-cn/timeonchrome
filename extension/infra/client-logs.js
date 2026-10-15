@@ -34,10 +34,11 @@ const VALID_CATEGORIES = new Set([
 ]);
 
 const DEFAULT_POLICY = {
+  policyVersion: 2,
   localEnabled: true,
   localMinLevel: 'warning',
-  uploadEnabled: false,
-  uploadMinLevel: 'error',
+  uploadEnabled: true,
+  uploadMinLevel: 'warning',
   categories: [],
   uploadCategories: [],
   targetDeviceIds: [],
@@ -65,7 +66,8 @@ function serializeLogMutation(task) {
   logMutationQueue = result.catch(() => {});
   return result;
 }
-const HEALTH_EVENTS = new Set(['sync_health_summary', 'quota_denial_evidence', 'cloud_failure_incident_resolved', 'client_log_loss_summary']);
+const HEALTH_EVENTS = new Set(['sync_health_summary', 'quota_denial_evidence', 'cloud_failure_incident_resolved', 'client_log_loss_summary',
+  'access_management_decision', 'access_management_prompt', 'access_management_periodic']);
 const lossCounters = { writeFailed: 0, readFailed: 0, dropped: 0, truncated: 0 };
 const countLoss = key => { lossCounters[key] = Math.min(Number.MAX_SAFE_INTEGER, lossCounters[key] + 1); };
 export function noteClientLogLoss(key = 'dropped') { if (key in lossCounters) countLoss(key); }
@@ -253,7 +255,7 @@ function normalizePolicy(policy = {}) {
     : [];
   const sampleRate = Math.max(0, Math.min(1, Number(merged.sampleRate ?? 1)));
   return {
-    policyVersion: merged.policyVersion === 2 ? 2 : 1,
+    policyVersion: policy.policyVersion === 2 || Object.keys(policy).length === 0 ? 2 : 1,
     infoExpiresAt: Number(merged.infoExpiresAt) > 0 ? Number(merged.infoExpiresAt) : null,
     localEnabled: merged.localEnabled !== false,
     localMinLevel,

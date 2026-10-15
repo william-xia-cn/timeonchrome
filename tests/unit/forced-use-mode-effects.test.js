@@ -6,7 +6,9 @@ const vm = require('node:vm');
 const ts = require('typescript');
 
 const calls = [];
+const diagnostics = [];
 const dependencies = {
+  '../infra/access-diagnostics.js': { recordAccessDiagnostic: (...args) => diagnostics.push(args) },
   '../infra/storage.js': { getConfig: async () => ({ mode: 'study' }),
     getSession: async () => ({ currentMode: 'study' }), clearTemporaryCompositeDomains: async () => {} },
   '../infra/diagnostic-evidence.js': { recordQuotaDenial: () => {} },
@@ -39,6 +41,9 @@ vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
     } });
   assert.equal(confirmed.blocked, true);
   assert.equal(confirmed.confirmationPending, true);
+  assert.equal(diagnostics.at(-1)[0], 'decision');
+  assert.equal(diagnostics.at(-1)[1].confirmationPending, true);
+  assert.match(diagnostics.at(-1)[1].auditId, /^access-/);
   assert.equal(calls.length, 0);
   const missing = await moduleExports.executeModeDecision({ access: 'forced_confirmation',
     domain: 'wiki.example', forcedAdmission: admission }, { tabId: 8, event });

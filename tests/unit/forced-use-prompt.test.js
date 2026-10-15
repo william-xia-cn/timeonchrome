@@ -18,7 +18,8 @@ vm.runInNewContext(ts.transpileModule(source, {
 })[name], crypto: { randomUUID: () => 'test-token' } });
 
 function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = false,
-  evidenceFails = false } = {}) {
+  evidenceFails = false, diagnosticFails = false } = {}) {
+  const diagnostics = [];
   const values = {}, messages = [], blocks = [], grants = [], alarms = [], evidence = [], closures = [];
   let clock = 1000;
   let closeFails = false;
@@ -35,12 +36,16 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
   } }, alarms: { create: async (name, value) => alarms.push([name, value]), clear: async () => true } };
   const storage = { get: async key => ({ [key]: values[key] }), set: async next => Object.assign(values, next) };
   const runtime = moduleExports.createForcedUsePromptRuntime({ api, storage, now: () => clock,
+    diagnostic: (kind, details) => {
+      if (diagnosticFails) throw new Error('diagnostic unavailable');
+      diagnostics.push({ kind, details });
+    },
     recheck: async prompt => hardAtConfirm ? { action: 'block' } : prompt.admission,
     onAccepted: async (prompt, state) => { grants.push([prompt, state]); return { ok: !grantFails }; },
     persistGrant: async grant => { evidence.push(grant); return { ok: !evidenceFails }; },
     closeGrants: async (host, endedAt) => { closures.push([host, endedAt]); return { ok: !closeFails }; },
     block: async (prompt, reason) => { blocks.push([prompt, reason]); return { ok: true }; } });
-  return { runtime, admission, values, messages, blocks, grants, alarms, evidence, closures,
+  return { runtime, admission, values, messages, blocks, grants, alarms, evidence, closures, diagnostics,
     setClock: value => { clock = value; }, setCloseFailure: value => { closeFails = value; } };
 }
 
@@ -51,6 +56,10 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
     ['SHOW_REST_USAGE_REMINDER', 'ACTIVATE_REST_USAGE_REMINDER']);
   assert.equal(f.alarms.length, 1);
   assert.equal(f.alarms[0][1].when, 61000);
+  assert.deepEqual(f.diagnostics.map(row => row.details.phase), ['requested', 'visible']);
+  assert.equal(f.diagnostics[0].details.auditId, f.diagnostics[1].details.auditId);
+  assert(!JSON.stringify(f.diagnostics).includes('test-token'));
+  assert(!JSON.stringify(f.diagnostics).includes('wiki.example'));
   assert.equal((await f.runtime.request({ tabId: 7, host: 'wiki.example', admission: f.admission })).pending, true);
   assert.equal(f.messages.filter(([, payload]) => payload.type === 'SHOW_REST_USAGE_REMINDER').length, 1);
   assert.equal((await f.runtime.request({ tabId: 8, host: 'wiki.example', admission: f.admission })).error,
@@ -64,6 +73,9 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
   assert.equal((await f.runtime.handleAction({ token: 'test-token', action: 'continue', confirmationText: '强行使用' },
     { tab: { id: 7 }, frameId: 0 })).action, 'continue');
   assert.equal(f.grants.length, 1);
+  assert.equal(f.diagnostics.at(-1).details.phase, 'continued');
+  const noLogs = fixture({ diagnosticFails: true });
+  assert.equal((await noLogs.runtime.request({ tabId: 7, host: 'wiki.example', admission: noLogs.admission })).ok, true);
   assert.equal(f.evidence.length, 1);
   assert.equal(f.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt, null);
   assert.equal(f.values[moduleExports.FORCED_USE_PROMPT_KEY].grants[0].domain, 'wiki.example');
@@ -91,6 +103,7 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
     { tab: { id: 7 }, frameId: 0 })).reason, 'hard_limit');
   assert.equal(hard.grants.length, 0);
   assert.equal(hard.blocks.length, 1);
+  assert.equal(hard.diagnostics.at(-1).details.reason, 'hard_limit');
 
   const rejectedGrant = fixture({ grantFails: true });
   await rejectedGrant.runtime.request({ tabId: 7, host: 'wiki.example', admission: rejectedGrant.admission });
@@ -123,6 +136,8 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
   timedOut.setClock(61000);
   assert.equal((await timedOut.runtime.checkDeadline()).reason, 'confirmation_timeout');
   assert.equal(timedOut.blocks.length, 1);
+  assert.equal(timedOut.diagnostics.at(-1).details.reason, 'confirmation_timeout');
+  assert.equal(timedOut.diagnostics.at(-1).details.blocked, true);
   assert.equal(timedOut.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt, null);
   assert.equal(timedOut.values[moduleExports.FORCED_USE_PROMPT_KEY].progress.grants['wiki-rule'], undefined);
   assert.deepEqual(timedOut.values[moduleExports.FORCED_USE_PROMPT_KEY].progress.grants['other-rule'], ['dailyRest']);
@@ -131,6 +146,7 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
   await recovery.runtime.request({ tabId: 7, host: 'wiki.example', admission: recovery.admission });
   assert.equal((await recovery.runtime.recover()).restored, true);
   assert.equal(recovery.alarms.length, 2);
+  assert.equal(recovery.diagnostics.at(-1).details.phase, 'restored');
   recovery.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt.deadlineAt = null;
   assert.equal((await recovery.runtime.recover()).reason, 'delivery_interrupted');
   assert.equal(recovery.blocks.length, 1);
