@@ -3,23 +3,29 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { isolatedExtension } = require('./helpers/isolated-extension');
+const ts = require('typescript');
+
+const backgroundSource = fs.readFileSync(path.resolve(__dirname, '../../extension/background.js'), 'utf8');
+const ast = ts.createSourceFile('background.js', backgroundSource, ts.ScriptTarget.Latest, true);
+const configuration = ast.statements.find(node => ts.isExpressionStatement(node) && ts.isCallExpression(node.expression)
+  && node.expression.expression.getText(ast) === 'configureRestUsageReminder').getText(ast)
+  .replace('getDateKey,', 'getDateKey: () => restTestDate || getDateKey(),')
+  .replace(/getQuotaUsageView:[^\r\n]*/, 'getQuotaUsageView: async () => restTestUsage,');
+if (!configuration.includes('getQuotaUsageView: async () => restTestUsage')) throw new Error('Quota fixture injection failed');
 
 // Only quota amounts/date are accelerated. Chrome APIs, session, SW, Content and actions are real.
 const harness = `
 let restTestUsage = { ok: true, restSeconds: 0, weekRestSeconds: 0 };
 let restTestDate = null;
-configureRestUsageReminder({
-  getConfig, getDateKey: () => restTestDate || getDateKey(), getTimingSession,
-  getQuotaUsageView: async () => restTestUsage,
-  canContinueRest: async ({ prompt }) => {
-    const tab = await chrome.tabs.get(prompt.sourceTabId).catch(() => null);
-    if (!tab?.url) return false;
-    const result = await dispatchModeEvent({ type: 'ACCESS_OBSERVED', tabId: tab.id, url: tab.url, source: 'soft_reminder_continue_check' });
-    return result?.ok !== false && result?.blocked !== true && result?.reminderSent !== true;
-  },
-  endRestUsage: async ({ prompt, reason }) => dispatchModeEvent({ type: 'REQUEST_MODE_CHANGE',
-    requestedMode: 'study', source: 'rest_usage_reminder', reason: 'rest_usage_reminder_' + reason, tabId: prompt.sourceTabId }),
-});
+${configuration}
+globalThis.restAcceptanceRequestMode = () => dispatchModeEvent({ type: 'REQUEST_MODE_CHANGE', requestedMode: 'rest', source: 'isolated_acceptance' }, { recheck: false });
+globalThis.restAcceptanceCloseWindow = async () => {
+  const config = await getConfig();
+  const start = new Date().getHours() === 0 ? '01:00' : '00:00';
+  const end = new Date().getHours() === 0 ? '02:00' : '01:00';
+  for (const value of Object.values(config.timeWindows.daily)) value.restWindows = [{ start, end }];
+  await saveConfig(config);
+};
 globalThis.restAcceptance = async (input = {}) => {
   if (input.usage) restTestUsage = input.usage;
   if (input.date) restTestDate = input.date;
@@ -105,28 +111,36 @@ test(hardOnly ? 'real unpacked hard time window prevents soft continue'
       return result;
     };
     const state = async () => (await worker.evaluate(() => restAcceptance())).state;
-    const thumb = media.getByRole('button', { name: '滑动继续休息' });
     const keepGoing = async () => {
-      await thumb.focus(); await thumb.press('End');
+      await media.getByRole('textbox', { name: '手动输入适合使用' }).fill('适合使用');
+      await media.getByRole('button', { name: '确认继续', exact: true }).click();
       await expect.poll(async () => (await state())?.prompt || null).toBe(null);
       await expect(media.locator('#__toc_rest_usage_reminder__')).toHaveCount(0);
       await expect.poll(() => media.locator('audio').evaluate(n => n.paused)).toBe(false);
     };
+    await expect.poll(async () => {
+      await media.bringToFront();
+      const current = await contextState();
+      return current.sessionState === 'ACTIVE' && current.quotaBucket === 'rest'
+        && current.sessionTab === current.activeTab && current.sessionWindow === current.activeWindow
+        && current.focused === true && !current.minimized;
+    }, { timeout: 15000 }).toBe(true);
     if (!hardOnly) {
     const daily = await evaluate(60, 60, { reset: true, date: '2026-09-28' });
     expect(daily.prompt.reminders.map(r => r.scope)).toEqual(['daily']);
     await expect(media.getByRole('heading', { name: '已达到今日休息软配额' })).toBeVisible();
     await expect.poll(() => media.locator('audio').evaluate(n => n.paused)).toBe(true);
     await keepGoing();
-    const combined = await evaluate(120, 120);
+    const combined = await evaluate(3660, 3660);
     expect(combined.prompt.reminders.map(r => r.scope)).toEqual(['daily', 'weekly']);
     await expect(media.getByRole('heading', { name: '今日与本周休息软配额提醒' })).toBeVisible();
     await media.screenshot({ path: path.join(directory, 'combined-desktop.png') });
     await media.setViewportSize({ width: 390, height: 844 });
     await media.screenshot({ path: path.join(directory, 'combined-mobile.png') });
     await keepGoing();
-    expect((await state()).weekly.nextThresholdSeconds).toBe(180);
-    const weekly = await evaluate(0, 180, { date: '2026-09-29' });
+    expect((await state()).nextThresholdSeconds).toBe(5460);
+    expect((await state()).weekly.nextThresholdSeconds).toBe(7260);
+    const weekly = await evaluate(0, 7260, { date: '2026-09-29' });
     expect(weekly.prompt.reminders.map(r => r.scope)).toEqual(['weekly']);
     await keepGoing();
     const newWeek = await evaluate(0, 0, { date: '2026-10-05' });
@@ -137,7 +151,11 @@ test(hardOnly ? 'real unpacked hard time window prevents soft continue'
     await evaluate(60, 60);
     // Let the real Content countdown and real alarm share the same wall clock.
     await expect.poll(async () => (await state())?.lastResolution?.reason,
-      { timeout: 75000, intervals: [1000] }).toBe('timeout_continue');
+      { timeout: 75000, intervals: [1000] }).toBe('confirmation_timeout');
+    await expect.poll(() => media.url()).toContain('reminder.html');
+    await worker.evaluate(() => restAcceptanceRequestMode());
+    await media.goto(url); await media.bringToFront();
+    await media.locator('audio').evaluate(n => n.play()); await media.mouse.click(15, 15);
     await expect(media.locator('#__toc_rest_usage_reminder__')).toHaveCount(0);
     await expect.poll(() => media.locator('audio').evaluate(n => n.paused)).toBe(false);
 
@@ -147,34 +165,24 @@ test(hardOnly ? 'real unpacked hard time window prevents soft continue'
         && current.sessionTab === current.activeTab && current.sessionWindow === current.activeWindow
         && current.focused === true && !current.minimized;
     }, { timeout: 15000 }).toBe(true);
-    const endPrompt = await evaluate(120, 120);
+    const endPrompt = await evaluate(60, 60, { reset: true });
     expect(endPrompt.prompt?.token, JSON.stringify(diagnosticEvents.at(-1))).toBeTruthy();
-    await media.getByRole('button', { name: '结束休息', exact: true }).click();
+    await media.getByRole('button', { name: '结束使用', exact: true }).click();
     await expect.poll(async () => (await worker.evaluate(() => restAcceptance())).config.mode).toBe('study');
     expect((await state()).lastResolution.action).toBe('end');
     }
 
     // Deny a real existing access route by closing its window; no ledger fixtures are written.
-    await probe.evaluate(async () => {
-      const { getConfig, saveConfig } = await import('./infra/storage.js');
-      const config = await getConfig(); config.mode = 'rest';
-      await saveConfig(config);
-    });
+    await worker.evaluate(() => restAcceptanceRequestMode());
     await media.goto(url); await media.bringToFront();
     await media.locator('audio').evaluate(n => n.play()); await media.mouse.click(15, 15);
     await expect.poll(async () => (await worker.evaluate(() => restAcceptance())).session?.quotaBucketAtTime).toBe('rest');
     await evaluate(60, 60, { reset: true, date: '2026-09-28' });
-    await probe.evaluate(async () => {
-      const { getConfig, saveConfig } = await import('./infra/storage.js');
-      const config = await getConfig();
-      // Empty arrays normalize to unrestricted. Use a valid window excluding now.
-      const start = new Date().getHours() === 0 ? '01:00' : '00:00';
-      const end = new Date().getHours() === 0 ? '02:00' : '01:00';
-      for (const value of Object.values(config.timeWindows.daily)) value.restWindows = [{ start, end }];
-      await saveConfig(config);
-    });
+    await expect(media.getByRole('heading', { name: '已达到今日休息软配额' })).toBeVisible();
+    await worker.evaluate(() => restAcceptanceCloseWindow());
     // Real Content action is posted before routing replaces the denied page.
-    await media.getByRole('button', { name: '滑动继续休息' }).press('End').catch(() => {});
+    await media.getByRole('textbox', { name: '手动输入适合使用' }).fill('适合使用').catch(() => {});
+    await media.getByRole('button', { name: '确认继续', exact: true }).click().catch(() => {});
     await expect.poll(async () => (await state())?.lastResolution?.reason).toBe('hard_limit');
     await expect.poll(() => media.url()).toContain('reminder.html');
     expect(fixture.errors).toEqual([]);
@@ -182,7 +190,7 @@ test(hardOnly ? 'real unpacked hard time window prevents soft continue'
     expect(credentials.cloud_device_token).toBeUndefined();
     expect(credentials.cloud_profile_id).toBeUndefined();
     fs.writeFileSync(path.join(directory, 'evidence.json'), JSON.stringify({ kind: 'real_unpacked_with_accelerated_usage',
-      cases: hardOnly ? ['hard_window'] : ['daily', 'merged', 'weekly', 'day_reset', 'week_reset', 'continue', 'timeout_continue', 'end', 'hard_window'],
+      cases: hardOnly ? ['hard_window'] : ['daily', 'merged', 'weekly', 'day_reset', 'week_reset', 'typed_continue', 'timeout_block', 'end', 'hard_window'],
       noProductionCredentials: true, accountingAccuracyNotClaimed: true }, null, 2));
     console.log('Rest unpacked evidence: ' + directory);
   } finally {

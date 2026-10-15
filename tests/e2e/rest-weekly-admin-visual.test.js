@@ -17,11 +17,13 @@ test('Admin real markup renders weekly reminder read-only with isolated mock con
     return `src="data:image/svg+xml;base64,${image}"`;
   });
   await page.setContent(`<html><head>${styles}</head><body><main style="max-width:1100px;margin:24px auto;padding:16px">${content}</main></body></html>`);
-  await page.addScriptTag({ content: `let config={restConfig:{firstReminderMinutes:120,weeklyFirstReminderMinutes:840,repeatReminderMinutes:60}};\n${functions.map(n => n.getText(source)).join('\n')}\nrenderAutonomySection();` });
+  await page.addScriptTag({ content: `let config={autonomyConfig:{timeWindowAdvisoryEnabled:true},restConfig:{firstReminderMinutes:120,weeklyFirstReminderMinutes:840,repeatReminderMinutes:60}};\n${functions.map(n => n.getText(source)).join('\n')}\nrenderAutonomySection();` });
   await page.locator('[data-rules-panel]').evaluate(n => n.classList.add('active'));
   const panelLocator = page.locator('[data-rules-panel="autonomy-management"]');
   await expect(panelLocator).toContainText('本周休息软配额');
   await expect(panelLocator).toContainText('14小时');
+  await expect(panelLocator).toContainText('建议模式：文字确认');
+  await expect(panelLocator).toContainText('60秒未确认强制阻断');
   await expect(panelLocator.locator('input,select,button')).toHaveCount(0);
   const directory = fs.mkdtempSync(path.resolve('.tmp/rest-admin-visual-'));
   for (const [name, width, height] of [['desktop', 1280, 900], ['mobile', 390, 844]]) {

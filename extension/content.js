@@ -513,9 +513,12 @@
         const visible = sharedReminderIsVisible();
         if (visible && msg.state?.status === 'visible' && Number.isSafeInteger(msg.state.visibleAtMs)) {
           sharedReminderView.ready = true;
-          sharedReminderView.shadow.querySelectorAll('button').forEach(button => { button.disabled = false; });
+          sharedReminderView.shadow.getElementById('shared-confirmation-text').disabled = false;
+          sharedReminderView.shadow.getElementById('shared-end').disabled = false;
+          sharedReminderView.updateConfirm();
+          sharedReminderView.shadow.getElementById('shared-confirmation-text').focus({ preventScroll: true });
           sharedReminderView.shadow.getElementById('shared-status').textContent = '';
-          sendResponse?.({ ok: true, visible: true, identity, presentationId: msg.presentationId });
+          sendResponse?.({ ok: true, visible: true, identity, presentationId: msg.presentationId, confirmationVersion: 1 });
         } else sendResponse?.({ ok: false, visible: false });
       }
       return;
@@ -1029,7 +1032,7 @@
       || !state.kinds.length || !state.kinds.every(kind => ['entry', 'daily', 'weekly'].includes(kind))
       || document.visibilityState !== 'visible' || restReminderDialog?.open) return { ok: false, visible: false };
     if (sharedReminderView?.presentationId === presentationId && JSON.stringify(identity) === JSON.stringify(sharedReminderView.identity)) {
-      return { ok: true, visible: sharedReminderIsVisible(), identity, presentationId };
+      return { ok: true, visible: sharedReminderIsVisible(), identity, presentationId, confirmationVersion: 1 };
     }
     clearSharedReminder();
     const host = document.createElement('div');
@@ -1037,31 +1040,39 @@
     const shadow = host.attachShadow({ mode: 'open' });
     shadow.innerHTML = `<style>${restReminderStyles()}</style>
       <dialog aria-labelledby="shared-title"><div class="panel">
-        <h1 id="shared-title"></h1><p class="subtitle">请确认是否继续休息。</p>
-        <div class="slider" id="shared-slider"><div class="slider-track">滑动继续休息</div>
-          <button class="slider-thumb" id="shared-continue" type="button" aria-label="滑动继续休息" disabled>›</button></div>
+        <h1 id="shared-title"></h1><p class="subtitle">如需继续，请手动输入“适合使用”。</p>
+        <label for="shared-confirmation-text">使用确认</label>
+        <input id="shared-confirmation-text" type="text" autocomplete="off" spellcheck="false" aria-label="手动输入适合使用" disabled style="box-sizing:border-box;width:100%;font:inherit;padding:12px;margin:12px 0;border:1px solid #b9d9d4;border-radius:6px">
+        <button class="end" id="shared-continue" type="button" disabled>确认继续</button>
         <button class="end" id="shared-end" type="button" disabled>结束休息</button>
         <div class="status" id="shared-status" role="status">正在确认提醒…</div>
       </div></dialog>`;
-    const title = state.kinds.includes('daily') && state.kinds.includes('weekly') ? '今日与本周休息提醒'
-      : state.kinds.includes('weekly') ? '本周休息提醒' : state.kinds.includes('daily') ? '今日休息提醒' : '进入休息内容';
+    const title = state.kinds.includes('daily') && state.kinds.includes('weekly') ? '今日与本周休息软配额提醒'
+      : state.kinds.includes('weekly') ? '本周休息软配额提醒' : state.kinds.includes('daily') ? '今日休息软配额提醒' : '进入休息内容';
     shadow.getElementById('shared-title').textContent = title;
     (document.documentElement || document.body).appendChild(host);
     const dialog = shadow.querySelector('dialog');
     const view = { host, shadow, dialog, identity, presentationId, ready: false, resolving: false };
     sharedReminderView = view;
-    dialog.addEventListener('cancel', () => clearSharedReminder(true));
+    dialog.addEventListener('cancel', event => event.preventDefault());
+    const input = shadow.getElementById('shared-confirmation-text');
+    const confirm = shadow.getElementById('shared-continue');
+    view.updateConfirm = () => { confirm.disabled = !view.ready || view.resolving || input.value !== '适合使用'; };
     const choose = action => {
       if (sharedReminderView !== view || !view.ready || view.resolving || !sharedReminderIsVisible()) return;
+      if (action === 'continue' && input.value !== '适合使用') return;
       view.resolving = true;
+      view.updateConfirm();
       const status = shadow.getElementById('shared-status');
       status.textContent = '正在确认…';
-      chrome.runtime.sendMessage({ type: 'SHARED_REMINDER_ACTION', presentationId, payload: { ...identity, action } }, response => {
+      chrome.runtime.sendMessage({ type: 'SHARED_REMINDER_ACTION', presentationId,
+        confirmationText: action === 'continue' ? input.value : undefined, payload: { ...identity, action } }, response => {
         if (sharedReminderView !== view) return;
         if (chrome.runtime.lastError || response?.ok !== true || response.state?.status !== 'resolved'
           || response.state?.resolution !== action
           || JSON.stringify(sharedContentIdentity(response.state)) !== JSON.stringify(identity)) {
           view.resolving = false;
+          view.updateConfirm();
           status.textContent = '操作未完成，请重试';
           return;
         }
@@ -1069,33 +1080,17 @@
       });
     };
     shadow.getElementById('shared-end').addEventListener('click', () => choose('end_rest'));
-    const thumb = shadow.getElementById('shared-continue');
-    const slider = shadow.getElementById('shared-slider');
-    let origin = null;
-    const maximum = () => Math.max(4, slider.clientWidth - thumb.clientWidth - 4);
-    thumb.addEventListener('pointerdown', event => {
-      if (!view.ready || view.resolving) return;
-      origin = event.clientX;
-      thumb.setPointerCapture(event.pointerId);
-      event.preventDefault();
+    input.addEventListener('paste', event => event.preventDefault());
+    input.addEventListener('drop', event => event.preventDefault());
+    input.addEventListener('beforeinput', event => {
+      if (['insertFromPaste', 'insertFromDrop', 'insertReplacementText'].includes(event.inputType)) event.preventDefault();
     });
-    thumb.addEventListener('pointermove', event => {
-      if (origin === null) return;
-      thumb.style.left = `${Math.max(4, Math.min(maximum(), 4 + event.clientX - origin))}px`;
-    });
-    thumb.addEventListener('pointerup', () => {
-      if (origin === null) return;
-      origin = null;
-      if (parseFloat(thumb.style.left || '4') >= maximum() * 0.92) choose('continue');
-      thumb.style.left = '4px';
-    });
-    thumb.addEventListener('pointercancel', () => { origin = null; thumb.style.left = '4px'; });
-    thumb.addEventListener('keydown', event => {
-      if (['Enter', 'End'].includes(event.key)) { event.preventDefault(); choose('continue'); }
-    });
+    input.addEventListener('input', view.updateConfirm);
+    input.addEventListener('compositionend', view.updateConfirm);
+    confirm.addEventListener('click', () => { if (!confirm.disabled) choose('continue'); });
     dialog.showModal();
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    return { ok: true, visible: sharedReminderIsVisible(view), identity, presentationId };
+    return { ok: true, visible: sharedReminderIsVisible(view), identity, presentationId, confirmationVersion: 1 };
   }
 
   function bindRestReminderSlider(shadow, resolveAction) {
@@ -1152,7 +1147,7 @@
   async function showRestUsageReminder(payload) {
     if (!payload?.token) return { ok: false, handled: true, visible: false, reason: 'missing_token' };
     if (restReminderToken === payload.token && restReminderDialog?.open) {
-      return { ok: true, handled: true, visible: true, token: payload.token };
+      return { ok: true, handled: true, visible: true, token: payload.token, confirmationVersion: 1 };
     }
     clearRestUsageReminder();
     restReminderToken = payload.token;
@@ -1183,6 +1178,11 @@
       reminderSubtitle = reminders.map(describe).join('<br>');
     }
 
+    if (payload.schedule) {
+      reminderTitle = '当前不是合适的使用时间段';
+      reminderSubtitle = reminders.length ? `当前处于建议不使用的时间段。<br>${reminderSubtitle}` : '当前处于建议不使用的时间段。';
+    }
+    const displayUsage = value => payload.usageKnown === false ? '未知' : formatReminderDuration(value);
     restReminderHost = document.createElement('div');
     restReminderHost.id = '__toc_rest_usage_reminder__';
     restReminderShadow = restReminderHost.attachShadow({ mode: 'open' });
@@ -1193,17 +1193,16 @@
           <h1 id="toc-rest-reminder-title">${reminderTitle}</h1>
           <p class="subtitle">${reminderSubtitle}</p>
           <div class="stats">
-            <div class="stat"><div class="label">本周已用</div><div class="value">${formatReminderDuration(payload.weekUsedSeconds)}</div></div>
-            <div class="stat"><div class="label">本周剩余（硬配额）</div><div class="value">${formatReminderDuration(payload.weekRemainingSeconds)}</div></div>
-            <div class="stat"><div class="label">今日已用</div><div class="value">${formatReminderDuration(payload.todayUsedSeconds)}</div></div>
-            <div class="stat"><div class="label">今日剩余（硬配额）</div><div class="value">${formatReminderDuration(payload.todayRemainingSeconds)}</div></div>
+            <div class="stat"><div class="label">本周已用</div><div class="value">${displayUsage(payload.weekUsedSeconds)}</div></div>
+            <div class="stat"><div class="label">本周剩余（硬配额）</div><div class="value">${displayUsage(payload.weekRemainingSeconds)}</div></div>
+            <div class="stat"><div class="label">今日已用</div><div class="value">${displayUsage(payload.todayUsedSeconds)}</div></div>
+            <div class="stat"><div class="label">今日剩余（硬配额）</div><div class="value">${displayUsage(payload.todayRemainingSeconds)}</div></div>
           </div>
           <div class="countdown" id="toc-rest-reminder-countdown"></div>
-          <div class="slider" id="toc-rest-reminder-slider">
-            <div class="slider-track">滑动继续休息</div>
-            <button class="slider-thumb" id="toc-rest-reminder-thumb" type="button" aria-label="滑动继续休息">›</button>
-          </div>
-          <button class="end" id="toc-rest-reminder-end" type="button">结束休息</button>
+          <label for="toc-rest-confirmation-text">如需继续，请手动输入“适合使用”。</label>
+          <input id="toc-rest-confirmation-text" type="text" autocomplete="off" spellcheck="false" aria-label="手动输入适合使用" disabled style="box-sizing:border-box;width:100%;font:inherit;padding:12px;margin:12px 0;border:1px solid #b9d9d4;border-radius:6px">
+          <button class="end" id="toc-rest-reminder-continue" type="button" disabled>确认继续</button>
+          <button class="end" id="toc-rest-reminder-end" type="button">结束使用</button>
           <div class="status" id="toc-rest-reminder-status" role="status">正在准备提醒…</div>
         </div>
       </dialog>
@@ -1221,24 +1220,34 @@
         type: 'REST_USAGE_REMINDER_ACTION',
         token: payload.token,
         action,
+        confirmationText: action === 'continue' ? restReminderShadow?.getElementById('toc-rest-confirmation-text')?.value : undefined,
       }, (response) => {
         if (chrome.runtime.lastError || response?.ok !== true) {
           restReminderResolving = false;
           if (status) status.textContent = '操作未完成，请重试';
           return;
         }
-        if (action === 'continue') clearRestUsageReminder({ resumeMedia: true });
+        if (response.action === 'continue') clearRestUsageReminder({ resumeMedia: true });
       });
     };
 
-    bindRestReminderSlider(restReminderShadow, restReminderResolveAction);
+    const input = restReminderShadow.getElementById('toc-rest-confirmation-text');
+    const confirm = restReminderShadow.getElementById('toc-rest-reminder-continue');
+    const updateConfirm = () => { confirm.disabled = restReminderResolving || input.disabled || input.value !== '适合使用'; };
+    input.addEventListener('paste', event => event.preventDefault());
+    input.addEventListener('drop', event => event.preventDefault());
+    input.addEventListener('beforeinput', event => {
+      if (['insertFromPaste', 'insertFromDrop', 'insertReplacementText'].includes(event.inputType)) event.preventDefault();
+    });
+    input.addEventListener('input', updateConfirm);
+    input.addEventListener('compositionend', updateConfirm);
+    confirm.addEventListener('click', () => { if (!confirm.disabled && input.value === '适合使用') restReminderResolveAction?.('continue'); });
     restReminderShadow.getElementById('toc-rest-reminder-end')?.addEventListener('click', () => restReminderResolveAction?.('end'));
-    restReminderShadow.getElementById('toc-rest-reminder-thumb')?.setAttribute('disabled', '');
     restReminderShadow.getElementById('toc-rest-reminder-end')?.setAttribute('disabled', '');
 
     restReminderDialog.showModal();
-    restReminderShadow.getElementById('toc-rest-reminder-thumb')?.focus({ preventScroll: true });
-    return { ok: true, handled: true, visible: true, token: payload.token };
+    restReminderDialog.focus({ preventScroll: true });
+    return { ok: true, handled: true, visible: true, token: payload.token, confirmationVersion: 1 };
   }
 
   async function activateRestUsageReminder(payload) {
@@ -1253,17 +1262,18 @@
     try { await exitPictureInPictureIfNeeded(); } catch (_) {}
     pauseMediaForRestReminder();
     restReminderResolving = false;
-    restReminderShadow?.getElementById('toc-rest-reminder-thumb')?.removeAttribute('disabled');
+    restReminderShadow?.getElementById('toc-rest-confirmation-text')?.removeAttribute('disabled');
+    restReminderShadow?.getElementById('toc-rest-confirmation-text')?.focus({ preventScroll: true });
     restReminderShadow?.getElementById('toc-rest-reminder-end')?.removeAttribute('disabled');
     const status = restReminderShadow?.getElementById('toc-rest-reminder-status');
     if (status) status.textContent = '';
 
     if (restReminderCountdownTimer) clearInterval(restReminderCountdownTimer);
-    const timeoutAction = payload.timeoutAction === 'continue' ? 'continue' : 'end';
+    const timeoutAction = 'end';
     const updateCountdown = () => {
       const remaining = Math.max(0, Math.ceil((Number(payload.deadlineAt) - Date.now()) / 1000));
       const countdown = restReminderShadow?.getElementById('toc-rest-reminder-countdown');
-      if (countdown) countdown.textContent = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')} 后将${timeoutAction === 'continue' ? '默认继续' : '自动结束休息'}`;
+      if (countdown) countdown.textContent = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')} 后将强制阻断`;
       if (remaining <= 0) {
         if (restReminderCountdownTimer) clearInterval(restReminderCountdownTimer);
         restReminderCountdownTimer = null;
@@ -1272,7 +1282,7 @@
     };
     updateCountdown();
     restReminderCountdownTimer = setInterval(updateCountdown, 250);
-    return { ok: true, handled: true, visible: true, token: payload.token };
+    return { ok: true, handled: true, visible: true, token: payload.token, confirmationVersion: 1 };
   }
 
   function ensureModeNoticeBanner() {

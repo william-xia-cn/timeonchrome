@@ -22,7 +22,7 @@ import { registerStoragePressureHandler } from './infra/storage-budget.js';
 import { budgetedSessionSet, runSessionStorageMaintenance } from './infra/session-storage-budget.js';
 import { recordStreamGameProbe } from './infra/stream-game-probe.js';
 import { configureLocalGuardianStateProvider, notifyLocalGuardianBootstrapResult } from './infra/native-host-client.js';
-import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoticeForFocusedTab, setModeBoundaryDrainHook, markContentScriptReady, clearModeNoticeTabState, clearModeNoticeTabNavigationState } from './product/interceptor.js';
+import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoticeForFocusedTab, setModeBoundaryDrainHook, markContentScriptReady, clearModeNoticeTabState, clearModeNoticeTabNavigationState, redirectToReminder } from './product/interceptor.js';
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
 import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
@@ -40,6 +40,8 @@ import { resolveActivationState } from './core/activation-gate.js';
 import { getSiteClassificationSpecialTargets, resolveSiteAccessClassification } from './core/site-classification.js';
 import { getSiteClassificationRequestRecords } from './infra/storage.js';
 import { createDowntimeEnforcement } from './product/downtime-enforcement.js';
+import { scheduleConfirmationContext } from './core/autonomy-confirmation.js';
+import { revokeScheduleConfirmation, readScheduleConfirmationScope } from './product/schedule-confirmation.js';
 import { getQuotaUsageForConfig, getQuotaAccountingVersion, buildQuotaStateFromUsage } from './product/quota.js';
 import { configureRestUsageReminder, evaluateRestUsageReminder as evaluateLegacyRestUsageReminder, handleRestUsageReminderAction, restoreRestUsageReminderForTab, suspendLegacyRestUsageReminder, REST_USAGE_REMINDER_DEADLINE_ALARM, REST_USAGE_REMINDER_RETRY_ALARM } from './product/rest-usage-reminder.js';
 import { isSharedAccessRuntimeEnabled } from './product/shared-access-runtime.js';
@@ -47,8 +49,9 @@ import { pollSharedAccessIntegration, initSharedAccessIntegration } from './prod
 import { registerSharedSyncDiagnosticsReader } from './infra/shared-sync-diagnostics.js';
 registerSharedSyncDiagnosticsReader();
 
-function evaluateRestUsageReminder(options) {
-  return isSharedAccessRuntimeEnabled() ? pollSharedAccessIntegration() : evaluateLegacyRestUsageReminder(options);
+async function evaluateRestUsageReminder(options) {
+  const result = await evaluateLegacyRestUsageReminder(options);
+  return isSharedAccessRuntimeEnabled() && result?.skipped === 'shared_runtime_active' ? pollSharedAccessIntegration() : result;
 }
 import { dispatchOptionalModuleAlarm, dispatchOptionalModuleMessage, getOptionalModuleEntries } from './runtime/optional-module-host.js';
 
@@ -93,19 +96,54 @@ configureRestUsageReminder({
   getDateKey,
   getQuotaUsageView: (date, { config } = {}) => getQuotaUsageForConfig(config || {}, date),
   getTimingSession,
+  getScheduleContext: async tabId => {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab?.url) return null;
+    const config = await getConfig();
+    const records = await getSiteClassificationRequestRecords({ includeAll: true });
+    const classification = resolveSiteAccessClassification(config, records, { url: tab.url,
+      specialSiteTargets: getTabSpecialSiteTargets(tab.id, tab.url) }).classification;
+    return scheduleConfirmationContext(config, classification, tabId, tab.url);
+  },
+  blockSchedule: async ({ prompt, reason }) => {
+    if (prompt.identityScope !== await readScheduleConfirmationScope()) return { ok: true, skipped: 'identity_changed' };
+    const tab = await chrome.tabs.get(prompt.sourceTabId).catch(() => null);
+    if (!tab?.url || new URL(tab.url).hostname !== prompt.schedule.host) return { ok: true, skipped: 'target_changed' };
+    return dispatchModeEvent({ type: 'ACCESS_OBSERVED', tabId: tab.id, url: tab.url, foreground: tab.active === true,
+      source: 'schedule_confirmation_end', forceScheduleBlock: true, confirmationFailure: reason });
+  },
   canContinueRest: async ({ prompt }) => {
     const tab = await chrome.tabs.get(prompt.sourceTabId).catch(() => null);
     if (!tab?.url) return false;
-    const result = await dispatchModeEvent({ type: 'ACCESS_OBSERVED', tabId: tab.id, url: tab.url, source: 'soft_reminder_continue_check' });
-    return result?.ok !== false && result?.blocked !== true && result?.reminderSent !== true;
+    if (prompt.sourceHost && new URL(tab.url).hostname !== prompt.sourceHost) return false;
+    const event = { type: 'ACCESS_OBSERVED', tabId: tab.id, url: tab.url, foreground: tab.active === true,
+      monitoringEnabled: getSyncState().monitoringEnabled, source: 'soft_reminder_continue_check' };
+    const decision = await handleModeEvent(event);
+    if (decision?.ok === false || decision?.access === 'reminder') return false;
+    if (decision?.access === 'confirmation') {
+      setTimeout(() => reevaluateTabById(tab.id, { source: 'after_soft_confirmation' }).catch(() => {}), 0);
+      return true;
+    }
+    const result = await executeModeDecision(decision, { tabId: tab.id, event, domain: extractDomain(tab.url), updateDeclarativeRules });
+    return result?.ok !== false && result?.blocked !== true;
   },
-  endRestUsage: async ({ prompt, reason }) => dispatchModeEvent({
+  endRestUsage: async ({ prompt, reason }) => {
+    const original = await chrome.tabs.get(prompt?.sourceTabId).catch(() => null);
+    if (!original?.url || (prompt.sourceHost && new URL(original.url).hostname !== prompt.sourceHost)) return { ok: true, skipped: 'target_changed' };
+    const result = await dispatchModeEvent({
     type: 'REQUEST_MODE_CHANGE',
     requestedMode: 'study',
     source: 'rest_usage_reminder',
     reason: `rest_usage_reminder_${reason}`,
     tabId: prompt?.sourceTabId,
-  }),
+    }, { recheck: false });
+    const tab = await chrome.tabs.get(prompt?.sourceTabId).catch(() => null);
+    if (tab?.url && !tab.url.startsWith(chrome.runtime.getURL('reminder.html'))) {
+      await redirectToReminder(tab.id, extractDomain(tab.url), 'rest_confirmation_blocked', null, { confirmationFailure: reason });
+      return { ...result, ok: true, blocked: true, reminderSent: true };
+    }
+    return result;
+  },
 });
 
 // ── SW 模块引导（幂等）：只保证基础状态与 alarms/listeners 可用，recovery 由 lifecycle 事件触发 ──
@@ -126,6 +164,7 @@ const downtimeEnforcement = createDowntimeEnforcement({
     module: 'product/downtime-enforcement', reason: code, message: '停用时间页面复核暂未完成，将在下次检查重试。' }),
 });
 downtimeEnforcement.register();
+chrome.tabs.onRemoved.addListener(tabId => { revokeScheduleConfirmation(tabId).catch(() => {}); });
 
 configureLocalGuardianStateProvider(() => ({
   bootstrapState: localGuardianBootstrapState,
@@ -1732,7 +1771,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const currentDomain = extractDomain(sender?.tab?.url || '');
         markContentScriptReady(tabId, currentDomain);
         const delivery = await reSendPendingNoticeDetailed(tabId, currentDomain);
-        if (!isSharedAccessRuntimeEnabled()) await restoreRestUsageReminderForTab(tabId).catch(() => null);
+        await restoreRestUsageReminderForTab(tabId).catch(() => null);
         if (delivery?.attempted === true || delivery?.sent === true || delivery?.ack || delivery?.deferred === true) {
           await recordModeEffectTrace({
             event: {
@@ -1771,10 +1810,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'REST_USAGE_REMINDER_ACTION') {
-    if (isSharedAccessRuntimeEnabled()) {
-      sendResponse({ ok: false, error: 'legacy_rest_reminder_inactive' });
-      return false;
-    }
     (async () => {
       const result = await handleRestUsageReminderAction(msg, sender);
       sendResponse(result);
