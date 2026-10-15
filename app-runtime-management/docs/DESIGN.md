@@ -6,6 +6,8 @@
 
 已定位Native派生消费者在处理身份元数据之前无条件复用ApplicationSettledTopology严格完整秒网格；原账合法的不足一秒尾部及不同相位可触发整日不可用。最小修复仅允许已有无重叠且可证明身份的原段按既有DurationSeconds/Hours归属；真正重叠才要求可证明拓扑，不可证明部分保留局部unknown。原账、基础整数秒/小时算法、上传、配额与云端契约不改，不从名称或历史集合猜配。实际修复、候选及再次实机结果另记，不以当前发布完成冒称问题已修复。
 
+上述修复已由Native e5e6cf0完成，38直接专项及10份官方投影互操作通过；内部候选2.6.53已安装且原账/18表保留核对通过。无需再次部署云端或修改契约。修复后的实际非零身份秒及最新基础清单对应投影、页面采用仍待当前一次只读UAC核查，不将旧产品投影回退、接口ACK或合成通过替代真实验收。
+
 ## 2026-10-15 本机应用身份统一管理接线（当前实施边界）
 
 兼容增量1.49.0集中包含独立对象POST `/v2/machines/applications`、原scope配置GET `/v2/machines/applications/config`及基础统计清单下的PUT `native-projection`，能力`native-application-management-v1`仅说明以上数据接线，不能声明限制已验收。对象ACK保持原scope并逐项返回nativeId/revision/payloadHash，发送方仅对精确冻结版本及hash清队列。item使用共同canonicalUsageAccountJson与SHA256，扫描固定向量见契约native-application-management.vectors.json；旧1.48包不覆盖。身份统计NativeApplicationStatisticsProjection以baseManifestHash关联原有不可变秒清单，configurationVersion仅诊断，不能把旧策略水位变成时长可用门槛；统计行不携带显示名称、余额或新增身份ID。
