@@ -29,7 +29,7 @@ export function buildForcedUseQuotaFacts(config, usage, policy, { date, domain }
     if (limit === null) continue;
     const seconds = usage[usageField];
     if (!validSeconds(seconds)) return { ok: false, reason: 'quota_usage_invalid' };
-    const overrunMinutes = policy.quotaOverrunMinutes[id];
+    const overrunMinutes = config?.autonomyConfig?.quotaOverrunConfirmationRequired === false ? 0 : policy.quotaOverrunMinutes[id];
     if (!validLimit(overrunMinutes)) return { ok: false, reason: 'quota_policy_invalid' };
     quotas.push({ id, usedSeconds: seconds, limitSeconds: limit * 60,
       overrunSeconds: overrunMinutes === null ? null : overrunMinutes * 60 });
@@ -47,7 +47,7 @@ export function buildForcedUseQuotaFacts(config, usage, policy, { date, domain }
     }
     const seconds = usage.domainSeconds[domain] ?? 0;
     if (!validSeconds(seconds)) return { ok: false, reason: 'domain_usage_invalid' };
-    const overrunMinutes = policy.quotaOverrunMinutes.domain;
+    const overrunMinutes = config?.autonomyConfig?.quotaOverrunConfirmationRequired === false ? 0 : policy.quotaOverrunMinutes.domain;
     if (!validLimit(overrunMinutes)) return { ok: false, reason: 'quota_policy_invalid' };
     quotas.push({ id: 'domain', usedSeconds: seconds, limitSeconds: parsedDomainLimit * 60,
       overrunSeconds: overrunMinutes === null ? null : overrunMinutes * 60 });

@@ -1,5 +1,11 @@
 # TimeOnChrome — 技术设计文档
 
+## 自主度四项与时间段仅提醒（2026-10-16，PO批准）
+
+配额判定新增读取autonomyConfig.quotaOverrunConfirmationRequired（缺省true，false时有效超额为0，保留原余量配置）；时间段仅触发文字进入确认与统一再次提醒，不再按旧advisoryWindowDailyMaxMinutes或累计秒数最终阻断。黑名单、停用时间、配额最终点始终优先。只调整访问策略与只读Admin，不改ACTIVE、原始账、聚合、贡献生成、上传或扣费桶。Admin顺序改为时间配额、时间段管理、停用时间、自主度配置，停用页恢复单一职责；自主度显示四项及最大允许超额。专项覆盖开关、有限/无限超额、旧时间段上限不再阻断、绝对规则优先、导航与桌面窄屏。Native共享执行不属于本轮。
+
+验证：forced-use-policy/quota-facts/admission/quota-runtime/mode-effects、Admin只读与终端兼容专项通过；真实隔离unpacked确认/正常时段退出及原账/派生恢复28.6秒通过；Admin四项桌面/390px实际HTML目视通过。范围审计Matched，仅修改策略消费与只读显示，不改网页记账；当前家庭配置保持原样。更新候选必须备份并保持ID、版本与storage，运行代码更新后需重载。
+
 ## 统一配置编辑与执行前提修正（2026-10-16）
 
 已确认两项实施错误：Pages保留独立日周软提醒编辑器及新旧技术开关，未完成已批准的单一模型；新策略enabled=true可与V1配额版本一起保存，终端却仅在非共享V2接管，导致保存与执行不一致。

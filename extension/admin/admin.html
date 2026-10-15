@@ -1488,6 +1488,13 @@
       font-size: 12px;
       line-height: 1.7;
     }
+    .rules-autonomy-setting { padding: 18px 0; border-bottom: 1px solid var(--border); }
+    .rules-autonomy-setting h3 { margin: 0 0 10px; font-size: 16px; }
+    .rules-autonomy-setting p { margin: 6px 0; font-size: 13px; line-height: 1.6; }
+    .rules-autonomy-settings { max-width: 1020px; }
+    .rules-overrun-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 28px; margin-top: 14px; }
+    .rules-overrun-value { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+    @media (max-width: 600px) { .rules-overrun-summary { grid-template-columns: 1fr; } }
     .rules-autonomy-entry {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1999,9 +2006,9 @@
       <div class="usage-segmented rules-tabs" aria-label="访问管理功能">
         <button type="button" data-rules-tab="site-management" hidden>网站清单</button>
         <button type="button" class="active" data-rules-tab="quota-management">时间配额</button>
-        <button type="button" data-rules-tab="autonomy-management">自主度配置</button>
         <button type="button" data-rules-tab="schedule-management">时间段管理</button>
-        <button type="button" data-rules-tab="downtime-management">强制限制</button>
+        <button type="button" data-rules-tab="downtime-management">停用时间</button>
+        <button type="button" data-rules-tab="autonomy-management">自主度配置</button>
         <button type="button" data-rules-tab="classification-requests" hidden>网站归类记录</button>
       </div>
 
@@ -2064,52 +2071,12 @@
       </div>
 
       <div class="rules-panel" data-rules-panel="autonomy-management">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/rules.svg" alt="">当前管控方式</div>
-              <div class="card-subtitle">自主度只调整允许访问时的提示和确认，当前页面只读</div>
-            </div>
-          </div>
+        <div class="rules-autonomy-settings">
           <div id="rules-autonomy-summary-display">暂无配置</div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/restricted.svg" alt="">进入受限娱乐网站</div>
-              <div class="card-subtitle">仅在时间窗与硬配额允许进入时生效（只读）</div>
-            </div>
-          </div>
-          <div id="rules-autonomy-entry-display">暂无配置</div>
-        </div>
-
-        <div class="card" id="rules-legacy-rest-reminder-card">
-          <div class="card-header">
-            <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/rest.svg" alt="">强行使用提醒</div>
-              <div class="card-subtitle">标准配额与建议时段共用提醒；最终阻断独立配置（只读）</div>
-            </div>
-          </div>
-          <div id="rules-rest-reminder-display">暂无配置</div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/blocked.svg" alt="">始终强制执行</div>
-              <div class="card-subtitle">以下规则不受自主度配置影响</div>
-            </div>
-          </div>
-          <div class="rules-autonomy-guardrails">
-            <div class="rules-autonomy-guardrail">黑名单网站始终阻止访问</div>
-            <div class="rules-autonomy-guardrail">时间窗按强制或建议配置执行；停用时间始终强制执行</div>
-            <div class="rules-autonomy-guardrail" id="rules-quota-guardrail">每日和每周硬配额始终生效</div>
-            <div class="rules-autonomy-guardrail" id="rules-domain-guardrail">单站点配额始终生效</div>
-          </div>
+          <div id="rules-rest-reminder-display"></div>
+          <p class="rules-reminder-note">黑名单、停用时间及时间配额最终阻断点始终优先。当前页面只读。</p>
         </div>
       </div>
-
       <div class="rules-panel" data-rules-panel="schedule-management">
         <div class="card">
           <div class="card-header">
@@ -2123,10 +2090,6 @@
       </div>
 
       <div class="rules-panel" data-rules-panel="downtime-management">
-        <div class="card" id="rules-force-limits-card" hidden>
-          <div class="card-header"><div><div class="card-title">按用量最终限制</div><div class="card-subtitle">云端配置 · 本机只读；与提醒次数无关</div></div></div>
-          <div id="rules-force-limits-display">暂无配置</div>
-        </div>
         <div class="card-header"><div><div class="card-title">停用时间</div><div class="card-subtitle">家长云端配置 · 本机只读</div></div></div>
         <div id="rules-downtime-display">加载停用时间配置中…</div>
       </div>

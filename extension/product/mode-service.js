@@ -895,8 +895,7 @@ async function handleAccessObserved(event = {}) {
     const progress = await readForcedUsePromptProgress();
     const windowFact = scheduleContext ? { active: true, id: 'timeWindow', key: scheduleContext.key,
       usedSeconds: derived.ok ? derived.byCauseSeconds.timeWindow || 0 : null,
-      maxSeconds: forcedPolicy.advisoryWindowDailyMaxMinutes === null ? null
-        : forcedPolicy.advisoryWindowDailyMaxMinutes * 60 } : null;
+      maxSeconds: null } : null;
     forcedAdmission = prepareForcedUseAdmission({ config, usage: quotaResult.usage, dateKey,
       domain, quotaBucket, advisoryWindow: windowFact, reminderState: progress,
       identityKey, ruleKey, forcedUsageSeconds: derived.ok ? derived.seconds : null });

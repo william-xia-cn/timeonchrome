@@ -59,10 +59,6 @@ export function evaluateForcedUsePolicy({
 
   if (advisoryWindow?.active === true) {
     advisoryReasons.push(advisoryWindow.id);
-    if (advisoryWindow.maxSeconds !== null && finiteNonnegative(advisoryWindow.maxSeconds)
-      && reached(advisoryWindow.usedSeconds, advisoryWindow.maxSeconds)) {
-      hardReasons.push(advisoryWindow.id);
-    }
   }
 
   if (hardReasons.length) return { action: 'block', reasons: [...new Set(hardReasons)] };
@@ -105,9 +101,7 @@ export function decideForcedUseAccess({ policy, quotaFacts, quotaBucket, absolut
     || row.overrunSeconds !== null && (!Number.isSafeInteger(row.overrunSeconds)
       || row.overrunSeconds < 0))
     || advisoryWindow?.active === true && (typeof advisoryWindow.id !== 'string'
-      || !advisoryWindow.id || !Number.isSafeInteger(advisoryWindow.usedSeconds)
-      || advisoryWindow.usedSeconds < 0 || advisoryWindow.maxSeconds !== null
-      && (!Number.isSafeInteger(advisoryWindow.maxSeconds) || advisoryWindow.maxSeconds < 0))) {
+      || !advisoryWindow.id)) {
     return { ok: false, action: 'block', reasons: ['forced_use_evidence_unavailable'] };
   }
   const evaluated = evaluateForcedUsePolicy({ absoluteBlocks, quotas: selected.quotas,

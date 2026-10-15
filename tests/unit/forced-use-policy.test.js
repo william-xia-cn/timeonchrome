@@ -69,7 +69,7 @@ assert.deepEqual(evaluateForcedUsePolicy({ advisoryWindow: { id: 'schedule', act
 });
 assert.deepEqual(evaluateForcedUsePolicy({ advisoryWindow: { id: 'schedule', active: true,
   usedSeconds: 3600, maxSeconds: 3600 }, quotas: [daily], forcedUsageSeconds: 0,
-  lastReminderUsageSeconds: null }), { action: 'block', reasons: ['schedule'] });
+  lastReminderUsageSeconds: null }), { action: 'confirm', kind: 'entry', reasons: ['daily_rest', 'schedule'] });
 const admission = { policy: validPolicy, quotaFacts: { ok: true, quotas: [
   { id: 'dailyComposite', usedSeconds: 5400, limitSeconds: 5400, overrunSeconds: 3600 },
   { id: 'dailyRest', usedSeconds: 7200, limitSeconds: 7200, overrunSeconds: 7200 },
@@ -98,7 +98,7 @@ assert.deepEqual(decide({ ...admission, absoluteBlocks: ['downtime', 'downtime']
   quotaFacts: { ok: false } }).reasons, ['downtime']);
 assert.equal(decide({ ...admission, quotaFacts: { ok: false }, reminderState: accepted.state }).action, 'block');
 assert.deepEqual(decide({ ...admission, advisoryWindow: { id: 'advisoryWindow', active: true,
-  usedSeconds: NaN, maxSeconds: null } }).reasons, ['forced_use_evidence_unavailable']);
+  usedSeconds: NaN, maxSeconds: 1 } }).action, 'confirm', 'retired window cap and counter do not block');
 assert.deepEqual(decide({ ...admission, quotaFacts: { ok: true, quotas: [
   { id: 'dailyComposite', usedSeconds: NaN, limitSeconds: 5400, overrunSeconds: 3600 },
 ] } }).reasons, ['forced_use_evidence_unavailable']);
