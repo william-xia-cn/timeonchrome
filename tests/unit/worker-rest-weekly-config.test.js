@@ -19,6 +19,8 @@ const autonomyNode = source.statements.find(n => ts.isFunctionDeclaration(n) && 
 vm.runInContext(ts.transpileModule(autonomyNode.getText(source), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
 for (const value of [true, false]) assert.equal(context.validateAutonomyConfig({ autonomyConfig: { timeWindowAdvisoryEnabled: value } }), null);
 for (const value of [null, 'true', 1, {}, []]) assert.ok(context.validateAutonomyConfig({ autonomyConfig: { timeWindowAdvisoryEnabled: value } }));
+for (const value of [1, 30, 1440]) assert.equal(context.validateAutonomyConfig({ autonomyConfig: { scheduleReminderIntervalMinutes: value } }), null);
+for (const value of [null, 0, 1441, 1.5, '30']) assert.ok(context.validateAutonomyConfig({ autonomyConfig: { scheduleReminderIntervalMinutes: value } }));
 let cases = 0;
 for (const value of [null, 1, 840, 10080]) {
   const config = { restConfig: { weeklyFirstReminderMinutes: value } };

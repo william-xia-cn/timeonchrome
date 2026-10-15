@@ -29,6 +29,8 @@ assert.equal(view.autonomyConfigView({ restConfig: { weeklyFirstReminderMinutes:
 assert.equal(view.autonomyConfigView({ restConfig: { weeklyFirstReminderMinutes: 930 } }).weeklyFirstReminderMinutes, 930);
 assert.equal(view.autonomyConfigView({ restConfig: { firstReminderMinutes: null } }).weeklyReminderEnabled, true);
 assert.equal(view.autonomyConfigView({}).timeWindowAdvisoryEnabled, false);
+assert.equal(view.autonomyConfigView({}).scheduleReminderIntervalMinutes, 30);
+assert.equal(view.autonomyConfigView({ autonomyConfig: { scheduleReminderIntervalMinutes: 45 } }).scheduleReminderIntervalMinutes, 45);
 assert.equal(view.autonomyConfigView({ autonomyConfig: { timeWindowAdvisoryEnabled: true } }).timeWindowAdvisoryEnabled, true);
 assert.equal(view.autonomyConfigView({ autonomyConfig: { softReminderTimeoutAction: 'continue' } }).softReminderTimeoutAction, 'end_rest');
 console.log('Rest weekly cloud defaults, validation and independent view: PASS');
