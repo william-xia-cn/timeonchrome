@@ -1,5 +1,9 @@
 # PROJECT_MASTER
 
+## 1.7.48 正式内部托管（2026-10-16）
+
+PO授权的终端版本更新已完成：PR281/master c1735896cfcf0d5c2a9d5c35d0186a2e59be648c，部署c96694f2，稳定feed指向1.7.48。CRX 647604字节，SHA256 16b356b42a5d6e851d70fb2eb627263e6dd3a3aeac477fd6d131e8ec7e57ea4b；稳定ID及21个旧包保留。9项直接专项、typecheck、根检查、独立验签及双域名6项回读通过。仅扩展托管，不改云端业务、Native、家庭配置或原始账；Native共享与Mac未验收风险保留，终端安装待观察。当前本机unpacked仍需单独更新，不因托管自动升级。
+
 ## 非共享统一强行使用已部署，当前Chrome人工基础验收通过（2026-10-16）
 
 PR270合入master b5df4f8，完整tests/run-all.js最终全部通过；统一文字确认、按实际新增用量提醒、独立最终限制及持久派生证据的专项和隔离浏览器验收见TASK_BOARD。生产38777359853只部署主Pages843de70d，稳定/deployment域名四项资源匹配发布Git blob。1.7.47开发候选完整备份后更新22文件、196文件哈希核验通过，扩展ID不变。PO已手动重载并确认Popup正常显示、云端绑定保留、无需要绑定提示或红色错误，记为PASS_WITH_MANUAL_EVIDENCE；自动工具因浏览器URL/协议策略未能读取本地页，不冒称自动现场验收。未改家庭配置、Native共享执行或正式CRX/feed。
