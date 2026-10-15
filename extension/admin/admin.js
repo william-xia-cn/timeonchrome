@@ -1908,22 +1908,23 @@ function renderAutonomySection() {
   const autonomy = getAdminAutonomyView();
   const reminder = autonomy.reminder;
   const forcedPolicy = readForcedUsePolicy(config);
+  const unified = forcedPolicy.enabled && Number(config?.timeQuota?.accountingVersion) === 2;
+  const pendingText = forcedPolicy.enabled
+    ? '统一配置尚未生效：需要V2配额计算，请在云端重新保存自主度配置'
+    : '尚未切换统一规则，请在云端保存自主度配置；当前兼容规则见下方旧配置记录';
   const entryText = autonomy.restrictedEntryConfirmationRequired ? '完整确认' : '短提示后直接进入';
   const timeoutText = '60秒未确认强制阻断';
 
   const summaryEl = document.getElementById('rules-autonomy-summary-display');
   if (summaryEl) {
-    summaryEl.innerHTML = forcedPolicy.enabled ? `<div class="rules-reminder-summary">
+    summaryEl.innerHTML = unified ? `<div class="rules-reminder-summary">
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">强行使用提醒</div><div class="rules-reminder-stat-value">已启用</div></div>
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">重复提醒间隔</div><div class="rules-reminder-stat-value">新增${forcedPolicy.reminderIntervalMinutes}分钟网页用量</div></div>
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">时间段管理</div><div class="rules-reminder-stat-value">${autonomy.timeWindowAdvisoryEnabled ? '建议模式：文字确认' : '强制模式'}</div></div>
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">无人响应</div><div class="rules-reminder-stat-value">${timeoutText}</div></div>
-    </div>` : `<div class="rules-reminder-summary">
+    </div>` : `<div class="rules-reminder-note">${pendingText}</div><div class="rules-reminder-summary">
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">时间段管理</div><div class="rules-reminder-stat-value">${autonomy.timeWindowAdvisoryEnabled ? '建议模式：文字确认' : '强制模式'}</div></div>
-      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">强行使用后提醒间隔</div><div class="rules-reminder-stat-value">${autonomy.scheduleReminderIntervalMinutes}分钟网页用量</div></div>
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">进入受限内容</div><div class="rules-reminder-stat-value">${entryText}</div></div>
-      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">今日软限额</div><div class="rules-reminder-stat-value">${reminder.enabled ? formatQuotaText(reminder.firstMinutes) : '已关闭'}</div></div>
-      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">本周软配额</div><div class="rules-reminder-stat-value">${reminder.weeklyEnabled ? formatQuotaText(reminder.weeklyMinutes) : '已关闭'}</div></div>
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">无人响应</div><div class="rules-reminder-stat-value">${reminder.enabled || reminder.weeklyEnabled ? timeoutText : '启用提醒后生效'}</div></div>
     </div>`;
   }
@@ -1938,20 +1939,22 @@ function renderAutonomySection() {
 
   const reminderEl = document.getElementById('rules-rest-reminder-display');
   if (reminderEl) {
-    reminderEl.innerHTML = forcedPolicy.enabled
-      ? `<div class="rules-reminder-note">旧日／周休息软限额提醒在统一强行使用策略下暂停；达到任一标准配额或建议时段后，使用同一文字确认与新增${forcedPolicy.reminderIntervalMinutes}分钟网页用量的重复提醒。最终阻断由独立限制决定。</div>`
+    reminderEl.innerHTML = unified
+      ? `<div class="rules-reminder-note">达到标准配额或进入建议时段后，手动输入“强行使用”确认；每新增${forcedPolicy.reminderIntervalMinutes}分钟实际强行使用统一提醒一次，多个原因同时到期只确认一次。60秒未确认阻断当前访问。最终阻断点在“强制限制”独立设置，提醒次数不触发最终阻断。</div>`
       : `
+      <div class="rules-reminder-note">${pendingText}</div>
+      <details><summary>旧配置记录（兼容执行，只读）</summary>
       <div class="rules-reminder-summary">
         <div class="rules-reminder-stat">
           <div class="rules-reminder-stat-label">今日提醒状态</div>
           <div class="rules-reminder-stat-value">${reminder.enabled ? '已启用' : '已关闭'}</div>
         </div>
         <div class="rules-reminder-stat">
-          <div class="rules-reminder-stat-label">今日休息软限额</div>
+          <div class="rules-reminder-stat-label">今日休息独立提醒线</div>
           <div class="rules-reminder-stat-value">${reminder.enabled ? formatQuotaText(reminder.firstMinutes) : '不提醒'}</div>
         </div>
         <div class="rules-reminder-stat">
-          <div class="rules-reminder-stat-label">本周休息软配额</div>
+          <div class="rules-reminder-stat-label">本周休息独立提醒线</div>
           <div class="rules-reminder-stat-value">${reminder.weeklyEnabled ? formatQuotaText(reminder.weeklyMinutes) : '不提醒'}</div>
         </div>
         <div class="rules-reminder-stat">
@@ -1959,9 +1962,17 @@ function renderAutonomySection() {
           <div class="rules-reminder-stat-value">首次确认后新增1小时，之后30分钟</div>
         </div>
       </div>
+      <div class="rules-reminder-note">旧时间窗提醒间隔：${autonomy.scheduleReminderIntervalMinutes}分钟网页用量。</div>
       <div class="rules-reminder-note"><strong>说明：</strong>日周同时到期合并提醒，需手动输入“强行使用”确认；60秒未确认强制阻断。首次确认后新增1小时再提醒，之后每新增30分钟。只按已结算Rest桶网页账触发，含借用，不含媒体；最多晚一个3分钟结算周期。黑名单、停用与硬配额始终强制执行。</div>
+      </details>
     `;
   }
+  const quotaGuardrail = document.getElementById('rules-quota-guardrail');
+  if (quotaGuardrail) quotaGuardrail.textContent = unified
+    ? '日／周最终阻断点按“强制限制”执行' : '当前旧配置的每日和每周上限仍生效';
+  const domainGuardrail = document.getElementById('rules-domain-guardrail');
+  if (domainGuardrail) domainGuardrail.textContent = unified
+    ? '单站点最终阻断点按“强制限制”执行' : '当前旧配置的单站点上限仍生效';
 }
 function formatWindowsLabel(windows) {
   if (windows === null || windows === undefined) return '全天允许';
