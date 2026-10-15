@@ -201,7 +201,7 @@ function buildSchemaDefaults(): object {
       },
     },
     restConfig:         { reminderInterval: 15, maxRestDuration: 60, firstReminderMinutes: 120, repeatReminderMinutes: 60, weeklyFirstReminderMinutes: 840 },
-    autonomyConfig:     { restrictedEntryConfirmationRequired: true, softReminderTimeoutAction: 'end_rest' },
+    autonomyConfig:     { restrictedEntryConfirmationRequired: true, softReminderTimeoutAction: 'end_rest', timeWindowAdvisoryEnabled: false },
     downtimeConfig:     defaultDowntimeConfig(),
     autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
     clientLoggingPolicyV1: {
@@ -438,6 +438,9 @@ function validateAutonomyConfig(config: Record<string, unknown>): string | null 
   const autonomyConfig = config.autonomyConfig as any;
   if (autonomyConfig === undefined) return null;
   if (!autonomyConfig || typeof autonomyConfig !== 'object' || Array.isArray(autonomyConfig)) return 'autonomyConfig 必须是对象';
+  if (Object.prototype.hasOwnProperty.call(autonomyConfig, 'timeWindowAdvisoryEnabled') && typeof autonomyConfig.timeWindowAdvisoryEnabled !== 'boolean') {
+    return 'autonomyConfig.timeWindowAdvisoryEnabled 必须是布尔值';
+  }
   if (Object.prototype.hasOwnProperty.call(autonomyConfig, 'restrictedEntryConfirmationRequired') &&
       typeof autonomyConfig.restrictedEntryConfirmationRequired !== 'boolean') {
     return 'autonomyConfig.restrictedEntryConfirmationRequired 必须是布尔值';

@@ -1,5 +1,17 @@
 # TASK_BOARD
 
+## NOW：自主控制配置发布（2026-10-15，PO批准）
+
+PO要求本次提交推送、部署供手工验收，覆盖以下自主控制条款此前不发布限制。仅提交本功能Pages/Guardian及直接测试/文档块，部署guardianWorker与mainConsolePages；不发布并发Native身份草稿、Runtime Worker/Pages、迁移、家庭配置或CRX/feed。专项与截图证据已通过，生产取精确master SHA及CI；未完成回读前不写已部署。终端1.7.47由固定extension-local备份更新unpacked，Native兼容边界保持未验收。
+
+## 自主控制完整性补查（2026-10-15，未发布）
+
+PO要求复核全部实施：Pages正常编辑已固定60/30节奏及超时阻断，但导入/导出和差异预览仍把旧repeatReminderMinutes/softReminderTimeoutAction作为可编辑有效配置。补齐导出与导入规范化为60/end_rest，移除废弃字段的可选择差异；保留日周软限额、进入确认及时间窗自主控制的真实差异。旧字段只兼容，不宣称能改变新提醒。不改记账、生产配置、Worker协议或Native，不部署。
+
+## NOW：自主控制配置与文字确认编辑（2026-10-15，PO批准）
+
+云端仅新增autonomyConfig.timeWindowAdvisoryEnabled布尔，默认关闭；自主度/时间段显示强制或建议，固定60秒超时强制阻断、首次确认后新增1小时、之后30分钟提醒。旧repeat/timeout字段仅兼容，不再可编辑；导入导出支持新开关。先文档后配置/UI、专项/桌面手机目视，不提交/部署/启用家庭档案，不修改Native/记账/配额算法。终端在固定extension-local实现并维护详细已批准设计，保留原草稿。
+
 ## NOW：时间窗自主控制与文字确认（2026-10-15，已部署，待手工验收）
 
 发布结果（覆盖下方实施过程中的旧状态）：PO批准提交推送部署后，控件1a217f6/PR264、云端0fa1225/PR265已合入master 92a088a3636db4e3faa40062c00a6df5d1d96d5c。精确SHA Guardian/Main CI通过，production运行38709676841成功；仅部署Guardian版本4cec3f5b-0424-467e-b4b1-6caa8bfd8d12及主Pages b01e7e38-7752-4a5f-a510-31d6d9215a3c，无迁移、Runtime部署或家庭配置修改。稳定及deployment域名index/access-config-domains逐字节匹配Git源码，Guardian未鉴权401通过。当前unpacked完整187文件备份核验后更新188个发布文件，保留Chrome生成元数据；1.7.47、稳定ID不变，发布文件树SHA256=1aa00b6b0e8bc8aad456062a6273346c72ee61607c0b015769a37562113c82cd。未重装、解绑或清storage，未自动重载；等待PO重新加载及手工验收。CRX/feed仍未托管；共享Native策略兼容仍待验收，未启用共享执行。

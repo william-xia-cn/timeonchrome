@@ -1,5 +1,9 @@
 # TimeOnChrome — 技术设计文档
 
+## 时间窗自主控制配置（2026-10-15，PO批准）
+
+autonomyConfig.timeWindowAdvisoryEnabled为可选布尔，缺省false，Pages编辑、导入导出与终端只读一致；旧repeatReminderMinutes/softReminderTimeoutAction仅兼容，新文字提醒固定60秒未处理强制阻断、首次确认后新增60分钟再提醒、之后30分钟。全部网站性质的时间窗纳入建议，黑名单/停用/硬配额不变。仅实现，不发布、不修改生产档案。
+
 ## 控件1.7.47源码版本（2026-10-15，未发布）
 
 本轮源码manifest为1.7.47，文字确认与手动入口修订保持未提交。源码版本不代表当前Chrome加载候选或托管feed已更新。手动模式切换与建议时间窗一致性已按PO的D-076单项批准实现，模式143项/路由67项及隔离真实SW+Content专项通过。真实Native共享节奏与完整展示兼容仍待接管。

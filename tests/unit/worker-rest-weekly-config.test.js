@@ -15,6 +15,10 @@ vm.runInContext(ts.transpileModule(fn.getText(source), {
   compilerOptions: { target: ts.ScriptTarget.ES2022 },
 }).outputText, context);
 const validate = context.validateRestConfig;
+const autonomyNode = source.statements.find(n => ts.isFunctionDeclaration(n) && n.name?.text === 'validateAutonomyConfig');
+vm.runInContext(ts.transpileModule(autonomyNode.getText(source), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+for (const value of [true, false]) assert.equal(context.validateAutonomyConfig({ autonomyConfig: { timeWindowAdvisoryEnabled: value } }), null);
+for (const value of [null, 'true', 1, {}, []]) assert.ok(context.validateAutonomyConfig({ autonomyConfig: { timeWindowAdvisoryEnabled: value } }));
 let cases = 0;
 for (const value of [null, 1, 840, 10080]) {
   const config = { restConfig: { weeklyFirstReminderMinutes: value } };
