@@ -1,5 +1,17 @@
 # TASK_BOARD
 
+## NOW：应用身份批次已集成发布，身份秒归集实机未通过（2026-10-15）
+
+PO“授权集成发布”已执行：PR267合入master `6866059cc94a8344669bf0b1630cfce8b34f2b05`；精确SHA Runtime 38722634184、Guardian 38722634230、主站38722669170通过。生产38722867636成功，仅应用`0023_runtime_native_application_objects.sql`，部署Runtime／Guardian／两套Pages并通过四项smoke。Runtime版本6275f096-49f0-4d20-af35-6cf40cea260e，Guardian版本097d91e2-830e-486a-b320-55dc2ff5a6ab，独立Pages 15c41f2e-f985-412b-b0ba-1f39b1f9145d，主Pages 0446d896-983f-419c-bf34-38cdebca8b36。两站稳定及deployment域名共12项管理JS/CSS逐字节等于发布源码；R2 latest对象与发布前完全相同，无Guardian迁移或共享启用。
+
+Windows唯一已安装内部候选2.6.52，二进制源码9ed29b9，契约1.49.0。Setup SHA256 `6240e08d17096b10b4392f9f168ca60517b194143cf881cf254b0128ad32e630`；安装退出0，11组件版本/哈希匹配、Service在线，13表保留核验通过，配对/HMAC、分配、原始facts及冻结版本不变，outbox键保留。未签名及非latest候选状态保留。
+
+真实通过：当前保护scope独立对象97/97精确云端ACK、pending0、诊断空；同孩子配置376缓存成功，explicitTargets=0，未擅自更改现有设置。主控制台真实显示97个应用对象，与本机数一致；独立站经既有家长入口恢复会话，页面可读取有效基础统计。当前日基础应用总量仍可读，不把不同读取时刻的自然增量当差额。
+
+真实未通过：身份投影虽与当前已受理基础清单精确绑定并获ACK，但complete=false、0身份行、NATIVE_SETTLED_TOPOLOGY_UNAVAILABLE。已定位Native在metadata归属前无条件要求整日原段共享完整秒网格；合法3500ms/3秒原段或不同相位也被拒绝，整组好段随之清空。不是对象未上传、不是旧策略版本，也不能以基础清单重生或6个新观察点证明身份统计完成。Native正在现有任务最小修复身份消费者并复验，保持原账/基础统计/舍入不变；不立即再次制包或安装。
+
+审计：集成/部署/原账保留/对象登记/配置读取为Matched；身份秒归集为Deviated，故整体链路未通过。真实配置保存变更未执行，仍只有隔离证据；新身份黑名单/日限强制执行、Mac和共享不在本批通过范围。附件工具因现有附件数上限未能把PR267附到会话，本条及PR链接保留追踪，不影响实际合并发布。
+
 ## NOW：自主控制配置发布（2026-10-15，PO批准）
 
 PO要求本次提交推送、部署供手工验收，覆盖以下自主控制条款此前不发布限制。仅提交本功能Pages/Guardian及直接测试/文档块，部署guardianWorker与mainConsolePages；不发布并发Native身份草稿、Runtime Worker/Pages、迁移、家庭配置或CRX/feed。专项与截图证据已通过，生产取精确master SHA及CI；未完成回读前不写已部署。终端1.7.47由固定extension-local备份更新unpacked，Native兼容边界保持未验收。

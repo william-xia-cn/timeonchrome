@@ -1,5 +1,11 @@
 # App Runtime 技术设计
 
+## 2026-10-15 集成发布与真实核对结果（覆盖下方旧实施状态）
+
+兼容1.49及0023已由master6866059、production38722867636发布到Runtime/Guardian/两套Pages；Windows2.6.52源码9ed29b9已安装。对象97项精确ACK、同孩子配置读取及主站真实目录通过；未修改现有家庭配置。身份投影虽完成精确基础manifest绑定及ACK，但实际0身份行，NATIVE_SETTLED_TOPOLOGY_UNAVAILABLE，整体身份统计归集未验收通过。
+
+已定位Native派生消费者在处理身份元数据之前无条件复用ApplicationSettledTopology严格完整秒网格；原账合法的不足一秒尾部及不同相位可触发整日不可用。最小修复仅允许已有无重叠且可证明身份的原段按既有DurationSeconds/Hours归属；真正重叠才要求可证明拓扑，不可证明部分保留局部unknown。原账、基础整数秒/小时算法、上传、配额与云端契约不改，不从名称或历史集合猜配。实际修复、候选及再次实机结果另记，不以当前发布完成冒称问题已修复。
+
 ## 2026-10-15 本机应用身份统一管理接线（当前实施边界）
 
 兼容增量1.49.0集中包含独立对象POST `/v2/machines/applications`、原scope配置GET `/v2/machines/applications/config`及基础统计清单下的PUT `native-projection`，能力`native-application-management-v1`仅说明以上数据接线，不能声明限制已验收。对象ACK保持原scope并逐项返回nativeId/revision/payloadHash，发送方仅对精确冻结版本及hash清队列。item使用共同canonicalUsageAccountJson与SHA256，扫描固定向量见契约native-application-management.vectors.json；旧1.48包不覆盖。身份统计NativeApplicationStatisticsProjection以baseManifestHash关联原有不可变秒清单，configurationVersion仅诊断，不能把旧策略水位变成时长可用门槛；统计行不携带显示名称、余额或新增身份ID。
