@@ -1,5 +1,9 @@
 # PROJECT_MASTER
 
+## 1.7.47源码修订（2026-10-15，未发布）
+
+固定extension-local源码版本1.7.47。控件文字确认及手动模式入口一致性已实现，手动入口另获PO的D-076具体批准；143项模式、67项路由、129项Rest及真实隔离SW/Content手动专项通过。共享浏览器弹层通过的Native响应仍为夹具，真实Native60/30节奏与完整展示策略兼容未验收。未提交、部署、生成CRX、更新托管feed或当前加载包，不改家庭配置/原账；当前候选及线上版本不能从源码版本推定。
+
 ## 2026-10-15 停用时间与云端修复已部署
 
 PO批准PR #258/#259合入master，并批准网站分类编辑、Native本机应用命名、停用配置三项一起上线；唯一Runtime迁移0022另获明确批准。发布源码为9fbac07b9eeb4d14007685cb379025b016404490，生产运行38610781351成功，精确SHA Runtime/Guardian/Main门禁通过。契约1.48.0；只应用0022_runtime_native_application_identifications.sql，无Guardian迁移，无共享执行准备。

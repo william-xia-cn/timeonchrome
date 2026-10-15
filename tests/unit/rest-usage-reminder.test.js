@@ -52,11 +52,19 @@ function loadModule(injected) {
     'handleRestUsageReminderAction',
     'restoreRestUsageReminderForTab',
     'suspendLegacyRestUsageReminder',
+    'requestScheduleUsageConfirmation',
   ];
   const factory = new Function('__injected', `
     const { getEffectiveQuotaForDate, budgetedLocalSet } = __injected;
+    const isAutonomyConfirmationText = value => value === '适合使用';
+    const softReminderRepeatMinutes = count => count > 0 ? 30 : 60;
+    const grantScheduleConfirmation = async () => {};
+    const revokeScheduleConfirmation = async () => {};
+    const readScheduleConfirmationScope = async () => 'isolated-child-scope';
     ${code}
-    return { ${names.join(', ')} };
+    const api = { ${names.join(', ')} };
+    api.handleRestUsageReminderAction = (message, sender, options) => handleRestUsageReminderAction({ confirmationText: '适合使用', ...message }, sender, options);
+    return api;
   `);
   return factory(injected);
 }
@@ -76,10 +84,10 @@ async function main() {
       sendMessage: async (_tabId, payload, options) => {
         messages.push({ ...payload, deliveryOptions: options || null });
         if (payload.type === 'SHOW_REST_USAGE_REMINDER') {
-          return deliveryMode === 'show_fail' ? null : { ok: true, visible: true };
+          return deliveryMode === 'show_fail' ? null : { ok: true, visible: true, confirmationVersion: deliveryMode === 'old_content' ? undefined : 1 };
         }
         if (payload.type === 'ACTIVATE_REST_USAGE_REMINDER') {
-          return deliveryMode === 'activate_fail' ? null : { ok: true, visible: true };
+          return deliveryMode === 'activate_fail' ? null : { ok: true, visible: true, confirmationVersion: 1 };
         }
         return { ok: true };
       },
@@ -134,11 +142,11 @@ async function main() {
   equal('soft limit rejects decimal', module.restUsageReminderConfigValue({ restConfig: { firstReminderMinutes: 1.5 } }), 120);
   equal('soft limit rejects out of range', module.restUsageReminderConfigValue({ restConfig: { firstReminderMinutes: 1441 } }), 120);
   equal('missing repeat interval defaults to 60', module.restUsageReminderRepeatConfigValue({ restConfig: {} }), 60);
-  equal('repeat interval accepts lower boundary', module.restUsageReminderRepeatConfigValue({ restConfig: { repeatReminderMinutes: 1 } }), 1);
-  equal('repeat interval accepts upper boundary', module.restUsageReminderRepeatConfigValue({ restConfig: { repeatReminderMinutes: 1440 } }), 1440);
+  equal('legacy lower interval is ignored', module.restUsageReminderRepeatConfigValue({ restConfig: { repeatReminderMinutes: 1 } }), 60);
+  equal('legacy upper interval is ignored', module.restUsageReminderRepeatConfigValue({ restConfig: { repeatReminderMinutes: 1440 } }), 60);
   equal('legacy fields remain ignored', module.restUsageReminderConfigValue({ restConfig: { reminderInterval: 5, maxRestDuration: 3 } }), 120);
   equal('missing autonomy config defaults timeout to end Rest', module.restUsageReminderTimeoutAction({}), 'end_rest');
-  equal('autonomy config accepts timeout continue', module.restUsageReminderTimeoutAction({ autonomyConfig: { softReminderTimeoutAction: 'continue' } }), 'continue');
+  equal('old continue never bypasses confirmation', module.restUsageReminderTimeoutAction({ autonomyConfig: { softReminderTimeoutAction: 'continue' } }), 'end_rest');
   equal('invalid timeout action preserves safe default', module.restUsageReminderTimeoutAction({ autonomyConfig: { softReminderTimeoutAction: 'invalid' } }), 'end_rest');
 
   usage = { ok: true, restSeconds: 7199, weekRestSeconds: 20_000 };
@@ -158,22 +166,34 @@ async function main() {
   check('delivery order is show, activate, pause', messages.slice(-3).map(item => item.type).join(',') === 'SHOW_REST_USAGE_REMINDER,ACTIVATE_REST_USAGE_REMINDER,PAUSE_REST_USAGE_MEDIA');
   check('visible delivery creates deadline alarm', alarms.has(module.REST_USAGE_REMINDER_DEADLINE_ALARM));
   equal('visible deadline is sixty seconds', result.prompt.deadlineAt - result.prompt.shownAt, module.REST_USAGE_REMINDER_TIMEOUT_MS);
+  const firstToken = result.prompt.token;
+  const missingText = await module.handleRestUsageReminderAction({ token: firstToken, action: 'continue', confirmationText: undefined },
+    { tab: { id: 11 } }, { deps, now: 1_780_000_001_100 });
+  equal('missing confirmation text never continues', missingText.error, 'confirmation_text_required');
+  const wrongFrame = await module.handleRestUsageReminderAction({ token: firstToken, action: 'continue' },
+    { tab: { id: 11 }, frameId: 2 }, { deps, now: 1_780_000_001_100 });
+  equal('iframe cannot confirm top-frame prompt', wrongFrame.error, 'invalid_prompt_sender');
 
   result = await module.handleRestUsageReminderAction({
     token: result.prompt.token,
     action: 'continue',
   }, { tab: { id: 11 } }, { deps, now: 1_780_000_002_000 });
   equal('slide continue succeeds', result.action, 'continue');
-  equal('configured 30-minute repeat interval is applied', result.nextThresholdSeconds, 9000);
+  equal('first confirmation adds sixty minutes', result.nextThresholdSeconds, 10800);
   equal('continue does not end Rest', endCalls.length, 0);
 
-  usage = { ok: true, restSeconds: 8999, weekRestSeconds: 21_799 };
+  usage = { ok: true, restSeconds: 10799, weekRestSeconds: 21_799 };
   result = await module.evaluateRestUsageReminder({ deps, now: 1_780_001_000_000 });
   equal('repeat waits for configured interval', result.skipped, 'below_threshold');
-  usage = { ok: true, restSeconds: 9000, weekRestSeconds: 21_800 };
+  usage = { ok: true, restSeconds: 10800, weekRestSeconds: 21_800 };
   result = await module.evaluateRestUsageReminder({ deps, now: 1_780_001_001_000 });
   equal('repeat prompt kind is explicit', result.prompt.reminderKind, 'repeat');
-  equal('repeat prompt shows cumulative overage', result.prompt.overageSeconds, 1800);
+  equal('repeat prompt shows cumulative overage', result.prompt.overageSeconds, 3600);
+  result = await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'continue' },
+    { tab: { id: 11 } }, { deps, now: 1_780_001_002_000 });
+  equal('second confirmation adds thirty minutes', result.nextThresholdSeconds, 12600);
+  usage.restSeconds = 12600;
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_001_003_000 });
 
   const activePrompt = result.prompt;
   config = { restConfig: { firstReminderMinutes: null, repeatReminderMinutes: 5 } };
@@ -189,13 +209,13 @@ async function main() {
   };
   usage = { ok: true, restSeconds: 60, weekRestSeconds: 60 };
   result = await module.evaluateRestUsageReminder({ deps, now: 1_780_005_000_000 });
-  equal('continue timeout action is carried into prompt', result.prompt.timeoutAction, 'continue');
+  equal('timeout always ends', result.prompt.timeoutAction, 'end_rest');
   result = await module.evaluateRestUsageReminder({ deps, now: result.prompt.deadlineAt, reason: 'deadline_alarm' });
-  equal('visible prompt timeout continues Rest when configured', result.action, 'continue');
-  equal('timeout continue records stable reason', result.state.lastResolution.reason, 'timeout_continue');
-  equal('timeout continue schedules from current settled usage', result.nextThresholdSeconds, 240);
-  equal('timeout continue does not end Rest', endCalls.length, 0);
-  check('timeout continue resumes paused media', messages.some(item => item.type === 'RESUME_REST_USAGE_MEDIA'));
+  equal('visible prompt timeout blocks despite old configuration', result.action, 'end');
+  equal('timeout records explicit confirmation reason', result.state.lastResolution.reason, 'confirmation_timeout');
+  equal('timeout does not acknowledge a threshold', result.state.nextThresholdSeconds, 60);
+  equal('timeout ends Rest', endCalls.length, 1);
+  check('timeout never resumes paused media', !messages.some(item => item.type === 'RESUME_REST_USAGE_MEDIA'));
 
   reset();
   config = {
@@ -206,9 +226,9 @@ async function main() {
   result = await module.evaluateRestUsageReminder({ deps, now: 1_780_006_000_000 });
   usageReadError = new Error('quota view unavailable');
   result = await module.evaluateRestUsageReminder({ deps, now: result.prompt.deadlineAt, reason: 'deadline_alarm' });
-  equal('timeout continue survives quota view read failure', result.action, 'continue');
-  equal('quota read failure rebases from displayed settled usage', result.nextThresholdSeconds, 240);
-  equal('quota read failure does not end Rest', endCalls.length, 0);
+  equal('timeout blocks even when quota cannot be reread', result.action, 'end');
+  equal('failed quota read cannot acknowledge', result.state.nextThresholdSeconds, 60);
+  equal('quota read failure still ends', endCalls.length, 1);
 
   reset();
   config = { restConfig: { firstReminderMinutes: 120, repeatReminderMinutes: 60 } };
@@ -226,7 +246,7 @@ async function main() {
   usage = { ok: true, restSeconds: 3700, weekRestSeconds: 3700 };
   config = { restConfig: { firstReminderMinutes: 30, repeatReminderMinutes: 10 } };
   result = await module.evaluateRestUsageReminder({ deps, now: 1_780_010_003_000 });
-  equal('repeat config change rebases from current settled usage', result.state.nextThresholdSeconds, 4300);
+  equal('old repeat setting cannot alter the sixty-minute threshold', result.state.nextThresholdSeconds, 7200);
   equal('rebased reminder waits for new interval', result.skipped, 'below_threshold');
 
   reset();
@@ -265,10 +285,10 @@ async function main() {
   deliveryMode = 'show_fail';
   result = await module.evaluateRestUsageReminder({ deps, now: failedAt });
   result = await module.evaluateRestUsageReminder({ deps, now: failedAt + module.REST_USAGE_REMINDER_RETRY_MS, reason: 'delivery_retry' });
-  equal('second failed delivery continues when configured', result.action, 'continue');
-  equal('failed delivery continue reason is stable', result.state.lastResolution.reason, 'delivery_failed_continue');
-  equal('failed delivery continue advances next threshold', result.nextThresholdSeconds, 240);
-  equal('failed delivery continue does not end Rest', endCalls.length, 0);
+  equal('second failed delivery blocks despite old continue setting', result.action, 'end');
+  equal('failed delivery reason is stable', result.state.lastResolution.reason, 'delivery_failed');
+  equal('failed delivery never acknowledges threshold', result.state.nextThresholdSeconds, 60);
+  equal('failed delivery ends Rest', endCalls.length, 1);
   check('failed invisible delivery does not resume media that was never paused', !messages.some(item => item.type === 'RESUME_REST_USAGE_MEDIA'));
 
   reset();
@@ -286,7 +306,7 @@ async function main() {
     token: result.prompt.token,
     action: 'continue',
   }, { tab: { id: 11 } }, { deps, now: 1_780_040_001_000 });
-  equal('profile-provided three-minute repeat is used', local.data[module.REST_USAGE_REMINDER_STATE_KEY].nextThresholdSeconds, 480);
+  equal('old three-minute setting is ignored', local.data[module.REST_USAGE_REMINDER_STATE_KEY].nextThresholdSeconds, 3900);
   dateKey = '2026-08-30';
   usage = { ok: true, restSeconds: 0, weekRestSeconds: 300 };
   result = await module.evaluateRestUsageReminder({ deps, now: 1_780_126_400_000 });
@@ -343,8 +363,8 @@ async function main() {
   deliveryMode = 'show_fail';
   result = await module.evaluateRestUsageReminder({ deps, now: failedAt });
   result = await module.evaluateRestUsageReminder({ deps, now: failedAt + module.REST_USAGE_REMINDER_RETRY_MS });
-  equal('weekly-only failed delivery continues by policy', result.action, 'continue');
-  equal('weekly-only failed delivery advances weekly threshold', result.state.weekly.nextThresholdSeconds, 240);
+  equal('weekly-only failed delivery blocks', result.action, 'end');
+  equal('weekly-only failed delivery does not acknowledge', result.state.weekly.nextThresholdSeconds, 60);
   equal('weekly-only does not enable daily reminders', result.state.nextThresholdSeconds, null);
 
   const content = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'content.js'), 'utf8');
@@ -367,20 +387,60 @@ async function main() {
   check('background handles retry alarm', background.includes('REST_USAGE_REMINDER_RETRY_ALARM') && background.includes("reason: 'delivery_retry'"));
   check('background fallback reason reaches existing mode path', background.includes('rest_usage_reminder_${reason}'));
 
-  const pages = fs.readFileSync(path.join(__dirname, '..', '..', 'pages', 'index.html'), 'utf8');
-  check('Pages exposes autonomy soft-limit toggle and numeric inputs', ['a-rest-reminder-enabled', 'a-rest-first-reminder', 'a-rest-repeat-reminder'].every(id => pages.includes(`id="${id}"`)));
-  check('Pages exposes both timeout actions', pages.includes('name="a-rest-timeout-action" value="end_rest"') && pages.includes('name="a-rest-timeout-action" value="continue"'));
+  const cloudRoot = process.env.TOC_CLOUD_TEST_ROOT || path.join(__dirname, '..', '..');
+  const pages = fs.readFileSync(path.join(cloudRoot, 'pages', 'index.html'), 'utf8');
+  check('Pages exposes soft-limit and advisory controls without obsolete interval input', ['a-rest-reminder-enabled', 'a-rest-first-reminder', 'a-time-window-advisory'].every(id => pages.includes(`id="${id}"`)) && !pages.includes('id="a-rest-repeat-reminder"'));
+  check('Pages keeps mandatory timeout instead of default-continue controls', pages.includes('60秒未确认') && !/<input\b[^>]*\bname="a-rest-timeout-action"/i.test(pages));
   check('Pages uses one-to-1440 validation', pages.includes('validRestReminderMinutes') && pages.includes('number <= 1440'));
-  check('Pages saves and exports repeat reminder', pages.includes('repeatReminderMinutes: quotaFiniteNumber') && pages.includes('repeatReminderMinutes,'));
-  check('content timeout supports end and continue', content.includes("payload.timeoutAction === 'continue'") && content.includes("restReminderResolveAction?.(timeoutAction)"));
+  check('Pages saves and exports fixed compatibility interval', pages.includes('repeatReminderMinutes: 60') && pages.includes('repeatReminderMinutes,'));
+  check('content timeout only blocks', content.includes("const timeoutAction = 'end'") && content.includes("restReminderResolveAction?.(timeoutAction)"));
 
   const worker = fs.readFileSync(path.join(__dirname, '..', '..', 'workers', 'src', 'routes', 'profiles.ts'), 'utf8');
   check('Worker validates both reminder fields', worker.includes('restConfig.repeatReminderMinutes') && worker.includes('1-1440 的整数分钟'));
   check('Worker validates autonomy boolean and timeout enum', worker.includes('autonomyConfig.restrictedEntryConfirmationRequired 必须是布尔值') && worker.includes('autonomyConfig.softReminderTimeoutAction 必须是 end_rest 或 continue'));
-  check('Worker allows autonomy config in controlled profile writes', worker.includes("'restConfig', 'autonomyConfig', 'autoStudyConfig'"));
+  check('Worker allows autonomy config in controlled profile writes', /'restConfig',\s*'autonomyConfig',\s*(?:'downtimeConfig',\s*)?'autoStudyConfig'/.test(worker));
   check('Worker deep merges rest and autonomy config', worker.includes("key === 'restConfig' || key === 'autonomyConfig'") && worker.includes('mergedConfig[key] ='));
 
   const source = fs.readFileSync(path.join(__dirname, '..', '..', 'extension', 'product', 'rest-usage-reminder.js'), 'utf8');
+  reset();
+  config = { restConfig: { firstReminderMinutes: 1, weeklyFirstReminderMinutes: 1 } };
+  usage = { ok: true, restSeconds: 60, weekRestSeconds: 60 };
+  timingSession = { state: 'ACTIVE', quotaBucketAtTime: 'study', tabId: 11 };
+  const schedule = { tabId: 11, host: 'fixture.test', key: 'fixed-gap', mode: 'study' };
+  deps.getScheduleContext = async () => schedule;
+  deps.blockSchedule = async input => { endCalls.push(input); return { ok: true, blocked: true }; };
+  result = await module.requestScheduleUsageConfirmation(schedule, { deps, now: 1_780_060_000_000 });
+  equal('schedule combines daily and weekly in one prompt', result.prompt.reminders.length, 2);
+  equal('schedule accepts a non-Rest foreground session', result.prompt.schedule.key, 'fixed-gap');
+  result = await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'continue' },
+    { tab: { id: 11 } }, { deps, now: 1_780_060_001_000 });
+  equal('combined confirmation advances both periods', result.state.nextThresholdSeconds, 3660);
+  equal('combined confirmation advances weekly', result.state.weekly.nextThresholdSeconds, 3660);
+  reset(); config = { restConfig: { firstReminderMinutes: null, weeklyFirstReminderMinutes: null } };
+  deliveryMode = 'show_fail';
+  result = await module.requestScheduleUsageConfirmation(schedule, { deps, now: failedAt });
+  result = await module.evaluateRestUsageReminder({ deps, now: failedAt + module.REST_USAGE_REMINDER_RETRY_MS });
+  equal('disabled soft reminders do not cancel schedule delivery', result.action, 'end');
+  equal('failed schedule delivery blocks explicitly', endCalls[0]?.reason, 'delivery_failed');
+  reset(); deliveryMode = 'success';
+  result = await module.requestScheduleUsageConfirmation(schedule, { deps, now: Date.now() });
+  deps.getScheduleContext = async () => null;
+  result = await module.restoreRestUsageReminderForTab(11, { deps });
+  equal('changed schedule is not restored onto a new page', result.skipped, 'confirmation_context_changed');
+  equal('stale schedule restoration does not end new usage', endCalls.length, 0);
+  equal('stale schedule deadline removed', alarms.has(module.REST_USAGE_REMINDER_DEADLINE_ALARM), false);
+  equal('stale schedule prompt removed', local.data[module.REST_USAGE_REMINDER_STATE_KEY].prompt, null);
+  delete deps.getScheduleContext; delete deps.blockSchedule;
+  reset(); config = { restConfig: { firstReminderMinutes: 1, weeklyFirstReminderMinutes: null } };
+  usage = { ok: true, restSeconds: 60, weekRestSeconds: 60 }; deliveryMode = 'old_content';
+  result = await module.evaluateRestUsageReminder({ deps, now: failedAt });
+  check('old Content does not start a confirmation deadline', result.deliveryPending === true && !alarms.has(module.REST_USAGE_REMINDER_DEADLINE_ALARM));
+  reset(); usage = { ok: true, restSeconds: 3660, weekRestSeconds: 3660 };
+  local.data[module.REST_USAGE_REMINDER_STATE_KEY] = { version: 2, dateKey, firstReminderMinutes: 1,
+    repeatReminderMinutes: 60, nextThresholdSeconds: 3660, lastAcknowledgedUsageSeconds: 60 };
+  result = await module.evaluateRestUsageReminder({ deps, now: failedAt });
+  result = await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'continue' }, { tab: { id: 11 } }, { deps, now: failedAt + 1 });
+  equal('legacy acknowledged state uses subsequent 30 minute cadence', result.state.nextThresholdSeconds, 5460);
   check('temporary unpacked ID override is removed', !source.includes('LOCAL_ACCEPTANCE_EXTENSION_ID') && !source.includes('mfmmfemipnmbccecemahcpbiolofcppm'));
   const endCount = endCalls.length;
   local.data[module.REST_USAGE_REMINDER_STATE_KEY] = { prompt: { token: 'migration-prompt', sourceTabId: 11 }, nextThresholdSeconds: 7200 };

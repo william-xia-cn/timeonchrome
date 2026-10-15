@@ -36,6 +36,10 @@ function section(name) {
 function loadModeService(stubs = {}) {
   const downtimeSource = fs.readFileSync(path.join(__dirname, '../../extension/core/downtime.js'), 'utf8');
   const downtime = new Function(`${downtimeSource.replace(/export (function|const) /g, '$1 ')}\nreturn { readDowntimeConfig, evaluateWebsiteDowntime };`)();
+  const windowsSource = fs.readFileSync(path.join(__dirname, '../../extension/core/time-windows.js'), 'utf8');
+  const windows = new Function(`${windowsSource.replace(/export (function|const) /g, '$1 ')}\nreturn { getModeWindowStatus };`)();
+  const autonomySource = fs.readFileSync(path.join(__dirname, '../../extension/core/autonomy-confirmation.js'), 'utf8');
+  const autonomy = new Function('getModeWindowStatus', 'URL', `${autonomySource.replace(/^import .*;$/gm, '').replace(/export (function|const) /g, '$1 ')}\nreturn { scheduleConfirmationContext };`)(windows.getModeWindowStatus, URL);
   const abs = path.join(__dirname, '..', '..', 'extension', 'product', 'mode-service.js');
   let code = fs.readFileSync(abs, 'utf8');
   code = code.replace(/^\s*import[\s\S]*?;\s*$/gm, '');
@@ -46,6 +50,8 @@ function loadModeService(stubs = {}) {
 
   const context = {
     ...downtime,
+    ...autonomy,
+    hasScheduleConfirmation: async () => false,
     isSharedAccessRuntimeEnabled: () => false,
     console,
     Date,
@@ -1344,6 +1350,64 @@ this.__modeService = {
         { access: test.access ?? 'reminder', reason: test.reason, mode: test.mode });
       expect('quota snapshot only after blacklist: ' + test.name, reads, test.nature === 'blocked' ? 0 : 1);
     }
+  }
+  section('Advisory windows: actual access consumer and hard gates');
+  for (const nature of ['study', 'composite', 'pending_composite', 'restricted']) {
+    const cfg = { enabled: true, mode: 'study', timeQuota: { accountingVersion: 2 }, autonomyConfig: { timeWindowAdvisoryEnabled: true },
+      timeWindows: { daily: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day,
+        { studyWindows: [{ start: '07:00', end: '22:00' }], compositeWindows: [{ start: '07:00', end: '22:00' }], restWindows: [{ start: '07:00', end: '22:00' }] }])) } };
+    let granted = false, hard = false;
+    const svc = loadModeService({ getConfig: async () => cfg, resolveSiteAccessClassification: () => ({ classification: nature }),
+      hasScheduleConfirmation: async () => granted,
+      evaluateQuotaState: async () => ({ ok: true, config: cfg, newState: { onlineLocked: hard }, usage: { restSeconds: 0, undeterminedSeconds: 0, studySeconds: 0 } }) });
+    const event = { type: 'ACCESS_OBSERVED', tabId: 8, foreground: true, url: 'https://fixture.test/page', nowMs: Date.parse('2026-10-15T02:00:00+08:00') };
+    const originalTimezone = process.env.TZ; process.env.TZ = 'Asia/Shanghai';
+    expect(nature + ' prompts before any mode change', (await svc.handleModeEvent(event)).access, 'confirmation');
+    granted = true;
+    expectTrue(nature + ' granted window does not repeatedly block', (await svc.handleModeEvent(event)).access !== 'reminder');
+    hard = true;
+    expect(nature + ' hard quota still blocks after confirmation', (await svc.handleModeEvent(event)).reminder?.reason, 'quota_online');
+    process.env.TZ = originalTimezone;
+  }
+  section('Manual advisory mode entry: no commit before confirmation');
+  for (const nature of ['study', 'composite', 'pending_composite', 'restricted']) {
+    const requested = nature === 'study' ? 'study' : nature === 'restricted' ? 'rest' : 'composite';
+    const cfg = { enabled: true, mode: requested === 'study' ? 'rest' : 'study', timeQuota: { accountingVersion: 2 },
+      autonomyConfig: { timeWindowAdvisoryEnabled: true },
+      timeWindows: { daily: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day,
+        { studyWindows: [{ start: '07:00', end: '22:00' }], compositeWindows: [{ start: '07:00', end: '22:00' }], restWindows: [{ start: '07:00', end: '22:00' }] }])) } };
+    let session = { currentMode: cfg.mode }, granted = false, hard = false, unsafe = false;
+    const writes = [], boundaries = [];
+    const svc = loadModeService({ getConfig: async () => cfg, getSession: async () => session,
+      saveSession: async value => { writes.push('session'); session = value; },
+      saveConfig: async value => { writes.push('config'); Object.assign(cfg, value); },
+      enqueueModeBoundaryIntent: async intent => { boundaries.push(intent); return { ok: true, intent }; },
+      resolveSiteAccessClassification: () => ({ classification: unsafe ? 'blocked' : nature }),
+      hasScheduleConfirmation: async () => granted,
+      evaluateQuotaState: async () => ({ ok: true, config: cfg, newState: { onlineLocked: hard },
+        usage: { restSeconds: 0, undeterminedSeconds: 0, studySeconds: 0 } }) });
+    const event = { type: 'REQUEST_MODE_CHANGE', requestedMode: requested, tabId: 8,
+      url: 'https://fixture.test/page', source: 'popup', nowMs: Date.parse('2026-10-15T02:00:00+08:00') };
+    const originalTimezone = process.env.TZ; process.env.TZ = 'Asia/Shanghai';
+    const pending = await svc.handleModeEvent(event);
+    expect(nature + ' manual uses website confirmation', pending.access, 'confirmation');
+    expect(nature + ' manual has no mode intent before confirmation', pending.modeChange, null);
+    expect(nature + ' confirmation has no persistent mode writes', writes.length, 0);
+    expect(nature + ' confirmation enqueues no accounting boundary', boundaries.length, 0);
+    const reminderPage = await svc.handleModeEvent({ ...event, fromReminderPage: true });
+    expect(nature + ' extension Reminder defers website confirmation to navigation', reminderPage.modeChange?.toMode, requested);
+    expect(nature + ' extension page does not create a webpage grant', reminderPage.access, 'allow');
+    granted = true;
+    const allowed = await svc.handleModeEvent(event);
+    expect(nature + ' confirmed manual selection uses existing mode commit', allowed.modeChange?.toMode, requested);
+    await svc.commitModeChange(allowed.modeChange);
+    await svc.commitModeChange(allowed.modeChange);
+    expect(nature + ' identical confirmed commits enqueue only one boundary', boundaries.length, 1);
+    hard = true;
+    expect(nature + ' manual hard quota remains higher priority', (await svc.handleModeEvent(event)).reminder?.reason, 'quota_locked');
+    hard = false; unsafe = true;
+    expect(nature + ' manual confirmation cannot bypass blacklist', (await svc.handleModeEvent(event)).reminder?.reason, 'unsafe');
+    process.env.TZ = originalTimezone;
   }
   if (failed > 0) {
     console.error(`\n${failed} failed, ${passed} passed`);

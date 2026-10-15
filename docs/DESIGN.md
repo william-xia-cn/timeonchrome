@@ -1,5 +1,17 @@
 # TimeOnChrome — 技术设计文档
 
+## 控件1.7.47源码版本（2026-10-15，未发布）
+
+本轮源码manifest为1.7.47，文字确认与手动入口修订保持未提交。源码版本不代表当前Chrome加载候选或托管feed已更新。手动模式切换与建议时间窗一致性已按PO的D-076单项批准实现，模式143项/路由67项及隔离真实SW+Content专项通过。真实Native共享节奏与完整展示兼容仍待接管。
+
+后续PO已明确批准该具体入口修订：REQUEST_MODE_CHANGE硬配额优先，现代timeWindows建议模式下对当前真实网页复用ACCESS_OBSERVED判定；返回confirmation/reminder则不提交手动模式。路由内部fromReminderPage只描述当前扩展页上下文，不能由其授予网站权限；Reminder返回原URL后仍由导航访问检查。没有Content的扩展页不尝试网页弹层。旧schedule-only保留强制兼容，不改ACTIVE、原始分段、聚合或Native协议。专项验证确认前无模式/边界写入、确认后既有提交幂等。
+
+## 时间窗自主控制与统一确认（2026-10-15）
+
+共享browser presenter同样由控件渲染文字确认。confirmationText仅在控件内部消息外层校验，不进入Native resolveSharedReminder载荷；继续发送既有身份字段及continue/end_rest。SHOW/ACTIVATE响应增加内部confirmationVersion=1能力确认，旧Content不得被当作合格展示。Escape禁止绕过输入，导航/撤销仍只清理展示，不被伪造为用户操作或Service超时。共享超时与重复阈值仍由Service负责，本次不单方改变其协议；完整性审计须将Service策略兼容与实机验收分开列明。
+
+新增可选布尔autonomyConfig.timeWindowAdvisoryEnabled，缺省false。旧softReminderTimeoutAction和repeatReminderMinutes保留兼容字段，不控制新文字确认：超时结束，首次继续新增60分钟、之后30分钟。复用Rest可见ACK、媒体暂停和有界投递，独立有界授权只保存在扩展本机，不上传账号或浏览内容。确认消息校验顶层sender、token、截止时间及精确文字，再重新检查当前对象/策略及全部硬限制。时间窗提醒与到期软配额合并，继续仅推进本弹层覆盖的日周状态。授权不改变config、账本或计时；失效后重新确认。
+
 ## Native本机命名元数据的云端接线（2026-10-15，开发契约1.48.0）
 
 沿既有机器鉴权：capabilities声明native-application-identification-v1，仅0022表及两个约束trigger就绪时可用。POST /v2/machines/program-instances/local-identifications接收schemaVersion/childId/localUserId/assignmentVersion/items；正文上限262144字节、最多50项。每项引用已登记instanceId，revision持久单调、observedAtMs固定该次变更；identifications为1～16项完整已登记集合或null显式失效。项字段固定nativeId/name/status/evidence，禁止目录、路径、SID、窗口、PID及自由诊断值。状态沿用Native identified/dynamic-registry/dynamic-process，不升级为Verified或产品权限。
