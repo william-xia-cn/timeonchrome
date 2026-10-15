@@ -6,6 +6,16 @@
   const labels = {study:'学习',composite:'复合',restrictedEntertainment:'受限娱乐',other:'其他',unclassified:'未归类',blocked:'黑名单'};
   const types = {game:'游戏',gameLauncher:'游戏平台／启动器',gameUtility:'游戏工具',onlineVideo:'在线视频',mediaPlayer:'影音播放器',other:'其他',unknown:'未知'};
   const resolutionLabels={explicit:'孩子明确分类',automatic:'自动规则',suggestion:'仅建议，不改变有效分类',conflict:'规则冲突，保留原有效分类',unclassified:'未归类'};
+  function nativeApplicationsHTML(items,configurations=[]){
+    const cards=items.map((item,index)=>{
+      const selected=configurations.find(c=>c.target.machineId===item.target.machineId&&c.target.nativeId===item.target.nativeId)
+        ||{classification:'',specialApplication:false,dailyQuotaMinutes:null};
+      const name=item.presentations[0]?.name||item.target.nativeId;
+      const sources=[...new Set(item.presentations.map(p=>p.origin==='scan'?'安装扫描':p.status==='identified'?'运行识别':'运行动态识别'))].join(' / ');
+      return `<article class="record-card product-record" data-native-object="${index}"><div><strong>${escapeHtml(name)}</strong><p>${escapeHtml(sources)} · ${escapeHtml(item.target.machineId.slice(0,12))}</p><small>${escapeHtml(item.target.nativeId)}</small><p>本机应用身份；信息来源不影响分类配置。实际限制能力以终端状态为准。</p></div><div class="record-actions"><label>分类<select data-native-class="${index}">${[['','未单独设置（保留原配置）'],...Object.entries(labels)].map(([key,label])=>`<option value="${key}"${selected.classification===key?' selected':''}>${label}</option>`).join('')}</select></label><label><input type="checkbox" data-native-special="${index}"${selected.specialApplication?' checked':''}>特殊应用容器</label><label>单应用日限（分钟，空为不限制）<input type="number" min="0" max="1440" data-native-quota="${index}" value="${selected.dailyQuotaMinutes??''}"></label><button type="button" data-native-save="${index}">保存应用配置</button></div></article>`;
+    }).join('')||'<p class="empty">当前栏目没有本机应用对象。</p>';
+    return '<p>本批分类与特殊容器设置用于统计；新身份的黑名单和单应用日限目前仅保存，尚未接入限制执行。既有封锁保持。</p>'+cards;
+  }
   function nativeIdentificationHTML(value){
     const esc=escapeHtml;
     if(!value||value.state==='missing')return '<p>尚无本机命名登记。</p>';
@@ -15,7 +25,7 @@
     const labels={identified:'本机明确规则命中','dynamic-registry':'本机目录动态识别','dynamic-process':'本机程序名称动态识别'};
     return `<div>${value.state==='multiple-sources'?'<p>多个用户来源分别登记，不能视为同一应用。</p>':''}${value.sources.map(source=>
       `<div><small>本机最近登记 · ${esc(new Date(source.observedAtMs).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}))}（北京时间）</small>${source.identifications===null?'<p>此来源命名已失效。</p>':(source.identifications||[]).map(item=>
-        `<p><strong>${esc(item.name)}</strong><br>${esc(labels[item.status]||'本机来源未知')}${item.status!=='identified'?'；动态名称不代表确定产品权限':''}<br><small>${esc((item.evidence||[]).join(' · '))}</small></p>`).join('')}</div>`).join('')}<p>这些是程序实例的本机命名登记，不相加为应用数量。</p></div>`;
+        `<p><strong>${esc(item.name)}</strong><br>${esc(labels[item.status]||'本机来源未知')}${item.status!=='identified'?'；动态来源同样可配置，实际执行须终端核验':''}<br><small>${esc((item.evidence||[]).join(' · '))}</small></p>`).join('')}</div>`).join('')}<p>这些是程序实例的本机命名登记，不相加为应用数量。</p></div>`;
   }
   function nativeInstanceTitle(item){
     const value=item.nativeIdentification;
@@ -700,5 +710,5 @@ $('#product-panel').innerHTML=`<p id="product-notice" class="notice" hidden></p>
     function dispose(){if(disposed)return;disposed=true;for(const [type,handler]of Object.entries(listeners))root.removeEventListener(type,handler);for(const dialog of all('dialog[open]'))dialog.close();}
     return {open,publish,classify,dispose};
   }
-  return {nativeIdentificationHTML,nativeInstanceTitle,empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,installationSummaryHTML,ownershipEvidenceOptions,legacyOwnershipDraft,legacyResolutionValid,resolveLegacyOwnership,legacyDispositionComplete,deferLegacyOwnership,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
+  return {nativeApplicationsHTML,nativeIdentificationHTML,nativeInstanceTitle,empty,withDefaultRecommendations,selectorFor,confirmProduct,enableEnhancedBlocking,mergeProducts,splitVariant,unlinkVariant,diffImport,selectedImport,scopeImport,catalogImportDiff,applyCatalogImport,reviseRule,toggleApproval,editedConditions,previewHitsHTML,installationSummaryHTML,ownershipEvidenceOptions,legacyOwnershipDraft,legacyResolutionValid,resolveLegacyOwnership,legacyDispositionComplete,deferLegacyOwnership,addOwnershipDraft,editOwnershipProduct,parseClassificationExpressions,reviseCatalogClassification,addCatalogClassification,mount};
 });

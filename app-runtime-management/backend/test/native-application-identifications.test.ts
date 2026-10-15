@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
 import {receiveNativeApplicationIdentifications,readNativeApplicationIdentifications} from '../src/nativeApplicationIdentifications';
-import {registerProgramInstances,listChildProgramInstances,materializeProgramInstanceMappings,saveProgramInstanceCatalog} from '../src/programInstances';
+import {registerProgramInstances,listChildProgramInstances,materializeProgramInstanceMappings,saveProgramInstanceCatalog,readChildProgramDirectory} from '../src/programInstances';
 import {randomToken,sha256Hex} from '../src/crypto';
 import {routeV2} from '../src/v2Routes';
 import type {MachineSelfResponse} from '../src/contracts';
@@ -45,12 +45,41 @@ it('实际机器鉴权接收并在家长实例读取显示本机名称，所有�
   expect(await parent!.json()).toMatchObject({items:[{instanceId:f.instanceId,product:{id:'product-existing'},
     nativeIdentification:{sources:[{identifications:[{name:f.identification.name}]}]}}]});
 });
-it.each(['dynamic-registry','dynamic-process'])('保留%s及冲突/不完整代码，不提升为Verified或云端产品',async status=>{
+it.each(['dynamic-registry','dynamic-process'])('保留%s及原依据；直接登记管理对象但不伪造Verified或改旧兼容映射',async status=>{
   const f=await fixture(),entry={nativeId:'dynamic-local:'+'d'.repeat(64),name:'动态名称（动态识别）',status,
     evidence:['STATIC_IDENTITY_CONFLICT','REGISTRY_SOURCE_INCOMPLETE']};
   await f.send({...f.batch,items:[{...f.batch.items[0],identifications:[entry]}]});
   const result=await f.read();expect(result).toMatchObject({status:'pending',product:null,nativeIdentification:{sources:[{identifications:[{...entry,evidence:[...entry.evidence].sort()}]}]}});
   expect(result.evidence).toEqual({platform:'windows',verified:{binaryHash:'b'.repeat(64)}});
+  expect((await listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,f.childId,null)).applicationObjects)
+    .toEqual([{target:{machineId:f.machine.machineId,nativeId:entry.nativeId},
+      presentations:[{name:entry.name,status,evidence:[...entry.evidence].sort()}]}]);
+});
+it('完整目录直接读取本机管理对象，无旧产品确认前提；改名与重复来源不增加对象',async()=>{
+  const f=await fixture();
+  await saveProgramInstanceCatalog(env.RUNTIME_DB,f.machine.accountId,[f.childId],'"application-knowledge-v0"',{
+    schemaVersion:4,version:0,products:[],rules:[],bindings:[],ownershipRules:[]},1);
+  await f.send();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,'second-user',1,?2,1,'override',0,0)`)
+    .bind(f.machine.machineId,f.childId).run();
+  await registerProgramInstances(env.RUNTIME_DB,f.machine,{...f.registration,localUserId:'second-user'},2);
+  await f.send({...f.batch,localUserId:'second-user',items:[{...f.batch.items[0],identifications:[{...f.identification,name:'修改后的名称'}]}]});
+  const value=await readChildProgramDirectory(env.RUNTIME_DB,f.machine.accountId,f.childId,Date.parse('2026-10-15T00:00:00+08:00'));
+  expect(value.facts).toEqual([]); // 旧配置／原产品事实不被自动改写。
+  expect(value.applicationObjects).toHaveLength(1);
+  expect(value.applicationObjects[0].target).toEqual({machineId:f.machine.machineId,nativeId:f.identification.nativeId});
+  expect(value.applicationObjects[0].presentations.map(p=>p.name)).toEqual(['修改后的名称',f.identification.name].sort());
+  expect((await listChildProgramInstances(env.RUNTIME_DB,'other-family',f.childId,null)).applicationObjects).toEqual([]);
+  expect((await listChildProgramInstances(env.RUNTIME_DB,f.machine.accountId,'other-child',null)).applicationObjects).toEqual([]);
+});
+it('尚无旧产品目录也能读取有效本机应用对象；不自动生成旧产品或分类',async()=>{
+  const f=await fixture();await f.send();
+  const value=await readChildProgramDirectory(env.RUNTIME_DB,f.machine.accountId,f.childId,Date.parse('2026-10-15T00:00:00+08:00'));
+  expect(value.catalogVersion).toBeNull();expect(value.facts).toEqual([]);
+  expect(value.applicationObjects).toEqual([{target:{machineId:f.machine.machineId,nativeId:f.identification.nativeId},
+    presentations:[{name:f.identification.name,status:f.identification.status,evidence:f.identification.evidence}]}]);
+  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_knowledge_versions_v1 WHERE account_id=?')
+    .bind(f.machine.accountId).first()).toEqual({n:0});
 });
 it('更新整体替换、重放幂等、旧版/同版不同内容、失效及失效后旧结果不复活',async()=>{
   const f=await fixture();const original=await f.send();expect(await f.send()).toEqual(original);

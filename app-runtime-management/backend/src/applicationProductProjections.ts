@@ -7,6 +7,7 @@ import type { MachineSelfResponse } from './contracts';
 import { HttpError } from './http';
 import { readProgramInstanceStatistics } from './programInstanceStatistics';
 import { readProgramInstanceCatalog } from './programInstances';
+import {readNativeApplicationUsage} from './nativeApplicationProjections';
 
 type BaseStatistics = Awaited<ReturnType<typeof readProgramInstanceStatistics>>;
 type ProductSource = {
@@ -92,6 +93,8 @@ const fail=(status:number,code:string):never=>{throw new HttpError(status,code,c
 export async function readApplicationIdentityUsage(db:D1Database,account:string,child:string,fromMs:number,toMs:number,
   filters:{machineId?:string;localUserId?:string;platform?:string}={}) {
   const base=await readProgramInstanceStatistics(db,account,child,fromMs,toMs,filters);
+  const native=await readNativeApplicationUsage(db,account,child,base,fromMs,toMs);
+  if(native)return native;
   let projection:Awaited<ReturnType<typeof readApplicationProductProjections>>|null=null;
   let catalog:Awaited<ReturnType<typeof readProgramInstanceCatalog>>|null=null;
   const reasons=new Set<string>();

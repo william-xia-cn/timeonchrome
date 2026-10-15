@@ -19,7 +19,7 @@ function fixture(){
     AppRuntimePolicy:Policy,AppRuntimeDevices:Devices,AppRuntimeTime:{beijingRange:()=>({from:0,to:86400000,label:'fixture'})},
     AppRuntimeNetwork:{friendlyError:error=>error,catalogClassificationRecords:async()=>({pending:[],processed:[],technical:[]})},
     ComputerUsageView:{createReadCache:()=>({clear(){}}),create:()=>({invalidate(){}}),createIndependent:()=>({invalidate(){}})},
-    AppRuntimeKnowledge:{mount(options){assert.equal(options.root,root);knowledgeOptions=options;return{dispose(){knowledgeDisposed++;}};}}};
+    AppRuntimeKnowledge:{nativeApplicationsHTML:require('./app-runtime-knowledge').nativeApplicationsHTML,mount(options){assert.equal(options.root,root);knowledgeOptions=options;return{dispose(){knowledgeDisposed++;}};}}};
   vm.runInNewContext(source,context,{filename:'app-runtime.js'});
   return{mount:context.AppRuntimeManagement.mount,root,element,elements,listeners,queries,get knowledgeDisposed(){return knowledgeDisposed;},get knowledgeOptions(){return knowledgeOptions;}};
 }
@@ -83,11 +83,22 @@ function fixture(){
   await bad.ready;assert.equal(failed.element('#load-empty-state').hidden,false);assert.match(failed.element('#load-empty-message').textContent,/设备接口暂不可用/);bad.dispose();
   const apps=fixture(),requests=[];
   const appsController=apps.mount({root:apps.root,view:'apps',children:[{id:'a',name:'A'}],childId:'a',request:()=>{const next=deferred();requests.push(next);return next.promise;}});
-  await new Promise(resolve=>setImmediate(resolve));assert.equal(requests.length,3);appsController.dispose();
-  requests[2].reject(Error('old shared policy failed'));
-  await new Promise(resolve=>setImmediate(resolve));
-  requests[0].reject(Error('old policy failed'));requests[1].reject(Error('old catalog failed'));await appsController.ready;
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(requests.length,2);appsController.dispose();
+  requests[0].reject(Error('old policy failed'));requests[1].reject(Error('old native directory failed'));await appsController.ready;
   assert.equal(apps.element('#load-empty-message').textContent,'');
+  const native=fixture(),nativeCalls=[];
+  const nativeController=native.mount({root:native.root,view:'apps',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{
+    nativeCalls.push(path);
+    if(path.includes('/app-policy'))return Policy.defaultPolicy();
+    if(path.includes('/applications?'))return {schemaVersion:1,state:'available',childId:'a',policyVersion:0,nextOffset:null,
+      items:[{target:{machineId:'machine',nativeId:'dynamic-local:editor'},presentations:[{name:'动态编辑器',origin:'runtime',status:'dynamic-process'}]}]};
+    throw Error('新目录不能依赖旧产品接口 '+path);
+  }});
+  await nativeController.ready;
+  assert.equal(nativeCalls.length,2);assert.match(native.element('#managed-app-list').innerHTML,/动态编辑器/);
+  assert.match(native.element('#managed-app-list').innerHTML,/data-native-save="0"/);
+  assert.match(native.element('#app-directory-subtitle').textContent,/相同身份/);
+  assert.equal(native.element('#load-empty-state').hidden,true);nativeController.dispose();
   const invalid=fixture();assert.throws(()=>invalid.mount({root:invalid.root,view:'usage',request:async()=>{}}),/INVALID_RUNTIME_MANAGEMENT_VIEW/);
   const isolated=fixture();let catalogFails=true;
   const isolatedController=isolated.mount({root:isolated.root,view:'apps',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{
