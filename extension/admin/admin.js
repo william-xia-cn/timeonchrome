@@ -1911,8 +1911,7 @@ function renderAutonomySection() {
   const host = document.getElementById('rules-autonomy-summary-display');
   if (!host) return;
   const overrunEnabled = config?.autonomyConfig?.quotaOverrunConfirmationRequired !== false;
-  const labels = { dailyStudy: '每日学习', dailyComposite: '每日复合', dailyRest: '每日休息',
-    dailyOnline: '每日在线', weeklyRest: '本周休息', domain: '单站点' };
+  const labels = { dailyRest: '每日休息', weeklyRest: '每周休息' };
   const limits = unified ? Object.entries(labels).map(([key, label]) => {
     const minutes = forcedPolicy.quotaOverrunMinutes[key];
     return `<div class="rules-overrun-value"><span>${label}</span><strong>${minutes === null ? '无限制' : minutes === 0 ? '0分钟' : formatQuotaText(minutes)}</strong></div>`;
@@ -1921,7 +1920,7 @@ function renderAutonomySection() {
     ${unified ? '' : '<p class="rules-reminder-note">尚未切换统一规则，或需要V2配额计算；以下为当前只读配置。</p>'}
     <section class="rules-autonomy-setting"><h3>正常进入休息网站</h3><p>进入前需要确认：<strong>${autonomy.restrictedEntryConfirmationRequired ? '开启' : '关闭'}</strong></p><p>关闭后直接进入并显示短提示。</p></section>
     <section class="rules-autonomy-setting"><h3>限制时段内使用</h3><p>允许确认后进入：<strong>${autonomy.timeWindowAdvisoryEnabled ? '开启' : '关闭'}</strong></p><p>开启后输入“强行使用”进入，关闭则阻断。不设时间段累计使用上限。</p></section>
-    <section class="rules-autonomy-setting"><h3>超出时间配额使用</h3><p>允许确认后继续：<strong>${overrunEnabled ? '开启' : '关闭'}</strong></p><p>${overrunEnabled ? '最大允许超额：0分钟表示到线阻断，无限制表示不设超额累计阻断。' : '达到标准配额立即阻断；下列余量保留但不生效。'}</p><div class="rules-overrun-summary">${limits}</div></section>
+    <section class="rules-autonomy-setting"><h3>超出时间配额使用</h3><p>允许确认后继续：<strong>${overrunEnabled ? '开启' : '关闭'}</strong></p><p>${overrunEnabled ? '学习、复合、在线和单站点配额达到后仍需确认与提醒，允许无限超额。' : '达到标准配额立即阻断；下列余量保留但不生效。'}</p><h4 class="rules-overrun-heading">最大允许超额</h4><p class="rules-overrun-help">0分钟：达到标准配额即阻断。无限制：仍需提醒确认，不因累计超额阻断。</p><div class="rules-overrun-summary">${limits}</div></section>
     <section class="rules-autonomy-setting"><h3>强行使用提醒</h3><p>${unified ? `每新增${forcedPolicy.reminderIntervalMinutes}分钟实际强行使用时长提醒一次` : '统一规则尚未启用'}</p><p>多个原因同时到期只确认一次。60秒未确认阻断当前访问，可重新申请。提醒次数不触发最终阻断。</p></section>`;
   const legacy = document.getElementById('rules-rest-reminder-display');
   if (legacy) legacy.innerHTML = unified ? '' : `<details><summary>旧配置记录（兼容执行，只读）</summary><p>今日提醒：${autonomy.reminder.enabled ? formatQuotaText(autonomy.reminder.firstMinutes) : '关闭'}；本周提醒：${autonomy.reminder.weeklyEnabled ? formatQuotaText(autonomy.reminder.weeklyMinutes) : '关闭'}。旧版规则按当前终端执行。</p></details>`;

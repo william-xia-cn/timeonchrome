@@ -65,8 +65,13 @@ const runtime = load('product/quota.js', {
   usage.compositeSeconds = 7200;
   usage.domainSeconds['example.com'] = 2700;
   const final = await runtime.evaluateQuotaState();
-  assert.equal(final.newState.undeterminedLocked, true);
-  assert.equal(final.lockedDomains[0], 'example.com');
+  assert.equal(final.newState.undeterminedLocked, false);
+  assert.equal(final.lockedDomains.length, 0);
+  cfg.autonomyConfig = { quotaOverrunConfirmationRequired: false };
+  const immediate = await runtime.evaluateQuotaState();
+  assert.equal(immediate.newState.undeterminedLocked, true);
+  assert.equal(immediate.lockedDomains[0], 'example.com');
+  cfg.autonomyConfig.quotaOverrunConfirmationRequired = true;
   shared = true;
   usage.compositeSeconds = 5400;
   const oldShared = await runtime.evaluateQuotaState();

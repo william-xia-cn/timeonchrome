@@ -56,6 +56,10 @@ const repeat = plain(admission.prepareForcedUseAdmission({ ...input, usage: { ..
   forcedUsageSeconds: 1800, reminderState: accepted.state }));
 assert.equal(repeat.kind, 'repeat');
 assert.equal(admission.prepareForcedUseAdmission({ ...input, usage: { ...usage, compositeSeconds: 9000 },
+  forcedUsageSeconds: 3600, reminderState: accepted.state }).kind, 'repeat');
+assert.equal(admission.prepareForcedUseAdmission({ ...input,
+  config: { ...config, autonomyConfig: { quotaOverrunConfirmationRequired: false } },
+  usage: { ...usage, compositeSeconds: 9000 },
   forcedUsageSeconds: 3600, reminderState: accepted.state }).action, 'block');
 assert.equal(admission.prepareForcedUseAdmission({ ...input, usage: { ok: false },
   absoluteBlocks: ['downtime'] }).reasons[0], 'downtime');

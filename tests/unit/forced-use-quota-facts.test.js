@@ -30,13 +30,13 @@ const result = build(config, usage, policy);
 const disabledConfig = { ...config, autonomyConfig: { quotaOverrunConfirmationRequired: false } };
 assert(build(disabledConfig, usage, policy).quotas.every(row => row.overrunSeconds === 0));
 assert.equal(hard(disabledConfig, usage, policy).state.studyLocked, true);
-assert.equal(build({ ...config, autonomyConfig: { quotaOverrunConfirmationRequired: true } }, usage, policy).quotas.find(row => row.id === 'dailyStudy').overrunSeconds, 1800);
+assert.equal(build({ ...config, autonomyConfig: { quotaOverrunConfirmationRequired: true } }, usage, policy).quotas.find(row => row.id === 'dailyStudy').overrunSeconds, null);
 assert.equal(policy.quotaOverrunMinutes.dailyStudy, 30, 'toggle must not rewrite stored allowance');
 assert.equal(result.ok, true);
 assert.deepEqual(result.quotas.map(row => row.id),
   ['dailyStudy', 'dailyComposite', 'dailyRest', 'weeklyRest', 'domain']);
 assert.deepEqual(result.quotas.find(row => row.id === 'dailyStudy'), {
-  id: 'dailyStudy', usedSeconds: 3600, limitSeconds: 3600, overrunSeconds: 1800 });
+  id: 'dailyStudy', usedSeconds: 3600, limitSeconds: 3600, overrunSeconds: null });
 assert.equal(result.quotas.find(row => row.id === 'dailyComposite').overrunSeconds, null);
 assert.equal(result.quotas.find(row => row.id === 'domain').limitSeconds, 1800);
 assert.deepEqual(select(result, 'study').quotas.map(row => row.id), ['dailyStudy', 'domain']);
@@ -46,7 +46,7 @@ assert.deepEqual(select(result, 'other').quotas.map(row => row.id), ['domain']);
 assert.equal(select(result, null).reason, 'quota_bucket_unavailable');
 assert.deepEqual(finalComposite(result), { ok: true, seconds: null });
 assert.deepEqual(finalComposite(build(config, usage, { ...policy, quotaOverrunMinutes: {
-  ...policy.quotaOverrunMinutes, dailyComposite: 30 } })), { ok: true, seconds: 1800 });
+  ...policy.quotaOverrunMinutes, dailyComposite: 30 } })), { ok: true, seconds: null });
 assert.equal(finalComposite({ ok: false }).ok, false);
 assert.equal(build({ ...config, domainQuotas: { 'example.com': 0 } }, usage, policy)
   .quotas.some(row => row.id === 'domain'), false);
@@ -64,8 +64,20 @@ assert.deepEqual(hard(config, usage, policy), { ok: true, lockedDomains: [], sta
   onlineLocked: false, studyLocked: false, undeterminedLocked: false,
   dailyRestLocked: false, weeklyRestLocked: false, restLocked: false } });
 assert.equal(hard(config, { ...usage, studySeconds: 5400, domainSeconds: { 'example.com': 1800 } }, policy)
-  .state.studyLocked, true);
+  .state.studyLocked, false);
 assert.deepEqual(hard(config, { ...usage, studySeconds: 5400, domainSeconds: { 'example.com': 1800 } }, policy)
-  .lockedDomains, ['example.com']);
+  .lockedDomains, []);
 assert.equal(hard(config, { ...usage, compositeSeconds: 20000 }, policy).state.undeterminedLocked, false);
 console.log('forced-use-quota-facts: passed');
+const allConfig = { ...config, timeQuota: { ...config.timeQuota, daily: {
+  thursday: { ...config.timeQuota.daily.thursday, onlineMinutes: 10 } } } };
+const allUsage = { ...usage, studySeconds: 90000, compositeSeconds: 90000, totalSeconds: 200000,
+  domainSeconds: { 'example.com': 90000 } };
+const allFacts = build(allConfig, allUsage, policy);
+for (const id of ['dailyStudy', 'dailyComposite', 'dailyOnline', 'domain']) {
+  assert.equal(allFacts.quotas.find(row => row.id === id).overrunSeconds, null);
+}
+assert(build({ ...allConfig, autonomyConfig: { quotaOverrunConfirmationRequired: false } },
+  allUsage, policy).quotas.every(row => row.overrunSeconds === 0));
+assert.equal(hard(config, { ...usage, restSeconds: 10800 }, policy).state.dailyRestLocked, true);
+assert.equal(hard(config, { ...usage, weekRestSeconds: 57600 }, policy).state.weeklyRestLocked, true);
