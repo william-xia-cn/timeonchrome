@@ -1,8 +1,8 @@
 # TASK_BOARD
 
-## NOW：1.7.48 内部托管发布（2026-10-16，PO授权）
+## COMPLETED：1.7.48 内部托管发布（2026-10-16，PO授权）
 
-范围为固定终端源码及已验证的提醒基线修复、访问诊断默认基础上传；保留明确关闭或到期授权。复验直接专项、typecheck和扩展根检查，再原密钥签名并回读托管feed/CRX哈希。仅扩展更新源，不部署Worker、业务Pages或Native，不修改家庭配置、原账或共享开关。真实Native共享与Mac遗留继续Deferred；T.xia配置保存另项未确认，不计入发布完成。正式包排除开发标记，保留旧CRX。发布尚未完成。
+范围为固定终端源码及已验证的提醒基线修复、访问诊断默认基础上传；保留明确关闭或到期授权。9项直接专项、typecheck和扩展根检查通过，原密钥签名及独立CRX3验签通过。PR281合入master c1735896cfcf0d5c2a9d5c35d0186a2e59be648c，范围门禁38800536144通过；首轮声明缺项及换行错误经PO批准修正后通过。更新源deployment c96694f2，稳定和deployment域名的feed/CRX/SHA256SUMS共6项逐字节匹配。CRX 647604字节，SHA256 16b356b42a5d6e851d70fb2eb627263e6dd3a3aeac477fd6d131e8ec7e57ea4b，稳定ID不变，21个旧CRX保留。仅扩展更新源，不部署Worker、业务Pages或Native，不修改家庭配置、原账或共享开关。真实Native共享与Mac遗留继续Deferred；T.xia配置保存另项未确认。终端安装待观察，当前unpacked未替换或重载。
 
 ## VERIFIED：访问管理诊断链与默认基础上传，候选待重载（2026-10-16）
 
