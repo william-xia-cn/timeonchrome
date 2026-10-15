@@ -125,7 +125,7 @@ export const DEFAULT_CONFIG = {
   blockMessage: '这个网站当前不在可访问范围内',
   lockedDomains: [],
   restConfig: { reminderInterval: 15, maxRestDuration: 60, firstReminderMinutes: 120, repeatReminderMinutes: 60, weeklyFirstReminderMinutes: 840 },
-  autonomyConfig: { restrictedEntryConfirmationRequired: true, softReminderTimeoutAction: 'end_rest' },
+  autonomyConfig: { restrictedEntryConfirmationRequired: true, softReminderTimeoutAction: 'end_rest', timeWindowAdvisoryEnabled: false },
   compositeReviewConfig: { enabled: false },
   clientLoggingPolicyV1: {
     localEnabled: true,

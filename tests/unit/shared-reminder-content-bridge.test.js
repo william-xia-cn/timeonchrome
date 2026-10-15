@@ -12,6 +12,7 @@ async function run() {
       'const requestSharedReminderLifecycle = () => { throw Error("not configured"); }; const getSharedBrowserActivityLease = () => "lease-1",hasSharedReminderContinuityCapability=()=>false;')
     .replace(/from '\.\.\/infra\/shared-reminder-lifecycle.js'/, `from '${pathToFileURL(path.join(root, 'extension/infra/shared-reminder-lifecycle.js')).href}'`)
     .replace(/from '\.\.\/core\/shared-reminder-lifecycle.js'/, `from '${pathToFileURL(path.join(root, 'extension/core/shared-reminder-lifecycle.js')).href}'`);
+  source = source.replace(/from '\.\.\/core\/autonomy-confirmation.js'/, `from '${pathToFileURL(path.join(root, 'extension/core/autonomy-confirmation.js')).href}'`);
   const { createSharedReminderContentBridge, initSharedReminderContentBridge,
     configureSharedReminderContentBridge, pollSharedReminderForTab } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const state = { schemaVersion: 1, roundId: 'round-1', reminderId: 'reminder-1', deliveryId: 'delivery-1',
@@ -32,7 +33,7 @@ async function run() {
     async sendMessage(id, msg, target) {
       messages.push(msg); assert.equal(id, 1); assert.equal(target.frameId, 0);
       if (navigateDuringDisplay && msg.type === 'SHOW_SHARED_REMINDER') tab.url = 'https://fixture.test/new';
-      return { ok: true, visible, identity, presentationId: msg.presentationId };
+      return { ok: true, visible, identity, presentationId: msg.presentationId, confirmationVersion: 1 };
     } },
     async request(method, payload) {
       requests.push({ method, payload });
@@ -49,7 +50,7 @@ async function run() {
   assert.deepEqual(messages.map(row => row.type), ['SHOW_SHARED_REMINDER', 'ACTIVATE_SHARED_REMINDER']);
   assert.deepEqual(requests[1].payload, { ...identity, delivery: 'visible' });
   const msg = { type: 'SHARED_REMINDER_ACTION', presentationId: messages[0].presentationId,
-    payload: { ...identity, action: 'continue' } };
+    confirmationText: '适合使用', payload: { ...identity, action: 'continue' } };
   const sender = { id: 'extension-id', frameId: 0, tab: { ...tab }, url: tab.url };
   assert.equal((await bridge.handleAction(msg, { ...sender, frameId: 1 })).errorCode, 'shared_reminder_sender_rejected');
   assert.equal((await bridge.handleAction(msg, { ...sender, id: 'other-extension' })).ok, false);
@@ -57,7 +58,13 @@ async function run() {
   assert.equal((await bridge.handleAction({ ...msg, presentationId: 'old' }, sender)).ok, false);
   assert.equal((await bridge.handleAction({ ...msg, payload: { ...msg.payload, deliveryId: 'old' } }, sender)).errorCode, 'SHARED_REMINDER_INSTANCE_CHANGED');
   assert.equal((await bridge.handleAction({ ...msg, payload: { ...msg.payload, action: 'timeout_end' } }, sender)).ok, false);
+  const resolveBefore = requests.filter(row => row.method === 'resolveSharedReminder').length;
+  for (const confirmationText of [undefined, '', '不适合使用', '适合使用 ']) {
+    assert.equal((await bridge.handleAction({ ...msg, confirmationText }, sender)).errorCode, 'shared_reminder_confirmation_required');
+  }
+  assert.equal(requests.filter(row => row.method === 'resolveSharedReminder').length, resolveBefore);
   assert.equal((await bridge.handleAction(msg, sender)).state.resolution, 'continue');
+  assert.deepEqual(requests.findLast(row => row.method === 'resolveSharedReminder').payload, { ...identity, action: 'continue' });
   assert.equal(messages.at(-1).type, 'DISMISS_SHARED_REMINDER');
 
   backend = { ...state };
@@ -103,7 +110,7 @@ async function run() {
       readLease: () => lease, windows: { async get() { return { ...view }; } },
       tabs: { async get() { return { ...page }; }, async sendMessage(id, message) {
         sent.push(message);
-        const reply = { ok: true, visible: true, identity, presentationId: message.presentationId };
+        const reply = { ok: true, visible: true, identity, presentationId: message.presentationId, confirmationVersion: 1 };
         if ((block === 'show' || block === 'timeout') && message.type === 'SHOW_SHARED_REMINDER') {
           entered.resolve(); await gate.promise;
         }

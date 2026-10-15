@@ -2,6 +2,8 @@
 
 import { getEffectiveQuotaForDate } from '../core/quota-config.js';
 import { budgetedLocalSet } from '../infra/storage-budget.js';
+import { isAutonomyConfirmationText, softReminderRepeatMinutes } from '../core/autonomy-confirmation.js';
+import { grantScheduleConfirmation, revokeScheduleConfirmation, readScheduleConfirmationScope } from './schedule-confirmation.js';
 
 export const REST_USAGE_REMINDER_STATE_KEY = 'rest_usage_reminder_state_v1';
 export const REST_USAGE_REMINDER_DEADLINE_ALARM = 'restUsageReminderDeadline';
@@ -42,8 +44,7 @@ function firstReminderMinutes(config = {}) {
 }
 
 function repeatReminderMinutes(config = {}) {
-  const value = config?.restConfig?.repeatReminderMinutes;
-  return validReminderMinutes(value) ? Number(value) : REST_USAGE_REMINDER_DEFAULT_REPEAT_MINUTES;
+  return REST_USAGE_REMINDER_DEFAULT_REPEAT_MINUTES;
 }
 
 export function restUsageReminderWeeklyConfigValue(config = {}) {
@@ -59,7 +60,7 @@ function weekKeyForDate(dateKey) {
 }
 
 function softReminderTimeoutAction(config = {}) {
-  return config?.autonomyConfig?.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest';
+  return 'end_rest';
 }
 
 function remainingSeconds(limitMinutes, usedSeconds) {
@@ -75,6 +76,7 @@ function freshState(dateKey, firstMinutes, repeatMinutes) {
     repeatReminderMinutes: repeatMinutes,
     nextThresholdSeconds: firstMinutes === null ? null : firstMinutes * 60,
     lastAcknowledgedUsageSeconds: null,
+    acknowledgementCount: 0,
     deliveryDue: null,
     prompt: null,
     updatedAt: Date.now(),
@@ -101,11 +103,14 @@ function normalizeState(raw, dateKey, firstMinutes, repeatMinutes, todayUsedSeco
   const weeklyKey = weekKeyForDate(dateKey);
   let weekly = raw?.weekly?.weekKey === weeklyKey ? { ...raw.weekly } : {
     weekKey: weeklyKey, firstReminderMinutes: weeklyMinutes, repeatReminderMinutes: repeatMinutes,
-    nextThresholdSeconds: weeklyMinutes === null ? null : weeklyMinutes * 60, lastAcknowledgedUsageSeconds: null,
+    nextThresholdSeconds: weeklyMinutes === null ? null : weeklyMinutes * 60, lastAcknowledgedUsageSeconds: null, acknowledgementCount: 0,
   };
   let weeklyChanged = false;
+  if (!Number.isInteger(weekly.acknowledgementCount) || weekly.acknowledgementCount < 0) {
+    weekly.acknowledgementCount = weekly.lastAcknowledgedUsageSeconds == null ? 0 : 1;
+  }
   if (weekly.firstReminderMinutes !== weeklyMinutes) {
-    weekly = { ...weekly, firstReminderMinutes: weeklyMinutes, lastAcknowledgedUsageSeconds: null,
+    weekly = { ...weekly, firstReminderMinutes: weeklyMinutes, lastAcknowledgedUsageSeconds: null, acknowledgementCount: 0,
       nextThresholdSeconds: weeklyMinutes === null ? null : weeklyMinutes * 60 };
     weeklyChanged = true;
   }
@@ -119,11 +124,15 @@ function normalizeState(raw, dateKey, firstMinutes, repeatMinutes, todayUsedSeco
   }
 
   const state = { ...raw, weekly };
+  if (!Number.isInteger(state.acknowledgementCount) || state.acknowledgementCount < 0) {
+    state.acknowledgementCount = state.lastAcknowledgedUsageSeconds == null ? 0 : 1;
+  }
   if (weeklyChanged) state.deliveryDue = null;
   if (state.firstReminderMinutes !== firstMinutes) {
     state.firstReminderMinutes = firstMinutes;
     state.repeatReminderMinutes = repeatMinutes;
     state.lastAcknowledgedUsageSeconds = null;
+    state.acknowledgementCount = 0;
     state.deliveryDue = null;
     state.nextThresholdSeconds = firstMinutes === null ? null : firstMinutes * 60;
   }
@@ -142,14 +151,14 @@ function normalizeState(raw, dateKey, firstMinutes, repeatMinutes, todayUsedSeco
   return state;
 }
 
-async function currentForegroundRestContext(deps) {
+async function currentForegroundRestContext(deps, requireRest = true) {
   const session = await deps.getTimingSession().catch(() => null);
-  if (session?.state !== 'ACTIVE' || session?.quotaBucketAtTime !== 'rest' || !Number.isInteger(session?.tabId)) {
+  if (requireRest && (session?.state !== 'ACTIVE' || session?.quotaBucketAtTime !== 'rest' || !Number.isInteger(session?.tabId))) {
     return null;
   }
   const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
   const tab = tabs?.[0] || null;
-  if (!tab?.id || tab.id !== session.tabId) return null;
+  if (!tab?.id || (requireRest && tab.id !== session.tabId)) return null;
   const win = Number.isInteger(tab.windowId)
     ? await chrome.windows.get(tab.windowId).catch(() => null)
     : null;
@@ -166,11 +175,12 @@ async function scheduleAlarm(name, when) {
 }
 
 async function showPrompt(due) {
+  const { identityScope, ...presentation } = due;
   const response = await chrome.tabs.sendMessage(due.sourceTabId, {
     type: 'SHOW_REST_USAGE_REMINDER',
-    ...due,
+    ...presentation,
   }, { frameId: 0 }).catch(() => null);
-  return response?.ok === true && response?.visible === true;
+  return response?.ok === true && response?.visible === true && response?.confirmationVersion === 1;
 }
 
 async function activatePrompt(prompt) {
@@ -180,7 +190,7 @@ async function activatePrompt(prompt) {
     deadlineAt: prompt.deadlineAt,
     timeoutAction: prompt.timeoutAction,
   }, { frameId: 0 }).catch(() => null);
-  if (activation?.ok !== true || activation?.visible !== true) {
+  if (activation?.ok !== true || activation?.visible !== true || activation?.confirmationVersion !== 1) {
     await chrome.tabs.sendMessage(prompt.sourceTabId, {
       type: 'DISMISS_REST_USAGE_REMINDER',
       token: prompt.token,
@@ -208,14 +218,25 @@ async function endPrompt(deps, state, reason, promptOverride = null) {
     clearAlarm(REST_USAGE_REMINDER_DEADLINE_ALARM),
     clearAlarm(REST_USAGE_REMINDER_RETRY_ALARM),
   ]);
-  const result = await deps.endRestUsage({ prompt, reason });
+  await revokeScheduleConfirmation(prompt.sourceTabId);
+  const result = prompt.schedule && deps.blockSchedule
+    ? await deps.blockSchedule({ prompt, reason }) : await deps.endRestUsage({ prompt, reason });
   const completed = result?.ok !== false || result?.blocked === true || result?.reminderSent === true;
+  if (completed) await chrome.tabs.sendMessage(prompt.sourceTabId, {
+    type: 'DISMISS_REST_USAGE_REMINDER', token: prompt.token, resumeMedia: false,
+  }, { frameId: 0 }).catch(() => null);
   return { ok: completed, action: 'end', state: next, result };
 }
 
 async function continuePrompt(deps, state, reason, promptOverride = null, options = {}) {
   const prompt = promptOverride || state?.prompt || state?.deliveryDue;
   if (!prompt?.token) return { ok: true, skipped: 'no_prompt' };
+  if (prompt.schedule) {
+    if (prompt.identityScope !== await readScheduleConfirmationScope()) return endPrompt(deps, state, 'identity_changed', prompt);
+    const current = await deps.getScheduleContext?.(prompt.sourceTabId);
+    if (!current || current.key !== prompt.schedule.key) return endPrompt(deps, state, 'schedule_changed', prompt);
+    await grantScheduleConfirmation(current);
+  }
   if (deps.canContinueRest && !await deps.canContinueRest({ prompt })) {
     return endPrompt(deps, state, 'hard_limit', prompt);
   }
@@ -236,11 +257,13 @@ async function continuePrompt(deps, state, reason, promptOverride = null, option
   const covered = prompt.reminders || [{ scope: 'daily', periodKey: state.dateKey }];
   if (covered.some((r) => r.scope === 'daily' && r.periodKey === base.dateKey) && base.firstReminderMinutes === (prompt.reminders?.find((r) => r.scope === 'daily')?.softLimitMinutes ?? prompt.softLimitMinutes)) {
     base.lastAcknowledgedUsageSeconds = todayUsedSeconds;
-    base.nextThresholdSeconds = todayUsedSeconds + base.repeatReminderMinutes * 60;
+    base.nextThresholdSeconds = todayUsedSeconds + softReminderRepeatMinutes(base.acknowledgementCount || 0) * 60;
+    base.acknowledgementCount = (base.acknowledgementCount || 0) + 1;
   }
   if (covered.some((r) => r.scope === 'weekly' && r.periodKey === base.weekly.weekKey && r.softLimitMinutes === base.weekly.firstReminderMinutes)) {
     base.weekly.lastAcknowledgedUsageSeconds = weekUsedSeconds;
-    base.weekly.nextThresholdSeconds = weekUsedSeconds + base.weekly.repeatReminderMinutes * 60;
+    base.weekly.nextThresholdSeconds = weekUsedSeconds + softReminderRepeatMinutes(base.weekly.acknowledgementCount || 0) * 60;
+    base.weekly.acknowledgementCount = (base.weekly.acknowledgementCount || 0) + 1;
   }
   const next = await writeState({
     ...base,
@@ -265,8 +288,9 @@ async function attemptDelivery(deps, state, now) {
   const due = state?.deliveryDue;
   if (!due?.token) return { ok: true, skipped: 'no_delivery_due', state };
 
-  const context = await currentForegroundRestContext(deps);
+  const context = await currentForegroundRestContext(deps, !due.schedule);
   if (!context) return { ok: true, skipped: 'no_foreground_rest_session', deliveryPending: true, state };
+  if (due.schedule && context.tab.id !== due.sourceTabId) return endPrompt(deps, state, 'schedule_target_changed');
 
   const candidate = { ...due, sourceTabId: context.tab.id };
   const visible = await showPrompt(candidate);
@@ -293,9 +317,6 @@ async function attemptDelivery(deps, state, now) {
 async function registerDeliveryFailure(deps, state, candidate, now) {
   const deliveryAttempts = Number(candidate.deliveryAttempts || 0) + 1;
   if (deliveryAttempts >= MAX_DELIVERY_ATTEMPTS) {
-    if (candidate.timeoutAction === 'continue') {
-      return continuePrompt(deps, state, 'delivery_failed_continue', { ...candidate, deliveryAttempts }, { resumeMedia: false });
-    }
     return endPrompt(deps, state, 'delivery_failed', { ...candidate, deliveryAttempts });
   }
 
@@ -314,6 +335,7 @@ function buildDeliveryDue({ state, context, firstMinutes, todayUsedSeconds, week
   return {
     token: randomToken(),
     sourceTabId: context.tab.id,
+    sourceHost: context.tab.url ? new URL(context.tab.url).hostname : null,
     dueAt: now,
     deliveryAttempts: 0,
     nextRetryAt: null,
@@ -360,9 +382,48 @@ export function restUsageReminderTimeoutAction(config = {}) {
   return softReminderTimeoutAction(config);
 }
 
+export async function requestScheduleUsageConfirmation(schedule, options = {}) {
+  return runSerialized(async () => {
+    const deps = options.deps || runtimeDeps;
+    if (!deps || !schedule) return { ok: false, error: 'schedule_confirmation_unavailable' };
+    const now = options.now ?? Date.now();
+    let raw = await readState();
+    const outstanding = raw?.prompt || raw?.deliveryDue;
+    if (outstanding?.token && outstanding.sourceTabId !== schedule.tabId) return { ok: false, error: 'confirmation_busy' };
+    if (outstanding?.schedule && (outstanding.schedule.key !== schedule.key || outstanding.identityScope !== await readScheduleConfirmationScope())) {
+      await chrome.tabs.sendMessage(outstanding.sourceTabId, { type: 'DISMISS_REST_USAGE_REMINDER', token: outstanding.token }, { frameId: 0 }).catch(() => null);
+      raw = await writeState({ ...raw, prompt: null, deliveryDue: null });
+      await Promise.all([clearAlarm(REST_USAGE_REMINDER_DEADLINE_ALARM), clearAlarm(REST_USAGE_REMINDER_RETRY_ALARM)]);
+    }
+    if (raw?.prompt?.token) return { ok: true, pending: true };
+    if (raw?.deliveryDue?.token) {
+      const deliveryDue = { ...raw.deliveryDue, schedule, identityScope: await readScheduleConfirmationScope() };
+      return attemptDelivery(deps, await writeState({ ...raw, deliveryDue }), now);
+    }
+    const config = await deps.getConfig(), dateKey = deps.getDateKey(new Date(now));
+    let usage;
+    try { usage = await deps.getQuotaUsageView(dateKey, { config }); } catch { usage = null; }
+    const known = usage?.ok !== false && Number.isFinite(usage?.restSeconds) && Number.isFinite(usage?.weekRestSeconds);
+    const today = known ? usage.restSeconds : null, week = known ? usage.weekRestSeconds : null;
+    const first = firstReminderMinutes(config), weekly = restUsageReminderWeeklyConfigValue(config);
+    const state = normalizeState(raw, dateKey, first, 60, today, weekly, week);
+    const reminders = [];
+    if (known && first !== null && today >= state.nextThresholdSeconds) reminders.push({ scope: 'daily', periodKey: dateKey,
+      reminderKind: state.lastAcknowledgedUsageSeconds == null ? 'first' : 'repeat', softLimitMinutes: first, overageSeconds: Math.max(0, today - first * 60) });
+    if (known && weekly !== null && week >= state.weekly.nextThresholdSeconds) reminders.push({ scope: 'weekly', periodKey: state.weekly.weekKey,
+      reminderKind: state.weekly.lastAcknowledgedUsageSeconds == null ? 'first' : 'repeat', softLimitMinutes: weekly, overageSeconds: Math.max(0, week - weekly * 60) });
+    const effectiveQuota = getEffectiveQuotaForDate(config, new Date(now)).todayEffectiveQuota;
+    const due = { ...buildDeliveryDue({ state, context: { tab: { id: schedule.tabId } }, firstMinutes: first,
+      todayUsedSeconds: today, weekUsedSeconds: week, effectiveQuota, timeoutAction: 'end_rest', now, reminders }),
+      schedule, identityScope: await readScheduleConfirmationScope(), confirmationKind: 'schedule', usageKnown: known };
+    return attemptDelivery(deps, await writeState({ ...state, deliveryDue: due }), now);
+  });
+}
+
 export async function evaluateRestUsageReminder(options = {}) {
   return runSerialized(async () => {
-    if (sharedRuntimeSuspended) return { ok: true, skipped: 'shared_runtime_active' };
+    const currentState = await readState();
+    if (sharedRuntimeSuspended && !(currentState?.prompt?.schedule || currentState?.deliveryDue?.schedule)) return { ok: true, skipped: 'shared_runtime_active' };
     const deps = options.deps || runtimeDeps;
     if (!deps) return { ok: false, error: 'rest_reminder_not_configured' };
     const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
@@ -371,13 +432,9 @@ export async function evaluateRestUsageReminder(options = {}) {
     const firstMinutes = firstReminderMinutes(config);
     const weeklyMinutes = restUsageReminderWeeklyConfigValue(config);
     const repeatMinutes = repeatReminderMinutes(config);
-    const currentState = await readState();
     if (currentState?.prompt?.token) {
       if (now >= Number(currentState.prompt.deadlineAt || 0)) {
-        if (currentState.prompt.timeoutAction === 'continue') {
-          return continuePrompt(deps, currentState, 'timeout_continue');
-        }
-        return endPrompt(deps, currentState, options.reason || 'timeout');
+        return endPrompt(deps, currentState, 'confirmation_timeout');
       }
       return { ok: true, pending: true, state: currentState };
     }
@@ -391,15 +448,12 @@ export async function evaluateRestUsageReminder(options = {}) {
 
     if (state.prompt?.token) {
       if (now >= Number(state.prompt.deadlineAt || 0)) {
-        if (state.prompt.timeoutAction === 'continue') {
-          return continuePrompt(deps, state, 'timeout_continue');
-        }
-        return endPrompt(deps, state, options.reason || 'timeout');
+        return endPrompt(deps, state, 'confirmation_timeout');
       }
       return { ok: true, pending: true, state };
     }
 
-    if (firstMinutes === null && weeklyMinutes === null) {
+    if (firstMinutes === null && weeklyMinutes === null && !state.deliveryDue?.schedule) {
       state = await writeState({ ...state, deliveryDue: null, prompt: null, nextThresholdSeconds: null });
       await clearAlarm(REST_USAGE_REMINDER_RETRY_ALARM);
       return { ok: true, skipped: 'disabled', state };
@@ -451,23 +505,23 @@ export async function evaluateRestUsageReminder(options = {}) {
 
 export async function handleRestUsageReminderAction(message = {}, sender = {}, options = {}) {
   return runSerialized(async () => {
-    if (sharedRuntimeSuspended) return { ok: false, error: 'legacy_rest_reminder_inactive' };
     const deps = options.deps || runtimeDeps;
     const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
     if (!deps) return { ok: false, error: 'rest_reminder_not_configured' };
     const state = await readState();
     const prompt = state?.prompt;
+    if (sharedRuntimeSuspended && !prompt?.schedule) return { ok: false, error: 'legacy_rest_reminder_inactive' };
     if (!prompt?.token || message.token !== prompt.token) return { ok: false, error: 'stale_prompt' };
     if (!Number.isInteger(sender?.tab?.id) || sender.tab.id !== prompt.sourceTabId) {
       return { ok: false, error: 'invalid_prompt_sender' };
     }
+    if (sender.frameId !== undefined && sender.frameId !== 0) return { ok: false, error: 'invalid_prompt_sender' };
     if (now >= Number(prompt.deadlineAt || 0)) {
-      return prompt.timeoutAction === 'continue'
-        ? continuePrompt(deps, state, 'timeout_continue')
-        : endPrompt(deps, state, 'timeout');
+      return endPrompt(deps, state, 'confirmation_timeout');
     }
     if (message.action === 'end') return endPrompt(deps, state, 'user_end');
     if (message.action !== 'continue') return { ok: false, error: 'invalid_prompt_action' };
+    if (!isAutonomyConfirmationText(message.confirmationText)) return { ok: false, error: 'confirmation_text_required' };
 
     return continuePrompt(deps, state, 'user_continue');
   });
@@ -475,30 +529,28 @@ export async function handleRestUsageReminderAction(message = {}, sender = {}, o
 
 export async function restoreRestUsageReminderForTab(tabId, options = {}) {
   return runSerialized(async () => {
-    if (sharedRuntimeSuspended) return { ok: true, skipped: 'shared_runtime_active' };
     const deps = options.deps || runtimeDeps;
     if (!deps || !Number.isInteger(tabId)) return { ok: false, error: 'invalid_restore' };
     const state = await readState();
+    if (sharedRuntimeSuspended && !(state?.prompt?.schedule || state?.deliveryDue?.schedule)) return { ok: true, skipped: 'shared_runtime_active' };
+    const pending = state?.prompt || state?.deliveryDue;
+    if (pending?.schedule && pending.sourceTabId === tabId) {
+      const current = await deps.getScheduleContext?.(tabId);
+      if (!current || current.key !== pending.schedule.key || pending.identityScope !== await readScheduleConfirmationScope()) {
+        await chrome.tabs.sendMessage(tabId, { type: 'DISMISS_REST_USAGE_REMINDER', token: pending.token }, { frameId: 0 }).catch(() => null);
+        await writeState({ ...state, prompt: null, deliveryDue: null });
+        await Promise.all([clearAlarm(REST_USAGE_REMINDER_DEADLINE_ALARM), clearAlarm(REST_USAGE_REMINDER_RETRY_ALARM)]);
+        return { ok: true, skipped: 'confirmation_context_changed' };
+      }
+    }
     const prompt = state?.prompt;
     if (prompt?.token && prompt.sourceTabId === tabId) {
       if (Date.now() >= Number(prompt.deadlineAt || 0)) {
-        return prompt.timeoutAction === 'continue'
-          ? continuePrompt(deps, state, 'timeout_continue')
-          : endPrompt(deps, state, 'timeout');
+        return endPrompt(deps, state, 'confirmation_timeout');
       }
-      const response = await chrome.tabs.sendMessage(tabId, {
-        type: 'SHOW_REST_USAGE_REMINDER',
-        ...prompt,
-      }, { frameId: 0 }).catch(() => null);
-      if (response?.ok === true && response?.visible === true) {
-        await chrome.tabs.sendMessage(tabId, {
-          type: 'ACTIVATE_REST_USAGE_REMINDER',
-          token: prompt.token,
-          deadlineAt: prompt.deadlineAt,
-          timeoutAction: prompt.timeoutAction,
-        }, { frameId: 0 }).catch(() => null);
-      }
-      return { ok: true, restored: true, visible: response?.visible === true };
+      const visible = await showPrompt(prompt);
+      const activated = visible ? await activatePrompt(prompt) : false;
+      return { ok: true, restored: true, visible: activated };
     }
 
     if (!state?.deliveryDue?.token || state.deliveryDue.sourceTabId !== tabId) {

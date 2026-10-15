@@ -6,6 +6,7 @@ import { pumpQuotaAudit } from './quota-audit-upload.js';
 import { recordSyncHealth } from './diagnostic-evidence.js';
 import { DEFAULT_CONFIG } from './storage.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
+import { readDowntimeConfig } from '../core/downtime.js';
 import {
   buildSiteClassificationRequestsUploadPayload,
   getPendingSiteClassificationRequestUploads,
@@ -1093,7 +1094,15 @@ function responseHasCloudDefaultLists(remoteConfig) {
   return Object.values(DEFAULT_SITE_LIST_FIELD_GROUPS).some((keys) => !!pickFirstArray(remoteConfig, keys));
 }
 
-function shouldSaveDespiteVersionSkip(remoteConfig, localConfig) {
+function downtimeConfigNeedsRepair(remoteConfig, localConfig) {
+  const remote = readDowntimeConfig(remoteConfig?.downtimeConfig);
+  const local = readDowntimeConfig(localConfig?.downtimeConfig);
+  if (!remote.ok) return false;
+  return !local.ok || JSON.stringify(remote.config) !== JSON.stringify(local.config);
+}
+
+function shouldSaveDespiteVersionSkip(remoteConfig, localConfig, allowDowntimeRepair = false) {
+  if (allowDowntimeRepair && downtimeConfigNeedsRepair(remoteConfig, localConfig)) return true;
   if (!responseHasCloudDefaultLists(remoteConfig)) return false;
   if (!localConfigMissingCloudDefaultLists(localConfig)) return false;
   for (const keys of Object.values(DEFAULT_SITE_LIST_FIELD_GROUPS)) {
@@ -1737,8 +1746,13 @@ export async function pullCloudConfig(getConfigFn, saveConfigFn, updateDeclarati
         systemAccessVersion <= syncState.lastSystemAccessVersion &&
         accountingCorrectionsRevision === syncState.lastAccountingCorrectionsRevision
       : cloudVersion > 0 && cloudVersion <= syncState.lastConfigVersion;
+    const sameRevision = hasSplitRevision
+      ? profileConfigVersion === syncState.lastProfileConfigVersion &&
+        systemAccessVersion === syncState.lastSystemAccessVersion &&
+        accountingCorrectionsRevision === syncState.lastAccountingCorrectionsRevision
+      : cloudVersion > 0 && cloudVersion === syncState.lastConfigVersion;
     if (revisionAlreadyApplied &&
-      !shouldSaveDespiteVersionSkip(result.data, localConfig)) {
+      !shouldSaveDespiteVersionSkip(result.data, localConfig, sameRevision)) {
       const localRuntime = normalizeRuntimeSiteAccessConfig(localConfig, { fallbackConfig: DEFAULT_CONFIG });
       if (localRuntime.changed) {
         await saveConfigFn(localRuntime.config);

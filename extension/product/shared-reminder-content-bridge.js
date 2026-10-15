@@ -3,6 +3,7 @@ import { createSharedReminderLifecycle } from '../infra/shared-reminder-lifecycl
 import { sharedReminderIdentity, validateSharedReminderMessage, validateSharedReminderState } from '../core/shared-reminder-lifecycle.js';
 import { readSharedAccessRuntime } from './shared-access-runtime.js';
 import { createSharedBrowserExecutor } from './shared-browser-executor.js';
+import { isAutonomyConfirmationText } from '../core/autonomy-confirmation.js';
 
 const ACTION = 'SHARED_REMINDER_ACTION';
 const DISMISSED = 'SHARED_REMINDER_DISMISSED';
@@ -77,7 +78,7 @@ export function createSharedReminderContentBridge({ enabled = false, request = r
       identity = sharedReminderIdentity(state);
       const expected = identity;
       const reply = await send('SHOW_SHARED_REMINDER', state, target);
-      const visible = reply?.ok === true && reply.visible === true && target === binding
+      const visible = reply?.ok === true && reply.visible === true && reply.confirmationVersion === 1 && target === binding
         && reply.presentationId === target.presentationId
         && JSON.stringify(reply.identity) === JSON.stringify(expected) && await sameTab(target);
       if (!visible) await revokeDisplay(target, expected);
@@ -86,7 +87,7 @@ export function createSharedReminderContentBridge({ enabled = false, request = r
     update: async state => {
       const target = binding;
       const reply = await send('ACTIVATE_SHARED_REMINDER', state);
-      if (!reply?.ok || !reply.visible || target !== binding || reply.presentationId !== target.presentationId
+      if (!reply?.ok || !reply.visible || reply.confirmationVersion !== 1 || target !== binding || reply.presentationId !== target.presentationId
         || JSON.stringify(reply.identity) !== JSON.stringify(sharedReminderIdentity(state)) || !await sameTab(target)) {
         await invalidate();
         throw new Error('shared_reminder_display_unavailable');
@@ -143,6 +144,9 @@ export function createSharedReminderContentBridge({ enabled = false, request = r
       }
       const checked = validateSharedReminderMessage(message?.payload, 'resolveSharedReminder');
       if (!checked.ok) return checked;
+      if (checked.payload.action === 'continue' && !isAutonomyConfirmationText(message.confirmationText)) {
+        return { ok: false, errorCode: 'shared_reminder_confirmation_required' };
+      }
       if (!identity || Object.keys(identity).some(key => checked.payload[key] !== identity[key])) {
         return { ok: false, errorCode: 'SHARED_REMINDER_INSTANCE_CHANGED' };
       }

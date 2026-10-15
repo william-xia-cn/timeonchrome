@@ -632,6 +632,9 @@ async function dispatchModeEventFromRouter(event = {}, context = {}) {
     ...event,
     monitoringEnabled: event.monitoringEnabled ?? getSyncState().monitoringEnabled,
   });
+  if (context.deferConfirmationToNavigation === true && decision.access === 'confirmation') {
+    return { ok: true, blocked: false, confirmationDeferred: true, decision };
+  }
   return await executeModeDecision(decision, {
     tabId: event.tabId ?? context.tabId ?? null,
     domain: decision.domain || event.domain || extractDomain(event.url || ''),
@@ -672,7 +675,7 @@ async function reevaluateActiveTabAfterModeSwitch(options = {}) {
     url: targetUrl,
     foreground: options.foreground === true,
     nowMs: options.nowMs,
-  });
+  }, { deferConfirmationToNavigation: isCurrentReminderPage(tab.url) && targetUrl !== tab.url });
   if (!result.blocked && targetUrl !== tab.url) {
     await chrome.tabs.update(tab.id, { url: targetUrl }).catch(() => {});
   }
@@ -704,7 +707,14 @@ function isInjectableNoticeUrl(url = '') {
   }
 }
 
-async function getActiveTabForModeNotice(preferredTabId = null) {
+function isCurrentReminderPage(url) {
+  const base = `chrome-extension://${chrome.runtime.id}/reminder.html`;
+  if (typeof url !== 'string' || !url.startsWith(base)) return false;
+  const suffix = url.slice(base.length);
+  return suffix === '' || suffix.startsWith('?') || suffix.startsWith('#');
+}
+
+async function getActiveTabForModeNotice(preferredTabId = null, preferReminder = false) {
   if (Number.isInteger(preferredTabId) && preferredTabId > 0) {
     try {
       const preferredTab = await chrome.tabs.get(preferredTabId);
@@ -715,6 +725,7 @@ async function getActiveTabForModeNotice(preferredTabId = null) {
   }
   const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const activeTab = tabs && tabs[0] ? tabs[0] : null;
+  if (preferReminder && isCurrentReminderPage(activeTab?.url)) return activeTab;
   if (activeTab?.id && isInjectableNoticeUrl(activeTab.url || '')) {
     return activeTab;
   }
@@ -738,7 +749,7 @@ async function handleModeChangeRequest(msg = {}) {
   if (toMode === 'paused') {
     return { ok: false, error: 'invalid_target_mode' };
   }
-  const activeTab = await getActiveTabForModeNotice(msg?.noticeTabId ?? null);
+  const activeTab = await getActiveTabForModeNotice(msg?.noticeTabId ?? null, true);
   const originalTarget = getReminderOriginalTarget(activeTab?.url || '');
   const modeEvent = {
     type: msg.type === 'REMINDER_CONFIRMED' ? 'REMINDER_CONFIRMED' : 'REQUEST_MODE_CHANGE',
@@ -748,6 +759,7 @@ async function handleModeChangeRequest(msg = {}) {
     nowMs: Date.now(),
     auditId,
     tabId: activeTab?.id ?? null,
+    fromReminderPage: isCurrentReminderPage(activeTab?.url),
     url: originalTarget.url || activeTab?.url || null,
     domain: originalTarget.domain || extractDomain(activeTab?.url || ''),
   };

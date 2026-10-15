@@ -25,6 +25,8 @@ import { logClientEventBestEffort, logFallbackEventBestEffort } from '../infra/c
 import { createTimingAuditId } from '../core/timing-trace.js';
 import { restQuotaReminderReason } from '../core/quota-state-facts.js';
 import { readDowntimeConfig, evaluateWebsiteDowntime } from '../core/downtime.js';
+import { scheduleConfirmationContext } from '../core/autonomy-confirmation.js';
+import { hasScheduleConfirmation } from './schedule-confirmation.js';
 
 export const REST_EXIT_GRACE_MS = 30_000;
 
@@ -839,6 +841,13 @@ async function handleAccessObserved(event = {}) {
     });
   }
 
+  const advisory = config?.autonomyConfig?.timeWindowAdvisoryEnabled === true;
+  const scheduleContext = scheduleConfirmationContext(config, siteClassification.classification, Number(event.tabId), url, nowMs);
+  const scheduleConfirmed = scheduleContext ? await hasScheduleConfirmation(scheduleContext) : false;
+  if (event.forceScheduleBlock === true && scheduleContext) {
+    return baseDecision({ access: 'reminder', reminder: { reason: reminderReasonForModeWindow(scheduleContext.mode),
+      params: { confirmationFailure: event.confirmationFailure || 'user_end' } }, domain, config });
+  }
   if (quotaResult?.sharedModel) {
     const model = quotaResult.sharedModel, projection = model.preparation.projection;
     const attribution = resolveManagedTargetAttribution(config, siteClassificationRecords, url);
@@ -850,7 +859,7 @@ async function handleAccessObserved(event = {}) {
     const admission = sharedAccessAdmissionV1(model.policy, day,
       { complete: projection.complete, restRemainingMs: projection.week.restRemainingMs }, category,
       local.getUTCHours() * 60 + local.getUTCMinutes(), true);
-    if (admission.decision !== 'allow') {
+    if (admission.decision !== 'allow' && !(advisory && admission.reasonCode?.startsWith('WINDOW_'))) {
       const reasons = { QUOTA_STUDY: 'quota_study', QUOTA_REST: 'daily_rest_locked', QUOTA_WEEKLY_REST: 'weekly_rest_locked',
         QUOTA_COMPOSITE_AND_REST: 'quota_composite_and_rest', WINDOW_STUDY: 'study_schedule_locked',
         WINDOW_REST: 'rest_schedule_locked', WINDOW_COMPOSITE: 'composite_schedule_locked' };
@@ -882,9 +891,9 @@ async function handleAccessObserved(event = {}) {
       local.getUTCHours() * 60 + local.getUTCMinutes());
     return { configured: true, mode, allowed: result.decision === 'allow' };
   };
-  const studyWindow = sharedWindow('study');
-  const compositeWindow = sharedWindow('composite');
-  const restWindow = sharedWindow('rest');
+  const studyWindow = advisory ? { allowed: true } : sharedWindow('study');
+  const compositeWindow = advisory ? { allowed: true } : sharedWindow('composite');
+  const restWindow = advisory ? { allowed: true } : sharedWindow('rest');
   const legacyScheduleAllowed = hasModeWindows || !config.schedule?.enabled
     ? true
     : isWithinSchedule(config.schedule, windowCheckAt);
@@ -906,7 +915,7 @@ async function handleAccessObserved(event = {}) {
     legacyScheduleAllowed,
     remainingCompositeSeconds,
     quotaState,
-    restrictedEntryConfirmationRequired: config?.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
+    restrictedEntryConfirmationRequired: scheduleContext ? false : config?.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
   });
   const remainingStudySeconds = (
     route?.notice === 'composite_to_study' ||
@@ -930,6 +939,10 @@ async function handleAccessObserved(event = {}) {
         : 'unclassified_visit'
       : null,
   });
+  if (scheduleContext && !scheduleConfirmed && decision.access !== 'reminder') {
+    return baseDecision({ access: 'confirmation', confirmation: scheduleContext, domain, config,
+      classification: siteClassification.classification });
+  }
   return {
     ...decision,
     diagnosticUsage: quotaRemaining.diagnosticUsage,
@@ -1070,7 +1083,13 @@ async function handleRequestedModeChange(event = {}) {
         });
       }
       const scheduleBlocked = scheduleBlockedReminderForRequestedMode(requested, latestConfig || {}, new Date(nowMs));
-      if (scheduleBlocked) {
+      const advisoryWindow = latestConfig?.autonomyConfig?.timeWindowAdvisoryEnabled === true && hasTimeWindowsDaily(latestConfig);
+      if (advisoryWindow && event.fromReminderPage !== true && Number.isInteger(event.tabId) && /^https?:\/\//i.test(event.url || '')) {
+        // Choosing a mode does not authorize the current website or commit its proposed mode.
+        const access = await handleAccessObserved({ ...event, type: 'ACCESS_OBSERVED', foreground: true });
+        if (access.ok === false || access.access === 'confirmation' || access.access === 'reminder') return access;
+      }
+      if (scheduleBlocked && !advisoryWindow) {
         recordFallbackLog({
           level: 'warning',
           category: 'access',
@@ -1234,6 +1253,9 @@ async function handleQuotaEvaluation(event = {}) {
     composite: getModeWindowStatus(config, 'composite', windowCheckAt),
     rest: getModeWindowStatus(config, 'rest', windowCheckAt),
   };
+  if (config?.autonomyConfig?.timeWindowAdvisoryEnabled === true) {
+    for (const status of Object.values(windowStatusByMode)) status.allowed = true;
+  }
   const quotaRoute = evaluateQuotaModeTransition({
     currentMode,
     quotaState: quotaResult.newState || config.quotaState || {},

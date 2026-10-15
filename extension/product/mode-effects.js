@@ -11,6 +11,7 @@ import {
 } from './interceptor.js';
 import { budgetedLocalSet } from '../infra/storage-budget.js';
 import { budgetedSessionSet } from '../infra/session-storage-budget.js';
+import { requestScheduleUsageConfirmation } from './rest-usage-reminder.js';
 
 function modeTraceStorageArea(chromeApi = globalThis.chrome) {
   return chromeApi?.storage?.session || chromeApi?.storage?.local || null;
@@ -174,6 +175,17 @@ export async function executeModeDecision(decision = {}, context = {}) {
     return result;
   };
 
+  if (decision.access === 'confirmation' && decision.confirmation) {
+    const delivery = await requestScheduleUsageConfirmation(decision.confirmation);
+    result.blocked = true;
+    result.confirmationPending = delivery?.ok === true;
+    if (delivery?.ok !== true) {
+      await redirectToReminder(tabId, domain, `${decision.confirmation.mode}_schedule_locked`, config?.blockMessage,
+        { confirmationFailure: 'delivery_failed', targetUrl: reminderTargetUrlFromEvent(context.event) });
+      result.reminderSent = true;
+    }
+    return await finalize();
+  }
   if (decision.access === 'reminder' && decision.reminder) {
     if (typeof recordQuotaDenial === 'function') void recordQuotaDenial({
       auditId: decisionAuditId,

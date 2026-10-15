@@ -911,6 +911,32 @@ async function run() {
     expect('usage summary skipped', analyticsCalls, 0);
   }
 
+  section('Advisory Reminder returns to website without presenting Content on extension page');
+  for (const access of ['confirmation', 'reminder']) {
+    const target = 'https://fixture.test/video';
+    const tab = { id: 41, url: `chrome-extension://ext-id/reminder.html?targetUrl=${encodeURIComponent(target)}` };
+    const requested = [], shown = [], navigated = [];
+    const { handleMessage } = loadHandleMessage({
+      getConfig: async () => ({ mode: 'study' }), getSession: async () => ({ currentMode: 'study' }),
+      getSyncState: () => ({ monitoringEnabled: 1 }),
+      handleModeEvent: async event => {
+        requested.push(event);
+        return event.type === 'ACCESS_OBSERVED'
+          ? { ok: true, access, reminder: access === 'reminder' ? { reason: 'unsafe' } : null }
+          : { ok: true, access: 'allow', recheckActiveTab: true };
+      },
+      executeModeDecision: async decision => { shown.push(decision.access); return { ok: true, blocked: decision.access === 'reminder', decision }; },
+    }, { tabs: {
+      query: async options => options.active ? [tab] : [tab, { id: 99, url: 'https://other.test' }],
+      update: async (id, payload) => navigated.push({ id, payload }),
+    } });
+    await handleMessage({ type: 'REQUEST_MODE_CHANGE', toMode: 'rest', source: 'reminder' }, {});
+    expect(access + ' stays bound to active Reminder instead of another website', requested[0].tabId, 41);
+    expect(access + ' passes real extension page context', requested[0].fromReminderPage, true);
+    expect(access + ' checks exact original target', requested[1].url, target);
+    expect(access + ' only confirmation defers presentation', shown, access === 'confirmation' ? ['allow'] : ['allow', 'reminder']);
+    expect(access + ' hard block cannot navigate to target', navigated, access === 'confirmation' ? [{ id: 41, payload: { url: target } }] : []);
+  }
   const total = passed + failed;
   console.log(`\n[Message Router Mode Switch Re-eval] ${passed}/${total} passed${failed ? ` — ${failed} FAILED` : ''}`);
   if (failed > 0) process.exit(1);

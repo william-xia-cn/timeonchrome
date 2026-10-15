@@ -44,13 +44,63 @@ PO要求复核全部实施：Pages正常编辑已固定60/30节奏及超时阻�
 
 已向现有TimeWhere Native Host 02交接本机最小接线：同等接纳三类身份，先保存／读取原观察ref→当次唯一nativeId及共用本机对象；不从实例累计多身份集合选择。跨机器问题延后，同名不合并，已有Firefox等配置／阻止键保留。Native独立实施源码及聚焦验证，不制包／安装／部署；公共契约在实际关联核对后集中固定。云端实施边界已写入现有App Runtime DESIGN；仍未提交或发布。
 
+## NOW：时间窗自主控制与文字确认（2026-10-15，已部署，待手工验收）
+
+发布结果（覆盖下方实施过程中的旧状态）：PO批准提交推送部署后，控件1a217f6/PR264、云端0fa1225/PR265已合入master 92a088a3636db4e3faa40062c00a6df5d1d96d5c。精确SHA Guardian/Main CI通过，production运行38709676841成功；仅部署Guardian版本4cec3f5b-0424-467e-b4b1-6caa8bfd8d12及主Pages b01e7e38-7752-4a5f-a510-31d6d9215a3c，无迁移、Runtime部署或家庭配置修改。稳定及deployment域名index/access-config-domains逐字节匹配Git源码，Guardian未鉴权401通过。当前unpacked完整187文件备份核验后更新188个发布文件，保留Chrome生成元数据；1.7.47、稳定ID不变，发布文件树SHA256=1aa00b6b0e8bc8aad456062a6273346c72ee61607c0b015769a37562113c82cd。未重装、解绑或清storage，未自动重载；等待PO重新加载及手工验收。CRX/feed仍未托管；共享Native策略兼容仍待验收，未启用共享执行。
+
+发布授权更新：PO要求提交、推送、部署供手工验收；覆盖本节此前不提交/部署/更新候选的限制。本轮仅Guardian+主Pages及备份后的现有unpacked更新，源码1.7.47；不托管CRX/feed、不改Native/家庭配置/迁移。按精确文件/文档块提交，保留其他工作线草稿。发布审计发现Rest专项仍断言已移除的云端重复间隔/默认继续控件，改为已批准固定60/30及60秒阻断UI断言；跨树本地验证显式指向云端工作树，合入后默认读取同仓源码，不降低覆盖。
+
+最新状态：手动入口获PO具体授权后已实现并完成专项。mode-service143/143、message-router67/67、Rest129/129、typecheck和扩展根检查通过；真实隔离manual-advisory-faUo25专项1/1，覆盖未确认不切换、确认后一次变更、同模式幂等、黑名单优先、Reminder返回目标再确认。首两轮失败分别为未导入getSession和错误黑名单配置源，修正夹具后PO批准第三轮通过；未放宽生产断言或硬限制。模式提交/边界前后审计Matched；原ACTIVE/原账/聚合算法未改。源码1.7.47，未提交/部署/托管/更新当前加载包；Native策略兼容仍独立未完成。
+
+2026-10-15 PO要求继续手动入口修订及提升版本。源码版本提升1.7.47，不提交/部署/托管/替换加载包。手动入口补丁被安全审核拒绝，尚未应用：拟在REQUEST_MODE_CHANGE保留硬配额优先，并在现代timeWindows建议模式下复用当前网页ACCESS_OBSERVED确认/硬阻断决策；网页需要确认时不得提前提交模式。此调用链涉及模式与记账边界，按D-076另列具体授权，批准前不实施、不绕过。旧schedule-only兼容、原始计时、结算与Native协议均不改。
+
+PO已对上述具体调用链单项明确批准实施及验证，覆盖先前安全审核阻塞。旧行为：手动入口直接按目标模式窗拒绝；新行为：硬配额先检查，现代建议配置下真实网页复用现有访问判定，确认/硬拒绝时不提交模式，获确认后仅复用既有提交；Reminder页通过内部布尔上下文标明无Content，选择模式不等于网站授权，返回原目标后正常导航检查。输入/强视频/强音频/弱audible/失焦/最小化/后台/idle/锁屏/checkpoint全部不改；不改原账及历史。风险是误提前或重复提交模式，验证决策前无saveSession/saveConfig/边界intent、确认后同模式幂等、所有硬限制优先，并做隔离真实菜单消息+Content验收。最小文件mode-service.js/message-router.js及直接测试、既有权威文档；不改Native/云端或托管。
+
+路由复核补齐：getReminderOriginalTarget对普通网页也返回url，不能用其真值判Reminder上下文；仅识别本扩展/reminder.html。手动入口优先保留当前真正Reminder页，不选中其他HTTP标签。Reminder重评估的目标若只是需要建议确认，延迟展示至正常目标导航，不向扩展页投递Content；硬阻断仍执行原决策且不返回目标。此导航不写授权或账本。首轮真实专项夹具误用未导入getSession，改为只读guardian_session，不改变生产状态。
+
+手动入口单测143/143、消息路由67/67、Rest129/129及typecheck通过；真实专项第二轮已走通未确认不切换、确认后一次变更、同模式幂等，但黑名单夹具只改派生unsafeList，被customBlockedSites规范化覆盖。已改为正确配置源并增加回读前置，生产黑名单规则不变；按两次失败上限请求第三轮复验，未经通过不标记真实专项完成。
+
+PO要求补齐控件共享弹层并复核全部实现。实施清单：content.js共享browser presenter改为相同手动文字输入/禁粘贴与拖入/确认按钮，Escape不得取消确认；shared-reminder-content-bridge.js在控件消息外层验证confirmationText并剥离后调用原协议，确认显示能力版本防止旧Content绕过；继续复用Service时钟、可见ACK、实例及sender隔离，不伪造timeout操作、不修改Native或共享契约。增加真实隔离unpacked Content+SW桥接验收（Native响应为夹具，不能宣称真实Native验收）及桥接单测。逐项审核云端配置/导入导出、时间窗范围授权、日周合并、60/30节奏、超时、硬限制和所有弹层。共享Service超时策略/节奏未能证明与新口径一致的项必须明确保留依赖，不以UI通过关闭。
+
+补查定位：Content ready恢复旧时间窗弹层前未核验身份/当前关闭区间，可能向新页面恢复旧确认；补核验并撤销过期展示，不强行阻断新对象。旧提醒状态无acknowledgementCount时，已有确认被误当首次；按已有lastAcknowledgedUsageSeconds补计数，保留既有阈值。结束已完成但页面不需导航时补清理旧弹层。以上仅修改提醒状态与展示，不改网页会话或账本。
+
+本轮实施审计：Matched——控件自有/共享browser弹层文字输入、禁粘贴/拖入、共享Escape防绕过、后台精确校验及旧Content能力拒绝，Native载荷仍为既有身份+action；Matched——普通Rest日周状态、合并提醒、60/30节奏与60秒阻断、身份/关闭区间复核、云端导入导出废弃字段规范化；Matched——硬配额/黑名单/停用优先及账本不改。验证：Rest129/129、模式103/103、授权与纯判定、共享桥接/生命周期、两树typecheck、根目录/diff及云端UI通过。C盘隔离真实Rest专项1/1通过；共享实际Content DOM＋mock runtime桌面/390px通过，截图已目视，但不替代真实SW/Native。D盘曾Free=0，已仅清理本轮两份可重建失败扩展拷贝、保留Profile及旧证据；测试支持C临时目录。共享unpacked专项两次在SW启动前失败，已请求PO批准诊断复验；未标为通过。
+
+后续PO批准共享专项诊断复验：全部隔离包/Profile/报告迁至C盘临时目录后，真实SW+Content+后台桥接专项1/1通过（shared-typed-0EQCAS）；覆盖显示ACK、错误/缺失文字防绕过、禁粘贴/拖入、Escape不可退出、日周合并、文字继续、主动结束、Service超时结果清理及原Native载荷不增加文字。桌面/390px截图已目视，无溢出。Native响应与执行为隔离夹具，timeout_end为模拟结果，不代表真实Service计时或真实阻断已验收。D盘满与先前启动失败相符，但没有据此宣称已独立证明每次失败的唯一原因。本轮只更新验证记录，不新增产品修改或重跑无关测试。
+
+Missing/待接管——现有共享契约只含单一repeatReminderMinutes和continue/end超时策略，不含60/30分阶段、时间窗自主字段及首次/超额/四项展示证据；不能由控件伪造Native策略或据此宣称端到端一致。此前Popup/Reminder手动入口缺口已由顶部最新单项修复及真实专项关闭，不再作为未实现项。旧固定契约Content浏览器脚本已适配文字与Escape，但当前未执行该脚本。不提交/发布/更新加载包，所有并发草稿保留。
+
+目视复核发现本地自主配置底线区仍有旧“时间窗始终生效”说明，改为明确按强制/建议配置执行，停用时间始终强制；仅对齐已批准文案，不改变运行逻辑。
+
+中等跨模块策略/UI变更，职责extension-local及standard-cloud分树实施。清单：autonomyConfig.timeWindowAdvisoryEnabled默认false，全部类型时间窗建议模式；硬限制优先；当前tab/对象/关闭区间有界授权、配置变化复核；统一输入“适合使用”确认，禁止粘贴/拖入，60秒无响应强制阻断；日周/时间窗合并提示；软提醒首次确认后新增60分钟、以后新增30分钟；云端编辑、导入导出、本地只读说明同步。已有旧continue与repeat字段仅兼容，不控制新提醒。授权前不变更模式，授权后重新走现有访问路由，不直接写配额或记账。
+
+最小测试：新增自主控制纯判定/授权、实际mode路由、Rest状态及Content文字交互、Worker配置/导入导出专项、Admin、typecheck和隔离桌面/窄屏目视。排除全量/真实家庭配置/Native/发布/候选更新。不改ACTIVE、idle、焦点、segment、聚合、上传确认；发现需要变更记账线立即停止该项按D-076单独批准。保留当前两树未提交草稿。
+
+Rest真实unpacked复验仍待通过：获批的模式恢复夹具已改为真实Mode Service接口；本轮在首次提醒前发现测试窗口focused=false，生产路径正确返回no_foreground_rest_session，未执行后续恢复与硬限制断言。夹具补充窗口聚焦、ACTIVE及tab/window身份一致的显式前置检查；不放宽生产焦点规则，不把此轮记为验收通过。证据保存在隔离.tmp/rest-unpacked-mESfIe/diagnostic-events.json；下一轮需获批后运行。
+
+后续PO批准复验已通过：rest-weekly-unpacked真实SW/Content专项1/1，覆盖日/周/合并、跨日周、文字继续、60/30分钟用量节奏、真实60秒超时、结束及继续时硬时间窗拒绝。证据.tmp/rest-unpacked-rku8lj；用量/日期加速夹具不证明计时精度。Rest单测123/123、Reminder单测91/91及浏览器门14/14、Admin桌面/窄屏1/1、终端配置专项、typecheck、扩展根检查和diff通过。Admin与合并弹层窄屏截图已目视，旧时间窗说明已对齐。职责审计：未改ACTIVE/原始分段/聚合/上传；当前加载候选、家庭配置、版本及生产未改。
+
+未收口边界：Native主导的共享Rest提醒仍使用旧滑动流程及其契约，本轮未修改Native/共享契约，不能将其标为文字确认或60/30节奏已通过。当前验收仅覆盖扩展自有Rest与网站建议时间窗；整体发布前须单独处理共享提醒兼容边界。本轮不提交、不部署、不托管、不更新当前加载包。
+
+## COMPLETED：停用与黑名单阻断页关闭按钮（2026-10-15，当前unpacked已更新）
+
+仅修改reminder.js中downtime/unsafe（含blacklist别名）的动作：显示“关闭此标签页”，通过tabs.getCurrent/remove关闭当前页，失败留在阻断页显示明确错误，不执行history.back或导航兜底。普通确认、时间窗和配额页返回行为不变，不改记账、配置或Native。PO要求继续完成提交推送及当前unpacked更新；完整备份核验后仅同步reminder.js，不重装、不清storage、不改版本/云端/托管feed。
+
+验证：Reminder单测91/91、完整Reminder隔离浏览器门14/14（真实当前页关闭、blacklist别名、缺当前tab/关闭失败留页），补齐黑名单截图专项1/1、typecheck/diff通过。停用与黑名单桌面/390px截图已目视，无溢出。实施审计全部Matched，无额外行为变更；原并发文档草稿保留。当前1.7.46 unpacked完整187文件备份并逐文件校验后，仅同步reminder.js，SHA256=00b21444dd97ea2d1118f34ebf021926dfb051d38b271c3acfab805ac133dde6；其他文件、身份及storage未变。已打开旧Reminder页仍需刷新以载入新脚本，不卸载、不重绑。
+
+## COMPLETED：停用配置同版本补齐修复（2026-10-15，当前unpacked已更新、待重载）
+
+配置原始下发/规范化保留downtimeConfig，但shouldSaveDespiteVersionSkip只检查默认网站清单；同版本元数据存在而guardian_config缺少/错误停用字段时会跳过，已可用隔离pullCloudConfig复现。增加停用字段的规范化对照，仅在完整版本等于已应用版本时允许补齐；云端更旧响应不得因停用差异覆盖新配置。新增实际pull路径专项，保持其他终端私有字段、站点配置与配额不变。现场原因等待终端表现确认，不通过修改家庭配置或清空缓存取证。
+
+职责extension-local；只改云配置读取与直接测试，不改网页计时/记账/上传确认或Native。新增pullCloudConfig补齐/退化/失败/关闭/跨版本专项、已有Admin配置读取与typecheck通过；逐项Matched，无额外语义修改。PO已批准验证后提交合入master、部署云端编辑并备份更新当前unpacked；不托管、不升级版本、不修改家庭配置。现场生效仍需当前扩展重新加载后确认。
+
+源码b9279a8，经PR261合入ec69f71；当前unpacked完整187文件备份并逐文件校验后只更新infra/cloud-sync.js，SHA256=09b35db0178d08b2ed78c6502f2c7065e3705db28740be09f71acad4a1938b69。manifest及部署身份未变、storage未动，未自动重载。主Pages修订生产38617013395成功，托管feed仍未更新；现场恢复不能用源码专项替代。
+
 ## COMPLETED：停用时间编辑可用性及同步补齐（2026-10-15，源码与主Pages已发布）
 
 已证实UI缺口：关闭策略同时禁用所有编辑；numeric键盘无冒号；无批量复制；每次Tab重渲染丢草稿；保存回读不校验版本，晚到响应可能覆盖新状态。按本功能单项修订，不改变周时段/类型例外/记账语义。实施清单：原七天和例外均保留，改原生时间选择并独立选择结束24:00；从所选日复制到工作日/周末/全周（替换需确认）；关闭也可编辑；空新增行忽略、半填/非法逐行报错；同档案Tab保留草稿，版本变动拒绝覆盖并提供明确重新载入；保存单在途并校验回读版本。同步专项由extension-local完成，不修改生产家庭规则。
 
-最小测试：downtime-config 17/17、新隔离真实页面编辑/保存测试及桌面/手机截图、两端typecheck通过；24:00直接显示，不显示易混淆的00:00，手机重新载入按钮不折行。逐项审计Matched，无Missing/Extra。PO已批准验证后提交合入master、部署主Pages并备份更新unpacked；不托管、不安装Native、不修改家庭配置或ACTIVE/账本/聚合/配额。现场终端原因未读取前不冒称已确定。
-
-PR261/262已合入，生产源码ec69f71；精确SHA主控制台CI及production 38617013395成功，仅mainPages部署efc00725-89a1-4a3c-b71b-acdaa8bf4d4e，无迁移/Worker/Native/feed变化。稳定域名与源码逐字节匹配，index SHA256=c37c81b89efb5344b39dbcc56b9aeab9c7e81280b0394b8df6e825fdf9119fd9。当前unpacked完整187文件备份核验后仅替换cloud-sync.js，版本1.7.46，身份和storage未触碰；尚需当前Chrome重新加载，不伪报现场同步已恢复。
+最小测试：downtime-config 16/16、新隔离真实页面编辑/保存测试及桌面/手机截图通过；24:00直接显示，不显示易混淆的00:00，手机重新载入按钮不折行。逐项审计Matched，无Missing/Extra。PO已批准验证后提交合入master、部署主Pages并备份更新unpacked；不托管、不安装Native、不修改家庭配置或ACTIVE/账本/聚合/配额。现场终端原因未读取前不冒称已确定。
 
 ## COMPLETED：三项云端发布与控件停用候选更新（2026-10-15）
 

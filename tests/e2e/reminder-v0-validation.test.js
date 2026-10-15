@@ -408,7 +408,7 @@ test('T-R7: quota_composite_and_rest shows only return button, no continue actio
 
 // ── T-R8: unsafe (hard blocked) ──────────────────────────────────────────────
 
-test('Downtime: distinct reason, Beijing end, return only even with Rest lock', async () => {
+test('Downtime: distinct reason, Beijing end, close only even with Rest lock', async () => {
   const until = Date.parse('2026-10-12T23:00:00Z');
   const page = await openReminderPage(`reason=downtime&domain=rest.test&downtimeUntilMs=${until}&restLocked=1`);
   await expect(page.locator('#mainTitle')).toHaveText('当前为停用时间');
@@ -416,7 +416,7 @@ test('Downtime: distinct reason, Beijing end, return only even with Rest lock', 
   await expect(page.locator('#subtitle')).toContainText('北京时间');
   await expect(page.locator('#slideTrack')).toBeHidden();
   await expect(page.locator('#actions .btn')).toHaveCount(1);
-  await expect(page.locator('#actions .btn')).toHaveText('返回');
+  await expect(page.locator('#actions .btn')).toHaveText('关闭此标签页');
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: '.artifacts/downtime-reminder-mobile.png' });
@@ -425,7 +425,7 @@ test('Downtime: distinct reason, Beijing end, return only even with Rest lock', 
   await page.close();
 });
 
-test('T-R8: unsafe shows only return button, no borrow/apply/continue', async () => {
+test('T-R8: unsafe shows only close button, no borrow/apply/continue', async () => {
   const page = await openReminderPage('reason=unsafe&domain=tiktok.com');
 
   // Title
@@ -440,10 +440,10 @@ test('T-R8: unsafe shows only return button, no borrow/apply/continue', async ()
   // Slider hidden
   await expect(page.locator('#slideTrack')).toBeHidden();
 
-  // Only 1 button: 返回
+  // Only 1 button: close the blocked tab.
   const buttons = page.locator('#actions .btn');
   await expect(buttons).toHaveCount(1);
-  await expect(buttons.first()).toHaveText('返回');
+  await expect(buttons.first()).toHaveText('关闭此标签页');
 
   // Forbidden actions absent
   const allText = await page.locator('#actions').textContent();
@@ -451,5 +451,39 @@ test('T-R8: unsafe shows only return button, no borrow/apply/continue', async ()
   expect(allText).not.toContain('借用');
   expect(allText).not.toContain('申请');
 
+  await page.screenshot({ path: '.artifacts/unsafe-reminder-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: '.artifacts/unsafe-reminder-mobile.png' });
   await page.close();
+});
+
+test('Hard blocked pages close the current tab, including blacklist alias', async () => {
+  for (const reason of ['downtime', 'unsafe', 'blacklist']) {
+    const page = await openReminderPage(`reason=${reason}&domain=blocked.test`);
+    const closed = page.waitForEvent('close');
+    await page.getByRole('button', { name: '关闭此标签页', exact: true }).click();
+    await closed;
+    expect(page.isClosed()).toBe(true);
+  }
+});
+
+test('Hard blocked close failure stays blocked without history navigation', async () => {
+  for (const reason of ['downtime', 'unsafe']) {
+    for (const failure of ['missing', 'remove']) {
+      const page = await openReminderPage(`reason=${reason}&domain=blocked.test`);
+      const before = page.url();
+      await page.evaluate(failure => {
+        window.__historyBackCalls = 0;
+        history.back = () => { window.__historyBackCalls++; };
+        if (failure === 'missing') chrome.tabs.getCurrent = async () => undefined;
+        else chrome.tabs.remove = async () => { throw new Error('test_close_failed'); };
+      }, failure);
+      await page.getByRole('button', { name: '关闭此标签页', exact: true }).click();
+      await expect(page.locator('#statusFeedback')).toHaveText('无法关闭此标签页，请手动关闭。');
+      expect(page.url()).toBe(before);
+      expect(await page.evaluate(() => window.__historyBackCalls)).toBe(0);
+      await page.close();
+    }
+  }
 });
