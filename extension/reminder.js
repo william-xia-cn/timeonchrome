@@ -128,6 +128,16 @@
     return null;
   }
 
+  async function closeBlockedTab() {
+    try {
+      const tab = await chrome.tabs.getCurrent();
+      if (!Number.isInteger(tab?.id)) throw new Error('current_tab_unavailable');
+      await chrome.tabs.remove(tab.id);
+    } catch {
+      showStatus('无法关闭此标签页，请手动关闭。', 'error');
+    }
+  }
+
   function quotaFailureMessage(result, targetMode) {
     const reasonCode = result?.reason || result?.reminder?.reason || result?.modeDecision?.reason || result?.error || '';
     const reminderReason = result?.reminder?.reason || result?.modeDecision?.reminder?.reason || '';
@@ -190,7 +200,7 @@
     unsafe: {
       icon: 'blocked', title: '此网站不可访问',
       subtitle: '该网站属于禁止访问范围。',
-      actions: ['back']
+      actions: ['closeBlockedTab']
     },
     study_mode: {
       icon: 'pending', title: '你正在打开未归类网站',
@@ -240,7 +250,12 @@
     downtime: {
       icon: 'notice', title: '当前为停用时间',
       subtitle: '此网站不在停用时间例外中，请在停用时段结束后再访问。',
-      actions: ['backGeneric']
+      actions: ['closeBlockedTab']
+    },
+    rest_confirmation_blocked: {
+      icon: 'notice', title: '休息确认未完成',
+      subtitle: '未完成使用确认，本次使用已结束。',
+      actions: ['closeBlockedTab']
     },
     accounting_unavailable: {
       icon: 'notice', title: '记账数据暂不可用',
@@ -335,6 +350,10 @@
       label: '返回', style: 'outline',
       handler: function() { history.back(); }
     },
+    closeBlockedTab: {
+      label: '关闭此标签页', style: 'outline',
+      handler: closeBlockedTab
+    },
     back: {
       label: '返回', style: 'outline',
       handler: function() { history.back(); }
@@ -378,7 +397,7 @@
     'to_rest_slide_confirm', 'restricted_study_mode',
     'quota_composite_and_rest', 'rest_locked', 'daily_rest_locked', 'weekly_rest_locked', 'quota_locked', 'quota_rest',
     'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule',
-    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked', 'accounting_unavailable', 'downtime'
+    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked', 'accounting_unavailable', 'downtime', 'rest_confirmation_blocked'
   ]);
 
   var config;

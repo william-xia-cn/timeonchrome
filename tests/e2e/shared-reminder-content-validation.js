@@ -101,6 +101,10 @@ async function run() {
       };
       new Function(`const requestSharedReminderLifecycle = window.requestSharedReminderLifecycle;
         const getSharedBrowserActivityLease = () => 'fixture-lease';
+        const hasSharedReminderContinuityCapability = () => false;
+        const readSharedAccessRuntime = async () => ({ok:true,executionRevision:'state-1',policy:{revision:'policy-1'}});
+        const createSharedBrowserExecutor = () => ({execute:async()=>({ok:true,effectsEnabled:false})});
+        const isAutonomyConfirmationText = value => value === '适合使用';
         ${localModules}
         initSharedReminderContentBridge();
         window.configureBridge = configureSharedReminderContentBridge;
@@ -113,21 +117,19 @@ async function run() {
     const result = await page.evaluate(() => window.pollBridge(1, '2026-10-02'));
     assert.equal(result.state.visibleAtMs, 2500);
     assert.equal(await page.locator('#__toc_shared_reminder__').count(), 1);
-    assert.equal(await page.getByRole('heading', { name: '今日与本周休息提醒' }).count(), 1);
-    assert.equal(await page.getByRole('button', { name: '滑动继续休息' }).isEnabled(), true);
+    assert.equal(await page.getByRole('heading', { name: '今日与本周休息软配额提醒' }).count(), 1);
+    assert.equal(await page.getByRole('textbox', { name: '手动输入适合使用' }).isEnabled(), true);
+    assert.equal(await page.getByRole('button', { name: '确认继续' }).isEnabled(), false);
     const output = path.join(root, 'output/playwright/d114');
     fs.mkdirSync(output, { recursive: true });
     await page.screenshot({ path: path.join(output, 'shared-content-desktop.png') });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(output, 'shared-content-mobile.png') });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    // Actual drag, not a mocked continue button.
-    const thumb = await page.getByRole('button', { name: '滑动继续休息' }).boundingBox();
-    const slider = await page.locator('#shared-slider').boundingBox();
-    await page.mouse.move(thumb.x + thumb.width / 2, thumb.y + thumb.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(slider.x + slider.width - 8, thumb.y + thumb.height / 2, { steps: 12 });
-    await page.mouse.up();
+    await page.getByRole('textbox', { name: '手动输入适合使用' }).fill('不适合使用');
+    assert.equal(await page.getByRole('button', { name: '确认继续' }).isEnabled(), false);
+    await page.getByRole('textbox', { name: '手动输入适合使用' }).fill('适合使用');
+    await page.getByRole('button', { name: '确认继续', exact: true }).click();
     await page.waitForFunction(() => window.serviceState.resolution === 'continue');
     assert.equal(await page.locator('#__toc_shared_reminder__').count(), 0);
     // New Service-issued delivery, failed button request and a successful explicit retry.
@@ -147,11 +149,13 @@ async function run() {
       window.serviceState = { ...window.serviceState, roundId: `round-${number}`, reminderId: `reminder-${number}`,
         deliveryId: `delivery-${number}`, status: 'offered', resolution: null, visibleAtMs: null };
     }, number);
-    // Real Escape event only revokes the presentation; it is not a Service choice.
+    // Escape cannot bypass confirmation or create a Service choice.
     await nextRound(3);
     await page.evaluate(() => window.pollBridge(1, '2026-10-02'));
     const beforeEscape = await page.evaluate(() => window.nativeRequests.filter(row => row.method === 'resolveSharedReminder').length);
     await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#__toc_shared_reminder__').count(), 1);
+    await page.evaluate(() => window.browserEvents.updated.forEach(fn => fn(1, { status: 'loading' })));
     await page.waitForFunction(() => !document.getElementById('__toc_shared_reminder__'));
     assert.equal(await page.evaluate(() => window.nativeRequests.filter(row => row.method === 'resolveSharedReminder').length), beforeEscape);
     const races = [];
@@ -189,7 +193,7 @@ async function run() {
       sourceHashes: Object.fromEntries(['extension/content.js', 'extension/infra/shared-reminder-lifecycle.js',
         'extension/product/shared-reminder-content-bridge.js'].map(file => [file, createHash('sha256').update(read(file)).digest('hex')])),
       serviceVersion: '1.24.0', serviceSourceHash: createHash('sha256').update(serviceSource).digest('hex'), ...evidence }, null, 2));
-    console.log('[Isolated Chromium Content] default-off, visible ACK, drag continue, end retry, Escape, late SHOW/ACK/choice passed; no ledger/media/closing effects');
+    console.log('[Isolated Chromium Content] default-off, visible ACK, typed continue, end retry, Escape blocked, late SHOW/ACK/choice passed; no ledger/media/closing effects');
   } finally { await browser.close(); }
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

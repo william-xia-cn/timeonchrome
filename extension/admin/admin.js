@@ -1852,8 +1852,9 @@ function getAdminRestReminderView() {
 function getAdminAutonomyView() {
   const autonomyConfig = config?.autonomyConfig || {};
   return {
+    timeWindowAdvisoryEnabled: autonomyConfig.timeWindowAdvisoryEnabled === true,
     restrictedEntryConfirmationRequired: autonomyConfig.restrictedEntryConfirmationRequired !== false,
-    softReminderTimeoutAction: autonomyConfig.softReminderTimeoutAction === 'continue' ? 'continue' : 'end_rest',
+    softReminderTimeoutAction: 'end_rest',
     reminder: getAdminRestReminderView(),
   };
 }
@@ -1905,11 +1906,12 @@ function renderAutonomySection() {
   const autonomy = getAdminAutonomyView();
   const reminder = autonomy.reminder;
   const entryText = autonomy.restrictedEntryConfirmationRequired ? '完整确认' : '短提示后直接进入';
-  const timeoutText = autonomy.softReminderTimeoutAction === 'continue' ? '默认继续' : '结束休息';
+  const timeoutText = '60秒未确认强制阻断';
 
   const summaryEl = document.getElementById('rules-autonomy-summary-display');
   if (summaryEl) {
     summaryEl.innerHTML = `<div class="rules-reminder-summary">
+      <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">时间段管理</div><div class="rules-reminder-stat-value">${autonomy.timeWindowAdvisoryEnabled ? '建议模式：文字确认' : '强制模式'}</div></div>
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">进入受限内容</div><div class="rules-reminder-stat-value">${entryText}</div></div>
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">今日软限额</div><div class="rules-reminder-stat-value">${reminder.enabled ? formatQuotaText(reminder.firstMinutes) : '已关闭'}</div></div>
       <div class="rules-reminder-stat"><div class="rules-reminder-stat-label">本周软配额</div><div class="rules-reminder-stat-value">${reminder.weeklyEnabled ? formatQuotaText(reminder.weeklyMinutes) : '已关闭'}</div></div>
@@ -1942,11 +1944,11 @@ function renderAutonomySection() {
           <div class="rules-reminder-stat-value">${reminder.weeklyEnabled ? formatQuotaText(reminder.weeklyMinutes) : '不提醒'}</div>
         </div>
         <div class="rules-reminder-stat">
-          <div class="rules-reminder-stat-label">超额后提醒间隔</div>
-          <div class="rules-reminder-stat-value">${formatQuotaText(reminder.repeatMinutes)}${reminder.enabled || reminder.weeklyEnabled ? '' : '（启用后生效）'}</div>
+          <div class="rules-reminder-stat-label">超额后提醒节奏</div>
+          <div class="rules-reminder-stat-value">首次确认后新增1小时，之后30分钟</div>
         </div>
       </div>
-      <div class="rules-reminder-note"><strong>说明：</strong>日周软配额只做提醒，不会锁定网站访问，同时到期合并提醒；周一北京时间 00:00 重置周状态。提醒只按已结算的 Rest 配额网页账本触发；复合或待归类网站借用的休息配额会计入，媒体时长不计入。提醒最多可能晚一个 3 分钟结算周期，显示后 60 秒未处理会${autonomy.softReminderTimeoutAction === 'continue' ? '默认继续休息' : '结束休息'}。硬配额和时间窗仍强制执行。</div>
+      <div class="rules-reminder-note"><strong>说明：</strong>日周同时到期合并提醒，需手动输入“适合使用”确认；60秒未确认强制阻断。首次确认后新增1小时再提醒，之后每新增30分钟。只按已结算Rest桶网页账触发，含借用，不含媒体；最多晚一个3分钟结算周期。黑名单、停用与硬配额始终强制执行。</div>
     `;
   }
 }
@@ -2036,7 +2038,7 @@ function renderScheduleSection() {
         </div>
       `;
     }).join('');
-    scheduleEl.innerHTML = `<div class="rules-schedule-grid">
+    scheduleEl.innerHTML = `<p>${config?.autonomyConfig?.timeWindowAdvisoryEnabled === true ? '建议模式：时间窗外手动输入“适合使用”确认，60秒未确认强制阻断' : '强制模式：时间窗外禁止访问'}</p><div class="rules-schedule-grid">
       <div class="rules-grid-row schedule header"><div>星期</div><div>学习时段</div><div>复合时段</div><div>休息时段</div><div>在线时段（只读）</div></div>
       ${rows || '<div class="rules-readonly-empty">暂无配置</div>'}
     </div>`;
