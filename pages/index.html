@@ -5887,7 +5887,7 @@ function forcedUsePolicyView(config = {}) {
 function renderForcedUseLimits() {
   const view = forcedUsePolicyView(remoteConfig || {});
   document.getElementById('forced-use-limits-status').textContent = view.enabled
-    ? '统一机制配置已保存；须待终端与共享提醒契约验收后才会执行。最终阻断由下列独立规则决定。'
+    ? '统一机制配置已保存；支持此配置的非共享终端同步后生效。共享提醒仍待单独验收。最终阻断由下列独立规则决定。'
     : '统一机制未启用，现有配额到线后仍按原规则阻断。';
   document.getElementById('forced-use-overrun-fields').innerHTML = FORCED_USE_LIMIT_FIELDS.map(([key, label]) => {
     const value = view.quotaOverrunMinutes[key];

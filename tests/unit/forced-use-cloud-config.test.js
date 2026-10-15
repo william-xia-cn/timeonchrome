@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const ts = require('typescript');
 
 const text = fs.readFileSync(path.join(__dirname, '../../workers/src/routes/profiles.ts'), 'utf8');
+const page = fs.readFileSync(path.join(__dirname, '../../pages/index.html'), 'utf8');
 const source = ts.createSourceFile('profiles.ts', text, ts.ScriptTarget.Latest, true);
 const node = source.statements.find(item => ts.isFunctionDeclaration(item)
   && item.name?.text === 'validateForcedUsePolicy');
@@ -42,4 +43,6 @@ for (const policy of [
 ]) assert.ok(validate(policy), 'invalid policy is rejected');
 assert.match(text, /'forcedUsePolicyV1', 'downtimeConfig'/);
 assert.match(text, /validateForcedUsePolicy\(incomingConfig\)/);
+assert.match(page, /支持此配置的非共享终端同步后生效。共享提醒仍待单独验收/);
+assert.doesNotMatch(page, /须待终端与共享提醒契约验收后才会执行/);
 console.log('forced-use-cloud-config: passed');
