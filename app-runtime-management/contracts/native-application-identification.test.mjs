@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {parseNativeApplicationIdentificationBatch as parse,parseNativeApplicationIdentificationReceipt as receipt,normalizeNativeApplicationIdentificationItem as normalize} from './dist/native-application-identification.js';
+import {parseNativeApplicationIdentificationBatch as parse,parseNativeApplicationIdentificationReceipt as receipt,normalizeNativeApplicationIdentificationItem as normalize,
+  buildNativeApplicationManagementObjects as objects,nativeApplicationManagementTargetKey as targetKey} from './dist/native-application-identification.js';
 import {hashUsageAccountValue} from './dist/usage-account.js';
 const identity={nativeId:'audit-app-1',name:'本机登记名称',status:'identified',evidence:['os-application-aumid']};
 const item={instanceId:'a'.repeat(64),revision:1,observedAtMs:1,identifications:[identity]};
@@ -37,4 +38,19 @@ for(const vector of vectors.cases){
   parse({...batch,items:[vector.item]});
   assert.equal(await hashUsageAccountValue(normalize(vector.item)),vector.payloadHash);
 }
-console.log('PASS: Native naming contract, explicit/dynamic states, multiple entries, privacy, scope and ACK');
+const dynamic={...identity,nativeId:'dynamic-local:process',status:'dynamic-process'};
+const inputs=[{machineId:'machine-a',identifications:[identity,dynamic]},
+  {machineId:'machine-a',identifications:[identity,{...identity,name:'改名'}]},
+  {machineId:'machine-b',identifications:[identity]}, {machineId:'machine-a',identifications:null}];
+const copy=structuredClone(inputs),managed=objects(inputs);
+assert.deepEqual(inputs,copy);
+assert.equal(managed.length,3); // 同名不同ID、不同机器保持各自对象；同机器同ID重放不增加对象。
+assert.equal(managed.find(item=>item.target.machineId==='machine-a'&&item.target.nativeId===identity.nativeId).presentations.length,2);
+assert.equal(managed.find(item=>item.target.nativeId===dynamic.nativeId).presentations[0].status,'dynamic-process');
+assert.deepEqual(managed,objects([...inputs].reverse()));
+assert.notEqual(targetKey({machineId:'machine-a',nativeId:identity.nativeId}),targetKey({machineId:'machine-b',nativeId:identity.nativeId}));
+assert.deepEqual(objects([{machineId:'machine-a',identifications:[{...dynamic,status:'dynamic-registry'}]}])[0].target,
+  {machineId:'machine-a',nativeId:dynamic.nativeId});
+assert.throws(()=>objects([{machineId:'invalid/path',identifications:[identity]}]));
+assert.throws(()=>targetKey({machineId:'machine-a',nativeId:identity.nativeId,productId:'extra'}));
+console.log('PASS: Native identity contract, equal management objects, no name/machine merging, privacy, scope and ACK');
