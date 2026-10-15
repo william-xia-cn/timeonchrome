@@ -1,5 +1,11 @@
 # TimeOnChrome — 技术设计文档
 
+## 统一强行使用云端配置（2026-10-15，PO批准）
+
+档案配置新增可选 `forcedUsePolicyV1`。缺省表示旧行为；对象必须完整包含 `schemaVersion=1`、布尔 `enabled`、1–1440 整数分钟的 `reminderIntervalMinutes`、六项完整的 `quotaOverrunMinutes`（`dailyStudy`、`dailyComposite`、`dailyRest`、`dailyOnline`、`weeklyRest`、`domain`，各为 `null` 或 0–10080 整数分钟），以及 `advisoryWindowDailyMaxMinutes`（`null` 或 1–1440 整数分钟）。`null` 表示无最终上限，0 超额表示标准线即阻断；缺项或未知字段拒绝保存。`autonomyConfig.scheduleReminderIntervalMinutes` 独立兼容旧建议时间窗，默认30、允许1–1440整数分钟；新机制显式启用后只使用单一 `reminderIntervalMinutes`。
+
+Guardian的档案配置白名单、保存校验及既有配置版本冲突保护负责上行；Pages在时间配额保留标准上限，在自主度配置编辑统一提醒，在强制限制编辑用量最终阻断，导入导出包含新字段。云端只下发配置，不下发提醒进度或配额锁，不修改账本、统计或配额计算。旧档案不自动开启；Native共享提醒契约和真实终端执行未验收前，界面保存不能声称全部终端生效。上线先部署兼容字段与页面，再独立验收终端并显式启用内部档案。
+
 ## 时间窗自主控制配置（2026-10-15，PO批准）
 
 autonomyConfig.timeWindowAdvisoryEnabled为可选布尔，缺省false，Pages编辑、导入导出与终端只读一致；旧repeatReminderMinutes/softReminderTimeoutAction仅兼容，新文字提醒固定60秒未处理强制阻断、首次确认后新增60分钟再提醒、之后30分钟。全部网站性质的时间窗纳入建议，黑名单/停用/硬配额不变。仅实现，不发布、不修改生产档案。
