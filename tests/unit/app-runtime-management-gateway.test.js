@@ -50,6 +50,15 @@ async function test(name, run) { await run(); count++; console.log(`PASS ${name}
     ...options, headers:{Authorization:`Bearer ${token}`,...options.headers},
   });
   const call = (resource, options) => handleAppRuntimeManagement(request(resource,options),env);
+  await test('本机应用身份目录只读转发，沿用家庭鉴权且不接受机器写入',async()=>{
+    const reply=await call('applications?childId=child-a&offset=100');assert.equal(reply.status,200);
+    assert.equal(calls.at(-1).url,'https://app-runtime.internal/v2/module/applications?childId=child-a&offset=100');
+    const count=calls.length;
+    assert.equal((await call('applications?childId=child-a&machineId=arbitrary')).status,400);
+    assert.equal((await call('applications',{method:'POST',body:'{}'})).status,405);
+    assert.equal(calls.length,count);
+    calls=[];reads=0;
+  });
   await test('missing/expired/forged parent credentials never reach D1 or Runtime', async()=>{
     const expired = await generateToken({account_id:'family-a',exp:1},secret);
     for(const Authorization of ['', 'Bearer forged', `Bearer ${expired}`])

@@ -1,6 +1,14 @@
 const assert=require('node:assert/strict');
 const K=require('./app-runtime-knowledge');
 {
+ const items=[{target:{machineId:'machine-a',nativeId:'dynamic-local:sample'},presentations:[{name:'<同名>',origin:'runtime',status:'dynamic-process'}]}];
+ const html=K.nativeApplicationsHTML(items);
+ assert.match(html,/&lt;同名&gt;/);assert.match(html,/data-native-save="0"/);assert.match(html,/保留原配置/);
+ assert.doesNotMatch(html,/请先确认产品|不能直接归类/);
+ const configured=K.nativeApplicationsHTML(items,[{target:items[0].target,classification:'other',specialApplication:false,dailyQuotaMinutes:null}]);
+ assert.match(configured,/value="other" selected/);assert.match(configured,/dynamic-local:sample/);
+}
+{
   const identified={nativeId:'audit-app-1',name:'<本机名称>',status:'identified',evidence:['os-application-aumid']};
   const naming=entries=>({state:'available',sources:[{sourceKey:'opaque',revision:1,observedAtMs:0,receivedAtMs:1,identifications:entries}]});
   const item={status:'confirmed',product:{id:'existing-key',name:'旧云端名称'},nativeIdentification:naming([identified])};
@@ -10,7 +18,7 @@ const K=require('./app-runtime-knowledge');
   assert.match(html,/本机明确规则命中/);assert.match(html,/北京时间/);
   for(const status of ['dynamic-registry','dynamic-process']){
     const result=K.nativeIdentificationHTML(naming([{...identified,status}]));
-    assert.match(result,/动态/);assert.match(result,/不代表确定产品权限/);
+    assert.match(result,/动态/);assert.match(result,/同样可配置/);
   }
   assert.match(K.nativeIdentificationHTML(undefined),/尚无本机命名/);
   assert.match(K.nativeIdentificationHTML({state:'invalidated'}),/已失效/);

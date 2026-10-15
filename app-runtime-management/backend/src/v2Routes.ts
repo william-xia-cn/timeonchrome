@@ -1,4 +1,6 @@
 import { requireAccountModule, requireMachine } from './auth';
+import {receiveNativeApplicationObjects,readNativeApplicationObjects,readNativeApplicationConfiguration,
+ nativeApplicationObjectStorageReady,NATIVE_APPLICATION_MANAGEMENT_CAPABILITY} from './nativeApplicationObjects';
 import {receiveProgramInstallationLinks,programInstallationStorageReady} from './programInstallationLinks';
 import {PROGRAM_INSTALLATION_LINK_CAPABILITY} from '@timeonchrome/app-runtime-contracts/classification';
 import { listChildProgramInstances, readProgramInstanceCatalog, previewProgramInstanceCatalog, saveProgramInstanceCatalog,readChildProgramDirectory } from './programInstances';
@@ -313,6 +315,10 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
       try{return jsonResponse(computerUsageReadPage(snapshot,detail as 'summary'|'timeline'|'products',expected||undefined,offset,limit,product||undefined));}
       catch(error){if(error instanceof Error&&['INVALID_PRODUCT','INVALID_PRODUCT_DETAIL','INVALID_PAGINATION'].includes(error.message))
         throw new HttpError(400,error.message,'明细请求无效。');throw error;}
+    }
+    if(url.pathname==='/v2/module/applications') {
+      if(request.method!=='GET')return methodNotAllowed('GET');
+      return jsonResponse(await readNativeApplicationObjects(env.RUNTIME_DB,claims.account_id,requireChild(),Number(url.searchParams.get('offset')||0)));
     }
     if (url.pathname === '/v2/module/app-policy') {
       const childId = requireChild();
@@ -808,6 +814,20 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     return jsonResponse({schemaVersion: 1, enabled,
       capabilities: enabled ? [PROGRAM_INSTANCE_REGISTRATION_CAPABILITY,...(installationEnabled?[PROGRAM_INSTALLATION_LINK_CAPABILITY]:[]),
         ...(nativeIdentificationEnabled?[NATIVE_APPLICATION_IDENTIFICATION_CAPABILITY]:[])] : []});
+  }
+  if(url.pathname==='/v2/machines/applications') {
+    if(request.method!=='POST')return methodNotAllowed('POST');
+    return jsonResponse(await receiveNativeApplicationObjects(env.RUNTIME_DB,machine,await readJsonBody(request,1048576),nowMs));
+  }
+  if(url.pathname==='/v2/machines/applications/config') {
+    if(request.method!=='GET')return methodNotAllowed('GET');
+    return jsonResponse(await readNativeApplicationConfiguration(env.RUNTIME_DB,machine,url.searchParams.get('localUserId')||'',
+      Number(url.searchParams.get('assignmentVersion'))));
+  }
+  if(url.pathname==='/v2/machines/applications/capabilities') {
+    if(request.method!=='GET')return methodNotAllowed('GET');
+    const enabled=await nativeApplicationObjectStorageReady(env.RUNTIME_DB);
+    return jsonResponse({schemaVersion:1,enabled,capabilities:enabled?[NATIVE_APPLICATION_MANAGEMENT_CAPABILITY]:[]});
   }
   if (url.pathname === '/v2/machines/program-instances/local-identifications') {
     if (request.method !== 'POST') return methodNotAllowed('POST');

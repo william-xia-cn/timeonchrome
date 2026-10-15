@@ -460,6 +460,8 @@ export function projectAppPolicyForMachine(policy:AppPolicyDocument,supportsOthe
   // Receiver projection must not mutate the persisted Child policy or imply an
   // empty execution list when the client has not negotiated this format.
   const projected={...policy};
+  // 新身份配置由独立、已协商的scope读取接口提供，旧控制载荷保持原schema。
+  delete projected.nativeApplications;
   if(!supportsProgramExecution)delete projected.programInstanceExecutionPolicy;
   if(supportsOther)return projected;
   const walk=(value:unknown):unknown=>Array.isArray(value)?value.map(walk)
