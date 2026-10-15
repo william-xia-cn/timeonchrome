@@ -9,6 +9,7 @@ const resources: Record<string, { methods: readonly string[]; query: readonly st
   'application-knowledge/import-preview': { methods: ['POST'], query: [] },
   'application-knowledge/import-approve': { methods: ['POST'], query: [] },
   'application-inventory': { methods: ['GET'], query: [] },
+  'applications': { methods: ['GET'], query: ['childId', 'offset'] },
   'program-instance-directory': { methods: ['GET'], query: ['childId'] },
   'program-instance-catalog': { methods: ['GET', 'PUT'], query: [] },
   'program-instance-catalog/preview': { methods: ['POST'], query: ['childId', 'afterInstanceId'] },

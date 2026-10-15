@@ -30,6 +30,13 @@ import type {
   CatalogGroupReasonCode,
 } from '@timeonchrome/app-runtime-contracts/classification';
 import { systemToolPackageIds, technicalDistributionKeys } from './productCatalogRules';
+import {parseNativeApplicationConfigurations as parseNativeConfigurationContract} from '@timeonchrome/app-runtime-contracts/native-application-identification';
+import {canonicalUsageAccountJson} from '@timeonchrome/app-runtime-contracts/usage-account';
+function parseNativeApplicationConfigurations(value:unknown){
+  try{return parseNativeConfigurationContract(value);}catch{
+    throw new HttpError(400,'INVALID_NATIVE_APPLICATION_CONFIGURATION','应用身份配置无效。');
+  }
+}
 
 const classifications = new Set<ApplicationClassification>([
   'study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked',
@@ -299,6 +306,7 @@ function normalizeStoredPolicy(
   payload: Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'> | AppPolicyUpdate,
 ): Omit<AppPolicyDocument, 'version' | 'effectiveAtMs'> {
   return { classifications: payload.classifications, quotas: payload.quotas, timeWindows: payload.timeWindows ?? allOpenTimeWindows(),
+    ...(payload.nativeApplications!==undefined?{nativeApplications:parseNativeApplicationConfigurations(payload.nativeApplications)}:{}),
     ...(payload.applicationKnowledge ? { applicationKnowledge: payload.applicationKnowledge } : {}),
     ...(payload.resolvedApplications ? { resolvedApplications: payload.resolvedApplications } : {}),
     ...('productIdentityProjection' in payload && payload.productIdentityProjection
@@ -357,6 +365,7 @@ export function parseAppPolicyUpdate(value: unknown): AppPolicyUpdate {
   }).sort((left, right) => `${left.platform}\n${left.runtimeIdentity}`.localeCompare(`${right.platform}\n${right.runtimeIdentity}`));
   return {
     classifications: normalizedClassifications,
+    ...(value.nativeApplications!==undefined?{nativeApplications:parseNativeApplicationConfigurations(value.nativeApplications)}:{}),
     quotas: {
       dailyCategoryMinutes,
       weeklyRestrictedEntertainmentMinutes: quota(value.quotas.weeklyRestrictedEntertainmentMinutes, 'quotas.weeklyRestrictedEntertainmentMinutes'),
@@ -393,12 +402,30 @@ export async function putAppPolicy(
   if (expectedEtag !== appPolicyEtag(current.version)) {
     throw new HttpError(412, 'APP_POLICY_CONFLICT', 'App policy has changed. Reload before saving.');
   }
+  if(update.nativeApplications!==undefined&&update.nativeApplications.length){
+    const targets=await database.prepare(`SELECT DISTINCT n.machine_id,n.native_id FROM runtime_native_application_objects_v1 n
+      JOIN runtime_machines_v2 m ON m.id=n.machine_id WHERE m.account_id=?1 AND n.child_id=?2 AND m.revoked_at_ms IS NULL
+      AND EXISTS(SELECT 1 FROM json_each(?3) r WHERE json_extract(r.value,'$.machineId')=n.machine_id
+      AND json_extract(r.value,'$.nativeId')=n.native_id) LIMIT 5001`)
+      .bind(accountId,childId,JSON.stringify(update.nativeApplications.map(entry=>entry.target))).all<{machine_id:string;native_id:string}>();
+    const known=new Set(targets.results.map(target=>JSON.stringify([target.machine_id,target.native_id])));
+    if(update.nativeApplications.some(entry=>!known.has(JSON.stringify([entry.target.machineId,entry.target.nativeId]))))
+      throw new HttpError(403,'NATIVE_APPLICATION_TARGET_NOT_FOUND','应用不属于当前孩子。');
+  }
   if (quotaCategories.some((category) => update.quotas.dailyCategoryMinutes[category] !== current.quotas.dailyCategoryMinutes[category])
     || update.quotas.weeklyRestrictedEntertainmentMinutes !== current.quotas.weeklyRestrictedEntertainmentMinutes
     || (update.timeWindows !== undefined && JSON.stringify(update.timeWindows) !== JSON.stringify(current.timeWindows))) {
     throw new HttpError(409, 'SHARED_ACCESS_CONFIG_OWNED_BY_GUARDIAN',
       '公共时间配额和时间段由主控制台统一管理，请从访问管理修改。');
   }
+  const nativeOnly=update.nativeApplications!==undefined
+    &&Object.keys(update).every(key=>['nativeApplications','classifications','quotas','timeWindows'].includes(key))
+    &&canonicalUsageAccountJson(update.classifications)===canonicalUsageAccountJson(current.classifications)
+    &&canonicalUsageAccountJson(update.quotas)===canonicalUsageAccountJson(current.quotas)
+    &&(update.timeWindows===undefined||canonicalUsageAccountJson(update.timeWindows)===canonicalUsageAccountJson(current.timeWindows));
+  let completeUpdate:Omit<AppPolicyDocument,'version'|'effectiveAtMs'>;
+  if(nativeOnly)completeUpdate=normalizeStoredPolicy({...current,nativeApplications:update.nativeApplications});
+  else {
   const inventory = await listApplicationInventory(database, accountId);
   const knowledge = effectiveApplicationKnowledge(current.applicationKnowledge ?? {
     schemaVersion: 2, version: 0, products: [], rules: [], bindings: [],
@@ -413,13 +440,15 @@ export async function putAppPolicy(
     }
   const resolvedApplications = resolvePolicyApplications(knowledge, childId,
     observed, update.classifications, current.resolvedApplications);
-  const completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
+  completeUpdate = normalizeStoredPolicy({ ...update, timeWindows: update.timeWindows ?? current.timeWindows,
+    ...(update.nativeApplications===undefined&&current.nativeApplications!==undefined?{nativeApplications:current.nativeApplications}:{}),
     ...(current.programInstanceExecutionPolicy ? {programInstanceExecutionPolicy:current.programInstanceExecutionPolicy} : {}),
     applicationKnowledge: knowledge, resolvedApplications });
   completeUpdate.productIdentityProjection = await includeHistoricalStandaloneIdentities(database,accountId,childId,
     await buildProductIdentityProjection(observed, knowledge, update.classifications),nowMs,knowledge);
   completeUpdate.productBlockPolicy = buildProductBlockPolicy(knowledge, childId, completeUpdate.productIdentityProjection.version);
   completeUpdate.weekReclassification = buildWeekReclassification(completeUpdate, nowMs, current);
+  }
   const version = current.version + 1;
   const payloadJson = JSON.stringify(completeUpdate);
   const statements: D1PreparedStatement[] = [database.prepare(`

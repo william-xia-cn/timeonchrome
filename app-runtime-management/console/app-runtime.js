@@ -337,6 +337,27 @@
   }
   function renderAppDirectory() {
     state.actionApps = [];
+    if(state.nativeDirectory?.length&&!state.managementError){
+      if(!state.nativeCategoryInitialized){state.appCategory='following';state.nativeCategoryInitialized=true;}
+      const choices=[['following','沿用原配置'],['study','学习应用'],['composite','复合应用'],['restrictedEntertainment','受限娱乐应用'],['other','其他时间应用'],['blocked','黑名单应用'],['unclassified','未归类应用'],['special','特殊应用']];
+      if(!choices.some(([key])=>key===state.appCategory))state.appCategory='following';
+      const classification=item=>{const c=state.policy.nativeApplications?.find(c=>c.target.machineId===item.target.machineId&&c.target.nativeId===item.target.nativeId);return c?.specialApplication?'special':c?.classification||'following';};
+      $('#app-category-nav').innerHTML=choices.map(([key,label])=>`<button class="app-category-item ${state.appCategory===key?'active':''}" data-app-category="${key}"><strong>${label}</strong><span>${state.nativeDirectory.filter(item=>classification(item)===key).length}</span></button>`).join('');
+      const search=($('#app-search').value||'').trim().toLowerCase(),platform=$('#management-platform').value;
+      state.nativeVisible=state.nativeDirectory.filter(item=>classification(item)===state.appCategory&&(!platform||item.platform===platform)&&(!search||item.presentations.some(p=>p.name.toLowerCase().includes(search))||item.target.nativeId.toLowerCase().includes(search)));
+      $('#app-directory-title').textContent=choices.find(([key])=>key===state.appCategory)?.[1]||'应用管理';
+      $('#app-directory-subtitle').textContent='本机应用身份就是管理对象；与应用统计采用相同身份，不等待旧产品目录确认。';
+      $('#inventory-status').textContent='扫描与运行发现统一登记。分类保存不代表终端已执行；原有产品与Firefox配置保持。';
+      $('#directory-scope').disabled=true;$('#directory-scope').title='当前对象目录不推断已安装未使用；统计请查看应用使用。';
+      $('#managed-app-list').innerHTML=AppRuntimeKnowledge.nativeApplicationsHTML(state.nativeVisible,state.policy.nativeApplications||[]);
+      $('#game-app-list').textContent='应用类型未由本机声明，不按名称猜分组。';
+      $('#ordinary-app-count').textContent=`${state.nativeVisible.length} 个`;
+      $('#game-app-count').textContent='未区分';$('#system-tool-count').textContent='未区分';
+      $('#system-tool-list').textContent='系统执行保护仍由终端核验，不以信息来源判断管理资格。';
+      $('#processed-count').textContent='兼容历史';$('#processed-records').textContent='旧产品配置保留，不按名称迁移到本机身份。';
+      $('#open-products').disabled=false;$('#open-rules').disabled=false;
+      return;
+    }
     $('#directory-scope').disabled=Boolean(state.identityCatalog&&!state.identityDirectory)||Boolean(state.managementError);
     $('#directory-scope').title=state.identityCatalog&&!state.identityDirectory?'安装／使用范围暂不可读，仍可查看全部目录':'';
     if(state.identityCatalog&&!state.managementError){
@@ -517,9 +538,28 @@
     }catch(error){if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;}
   }
   async function loadManagementState() {
-    const childId = encodeURIComponent(state.childId);
+    const selectedChild=state.childId,childId = encodeURIComponent(selectedChild);
+    state.nativeDirectory=null;
+    // 新目录独立读取，不被旧catalog/分类处理记录阻断。
+    const nativePolicyRead=runtime(`/v2/module/app-policy?childId=${childId}`).then(value=>({value}),error=>({error}));
+    let nativePage=null;
+    try{nativePage=await runtime(`/v2/module/applications?childId=${childId}`);}catch(error){if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;}
+    const policyResult=await nativePolicyRead,nativePolicy=policyResult.value;
+    if(selectedChild!==state.childId)throw Object.assign(new Error('孩子已切换'),{code:'COMPONENT_CONTEXT_CHANGED'});
+    if(nativePage?.state==='available'&&nativePage.items?.length){
+      if(policyResult.error)throw policyResult.error;
+      const items=[...nativePage.items];let next=nativePage.nextOffset;
+      while(next!==null){
+        const page=await runtime(`/v2/module/applications?childId=${childId}&offset=${next}`);
+        if(page.childId!==state.childId||page.policyVersion!==nativePage.policyVersion||page.state!=='available'||items.length>=5000)throw new Error('APPLICATION_DIRECTORY_CHANGED');
+        items.push(...page.items);next=page.nextOffset;
+      }
+      if(nativePage.childId!==state.childId||nativePage.policyVersion!==nativePolicy.version)throw new Error('APPLICATION_DIRECTORY_CHANGED');
+      state.nativeDirectory=[...new Map(items.map(item=>[JSON.stringify([item.target.machineId,item.target.nativeId]),item])).values()];state.policy=AppRuntimePolicy.normalize(nativePolicy);state.policyEtag=`"app-policy-v${state.policy.version}"`;
+      state.managementError=null;state.managementLoaded=true;return;
+    }
     state.identityCatalog=null;state.identityDirectory=null;
-    const policyPromise = runtime(`/v2/module/app-policy?childId=${childId}`);
+    const policyPromise = policyResult.error?Promise.reject(policyResult.error):Promise.resolve(nativePolicy);
     const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`);
     const sharedAccessPromise = runtime(`/v2/module/shared-access-policy?childId=${childId}`).then((result) => {
       state.sharedAccess = result.policy || null;
@@ -796,6 +836,18 @@
     if (button.dataset.usageApp) openUsageDetail('app', button.dataset.usageApp);
     if (button.dataset.usageCategory) openUsageDetail('category', button.dataset.usageCategory);
     if (button.dataset.appCategory) { state.appCategory = button.dataset.appCategory; renderAppDirectory(); }
+    if(button.dataset.nativeSave!==undefined){
+      const index=Number(button.dataset.nativeSave),item=state.nativeVisible?.[index];if(!item)throw new Error('APPLICATION_DIRECTORY_CHANGED');
+      if(!$(`[data-native-class="${index}"]`).value)throw new Error('请选择应用分类；尚未单独配置的对象仍保留原配置');
+      const input=$(`[data-native-quota="${index}"]`),minutes=input.value===''?null:Number(input.value);
+      if(minutes!==null&&(!Number.isSafeInteger(minutes)||minutes<0||minutes>1440))throw new Error('单应用日限必须为0至1440整数分钟');
+      const next={target:{...item.target},classification:$(`[data-native-class="${index}"]`).value,
+        specialApplication:$(`[data-native-special="${index}"]`).checked,dailyQuotaMinutes:minutes};
+      const entries=(state.policy.nativeApplications||[]).filter(c=>c.target.machineId!==item.target.machineId||c.target.nativeId!==item.target.nativeId);
+      const body={classifications:state.policy.classifications,quotas:state.policy.quotas,timeWindows:state.policy.timeWindows,nativeApplications:[...entries,next]};
+      await runtime(`/v2/module/app-policy?childId=${encodeURIComponent(state.childId)}`,{method:'PUT',headers:{'If-Match':state.policyEtag},body:JSON.stringify(body)});
+      await load();showSuccess('应用配置已保存；新身份黑名单／日限暂未接入限制执行。');return;
+    }
     if (button.dataset.classifyIndex != null && button.dataset.classification) { const app = state.actionApps[Number(button.dataset.classifyIndex)]; if (app) { if(app.manageability!=='actionable')throw new Error('技术进程记录不能直接归类，请先确认产品身份');if(app.productId) await knowledgeManager.classify(app.productId,button.dataset.classification); else {const implementations=app.runtimeImplementations?.length?app.runtimeImplementations:[app];let next=state.policy;for(const implementation of implementations){if(!implementation.runtimeIdentity)throw new Error('此应用缺少可靠身份，请先在确定性应用列表确认');next=AppRuntimePolicy.classify(next,{...app,...implementation},button.dataset.classification);}await savePolicy(next);} showSuccess(`${app.displayName || '应用'} 分类已保存，等待设备实际应用`); } }
     if (button.dataset.manageVariants !== undefined) await knowledgeManager.open('product');
     if (button.dataset.editIdentityProduct !== undefined) await knowledgeManager.open('identity');

@@ -1,6 +1,6 @@
 {
   "name": "@timeonchrome/app-runtime-contracts",
-  "version": "1.48.0",
+  "version": "1.49.0",
   "private": false,
   "type": "module",
   "exports": {
@@ -80,6 +80,7 @@
     "dist"
   ],
   "scripts": {
+    "test:native-application-management": "node native-application-management.test.mjs",
     "test:native-application-identification": "node native-application-identification.test.mjs",
     "test:source-statistics": "node source-statistics.test.mjs",
     "test:application-usage-seconds": "node application-usage-seconds.test.mjs",

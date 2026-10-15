@@ -14,7 +14,8 @@ import {readRecentProgramInstanceUsage} from './programInstanceStatistics';
 import {getAppPolicy} from './appPolicy';
 import {buildProgramInstanceExecutionPolicy} from './productBlockPolicy';
 import {sha256Hex} from './crypto';
-import {readNativeApplicationIdentifications} from './nativeApplicationIdentifications';
+import {readNativeApplicationIdentifications, type NativeIdentificationRead} from './nativeApplicationIdentifications';
+import {buildNativeApplicationManagementObjects} from '@timeonchrome/app-runtime-contracts/native-application-identification';
 
 const fail = (status: number, code: string): never => { throw new HttpError(status, code, code); };
 
@@ -63,7 +64,7 @@ export async function listChildProgramInstances(db:D1Database,accountId:string,c
     rows.slice(0,50).map(row=>({machineId:row.machine_id,instanceId:row.instance_id})));
   const nativeNames=await readNativeApplicationIdentifications(db,accountId,childId,
     rows.slice(0,50).map(row=>({machineId:row.machine_id,instanceId:row.instance_id})))
-    .catch(()=>new Map()); // 命名不可读不阻挡原实例、安装或管理键。
+    .catch(()=>new Map<string,NativeIdentificationRead>()); // 登记不可读不阻挡原实例、安装或旧兼容键。
   const items=rows.slice(0,50).map(row=>{
     const current=catalog&&row.rule_set_version===catalog.version&&row.mapped_evidence_revision===row.evidence_revision;
     const product=current&&row.product_id?catalog.products.find(product=>product.id===row.product_id):undefined;
@@ -73,19 +74,21 @@ export async function listChildProgramInstances(db:D1Database,accountId:string,c
       updatedAtMs:row.updated_at_ms,status,product:status==='confirmed'?{id:product!.id,name:product!.name}:null,
       installation:installations.get(row.instance_id)!,nativeIdentification:nativeNames.get(`${row.machine_id}:${row.instance_id}`)??{state:'unavailable',sources:[]}};
   });
-  return {schemaVersion:1,childId,catalogVersion:catalog?.version??null,items,
+  const applicationObjects=buildNativeApplicationManagementObjects(items.flatMap(item=>
+    item.nativeIdentification.sources.map(source=>({machineId:item.machineId,identifications:source.identifications}))));
+  return {schemaVersion:1,childId,catalogVersion:catalog?.version??null,items,applicationObjects,
     nextAfterInstanceId:rows.length>50?items[items.length-1].instanceId:null};
 }
 
-/** 产品主目录范围在云端组装；不在浏览器重新识别或遍历全部实例。 */
+/** 本机应用对象直接组装；旧产品事实仅兼容保留，不作为对象登记前提。 */
 export async function readChildProgramDirectory(db:D1Database,accountId:string,childId:string,nowMs:number) {
   const result=await readProgramInstanceCatalog(db,accountId);
-  if(result.state!=='available'||!result.catalog)return fail(409,'PROGRAM_INSTANCE_CATALOG_NOT_AVAILABLE');
+  const catalogVersion=result.state==='available'?result.version:null;
   const instances:Awaited<ReturnType<typeof listChildProgramInstances>>['items']=[];
   let cursor:string|null=null;
   do {
     const page=await listChildProgramInstances(db,accountId,childId,cursor);
-    if(page.catalogVersion!==result.version)return fail(409,'PROGRAM_DIRECTORY_VERSION_CHANGED');
+    if(page.catalogVersion!==catalogVersion)return fail(409,'PROGRAM_DIRECTORY_VERSION_CHANGED');
     instances.push(...page.items);cursor=page.nextAfterInstanceId;
     if(cursor&&instances.length>=1000)return fail(503,'PROGRAM_DIRECTORY_INSTANCE_LIMIT');
   }while(cursor);
@@ -109,12 +112,14 @@ export async function readChildProgramDirectory(db:D1Database,accountId:string,c
   }
   const latest=await db.prepare('SELECT MAX(version) AS version FROM runtime_application_knowledge_versions_v1 WHERE account_id=?')
     .bind(accountId).first<{version:number|null}>();
-  if(latest?.version!==result.version)return fail(409,'PROGRAM_DIRECTORY_VERSION_CHANGED');
-  return {schemaVersion:1,childId,catalogVersion:result.version,
+  if((latest?.version??0)!==result.version)return fail(409,'PROGRAM_DIRECTORY_VERSION_CHANGED');
+  return {schemaVersion:1,childId,catalogVersion,
     installationState:instances.some(item=>item.installation.state!=='available')?'partial':'available',
     usage:{state:usage.state,fromDate:usage.fromDate,toDate:usage.toDate,
       reasonCode:'reasonCode' in usage?usage.reasonCode:null},
-    facts:[...facts.values()],unidentifiedInstanceCount:instances.filter(item=>item.status!=='confirmed').length};
+    facts:[...facts.values()],unidentifiedInstanceCount:instances.filter(item=>item.status!=='confirmed').length,
+    applicationObjects:buildNativeApplicationManagementObjects(instances.flatMap(item=>
+      item.nativeIdentification.sources.map(source=>({machineId:item.machineId,identifications:source.identifications}))))};
 }
 
 /** 有界只读预览；复用正式匹配器，但不把预览结果保存到第三层。 */

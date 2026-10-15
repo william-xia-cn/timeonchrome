@@ -159,6 +159,7 @@ export interface AppPolicyClassification {
 }
 
 export interface AppPolicyDocument {
+  nativeApplications?: import('@timeonchrome/app-runtime-contracts/native-application-identification').NativeApplicationConfiguration[];
   repairWeekStart?: '2026-09-21';
   productIdentityProjection?: import('@timeonchrome/app-runtime-contracts/classification').ProductIdentityProjection;
   productBlockPolicy?: import('@timeonchrome/app-runtime-contracts/classification').ProductBlockPolicyV1;

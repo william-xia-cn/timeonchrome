@@ -201,7 +201,7 @@ function buildSchemaDefaults(): object {
       },
     },
     restConfig:         { reminderInterval: 15, maxRestDuration: 60, firstReminderMinutes: 120, repeatReminderMinutes: 60, weeklyFirstReminderMinutes: 840 },
-    autonomyConfig:     { restrictedEntryConfirmationRequired: true, softReminderTimeoutAction: 'end_rest' },
+    autonomyConfig:     { restrictedEntryConfirmationRequired: true, softReminderTimeoutAction: 'end_rest', timeWindowAdvisoryEnabled: false, scheduleReminderIntervalMinutes: 30 },
     downtimeConfig:     defaultDowntimeConfig(),
     autoStudyConfig:    { enabled: true, requiredSeconds: 60 },
     clientLoggingPolicyV1: {
@@ -438,6 +438,13 @@ function validateAutonomyConfig(config: Record<string, unknown>): string | null 
   const autonomyConfig = config.autonomyConfig as any;
   if (autonomyConfig === undefined) return null;
   if (!autonomyConfig || typeof autonomyConfig !== 'object' || Array.isArray(autonomyConfig)) return 'autonomyConfig 必须是对象';
+  if (Object.prototype.hasOwnProperty.call(autonomyConfig, 'timeWindowAdvisoryEnabled') && typeof autonomyConfig.timeWindowAdvisoryEnabled !== 'boolean') {
+    return 'autonomyConfig.timeWindowAdvisoryEnabled 必须是布尔值';
+  }
+  if (Object.prototype.hasOwnProperty.call(autonomyConfig, 'scheduleReminderIntervalMinutes') &&
+      (!Number.isInteger(autonomyConfig.scheduleReminderIntervalMinutes) || autonomyConfig.scheduleReminderIntervalMinutes < 1 || autonomyConfig.scheduleReminderIntervalMinutes > 1440)) {
+    return 'autonomyConfig.scheduleReminderIntervalMinutes 必须是 1-1440 的整数分钟';
+  }
   if (Object.prototype.hasOwnProperty.call(autonomyConfig, 'restrictedEntryConfirmationRequired') &&
       typeof autonomyConfig.restrictedEntryConfirmationRequired !== 'boolean') {
     return 'autonomyConfig.restrictedEntryConfirmationRequired 必须是布尔值';
@@ -445,6 +452,41 @@ function validateAutonomyConfig(config: Record<string, unknown>): string | null 
   if (Object.prototype.hasOwnProperty.call(autonomyConfig, 'softReminderTimeoutAction') &&
       !['end_rest', 'continue'].includes(autonomyConfig.softReminderTimeoutAction)) {
     return 'autonomyConfig.softReminderTimeoutAction 必须是 end_rest 或 continue';
+  }
+  return null;
+}
+
+function validateForcedUsePolicy(config: Record<string, unknown>): string | null {
+  const policy = config.forcedUsePolicyV1 as any;
+  if (policy === undefined) return null;
+  if (!policy || typeof policy !== 'object' || Array.isArray(policy)
+    || policy.schemaVersion !== 1 || typeof policy.enabled !== 'boolean') {
+    return 'forcedUsePolicyV1 需要 schemaVersion=1 和 enabled 布尔值';
+  }
+  const keys = ['schemaVersion', 'enabled', 'reminderIntervalMinutes',
+    'quotaOverrunMinutes', 'advisoryWindowDailyMaxMinutes'];
+  if (Object.keys(policy).length !== keys.length || keys.some(key => !Object.hasOwn(policy, key))) {
+    return 'forcedUsePolicyV1 字段不完整或包含未知字段';
+  }
+  if (!Number.isInteger(policy.reminderIntervalMinutes)
+    || policy.reminderIntervalMinutes < 1 || policy.reminderIntervalMinutes > 1440) {
+    return 'reminderIntervalMinutes 必须是 1-1440 的整数分钟';
+  }
+  const overrun = policy.quotaOverrunMinutes;
+  const quotaKeys = ['dailyStudy', 'dailyComposite', 'dailyRest', 'dailyOnline', 'weeklyRest', 'domain'];
+  if (!overrun || typeof overrun !== 'object' || Array.isArray(overrun)
+    || Object.keys(overrun).length !== quotaKeys.length || quotaKeys.some(key => !Object.hasOwn(overrun, key))) {
+    return 'quotaOverrunMinutes 必须为六类配额提供完整配置';
+  }
+  for (const key of quotaKeys) {
+    const value = overrun[key];
+    if (value !== null && (!Number.isInteger(value) || value < 0 || value > 10080)) {
+      return `quotaOverrunMinutes.${key} 必须是 null 或 0-10080 的整数分钟`;
+    }
+  }
+  const dailyMax = policy.advisoryWindowDailyMaxMinutes;
+  if (dailyMax !== null && (!Number.isInteger(dailyMax) || dailyMax < 1 || dailyMax > 1440)) {
+    return 'advisoryWindowDailyMaxMinutes 必须是 null 或 1-1440 的整数分钟';
   }
   return null;
 }
@@ -868,7 +910,7 @@ export const profilesRouter = {
           'dailyUndeterminedQuota', 'weeklyRestQuota',
           'domainQuotas', 'classificationRules', 'siteClassificationRulesV1', 'siteUsageClassificationRulesV1',
           'quotaState', 'schedule',
-          'restConfig', 'autonomyConfig', 'downtimeConfig', 'autoStudyConfig', 'compositeReviewConfig',
+          'restConfig', 'autonomyConfig', 'forcedUsePolicyV1', 'downtimeConfig', 'autoStudyConfig', 'compositeReviewConfig',
           'clientLoggingPolicyV1',
           'timeQuota', 'timeWindows', 'sharedAccessRolloutV1',
         ]);
@@ -928,6 +970,10 @@ export const profilesRouter = {
         const incomingAutonomyConfigValidationError = validateAutonomyConfig(incomingConfig);
         if (incomingAutonomyConfigValidationError) {
           return json({ error: 'Invalid autonomyConfig: ' + incomingAutonomyConfigValidationError }, 400);
+        }
+        const incomingForcedUseValidationError = validateForcedUsePolicy(incomingConfig);
+        if (incomingForcedUseValidationError) {
+          return json({ error: 'Invalid forcedUsePolicyV1: ' + incomingForcedUseValidationError }, 400);
         }
 
         for (const [key, value] of Object.entries(incomingConfig)) {

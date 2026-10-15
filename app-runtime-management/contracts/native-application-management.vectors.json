@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "capability": "native-application-management-v1",
+  "objectUploadPath": "/v2/machines/applications",
+  "item": {
+    "nativeId": "scan-app",
+    "revision": 1,
+    "observedAtMs": 1792022400000,
+    "presentations": [{"name":"Example App","origin":"scan","status":null,"evidence":[]}]
+  },
+  "payloadHash": "e031715af80ae65233a4b1c4a1842b46b0a196b5c01f475ab2fc9230da0608a5",
+  "canonicalItem": "{\"nativeId\":\"scan-app\",\"observedAtMs\":1792022400000,\"presentations\":[{\"evidence\":[],\"name\":\"Example App\",\"origin\":\"scan\",\"status\":null}],\"revision\":1}"
+}

@@ -10,6 +10,8 @@ import type { MachineSelfResponse } from './contracts';
 import { HttpError, jsonResponse, methodNotAllowed, readJsonBody } from './http';
 import { isRecord } from './validation';
 import { receiveApplicationProductProjection } from './applicationProductProjections';
+import {receiveNativeApplicationProjection} from './nativeApplicationProjections';
+import {nativeApplicationObjectStorageReady,NATIVE_APPLICATION_MANAGEMENT_CAPABILITY} from './nativeApplicationObjects';
 import { publishApplicationAccounts } from './applicationAccountPublication';
 import { requireCurrentApplicationManifest, retiredApplicationRevision, readApplicationLedgerRetirement, V3_ONLY_ALGORITHMS } from './applicationLedgerRetirement';
 
@@ -182,13 +184,19 @@ export async function routeApplicationAccounts(request: Request, db: D1Database,
         acceptedAlgorithms:[...algorithms,...(storage.instanceReady?['application-instance-seconds-v1']:[])],
         capabilities:['application-usage-projection-v1','application-statistics-seconds-v2',APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY,
           ...(storage.instanceReady?[APPLICATION_INSTANCE_STATISTICS_CAPABILITY]:[]),
-          ...(storage.productReady?[APPLICATION_PRODUCT_PROJECTION_UPLOAD_CAPABILITY]:[])]});
+          ...(storage.productReady?[APPLICATION_PRODUCT_PROJECTION_UPLOAD_CAPABILITY]:[]),
+          ...(storage.instanceReady&&await nativeApplicationObjectStorageReady(db)?[NATIVE_APPLICATION_MANAGEMENT_CAPABILITY]:[])]});
     }
     if (path === prefix) return request.method === 'POST'
       ? jsonResponse(await beginApplicationAccount(db, machine, await readJsonBody(request, 16384), now)) : methodNotAllowed('POST');
-    const match = path.match(/^\/v2\/machines\/application-accounts\/manifests\/(aa1_[a-f0-9]{64})\/(status|commit|product-projection|chunks\/(\d{1,3}))$/);
+    const match = path.match(/^\/v2\/machines\/application-accounts\/manifests\/(aa1_[a-f0-9]{64})\/(status|commit|product-projection|native-projection|chunks\/(\d{1,3}))$/);
     if (!match) fail(404, 'APPLICATION_ACCOUNT_NOT_FOUND');
     const id = match[1], action = match[2];
+    if(action==='native-projection') {
+      if(request.method!=='PUT')return methodNotAllowed('PUT');
+      if(!await nativeApplicationObjectStorageReady(db))fail(503,'NATIVE_APPLICATION_STORAGE_UNAVAILABLE');
+      return jsonResponse(await receiveNativeApplicationProjection(db,machine,id,await readJsonBody(request,1048576),now));
+    }
     if(action==='product-projection') {
       if(request.method!=='PUT')return methodNotAllowed('PUT');
       if(!(await accountStorageCapabilities(db)).productReady)fail(503,'APPLICATION_PRODUCT_STORAGE_UNAVAILABLE');
