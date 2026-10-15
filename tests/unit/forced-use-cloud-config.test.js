@@ -63,11 +63,12 @@ assert.match(text, /validateForcedUseExecutionConfig\(mergedConfig, incomingConf
 assert.match(text, /FORCED_USE_REQUIRES_V2_ACCOUNTING/);
 
 const pageSource = ts.createSourceFile('page.js', page.split('<script>')[1].split('</script>')[0], ts.ScriptTarget.Latest, true);
-const names = ['validateImportedForcedUsePolicy', 'hasUnifiedForcedUseConfig', 'buildUnifiedForcedUsePatch', 'confirmUnifiedForcedUseSave'];
+const names = ['normalizeOverrunPolicy', 'validateImportedForcedUsePolicy', 'hasUnifiedForcedUseConfig', 'buildUnifiedForcedUsePatch', 'confirmUnifiedForcedUseSave'];
 const functions = pageSource.statements.filter(item => ts.isFunctionDeclaration(item) && names.includes(item.name?.text));
 assert.equal(functions.length, names.length);
 const pageContext = vm.createContext({
   FORCED_USE_LIMIT_FIELDS: Object.keys(valid.quotaOverrunMinutes).map(key => [key, key]),
+  UNLIMITED_OVERRUN_KEYS: ['dailyStudy', 'dailyComposite', 'dailyOnline', 'domain'],
   window: { confirm: () => false },
 });
 vm.runInContext(functions.map(item => item.getText(pageSource)).join('\n'), pageContext);
@@ -78,7 +79,8 @@ const patch = JSON.parse(JSON.stringify(pageContext.buildUnifiedForcedUsePatch(e
 assert.equal(patch.timeQuota.accountingVersion, 2);
 assert.deepEqual(patch.timeQuota.daily, existing.timeQuota.daily);
 assert.deepEqual(patch.timeQuota.weekly, existing.timeQuota.weekly);
-assert.deepEqual(patch.forcedUsePolicyV1, valid);
+assert.deepEqual(patch.forcedUsePolicyV1, { ...valid, quotaOverrunMinutes: {
+  ...valid.quotaOverrunMinutes, dailyStudy: null, dailyComposite: null, dailyOnline: null, domain: null } });
 assert.equal(patch.restConfig, undefined, 'old reminder thresholds are not rewritten');
 assert.equal(patch.domainQuotas, undefined, 'site limits are not rewritten');
 assert.equal(JSON.stringify(existing), before, 'preparing a transition does not mutate saved configuration');

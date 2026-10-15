@@ -46,7 +46,11 @@ try {
   const panel = page.locator('[data-rules-management-panel="autonomy"]');
   assert(!(await panel.innerText()).includes('软限额'));
   assert(!(await panel.innerText()).includes('软配额'));
-  assert.equal(await panel.locator('input[type="number"]').count(), 1);
+  assert.equal(await panel.locator('input[type="number"]').count(), 3);
+  assert.equal(await panel.locator('[data-force-limit]').count(), 2);
+  assert(await page.locator('[aria-label="每日休息超额无限制"]').isChecked());
+  assert(await page.locator('#force-limit-dailyRest').isDisabled());
+  assert.equal(await page.locator('#force-limit-dailyRest').inputValue(), '');
   assert.equal(await page.locator('#a-forced-use-enabled, #a-rest-reminder-enabled, #a-schedule-reminder-interval').count(), 0);
   assert((await page.locator('#autonomy-config-status').innerText()).includes('尚未切换'));
   await page.screenshot({ path: resolve(output, 'unified-autonomy-pending-desktop.png'), fullPage: true });
@@ -83,13 +87,23 @@ try {
     await page.evaluate(() => window.scrollTo(0, 0));
     assert(await panel.evaluate(node => node.scrollWidth <= node.clientWidth));
     await page.screenshot({ path: resolve(output, `unified-autonomy-${name}.png`), fullPage: true });
+    const overrunSection = panel.locator('.autonomy-setting').nth(2);
+    await overrunSection.evaluate(node => node.scrollIntoView({ block: 'start' }));
+    await overrunSection.screenshot({ path: resolve(output, `rest-overrun-${name}.png`) });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.fill('#force-limit-dailyRest', '无限制');
+  await page.locator('[aria-label="每日休息超额无限制"]').uncheck();
+  await page.fill('#force-limit-dailyRest', '75');
+  await page.locator('[aria-label="每日休息超额无限制"]').check();
+  assert.equal(await page.locator('#force-limit-dailyRest').inputValue(), '');
+  await page.locator('[aria-label="每日休息超额无限制"]').uncheck();
+  assert.equal(await page.locator('#force-limit-dailyRest').inputValue(), '75');
+  await page.locator('[aria-label="每日休息超额无限制"]').check();
   await page.locator('label[title="超配额允许确认后继续"]').click();
   assert(await page.locator('#force-limit-dailyRest').isDisabled());
   await page.locator('label[title="超配额允许确认后继续"]').click();
-  assert.equal(await page.locator('#force-limit-dailyRest').inputValue(), '无限制');
+  assert.equal(await page.locator('#force-limit-dailyRest').inputValue(), '');
+  assert(await page.locator('#force-limit-dailyRest').isDisabled());
   await page.click('#save-autonomy-btn');
   const final = await page.evaluate(() => ({ current: remoteConfig, confirms: mockConfirms.length, saves: mockSaved.length }));
   assert.equal(final.saves, 2);
@@ -102,6 +116,28 @@ try {
     return normalizeProfileConfigImportData(exported).autonomyConfig.quotaOverrunConfirmationRequired;
   });
   assert.equal(roundtrip, true, 'new autonomy field survives real export/import');
+  await page.evaluate(() => {
+    mockServerConfig.forcedUsePolicyV1.quotaOverrunMinutes = {
+      dailyStudy: 0, dailyComposite: 30, dailyOnline: 60, domain: 10, dailyRest: 0, weeklyRest: 90 };
+    applyProfileConfigResponse({ data: structuredClone(mockServerConfig), version: mockVersion });
+    renderAutonomyPage(); mockAllowMigration = false;
+  });
+  assert.equal(await page.locator('#force-limit-dailyRest').inputValue(), '0');
+  assert.equal(await page.locator('#force-limit-weeklyRest').inputValue(), '90');
+  const saveCount = await page.evaluate(() => mockSaved.length);
+  await page.click('#save-autonomy-btn');
+  assert.equal(await page.evaluate(() => mockSaved.length), saveCount, 'cancel overrun change must not write');
+  assert((await page.evaluate(() => mockConfirms.at(-1))).includes('单站点'));
+  const normalized = await page.evaluate(() => {
+    const exported = buildProfileConfigExportData([]);
+    const imported = normalizeProfileConfigImportData(exported);
+    return imported.forcedUsePolicyV1.quotaOverrunMinutes;
+  });
+  assert.deepEqual(normalized, { dailyStudy: null, dailyComposite: null, dailyOnline: null, domain: null, dailyRest: 0, weeklyRest: 90 });
+  await page.evaluate(() => { mockAllowMigration = true; });
+  await page.click('#save-autonomy-btn');
+  assert.deepEqual(await page.evaluate(() => remoteConfig.forcedUsePolicyV1.quotaOverrunMinutes), normalized);
+  await page.locator('[aria-label="每日休息超额无限制"]').check();
   await page.locator('label[title="超配额允许确认后继续"]').click();
   await page.click('#save-autonomy-btn');
   assert.equal(await page.evaluate(() => mockServerConfig.autonomyConfig.quotaOverrunConfirmationRequired), false);

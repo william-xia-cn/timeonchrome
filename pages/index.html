@@ -545,9 +545,14 @@
     .autonomy-setting .autonomy-control-row { margin: 0; }
     .autonomy-interval { display: flex; align-items: center; gap: 8px; flex: none; }
     .autonomy-boundary { margin: 18px 0 10px; font-size: 13px; }
-    .force-limit-row { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 140px) 30px; align-items: center; gap: 8px; min-width: 0; }
+    .force-limit-row { display: grid; grid-template-columns: minmax(70px, 1fr) minmax(0, 140px) auto; align-items: center; gap: 8px; min-width: 0; font-size: 14px; }
+    .force-overrun-heading { font-size: 14px; font-weight: 600; margin: 16px 0 6px; }
+    .autonomy-setting .force-overrun-help { font-size: 12px; font-weight: 400; line-height: 1.6; color: var(--muted); margin: 0 0 14px; }
+    .force-limit-row .force-unlimited { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 14px; font-weight: 400; }
+    .force-limit-row .force-unlimited input { width: 16px; height: 16px; padding: 0; }
+    .force-limit-row > label { font-size: 14px; }
     .force-limit-row select, #forced-use-advisory-mode { min-height: 38px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text); }
-    .force-limit-row input { width: 100%; min-width: 0; height: 38px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: white; color: var(--text); font-size: 13px; }
+    .force-limit-row input { width: 100%; min-width: 0; height: 38px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: white; color: var(--text); font-size: 14px; }
     .force-limit-row input:disabled { opacity: .55; background: transparent; }
     .force-limit-row span { font-size: 12px; color: var(--muted); }
     .forced-hidden { display: none !important; }
@@ -978,7 +983,7 @@
       .autonomy-setting .autonomy-interval { flex-wrap: wrap; justify-content: flex-end; max-width: 112px; }
       .autonomy-setting .autonomy-minute-input { width: 76px; }
       .forced-use-overrun-fields { grid-template-columns: 1fr; }
-      .force-limit-row { grid-template-columns: minmax(0, 1fr) 130px 30px; }
+      .force-limit-row { grid-template-columns: minmax(70px, 1fr) minmax(0, 110px) auto; }
       .autonomy-segmented { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .notification-channel-row, .notification-channel-fields { grid-template-columns: 1fr; }
       .notification-channel-fields .btn-add { width: 100%; min-height: 44px; }
@@ -1377,7 +1382,7 @@
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/current-site.svg" alt="">单站点配额</div><div class="card-subtitle">为特定网站设置当日标准配额；最大允许超额在“自主度配置”设置</div></div></div>
+          <div class="card-header"><div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/current-site.svg" alt="">单站点配额</div><div class="card-subtitle">为特定网站设置当日标准配额；达到后按“自主度配置”决定是否允许确认继续</div></div></div>
           <div class="domain-input-row">
             <input type="text" id="q-domain-input" placeholder="域名，如 bilibili.com">
             <input type="number" id="q-minutes-input" placeholder="分钟" style="width:90px;flex:none;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-size:13px;outline:none;">
@@ -1400,12 +1405,12 @@
             <label class="toggle" title="限制时段允许确认后进入"><input type="checkbox" id="a-time-window-advisory" aria-label="限制时段允许确认后进入"><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
           </div></section>
           <section class="autonomy-setting"><div class="autonomy-control-row">
-            <div class="autonomy-control-copy"><h3>超出时间配额使用</h3><label for="a-quota-overrun-confirmation">允许确认后继续</label><p>关闭则达到标准配额立即阻断；开启后可确认继续，直至达到最大允许超额。</p></div>
+            <div class="autonomy-control-copy"><h3>超出时间配额使用</h3><label for="a-quota-overrun-confirmation">允许确认后继续</label><p>关闭则达到标准配额立即阻断。开启后可确认继续；休息按下列上限执行，其余配额允许无限超额，仍需确认与提醒。</p></div>
             <label class="toggle" title="超配额允许确认后继续"><input type="checkbox" id="a-quota-overrun-confirmation" aria-label="超配额允许确认后继续"><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
           </div>
-            <div class="autonomy-control-note">最大允许超额：0分钟表示到线阻断；无限制表示持续提醒、不因超额累计阻断。只针对时间配额。</div>
+            <h4 class="force-overrun-heading">最大允许超额</h4>
+            <p class="force-overrun-help">0分钟：达到标准配额即阻断。无限制：仍需提醒确认，不因累计超额阻断。</p>
             <div id="forced-use-overrun-fields" class="forced-use-overrun-fields"></div>
-            <datalist id="force-overrun-options"><option value="无限制"></option><option value="0"></option><option value="30"></option><option value="60"></option><option value="120"></option></datalist>
           </section>
           <section class="autonomy-setting"><div class="autonomy-control-row">
             <div class="autonomy-control-copy"><h3>强行使用提醒</h3><label for="a-forced-use-interval">再次提醒间隔</label><p>时间段与超配额共用，按实际新增强行使用时长提醒；同时触发只确认一次。</p></div>
@@ -4431,7 +4436,7 @@ function buildProfileConfigExportData(classificationRequests = [], notificationS
     },
     downtime: window.TimeOnChromeDowntime.normalize(cfg.downtimeConfig),
     quota: {
-      ...(cfg.forcedUsePolicyV1 ? { forcedUsePolicyV1: cfg.forcedUsePolicyV1 } : {}),
+      ...(cfg.forcedUsePolicyV1 ? { forcedUsePolicyV1: normalizeOverrunPolicy(cfg.forcedUsePolicyV1) } : {}),
       timeQuota: {
         accountingVersion: Number(cfg.timeQuota?.accountingVersion) === 2 ? 2 : 1,
         daily: cfg.timeQuota?.daily || {},
@@ -4715,6 +4720,7 @@ async function applyAccessManagementConfigImport() {
       const configDiffs = userDiffs.filter(diff => diff.area !== 'unclassified-notification');
       if (configDiffs.length > 0) {
         const payload = AccessConfigDomains.buildPatch(context.domain,buildProfileConfigImportPayload(configDiffs),remoteConfig,configDiffs);
+        if (payload.forcedUsePolicyV1 && !confirmUnifiedForcedUseSave(remoteConfig)) return;
         const saved=await saveProfileConfig(payload, 'access_config_import');
         context.version=Number(saved.version);assertAccessConfigContext(context);
         const refreshed = await api('/profiles/' + context.childId + '/config');
@@ -5365,6 +5371,7 @@ async function applySelectedConfigImportDiffs() {
     const configDiffs = selectedDiffs.filter(diff => diff.area !== 'unclassified-notification');
     if (configDiffs.length > 0) {
       const payload = buildProfileConfigImportPayload(configDiffs);
+      if (payload.forcedUsePolicyV1 && !confirmUnifiedForcedUseSave(remoteConfig)) return;
       await saveProfileConfig(payload, 'profile_config_import');
       const refreshed = await api('/profiles/' + currentProfileId + '/config');
       applyProfileConfigResponse(refreshed);
@@ -5793,8 +5800,15 @@ function validRestReminderMinutes(value) {
 
 const FORCED_USE_LIMIT_FIELDS = [
   ['dailyStudy', '每日学习'], ['dailyComposite', '每日复合'], ['dailyRest', '每日休息'],
-  ['dailyOnline', '每日在线'], ['weeklyRest', '本周休息'], ['domain', '单站点'],
+  ['dailyOnline', '每日在线'], ['weeklyRest', '每周休息'], ['domain', '单站点'],
 ];
+const REST_OVERRUN_FIELDS = [['dailyRest', '每日休息'], ['weeklyRest', '每周休息']];
+const UNLIMITED_OVERRUN_KEYS = ['dailyStudy', 'dailyComposite', 'dailyOnline', 'domain'];
+
+function normalizeOverrunPolicy(policy) {
+  return { ...policy, quotaOverrunMinutes: { ...policy.quotaOverrunMinutes,
+    ...Object.fromEntries(UNLIMITED_OVERRUN_KEYS.map(key => [key, null])) } };
+}
 
 function validateImportedForcedUsePolicy(raw) {
   const keys = ['schemaVersion', 'enabled', 'reminderIntervalMinutes',
@@ -5818,12 +5832,12 @@ function validateImportedForcedUsePolicy(raw) {
   if (dailyMax !== null && (!Number.isInteger(dailyMax) || dailyMax < 1 || dailyMax > 1440)) {
     throw new Error('建议时段当日上限配置无效');
   }
-  return JSON.parse(JSON.stringify(raw));
+  return normalizeOverrunPolicy(JSON.parse(JSON.stringify(raw)));
 }
 
 function forcedUsePolicyView(config = {}) {
   const raw = config?.forcedUsePolicyV1 || {};
-  const defaults = Object.fromEntries(FORCED_USE_LIMIT_FIELDS.map(([key]) => [key, 0]));
+  const defaults = Object.fromEntries(FORCED_USE_LIMIT_FIELDS.map(([key]) => [key, null]));
   return {
     schemaVersion: 1,
     enabled: raw.enabled === true,
@@ -5845,27 +5859,31 @@ function buildUnifiedForcedUsePatch(config, policy) {
 }
 
 function confirmUnifiedForcedUseSave(config) {
-  return hasUnifiedForcedUseConfig(config) || window.confirm(
-    '将切换为统一强行使用规则，并使用V2本地合并账计算配额。现有标准配额和最终限制保持不变，旧的独立休息提醒停止使用，历史账不改写。支持此配置的非共享终端同步后生效。确认保存吗？');
+  const changes = [];
+  if (!hasUnifiedForcedUseConfig(config)) changes.push('将切换为统一强行使用规则，并使用V2本地合并账计算配额，旧的独立休息提醒停止使用。');
+  if (!hasUnifiedForcedUseConfig(config) || UNLIMITED_OVERRUN_KEYS.some(key => config?.forcedUsePolicyV1?.quotaOverrunMinutes?.[key] != null)) {
+    changes.push('学习、复合、在线和单站点将改为无限超额；允许确认后继续开启时，仍需确认和提醒，但不再因累计超额阻断。');
+  }
+  return !changes.length || window.confirm(changes.join('\n') + '\n标准配额及历史账保持不变。确认保存吗？');
 }
 
 function renderForcedUseLimits() {
   const view = forcedUsePolicyView(remoteConfig || {});
-  document.getElementById('forced-use-overrun-fields').innerHTML = FORCED_USE_LIMIT_FIELDS.map(([key, label]) => {
+  document.getElementById('forced-use-overrun-fields').innerHTML = REST_OVERRUN_FIELDS.map(([key, label]) => {
     const value = view.quotaOverrunMinutes[key];
     return `<div class="force-limit-row" data-force-limit="${key}"><label for="force-limit-${key}">${label}</label>`
-      + `<input type="text" id="force-limit-${key}" data-force-minutes list="force-overrun-options" inputmode="numeric" autocomplete="off" aria-label="${label}最大允许超额" value="${value === null ? '无限制' : value}"><span>${value === null ? '' : '分钟'}</span></div>`;
+      + `<input type="number" min="0" max="10080" step="1" id="force-limit-${key}" data-force-minutes placeholder="分钟" aria-label="${label}最大允许超额（分钟）" value="${value === null ? '' : value}" data-finite-value="${value === null ? '' : value}"><label class="force-unlimited"><input type="checkbox" data-force-unlimited aria-label="${label}超额无限制" ${value === null ? 'checked' : ''}>无限制</label></div>`;
   }).join('');
   updateAutonomyInputs();
 }
 
 function readForcedUseLimits() {
-  const quotaOverrunMinutes = {};
-  for (const [key] of FORCED_USE_LIMIT_FIELDS) {
+  const quotaOverrunMinutes = Object.fromEntries(UNLIMITED_OVERRUN_KEYS.map(key => [key, null]));
+  for (const [key] of REST_OVERRUN_FIELDS) {
     const row = document.querySelector(`[data-force-limit="${key}"]`);
     const value = row?.querySelector('[data-force-minutes]')?.value.trim();
     const minutes = Number(value);
-    if (value === '无限制') quotaOverrunMinutes[key] = null;
+    if (row.querySelector('[data-force-unlimited]').checked) quotaOverrunMinutes[key] = null;
     else if (/^\d+$/.test(value || '') && Number.isInteger(minutes) && minutes >= 0 && minutes <= 10080) quotaOverrunMinutes[key] = minutes;
     else throw new Error(`${FORCED_USE_LIMIT_FIELDS.find(([field]) => field === key)[1]}最大允许超额须为 0-10080 的整数分钟或无限制`);
   }
@@ -5894,7 +5912,11 @@ function updateAutonomyInputs() {
     : '当前尚未切换统一规则。保存时会确认切换内容；现有限额和历史账保持不变。';
   document.getElementById('save-autonomy-btn').textContent = active ? '保存自主度配置' : '切换并保存自主度配置';
   const enabled = document.getElementById('a-quota-overrun-confirmation').checked;
-  document.querySelectorAll('[data-force-minutes]').forEach(input => { input.disabled = !enabled; });
+  document.querySelectorAll('[data-force-limit]').forEach(row => {
+    const checkbox = row.querySelector('[data-force-unlimited]');
+    checkbox.disabled = !enabled;
+    row.querySelector('[data-force-minutes]').disabled = !enabled || checkbox.checked;
+  });
 }
 
 function quotaLegacyMinutes(value, fallback) {
@@ -6333,7 +6355,14 @@ async function saveDowntimeConfig() {
 
 function setupAutonomy() {
   document.getElementById('forced-use-overrun-fields').addEventListener('input', event => {
-    if (event.target.matches('[data-force-minutes]')) event.target.nextElementSibling.textContent = event.target.value.trim() === '无限制' ? '' : '分钟';
+    if (event.target.matches('[data-force-minutes]')) event.target.dataset.finiteValue = event.target.value;
+  });
+  document.getElementById('forced-use-overrun-fields').addEventListener('change', event => {
+    if (!event.target.matches('[data-force-unlimited]')) return;
+    const input = event.target.closest('[data-force-limit]').querySelector('[data-force-minutes]');
+    if (event.target.checked) { input.dataset.finiteValue = input.value; input.value = ''; }
+    else input.value = input.dataset.finiteValue || '0';
+    updateAutonomyInputs();
   });
   document.getElementById('a-quota-overrun-confirmation').addEventListener('change', updateAutonomyInputs);
   document.getElementById('a-forced-use-interval').addEventListener('input', updateAutonomyInputs);
