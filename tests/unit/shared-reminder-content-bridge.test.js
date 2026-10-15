@@ -50,7 +50,7 @@ async function run() {
   assert.deepEqual(messages.map(row => row.type), ['SHOW_SHARED_REMINDER', 'ACTIVATE_SHARED_REMINDER']);
   assert.deepEqual(requests[1].payload, { ...identity, delivery: 'visible' });
   const msg = { type: 'SHARED_REMINDER_ACTION', presentationId: messages[0].presentationId,
-    confirmationText: '适合使用', payload: { ...identity, action: 'continue' } };
+    confirmationText: '强行使用', payload: { ...identity, action: 'continue' } };
   const sender = { id: 'extension-id', frameId: 0, tab: { ...tab }, url: tab.url };
   assert.equal((await bridge.handleAction(msg, { ...sender, frameId: 1 })).errorCode, 'shared_reminder_sender_rejected');
   assert.equal((await bridge.handleAction(msg, { ...sender, id: 'other-extension' })).ok, false);

@@ -257,6 +257,11 @@
       subtitle: '未完成使用确认，本次使用已结束。',
       actions: ['closeBlockedTab']
     },
+    forced_use_confirmation_blocked: {
+      icon: 'notice', title: '强行使用确认未完成',
+      subtitle: '本次访问已结束。重新进入网站可再次确认。',
+      actions: ['closeBlockedTab']
+    },
     accounting_unavailable: {
       icon: 'notice', title: '记账数据暂不可用',
       subtitle: '为避免休息时间漏记，受限娱乐网站暂时不可用。学习和复合网站不受影响。',
@@ -397,7 +402,7 @@
     'to_rest_slide_confirm', 'restricted_study_mode',
     'quota_composite_and_rest', 'rest_locked', 'daily_rest_locked', 'weekly_rest_locked', 'quota_locked', 'quota_rest',
     'quota_study', 'quota_undetermined', 'quota_online', 'quota', 'schedule',
-    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked', 'accounting_unavailable', 'downtime', 'rest_confirmation_blocked'
+    'study_schedule_locked', 'composite_schedule_locked', 'rest_schedule_locked', 'accounting_unavailable', 'downtime', 'rest_confirmation_blocked', 'forced_use_confirmation_blocked'
   ]);
 
   var config;

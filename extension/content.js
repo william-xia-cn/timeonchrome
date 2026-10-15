@@ -25,6 +25,7 @@
   let restReminderDialog = null;
   let restReminderCountdownTimer = null;
   let restReminderToken = null;
+  let restReminderActionType = 'REST_USAGE_REMINDER_ACTION';
   let restReminderResolving = false;
   let restReminderResolveAction = null;
   let restReminderPausedMedia = [];
@@ -603,6 +604,15 @@
           reason: err?.message || String(err),
         }));
       return true;
+    } else if (msg.type === 'UPDATE_REST_USAGE_REMINDER') {
+      if (!canRenderTopFrameUi || msg.token !== restReminderToken || !restReminderDialog?.open) {
+        sendResponse?.({ ok: false, handled: true, visible: false });
+        return;
+      }
+      const copy = restReminderCopy(msg);
+      restReminderShadow.getElementById('toc-rest-reminder-title').textContent = copy.title;
+      restReminderShadow.querySelector('.subtitle').innerHTML = copy.subtitle;
+      sendResponse?.({ ok: true, handled: true, visible: true });
     } else if (msg.type === 'ACTIVATE_REST_USAGE_REMINDER') {
       if (!canRenderTopFrameUi) {
         sendResponse?.({ ok: false, handled: true, visible: false, reason: 'not_top_frame' });
@@ -934,6 +944,7 @@
     restReminderShadow = null;
     restReminderDialog = null;
     restReminderToken = null;
+    restReminderActionType = 'REST_USAGE_REMINDER_ACTION';
     restReminderResolving = false;
     restReminderResolveAction = null;
     if (document.documentElement) document.documentElement.style.overflow = restReminderPreviousOverflow;
@@ -1040,9 +1051,9 @@
     const shadow = host.attachShadow({ mode: 'open' });
     shadow.innerHTML = `<style>${restReminderStyles()}</style>
       <dialog aria-labelledby="shared-title"><div class="panel">
-        <h1 id="shared-title"></h1><p class="subtitle">如需继续，请手动输入“适合使用”。</p>
+        <h1 id="shared-title"></h1><p class="subtitle">如需继续，请手动输入“强行使用”。</p>
         <label for="shared-confirmation-text">使用确认</label>
-        <input id="shared-confirmation-text" type="text" autocomplete="off" spellcheck="false" aria-label="手动输入适合使用" disabled style="box-sizing:border-box;width:100%;font:inherit;padding:12px;margin:12px 0;border:1px solid #b9d9d4;border-radius:6px">
+        <input id="shared-confirmation-text" type="text" autocomplete="off" spellcheck="false" aria-label="手动输入强行使用" disabled style="box-sizing:border-box;width:100%;font:inherit;padding:12px;margin:12px 0;border:1px solid #b9d9d4;border-radius:6px">
         <button class="end" id="shared-continue" type="button" disabled>确认继续</button>
         <button class="end" id="shared-end" type="button" disabled>结束休息</button>
         <div class="status" id="shared-status" role="status">正在确认提醒…</div>
@@ -1057,10 +1068,10 @@
     dialog.addEventListener('cancel', event => event.preventDefault());
     const input = shadow.getElementById('shared-confirmation-text');
     const confirm = shadow.getElementById('shared-continue');
-    view.updateConfirm = () => { confirm.disabled = !view.ready || view.resolving || input.value !== '适合使用'; };
+    view.updateConfirm = () => { confirm.disabled = !view.ready || view.resolving || input.value !== '强行使用'; };
     const choose = action => {
       if (sharedReminderView !== view || !view.ready || view.resolving || !sharedReminderIsVisible()) return;
-      if (action === 'continue' && input.value !== '适合使用') return;
+      if (action === 'continue' && input.value !== '强行使用') return;
       view.resolving = true;
       view.updateConfirm();
       const status = shadow.getElementById('shared-status');
@@ -1144,28 +1155,26 @@
     });
   }
 
-  async function showRestUsageReminder(payload) {
-    if (!payload?.token) return { ok: false, handled: true, visible: false, reason: 'missing_token' };
-    if (restReminderToken === payload.token && restReminderDialog?.open) {
-      return { ok: true, handled: true, visible: true, token: payload.token, confirmationVersion: 1 };
+  function restReminderCopy(payload) {
+    if (payload.confirmationKind === 'forced_use') {
+      const names = { dailyStudy: '今日学习配额', dailyComposite: '今日复合配额',
+        dailyRest: '今日休息配额', dailyOnline: '今日网页配额', weeklyRest: '本周休息配额',
+        domain: '单站点配额', timeWindow: '建议使用时段' };
+      const labels = [...new Set((Array.isArray(payload.forcedUseReasons) ? payload.forcedUseReasons : [])
+        .map(reason => names[reason]).filter(Boolean))];
+      return { title: '请确认强行使用',
+        subtitle: labels.length ? `${labels.join('、')}已到提醒条件。继续前请手动确认。`
+          : '当前使用已到提醒条件。继续前请手动确认。' };
     }
-    clearRestUsageReminder();
-    restReminderToken = payload.token;
-    restReminderResolving = true;
-    restReminderPreviousFocus = document.activeElement;
-    restReminderPreviousOverflow = document.documentElement?.style?.overflow || '';
-    if (document.documentElement) document.documentElement.style.overflow = 'hidden';
-
-    const isRepeat = payload.reminderKind === 'repeat';
+    const reminders = Array.isArray(payload.reminders) ? payload.reminders.filter(r => ['daily', 'weekly'].includes(r.scope)) : [];
     const softLimitMinutes = Math.max(1, Math.floor(Number(payload.softLimitMinutes) || 120));
     const overageMinutes = Math.max(0, Math.floor((Number(payload.overageSeconds) || 0) / 60));
-    let reminderTitle = isRepeat ? '已超过今日休息软限额' : '已达到今日休息软限额';
-    let reminderSubtitle = isRepeat
+    let title = payload.reminderKind === 'repeat' ? '已超过今日休息软限额' : '已达到今日休息软限额';
+    let subtitle = payload.reminderKind === 'repeat'
       ? `已超过你设定的软限额 ${overageMinutes} 分钟。`
       : `你设定的今日休息软限额为 ${softLimitMinutes} 分钟。`;
-    const reminders = Array.isArray(payload.reminders) ? payload.reminders.filter(r => ['daily', 'weekly'].includes(r.scope)) : [];
     if (reminders.length) {
-      const describe = (r) => {
+      const describe = r => {
         const period = r.scope === 'weekly' ? '本周' : '今日';
         const minutes = Math.max(1, Math.floor(Number(r.softLimitMinutes) || 1));
         const excess = Math.max(0, Math.floor((Number(r.overageSeconds) || 0) / 60));
@@ -1173,15 +1182,35 @@
           ? `已超过${period}休息软配额 ${excess} 分钟。`
           : `已达到${period}休息软配额，你设定的提醒线为 ${minutes} 分钟。`;
       };
-      reminderTitle = reminders.length > 1 ? '今日与本周休息软配额提醒'
+      title = reminders.length > 1 ? '今日与本周休息软配额提醒'
         : `已${reminders[0].reminderKind === 'repeat' ? '超过' : '达到'}${reminders[0].scope === 'weekly' ? '本周' : '今日'}休息软配额`;
-      reminderSubtitle = reminders.map(describe).join('<br>');
+      subtitle = reminders.map(describe).join('<br>');
     }
-
     if (payload.schedule) {
-      reminderTitle = '当前不是合适的使用时间段';
-      reminderSubtitle = reminders.length ? `当前处于建议不使用的时间段。<br>${reminderSubtitle}` : '当前处于建议不使用的时间段。';
+      title = '当前不是合适的使用时间段';
+      const scheduleText = payload.confirmationKind === 'schedule_repeat'
+        ? `已在建议不使用的时段强行使用 ${Math.floor(Number(payload.scheduleUsedSeconds || 0) / 60)} 分钟，请再次确认。`
+        : '当前处于建议不使用的时间段。';
+      subtitle = reminders.length ? `${scheduleText}<br>${subtitle}` : scheduleText;
     }
+    return { title, subtitle };
+  }
+
+  async function showRestUsageReminder(payload) {
+    if (!payload?.token) return { ok: false, handled: true, visible: false, reason: 'missing_token' };
+    if (restReminderToken === payload.token && restReminderDialog?.open) {
+      return { ok: true, handled: true, visible: true, token: payload.token, confirmationVersion: 1 };
+    }
+    clearRestUsageReminder();
+    restReminderToken = payload.token;
+    restReminderActionType = payload.confirmationKind === 'forced_use'
+      ? 'FORCED_USE_REMINDER_ACTION' : 'REST_USAGE_REMINDER_ACTION';
+    restReminderResolving = true;
+    restReminderPreviousFocus = document.activeElement;
+    restReminderPreviousOverflow = document.documentElement?.style?.overflow || '';
+    if (document.documentElement) document.documentElement.style.overflow = 'hidden';
+
+    const { title: reminderTitle, subtitle: reminderSubtitle } = restReminderCopy(payload);
     const displayUsage = value => payload.usageKnown === false ? '未知' : formatReminderDuration(value);
     restReminderHost = document.createElement('div');
     restReminderHost.id = '__toc_rest_usage_reminder__';
@@ -1192,15 +1221,15 @@
         <div class="panel">
           <h1 id="toc-rest-reminder-title">${reminderTitle}</h1>
           <p class="subtitle">${reminderSubtitle}</p>
-          <div class="stats">
+          <div class="stats"${payload.confirmationKind === 'forced_use' ? ' style="display:none"' : ''}>
             <div class="stat"><div class="label">本周已用</div><div class="value">${displayUsage(payload.weekUsedSeconds)}</div></div>
             <div class="stat"><div class="label">本周剩余（硬配额）</div><div class="value">${displayUsage(payload.weekRemainingSeconds)}</div></div>
             <div class="stat"><div class="label">今日已用</div><div class="value">${displayUsage(payload.todayUsedSeconds)}</div></div>
             <div class="stat"><div class="label">今日剩余（硬配额）</div><div class="value">${displayUsage(payload.todayRemainingSeconds)}</div></div>
           </div>
           <div class="countdown" id="toc-rest-reminder-countdown"></div>
-          <label for="toc-rest-confirmation-text">如需继续，请手动输入“适合使用”。</label>
-          <input id="toc-rest-confirmation-text" type="text" autocomplete="off" spellcheck="false" aria-label="手动输入适合使用" disabled style="box-sizing:border-box;width:100%;font:inherit;padding:12px;margin:12px 0;border:1px solid #b9d9d4;border-radius:6px">
+          <label for="toc-rest-confirmation-text">如需继续，请手动输入“强行使用”。</label>
+          <input id="toc-rest-confirmation-text" type="text" autocomplete="off" spellcheck="false" aria-label="手动输入强行使用" disabled style="box-sizing:border-box;width:100%;font:inherit;padding:12px;margin:12px 0;border:1px solid #b9d9d4;border-radius:6px">
           <button class="end" id="toc-rest-reminder-continue" type="button" disabled>确认继续</button>
           <button class="end" id="toc-rest-reminder-end" type="button">结束使用</button>
           <div class="status" id="toc-rest-reminder-status" role="status">正在准备提醒…</div>
@@ -1217,7 +1246,7 @@
       const status = restReminderShadow?.getElementById('toc-rest-reminder-status');
       if (status) status.textContent = action === 'continue' ? '正在恢复…' : '正在结束休息…';
       chrome.runtime.sendMessage({
-        type: 'REST_USAGE_REMINDER_ACTION',
+        type: restReminderActionType,
         token: payload.token,
         action,
         confirmationText: action === 'continue' ? restReminderShadow?.getElementById('toc-rest-confirmation-text')?.value : undefined,
@@ -1233,7 +1262,7 @@
 
     const input = restReminderShadow.getElementById('toc-rest-confirmation-text');
     const confirm = restReminderShadow.getElementById('toc-rest-reminder-continue');
-    const updateConfirm = () => { confirm.disabled = restReminderResolving || input.disabled || input.value !== '适合使用'; };
+    const updateConfirm = () => { confirm.disabled = restReminderResolving || input.disabled || input.value !== '强行使用'; };
     input.addEventListener('paste', event => event.preventDefault());
     input.addEventListener('drop', event => event.preventDefault());
     input.addEventListener('beforeinput', event => {
@@ -1241,7 +1270,7 @@
     });
     input.addEventListener('input', updateConfirm);
     input.addEventListener('compositionend', updateConfirm);
-    confirm.addEventListener('click', () => { if (!confirm.disabled && input.value === '适合使用') restReminderResolveAction?.('continue'); });
+    confirm.addEventListener('click', () => { if (!confirm.disabled && input.value === '强行使用') restReminderResolveAction?.('continue'); });
     restReminderShadow.getElementById('toc-rest-reminder-end')?.addEventListener('click', () => restReminderResolveAction?.('end'));
     restReminderShadow.getElementById('toc-rest-reminder-end')?.setAttribute('disabled', '');
 

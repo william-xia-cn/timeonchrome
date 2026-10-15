@@ -1,0 +1,20 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const html = fs.readFileSync(path.resolve(__dirname, '../../extension/admin/admin.html'), 'utf8');
+const script = fs.readFileSync(path.resolve(__dirname, '../../extension/admin/admin.js'), 'utf8');
+assert.match(html, /id="rules-force-limits-card" hidden/);
+assert.match(html, /id="rules-force-limits-display"/);
+assert.match(html, /data-rules-tab="downtime-management">强制限制/);
+assert.match(script, /readForcedUsePolicy\(config\)/);
+assert.match(script, /强行使用配置无效，当前仍按旧规则执行/);
+assert.match(script, /非共享V2终端执行；Native共享路径仍使用旧规则/);
+assert.match(script, /旧日／周休息软限额提醒在统一强行使用策略下暂停/);
+assert.match(script, /提醒次数不触发最终阻断/);
+assert.match(script, /dailyStudy: '每日学习'/);
+assert.match(script, /weeklyRest: '每周休息'/);
+assert.match(script, /domain: '单站点'/);
+assert.match(script, /advisoryWindowDailyMaxMinutes/);
+console.log('forced-use-admin-readonly: passed');

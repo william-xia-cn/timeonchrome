@@ -58,7 +58,7 @@ test('shared browser reminder uses typed confirmation through real SW and Conten
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0].id);
     await worker.evaluate(() => typedSharedStart());
     console.log('Shared typed: presenting', await worker.evaluate(id => typedSharedPoll(id), tabId));
-    const input = page.getByRole('textbox', { name: '手动输入适合使用' });
+    const input = page.getByRole('textbox', { name: '手动输入强行使用' });
     const confirm = page.getByRole('button', { name: '确认继续', exact: true });
     await expect(input).toBeEnabled();
     await expect(confirm).toBeDisabled();
@@ -71,7 +71,7 @@ test('shared browser reminder uses typed confirmation through real SW and Conten
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: path.join(directory, 'mobile.png') });
-    await input.fill('适合使用'); await confirm.click();
+    await input.fill('强行使用'); await confirm.click();
     await expect(page.locator('#__toc_shared_reminder__')).toHaveCount(0);
     const first = await worker.evaluate(() => typedSharedRead());
     expect(first.state.resolution).toBe('continue');

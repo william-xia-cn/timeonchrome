@@ -810,7 +810,7 @@ export async function redirectToReminder(tabId, domain, reason, message, extraPa
   }
   const reminderUrl = `${chrome.runtime.getURL('reminder.html')}?${queryParts.join('&')}`;
   console.log('[redirectToReminder]', reason, domain);
-  chrome.tabs.update(tabId, { url: reminderUrl }).catch(() => {});
+  await chrome.tabs.update(tabId, { url: reminderUrl }).catch(() => {});
 }
 
 // ── Declarative rules (unsafeList) ──────────────────────────────────────────────

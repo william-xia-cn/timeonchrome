@@ -6,6 +6,8 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { webcrypto } = require('crypto');
+const { TextEncoder } = require('util');
 
 let passed = 0;
 let failed = 0;
@@ -51,10 +53,22 @@ function loadModeService(stubs = {}) {
   const context = {
     ...downtime,
     ...autonomy,
+    scheduleConfirmationRuleIdentity: (_classification, host) => ['host', host],
     hasScheduleConfirmation: async () => false,
+    readScheduleConfirmationScope: async () => JSON.stringify(['profile-a', 'device-a']),
+    readForcedUsePolicy: () => ({ enabled: false }),
+    prepareForcedUseAdmission: () => ({ ok: true, action: 'legacy' }),
+    buildForcedUseQuotaFacts: () => ({ ok: false }),
+    forcedCompositeFinalRemainingSeconds: () => ({ ok: false }),
+    readForcedUseDay: async () => ({ ok: true, seconds: 0, byCauseSeconds: {} }),
+    ensureForcedUseContributions: async () => ({ ok: true }),
+    readForcedUsePromptProgress: async () => null,
+    chrome: { storage: { local: { get: async () => ({ cloud_profile_id: 'profile-a', cloud_device_id: 'device-a' }) } } },
     isSharedAccessRuntimeEnabled: () => false,
     console,
     Date,
+    crypto: webcrypto,
+    TextEncoder,
     getConfig: async () => ({ mode: 'study' }),
     getSession: async () => ({}),
     saveConfig: async () => {},
@@ -1356,17 +1370,22 @@ this.__modeService = {
     const cfg = { enabled: true, mode: 'study', timeQuota: { accountingVersion: 2 }, autonomyConfig: { timeWindowAdvisoryEnabled: true },
       timeWindows: { daily: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day,
         { studyWindows: [{ start: '07:00', end: '22:00' }], compositeWindows: [{ start: '07:00', end: '22:00' }], restWindows: [{ start: '07:00', end: '22:00' }] }])) } };
-    let granted = false, hard = false;
-    const svc = loadModeService({ getConfig: async () => cfg, resolveSiteAccessClassification: () => ({ classification: nature }),
-      hasScheduleConfirmation: async () => granted,
+    let grantedKey = null, hard = false;
+    const svc = loadModeService({ getConfig: async () => cfg, resolveSiteAccessClassification: () => ({ classification: nature,
+      source: 'fixtureList', pattern: 'fixture.test' }),
+      hasScheduleConfirmation: async context => context.key === grantedKey,
       evaluateQuotaState: async () => ({ ok: true, config: cfg, newState: { onlineLocked: hard }, usage: { restSeconds: 0, undeterminedSeconds: 0, studySeconds: 0 } }) });
     const event = { type: 'ACCESS_OBSERVED', tabId: 8, foreground: true, url: 'https://fixture.test/page', nowMs: Date.parse('2026-10-15T02:00:00+08:00') };
     const originalTimezone = process.env.TZ; process.env.TZ = 'Asia/Shanghai';
-    expect(nature + ' prompts before any mode change', (await svc.handleModeEvent(event)).access, 'confirmation');
-    granted = true;
+    const beforeGrant = await svc.handleModeEvent(event);
+    expect(nature + ' prompts before any mode change', beforeGrant.access, 'confirmation');
+    grantedKey = beforeGrant.confirmation.key;
     expectTrue(nature + ' granted window does not repeatedly block', (await svc.handleModeEvent(event)).access !== 'reminder');
+    expectTrue(nature + ' grant is reused in another tab', (await svc.handleModeEvent({ ...event, tabId: 9,
+      url: 'https://fixture.test/another' })).access !== 'confirmation');
     hard = true;
-    expect(nature + ' hard quota still blocks after confirmation', (await svc.handleModeEvent(event)).reminder?.reason, 'quota_online');
+    expect(nature + ' hard quota still blocks after confirmation in another tab',
+      (await svc.handleModeEvent({ ...event, tabId: 9 })).reminder?.reason, 'quota_online');
     process.env.TZ = originalTimezone;
   }
   section('Manual advisory mode entry: no commit before confirmation');
@@ -1408,6 +1427,45 @@ this.__modeService = {
     hard = false; unsafe = true;
     expect(nature + ' manual confirmation cannot bypass blacklist', (await svc.handleModeEvent(event)).reminder?.reason, 'unsafe');
     process.env.TZ = originalTimezone;
+  }
+  section('Forced-use V2 access routes through one confirmation and final hard point');
+  {
+    const cfg = { enabled: true, mode: 'study', timeQuota: { accountingVersion: 2 },
+      compositeList: ['fixture.test'], autonomyConfig: { restrictedEntryConfirmationRequired: false } };
+    let final = false, accepted = false, reads = 0;
+    const svc = loadModeService({ getConfig: async () => cfg,
+      readForcedUsePolicy: () => ({ enabled: true, reminderIntervalMinutes: 30,
+        advisoryWindowDailyMaxMinutes: null, quotaOverrunMinutes: {} }),
+      evaluateQuotaState: async () => ({ ok: true, config: cfg, accountingVersion: 2,
+        newState: { undeterminedLocked: final }, usage: { ok: true, compositeSeconds: 3600,
+          undeterminedSeconds: 3600, restSeconds: 0, studySeconds: 0, totalSeconds: 3600,
+          weekRestSeconds: 0, domainSeconds: {} } }),
+      prepareForcedUseAdmission: input => { reads++; return final
+        ? { ok: true, action: 'block', reasons: ['dailyComposite'] }
+        : accepted ? { ok: true, action: 'allow', reasons: ['dailyComposite'] }
+          : { ok: true, action: 'confirm', reasons: ['dailyComposite'],
+            identityKey: input.identityKey, dateKey: input.dateKey, ruleKey: input.ruleKey,
+            quotaBucket: input.quotaBucket, policySignature: 'test' }; },
+      buildForcedUseQuotaFacts: () => ({ ok: true, quotas: [] }),
+      forcedCompositeFinalRemainingSeconds: () => ({ ok: true, seconds: 900 }) });
+    const event = { type: 'ACCESS_OBSERVED', tabId: 8, foreground: true,
+      url: 'https://fixture.test/page', nowMs: Date.parse('2026-10-15T02:00:00+08:00') };
+    const before = await svc.handleModeEvent(event);
+    expect('standard line enters unified confirmation', before.access, 'forced_confirmation');
+    expect('confirmation does not commit mode', before.modeChange, null);
+    expect('confirmation uses composite charge bucket', before.forcedAdmission.quotaBucket, 'composite');
+    const manual = { type: 'REQUEST_MODE_CHANGE', requestedMode: 'composite', tabId: 8,
+      foreground: true, url: event.url, nowMs: event.nowMs, source: 'popup' };
+    const manualBefore = await svc.handleModeEvent(manual);
+    expect('manual mode entry uses the same confirmation', manualBefore.access, 'forced_confirmation');
+    expect('manual mode remains uncommitted', manualBefore.modeChange, null);
+    accepted = true;
+    const after = await svc.handleModeEvent(event);
+    expect('confirmed access carries grant evidence', after.forcedAdmission?.reasons, ['dailyComposite']);
+    expectTrue('confirmed Composite does not borrow Rest at standard line', after.modeChange?.toMode !== 'rest');
+    expectTrue('confirmed access used final Composite remaining', reads >= 2);
+    final = true;
+    expect('final Composite point blocks', (await svc.handleModeEvent(event)).reminder?.reason, 'quota_undetermined');
   }
   if (failed > 0) {
     console.error(`\n${failed} failed, ${passed} passed`);

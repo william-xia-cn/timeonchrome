@@ -11,7 +11,7 @@ async function isolatedExtension(name, harness = '') {
   // Harness exists only in an ignored disposable copy, never in the loaded candidate.
   if (harness) fs.appendFileSync(path.join(extension, 'background.js'), '\n' + harness);
   const context = await chromium.launchPersistentContext(path.join(directory, 'profile'), {
-    channel: 'chromium', headless: false, timezoneId: 'Asia/Shanghai',
+    channel: process.env.TOC_ISOLATED_BROWSER_CHANNEL || 'chromium', headless: false, timezoneId: 'Asia/Shanghai',
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`,
       '--autoplay-policy=no-user-gesture-required'],
   });

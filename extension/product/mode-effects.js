@@ -12,6 +12,8 @@ import {
 import { budgetedLocalSet } from '../infra/storage-budget.js';
 import { budgetedSessionSet } from '../infra/session-storage-budget.js';
 import { requestScheduleUsageConfirmation } from './rest-usage-reminder.js';
+import { hasScheduleConfirmation, registerScheduleConfirmationWaiter, releaseScheduleConfirmationWaiters,
+  resumeScheduleConfirmationWaiter } from './schedule-confirmation.js';
 
 function modeTraceStorageArea(chromeApi = globalThis.chrome) {
   return chromeApi?.storage?.session || chromeApi?.storage?.local || null;
@@ -179,9 +181,34 @@ export async function executeModeDecision(decision = {}, context = {}) {
     const delivery = await requestScheduleUsageConfirmation(decision.confirmation);
     result.blocked = true;
     result.confirmationPending = delivery?.ok === true;
-    if (delivery?.ok !== true) {
+    if (delivery?.pendingElsewhere === true) {
+      const targetUrl = reminderTargetUrlFromEvent(context.event);
+      if (targetUrl) await registerScheduleConfirmationWaiter(decision.confirmation, targetUrl).catch(() => false);
+      await redirectToReminder(tabId, domain, `${decision.confirmation.mode}_schedule_locked`, config?.blockMessage,
+        { confirmationFailure: 'pending_elsewhere', targetUrl });
+      result.reminderSent = true;
+      if (targetUrl && await hasScheduleConfirmation(decision.confirmation)) {
+        await resumeScheduleConfirmationWaiter(decision.confirmation, tabId, targetUrl);
+        await releaseScheduleConfirmationWaiters(decision.confirmation);
+      }
+    } else if (delivery?.ok !== true) {
       await redirectToReminder(tabId, domain, `${decision.confirmation.mode}_schedule_locked`, config?.blockMessage,
         { confirmationFailure: 'delivery_failed', targetUrl: reminderTargetUrlFromEvent(context.event) });
+      result.reminderSent = true;
+    }
+    return await finalize();
+  }
+  if (decision.access === 'forced_confirmation' && decision.forcedAdmission) {
+    const delivery = tabId === null ? { ok: false, error: 'tab_missing' }
+      : typeof context.requestForcedUsePrompt !== 'function'
+        ? { ok: false, error: 'forced_use_handler_missing' }
+        : await context.requestForcedUsePrompt({ tabId, host: domain, admission: decision.forcedAdmission })
+          .catch(() => ({ ok: false, error: 'forced_use_delivery_failed' }));
+    result.blocked = true;
+    result.confirmationPending = delivery?.ok === true;
+    if (delivery?.ok !== true) {
+      await redirectToReminder(tabId, domain, 'forced_use_confirmation_blocked', config?.blockMessage,
+        { confirmationFailure: delivery?.error || 'delivery_failed', targetUrl: reminderTargetUrlFromEvent(context.event) });
       result.reminderSent = true;
     }
     return await finalize();
@@ -199,6 +226,29 @@ export async function executeModeDecision(decision = {}, context = {}) {
     result.blocked = true;
     result.reminderSent = true;
     return await finalize();
+  }
+
+  if (decision.access === 'allow' && decision.forcedAdmission?.reasons?.length) {
+    const grant = typeof context.ensureForcedUseGrant === 'function'
+      ? await context.ensureForcedUseGrant(decision.forcedAdmission, domain)
+        .catch(() => ({ ok: false })) : { ok: false };
+    if (grant?.ok !== true) {
+      await redirectToReminder(tabId, domain, 'accounting_unavailable', config?.blockMessage,
+        { targetUrl: reminderTargetUrlFromEvent(context.event) });
+      result.blocked = true;
+      result.reminderSent = true;
+      return await finalize();
+    }
+  } else if (decision.access === 'allow' && decision.forcedAdmission) {
+    const retired = typeof context.retireForcedUseGrants === 'function'
+      ? await context.retireForcedUseGrants(domain).catch(() => ({ ok: false })) : { ok: false };
+    if (retired?.ok !== true) {
+      await redirectToReminder(tabId, domain, 'accounting_unavailable', config?.blockMessage,
+        { targetUrl: reminderTargetUrlFromEvent(context.event) });
+      result.blocked = true;
+      result.reminderSent = true;
+      return await finalize();
+    }
   }
 
   if (decision.modeChange) {

@@ -2001,7 +2001,7 @@
         <button type="button" class="active" data-rules-tab="quota-management">时间配额</button>
         <button type="button" data-rules-tab="autonomy-management">自主度配置</button>
         <button type="button" data-rules-tab="schedule-management">时间段管理</button>
-        <button type="button" data-rules-tab="downtime-management">停用时间</button>
+        <button type="button" data-rules-tab="downtime-management">强制限制</button>
         <button type="button" data-rules-tab="classification-requests" hidden>网站归类记录</button>
       </div>
 
@@ -2084,7 +2084,7 @@
           <div id="rules-autonomy-entry-display">暂无配置</div>
         </div>
 
-        <div class="card">
+        <div class="card" id="rules-legacy-rest-reminder-card">
           <div class="card-header">
             <div>
               <div class="card-title"><img class="toc-ui-icon small" src="../icons/ui/rest.svg" alt="">休息时间自我提醒</div>
@@ -2104,8 +2104,8 @@
           <div class="rules-autonomy-guardrails">
             <div class="rules-autonomy-guardrail">黑名单网站始终阻止访问</div>
             <div class="rules-autonomy-guardrail">时间窗按强制或建议配置执行；停用时间始终强制执行</div>
-            <div class="rules-autonomy-guardrail">每日和每周硬配额始终生效</div>
-            <div class="rules-autonomy-guardrail">单站点配额始终生效</div>
+            <div class="rules-autonomy-guardrail" id="rules-quota-guardrail">每日和每周硬配额始终生效</div>
+            <div class="rules-autonomy-guardrail" id="rules-domain-guardrail">单站点配额始终生效</div>
           </div>
         </div>
       </div>
@@ -2123,6 +2123,10 @@
       </div>
 
       <div class="rules-panel" data-rules-panel="downtime-management">
+        <div class="card" id="rules-force-limits-card" hidden>
+          <div class="card-header"><div><div class="card-title">按用量最终限制</div><div class="card-subtitle">云端配置 · 本机只读；与提醒次数无关</div></div></div>
+          <div id="rules-force-limits-display">暂无配置</div>
+        </div>
         <div class="card-header"><div><div class="card-title">停用时间</div><div class="card-subtitle">家长云端配置 · 本机只读</div></div></div>
         <div id="rules-downtime-display">加载停用时间配置中…</div>
       </div>

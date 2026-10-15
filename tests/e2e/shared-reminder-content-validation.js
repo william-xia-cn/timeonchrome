@@ -104,7 +104,7 @@ async function run() {
         const hasSharedReminderContinuityCapability = () => false;
         const readSharedAccessRuntime = async () => ({ok:true,executionRevision:'state-1',policy:{revision:'policy-1'}});
         const createSharedBrowserExecutor = () => ({execute:async()=>({ok:true,effectsEnabled:false})});
-        const isAutonomyConfirmationText = value => value === '适合使用';
+        const isAutonomyConfirmationText = value => value === '强行使用';
         ${localModules}
         initSharedReminderContentBridge();
         window.configureBridge = configureSharedReminderContentBridge;
@@ -118,7 +118,7 @@ async function run() {
     assert.equal(result.state.visibleAtMs, 2500);
     assert.equal(await page.locator('#__toc_shared_reminder__').count(), 1);
     assert.equal(await page.getByRole('heading', { name: '今日与本周休息软配额提醒' }).count(), 1);
-    assert.equal(await page.getByRole('textbox', { name: '手动输入适合使用' }).isEnabled(), true);
+    assert.equal(await page.getByRole('textbox', { name: '手动输入强行使用' }).isEnabled(), true);
     assert.equal(await page.getByRole('button', { name: '确认继续' }).isEnabled(), false);
     const output = path.join(root, 'output/playwright/d114');
     fs.mkdirSync(output, { recursive: true });
@@ -128,7 +128,7 @@ async function run() {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.getByRole('textbox', { name: '手动输入适合使用' }).fill('不适合使用');
     assert.equal(await page.getByRole('button', { name: '确认继续' }).isEnabled(), false);
-    await page.getByRole('textbox', { name: '手动输入适合使用' }).fill('适合使用');
+    await page.getByRole('textbox', { name: '手动输入强行使用' }).fill('强行使用');
     await page.getByRole('button', { name: '确认继续', exact: true }).click();
     await page.waitForFunction(() => window.serviceState.resolution === 'continue');
     assert.equal(await page.locator('#__toc_shared_reminder__').count(), 0);

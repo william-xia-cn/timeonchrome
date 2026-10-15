@@ -37,7 +37,7 @@ test('real unpacked advisory confirmation, refresh grant and policy revocation',
     const url = `http://127.0.0.1:${server.address().port}/`;
     await page.goto(url); await page.bringToFront();
     await expect(page.getByRole('heading', { name: '当前不是合适的使用时间段' })).toBeVisible({ timeout: 20000 });
-    const input = page.getByRole('textbox', { name: '手动输入适合使用' });
+    const input = page.getByRole('textbox', { name: '手动输入强行使用' });
     const confirm = page.getByRole('button', { name: '确认继续', exact: true });
     await expect(confirm).toBeDisabled();
     await input.fill('不适合使用'); await expect(confirm).toBeDisabled();
@@ -50,7 +50,7 @@ test('real unpacked advisory confirmation, refresh grant and policy revocation',
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: path.join(directory, 'advisory-mobile.png') });
-    await input.fill('适合使用'); await confirm.click();
+    await input.fill('强行使用'); await confirm.click();
     await expect(page.locator('#__toc_rest_usage_reminder__')).toHaveCount(0);
     expect(page.url()).toBe(url);
     await page.reload(); await page.bringToFront();

@@ -112,7 +112,7 @@ test(hardOnly ? 'real unpacked hard time window prevents soft continue'
     };
     const state = async () => (await worker.evaluate(() => restAcceptance())).state;
     const keepGoing = async () => {
-      await media.getByRole('textbox', { name: '手动输入适合使用' }).fill('适合使用');
+      await media.getByRole('textbox', { name: '手动输入强行使用' }).fill('强行使用');
       await media.getByRole('button', { name: '确认继续', exact: true }).click();
       await expect.poll(async () => (await state())?.prompt || null).toBe(null);
       await expect(media.locator('#__toc_rest_usage_reminder__')).toHaveCount(0);
@@ -181,7 +181,7 @@ test(hardOnly ? 'real unpacked hard time window prevents soft continue'
     await expect(media.getByRole('heading', { name: '已达到今日休息软配额' })).toBeVisible();
     await worker.evaluate(() => restAcceptanceCloseWindow());
     // Real Content action is posted before routing replaces the denied page.
-    await media.getByRole('textbox', { name: '手动输入适合使用' }).fill('适合使用').catch(() => {});
+    await media.getByRole('textbox', { name: '手动输入强行使用' }).fill('强行使用').catch(() => {});
     await media.getByRole('button', { name: '确认继续', exact: true }).click().catch(() => {});
     await expect.poll(async () => (await state())?.lastResolution?.reason).toBe('hard_limit');
     await expect.poll(() => media.url()).toContain('reminder.html');
