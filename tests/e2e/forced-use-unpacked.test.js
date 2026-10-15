@@ -61,7 +61,7 @@ test('non-shared V2 forced use confirms once and retires the host grant when the
     await page.bringToFront();
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0].id);
     await worker.evaluate(id => forcedUseRecheck(id), tabId);
-    await expect(page.getByRole('heading', { name: '请确认强行使用' })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('heading', { name: '当前不在允许使用时段' })).toBeVisible({ timeout: 20000 });
     await page.screenshot({ path: test.info().outputPath('forced-use-desktop.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: test.info().outputPath('forced-use-mobile.png'), fullPage: true });

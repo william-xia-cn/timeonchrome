@@ -25,7 +25,7 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
   let closeFails = false;
   const admission = { ok: true, action: 'confirm', reasons: ['dailyComposite'],
     identityKey: JSON.stringify(['profile-a', 'device-a']), dateKey: '2026-10-15',
-    ruleKey: 'wiki-rule' };
+    ruleKey: 'wiki-rule', presentation: { kind: 'entry', quotas: [{ id: 'dailyComposite', usedSeconds: 5400, limitSeconds: 5400 }] } };
   const api = { tabs: { sendMessage: async (tabId, payload) => {
     messages.push([tabId, payload]);
     if (payload.type === 'SHOW_REST_USAGE_REMINDER' && deliveryFails) return null;
@@ -55,6 +55,7 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
   assert.deepEqual(f.messages.slice(0, 2).map(([, payload]) => payload.type),
     ['SHOW_REST_USAGE_REMINDER', 'ACTIVATE_REST_USAGE_REMINDER']);
   assert.equal(f.alarms.length, 1);
+  assert.deepEqual(f.messages[0][1].forcedUsePresentation, f.admission.presentation);
   assert.equal(f.alarms[0][1].when, 61000);
   assert.deepEqual(f.diagnostics.map(row => row.details.phase), ['requested', 'visible']);
   assert.equal(f.diagnostics[0].details.auditId, f.diagnostics[1].details.auditId);
@@ -145,6 +146,8 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
   const recovery = fixture();
   await recovery.runtime.request({ tabId: 7, host: 'wiki.example', admission: recovery.admission });
   assert.equal((await recovery.runtime.recover()).restored, true);
+  assert.deepEqual(recovery.messages.filter(([, message]) => message.type === 'SHOW_REST_USAGE_REMINDER')
+    .map(([, message]) => message.forcedUsePresentation), [recovery.admission.presentation, recovery.admission.presentation]);
   assert.equal(recovery.alarms.length, 2);
   assert.equal(recovery.diagnostics.at(-1).details.phase, 'restored');
   recovery.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt.deadlineAt = null;

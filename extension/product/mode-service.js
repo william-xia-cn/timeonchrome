@@ -898,7 +898,8 @@ async function handleAccessObserved(event = {}) {
       maxSeconds: null } : null;
     forcedAdmission = prepareForcedUseAdmission({ config, usage: quotaResult.usage, dateKey,
       domain, quotaBucket, advisoryWindow: windowFact, reminderState: progress,
-      identityKey, ruleKey, forcedUsageSeconds: derived.ok ? derived.seconds : null });
+      identityKey, ruleKey, forcedUsageSeconds: derived.ok ? derived.seconds : null,
+      classification: siteClassification.classification, observedAt: nowMs });
     if (forcedAdmission.action === 'block' || forcedAdmission.ok === false) {
       const reasons = forcedAdmission.reasons || [];
       const reason = reasons.includes('dailyComposite') ? 'quota_undetermined'

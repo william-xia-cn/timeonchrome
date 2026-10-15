@@ -101,7 +101,8 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
     report(prompt, 'requested');
     await write({ ...state, prompt });
     const shown = await message(prompt.tabId, { type: 'SHOW_REST_USAGE_REMINDER', token,
-      confirmationKind: 'forced_use', forcedUseReasons: input.admission.reasons });
+      confirmationKind: 'forced_use', forcedUseReasons: input.admission.reasons,
+      forcedUsePresentation: input.admission.presentation });
     if (shown?.ok !== true || shown.visible !== true || shown.confirmationVersion !== 1) {
       await write({ ...state, prompt: null });
       await dismiss(prompt);
@@ -238,7 +239,8 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
     if (now() >= prompt.deadlineAt) return end(state, 'confirmation_timeout');
     const shown = await message(prompt.tabId, { type: 'SHOW_REST_USAGE_REMINDER',
       token: prompt.token, confirmationKind: 'forced_use',
-      forcedUseReasons: prompt.admission.reasons });
+      forcedUseReasons: prompt.admission.reasons,
+      forcedUsePresentation: prompt.admission.presentation });
     if (shown?.ok !== true || shown.visible !== true || shown.confirmationVersion !== 1) {
       return end(state, 'delivery_lost');
     }
