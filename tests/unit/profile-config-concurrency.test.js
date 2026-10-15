@@ -265,6 +265,33 @@ async function verifyOtherUsageRoute() {
   assert.equal(JSON.parse(current().config).downtimeConfig.enabled, false);
   assert.deepStrictEqual(JSON.parse(current().config).downtimeConfig.allowedWebsiteTypes, []);
   console.log('[Downtime Profile Route] owner/version/validation/preserve/replace/audit passed');
+  response = await put({ timeQuota: { accountingVersion: 1 } });
+  assert.equal(response.status, 200);
+  const forcedPolicy = { schemaVersion: 1, enabled: true, reminderIntervalMinutes: 30,
+    quotaOverrunMinutes: { dailyStudy: 0, dailyComposite: 30, dailyRest: null,
+      dailyOnline: 0, weeklyRest: null, domain: 0 }, advisoryWindowDailyMaxMinutes: null };
+  const beforeForced = current();
+  const beforeConfig = JSON.parse(beforeForced.config);
+  response = await put({ forcedUsePolicyV1: forcedPolicy });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'FORCED_USE_REQUIRES_V2_ACCOUNTING');
+  assert.equal(current().version, beforeForced.version, 'rejected combination must not publish a version');
+  response = await put({ forcedUsePolicyV1: forcedPolicy, timeQuota: { accountingVersion: 2 } });
+  assert.equal(response.status, 200);
+  const migrated = JSON.parse(current().config);
+  assert.deepStrictEqual(migrated.forcedUsePolicyV1, forcedPolicy);
+  assert.equal(migrated.timeQuota.accountingVersion, 2);
+  assert.deepStrictEqual(migrated.timeQuota.daily, beforeConfig.timeQuota.daily);
+  assert.deepStrictEqual(migrated.timeQuota.weekly, beforeConfig.timeQuota.weekly);
+  assert.deepStrictEqual(migrated.restConfig, beforeConfig.restConfig);
+  assert.deepStrictEqual(migrated.domainQuotas, beforeConfig.domainQuotas);
+  const migratedVersion = current().version;
+  response = await put({ timeQuota: { accountingVersion: 1 } });
+  assert.equal(response.status, 400, 'V1 cannot be saved while the unified strategy remains enabled');
+  assert.equal(current().version, migratedVersion);
+  response = await put({ forcedUsePolicyV1: { ...forcedPolicy, enabled: false }, timeQuota: { accountingVersion: 1 } });
+  assert.equal(response.status, 200, 'explicit legacy rollback remains available');
+  console.log('[Unified Forced Use Profile Route] prerequisite/reject-no-write/atomic-preserve/rollback passed');
   beforeBatch = () => {
     const latest = current();
     const concurrent = { ...JSON.parse(latest.config), concurrentFixture: true };
