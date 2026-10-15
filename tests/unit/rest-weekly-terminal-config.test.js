@@ -26,25 +26,17 @@ for (const value of [0, 10081, 1.5, '840']) {
 context.config = { restConfig: { firstReminderMinutes: null, weeklyFirstReminderMinutes: 840 } };
 context.renderAutonomySection();
 const output = Object.values(nodes).map(n => n.innerHTML || '').join('');
-assert(output.includes('强制模式'));
-context.config.autonomyConfig = { timeWindowAdvisoryEnabled: true, softReminderTimeoutAction: 'continue', scheduleReminderIntervalMinutes: 45 };
+assert(output.includes('限制时段内使用'));
+assert(output.includes('840min'));
+assert(output.includes('<details><summary>旧配置记录'));
+assert(!/<(?:input|button|select)\b/.test(output));
+context.config = { timeQuota: { accountingVersion: 2 }, autonomyConfig: { quotaOverrunConfirmationRequired: false },
+  forcedUsePolicyV1: { enabled: true, reminderIntervalMinutes: 30, quotaOverrunMinutes: {
+    dailyStudy: 0, dailyComposite: 30, dailyRest: null, dailyOnline: 60, weeklyRest: 90, domain: 15 } } };
 context.renderAutonomySection();
-assert(Object.values(nodes).some(node => node.innerHTML?.includes('建议模式：文字确认')));
-assert(Object.values(nodes).some(node => node.innerHTML?.includes('45分钟网页用量')));
-assert(Object.values(nodes).some(node => node.innerHTML?.includes('60秒未确认强制阻断')));
-assert.ok(output.includes('840min') && output.includes('本周休息独立提醒线'));
-assert.ok(output.includes('<details><summary>旧配置记录'));
-assert.ok(!output.includes('<details open'));
-assert.ok(!/<(?:input|button|select)\b/.test(output));
-context.config = { timeQuota: { accountingVersion: 1 }, forcedUsePolicyV1: { enabled: true, reminderIntervalMinutes: 30 } };
-context.renderAutonomySection();
-assert.ok(nodes['rules-autonomy-summary-display'].innerHTML.includes('需要V2配额计算'));
-context.config.timeQuota.accountingVersion = 2;
-context.renderAutonomySection();
-assert.ok(nodes['rules-autonomy-summary-display'].innerHTML.includes('新增30分钟网页用量'));
-assert.ok(!nodes['rules-rest-reminder-display'].innerHTML.includes('<details>'));
-assert.ok(nodes['rules-rest-reminder-display'].innerHTML.includes('提醒次数不触发最终阻断'));
-assert.ok(nodes['rules-quota-guardrail'].textContent.includes('最终阻断点'));
+assert(nodes['rules-autonomy-summary-display'].innerHTML.includes('新增30分钟实际强行使用'));
+assert(nodes['rules-autonomy-summary-display'].innerHTML.includes('余量保留但不生效'));
+assert.equal(nodes['rules-rest-reminder-display'].innerHTML, '');
 context.config = { restConfig: { weeklyFirstReminderMinutes: null } };
 assert.equal(context.getAdminRestReminderView().weeklyEnabled, false);
 assert.ok(fs.readFileSync('extension/infra/storage.js', 'utf8').includes('weeklyFirstReminderMinutes: 840'));
