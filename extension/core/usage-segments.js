@@ -33,9 +33,16 @@ const runUsageStorageMutation = typeof runStorageMutation === 'function'
     });
 
 let persistedSegmentObserver = null;
+const derivedSegmentObservers = new Set();
 
 export function registerPersistedUsageSegmentObserver(observer) {
   persistedSegmentObserver = typeof observer === 'function' ? observer : null;
+}
+
+export function subscribePersistedUsageSegments(observer) {
+  if (typeof observer !== 'function') throw new TypeError('observer must be a function');
+  derivedSegmentObservers.add(observer);
+  return () => derivedSegmentObservers.delete(observer);
 }
 
 // ── 常量 ─────────────────────────────────────────────────────────────────────────
@@ -565,6 +572,11 @@ export async function appendUsageSegments(segments) {
     if (persistedSegmentObserver) {
       Promise.resolve()
         .then(() => persistedSegmentObserver(persistedSegments))
+        .catch(() => {});
+    }
+    for (const observer of derivedSegmentObservers) {
+      Promise.resolve()
+        .then(() => observer(persistedSegments))
         .catch(() => {});
     }
   }
@@ -2740,7 +2752,8 @@ export async function settleUsageDuration(input) {
   const segments = splitSegmentByLocalDate({ ...input, channel });
   if (segments.length === 0) return 0;
 
-  return runUsageStorageMutation(async (storage) => {
+  let persistedForDerived = [];
+  const appended = await runUsageStorageMutation(async (storage) => {
     const keys = [
       USAGE_SEGMENTS_KEY, SEGMENT_INDEX_KEY, DAILY_STATS_KEY, HOURLY_STATS_KEY,
       SEGMENT_OUTBOX_KEY, STATS_OUTBOX_KEY, HOURLY_STATS_OUTBOX_KEY,
@@ -2757,6 +2770,7 @@ export async function settleUsageDuration(input) {
     const targetOutbox = data[TARGET_STATS_OUTBOX_KEY] || { dirtyDates: [], retryCounts: {}, lastErrors: {} };
     const hourlyTargetOutbox = data[HOURLY_TARGET_STATS_OUTBOX_KEY] || { dirtyHourKeys: [], retryCounts: {}, lastErrors: {} };
     const newIds = [];
+    const newSegments = [];
     const dirtyDates = new Set();
     const dirtyHours = new Set();
 
@@ -2776,6 +2790,7 @@ export async function settleUsageDuration(input) {
         dirtyHours.add(slice.hourKey);
       }
       newIds.push(segment.id);
+      newSegments.push({ ...segment });
     }
 
     if (newIds.length === 0) return 0;
@@ -2800,6 +2815,13 @@ export async function settleUsageDuration(input) {
       [HOURLY_STATS_OUTBOX_KEY]: hourlyOutbox,
       [HOURLY_TARGET_STATS_OUTBOX_KEY]: hourlyTargetOutbox,
     }, { priority: 'foreground', source: 'usage_settlement_commit' });
+    persistedForDerived = newSegments;
     return newIds.length;
   }, { priority: 'foreground', source: 'usage_settlement_commit' });
+  if (appended > 0) {
+    for (const observer of derivedSegmentObservers) {
+      Promise.resolve().then(() => observer(persistedForDerived)).catch(() => {});
+    }
+  }
+  return appended;
 }

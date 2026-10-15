@@ -52,7 +52,7 @@ const integrityApi = loadProdModule('core/usage-segment-integrity.js', [
 const api = loadProdModule('core/usage-segments.js', [
   'generateSegmentId', 'stateToChannel', 'isCountedState', 'getLocalDateInfo', 'getLocalHourInfo',
   'splitSegmentByLocalDate', 'splitSegmentByLocalHour', 'buildUsageSegment',
-  'appendUsageSegments', 'registerPersistedUsageSegmentObserver', 'incrementDailyUsageStats', 'incrementHourlyUsageStats',
+  'appendUsageSegments', 'registerPersistedUsageSegmentObserver', 'subscribePersistedUsageSegments', 'incrementDailyUsageStats', 'incrementHourlyUsageStats',
   'getUsageSegmentsByDate', 'getAllUsageSegments', 'getDailyUsageStats', 'getHourlyUsageStats',
   'rebuildDailyUsageStats', 'rebuildHourlyUsageStats',
   'markSegmentSyncDirty', 'markStatsSyncDirty', 'markHourlyStatsSyncDirty',
@@ -185,12 +185,15 @@ chk('description summary generated', seg4d.description.summary, '开始：tabAct
 sec('TB5: Append / idempotent / date query');
 mockLocal.reset();
 const persistedNotifications = [];
+const derivedNotifications = [];
 api.registerPersistedUsageSegmentObserver((segments) => persistedNotifications.push(segments));
+const unsubscribeDerived = api.subscribePersistedUsageSegments((segments) => derivedNotifications.push(segments));
 let n = await api.appendUsageSegments([seg4]);
 await Promise.resolve();
 chk('append 1', n, 1);
 chk('observer after durable append', persistedNotifications.length, 1);
 chk('observer receives persisted segment', persistedNotifications[0][0].id, seg4.id);
+chk('derived subscriber receives persisted segment', derivedNotifications[0][0].id, seg4.id);
 let all = await api.getAllUsageSegments();
 chk('stored 1', Object.keys(all).length, 1);
 chkT('retrievable', !!all[seg4.id]);
@@ -202,6 +205,7 @@ n = await api.appendUsageSegments([seg4]);
 await Promise.resolve();
 chk('idempotent append 0', n, 0);
 chk('idempotent append emits no observer event', persistedNotifications.length, 1);
+chk('idempotent append emits no derived event', derivedNotifications.length, 1);
 all = await api.getAllUsageSegments();
 chk('still 1', Object.keys(all).length, 1);
 api.registerPersistedUsageSegmentObserver(() => { throw new Error('bridge unavailable'); });
@@ -214,6 +218,7 @@ all = await api.getAllUsageSegments();
 chk('bridge observer failure does not roll back authoritative append', n, 1);
 chkT('bridge observer failure leaves authoritative segment readable', !!all[bridgeFailureSegment.id]);
 api.registerPersistedUsageSegmentObserver(null);
+unsubscribeDerived();
 
 // ── TB6: Increment daily aggregate ──
 sec('TB6: Daily aggregate increment');
@@ -318,11 +323,19 @@ chkA('total preserved', totalDur, 3600, 5);
 // ── TB8: Full settlement (segment + aggregate + outbox) ──
 sec('TB8: Full settlement path');
 mockLocal.reset();
+const settledDerivedNotifications = [];
+const unsubscribeSettledDerived = api.subscribePersistedUsageSegments(rows => {
+  settledDerivedNotifications.push(...rows);
+});
 n = await api.settleUsageDuration({
   startMs: MOCK_TIME-300000, endMs: MOCK_TIME, domain: 'settle.com', channel: 'active', mode: 'study',
   sourceState: 'ACTIVE', settlementReason: 'transition_complete', profileId: 'p1', deviceId: 'd1',
 });
 chk('settle creates 1', n, 1);
+await new Promise(resolve => setTimeout(resolve, 0));
+chk('derived observer receives committed segment once', settledDerivedNotifications.length, 1);
+chk('derived observer sees committed ID',
+  settledDerivedNotifications[0]?.id, Object.values(mockLocal.data.usage_segments_v1 || {})[0]?.id);
 all = await api.getAllUsageSegments();
 chk('segment stored', Object.keys(all).length, 1);
 
@@ -345,6 +358,9 @@ n = await api.settleUsageDuration({
   sourceState: 'ACTIVE', settlementReason: 'transition_complete', profileId: 'p1', deviceId: 'd1',
 });
 chk('idempotent settle 0', n, 0);
+await new Promise(resolve => setTimeout(resolve, 0));
+chk('idempotent settle does not notify derived observer again', settledDerivedNotifications.length, 1);
+unsubscribeSettledDerived();
 st = await api.getDailyUsageStats(todayStr);
 chk('agg unchanged', st.domains['settle.com'].activeSeconds, 300);
 hourly = await api.getHourlyUsageStats(`${todayStr}T11`);

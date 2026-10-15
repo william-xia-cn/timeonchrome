@@ -55,15 +55,17 @@ function loadModule(injected) {
     'requestScheduleUsageConfirmation',
   ];
   const factory = new Function('__injected', `
-    const { getEffectiveQuotaForDate, budgetedLocalSet } = __injected;
-    const isAutonomyConfirmationText = value => value === '适合使用';
+    const { getEffectiveQuotaForDate, budgetedLocalSet, getAllUsageSegments, readScheduleConfirmationGrant } = __injected;
+    const isAutonomyConfirmationText = value => value === '强行使用';
     const softReminderRepeatMinutes = count => count > 0 ? 30 : 60;
-    const grantScheduleConfirmation = async () => {};
-    const revokeScheduleConfirmation = async () => {};
+    const scheduleReminderIntervalMinutes = config => config?.autonomyConfig?.scheduleReminderIntervalMinutes ?? 30;
+    const confirmedScheduleUsageSeconds = (segments, grant) => segments.filter(segment => segment.channel === 'active' && segment.managedTargetId === grant.managedTargetId).reduce((sum, segment) => sum + segment.durationSeconds, 0);
+    const grantScheduleConfirmation = __injected.grantScheduleConfirmation;
+    const revokeScheduleConfirmation = __injected.revokeScheduleConfirmation;
     const readScheduleConfirmationScope = async () => 'isolated-child-scope';
     ${code}
     const api = { ${names.join(', ')} };
-    api.handleRestUsageReminderAction = (message, sender, options) => handleRestUsageReminderAction({ confirmationText: '适合使用', ...message }, sender, options);
+    api.handleRestUsageReminderAction = (message, sender, options) => handleRestUsageReminderAction({ confirmationText: '强行使用', ...message }, sender, options);
     return api;
   `);
   return factory(injected);
@@ -76,6 +78,9 @@ async function main() {
   let deliveryMode = 'success';
   let activeTab = { id: 11, windowId: 7, active: true };
   let activeWindow = { id: 7, focused: true, state: 'normal' };
+  let scheduleGrant = null;
+  let scheduleSegments = [];
+  let segmentReadError = false;
 
   global.chrome = {
     storage: { local },
@@ -104,6 +109,13 @@ async function main() {
       todayEffectiveQuota: { restMinutes: 180, weeklyRestMinutes: 600 },
     }),
     budgetedLocalSet: async (items) => local.set(items),
+    getAllUsageSegments: async () => {
+      if (segmentReadError) throw new Error('fixture_usage_read_failed');
+      return Object.fromEntries(scheduleSegments.map((segment, index) => [String(index), segment]));
+    },
+    readScheduleConfirmationGrant: async () => scheduleGrant,
+    grantScheduleConfirmation: async context => { scheduleGrant = { at: Date.now(), host: context.host, managedTargetId: context.managedTargetId || null }; scheduleSegments = []; },
+    revokeScheduleConfirmation: async () => { scheduleGrant = null; },
   });
 
   let dateKey = '2026-08-29';
@@ -131,6 +143,9 @@ async function main() {
     activeWindow = { id: 7, focused: true, state: 'normal' };
     timingSession = { state: 'ACTIVE', quotaBucketAtTime: 'rest', tabId: 11 };
     usageReadError = null;
+    scheduleGrant = null;
+    scheduleSegments = [];
+    segmentReadError = false;
     endCalls.length = 0;
     dateKey = '2026-08-29';
   };
@@ -347,9 +362,12 @@ async function main() {
   result = await module.evaluateRestUsageReminder({ deps });
   equal('new weekly due cannot change active daily prompt', result.state.prompt.reminders.length, 1);
   result = await module.handleRestUsageReminderAction({ token, action: 'continue' }, { tab: { id: 11 } }, { deps });
-  equal('unshown weekly threshold is not acknowledged', result.state.weekly.lastAcknowledgedUsageSeconds, null);
+  equal('weekly threshold that arrived during one visible prompt is acknowledged together', result.state.weekly.lastAcknowledgedUsageSeconds, 600);
   result = await module.evaluateRestUsageReminder({ deps });
-  equal('weekly due is shown on next evaluation', result.prompt.reminders[0].scope, 'weekly');
+  equal('weekly due does not immediately open a second prompt', result.skipped, 'below_threshold');
+  usage.weekRestSeconds = 4200;
+  result = await module.evaluateRestUsageReminder({ deps });
+  equal('weekly next increment creates a new reminder', result.prompt.reminders[0].scope, 'weekly');
   deps.canContinueRest = async () => false;
   messages.length = 0;
   result = await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'continue' }, { tab: { id: 11 } }, { deps });
@@ -409,13 +427,97 @@ async function main() {
   const schedule = { tabId: 11, host: 'fixture.test', key: 'fixed-gap', mode: 'study' };
   deps.getScheduleContext = async () => schedule;
   deps.blockSchedule = async input => { endCalls.push(input); return { ok: true, blocked: true }; };
+  let releasedWaiters = 0, clearedWaiters = 0;
+  deps.releaseScheduleWaiters = async () => { releasedWaiters++; };
+  deps.clearScheduleWaiters = async () => { clearedWaiters++; };
   result = await module.requestScheduleUsageConfirmation(schedule, { deps, now: 1_780_060_000_000 });
   equal('schedule combines daily and weekly in one prompt', result.prompt.reminders.length, 2);
   equal('schedule accepts a non-Rest foreground session', result.prompt.schedule.key, 'fixed-gap');
+  equal('second tab waits for same rule confirmation', (await module.requestScheduleUsageConfirmation({ ...schedule, tabId: 12 },
+    { deps, now: 1_780_060_000_500 })).pendingElsewhere, true);
+  equal('different rule cannot borrow pending confirmation', (await module.requestScheduleUsageConfirmation({ ...schedule, tabId: 12, key: 'different-rule' },
+    { deps, now: 1_780_060_000_500 })).error, 'confirmation_busy');
   result = await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'continue' },
     { tab: { id: 11 } }, { deps, now: 1_780_060_001_000 });
   equal('combined confirmation advances both periods', result.state.nextThresholdSeconds, 3660);
   equal('combined confirmation advances weekly', result.state.weekly.nextThresholdSeconds, 3660);
+  equal('confirmed schedule releases waiting tabs', releasedWaiters, 1);
+  reset(); config = { restConfig: { firstReminderMinutes: null, weeklyFirstReminderMinutes: null },
+    autonomyConfig: { scheduleReminderIntervalMinutes: 30 } };
+  timingSession = { state: 'ACTIVE', quotaBucketAtTime: 'study', tabId: 11 };
+  activeTab.url = 'https://fixture.test/page';
+  const periodicSchedule = { ...schedule, managedTargetId: 'target-fixture' };
+  deps.getScheduleContext = async () => periodicSchedule;
+  scheduleGrant = { at: 1_780_060_000_000, host: 'fixture.test', managedTargetId: 'target-fixture' };
+  scheduleSegments = [{ channel: 'active', managedTargetId: 'target-fixture', durationSeconds: 1799 }];
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_061_800_000 });
+  equal('schedule below configured consumed time stays quiet', result.skipped, 'disabled');
+  scheduleSegments[0].durationSeconds = 1800;
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_061_800_000 });
+  equal('schedule reminder uses the existing prompt', result.prompt.confirmationKind, 'schedule_repeat');
+  equal('same evaluation produces only one schedule prompt', messages.filter(m => m.type === 'SHOW_REST_USAGE_REMINDER').length, 1);
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_061_800_500 });
+  equal('visible schedule prompt is not repeated', result.pending, true);
+  result = await module.handleRestUsageReminderAction({ token: result.state.prompt.token, action: 'continue' },
+    { tab: { id: 11 } }, { deps, now: 1_780_061_801_000 });
+  equal('schedule repeat confirms once', result.action, 'continue');
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_061_802_000 });
+  equal('continued schedule does not immediately loop', result.skipped, 'disabled');
+  reset(); config = { restConfig: { firstReminderMinutes: null, weeklyFirstReminderMinutes: null },
+    autonomyConfig: { scheduleReminderIntervalMinutes: 30 } };
+  timingSession = { state: 'ACTIVE', quotaBucketAtTime: 'study', tabId: 11 };
+  activeTab.url = 'https://fixture.test/page';
+  deps.getScheduleContext = async () => periodicSchedule;
+  scheduleGrant = { at: 1_780_060_000_000, host: 'fixture.test', managedTargetId: 'target-fixture' };
+  scheduleSegments = [{ channel: 'active', managedTargetId: 'target-fixture', durationSeconds: 1800 }];
+  usageReadError = new Error('fixture_quota_unavailable');
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_061_800_000 });
+  check('schedule review still displays when soft-quota read is unavailable', result.prompt?.schedule?.key === periodicSchedule.key && result.prompt.usageKnown === false);
+  reset(); config = { restConfig: { firstReminderMinutes: 1, weeklyFirstReminderMinutes: null },
+    autonomyConfig: { scheduleReminderIntervalMinutes: 30 } };
+  timingSession = { state: 'ACTIVE', quotaBucketAtTime: 'rest', tabId: 11 };
+  activeTab.url = 'https://fixture.test/page';
+  deps.getScheduleContext = async () => periodicSchedule;
+  scheduleGrant = { at: 1_780_060_000_000, host: 'fixture.test', managedTargetId: 'target-fixture' };
+  scheduleSegments = [{ channel: 'active', managedTargetId: 'target-fixture', durationSeconds: 1800 }];
+  usage = { ok: true, restSeconds: 60, weekRestSeconds: 60 };
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_061_800_000 });
+  check('simultaneous schedule and daily threshold share one prompt', result.prompt?.schedule?.key === periodicSchedule.key
+    && result.prompt.reminders.length === 1 && messages.filter(m => m.type === 'SHOW_REST_USAGE_REMINDER').length === 1);
+  result = await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'continue' },
+    { tab: { id: 11 } }, { deps, now: 1_780_061_801_000 });
+  equal('combined confirmation advances daily soft threshold', result.state.nextThresholdSeconds, 3660);
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_061_802_000 });
+  equal('combined confirmation does not immediately re-open either reason', result.skipped, 'below_threshold');
+  reset(); config = { restConfig: { firstReminderMinutes: null, weeklyFirstReminderMinutes: null },
+    autonomyConfig: { scheduleReminderIntervalMinutes: 30 } };
+  timingSession = { state: 'ACTIVE', quotaBucketAtTime: 'study', tabId: 11 };
+  activeTab.url = 'https://fixture.test/page';
+  deps.getScheduleContext = async () => periodicSchedule;
+  scheduleGrant = { at: 1_780_060_000_000, host: 'fixture.test', managedTargetId: 'target-fixture' };
+  scheduleSegments = [{ channel: 'active', managedTargetId: 'target-fixture', durationSeconds: 1800 }];
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_061_800_000 });
+  result = await module.evaluateRestUsageReminder({ deps, now: result.prompt.deadlineAt });
+  equal('periodic schedule timeout blocks current access', result.action, 'end');
+  equal('periodic schedule timeout revokes old grant', scheduleGrant, null);
+  reset(); config = { restConfig: { firstReminderMinutes: 1, weeklyFirstReminderMinutes: null },
+    autonomyConfig: { scheduleReminderIntervalMinutes: 30 } };
+  timingSession = { state: 'ACTIVE', quotaBucketAtTime: 'rest', tabId: 11 };
+  deps.getScheduleContext = async () => periodicSchedule;
+  scheduleGrant = { at: 1_780_060_000_000, host: 'fixture.test', managedTargetId: 'target-fixture' };
+  segmentReadError = true;
+  usage = { ok: true, restSeconds: 60, weekRestSeconds: 60 };
+  result = await module.evaluateRestUsageReminder({ deps, now: 1_780_061_800_000 });
+  check('schedule ledger read failure does not suppress daily reminder', result.prompt?.reminders?.[0]?.scope === 'daily' && !result.prompt.schedule);
+  reset(); config = { restConfig: { firstReminderMinutes: null, weeklyFirstReminderMinutes: null } };
+  result = await module.requestScheduleUsageConfirmation(schedule, { deps, now: 1_780_060_100_000 });
+  const timedOut = await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'continue' },
+    { tab: { id: 11 } }, { deps, now: result.prompt.deadlineAt });
+  equal('schedule timeout blocks current access', timedOut.action, 'end');
+  equal('schedule timeout clears waiting tabs', clearedWaiters, 2);
+  equal('schedule timeout does not release waiting tabs', releasedWaiters, 3);
+  result = await module.requestScheduleUsageConfirmation(schedule, { deps, now: 1_780_060_161_000 });
+  equal('new navigation can request confirmation after timeout', result.prompt?.schedule?.key, schedule.key);
   reset(); config = { restConfig: { firstReminderMinutes: null, weeklyFirstReminderMinutes: null } };
   deliveryMode = 'show_fail';
   result = await module.requestScheduleUsageConfirmation(schedule, { deps, now: failedAt });
@@ -431,6 +533,7 @@ async function main() {
   equal('stale schedule deadline removed', alarms.has(module.REST_USAGE_REMINDER_DEADLINE_ALARM), false);
   equal('stale schedule prompt removed', local.data[module.REST_USAGE_REMINDER_STATE_KEY].prompt, null);
   delete deps.getScheduleContext; delete deps.blockSchedule;
+  delete deps.releaseScheduleWaiters; delete deps.clearScheduleWaiters;
   reset(); config = { restConfig: { firstReminderMinutes: 1, weeklyFirstReminderMinutes: null } };
   usage = { ok: true, restSeconds: 60, weekRestSeconds: 60 }; deliveryMode = 'old_content';
   result = await module.evaluateRestUsageReminder({ deps, now: failedAt });
@@ -451,6 +554,19 @@ async function main() {
   equal('legacy evaluation suspended during shared runtime', (await module.evaluateRestUsageReminder({ deps })).skipped, 'shared_runtime_active');
   check('shared transition dismisses and restores media', messages.some(m => m.type === 'DISMISS_REST_USAGE_REMINDER' && m.token === 'migration-prompt')
     && messages.some(m => m.type === 'RESUME_REST_USAGE_MEDIA' && m.token === 'migration-prompt'));
+  reset(); config = { restConfig: { firstReminderMinutes: 1, weeklyFirstReminderMinutes: null },
+    autonomyConfig: { scheduleReminderIntervalMinutes: 30 } };
+  timingSession = { state: 'ACTIVE', quotaBucketAtTime: 'study', tabId: 11 };
+  activeTab.url = 'https://fixture.test/page';
+  deps.getScheduleContext = async () => periodicSchedule;
+  deps.blockSchedule = async () => ({ ok: true, blocked: true });
+  scheduleGrant = { at: Date.now() - 1800000, host: 'fixture.test', managedTargetId: 'target-fixture' };
+  scheduleSegments = [{ channel: 'active', managedTargetId: 'target-fixture', durationSeconds: 1800 }];
+  usage = { ok: true, restSeconds: 60, weekRestSeconds: 60 };
+  result = await module.evaluateRestUsageReminder({ deps, now: Date.now() });
+  check('Native shared mode still delivers schedule-only review', result.prompt?.schedule?.key === periodicSchedule.key && result.prompt.reminders.length === 0);
+  equal('Native transition does not discard visible schedule confirmation', (await module.suspendLegacyRestUsageReminder(true)).preservedSchedule, true);
+  await module.handleRestUsageReminderAction({ token: result.prompt.token, action: 'end' }, { tab: { id: 11 } }, { deps });
   await module.suspendLegacyRestUsageReminder(false);
 
   console.log(`rest-usage-reminder: ${passed} passed, ${failed} failed`);

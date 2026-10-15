@@ -10,6 +10,7 @@ const selected = source.statements.filter(n => ts.isFunctionDeclaration(n) && na
 assert.equal(selected.length, 3);
 const nodes = {};
 const context = vm.createContext({ config: {}, formatQuotaText: value => `${value}min`,
+  readForcedUsePolicy: () => ({ enabled: false }),
   document: { getElementById: id => nodes[id] ||= {} } });
 vm.runInContext(selected.map(n => n.getText(source)).join('\n'), context);
 for (const value of [undefined, 840, 1, 10080]) {
@@ -26,9 +27,10 @@ context.config = { restConfig: { firstReminderMinutes: null, weeklyFirstReminder
 context.renderAutonomySection();
 const output = Object.values(nodes).map(n => n.innerHTML || '').join('');
 assert(output.includes('强制模式'));
-context.config.autonomyConfig = { timeWindowAdvisoryEnabled: true, softReminderTimeoutAction: 'continue' };
+context.config.autonomyConfig = { timeWindowAdvisoryEnabled: true, softReminderTimeoutAction: 'continue', scheduleReminderIntervalMinutes: 45 };
 context.renderAutonomySection();
 assert(Object.values(nodes).some(node => node.innerHTML?.includes('建议模式：文字确认')));
+assert(Object.values(nodes).some(node => node.innerHTML?.includes('45分钟网页用量')));
 assert(Object.values(nodes).some(node => node.innerHTML?.includes('60秒未确认强制阻断')));
 assert.ok(output.includes('840min') && output.includes('本周休息软配额'));
 assert.ok(!/<(?:input|button|select)\b/.test(output));

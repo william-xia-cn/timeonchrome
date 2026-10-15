@@ -18,6 +18,15 @@ import { getEffectiveQuotaForDate } from './core/quota-config.js';
 import { runClassificationSyncEffects } from './core/classification-effective-boundary.js';
 import { createTimingAuditId } from './core/timing-trace.js';
 
+let forcedUsePromptRequester = null;
+let forcedUseGrantEnsurer = null;
+let forcedUseGrantRetirer = null;
+export function configureForcedUsePromptRequester(requester, ensureGrant = null, retireGrants = null) {
+  forcedUsePromptRequester = typeof requester === 'function' ? requester : null;
+  forcedUseGrantEnsurer = typeof ensureGrant === 'function' ? ensureGrant : null;
+  forcedUseGrantRetirer = typeof retireGrants === 'function' ? retireGrants : null;
+}
+
 const BORROW_ALLOWED_PATHS = new Set([
   '/reminder.html',
 ]);
@@ -638,6 +647,9 @@ async function dispatchModeEventFromRouter(event = {}, context = {}) {
   return await executeModeDecision(decision, {
     tabId: event.tabId ?? context.tabId ?? null,
     domain: decision.domain || event.domain || extractDomain(event.url || ''),
+    requestForcedUsePrompt: forcedUsePromptRequester,
+    ensureForcedUseGrant: forcedUseGrantEnsurer,
+    retireForcedUseGrants: forcedUseGrantRetirer,
     updateDeclarativeRules,
     event,
   });
@@ -767,6 +779,9 @@ async function handleModeChangeRequest(msg = {}) {
   const executed = await executeModeDecision(decision, {
     tabId: activeTab?.id ?? null,
     domain: originalTarget.domain || extractDomain(activeTab?.url || ''),
+    requestForcedUsePrompt: forcedUsePromptRequester,
+    ensureForcedUseGrant: forcedUseGrantEnsurer,
+    retireForcedUseGrants: forcedUseGrantRetirer,
     updateDeclarativeRules,
     event: modeEvent,
   });
@@ -882,6 +897,9 @@ async function handleEvaluateQuotaState(msg = {}) {
   const executed = await executeModeDecision(decision, {
     tabId: activeTab?.id ?? null,
     domain: extractDomain(activeTab?.url || ''),
+    requestForcedUsePrompt: forcedUsePromptRequester,
+    ensureForcedUseGrant: forcedUseGrantEnsurer,
+    retireForcedUseGrants: forcedUseGrantRetirer,
     updateDeclarativeRules,
     event: {
       ...modeEvent,

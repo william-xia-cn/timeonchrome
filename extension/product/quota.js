@@ -4,6 +4,8 @@ import { getConfig, saveConfig } from '../infra/storage.js';
 import { getQuotaUsageView } from '../stats/managed-statistics.js';
 import { getEffectiveQuotaForDate } from '../core/quota-config.js';
 import { readQuotaReadModelV2 } from '../core/quota-read-model-v2.js';
+import { readForcedUsePolicy } from '../core/forced-use-policy.js';
+import { buildForcedUseHardQuotaState } from '../core/forced-use-quota-facts.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { rememberQuotaEvaluation } from '../infra/diagnostic-evidence.js';
 import { isSharedAccessRuntimeEnabled, readSharedAccessRuntime, projectSharedRuntimeQuota } from './shared-access-runtime.js';
@@ -102,7 +104,8 @@ function emptyQuotaState(extra = {}) {
   };
 }
 
-async function evaluateQuotaStateV2(config, calendar, effectiveQuota, capturedUsage = null) {
+async function evaluateQuotaStateV2(config, calendar, effectiveQuota, capturedUsage = null,
+  { sharedRuntime = false } = {}) {
   const usage = capturedUsage || await getQuotaUsageForConfig(config, calendar.date);
   await chrome.storage.local.remove(CLOUD_QUOTA_STATE_FACT_KEY).catch(() => {});
   if (usage?.ok === false) {
@@ -126,11 +129,24 @@ async function evaluateQuotaStateV2(config, calendar, effectiveQuota, capturedUs
     };
   }
 
-  const newState = buildQuotaStateFromUsage(config, usage, calendar.date);
+  const forcedPolicy = sharedRuntime ? { enabled: false } : readForcedUsePolicy(config);
+  const forcedHard = forcedPolicy.enabled
+    ? buildForcedUseHardQuotaState(config, usage, forcedPolicy, { date: calendar.date })
+    : null;
+  if (forcedHard && !forcedHard.ok) {
+    const newState = emptyQuotaState({ accountingUnavailable: true });
+    const oldState = lastV2QuotaState || emptyQuotaState();
+    lastV2QuotaState = newState;
+    return { ok: true, accountingVersion: 2, accountingUnavailable: true,
+      error: forcedHard.reason, usage, calendar, localState: newState, cloudState: null,
+      oldState, newState, stateChanged: quotaStateChanged(newState, oldState),
+      lockedDomains: [], newlyLockedDomains: [], config };
+  }
+  const newState = forcedHard?.state || buildQuotaStateFromUsage(config, usage, calendar.date);
   const oldState = lastV2QuotaState || emptyQuotaState();
   const stateChanged = quotaStateChanged(newState, oldState);
   lastV2QuotaState = newState;
-  const lockedDomains = Object.entries(usage.domainSeconds || {})
+  const lockedDomains = forcedHard?.lockedDomains || Object.entries(usage.domainSeconds || {})
     .filter(([domain, value]) => {
       const limit = Number(config.domainQuotas?.[domain]);
       return Number.isFinite(limit) && limit > 0 && Math.floor(Number(value || 0) / 60) >= limit;
@@ -190,7 +206,8 @@ export async function evaluateQuotaState() {
     const sharedModel = await readSharedAccessRuntime(calendar.date);
     const projected = projectSharedRuntimeQuota(config, sharedModel, web?.ok ? web.usage : { ok: false }, calendar.date);
     const runtimeConfig = projected.config || { ...config, timeQuota: { ...config.timeQuota, accountingVersion: 2 } };
-    return { ...await evaluateQuotaStateV2(runtimeConfig, calendar, getEffectiveQuotaForDate(runtimeConfig, calendar.date), projected.usage),
+    return { ...await evaluateQuotaStateV2(runtimeConfig, calendar, getEffectiveQuotaForDate(runtimeConfig, calendar.date), projected.usage,
+      { sharedRuntime: true }),
       sharedRuntime: true, sharedModel: projected.ok ? sharedModel : null };
   }
   if (getQuotaAccountingVersion(config) === 2) {

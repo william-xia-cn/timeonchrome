@@ -63,7 +63,7 @@ test('manual mode message waits for website confirmation and preserves hard gate
     await page.screenshot({path:path.join(directory,'desktop.png')});
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:path.join(directory,'mobile.png')});
-    await page.getByRole('textbox',{name:'手动输入适合使用'}).fill('适合使用');
+    await page.getByRole('textbox',{name:'手动输入强行使用'}).fill('强行使用');
     await page.getByRole('button',{name:'确认继续',exact:true}).click();
     await expect(page.locator('#__toc_rest_usage_reminder__')).toHaveCount(0);
     await expect.poll(async () => (await read()).mode).toBe('rest');
@@ -81,7 +81,7 @@ test('manual mode message waits for website confirmation and preserves hard gate
     await probe.evaluate(id => chrome.runtime.sendMessage({type:'REQUEST_MODE_CHANGE',toMode:'rest',source:'reminder',noticeTabId:id}), tabId);
     await expect(page.getByRole('heading',{name:'当前不是合适的使用时间段'})).toBeVisible();
     expect(page.url()).toContain('http://127.0.0.1:');
-    await page.getByRole('textbox',{name:'手动输入适合使用'}).fill('适合使用');
+    await page.getByRole('textbox',{name:'手动输入强行使用'}).fill('强行使用');
     await page.getByRole('button',{name:'确认继续',exact:true}).click();
     await expect(page.locator('#__toc_rest_usage_reminder__')).toHaveCount(0);
     expect(changes(await read())).toBe(changes(baseline)+1);

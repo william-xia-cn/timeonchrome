@@ -245,28 +245,79 @@ section('SQL: parameterized queries (static analysis)');
 {
   const fs   = require('fs');
   const path = require('path');
+  const ts = require('typescript');
   const routesDir = path.resolve(__dirname, '../../workers/src/routes');
   const files = fs.readdirSync(routesDir).filter(f => f.endsWith('.ts'));
+
+  function unsafeSqlTemplates(src) {
+    const ast = ts.createSourceFile('route.ts', src, ts.ScriptTarget.Latest, true);
+    // Preserve this existing direct-call gate's scope; broader query builders have separate tests.
+    const checkedPositions = new Set([...src.matchAll(/env\.DB\.prepare\(`/g)].map((match) => match.index));
+    let trustedImport = false;
+    let shadowed = false;
+    const hasName = (name) => name && (ts.isIdentifier(name)
+      ? name.text === 'compositeSnapshotGuard'
+      : name.elements?.some((entry) => hasName(entry.name)));
+    function findBindings(node) {
+      if (ts.isImportDeclaration(node)) {
+        for (const entry of node.importClause?.namedBindings?.elements || []) {
+          if (entry.name.text !== 'compositeSnapshotGuard') continue;
+          if (!entry.propertyName && node.moduleSpecifier.text === '../services/compositePageCorrections') trustedImport = true;
+          else shadowed = true;
+        }
+      }
+      if ((ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isFunctionDeclaration(node)
+        || ts.isFunctionExpression(node) || ts.isClassDeclaration(node) || ts.isClassExpression(node))
+        && hasName(node.name)) shadowed = true;
+      ts.forEachChild(node, findBindings);
+    }
+    findBindings(ast);
+    const allowedGuard = (node) => trustedImport && !shadowed && ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression) && node.expression.text === 'compositeSnapshotGuard'
+      && node.arguments.length >= 1 && node.arguments.length <= 3
+      && ts.isStringLiteral(node.arguments[0]) && /^\?[1-9][0-9]*$/.test(node.arguments[0].text)
+      && node.arguments.slice(1).every((arg) => arg.kind === ts.SyntaxKind.TrueKeyword || arg.kind === ts.SyntaxKind.FalseKeyword);
+    const violations = [];
+    function visit(node) {
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+        && checkedPositions.has(node.getStart(ast))
+        && node.expression.name.text === 'prepare' && node.expression.expression.getText(ast) === 'env.DB') {
+        const sql = node.arguments[0];
+        if (sql && ts.isTemplateExpression(sql) && sql.templateSpans.some((span) => !allowedGuard(span.expression))) {
+          violations.push(ast.getLineAndCharacterOfPosition(sql.getStart(ast)).line + 1);
+        }
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(ast);
+    return violations;
+  }
 
   let violations = [];
 
   for (const file of files) {
     const src = fs.readFileSync(path.join(routesDir, file), 'utf8');
-    // Look for DB.prepare() calls — check none have template literals with variables
-    // Pattern: DB.prepare(`...${...}...`) is dangerous
-    const dangerPattern = /env\.DB\.prepare\(`[^`]*\$\{/g;
-    const matches = src.match(dangerPattern);
-    if (matches) {
-      violations.push(`${file}: ${matches.length} template-literal SQL(s)`);
-    }
+    const lines = unsafeSqlTemplates(src);
+    if (lines.length) violations.push(`${file}: unsafe SQL interpolation at ${lines.join(', ')}`);
   }
 
   check(
-    'no template-literal SQL in route files (all use .bind())',
+    'direct-template SQL gate permits only fixed bound snapshot guards',
     violations.length === 0,
     violations.join('; ') || 'clean'
   );
   check('all 8 route files scanned', files.length >= 7, `found ${files.length} files`);
+  const guardImport = "import { compositeSnapshotGuard } from '../services/compositePageCorrections';\n";
+  check('fixed snapshot guard with bound values is accepted', unsafeSqlTemplates(guardImport
+    + "env.DB.prepare(`SELECT ${compositeSnapshotGuard('?1', false, false)} AS valid`).bind(body);").length === 0);
+  for (const expression of ['body.value', 'buildSql(body)', "compositeSnapshotGuard(body.value)",
+    "compositeSnapshotGuard('?1 OR 1=1')", "compositeSnapshotGuard('?1', body.enabled)"]) {
+    check(`unsafe SQL expression rejected: ${expression}`, unsafeSqlTemplates(guardImport
+      + 'env.DB.prepare(`SELECT ${' + expression + '}`).bind(body);').length === 1);
+  }
+  check('unimported guard is rejected', unsafeSqlTemplates("env.DB.prepare(`SELECT ${compositeSnapshotGuard('?1')}`);").length === 1);
+  check('shadowed guard is rejected', unsafeSqlTemplates(guardImport
+    + "function route(compositeSnapshotGuard) { env.DB.prepare(`SELECT ${compositeSnapshotGuard('?1')}`); }").length === 1);
 }
 
 // ── Section 8: timeWindows derived online windows ────────────────────────────

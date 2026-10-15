@@ -25,7 +25,7 @@ test('actual shared Content markup supports typed input on desktop and narrow sc
   }, { presentation, branch });
   const show = await page.evaluate(() => window.deliver({ type: 'SHOW_SHARED_REMINDER', state: window.fixtureState, presentationId: 'presentation' }));
   expect(show.confirmationVersion).toBe(1);
-  const input = page.getByRole('textbox', { name: '手动输入适合使用' });
+  const input = page.getByRole('textbox', { name: '手动输入强行使用' });
   const confirm = page.getByRole('button', { name: '确认继续', exact: true });
   await expect(input).toBeDisabled();
   const activate = await page.evaluate(() => {
@@ -45,9 +45,9 @@ test('actual shared Content markup supports typed input on desktop and narrow sc
     expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
     await page.screenshot({ path: path.join(output, `${name}.png`) });
   }
-  await input.fill('适合使用'); await confirm.click();
+  await input.fill('强行使用'); await confirm.click();
   await expect(input).toHaveCount(0);
-  expect(await page.evaluate(() => window.actions.map(action => [action.payload.action, action.confirmationText]))).toEqual([['continue', '适合使用']]);
+  expect(await page.evaluate(() => window.actions.map(action => [action.payload.action, action.confirmationText]))).toEqual([['continue', '强行使用']]);
   fs.writeFileSync(path.join(output, 'evidence.json'), JSON.stringify({ kind: 'actual_content_dom_mock_runtime', realNative: false, realServiceWorker: false }));
   console.log('Shared typed DOM evidence: ' + output);
 });

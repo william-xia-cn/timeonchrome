@@ -6,6 +6,8 @@ import { initSharedReminderContentBridge } from './product/shared-reminder-conte
 import { initSharedAccessPolicyReader } from './infra/shared-access-policy-reader.js';
 import { initSharedQuotaExecutionReader } from './infra/shared-quota-execution-reader.js';
 import { initSharedWebContributionSync } from './infra/shared-web-contribution-sync.js';
+import { beginForcedUseContributionRecovery, initForcedUseContributionObserver, markDerivedIncomplete,
+  persistForcedUseGrantEvidence, closeForcedUseGrantEvidence } from './infra/forced-use-contribution-store.js';
 import { initSharedBrowserActivity } from './product/shared-browser-activity.js';
 import { dispatchTimingSignal, drainPendingModeBoundaries } from './core/timing-dispatcher.js';
 import { confirmForegroundPageCheckpoint, resolveUnknownDomainForSettlement } from './core/foreground-timing.js';
@@ -26,7 +28,7 @@ import { updateDeclarativeRules, reSendPendingNoticeDetailed, deliverPendingNoti
 import { handleModeEvent } from './product/mode-service.js';
 import { executeModeDecision, recordModeEffectTrace } from './product/mode-effects.js';
 import { hydrateCloudSyncStateFromStorage, initCloudSync, syncNow, sendHeartbeat, getSyncState } from './infra/cloud-sync.js';
-import { handleMessage } from './message-router.js';
+import { handleMessage, configureForcedUsePromptRequester } from './message-router.js';
 import { initFocusLedger, getFocusLedger, resetFocusLedger, exportCalibrationReport } from './debug/focus-ledger.js';
 import { getEvents, clearEvents } from './core/event-log.js';
 import { createTimingAuditId, emitTrace, getTrace, clearTrace } from './core/timing-trace.js';
@@ -41,15 +43,22 @@ import { getSiteClassificationSpecialTargets, resolveSiteAccessClassification } 
 import { getSiteClassificationRequestRecords } from './infra/storage.js';
 import { createDowntimeEnforcement } from './product/downtime-enforcement.js';
 import { scheduleConfirmationContext } from './core/autonomy-confirmation.js';
-import { revokeScheduleConfirmation, readScheduleConfirmationScope } from './product/schedule-confirmation.js';
+import { readScheduleConfirmationScope, releaseScheduleConfirmationWaiters, clearScheduleConfirmationWaiters } from './product/schedule-confirmation.js';
 import { getQuotaUsageForConfig, getQuotaAccountingVersion, buildQuotaStateFromUsage } from './product/quota.js';
 import { configureRestUsageReminder, evaluateRestUsageReminder as evaluateLegacyRestUsageReminder, handleRestUsageReminderAction, restoreRestUsageReminderForTab, suspendLegacyRestUsageReminder, REST_USAGE_REMINDER_DEADLINE_ALARM, REST_USAGE_REMINDER_RETRY_ALARM } from './product/rest-usage-reminder.js';
+import { createForcedUsePromptRuntime, FORCED_USE_PROMPT_DEADLINE_ALARM } from './product/forced-use-prompt.js';
+import { readForcedUsePolicy } from './core/forced-use-policy.js';
 import { isSharedAccessRuntimeEnabled } from './product/shared-access-runtime.js';
 import { pollSharedAccessIntegration, initSharedAccessIntegration } from './product/shared-access-integration.js';
 import { registerSharedSyncDiagnosticsReader } from './infra/shared-sync-diagnostics.js';
 registerSharedSyncDiagnosticsReader();
 
 async function evaluateRestUsageReminder(options) {
+  if (!isSharedAccessRuntimeEnabled() && readForcedUsePolicy(await getConfig()).enabled) {
+    await suspendLegacyRestUsageReminder(true).catch(() => {});
+    return { ok: true, skipped: 'forced_use_policy_active' };
+  }
+  if (!isSharedAccessRuntimeEnabled()) await suspendLegacyRestUsageReminder(false).catch(() => {});
   const result = await evaluateLegacyRestUsageReminder(options);
   return isSharedAccessRuntimeEnabled() && result?.skipped === 'shared_runtime_active' ? pollSharedAccessIntegration() : result;
 }
@@ -61,6 +70,7 @@ initSharedReminderContentBridge();
 initSharedAccessPolicyReader();
 initSharedQuotaExecutionReader();
 initSharedWebContributionSync();
+initForcedUseContributionObserver();
 initSharedBrowserActivity();
 
 let badgeUpdateQueue = Promise.resolve();
@@ -91,6 +101,41 @@ const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
   ? logFallbackEventBestEffort
   : () => {};
 
+const forcedUsePrompt = createForcedUsePromptRuntime({
+  api: chrome,
+  storage: { get: key => chrome.storage.session.get(key),
+    set: values => budgetedSessionSet(values, { priority: 'critical', source: 'forced_use_prompt' }) },
+  recheck: async prompt => {
+    if (prompt.admission.identityKey !== await readScheduleConfirmationScope()) return { action: 'block' };
+    const tab = await chrome.tabs.get(prompt.tabId).catch(() => null);
+    if (!tab?.url || !/^https?:\/\//i.test(tab.url)
+      || new URL(tab.url).hostname !== prompt.host) return { action: 'block' };
+    const decision = await handleModeEvent({ type: 'ACCESS_OBSERVED', tabId: tab.id, url: tab.url,
+      foreground: tab.active === true, source: 'forced_use_confirmation_recheck',
+      monitoringEnabled: getSyncState().monitoringEnabled });
+    return decision?.access === 'forced_confirmation' ? decision.forcedAdmission : { action: 'block' };
+  },
+  onAccepted: async () => ({ ok: true }),
+  persistGrant: grant => persistForcedUseGrantEvidence(grant),
+  closeGrants: (host, endedAt) => closeForcedUseGrantEvidence(host, endedAt),
+  block: async (prompt, reason) => {
+    const tab = await chrome.tabs.get(prompt.tabId).catch(() => null);
+    if (!tab?.url || !/^https?:\/\//i.test(tab.url)
+      || new URL(tab.url).hostname !== prompt.host) return { ok: true, skipped: 'target_changed' };
+    await redirectToReminder(tab.id, prompt.host, 'forced_use_confirmation_blocked', null,
+      { confirmationFailure: reason, targetUrl: tab.url });
+    return { ok: true };
+  },
+});
+const retireForcedUseGrants = async host => {
+  const result = await forcedUsePrompt.retireGrantsForHost(host).catch(() => ({ ok: false }));
+  if (result?.ok !== true) await markDerivedIncomplete({ irrecoverable: true });
+  return result;
+};
+configureForcedUsePromptRequester(input => forcedUsePrompt.request(input),
+  (admission, host) => forcedUsePrompt.ensureGrantForHost(admission, host), retireForcedUseGrants);
+void forcedUsePrompt.recover().catch(() => {});
+
 configureRestUsageReminder({
   getConfig,
   getDateKey,
@@ -102,8 +147,11 @@ configureRestUsageReminder({
     const config = await getConfig();
     const records = await getSiteClassificationRequestRecords({ includeAll: true });
     const classification = resolveSiteAccessClassification(config, records, { url: tab.url,
-      specialSiteTargets: getTabSpecialSiteTargets(tab.id, tab.url) }).classification;
-    return scheduleConfirmationContext(config, classification, tabId, tab.url);
+      specialSiteTargets: getTabSpecialSiteTargets(tab.id, tab.url) });
+    const context = scheduleConfirmationContext(config, classification.classification, tabId, tab.url, Date.now(), classification);
+    if (!context) return null;
+    const target = resolveManagedTargetAttribution(config, records, tab.url);
+    return { ...context, managedTargetId: target?.managedTargetId || null };
   },
   blockSchedule: async ({ prompt, reason }) => {
     if (prompt.identityScope !== await readScheduleConfirmationScope()) return { ok: true, skipped: 'identity_changed' };
@@ -112,6 +160,8 @@ configureRestUsageReminder({
     return dispatchModeEvent({ type: 'ACCESS_OBSERVED', tabId: tab.id, url: tab.url, foreground: tab.active === true,
       source: 'schedule_confirmation_end', forceScheduleBlock: true, confirmationFailure: reason });
   },
+  releaseScheduleWaiters: releaseScheduleConfirmationWaiters,
+  clearScheduleWaiters: clearScheduleConfirmationWaiters,
   canContinueRest: async ({ prompt }) => {
     const tab = await chrome.tabs.get(prompt.sourceTabId).catch(() => null);
     if (!tab?.url) return false;
@@ -124,7 +174,10 @@ configureRestUsageReminder({
       setTimeout(() => reevaluateTabById(tab.id, { source: 'after_soft_confirmation' }).catch(() => {}), 0);
       return true;
     }
-    const result = await executeModeDecision(decision, { tabId: tab.id, event, domain: extractDomain(tab.url), updateDeclarativeRules });
+    const result = await executeModeDecision(decision, { tabId: tab.id, event, domain: extractDomain(tab.url),
+      updateDeclarativeRules, requestForcedUsePrompt: input => forcedUsePrompt.request(input),
+      ensureForcedUseGrant: (admission, host) => forcedUsePrompt.ensureGrantForHost(admission, host),
+      retireForcedUseGrants });
     return result?.ok !== false && result?.blocked !== true;
   },
   endRestUsage: async ({ prompt, reason }) => {
@@ -164,7 +217,6 @@ const downtimeEnforcement = createDowntimeEnforcement({
     module: 'product/downtime-enforcement', reason: code, message: '停用时间页面复核暂未完成，将在下次检查重试。' }),
 });
 downtimeEnforcement.register();
-chrome.tabs.onRemoved.addListener(tabId => { revokeScheduleConfirmation(tabId).catch(() => {}); });
 
 configureLocalGuardianStateProvider(() => ({
   bootstrapState: localGuardianBootstrapState,
@@ -220,6 +272,8 @@ async function bootstrapServiceWorker(reason) {
   try {
     await runSessionStorageMaintenance({ reason: `bootstrap:${reason}` }).catch(() => null);
     await initSession();
+    const forcedUseRecovery = await beginForcedUseContributionRecovery().catch(() => ({ ok: false }));
+    if (forcedUseRecovery?.ok !== true) await markDerivedIncomplete();
     await hydrateCloudSyncStateFromStorage();
     await refreshPrivacyConsentCache();
     await setupAlarms();
@@ -367,6 +421,9 @@ async function dispatchModeEvent(event = {}, options = {}) {
   const result = await executeModeDecision(decision, {
     tabId: event.tabId,
     domain: decision.domain || event.domain || extractDomain(event.url || ''),
+    requestForcedUsePrompt: input => forcedUsePrompt.request(input),
+    ensureForcedUseGrant: (admission, host) => forcedUsePrompt.ensureGrantForHost(admission, host),
+    retireForcedUseGrants,
     updateDeclarativeRules,
     event: { ...event, auditId },
     drainModeBoundary: options.drainModeBoundary === false
@@ -464,6 +521,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await drainUsageSettlementJournal();
   await recoverMediaSessionsOnLifecycle(Date.now(), 'onStartup');
   await recover();
+  await forcedUsePrompt.recover().catch(() => {});
   await resetDailyLockedDomains(true);
   await initCloudSync(() => syncNowWithRuntimeEffects({}, 'onStartup_cloud_sync'));
 });
@@ -1365,6 +1423,16 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         message: err?.message || 'Rest usage reminder evaluation failed',
       });
     });
+    if (!isSharedAccessRuntimeEnabled() && readForcedUsePolicy(await getConfig()).enabled) {
+      const focused = await chrome.windows.getLastFocused().catch(() => null);
+      if (focused?.focused && focused.id !== chrome.windows.WINDOW_ID_NONE) {
+        const tabs = await chrome.tabs.query({ active: true, windowId: focused.id }).catch(() => []);
+        if (tabs?.[0]?.id != null) await reevaluateTabById(tabs[0].id,
+          { source: 'forced_use_periodic_review' }).catch(() => {});
+      }
+    }
+  } else if (alarm.name === FORCED_USE_PROMPT_DEADLINE_ALARM) {
+    await forcedUsePrompt.checkDeadline().catch(() => {});
   } else if (alarm.name === REST_USAGE_REMINDER_DEADLINE_ALARM) {
     await evaluateRestUsageReminder({ reason: 'deadline_alarm' }).catch(() => {});
   } else if (alarm.name === REST_USAGE_REMINDER_RETRY_ALARM) {
@@ -1814,6 +1882,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const result = await handleRestUsageReminderAction(msg, sender);
       sendResponse(result);
     })().catch((err) => sendResponse({ ok: false, error: err?.message || String(err) }));
+    return true;
+  }
+
+  if (msg.type === 'FORCED_USE_REMINDER_ACTION') {
+    forcedUsePrompt.handleAction(msg, sender).then((result) => {
+      sendResponse(result);
+      if (result?.action === 'continue' && sender?.tab?.id != null) {
+        setTimeout(() => reevaluateTabById(sender.tab.id,
+          { source: 'forced_use_confirmed' }).catch(() => {}), 0);
+      }
+    }).catch(() => sendResponse({ ok: false, error: 'forced_use_action_failed' }));
     return true;
   }
 

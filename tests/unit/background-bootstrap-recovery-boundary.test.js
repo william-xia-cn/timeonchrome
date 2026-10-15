@@ -33,6 +33,11 @@ const onInstalledBody = onInstalledIndex >= 0 && nextSectionIndex > onInstalledI
 
 check('module bootstrap initializes session', /await initSession\(\)/.test(bootstrapBody));
 check('module bootstrap maintains session storage before initializing session', bootstrapBody.indexOf('runSessionStorageMaintenance') >= 0 && bootstrapBody.indexOf('runSessionStorageMaintenance') < bootstrapBody.indexOf('await initSession()'));
+check('forced-use evidence recovery completes before new foreground timing',
+  /await beginForcedUseContributionRecovery\(\)/.test(bootstrapBody)
+  && bootstrapBody.indexOf('await initSession()') < bootstrapBody.indexOf('await beginForcedUseContributionRecovery()')
+  && bootstrapBody.indexOf('await beginForcedUseContributionRecovery()') < bootstrapBody.indexOf('await hydrateCloudSyncStateFromStorage()')
+  && source.indexOf("ensureBootstrapped('module-load')") < source.indexOf("bootstrapActiveTabTiming('bootstrap_active_tab')"));
 check('module bootstrap hydrates cloud sync state without waiting for alarm', /await hydrateCloudSyncStateFromStorage\(\)/.test(bootstrapBody));
 check('module bootstrap waits for alarm preservation check', /await setupAlarms\(\)/.test(bootstrapBody));
 check('alarm setup reads existing alarms before creating replacements', /async function ensureAlarm[\s\S]{0,260}await chrome\.alarms\.get\(name\)[\s\S]{0,320}await chrome\.alarms\.create\(name, \{ periodInMinutes \}\)/.test(source));

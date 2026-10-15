@@ -261,6 +261,26 @@ this.__exports = {
     expectTrue('reminder URL does not carry hash fragment', !effects.tabUpdates[0]?.payload?.url?.includes('private'));
   }
 
+  section('IMT-2a concurrent schedule confirmation waits and rechecks a resolved grant');
+  {
+    let registered = false, resumed = false, released = false;
+    let effects;
+    effects = loadEffects({
+      requestScheduleUsageConfirmation: async () => ({ ok: true, pendingElsewhere: true }),
+      registerScheduleConfirmationWaiter: async (_context, targetUrl) => { registered = targetUrl === 'https://example.com/watch'; return true; },
+      hasScheduleConfirmation: async () => effects.tabUpdates.length > 0,
+      resumeScheduleConfirmationWaiter: async () => { resumed = effects.tabUpdates.length > 0; return true; },
+      releaseScheduleConfirmationWaiters: async () => { released = effects.tabUpdates.length > 0; },
+    });
+    const result = await effects.executeModeDecision({ ok: true, access: 'confirmation', confirmation: {
+      tabId: 9, host: 'example.com', mode: 'rest', key: 'same-rule-gap',
+    } }, { tabId: 9, domain: 'example.com', event: { url: 'https://example.com/watch' } });
+    expectTrue('waiting tab is blocked while another tab confirms', result.blocked === true && result.reminderSent === true);
+    expectTrue('waiting URL registered before a grant may be released', registered);
+    expectTrue('grant is rechecked after redirect even if the waiter was consumed', resumed && released);
+    expectTrue('waiting tab uses explicit pending reason', effects.tabUpdates[0]?.payload?.url?.includes('confirmationFailure=pending_elsewhere'));
+  }
+
   section('IMT-2b reminder targetUrl only allows http/https');
   {
     const effects = loadEffects();

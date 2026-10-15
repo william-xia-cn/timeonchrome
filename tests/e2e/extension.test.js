@@ -193,7 +193,7 @@ test('T-E4: reminder.html quota_rest shows study return and details without borr
 
 // ── T-E5: reminder.html — unsafe ─────────────────────────────────────────────
 
-test('T-E5: reminder.html unsafe shows ONLY back button', async () => {
+test('T-E5: reminder.html unsafe shows ONLY close-tab button', async () => {
   const page = await openExtensionPage('reminder.html?reason=unsafe&domain=tiktok.com');
 
   // Title shows blocked message
@@ -208,7 +208,7 @@ test('T-E5: reminder.html unsafe shows ONLY back button', async () => {
   const buttons = await page.locator('#actions .btn').count();
   expect(buttons).toBe(1);
   const btnText = await page.locator('#actions .btn').first().textContent();
-  expect(btnText).toContain('返回');
+  expect(btnText).toContain('关闭此标签页');
 
   await page.close();
 });
@@ -531,11 +531,10 @@ test('T-E12c: Study → Composite light prompt appears when activating existing 
   // transient UI first so slower trace reads cannot miss its 4s visible window.
   await expect(bannerHost).toBeAttached({ timeout: 10000 });
 
-  const sessionAfterActivation = await sw.evaluate(async () => {
+  await expect.poll(() => sw.evaluate(async () => {
     const data = await chrome.storage.local.get('guardian_session');
-    return data.guardian_session || null;
-  });
-  expect(sessionAfterActivation?.currentMode).toBe('composite');
+    return data.guardian_session?.currentMode;
+  }), { timeout: 5000 }).toBe('composite');
 
   // Verify banner text.
   const bannerText = await compositePage.evaluate(() => {
@@ -599,7 +598,7 @@ test('T-E13: Rest soft-limit prompt starts countdown only after visible activati
     deadlineAt,
   }, { frameId: 0 }), { tabId: activation.tabId, token, deadlineAt });
   expect(activated?.visible).toBe(true);
-  await expect(page.locator('#toc-rest-reminder-countdown')).toContainText('后将自动结束休息');
+  await expect(page.locator('#toc-rest-reminder-countdown')).toContainText('后将强制阻断');
   await expect(page.locator('#toc-rest-reminder-end')).toBeEnabled();
 
   const dismissed = await sw.evaluate(async ({ tabId, token }) => chrome.tabs.sendMessage(tabId, {
