@@ -16,6 +16,8 @@ Windows 2.6.57 本机统计已从原账同行固定应用身份读取；现有�
 
 本批源码验证：契约1.50.0 build、兼容及usage-account回归通过；Worker直接接收发布读取87/87、typecheck及Wrangler4.127.1本地dry-run通过；现有页面时间适配器11/11通过。两份Native实际生成的脱敏合成载荷（3秒partial/0秒complete）经真实接收入口、发布及页面适配后，全部日/小时/分类/应用行、ApplicationUsage和清单hash保持一致。仅鉴权测试外壳短user映射为HTTP要求的合法脱敏来源，清单未改。0024源码只扩展现有表触发器兼容并防止切换来源旧高修订回流，无新增数据表或数据清理，尚未生产执行；Native最终56项专项通过，部署安装及真实现场端云一致性仍未验收。
 
+CI补充：PR283同步master后范围检查与页面通过，Worker336项中334通过、两项能力响应精确断言未包含新算法/能力。只同步Windows/macOS鉴权测试的预期能力列表，不改产品逻辑；对应测试另行复验，不把首次CI失败隐去。
+
 ## 2026-10-15 Chrome窗口接线补齐（2.6.54已安装，新身份/既有特殊属性/端云读取通过）
 
 最终本批实证覆盖下方待核状态：PO另行批准一次v2只读UAC后成功，SQLite52ms/20秒预算；4点新Chrome Service事实元数据全部identified/guard且捕获代际完整。实际安装54解释器确认旧键选择成立、同孩子配置376、confirmed产品映射1、specialApplication=true，无分类/已解析规则故合法unclassified，无解释错误。Chrome对象revision3及当日Native投影revision38 hash、所绑base hash/received与精确ACK均通过。原账/配置/源码未改；原v1失败文件保持，没有自动重试。
