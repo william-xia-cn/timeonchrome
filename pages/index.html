@@ -537,9 +537,19 @@
     .downtime-settings { padding: 18px 0; }
     .forced-use-limits { padding: 0 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
     .forced-use-overrun-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px; margin: 14px 0; }
-    .force-limit-row { display: grid; grid-template-columns: minmax(130px, 1fr) auto 110px; align-items: center; gap: 10px; min-width: 0; }
+    .autonomy-settings { max-width: 1020px; }
+    .autonomy-setting { padding: 20px 0; border-bottom: 1px solid var(--border); }
+    .autonomy-setting h3 { margin: 0 0 10px; font-size: 16px; }
+    .autonomy-setting label:not(.toggle) { font-size: 13px; font-weight: 600; }
+    .autonomy-setting p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .autonomy-setting .autonomy-control-row { margin: 0; }
+    .autonomy-interval { display: flex; align-items: center; gap: 8px; flex: none; }
+    .autonomy-boundary { margin: 18px 0 10px; font-size: 13px; }
+    .force-limit-row { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(0, 140px) 30px; align-items: center; gap: 8px; min-width: 0; }
     .force-limit-row select, #forced-use-advisory-mode { min-height: 38px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text); }
-    .force-limit-row input { width: 100%; min-width: 0; }
+    .force-limit-row input { width: 100%; min-width: 0; height: 38px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: white; color: var(--text); font-size: 13px; }
+    .force-limit-row input:disabled { opacity: .55; background: transparent; }
+    .force-limit-row span { font-size: 12px; color: var(--muted); }
     .forced-hidden { display: none !important; }
     .downtime-settings h3 { font-size: 16px; margin: 20px 0 12px; }
     .downtime-settings fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
@@ -964,8 +974,11 @@
       .rest-reminder-fields { grid-template-columns: 1fr; }
       .autonomy-summary-grid, .autonomy-guardrails, .notification-summary-grid { grid-template-columns: 1fr; }
       .autonomy-control-row { flex-direction: column; }
+      .autonomy-setting .autonomy-control-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; }
+      .autonomy-setting .autonomy-interval { flex-wrap: wrap; justify-content: flex-end; max-width: 112px; }
+      .autonomy-setting .autonomy-minute-input { width: 76px; }
       .forced-use-overrun-fields { grid-template-columns: 1fr; }
-      .force-limit-row { grid-template-columns: minmax(0, 1fr) 110px 88px; }
+      .force-limit-row { grid-template-columns: minmax(0, 1fr) 130px 30px; }
       .autonomy-segmented { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .notification-channel-row, .notification-channel-fields { grid-template-columns: 1fr; }
       .notification-channel-fields .btn-add { width: 100%; min-height: 44px; }
@@ -1194,9 +1207,9 @@
         </div>
         <div class="tabs" id="access-management-tabs" aria-label="访问管理功能" style="margin-bottom:16px;">
           <button class="tab-btn active" data-rules-management-tab="quota">时间配额</button>
-          <button class="tab-btn" data-rules-management-tab="autonomy">自主度配置</button>
           <button class="tab-btn" data-rules-management-tab="schedule">时间段管理</button>
-          <button class="tab-btn" data-rules-management-tab="downtime">强制限制</button>
+          <button class="tab-btn" data-rules-management-tab="downtime">停用时间</button>
+          <button class="tab-btn" data-rules-management-tab="autonomy">自主度配置</button>
           <button class="tab-btn" data-rules-management-tab="config-files">配置文件</button>
         </div>
 
@@ -1343,14 +1356,14 @@
                 <div class="weekly-rest-stat"><div class="weekly-rest-stat-label">本周配额剩余</div><div class="weekly-rest-stat-value" id="weekly-rest-remaining">--</div></div>
                 <div class="weekly-rest-stat"><div class="weekly-rest-stat-label">状态</div><div class="weekly-rest-stat-value" id="weekly-rest-status">读取中</div></div>
               </div>
-              <div class="weekly-rest-impact" id="weekly-rest-impact">本周已发生的使用会计入配额；达到后按当前自主度与强制限制执行。</div>
+              <div class="weekly-rest-impact" id="weekly-rest-impact">本周已发生的使用会计入配额；超额行为在“自主度配置”设置。</div>
               <div class="weekly-rest-meta" style="margin-top:8px;">每周一 00:00（北京时间）重置</div>
             </div>
           </div>
         </div>
         <div class="card">
           <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">每日配额</div><div class="card-subtitle">设置当天学习、休息、复合与待归类、在线总额的标准配额；是否可超额由“强制限制”决定</div></div>
+            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/online-time.svg" alt="">每日配额</div><div class="card-subtitle">设置当天学习、休息、复合与待归类、在线总额的标准配额；是否可超额在“自主度配置”设置</div></div>
           </div>
           <div id="quota-daily-table"></div>
         </div>
@@ -1364,7 +1377,7 @@
           </div>
         </div>
         <div class="card">
-          <div class="card-header"><div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/current-site.svg" alt="">单站点配额</div><div class="card-subtitle">为特定网站设置当日标准配额；最终阻断点在“强制限制”设置</div></div></div>
+          <div class="card-header"><div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/current-site.svg" alt="">单站点配额</div><div class="card-subtitle">为特定网站设置当日标准配额；最大允许超额在“自主度配置”设置</div></div></div>
           <div class="domain-input-row">
             <input type="text" id="q-domain-input" placeholder="域名，如 bilibili.com">
             <input type="number" id="q-minutes-input" placeholder="分钟" style="width:90px;flex:none;background:rgba(0,184,148,0.04);border:1px solid var(--border);border-radius:9px;padding:9px 12px;color:var(--text);font-size:13px;outline:none;">
@@ -1377,55 +1390,29 @@
 
       <!-- 自主度配置 -->
       <section class="rules-management-panel" data-rules-management-panel="autonomy">
-        <div class="card" id="forced-use-autonomy-card">
-          <div class="card-header"><div><div class="card-title">强行使用提醒</div><div class="card-subtitle">达到标准配额或进入建议时段时，手动输入“强行使用”确认；后续按实际新增强行使用时长统一提醒。</div></div></div>
+        <div class="autonomy-settings" id="forced-use-autonomy-card">
+          <section class="autonomy-setting"><div class="autonomy-control-row">
+            <div class="autonomy-control-copy"><h3>正常进入休息网站</h3><label for="a-restricted-entry-confirmation">进入前需要确认</label><p>时间段允许且未超配额时生效；关闭后直接进入并显示短提示。</p></div>
+            <label class="toggle" title="进入前需要确认"><input type="checkbox" id="a-restricted-entry-confirmation" aria-label="进入前需要确认"><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+          </div></section>
+          <section class="autonomy-setting"><div class="autonomy-control-row">
+            <div class="autonomy-control-copy"><h3>限制时段内使用</h3><label for="a-time-window-advisory">允许确认后进入</label><p>开启后输入“强行使用”进入，关闭则阻断。不设时间段累计使用上限。</p></div>
+            <label class="toggle" title="限制时段允许确认后进入"><input type="checkbox" id="a-time-window-advisory" aria-label="限制时段允许确认后进入"><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+          </div></section>
+          <section class="autonomy-setting"><div class="autonomy-control-row">
+            <div class="autonomy-control-copy"><h3>超出时间配额使用</h3><label for="a-quota-overrun-confirmation">允许确认后继续</label><p>关闭则达到标准配额立即阻断；开启后可确认继续，直至达到最大允许超额。</p></div>
+            <label class="toggle" title="超配额允许确认后继续"><input type="checkbox" id="a-quota-overrun-confirmation" aria-label="超配额允许确认后继续"><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+          </div>
+            <div class="autonomy-control-note">最大允许超额：0分钟表示到线阻断；无限制表示持续提醒、不因超额累计阻断。只针对时间配额。</div>
+            <div id="forced-use-overrun-fields" class="forced-use-overrun-fields"></div>
+            <datalist id="force-overrun-options"><option value="无限制"></option><option value="0"></option><option value="30"></option><option value="60"></option><option value="120"></option></datalist>
+          </section>
+          <section class="autonomy-setting"><div class="autonomy-control-row">
+            <div class="autonomy-control-copy"><h3>强行使用提醒</h3><label for="a-forced-use-interval">再次提醒间隔</label><p>时间段与超配额共用，按实际新增强行使用时长提醒；同时触发只确认一次。</p></div>
+            <div class="autonomy-interval"><input class="autonomy-minute-input" type="number" id="a-forced-use-interval" min="1" max="1440" step="1" inputmode="numeric" value="30"><span>分钟</span></div>
+          </div><p class="autonomy-control-note">60秒未确认阻断当前访问，重新访问可再次申请。</p></section>
+          <p class="autonomy-boundary">黑名单、停用时间及时间配额最终阻断点始终优先。</p>
           <p id="autonomy-config-status" class="weekly-rest-meta" role="status"></p>
-          <div class="autonomy-control-row"><div class="autonomy-control-copy"><label class="autonomy-control-title" for="a-forced-use-interval">强行使用提醒间隔</label></div><div><input class="autonomy-minute-input" type="number" id="a-forced-use-interval" min="1" max="1440" step="1" inputmode="numeric" value="30"> 分钟</div></div>
-          <div class="weekly-rest-meta">配额与时间窗共用这一个提醒间隔；同时触发只确认一次。60秒未手动输入确认，将阻断当前访问，重新访问可再次申请。提醒次数不决定最终阻断。</div>
-        </div>
-        <div class="card">
-          <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/rules.svg" alt="">配置效果</div><div class="card-subtitle">标准配额在“时间配额”设置；最终阻断点在“强制限制”独立设置</div></div>
-          </div>
-          <div class="autonomy-summary-grid" id="autonomy-summary">
-            <div class="autonomy-summary-item"><div class="autonomy-summary-label">进入受限内容</div><div class="autonomy-summary-value" id="autonomy-summary-entry">需要确认</div></div>
-            <div class="autonomy-summary-item"><div class="autonomy-summary-label" id="autonomy-summary-reminder-label">强行使用提醒</div><div class="autonomy-summary-value" id="autonomy-summary-reminder">每新增30分钟</div></div>
-            <div class="autonomy-summary-item"><div class="autonomy-summary-label">无人响应</div><div class="autonomy-summary-value" id="autonomy-summary-timeout">结束休息</div></div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="autonomy-control-row">
-            <div class="autonomy-control-copy"><div class="autonomy-control-title">时间段自主控制</div><div class="autonomy-control-note">开启后，学习、复合、待归类及受限娱乐在允许时段外可输入“强行使用”申请继续；关闭则直接阻断。再次提醒使用上方统一间隔，最终上限在“强制限制”设置。</div></div>
-            <label class="toggle" title="时间段自主控制"><input type="checkbox" id="a-time-window-advisory"><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/restricted.svg" alt="">进入受限娱乐网站</div><div class="card-subtitle">时间窗内沿用进入确认；时间窗外开启自主控制时使用文字确认</div></div>
-          </div>
-          <div class="autonomy-control-row">
-            <div class="autonomy-control-copy">
-              <div class="autonomy-control-title">进入休息内容前需要确认</div>
-              <div class="autonomy-control-note">开启后使用完整确认页；关闭后直接进入休息时间，并显示短暂状态提示。</div>
-            </div>
-            <label class="toggle" title="切换进入受限内容确认">
-              <input type="checkbox" id="a-restricted-entry-confirmation">
-              <span class="toggle-track"></span><span class="toggle-thumb"></span>
-            </label>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div><div class="card-title"><img class="toc-ui-icon small" src="assets/icons/blocked.svg" alt="">始终强制执行</div><div class="card-subtitle">以下规则不受自主度配置影响</div></div>
-          </div>
-          <div class="autonomy-guardrails">
-            <div class="autonomy-guardrail">黑名单网站始终阻止访问</div>
-            <div class="autonomy-guardrail">停用时间始终强制执行</div>
-            <div class="autonomy-guardrail" id="autonomy-quota-guardrail">日／周最终阻断点按“强制限制”执行</div>
-            <div class="autonomy-guardrail" id="autonomy-site-guardrail">单站点最终阻断点按“强制限制”执行</div>
-          </div>
         </div>
         <div class="save-bar"><button class="btn-save" id="save-autonomy-btn">保存自主度配置</button></div>
       </section>
@@ -1446,17 +1433,6 @@
       </section>
 
       <section class="rules-management-panel downtime-settings" data-rules-management-panel="downtime">
-        <section class="forced-use-limits" aria-labelledby="forced-use-limits-heading">
-          <h3 id="forced-use-limits-heading">按用量最终阻断</h3>
-          <p id="forced-use-limits-status" class="weekly-rest-meta">统一机制未启用，现有配额到线后仍按原规则阻断。</p>
-          <div id="forced-use-overrun-fields" class="forced-use-overrun-fields"></div>
-          <div class="autonomy-control-row">
-            <label for="forced-use-advisory-max">建议时段当日强行使用上限</label>
-            <div><select id="forced-use-advisory-mode" aria-label="建议时段最终限制方式"><option value="unlimited">无限制</option><option value="limited">设定上限</option></select>
-              <input class="autonomy-minute-input" type="number" id="forced-use-advisory-max" min="1" max="1440" step="1" inputmode="numeric" value="60"> 分钟</div>
-          </div>
-          <div class="save-bar"><button class="btn-save" id="save-forced-use-limits-btn" type="button">保存用量最终限制</button></div>
-        </section>
         <h3>按时钟停用</h3>
         <div class="autonomy-control-row">
           <div><h3 style="margin-top:0">启用停用时间</h3><div id="downtime-config-status" class="weekly-rest-meta">配置未启用</div></div>
@@ -4470,6 +4446,7 @@ function buildProfileConfigExportData(classificationRequests = [], notificationS
       },
       autonomyConfig: {
         restrictedEntryConfirmationRequired: cfg.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
+        quotaOverrunConfirmationRequired: cfg.autonomyConfig?.quotaOverrunConfirmationRequired !== false,
         timeWindowAdvisoryEnabled: cfg.autonomyConfig?.timeWindowAdvisoryEnabled === true,
         scheduleReminderIntervalMinutes: cfg.autonomyConfig?.scheduleReminderIntervalMinutes ?? 30,
         softReminderTimeoutAction: 'end_rest',
@@ -4863,6 +4840,9 @@ function normalizeProfileConfigImportData(data) {
   const importedAutonomy = data.quota?.autonomyConfig && typeof data.quota.autonomyConfig === 'object'
     ? data.quota.autonomyConfig
     : {};
+  if (Object.hasOwn(importedAutonomy, 'quotaOverrunConfirmationRequired') && typeof importedAutonomy.quotaOverrunConfirmationRequired !== 'boolean') {
+    throw new Error('超配额允许确认必须是布尔值');
+  }
   if (Object.hasOwn(importedAutonomy, 'timeWindowAdvisoryEnabled') && typeof importedAutonomy.timeWindowAdvisoryEnabled !== 'boolean') {
     throw new Error('时间段自主控制必须是布尔值');
   }
@@ -4899,6 +4879,7 @@ function normalizeProfileConfigImportData(data) {
     },
     autonomyConfig: {
       restrictedEntryConfirmationRequired: importedAutonomy.restrictedEntryConfirmationRequired !== false,
+      quotaOverrunConfirmationRequired: Object.hasOwn(importedAutonomy, 'quotaOverrunConfirmationRequired') ? importedAutonomy.quotaOverrunConfirmationRequired : undefined,
       timeWindowAdvisoryEnabled: Object.hasOwn(importedAutonomy, 'timeWindowAdvisoryEnabled') ? importedAutonomy.timeWindowAdvisoryEnabled : undefined,
       scheduleReminderIntervalMinutes: Object.hasOwn(importedAutonomy, 'scheduleReminderIntervalMinutes') ? importedAutonomy.scheduleReminderIntervalMinutes : undefined,
       softReminderTimeoutAction: 'end_rest',
@@ -5044,6 +5025,11 @@ function buildProfileConfigImportDiffs(importedConfig) {
   addConfigImportDiff(diffs, { type: currentWeeklyReminder === importedWeeklyReminder ? 'same' : 'modify', area: 'rest-reminder', key: 'weeklyFirstReminderMinutes', label: '本周休息软配额', currentValue: configImportValueLabel(currentWeeklyReminder), importedValue: configImportValueLabel(importedWeeklyReminder), importedRawValue: importedWeeklyReminder });
 
   const currentEntryConfirmation = remoteConfig?.autonomyConfig?.restrictedEntryConfirmationRequired !== false;
+  if (typeof importedConfig?.autonomyConfig?.quotaOverrunConfirmationRequired === 'boolean') {
+    const before = remoteConfig?.autonomyConfig?.quotaOverrunConfirmationRequired !== false;
+    const after = importedConfig.autonomyConfig.quotaOverrunConfirmationRequired;
+    addConfigImportDiff(diffs, { type: before === after ? 'same' : 'modify', area: 'autonomy', key: 'quotaOverrunConfirmationRequired', label: '超配额允许确认后继续', currentValue: before ? '开启' : '关闭', importedValue: after ? '开启' : '关闭', importedRawValue: after });
+  }
   if (typeof importedConfig?.autonomyConfig?.timeWindowAdvisoryEnabled === 'boolean') {
     const before = remoteConfig?.autonomyConfig?.timeWindowAdvisoryEnabled === true;
     const after = importedConfig.autonomyConfig.timeWindowAdvisoryEnabled;
@@ -5164,6 +5150,7 @@ function buildProfileConfigImportPayload(selectedDiffs) {
     },
     autonomyConfig: {
       restrictedEntryConfirmationRequired: remoteConfig?.autonomyConfig?.restrictedEntryConfirmationRequired !== false,
+      quotaOverrunConfirmationRequired: remoteConfig?.autonomyConfig?.quotaOverrunConfirmationRequired !== false,
       timeWindowAdvisoryEnabled: remoteConfig?.autonomyConfig?.timeWindowAdvisoryEnabled === true,
       scheduleReminderIntervalMinutes: remoteConfig?.autonomyConfig?.scheduleReminderIntervalMinutes ?? 30,
       softReminderTimeoutAction: 'end_rest',
@@ -5864,70 +5851,27 @@ function confirmUnifiedForcedUseSave(config) {
 
 function renderForcedUseLimits() {
   const view = forcedUsePolicyView(remoteConfig || {});
-  document.getElementById('forced-use-limits-status').textContent = hasUnifiedForcedUseConfig(remoteConfig)
-    ? '统一机制配置已保存；支持此配置的非共享终端同步后生效。共享提醒仍待单独验收。最终阻断由下列独立规则决定。'
-    : '当前仍执行旧配置。保存本页会在确认后切换统一规则；现有限额不自动放宽，可为各项选择到线阻断、允许超额或无限制。';
   document.getElementById('forced-use-overrun-fields').innerHTML = FORCED_USE_LIMIT_FIELDS.map(([key, label]) => {
     const value = view.quotaOverrunMinutes[key];
-    const mode = value === null ? 'unlimited' : value === 0 ? 'immediate' : 'custom';
     return `<div class="force-limit-row" data-force-limit="${key}"><label for="force-limit-${key}">${label}</label>`
-      + `<select id="force-limit-${key}" data-force-mode aria-label="${label}最终限制方式">`
-      + `<option value="immediate"${mode === 'immediate' ? ' selected' : ''}>到线阻断</option>`
-      + `<option value="custom"${mode === 'custom' ? ' selected' : ''}>可超额</option>`
-      + `<option value="unlimited"${mode === 'unlimited' ? ' selected' : ''}>无限制</option></select>`
-      + `<input type="number" data-force-minutes min="1" max="10080" step="1" inputmode="numeric" aria-label="${label}允许超额分钟" value="${mode === 'custom' ? value : 30}"${mode === 'custom' ? '' : ' disabled'}></div>`;
+      + `<input type="text" id="force-limit-${key}" data-force-minutes list="force-overrun-options" inputmode="numeric" autocomplete="off" aria-label="${label}最大允许超额" value="${value === null ? '无限制' : value}"><span>${value === null ? '' : '分钟'}</span></div>`;
   }).join('');
-  const advisory = view.advisoryWindowDailyMaxMinutes;
-  document.getElementById('forced-use-advisory-mode').value = advisory === null ? 'unlimited' : 'limited';
-  document.getElementById('forced-use-advisory-max').value = String(advisory ?? 60);
-  document.getElementById('forced-use-advisory-max').disabled = advisory === null;
+  updateAutonomyInputs();
 }
 
 function readForcedUseLimits() {
   const quotaOverrunMinutes = {};
   for (const [key] of FORCED_USE_LIMIT_FIELDS) {
     const row = document.querySelector(`[data-force-limit="${key}"]`);
-    const mode = row?.querySelector('[data-force-mode]')?.value;
-    const minutes = Number(row?.querySelector('[data-force-minutes]')?.value);
-    if (mode === 'immediate') quotaOverrunMinutes[key] = 0;
-    else if (mode === 'unlimited') quotaOverrunMinutes[key] = null;
-    else if (mode === 'custom' && Number.isInteger(minutes) && minutes >= 1 && minutes <= 10080) quotaOverrunMinutes[key] = minutes;
-    else throw new Error(`${FORCED_USE_LIMIT_FIELDS.find(([field]) => field === key)[1]}允许超额须为 1-10080 分钟`);
+    const value = row?.querySelector('[data-force-minutes]')?.value.trim();
+    const minutes = Number(value);
+    if (value === '无限制') quotaOverrunMinutes[key] = null;
+    else if (/^\d+$/.test(value || '') && Number.isInteger(minutes) && minutes >= 0 && minutes <= 10080) quotaOverrunMinutes[key] = minutes;
+    else throw new Error(`${FORCED_USE_LIMIT_FIELDS.find(([field]) => field === key)[1]}最大允许超额须为 0-10080 的整数分钟或无限制`);
   }
-  const mode = document.getElementById('forced-use-advisory-mode').value;
-  const max = Number(document.getElementById('forced-use-advisory-max').value);
-  if (mode === 'limited' && (!Number.isInteger(max) || max < 1 || max > 1440)) {
-    throw new Error('建议时段当日上限须为 1-1440 分钟');
-  }
-  return { quotaOverrunMinutes, advisoryWindowDailyMaxMinutes: mode === 'unlimited' ? null : max };
+  return { quotaOverrunMinutes, advisoryWindowDailyMaxMinutes: null };
 }
 
-async function saveForcedUseLimits() {
-  if (!currentProfileId || !remoteConfig) return;
-  const profileId = currentProfileId;
-  let limits;
-  try { limits = readForcedUseLimits(); }
-  catch (error) { toast(error.message, false); return; }
-  let payload;
-  try { payload = buildUnifiedForcedUsePatch(remoteConfig, { ...forcedUsePolicyView(remoteConfig), ...limits }); }
-  catch (error) { toast(error.message, false); return; }
-  if (!confirmUnifiedForcedUseSave(remoteConfig)) return;
-  let saved = false;
-  try {
-    const response = await saveProfileConfig(payload, 'forced_use_limits_save');
-    saved = true;
-    if (currentProfileId !== profileId || remoteConfigVersion !== Number(response.version)) return;
-    const result = await api(`/profiles/${profileId}/config`);
-    if (currentProfileId !== profileId || remoteConfigVersion !== Number(response.version)) return;
-    if (Number(result.version) !== Number(response.version)) throw new Error('配置版本已更新，请重新载入核对');
-    applyProfileConfigResponse(result);
-    renderForcedUseLimits();
-    renderAutonomyPage();
-    toast('最终限制已保存');
-  } catch (error) {
-    if (currentProfileId === profileId) toast((saved ? '配置已保存，但重新读取失败：' : '保存失败：') + (error.message || ''), false);
-  }
-}
 
 function autonomyConfigView(config = {}) {
   return {
@@ -5949,10 +5893,8 @@ function updateAutonomyInputs() {
     ? '统一规则已保存。支持此配置的非共享终端同步后执行；最终阻断点独立生效。'
     : '当前尚未切换统一规则。保存时会确认切换内容；现有限额和历史账保持不变。';
   document.getElementById('save-autonomy-btn').textContent = active ? '保存自主度配置' : '切换并保存自主度配置';
-  const confirmationRequired = document.getElementById('a-restricted-entry-confirmation')?.checked !== false;
-  document.getElementById('autonomy-summary-entry').textContent = confirmationRequired ? '完整确认' : '短提示后直接进入';
-  document.getElementById('autonomy-summary-reminder').textContent = `每新增${document.getElementById('a-forced-use-interval').value || 30}分钟提醒一次`;
-  document.getElementById('autonomy-summary-timeout').textContent = '60秒未确认强制阻断';
+  const enabled = document.getElementById('a-quota-overrun-confirmation').checked;
+  document.querySelectorAll('[data-force-minutes]').forEach(input => { input.disabled = !enabled; });
 }
 
 function quotaLegacyMinutes(value, fallback) {
@@ -6193,14 +6135,6 @@ let downtimeRenderedProfile = null;
 let downtimeSaving = false;
 
 function setupDowntime() {
-  document.getElementById('save-forced-use-limits-btn').addEventListener('click', saveForcedUseLimits);
-  document.getElementById('forced-use-overrun-fields').addEventListener('change', event => {
-    const row = event.target.closest('[data-force-limit]');
-    if (row) row.querySelector('[data-force-minutes]').disabled = row.querySelector('[data-force-mode]').value !== 'custom';
-  });
-  document.getElementById('forced-use-advisory-mode').addEventListener('change', event => {
-    document.getElementById('forced-use-advisory-max').disabled = event.target.value !== 'limited';
-  });
   document.getElementById('downtime-enabled').addEventListener('change', () => { captureDowntimeDraft(); updateDowntimeInputs(); });
   document.getElementById('save-downtime-btn').addEventListener('click', saveDowntimeConfig);
   document.getElementById('reload-downtime-btn').addEventListener('click', async () => {
@@ -6312,7 +6246,6 @@ function updateDowntimeInputs() {
 }
 
 function renderDowntimePage() {
-  renderForcedUseLimits();
   const helper = window.TimeOnChromeDowntime;
   const error = document.getElementById('downtime-config-error');
   error.textContent = '';
@@ -6399,6 +6332,10 @@ async function saveDowntimeConfig() {
 }
 
 function setupAutonomy() {
+  document.getElementById('forced-use-overrun-fields').addEventListener('input', event => {
+    if (event.target.matches('[data-force-minutes]')) event.target.nextElementSibling.textContent = event.target.value.trim() === '无限制' ? '' : '分钟';
+  });
+  document.getElementById('a-quota-overrun-confirmation').addEventListener('change', updateAutonomyInputs);
   document.getElementById('a-forced-use-interval').addEventListener('input', updateAutonomyInputs);
   document.getElementById('a-time-window-advisory').addEventListener('change', updateAutonomyInputs);
   document.getElementById('a-restricted-entry-confirmation').addEventListener('change', updateAutonomyInputs);
@@ -6411,6 +6348,8 @@ function renderAutonomyPage() {
   document.getElementById('a-forced-use-interval').value = String(forced.reminderIntervalMinutes);
   document.getElementById('a-time-window-advisory').checked = view.timeWindowAdvisoryEnabled;
   document.getElementById('a-restricted-entry-confirmation').checked = view.restrictedEntryConfirmationRequired;
+  document.getElementById('a-quota-overrun-confirmation').checked = remoteConfig?.autonomyConfig?.quotaOverrunConfirmationRequired !== false;
+  renderForcedUseLimits();
   updateAutonomyInputs();
 }
 
@@ -6423,7 +6362,7 @@ async function saveAutonomyConfig() {
   }
   let unified;
   try { unified = buildUnifiedForcedUsePatch(remoteConfig, {
-    ...forcedUsePolicyView(remoteConfig), reminderIntervalMinutes: forcedInterval,
+    ...forcedUsePolicyView(remoteConfig), ...readForcedUseLimits(), reminderIntervalMinutes: forcedInterval,
   }); } catch (error) { toast(error.message, false); return; }
   const payload = {
     ...unified,
@@ -6431,6 +6370,7 @@ async function saveAutonomyConfig() {
       ...(remoteConfig.autonomyConfig || {}),
       restrictedEntryConfirmationRequired: document.getElementById('a-restricted-entry-confirmation').checked,
       timeWindowAdvisoryEnabled: document.getElementById('a-time-window-advisory').checked,
+      quotaOverrunConfirmationRequired: document.getElementById('a-quota-overrun-confirmation').checked,
       softReminderTimeoutAction: 'end_rest',
     },
   };

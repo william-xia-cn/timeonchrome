@@ -438,6 +438,9 @@ function validateAutonomyConfig(config: Record<string, unknown>): string | null 
   const autonomyConfig = config.autonomyConfig as any;
   if (autonomyConfig === undefined) return null;
   if (!autonomyConfig || typeof autonomyConfig !== 'object' || Array.isArray(autonomyConfig)) return 'autonomyConfig 必须是对象';
+  if (Object.hasOwn(autonomyConfig, 'quotaOverrunConfirmationRequired') && typeof autonomyConfig.quotaOverrunConfirmationRequired !== 'boolean') {
+    return 'autonomyConfig.quotaOverrunConfirmationRequired 必须是布尔值';
+  }
   if (Object.prototype.hasOwnProperty.call(autonomyConfig, 'timeWindowAdvisoryEnabled') && typeof autonomyConfig.timeWindowAdvisoryEnabled !== 'boolean') {
     return 'autonomyConfig.timeWindowAdvisoryEnabled 必须是布尔值';
   }

@@ -58,7 +58,7 @@ try {
     assert.equal(await page.evaluate(() => mockSaved.length), 0);
   }
   await page.fill('#a-forced-use-interval', '45');
-  await page.locator('label[title="切换进入受限内容确认"]').click();
+  await page.locator('label[title="进入前需要确认"]').click();
   await page.evaluate(() => { mockAllowMigration = true; });
   await page.click('#save-autonomy-btn');
   const migrated = await page.evaluate(() => ({ saved: mockSaved[0], current: remoteConfig, version: remoteConfigVersion,
@@ -73,24 +73,41 @@ try {
   assert.deepEqual(migrated.current.domainQuotas, migrated.original.domainQuotas);
   assert.equal(migrated.version, 2);
   assert((await page.locator('#autonomy-config-status').innerText()).includes('统一规则已保存'));
-  assert((await page.locator('#autonomy-summary-reminder').innerText()).includes('45分钟'));
+  assert.equal(await page.locator('#a-forced-use-interval').inputValue(), '45');
+  assert.equal(await panel.locator('.autonomy-setting').count(), 4);
+  assert.equal(migrated.saved.data.autonomyConfig.quotaOverrunConfirmationRequired, true);
+  assert.equal(migrated.saved.data.forcedUsePolicyV1.advisoryWindowDailyMaxMinutes, null);
   await page.locator('#toast').waitFor({ state: 'hidden' });
   for (const [name, width, height] of [['desktop', 1440, 1000], ['narrow', 390, 844]]) {
     await page.setViewportSize({ width, height });
-    await page.locator('#forced-use-autonomy-card').scrollIntoViewIfNeeded();
+    await page.evaluate(() => window.scrollTo(0, 0));
     assert(await panel.evaluate(node => node.scrollWidth <= node.clientWidth));
     await page.screenshot({ path: resolve(output, `unified-autonomy-${name}.png`), fullPage: true });
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole('button', { name: '强制限制', exact: true }).click();
-  await page.selectOption('#force-limit-dailyRest', 'unlimited');
-  await page.click('#save-forced-use-limits-btn');
+  await page.fill('#force-limit-dailyRest', '无限制');
+  await page.locator('label[title="超配额允许确认后继续"]').click();
+  assert(await page.locator('#force-limit-dailyRest').isDisabled());
+  await page.locator('label[title="超配额允许确认后继续"]').click();
+  assert.equal(await page.locator('#force-limit-dailyRest').inputValue(), '无限制');
+  await page.click('#save-autonomy-btn');
   const final = await page.evaluate(() => ({ current: remoteConfig, confirms: mockConfirms.length, saves: mockSaved.length }));
   assert.equal(final.saves, 2);
   assert.equal(final.confirms, migrated.confirms, 'already migrated config must not ask for another migration');
   assert.equal(final.current.forcedUsePolicyV1.quotaOverrunMinutes.dailyRest, null);
   assert.equal(final.current.forcedUsePolicyV1.reminderIntervalMinutes, 45);
   assert.equal(final.current.timeQuota.weekly.restMinutes, 840);
+  const roundtrip = await page.evaluate(() => {
+    const exported = buildProfileConfigExportData([]);
+    return normalizeProfileConfigImportData(exported).autonomyConfig.quotaOverrunConfirmationRequired;
+  });
+  assert.equal(roundtrip, true, 'new autonomy field survives real export/import');
+  await page.locator('label[title="超配额允许确认后继续"]').click();
+  await page.click('#save-autonomy-btn');
+  assert.equal(await page.evaluate(() => mockServerConfig.autonomyConfig.quotaOverrunConfirmationRequired), false);
+  assert.equal(await page.evaluate(() => mockServerConfig.forcedUsePolicyV1.quotaOverrunMinutes.dailyRest), null, 'disabled toggle preserves allowance');
+  await page.getByRole('button', { name: '停用时间', exact: true }).click();
+  assert.equal(await page.locator('[data-rules-management-panel="downtime"] [data-force-minutes]').count(), 0);
   await page.getByRole('button', { name: '自主度配置', exact: true }).click();
   await page.fill('#a-forced-use-interval', '50');
   await page.evaluate(() => { mockReadFailure = true; });

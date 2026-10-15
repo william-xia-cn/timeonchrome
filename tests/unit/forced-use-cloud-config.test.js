@@ -43,7 +43,7 @@ for (const policy of [
 ]) assert.ok(validate(policy), 'invalid policy is rejected');
 assert.match(text, /'forcedUsePolicyV1', 'downtimeConfig'/);
 assert.match(text, /validateForcedUsePolicy\(incomingConfig\)/);
-assert.match(page, /支持此配置的非共享终端同步后生效。共享提醒仍待单独验收/);
+assert.match(page, /支持此配置的非共享终端同步后执行/);
 assert.doesNotMatch(page, /须待终端与共享提醒契约验收后才会执行/);
 const executionNode = source.statements.find(item => ts.isFunctionDeclaration(item)
   && item.name?.text === 'validateForcedUseExecutionConfig');
@@ -88,4 +88,10 @@ assert.equal(pageContext.confirmUnifiedForcedUseSave(existing), true);
 pageContext.window.confirm = () => { throw Error('already migrated must not prompt again'); };
 assert.equal(pageContext.confirmUnifiedForcedUseSave(patch), true);
 assert.doesNotMatch(page, /id="(?:a-rest-reminder-enabled|a-rest-first-reminder|a-rest-weekly-enabled|a-schedule-reminder-interval|a-forced-use-enabled)"/);
+const autonomyNode = source.statements.find(item => ts.isFunctionDeclaration(item) && item.name?.text === 'validateAutonomyConfig');
+vm.runInContext(ts.transpileModule(autonomyNode.getText(source), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+for (const value of [true, false]) assert.equal(context.validateAutonomyConfig({ autonomyConfig: { quotaOverrunConfirmationRequired: value } }), null);
+for (const value of ['true', 0, null]) assert.ok(context.validateAutonomyConfig({ autonomyConfig: { quotaOverrunConfirmationRequired: value } }));
+assert.equal(context.validateAutonomyConfig({ autonomyConfig: {} }), null);
+assert.doesNotMatch(page, /id="(?:forced-use-advisory-max|forced-use-advisory-mode|save-forced-use-limits-btn)"/);
 console.log('forced-use-cloud-config: passed');
