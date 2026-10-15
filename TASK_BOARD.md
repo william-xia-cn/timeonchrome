@@ -4751,6 +4751,10 @@ Checklist：
 ## 应用身份统计同孩子绑定隔离（2026-10-10，扩展侧实施中）
 
 应用身份只读统计在每次实际读取前必须建立或复核当前 Native connection 对应的可复用 V2 同孩子证明；同一 `createReusableSharedWebBinding` proof cache 负责复用。该 ensure 只做身份绑定，不启用共享访问，不构建/上传贡献，不改余额、账本或配额。应用统计快照、分页和30秒缓存均绑定证明摘要；切换孩子、断开/重连、分配变化或迟到响应时，整次读取拒绝发布。Native 读入口门禁由 Native 所属任务实施；扩展侧不改 Native 文件或协议字段。另将 `capture()` 的身份部分与共享配额策略 LKG 解耦，避免共享访问未启用时应用身份只读统计无法取得绑定上下文。仅当扩展与 Native 双侧门禁均完成后才能称安全闭环；不打包、安装、部署或托管。
-## VERIFIED：休息超额两项精简（2026-10-16，未发布）
+## COMPLETED：休息超额两项已部署，控件文件已更新待重载（2026-10-16）
+
+中等变更按方案完成：云端仅每日/每周休息两项，默认无限制；其余四项保存规范化并在终端有效无限超额，总开关关闭仍全部到线阻断。旧休息值保留，保存取消不写。云端forced-use-cloud-config、Pages字段243项、rest-weekly-cloud-ui-smoke通过；终端forced-use-policy、quota-facts、quota-runtime、admission、admin-readonly、typecheck及Admin桌面/手机专项通过。旧测试按批准的新行为更新，计划各项Matched。
+
+PR278/279已合入master c50d2860964452ad9e3bc15f48355172c7df2ba3，实施提交d862963/e3b009b。精确SHA主控制台CI38793778388通过，生产38793856611成功，仅部署主Pages b1b61088-2302-4fb7-8208-e228475de247。稳定及部署域名index/access-config-domains均匹配Git blob；index SHA256 dcb171488f6943904fcdf928e20496723aa6c3bcfccc47e7d7da6f4fc7456c18。
 
 中等变更已按方案完成：云端仅每日/每周休息两项，默认无限制；其余四项保存规范化并在终端有效无限超额，总开关关闭仍全部到线阻断。旧休息值保留，保存取消不写。云端forced-use-cloud-config、Pages字段243项、rest-weekly-cloud-ui-smoke通过；终端forced-use-policy、quota-facts、quota-runtime、admission、admin-readonly、typecheck及Admin桌面/手机专项通过。两份旧测试按批准的新行为更新。桌面/手机截图已目视核对，计划各项Matched。没有记账或协议/schema变更，未提交、部署、修改家庭配置或更新当前加载候选。原有脏改保留。
