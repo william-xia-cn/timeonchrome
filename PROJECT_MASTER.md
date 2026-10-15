@@ -1,5 +1,11 @@
 # PROJECT_MASTER
 
+## Windows本机命名上传内部发布（2026-10-15，本批真实链路通过）
+
+Native唯一内部候选2.6.51.0已安装，源码ea2742d、契约1.48.0，Service正常，11组件哈希及13表保留检查通过。云端master为9fbac07，生产运行38610781351成功，仅新增专项0022；本批命名源码与dcb933b一致。真实ChatGPT命名已完成原实例作用域核对、实例ACK和精确命名revision/hash ACK，pending=0；主控制台与独立Runtime页面实际显示同一登记和来源。详细源码、部署ID、候选哈希和验收见TASK_BOARD的本批COMPLETED项。
+
+本轮不修改原账、现有分类和封锁键，不启共享，不操作R2 latest；线上共享执行开关已读回false。同期另一生产运行范围还更新Guardian，已如实登记，未重复部署。本批完成的是已观察实例的命名同步及展示，不是扫描全集映射、全部产品统计名称、共享配额或Mac验收。未签名/latestEligible=false及现有P1/P2遗留不改写成通过；后续范围分别处理。
+
 ## 2026-10-15 停用时间与云端修复已部署
 
 PO批准PR #258/#259合入master，并批准网站分类编辑、Native本机应用命名、停用配置三项一起上线；唯一Runtime迁移0022另获明确批准。发布源码为9fbac07b9eeb4d14007685cb379025b016404490，生产运行38610781351成功，精确SHA Runtime/Guardian/Main门禁通过。契约1.48.0；只应用0022_runtime_native_application_identifications.sql，无Guardian迁移，无共享执行准备。
