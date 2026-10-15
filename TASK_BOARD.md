@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## COMPLETED：非共享统一强行使用已合入、部署并完成开发候选验收（2026-10-16）
+
+PR270已合入master `b5df4f851e178c1c7e9a02cb355b00c23061994e`，实现提交7600104、验证修订cfc5da8。10份forced-use专项、模式156项、原始分段300项、提醒152项、路由67项、typecheck和扩展根检查通过；完整tests/run-all.js最终全部通过，含API103项、时长流程53项、扩展浏览器15项。修订旧文案、异步断言和受限SQL片段检查后，没有未处理的该轮完整回归失败。
+
+生产38777359853成功，仅部署主Pages `843de70d-4a2c-4a82-b200-7f9f5ee77537`，精确SHA主控制台CI38777227519通过；稳定与deployment域名的index/access-config-domains共4项逐字节匹配发布Git blob。没有Worker/Runtime部署、迁移或家庭配置修改。Native共享执行继续延期，不作为本轮缺项。
+
+开发候选1.7.47保持稳定ID，隔离实际包Service Worker/Admin/新模块启动通过；旧包完整备份核验后同步22个文件（新增7），候选196文件树SHA256 `8426831de11828677db39a31888a144c415a81d085d263bb4e5bd56de488ac1d`。原key/版本/部署标记一致，未卸载、解绑、清storage或托管CRX/feed。PO已手动重载并确认Popup正常显示、云端绑定保留、无需要绑定提示或红色错误，当前Profile基础检查记PASS_WITH_MANUAL_EVIDENCE。Computer Use未能可靠识别浏览器URL，Browser Use也禁止读取本地扩展协议，故该现场证据来自PO而非自动化。隔离浏览器功能、派生恢复及桌面/手机目视证据维持有效；未启用或更改家庭策略，不将本轮结果扩展为Native共享验收。
+
 ## NOW：应用身份已发布，2.6.53修复已安装，最后实机核对待只读UAC（2026-10-15）
 
 PO“授权集成发布”已执行：PR267合入master `6866059cc94a8344669bf0b1630cfce8b34f2b05`；精确SHA Runtime 38722634184、Guardian 38722634230、主站38722669170通过。生产38722867636成功，仅应用`0023_runtime_native_application_objects.sql`，部署Runtime／Guardian／两套Pages并通过四项smoke。Runtime版本6275f096-49f0-4d20-af35-6cf40cea260e，Guardian版本097d91e2-830e-486a-b320-55dc2ff5a6ab，独立Pages 15c41f2e-f985-412b-b0ba-1f39b1f9145d，主Pages 0446d896-983f-419c-bf34-38cdebca8b36。两站稳定及deployment域名共12项管理JS/CSS逐字节等于发布源码；R2 latest对象与发布前完全相同，无Guardian迁移或共享启用。
