@@ -55,6 +55,15 @@ assert.equal(admission.prepareForcedUseAdmission({ ...input, usage: { ...usage, 
 const repeat = plain(admission.prepareForcedUseAdmission({ ...input, usage: { ...usage, compositeSeconds: 7200 },
   forcedUsageSeconds: 1800, reminderState: accepted.state }));
 assert.equal(repeat.kind, 'repeat');
+assert.equal(repeat.presentation.sinceConfirmationSeconds, 1800);
+assert.deepEqual(repeat.presentation.quotas, [{ id: 'dailyComposite', usedSeconds: 7200, limitSeconds: 5400 }]);
+assert.equal(due.presentation.sinceConfirmationSeconds, null);
+const windowConfig = { timeWindows: { daily: { thursday: { restWindows: [{ start: '16:30', end: '19:30' }] } } } };
+assert.deepEqual(plain(admission.nextForcedUseWindow(windowConfig, 'rest', Date.parse('2026-10-15T08:00:00Z'))),
+  { dayOffset: 0, start: '16:30', end: '19:30' });
+assert.deepEqual(plain(admission.nextForcedUseWindow(windowConfig, 'rest', Date.parse('2026-10-15T12:00:00Z'))),
+  { dayOffset: 1, start: '00:00', end: '24:00' });
+assert.equal(admission.nextForcedUseWindow(windowConfig, 'rest', undefined), null);
 assert.equal(admission.prepareForcedUseAdmission({ ...input, usage: { ...usage, compositeSeconds: 9000 },
   forcedUsageSeconds: 3600, reminderState: accepted.state }).kind, 'repeat');
 assert.equal(admission.prepareForcedUseAdmission({ ...input,

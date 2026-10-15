@@ -47,6 +47,7 @@ import { readScheduleConfirmationScope, releaseScheduleConfirmationWaiters, clea
 import { getQuotaUsageForConfig, getQuotaAccountingVersion, buildQuotaStateFromUsage } from './product/quota.js';
 import { configureRestUsageReminder, evaluateRestUsageReminder as evaluateLegacyRestUsageReminder, handleRestUsageReminderAction, restoreRestUsageReminderForTab, suspendLegacyRestUsageReminder, REST_USAGE_REMINDER_DEADLINE_ALARM, REST_USAGE_REMINDER_RETRY_ALARM } from './product/rest-usage-reminder.js';
 import { createForcedUsePromptRuntime, FORCED_USE_PROMPT_DEADLINE_ALARM } from './product/forced-use-prompt.js';
+import { recordAccessDiagnostic } from './infra/access-diagnostics.js';
 import { readForcedUsePolicy } from './core/forced-use-policy.js';
 import { isSharedAccessRuntimeEnabled } from './product/shared-access-runtime.js';
 import { pollSharedAccessIntegration, initSharedAccessIntegration } from './product/shared-access-integration.js';
@@ -103,6 +104,7 @@ const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
 
 const forcedUsePrompt = createForcedUsePromptRuntime({
   api: chrome,
+  diagnostic: recordAccessDiagnostic,
   storage: { get: key => chrome.storage.session.get(key),
     set: values => budgetedSessionSet(values, { priority: 'critical', source: 'forced_use_prompt' }) },
   recheck: async prompt => {
@@ -407,6 +409,7 @@ setModeBoundaryDrainHook((reason = 'modeTransition') => drainPendingModeBoundari
 
 async function dispatchModeEvent(event = {}, options = {}) {
   const auditId = event.auditId || createTimingAuditId('mode');
+  try {
   const decision = await handleModeEvent({
     ...event,
     auditId,
@@ -415,6 +418,8 @@ async function dispatchModeEvent(event = {}, options = {}) {
   if (decision.reminder?.reason === 'downtime') {
     const target = await chrome.tabs.get(event.tabId).catch(() => null);
     if (!target || target.url !== event.url || (event.downtimeOnly && !isMonitoringEnabled())) {
+      recordAccessDiagnostic('decision', { auditId, phase: 'skipped', reason: 'downtime_target_changed',
+        source: event.source, eventType: event.type, tabId: event.tabId, ok: true });
       return { ok: true, blocked: false, reason: 'downtime_target_changed' };
     }
   }
@@ -484,6 +489,11 @@ async function dispatchModeEvent(event = {}, options = {}) {
     }
   }
   return result;
+  } catch (error) {
+    recordAccessDiagnostic('decision', { auditId, phase: 'failed', reason: 'access_processing_failed',
+      source: event.source, eventType: event.type, tabId: event.tabId, ok: false });
+    throw error;
+  }
 }
 
 // 模块级引导：普通 MV3 SW 唤醒只做 runtime wiring，不代表异常恢复边界。
@@ -1247,21 +1257,28 @@ async function dispatchWindowStateTiming(windowId, currentWindow, source = 'wind
 }
 
 async function reevaluateTabById(tabId, options = {}) {
-  if (!isMonitoringEnabled()) return;
-  if (!tabId) return;
+  const reportReview = (reason, ok = true) => {
+    if (options.source === 'forced_use_periodic_review') recordAccessDiagnostic('periodic', {
+      auditId: options.auditId, phase: 'review', source: 'quota_check', tabId, reason, ok,
+    });
+  };
+  if (!isMonitoringEnabled()) { reportReview('monitoring_disabled'); return; }
+  if (!tabId) { reportReview('tab_missing'); return; }
 
   let tab;
   try {
     tab = await chrome.tabs.get(tabId);
   } catch {
+    reportReview('tab_read_failed', false);
     return;
   }
-  if (!tab?.url) return;
+  if (!tab?.url) { reportReview('tab_url_missing'); return; }
 
   if (options.expectedUrl && (tab.url !== options.expectedUrl || tab.windowId !== options.expectedWindowId)) return;
 
   // Avoid periodic self-redirect loops while user is interacting with reminder UI.
   if (tab.url.includes('reminder.html')) {
+    reportReview('reminder_page_skipped');
     return;
   }
 
@@ -1271,6 +1288,7 @@ async function reevaluateTabById(tabId, options = {}) {
   const result = await dispatchModeEvent({
     type: 'ACCESS_OBSERVED',
     source: options.source || 'tabReevaluate',
+    auditId: options.auditId,
     tabId,
     url: targetUrl,
     incognito: tab?.incognito === true,
@@ -1278,6 +1296,7 @@ async function reevaluateTabById(tabId, options = {}) {
     specialSiteTargets: getTabSpecialSiteTargets(tabId, targetUrl),
     downtimeOnly: options.downtimeOnly === true,
   }, { recheck: false });
+  reportReview('review_completed');
   scheduleModeBoundaryDrain('reevaluateTab');
   if (!result.blocked && targetUrl !== tab.url) {
     await chrome.tabs.update(tabId, { url: targetUrl }).catch(() => {});
@@ -1357,9 +1376,15 @@ const REQUIRED_ALARMS = Object.freeze([
 async function ensureAlarm(name, periodInMinutes) {
   const existing = await chrome.alarms.get(name);
   if (existing && Number(existing.periodInMinutes) === periodInMinutes) {
+    if (name === 'quota_check') recordAccessDiagnostic('periodic', {
+      phase: 'schedule', reason: 'quota_alarm_ready', ok: true,
+    });
     return { name, created: false, scheduledTime: existing.scheduledTime ?? null };
   }
   await chrome.alarms.create(name, { periodInMinutes });
+  if (name === 'quota_check') recordAccessDiagnostic('periodic', {
+    phase: 'schedule', reason: 'quota_alarm_created', ok: true,
+  });
   return { name, created: true, scheduledTime: null };
 }
 
@@ -1368,6 +1393,7 @@ function setupAlarms() {
     alarmsSetupPromise = Promise.all(
       REQUIRED_ALARMS.map(([name, periodInMinutes]) => ensureAlarm(name, periodInMinutes))
     ).catch((err) => {
+      recordAccessDiagnostic('periodic', { phase: 'schedule', reason: 'alarm_setup_failed', ok: false });
       alarmsSetupPromise = null;
       throw err;
     });
@@ -1405,7 +1431,12 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       reason: 'periodicCheckpointPostRoute',
     });
   } else if (alarm.name === 'quota_check') {
-    if (!isMonitoringEnabled()) return;
+    const reviewAuditId = `access-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const reviewLog = (reason, extra = {}) => recordAccessDiagnostic('periodic', {
+      auditId: reviewAuditId, phase: 'review', source: 'quota_check', reason, ok: true, ...extra,
+    });
+    if (!isMonitoringEnabled()) { reviewLog('monitoring_disabled'); return; }
+    try {
     const result = await handleMessage({
       type: 'EVALUATE_QUOTA_STATE',
       source: 'quota_alarm',
@@ -1424,15 +1455,32 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       });
     });
     if (!isSharedAccessRuntimeEnabled() && readForcedUsePolicy(await getConfig()).enabled) {
-      const focused = await chrome.windows.getLastFocused().catch(() => null);
+      let queryFailed = false;
+      const focused = await chrome.windows.getLastFocused().catch(() => {
+        queryFailed = true;
+        reviewLog('window_query_failed', { ok: false });
+        return null;
+      });
       if (focused?.focused && focused.id !== chrome.windows.WINDOW_ID_NONE) {
-        const tabs = await chrome.tabs.query({ active: true, windowId: focused.id }).catch(() => []);
-        if (tabs?.[0]?.id != null) await reevaluateTabById(tabs[0].id,
-          { source: 'forced_use_periodic_review' }).catch(() => {});
-      }
+        const tabs = await chrome.tabs.query({ active: true, windowId: focused.id }).catch(() => {
+          queryFailed = true;
+          reviewLog('tab_query_failed', { ok: false });
+          return [];
+        });
+        if (tabs?.[0]?.id != null) {
+          await reevaluateTabById(tabs[0].id, { source: 'forced_use_periodic_review', auditId: reviewAuditId })
+            .catch(() => reviewLog('review_failed', { tabId: tabs[0].id, ok: false }));
+        } else if (!queryFailed) reviewLog('no_active_tab');
+      } else if (!queryFailed) reviewLog('no_focused_window', { foreground: false });
+    } else reviewLog(isSharedAccessRuntimeEnabled() ? 'shared_runtime_owner' : 'legacy_policy');
+    } catch (error) {
+      reviewLog('quota_check_failed', { ok: false });
+      throw error;
     }
   } else if (alarm.name === FORCED_USE_PROMPT_DEADLINE_ALARM) {
-    await forcedUsePrompt.checkDeadline().catch(() => {});
+    await forcedUsePrompt.checkDeadline().catch(() => recordAccessDiagnostic('prompt', {
+      phase: 'failed', reason: 'deadline_check_failed', ok: false,
+    }));
   } else if (alarm.name === REST_USAGE_REMINDER_DEADLINE_ALARM) {
     await evaluateRestUsageReminder({ reason: 'deadline_alarm' }).catch(() => {});
   } else if (alarm.name === REST_USAGE_REMINDER_RETRY_ALARM) {

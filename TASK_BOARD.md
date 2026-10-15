@@ -1,5 +1,29 @@
 # TASK_BOARD
 
+## 强行使用提醒原因与用量展示（2026-10-16，开发包完成）
+
+PO批准：区分超配额、限制时段与再次提醒；合并原因仍只确认一次。仅补充同次判定的只读展示快照和弹层文案，不改计时、配额、确认状态或触发节奏。缺失用量不补零。专项覆盖展示、payload恢复、原判定回归及隔离页面桌面/窄屏；通过后备份并更新当前unpacked文件，保留manifest身份、绑定和storage，不发布托管。另按PO授权切换T.xia统一规则并回读原配额与时段。
+
+完成：同次判定只读透传用量/配额、提醒种类、上次确认后增量和下一允许时段；多原因逐条展示且仍单弹层。copy/admission/prompt/progress单测通过，mode-service156项、rest-usage-reminder152项、typecheck及root通过。真实隔离unpacked专项1/1通过；实际renderer夹具桌面1280/手机390下超额、合并再次提醒、未知状态1/1通过并目视核对，夹具初轮Chrome全局声明失败已修正。Matched：原因区分、用量、单次确认、未知不补零、原判定不变；无额外产品逻辑变更。当前加载目录已完整备份，1.7.48开发候选只替换5文件，196文件哈希相符、key/开发标记相同；PO确认已重载且绑定正常，记为PASS_WITH_MANUAL_EVIDENCE。未读取/改写浏览器storage；未提交、推送或更新托管，本轮新文案不在原正式CRX内。云端统一规则已保存并重载回读；PO同期手改配置不覆盖。
+
+## COMPLETED：1.7.48 内部托管发布（2026-10-16，PO授权）
+
+范围为固定终端源码及已验证的提醒基线修复、访问诊断默认基础上传；保留明确关闭或到期授权。9项直接专项、typecheck和扩展根检查通过，原密钥签名及独立CRX3验签通过。PR281合入master c1735896cfcf0d5c2a9d5c35d0186a2e59be648c，范围门禁38800536144通过；首轮声明缺项及换行错误经PO批准修正后通过。更新源deployment c96694f2，稳定和deployment域名的feed/CRX/SHA256SUMS共6项逐字节匹配。CRX 647604字节，SHA256 16b356b42a5d6e851d70fb2eb627263e6dd3a3aeac477fd6d131e8ec7e57ea4b，稳定ID不变，21个旧CRX保留。仅扩展更新源，不部署Worker、业务Pages或Native，不修改家庭配置、原账或共享开关。真实Native共享与Mac遗留继续Deferred；T.xia配置保存另项未确认。终端安装待观察，当前unpacked未替换或重载。
+
+## VERIFIED：访问管理诊断链与默认基础上传，候选待重载（2026-10-16）
+
+PO要求从云端日志判断访问管理是否正常。extension-local中等风险诊断变更：补充访问判定/执行、强行使用弹层生命周期、周期检查执行/跳过/失败，关联auditId；仅上传白名单状态、原因码及数值，不上传网址、标题、输入文字、令牌或规则签名。默认基础上传开启，保留明确关闭及旧到期授权，详细info仍需临时授权。诊断异步、限频、有界，失败不得改变访问或账本。最小验证：client-logs、访问诊断、forced-use-prompt/mode-effects专项、typecheck及候选启动；不运行全量/E2E、不改Native、云端接口、生产档案或原始账。验收区分代码接线和真实终端上传，不以本地测试宣称云端已收到。
+
+结果：client-logs47/47、cloud-client-log-ack5/5、diagnostic-evidence、access-diagnostics（执行真实quota alarm分支的隔离依赖测试）、forced-use-prompt/mode-effects、typecheck和扩展根检查通过。默认基础上传、明确关闭/旧授权到期、临时info、隐私白名单、周期限频、投递/确认/超时/恢复、诊断失败隔离均Matched；未改计时、原账或访问判定规则。未运行广泛E2E；复用已授权候选启动smoke，真实隔离SW/Admin与诊断存储通过，无家庭身份或生产上传。原周期失焦跳过仅增加原因日志，不作为本轮修复。
+
+开发包1.7.47先完整备份dist/native-host-candidate-backup-forced-use-1792094145645后更新6文件（含新增infra/access-diagnostics.js），197文件树SHA256 a285c4686f4b7604bf2d27dc5bd018322f2f3ab174cc4444b75de95d34dd323d。ID/key/部署配置保持不变，未清storage或重装。待用户重载后观察现有access分类日志；旧明确关闭/已到期策略不会自动改写。未提交、部署或托管，不宣称当前家庭终端已成功上传新诊断。
+
+## VERIFIED：统一强行使用提醒基线已修复，开发包待重载（2026-10-16）
+
+已确认forced-use-reminder-progress在每次进入确认后重置lastAcknowledgedUsageSeconds，与新增原因/换规则不重置决策冲突。小范围修复：首次确认建立基线，未到期的进入确认仅添加授权；已到期时与进入原因合并为一次repeat确认并推进基线。覆盖25分钟换站再5分钟、连续新增原因、到期同时换站、失效确认及跨身份/日期。仅修改提醒纯逻辑和直接测试，运行progress、admission、policy、prompt专项及typecheck；不改记账、实际贡献、配置、云端、Native或正式托管。验证后备份更新现有unpacked对应文件，待重载。
+
+结果：四项专项及typecheck、diff检查通过，实际候选包隔离SW/Admin启动无错误。1.7.47当前目录完整备份后仅更新core/forced-use-reminder-progress.js，196文件树SHA256为8fd00b0d4b0f23ca9147052eb112de48bcb31f2cabec0977f8ed84a742d3e342，身份/key/部署配置保持一致。方案逐项Matched；没有新UI或计时语义改动。当前运行实例需用户重载；不宣称已完成家庭现场30分钟自然使用验收。源码尚未提交，无云端发布。
+
 ## COMPLETED：非共享统一强行使用已合入、部署并完成开发候选验收（2026-10-16）
 
 PR270已合入master `b5df4f851e178c1c7e9a02cb355b00c23061994e`，实现提交7600104、验证修订cfc5da8。10份forced-use专项、模式156项、原始分段300项、提醒152项、路由67项、typecheck和扩展根检查通过；完整tests/run-all.js最终全部通过，含API103项、时长流程53项、扩展浏览器15项。修订旧文案、异步断言和受限SQL片段检查后，没有未处理的该轮完整回归失败。

@@ -46,8 +46,10 @@ export function evaluateForcedUseReminderProgress({ state = null, identityKey, d
   if (baseline !== null && forcedUsageSeconds < baseline) {
     return { ok: false, reason: 'reminder_usage_regressed' };
   }
-  const action = newReasons.length || baseline === null ? 'entry'
-    : forcedUsageSeconds - baseline >= intervalMinutes * 60 ? 'repeat' : 'none';
+  // A due reminder also covers new entry reasons, so one confirmation handles both.
+  const action = baseline === null ? 'entry'
+    : forcedUsageSeconds - baseline >= intervalMinutes * 60 ? 'repeat'
+      : newReasons.length ? 'entry' : 'none';
   return { ok: true, action, reasons: uniqueReasons, newReasons, identityKey, dateKey,
     ruleKey, forcedUsageSeconds, baselineSeconds: baseline };
 }
@@ -70,5 +72,6 @@ export function acknowledgeForcedUseReminderProgress(state, decision) {
   const grants = { ...current.grants,
     [decision.ruleKey]: normalizeReasons([...(current.grants[decision.ruleKey] || []), ...decision.reasons]) };
   return { ok: true, state: { ...current,
-    lastAcknowledgedUsageSeconds: decision.forcedUsageSeconds, grants } };
+    lastAcknowledgedUsageSeconds: current.lastAcknowledgedUsageSeconds === null || decision.action === 'repeat'
+      ? decision.forcedUsageSeconds : current.lastAcknowledgedUsageSeconds, grants } };
 }
