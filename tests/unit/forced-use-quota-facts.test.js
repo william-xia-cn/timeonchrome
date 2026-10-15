@@ -27,6 +27,11 @@ const usage = { ok: true, studySeconds: 3600, compositeSeconds: 5400, restSecond
 const policy = { enabled: true, quotaOverrunMinutes: { dailyStudy: 30, dailyComposite: null,
   dailyRest: 60, dailyOnline: 0, weeklyRest: 120, domain: 0 } };
 const result = build(config, usage, policy);
+const disabledConfig = { ...config, autonomyConfig: { quotaOverrunConfirmationRequired: false } };
+assert(build(disabledConfig, usage, policy).quotas.every(row => row.overrunSeconds === 0));
+assert.equal(hard(disabledConfig, usage, policy).state.studyLocked, true);
+assert.equal(build({ ...config, autonomyConfig: { quotaOverrunConfirmationRequired: true } }, usage, policy).quotas.find(row => row.id === 'dailyStudy').overrunSeconds, 1800);
+assert.equal(policy.quotaOverrunMinutes.dailyStudy, 30, 'toggle must not rewrite stored allowance');
 assert.equal(result.ok, true);
 assert.deepEqual(result.quotas.map(row => row.id),
   ['dailyStudy', 'dailyComposite', 'dailyRest', 'weeklyRest', 'domain']);
