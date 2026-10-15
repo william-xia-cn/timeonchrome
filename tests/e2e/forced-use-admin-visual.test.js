@@ -25,6 +25,10 @@ test('Admin autonomy is four read-only sections; downtime contains no quota cont
   await expect(panel).toContainText('不设时间段累计使用上限');
   await expect(panel).toContainText('多个原因同时到期只确认一次');
   await expect(panel).toContainText('无限制');
+  await expect(panel.locator('.rules-overrun-value')).toHaveCount(2);
+  await expect(panel.locator('.rules-overrun-summary')).toContainText('每日休息');
+  await expect(panel.locator('.rules-overrun-summary')).toContainText('每周休息');
+  await expect(panel.locator('.rules-overrun-summary')).not.toContainText('本周休息');
   for (const [name,width,height] of [['desktop',1280,900],['mobile',390,844]]) {
     await page.setViewportSize({width,height});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);

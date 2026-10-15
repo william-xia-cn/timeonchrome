@@ -116,6 +116,14 @@ assert.deepEqual(compositeEntry.reasons, ['dailyComposite']);
 const compositeFinal = decide({ ...admission, quotaFacts: quotaFacts.buildForcedUseQuotaFacts(
   compositeConfig, { ...compositeUsage, compositeSeconds: 9000 }, validPolicy,
   { date: '2026-10-15', domain: 'wiki.example' }), advisoryWindow: null });
-assert.equal(compositeFinal.action, 'block');
+assert.equal(compositeFinal.action, 'confirm');
 assert.deepEqual(compositeFinal.reasons, ['dailyComposite']);
+assert.equal(decide({ ...admission, quotaFacts: quotaFacts.buildForcedUseQuotaFacts(
+  compositeConfig, { ...compositeUsage, compositeSeconds: 9000 }, validPolicy,
+  { date: '2026-10-15', domain: 'wiki.example' }), advisoryWindow: null,
+  reminderState: accepted.state, forcedUsageSeconds: 2400 }).kind, 'repeat');
+assert.equal(decide({ ...admission, quotaFacts: quotaFacts.buildForcedUseQuotaFacts(
+  { ...compositeConfig, autonomyConfig: { quotaOverrunConfirmationRequired: false } },
+  compositeUsage, validPolicy, { date: '2026-10-15', domain: 'wiki.example' }),
+  advisoryWindow: null }).action, 'block');
 console.log('forced-use-policy: passed');
