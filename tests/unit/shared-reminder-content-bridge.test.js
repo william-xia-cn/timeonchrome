@@ -13,6 +13,7 @@ async function run() {
     .replace(/from '\.\.\/infra\/shared-reminder-lifecycle.js'/, `from '${pathToFileURL(path.join(root, 'extension/infra/shared-reminder-lifecycle.js')).href}'`)
     .replace(/from '\.\.\/core\/shared-reminder-lifecycle.js'/, `from '${pathToFileURL(path.join(root, 'extension/core/shared-reminder-lifecycle.js')).href}'`);
   source = source.replace(/from '\.\.\/core\/autonomy-confirmation.js'/, `from '${pathToFileURL(path.join(root, 'extension/core/autonomy-confirmation.js')).href}'`);
+  source = source.replace(/from '\.\.\/core\/shared-contracts\/1\.54\.0\/shared-access.js'/, `from '${pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/shared-access.js')).href}'`);
   const { createSharedReminderContentBridge, initSharedReminderContentBridge,
     configureSharedReminderContentBridge, pollSharedReminderForTab } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const state = { schemaVersion: 1, roundId: 'round-1', reminderId: 'reminder-1', deliveryId: 'delivery-1',
@@ -206,6 +207,37 @@ async function run() {
     assert.equal(configureSharedReminderContentBridge({ ...options, enabled: false }).ok, true);
     assert.equal((await pollSharedReminderForTab(1, state.date)).skipped, true);
   } finally { global.chrome = oldChrome; }
+  const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/shared-access.js')));
+  const v2Policy = { ...v2Contract.projectSharedAccessPolicyV2({}, 5, 1000), stage: 'shared' };
+  const v2PolicyIdentity = await v2Contract.createSharedAccessPolicyIdentityV2(v2Policy);
+  const v2Scope = 'c'.repeat(64);
+  let v2Backend = { ...state, schemaVersion: 2, policyRevision: v2Policy.revision, stage: 'shared', kinds: ['repeat'],
+    policyIdentity: v2PolicyIdentity, ruleScopeKey: v2Scope, reasonCodes: ['timeWindow', 'dailyRest'],
+    forcedUsageSeconds: 2100, confirmedAtUsageSeconds: 300 };
+  const v2Sent = [], v2Requests = [];
+  const v2Bridge = createSharedReminderContentBridge({ enabled: true, schemaVersion: 2, runtimeId: 'extension-id',
+    readLease: () => 'lease-v2', readExecution: async () => ({ ok: true, policy: v2Policy, ruleScopeKey: v2Scope }),
+    readPresentation: async () => ({ classification: 'restricted', quotas: [{ id: 'dailyRest', usedSeconds: 7800, limitSeconds: 7200 }] }),
+    tabs: { get: async () => ({ id: 1, windowId: 2, url: 'https://fixture.test/page', active: true }),
+      sendMessage: async (_id, message) => { v2Sent.push(message); return { ok: true, visible: true,
+        confirmationVersion: 1, presentationId: message.presentationId,
+        identity: Object.fromEntries(identityKeys.map(key => [key, message.state[key]])) }; } },
+    windows: { get: async () => ({ focused: true, state: 'normal' }) },
+    request: async (method, payload) => {
+      v2Requests.push({ method, payload });
+      if (method === 'acknowledgeSharedReminderDelivery') v2Backend = { ...v2Backend, status: 'visible', visibleAtMs: 2500 };
+      if (method === 'resolveSharedReminder') v2Backend = { ...v2Backend, status: 'resolved', resolution: payload.action };
+      return { ok: true, state: v2Backend };
+    } });
+  assert.equal((await v2Bridge.poll(1, state.date)).state.status, 'visible');
+  assert.deepEqual(v2Requests[0].payload, { schemaVersion: 2, date: state.date });
+  assert.equal(v2Sent[0].forcedUsePresentation.quotas[0].usedSeconds, 7800);
+  const v2Message = { type: 'SHARED_REMINDER_ACTION', presentationId: v2Sent[0].presentationId,
+    payload: { ...Object.fromEntries(identityKeys.map(key => [key, v2Backend[key]])), action: 'continue' } };
+  assert.equal((await v2Bridge.handleAction(v2Message, sender)).errorCode, 'shared_reminder_confirmation_required');
+  assert.equal(v2Requests.filter(row => row.method === 'resolveSharedReminder').length, 0);
+  assert.equal((await v2Bridge.handleAction({ ...v2Message, confirmationText: '强行使用' }, sender)).state.resolution, 'continue');
+  assert.equal(Object.hasOwn(v2Requests.at(-1).payload, 'confirmationText'), false, 'typed text never crosses Native wire');
   const content = fs.readFileSync(path.join(root, 'extension/content.js'), 'utf8');
   const shared = content.slice(content.indexOf('  function sharedContentIdentity('), content.indexOf('  function bindRestReminderSlider('));
   assert(!/pauseMedia|resumeMedia|exitFullscreen|location\s*=|setInterval|timeout_end/.test(shared));

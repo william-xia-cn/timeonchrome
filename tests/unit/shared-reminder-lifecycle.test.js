@@ -102,6 +102,34 @@ async function run() {
     }
     console.log('[Fixed contract] 28 lifecycle vectors passed');
   }
+  const serviceV2 = await import(pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/shared-reminder-lifecycle.js')));
+  let stateV2 = { ...offered, schemaVersion: 2, kinds: ['repeat'], policyRevision: 'profile-config:1',
+    policyIdentity: { schemaVersion: 2, revision: 'profile-config:1', effectiveAtMs: 0, stage: 'shadow', policyHash: 'a'.repeat(64) },
+    ruleScopeKey: 'b'.repeat(64), reasonCodes: ['timeWindow', 'dailyRest'],
+    forcedUsageSeconds: 2100, confirmedAtUsageSeconds: 300 };
+  let visibleClock = null, visibleBoot = null, shownV2 = 0;
+  const clientV2 = createSharedReminderLifecycle({ enabled: true, schemaVersion: 2,
+    present: async () => { shownV2++; return { visible: true }; }, dismiss: async () => {},
+    request: async (method, payload) => {
+      if (method === 'getSharedReminderState') {
+        assert.deepEqual(payload, { schemaVersion: 2, date: offered.date });
+        return { ok: true, state: stateV2 };
+      }
+      assert.equal(payload.schemaVersion, 2);
+      const contextV2 = { state: stateV2, scopeCurrent: true, presenterCurrent: true,
+        currentPolicyIdentity: stateV2.policyIdentity, currentStateRevision: stateV2.stateRevision,
+        executionEnabled: true, nowMs: 2500, monotonicNowMs: 2500, bootId: 'boot-v2',
+        visibleBootId: visibleBoot, visibleMonotonicMs: visibleClock };
+      const transition = method === 'acknowledgeSharedReminderDelivery'
+        ? serviceV2.acknowledgeSharedReminderDeliveryV2(contextV2, payload)
+        : serviceV2.resolveSharedReminderV2(contextV2, payload);
+      stateV2 = transition.state; visibleClock = transition.visibleMonotonicMs; visibleBoot = transition.visibleBootId;
+      return { ok: true, state: stateV2 };
+    } });
+  assert.equal((await clientV2.poll(offered.date)).state.status, 'visible');
+  assert.equal(shownV2, 1);
+  assert.equal((await clientV2.choose('continue')).state.confirmedAtUsageSeconds, 2100);
+  assert.equal((await clientV2.choose('continue')).ok, false, 'resolved V2 instance cannot be confirmed again');
   console.log('[Shared reminder lifecycle] passed');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

@@ -78,6 +78,7 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
 
   const request = input => serialized(async () => {
     const state = await read();
+    if (state.sharedRuntimeSuspended === true) return { ok: false, error: 'independent_prompt_suspended' };
     if (!Number.isInteger(input?.tabId) || input.tabId < 0
       || !input?.admission?.ok || input.admission.action !== 'confirm'
       || typeof input.host !== 'string' || !input.host) {
@@ -234,6 +235,7 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
 
   const recover = () => serialized(async () => {
     const state = await read(), prompt = state.prompt;
+    if (state.sharedRuntimeSuspended === true) return { ok: true, skipped: 'independent_prompt_suspended' };
     if (!prompt) return { ok: true, skipped: 'no_prompt' };
     if (prompt.deadlineAt === null) return end(state, 'delivery_interrupted');
     if (now() >= prompt.deadlineAt) return end(state, 'confirmation_timeout');
@@ -254,5 +256,37 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
     return { ok: true, restored: true };
   });
 
-  return { request, handleAction, ensureGrantForHost, retireGrantsForHost, checkDeadline, recover };
+  const readIndependentRound = () => serialized(async () => {
+    const state = await read();
+    return { ok: true, roundId: state.prompt?.token || state.retiredForShared?.token || null };
+  });
+  const retireIndependentRound = roundId => serialized(async () => {
+    if (roundId !== null && (typeof roundId !== 'string' || !roundId)) return { ok: false, error: 'independent_round_missing' };
+    const state = await read();
+    if (state.prompt && state.prompt.token !== roundId) return { ok: false, error: 'independent_round_changed' };
+    if (roundId === null) {
+      await write({ ...state, sharedRuntimeSuspended: true });
+      return { ok: true, retiredIndependentRoundId: null };
+    }
+    const target = state.prompt || state.retiredForShared;
+    if (!target || target.token !== roundId) return { ok: false, error: 'independent_round_changed' };
+    // Revoke actions before touching UI so a late click cannot run during handoff.
+    await write({ ...state, prompt: null, sharedRuntimeSuspended: true,
+      retiredForShared: { token: roundId, tabId: target.tabId } });
+    try { await api.alarms.clear(FORCED_USE_PROMPT_DEADLINE_ALARM); }
+    catch (_) { return { ok: false, error: 'independent_deadline_retirement_failed' }; }
+    const dismissed = await message(target.tabId, { type: 'DISMISS_REST_USAGE_REMINDER', token: roundId });
+    if (dismissed?.ok !== true || dismissed.visible !== false) {
+      return { ok: false, error: 'independent_display_retirement_failed' };
+    }
+    return { ok: true, retiredIndependentRoundId: roundId };
+  });
+  const resumeIndependent = () => serialized(async () => {
+    const state = await read();
+    await write({ ...state, sharedRuntimeSuspended: false });
+    return { ok: true };
+  });
+
+  return { request, handleAction, ensureGrantForHost, retireGrantsForHost, checkDeadline, recover,
+    readIndependentRound, retireIndependentRound, resumeIndependent };
 }

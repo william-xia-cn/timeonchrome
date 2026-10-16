@@ -492,7 +492,7 @@
         return;
       }
       if (msg.type === 'SHOW_SHARED_REMINDER') {
-        showSharedReminder(msg.state, msg.presentationId).then(sendResponse, () => sendResponse?.({ ok: false, visible: false }));
+        showSharedReminder(msg.state, msg.presentationId, msg.forcedUsePresentation).then(sendResponse, () => sendResponse?.({ ok: false, visible: false }));
         return true;
       }
       const identity = sharedContentIdentity(msg.state);
@@ -1000,7 +1000,7 @@
   }
 
   function sharedContentIdentity(state) {
-    if (!state || state.schemaVersion !== 1) return null;
+    if (!state || ![1, 2].includes(state.schemaVersion)) return null;
     const keys = ['schemaVersion', 'roundId', 'reminderId', 'deliveryId', 'policyRevision', 'stateRevision'];
     if (!keys.slice(1).every(key => typeof state[key] === 'string' && state[key].trim() && state[key].length <= 128)) return null;
     return Object.fromEntries(keys.map(key => [key, state[key]]));
@@ -1035,12 +1035,12 @@
       && Number(style.opacity) > 0;
   }
 
-  async function showSharedReminder(state, presentationId) {
+  async function showSharedReminder(state, presentationId, presentation = null) {
     const identity = sharedContentIdentity(state);
     if (typeof presentationId !== 'string' || !presentationId || presentationId.length > 128
       || revokedSharedPresentations.has(presentationId) || !identity || state.presenter !== 'browser' || !['shadow', 'shared'].includes(state.stage)
       || !['offered', 'visible'].includes(state.status) || !Array.isArray(state.kinds)
-      || !state.kinds.length || !state.kinds.every(kind => ['entry', 'daily', 'weekly'].includes(kind))
+      || !state.kinds.length || !state.kinds.every(kind => (state.schemaVersion === 2 ? ['entry', 'repeat'] : ['entry', 'daily', 'weekly']).includes(kind))
       || document.visibilityState !== 'visible' || restReminderDialog?.open) return { ok: false, visible: false };
     if (sharedReminderView?.presentationId === presentationId && JSON.stringify(identity) === JSON.stringify(sharedReminderView.identity)) {
       return { ok: true, visible: sharedReminderIsVisible(), identity, presentationId, confirmationVersion: 1 };
@@ -1061,6 +1061,16 @@
     const title = state.kinds.includes('daily') && state.kinds.includes('weekly') ? '今日与本周休息软配额提醒'
       : state.kinds.includes('weekly') ? '本周休息软配额提醒' : state.kinds.includes('daily') ? '今日休息软配额提醒' : '进入休息内容';
     shadow.getElementById('shared-title').textContent = title;
+    if (state.schemaVersion === 2) {
+      const copy = restReminderCopy({ confirmationKind: 'forced_use', forcedUseReasons: state.reasonCodes,
+        forcedUsePresentation: { ...presentation, kind: state.kinds.includes('repeat') ? 'repeat' : 'entry',
+          sinceConfirmationSeconds: Number.isSafeInteger(state.confirmedAtUsageSeconds)
+            ? state.forcedUsageSeconds - state.confirmedAtUsageSeconds : null } });
+      shadow.getElementById('shared-title').textContent = copy.title;
+      shadow.querySelector('.subtitle').innerHTML = copy.subtitle;
+      shadow.querySelector('label').textContent = '请手动输入“强行使用”';
+      shadow.getElementById('shared-end').textContent = '结束使用';
+    }
     (document.documentElement || document.body).appendChild(host);
     const dialog = shadow.querySelector('dialog');
     const view = { host, shadow, dialog, identity, presentationId, ready: false, resolving: false };
@@ -1157,7 +1167,7 @@
 
   function restReminderCopy(payload) {
     if (payload.confirmationKind === 'forced_use') {
-      const names = { dailyStudy: '今日学习配额', dailyComposite: '今日复合配额',
+      const names = { restrictedEntry: '进入受限娱乐内容', dailyStudy: '今日学习配额', dailyComposite: '今日复合配额',
         dailyRest: '今日休息配额', dailyOnline: '今日在线配额', weeklyRest: '本周休息配额',
         domain: '单站点配额', timeWindow: '限制时段' };
       const reasons = [...new Set((Array.isArray(payload.forcedUseReasons) ? payload.forcedUseReasons : [])
@@ -1168,6 +1178,7 @@
       const quotas = Array.isArray(view.quotas) ? view.quotas : [];
       const quota = reason => quotas.find(row => row?.id === reason);
       const lines = reasons.map(reason => {
+        if (reason === 'restrictedEntry') return '当前访问受限娱乐内容，需要确认后进入。';
         if (reason !== 'timeWindow') {
           const row = quota(reason);
           if (!known(row?.usedSeconds) || !known(row?.limitSeconds)) {
@@ -1194,7 +1205,8 @@
         lines.unshift(`自上次确认后，已累计强行使用${duration(view.sinceConfirmationSeconds)}。<br>当前仍需确认的原因：`);
       } else if (reasons.length === 1) {
         const row = quota(reasons[0]);
-        title = reasons[0] === 'timeWindow' ? '当前不在允许使用时段'
+        title = reasons[0] === 'restrictedEntry' ? '进入受限娱乐内容需要确认'
+          : reasons[0] === 'timeWindow' ? '当前不在允许使用时段'
           : known(row?.usedSeconds) && known(row?.limitSeconds)
             ? `${names[reasons[0]].replace('配额', '')}已${row.usedSeconds > row.limitSeconds ? '超出' : '达到'}配额`
             : '继续使用需要确认';

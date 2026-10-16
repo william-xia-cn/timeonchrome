@@ -36,6 +36,8 @@ function createPort(onPost) {
 
 function moduleSource(instance) {
   return originalSource
+    .replace(/from '\.\.\/core\/shared-forced-use-runtime-v2.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-forced-use-runtime-v2.js')).href}'`)
+.replace(/from '\.\.\/core\/shared-contracts\/1\.54\.0\/source-statistics.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/source-statistics.js')).href}'`)
     .replace(/from '\.\/mac-guardian-health.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/infra/mac-guardian-health.js')).href}'`)
     .replace(/from '\.\.\/core\/shared-web-native.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-web-native.js')).href}'`)
     .replace(/import \{ APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, validateApplicationIdentityUsageQuery, validateApplicationIdentityUsageSnapshot \} from '\.\.\/core\/shared-contracts\/1\.43\.0\/application-usage-seconds\.js';/,
@@ -59,6 +61,7 @@ function moduleSource(instance) {
       fs.readFileSync(path.join(root, 'extension', 'infra', 'shared-browser-execution-fence.js'), 'utf8').replace(/export (function|const) /g, '$1 '))
     .replace(/import \{ sharedBrowserExecutionAttempts \} from '\.\/shared-browser-execution-attempts\.js';/,
       'const retirementEvidence = []; const sharedBrowserExecutionAttempts = {retireAttempt:async proof=>{const evidence=browserExecutionFence.evidence(proof);retirementEvidence.push(evidence);return {ok:!!evidence,retired:true};}};')
+    .replace(/import \{ checkSharedReminderStateV2, checkSharedReminderMessageV2 \} from '\.\/shared-forced-use-runtime-v2.js';/g, '')
     + `\nexport const executionFenceForTest = browserExecutionFence; export const retirementEvidenceForTest = retirementEvidence; export const expireSnapshotRetryForTest=()=>{snapshotRetryAtMs=0;};\n// test-instance-${instance}`;
 }
 
@@ -1427,6 +1430,123 @@ async function run() {
   assert.equal((await legacyIdentityHost.module.requestApplicationIdentityUsage(identityQuery)).errorCode,
     'application_identity_usage_unsupported');
 
+  const sourceStatisticsMessages = [];
+  const sourceStatisticsHost = await loadGuardian({
+    storage: { cloud_profile_id: 'child-source-stats', cloud_device_id: 'device-source-stats' }, policy,
+    connectNative: () => createPort((payload, onMessage) => {
+      sourceStatisticsMessages.push(payload);
+      const response = { ok: true, receivedAt: Date.now(), requestId: payload.requestId,
+        supportedProtocols: [3], capabilities: ['health', 'source-statistics-read-v1'],
+        ...(payload.messageType === 'exchangeSourceStatistics' ? {
+          sharedQuotaStage: 'shadow', sourceStatistics: {
+            schemaVersion: 1, durationUnit: 'seconds', source: 'application', childId: 'child-source-stats',
+            fromDate: '2026-10-07', toDate: '2026-10-07', revision: 'native-source-revision', readAtMs: Date.now(),
+            includedSourceKeys: ['application-source'], excludedSourceKeys: [], days: [{ date: '2026-10-07',
+              totalSeconds: 60, categoriesSeconds: { restrictedEntertainment: 60 }, nonSpecialTotalSeconds: 60,
+              settledThroughMs: null, complete: true, reasonCodes: [] }],
+          },
+        } : {}) };
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+    }),
+  });
+  await waitFor(() => sourceStatisticsHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+  const sourceRead = await sourceStatisticsHost.module.requestSourceStatisticsExchange({
+    fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null,
+  });
+  assert.equal(sourceRead.ok, true);
+  assert.equal(sourceRead.source, 'native');
+  assert.equal(sourceRead.snapshot.days[0].totalSeconds, 60);
+  const sourceRequest = sourceStatisticsMessages.find(message => message.messageType === 'exchangeSourceStatistics');
+  assert.equal(sourceRequest.channel, 'sharedQuota');
+  assert.deepEqual(sourceRequest.payload, { fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null });
+  assert.equal(sourceStatisticsHost.module.readNativeHostDiagnosticState().capabilities.includes('source-statistics-read-v1'), true);
+
+  const wrongStageHost = await loadGuardian({
+    storage: { cloud_profile_id: 'child-source-stats', cloud_device_id: 'device-source-stats' }, policy,
+    connectNative: () => createPort((payload, onMessage) => queueMicrotask(() => onMessage.listeners.forEach(listener => listener({
+      ok: true, receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [3],
+      capabilities: ['source-statistics-read-v1'],
+      ...(payload.messageType === 'exchangeSourceStatistics' ? { sharedQuotaStage: 'enforce', sourceStatistics: {
+        schemaVersion: 1, durationUnit: 'seconds', source: 'application', childId: 'child-source-stats',
+        fromDate: '2026-10-07', toDate: '2026-10-07', revision: 'native-source-revision', readAtMs: Date.now(),
+        includedSourceKeys: [], excludedSourceKeys: [], days: [{ date: '2026-10-07', totalSeconds: 0,
+          categoriesSeconds: {}, nonSpecialTotalSeconds: 0, settledThroughMs: null, complete: true, reasonCodes: [] }],
+      } } : {}),
+    })))),
+  });
+  await waitFor(() => wrongStageHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+  const wrongStage = await wrongStageHost.module.requestSourceStatisticsExchange({ fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null });
+  assert.equal(wrongStage.ok, false);
+  assert.equal(wrongStage.errorCode, 'source_statistics_native_invalid_response', 'only shadow-stage responses are accepted');
+  const v2PolicyIdentity = { schemaVersion: 2, revision: 'profile-config:1', effectiveAtMs: 0,
+    stage: 'shared', policyHash: 'a'.repeat(64) };
+  const v2State = { schemaVersion: 2, roundId: 'v2-round', reminderId: 'v2-reminder', deliveryId: 'v2-delivery',
+    policyRevision: 'profile-config:1', stateRevision: 'v2-state', date: '2026-10-16', kinds: ['entry'],
+    presenter: 'browser', stage: 'shared', issuedAtMs: 1000, offerExpiresAtMs: 100000,
+    visibleAtMs: null, responseDeadlineSeconds: 60, timeoutAction: 'end', status: 'offered', resolution: null,
+    policyIdentity: v2PolicyIdentity, ruleScopeKey: 'b'.repeat(64), reasonCodes: ['timeWindow'],
+    forcedUsageSeconds: 0, confirmedAtUsageSeconds: null };
+  let wrongRetiredRound = false;
+  const v2Messages = [];
+  const v2Host = await loadGuardian({
+    storage: { cloud_profile_id: 'v2-child', cloud_device_id: 'v2-device' }, policy,
+    connectNative: () => createPort((payload, onMessage) => {
+      v2Messages.push(payload);
+      const response = { ok: true, requestId: payload.requestId, receivedAt: Date.now(), supportedProtocols: [3],
+        capabilities: ['health', 'shared-access-policy-v2', 'shared-forced-use-runtime-v2'], browserActivityLeaseId: 'v2-lease' };
+      if (payload.messageType === 'reportBrowserActivity') response.browserActivityAck = {
+        schemaVersion: 2, leaseId: payload.payload.leaseId, acceptedSequence: payload.payload.sequence,
+        duplicate: false, stale: false, ownership: 'accepted',
+        retiredIndependentRoundId: wrongRetiredRound ? 'wrong-round' : payload.payload.independentRoundId };
+      if (payload.messageType === 'getSharedReminderState') response.sharedReminder = v2State;
+      queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+    }),
+  });
+  await waitFor(() => v2Host.module.readNativeHostDiagnosticState().capabilities?.includes('shared-forced-use-runtime-v2'));
+  v2Host.module.configureSharedQuotaNativeBridge({ enabled: true });
+  assert.equal(v2Host.module.getSharedBrowserActivityLease(), 'v2-lease');
+  const v2Activity = { schemaVersion: 2, leaseId: 'v2-lease', activityId: 'v2-activity', sequence: 1,
+    status: 'active', quotaBucket: 'composite', presentationEligible: true, policyIdentity: v2PolicyIdentity,
+    ruleScopeKey: 'b'.repeat(64), reasonCodes: ['timeWindow'], independentRoundId: 'old-independent-round' };
+  const v2Accepted = await v2Host.module.reportSharedBrowserActivity(v2Activity);
+  assert.equal(v2Accepted.ok, true);
+  assert.equal(v2Accepted.receipt.ownership, 'accepted');
+  wrongRetiredRound = true;
+  assert.equal((await v2Host.module.reportSharedBrowserActivity({ ...v2Activity, sequence: 2 })).ok, false,
+    'Service must confirm the exact retired independent round');
+  assert.equal((await v2Host.module.requestSharedReminderLifecycle('getSharedReminderState',
+    { schemaVersion: 2, date: '2026-10-16' })).state.schemaVersion, 2);
+  assert.equal((await v2Host.module.requestSharedReminderLifecycle('getSharedReminderState',
+    { date: '2026-10-16' })).ok, false, 'V1 request cannot use V2 capability as a fallback');
+  assert.deepEqual(v2Messages.find(message => message.messageType === 'getSharedReminderState').payload,
+    { schemaVersion: 2, date: '2026-10-16' });
+  if (process.env.TOC_NATIVE_V2_WIRE_SEQUENCE) {
+    const wire = JSON.parse(fs.readFileSync(process.env.TOC_NATIVE_V2_WIRE_SEQUENCE, 'utf8'));
+    const health = wire.find(row => row.response?.browserActivityLeaseId);
+    let replayResponse = null;
+    const replayHost = await loadGuardian({
+      storage: { cloud_profile_id: 'isolated-wire-child', cloud_device_id: 'isolated-wire-device' }, policy,
+      connectNative: () => createPort((payload, onMessage) => {
+        const sourceReply = ['probe', 'heartbeat'].includes(payload.messageType) ? health.response : replayResponse;
+        if (!sourceReply) throw Error('unexpected replay request');
+        const response = structuredClone(sourceReply);
+        response.requestId = payload.requestId; response.receivedAt = Date.now();
+        queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+      }),
+    });
+    await waitFor(() => replayHost.module.readNativeHostDiagnosticState().capabilities?.includes('shared-forced-use-runtime-v2'));
+    replayHost.module.configureSharedQuotaNativeBridge({ enabled: true });
+    let replayed = 0;
+    for (const row of wire.filter(item => item.request.channel === 'sharedQuota')) {
+      replayResponse = row.response;
+      const result = row.request.messageType === 'reportBrowserActivity'
+        ? await replayHost.module.reportSharedBrowserActivity(row.request.payload)
+        : await replayHost.module.requestSharedReminderLifecycle(row.request.messageType, row.request.payload);
+      assert.equal(result.ok, row.response.ok, row.request.messageType + ': actual C# response must pass the production consumer');
+      replayed++;
+    }
+    console.log('[Native V2 C# wire replay] ' + replayed + ' actual responses accepted by production client');
+  }
   console.log('[Local Guardian] passed');
   process.exit(0);
 }

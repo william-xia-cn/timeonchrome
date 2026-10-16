@@ -3,10 +3,13 @@ import { sharedBrowserExecutionEligibility } from '../core/shared-browser-execut
 import { sharedReminderIdentity } from '../core/shared-reminder-lifecycle.js';
 import { requestSharedReminderLifecycle } from '../infra/native-host-client.js';
 import { createSharedBrowserCloser, readSharedBrowserCloseCapability } from './shared-browser-closer.js';
+import { sharedExecutionEligibilityV2 } from '../core/shared-forced-use-runtime-v2.js';
 
-export function createSharedBrowserExecutor({ enabled = false, effectsEnabled = false,
-  preparation = createSharedBrowserExecutionPreparation({ enabled }), readContext = readBrowserExecutionContext,
-  request = requestSharedReminderLifecycle, closer = null, readCapability = readSharedBrowserCloseCapability,
+export function createSharedBrowserExecutor({ enabled = false, effectsEnabled = false, schemaVersion = 1,
+  readContext = readBrowserExecutionContext,
+  request = requestSharedReminderLifecycle,
+  preparation = createSharedBrowserExecutionPreparation({ enabled, schemaVersion, readContext, request }),
+  closer = null, readCapability = readSharedBrowserCloseCapability,
   now = () => Math.floor(performance.now()) } = {}) {
   let busy = false;
   const unconfirmed = new Map();
@@ -33,13 +36,14 @@ export function createSharedBrowserExecutor({ enabled = false, effectsEnabled = 
       if (unconfirmed.size >= 20) return { ok: false, errorCode: 'shared_browser_execution_ack_backlog' };
       const claimed = await preparation.claim(permit);
       if (!claimed?.ok) return claimed;
-      const isCurrent = async () => sharedBrowserExecutionEligibility(permit, {
+      const isCurrent = async () => (permit.schemaVersion === 2 ? sharedExecutionEligibilityV2 : sharedBrowserExecutionEligibility)(permit, {
         ...await readContext(state), reminder: sharedReminderIdentity(state), attemptedIds: new Set(),
         requestStartedMonotonicMs: start, monotonicNowMs: now(),
       }).eligible;
       if (!await isCurrent()) return { ok: false, errorCode: 'shared_browser_execution_stale', registered: true };
-      const result = await (closer || createSharedBrowserCloser()).close(target, permit.effect, isCurrent);
+      const result = await (closer || createSharedBrowserCloser({ readCapability })).close(target, permit.effect, isCurrent);
       const payload = { ...sharedReminderIdentity(permit),
+        ...(permit.schemaVersion === 2 ? { policyIdentity: permit.policyIdentity } : {}),
         ...(permit.triggerStateRevision === undefined ? {} : { triggerStateRevision: permit.triggerStateRevision }),
         executionId: permit.executionId, leaseId: permit.leaseId,
         activityId: permit.activityId, outcome: result.outcome };
