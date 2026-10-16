@@ -2,6 +2,8 @@
 
 ## 共享配额桶读取简化（2026-10-16，实施中）
 
+集中CI补齐两处旧测试预期：兼容包版本1.55.0、机器能力清单同时含旧source-statistics-read-v1和新quota-buckets-read-v1。仅同步已批准的版本与能力，不改变生产路由、上传能力或共享开关；专项复验后进入原发布流程。
+
 新能力quota-buckets-read-v1、新消息exchangeQuotaBuckets沿用既有本地桥和同孩子核验。请求为{fromDate,toDate,webUsage}，响应applicationUsage；各域snapshot为schemaVersion:2、durationUnit:seconds、source、childId、日期范围、readAtMs和逐日{date,bucketsSeconds:{study,composite,rest},settledThroughMs,complete,reasonCodes}。不传来源键清单、派生revision、分类、余额。旧v1能力/消息保留兼容，不冒称v2。
 
 契约集中为1.55.0，旧1.54.0不原地覆盖。云端契约专项、Guardian既有快照/桶读取专项、Runtime来源读取12/12及两侧typecheck通过；Native Dispatcher+RuntimeJson合成wire通过TS1.55校验。以上仅源码/隔离证据，未部署、安装或启用共享；真实Windows当前孩子验收仍待统一候选。
