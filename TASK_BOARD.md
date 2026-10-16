@@ -2,6 +2,10 @@
 
 ## NOW：Windows完整闭环（包含共享）后再迁移Mac（2026-10-16，PO已明确）
 
+最新裁决已收到：有限适用配额缺源且无有效缓存时采用可用性优先容错，允许使用并提示不完整，已知黑名单/停用/对象限制及已知到硬上限仍执行，未知不补零。已交两端补实际消费者及最小回归；下方“待PO裁决”均为历史状态，不再是当前阻塞。云端8ff3b39相关CI全部success。控件6167b14已push并建立集中PR285；其首次CI失败为scope按两端diff看到落后主线的反向差异，正在保留脏稿普通合并主线，不扩大职责或放宽checker。
+
+集中集成前核对：控件缺源容错b4f90b6、普通合并主线8ac137c已push；实际远端两端diff仅本批控件/直接测试、锁及两份证据文档。mode-service165项、来源专项及typecheck通过，旧文档脏稿已保护并恢复。Native缺源实际Service及相关18项通过，基线3011c7e复现7个既有失败，不修改已验收统计迁就旧例。当前把8ac137c按普通merge收进现有cloud-management，以现有Integration-Source声明验证所属控件提交，不新建分支/工作树、不放宽路径检查；源码集成不等于安装/部署/实机通过。
+
 集中集成状态：已fetch远端并在现有cloud-management普通合入origin/master，50fde005df10a6ada424d19f8ce4d33721d5e998已推送；三个文档顶部独立记录冲突均保留双方内容。唯一旧application-accounts能力夹具差异先保存stash恢复快照，合并后与快照完整文件相同，无内容丢失；未跟踪产物保留。未创建分支或工作树。PR284为整批草稿，不合并/部署；精确head的App Runtime CI38871880415 changes/console/contracts-worker/gate全部success，含完整契约与Worker测试/typecheck/dry-run；Guardian Integration38871880378 success。能力/协议源码证据可复用，不将CI通过冒充两端实际消费者完成。附件绑定因已有100项上限失败，PR本身成功，未删旧附件。
 
 实际消费者审查更新（两端仍活跃实施，非实机通过）：Native已修复按active列表修剪Confirmed及repeat/新entry同时发生的基线问题；控件grantKey已包含dateKey，避免跨日沿用。真实控件首链与真实C# Service各自隔离回放已取得，见下方证据，尚未完成已安装两端互通，不以契约/CI通过覆盖。
