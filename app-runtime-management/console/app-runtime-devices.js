@@ -9,7 +9,14 @@
       if (!report) return '新版目录：未报告（不能由旧策略状态推断）';
       if (report.assignmentVersion !== user.assignmentVersion || user.protected !== true
         || !Number.isSafeInteger(report.receivedAtMs) || report.receivedAtMs > nowMs || nowMs - report.receivedAtMs > 600000)
-        return '新版目录：未确认（报告已失效或分配变化）';
+        return `${report.model === 'nativeApplication' ? '应用执行' : '新版目录'}：未确认（报告已失效或分配变化）`;
+      if (report.model === 'nativeApplication') {
+        if (report.currentState !== 'reported') return '应用执行：未确认（配置已变化或报告失效）';
+        const result = report.latestResult;
+        if (!result) return `应用配置 v${report.configurationVersion}：已报告；实际动作未报告`;
+        const outcomes = {terminated:'已确认结束',failed:'执行失败',exit_unconfirmed:'结束未确认'};
+        return `应用配置 v${report.configurationVersion}：最近动作${outcomes[result.outcome] || '结果未知'}（动作配置 v${result.configurationVersion}）`;
+      }
       const labels = { noSession: '无活动会话', unsupported: '当前会话未支持', pending: '等待接纳当前目录',
         partial: '部分会话尚未接纳', unknown: '当前接纳未确认' };
       if (report.currentState === 'accepted' && Number.isSafeInteger(report.catalogVersion) && report.catalogVersion > 0)

@@ -3,7 +3,8 @@
 import { initSignal } from './core/signal.js';
 import { initCompositePageObserver } from './infra/composite-page-observer.js';
 import { initSharedReminderContentBridge } from './product/shared-reminder-content-bridge.js';
-import { initSharedAccessPolicyReader } from './infra/shared-access-policy-reader.js';
+import { initSharedAccessPolicyReader, initSharedAccessPolicyV2Reader } from './infra/shared-access-policy-reader.js';
+import { initSourceStatisticsShadow } from './infra/source-statistics-shadow.js';
 import { initSharedQuotaExecutionReader } from './infra/shared-quota-execution-reader.js';
 import { initSharedWebContributionSync } from './infra/shared-web-contribution-sync.js';
 import { beginForcedUseContributionRecovery, initForcedUseContributionObserver, markDerivedIncomplete,
@@ -49,7 +50,11 @@ import { configureRestUsageReminder, evaluateRestUsageReminder as evaluateLegacy
 import { createForcedUsePromptRuntime, FORCED_USE_PROMPT_DEADLINE_ALARM } from './product/forced-use-prompt.js';
 import { recordAccessDiagnostic } from './infra/access-diagnostics.js';
 import { readForcedUsePolicy } from './core/forced-use-policy.js';
-import { isSharedAccessRuntimeEnabled } from './product/shared-access-runtime.js';
+import { isSharedAccessRuntimeEnabled, isSharedAccessRuntimeV2Enabled, readSharedAccessRuntime } from './product/shared-access-runtime.js';
+import { requestSharedForcedUseConfirmation, ensureSharedForcedUseConfirmation, clearSharedForcedUseContext,
+  configureSharedForcedUseCoordinatorV2, pollSharedForcedUseV2 } from './product/shared-forced-use-v2.js';
+import { hasSharedForcedUseRuntimeV2Capability } from './infra/native-host-client.js';
+import { readSharedAccessPolicyV2Lkg } from './infra/shared-access-policy-reader.js';
 import { pollSharedAccessIntegration, initSharedAccessIntegration } from './product/shared-access-integration.js';
 import { registerSharedSyncDiagnosticsReader } from './infra/shared-sync-diagnostics.js';
 registerSharedSyncDiagnosticsReader();
@@ -130,12 +135,16 @@ const forcedUsePrompt = createForcedUsePromptRuntime({
   },
 });
 const retireForcedUseGrants = async host => {
+  if (isSharedAccessRuntimeV2Enabled()) return clearSharedForcedUseContext(host);
   const result = await forcedUsePrompt.retireGrantsForHost(host).catch(() => ({ ok: false }));
   if (result?.ok !== true) await markDerivedIncomplete({ irrecoverable: true });
   return result;
 };
-configureForcedUsePromptRequester(input => forcedUsePrompt.request(input),
-  (admission, host) => forcedUsePrompt.ensureGrantForHost(admission, host), retireForcedUseGrants);
+const requestAutonomyPrompt = input => input?.admission?.sharedRuntimeV2
+  ? requestSharedForcedUseConfirmation(input) : forcedUsePrompt.request(input);
+const ensureAutonomyGrant = (admission, host) => admission?.sharedRuntimeV2
+  ? ensureSharedForcedUseConfirmation(admission) : forcedUsePrompt.ensureGrantForHost(admission, host);
+configureForcedUsePromptRequester(requestAutonomyPrompt, ensureAutonomyGrant, retireForcedUseGrants);
 void forcedUsePrompt.recover().catch(() => {});
 
 configureRestUsageReminder({
@@ -177,8 +186,8 @@ configureRestUsageReminder({
       return true;
     }
     const result = await executeModeDecision(decision, { tabId: tab.id, event, domain: extractDomain(tab.url),
-      updateDeclarativeRules, requestForcedUsePrompt: input => forcedUsePrompt.request(input),
-      ensureForcedUseGrant: (admission, host) => forcedUsePrompt.ensureGrantForHost(admission, host),
+      updateDeclarativeRules, requestForcedUsePrompt: requestAutonomyPrompt,
+      ensureForcedUseGrant: ensureAutonomyGrant,
       retireForcedUseGrants });
     return result?.ok !== false && result?.blocked !== true;
   },
@@ -281,8 +290,19 @@ async function bootstrapServiceWorker(reason) {
     await setupAlarms();
     scheduleModeBoundaryDrain(`bootstrap:${reason}`);
     localGuardianBootstrapState = 'ready';
+    initSourceStatisticsShadow({ isEnabled: isMonitoringEnabled });
+    initSharedAccessPolicyV2Reader({ isEnabled: isMonitoringEnabled });
     downtimeEnforcement.start().catch(() => {});
-    initSharedAccessIntegration({ onExecutionChanged: suspendLegacyRestUsageReminder, allowed: async () => {
+    initSharedAccessIntegration({ onExecutionChanged: suspendLegacyRestUsageReminder,
+      v2: { available: hasSharedForcedUseRuntimeV2Capability, policy: readSharedAccessPolicyV2Lkg,
+        configure: options => configureSharedForcedUseCoordinatorV2({ ...options,
+          readRound: forcedUsePrompt.readIndependentRound, retireRound: forcedUsePrompt.retireIndependentRound,
+          resumeIndependent: forcedUsePrompt.resumeIndependent, readModel: readSharedAccessRuntime,
+          readDecision: tab => handleModeEvent({ type: 'ACCESS_OBSERVED', url: tab.url, domain: extractDomain(tab.url),
+            tabId: tab.id, windowId: tab.windowId, foreground: true, monitoringEnabled: getSyncState().monitoringEnabled }),
+          onAccepted: id => reevaluateTabById(id, { source: 'shared_forced_use_confirmed' }),
+          onBlocked: tab => reevaluateTabById(tab.id, { source: 'shared_forced_use_blocked' }) }) },
+      allowed: async () => {
       const activation = await resolveActivationState();
       return activation.activated === true && getSyncState().monitoringEnabled !== 0;
     } });
@@ -426,8 +446,8 @@ async function dispatchModeEvent(event = {}, options = {}) {
   const result = await executeModeDecision(decision, {
     tabId: event.tabId,
     domain: decision.domain || event.domain || extractDomain(event.url || ''),
-    requestForcedUsePrompt: input => forcedUsePrompt.request(input),
-    ensureForcedUseGrant: (admission, host) => forcedUsePrompt.ensureGrantForHost(admission, host),
+    requestForcedUsePrompt: requestAutonomyPrompt,
+    ensureForcedUseGrant: ensureAutonomyGrant,
     retireForcedUseGrants,
     updateDeclarativeRules,
     event: { ...event, auditId },
@@ -1454,7 +1474,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         message: err?.message || 'Rest usage reminder evaluation failed',
       });
     });
-    if (!isSharedAccessRuntimeEnabled() && readForcedUsePolicy(await getConfig()).enabled) {
+    if (isSharedAccessRuntimeV2Enabled()) {
+      await pollSharedForcedUseV2();
+    } else if (!isSharedAccessRuntimeEnabled() && readForcedUsePolicy(await getConfig()).enabled) {
       let queryFailed = false;
       const focused = await chrome.windows.getLastFocused().catch(() => {
         queryFailed = true;

@@ -4,7 +4,7 @@ import { applySystemAccessDefaultsToProfileConfig, composeDeviceConfigVersion, g
 import { compactUsageAccountingCorrectionDeltas, getBeijingWeekForTimestamp, listDeviceCorrectionEvidencePage, listDeviceIntervalEvidencePage, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
-import { readSharedAccessPolicyForChild } from './profiles';
+import { readSharedAccessPolicyForChild, readSharedAccessPolicyV2ForChild } from './profiles';
 import { pageSharedQuotaExecutionBasis, readSharedQuotaExecutionBasis, sharedWebSourceKey, type SharedAccessStateEnv } from '../services/sharedAccessState';
 import { publishSharedWebContribution, readSharedWebWatermark, readSharedWebJson } from '../services/sharedWebContributions';
 import { issueSharedWebSourceBinding, issueSharedWebSourceBindingV2 } from '../services/sharedWebSourceBinding';
@@ -511,7 +511,7 @@ export const deviceRouter = {
     }
 
     // Read only the authenticated device's Child policy, never a caller-selected scope.
-    if (request.method === 'GET' && path === '/device/shared-access/v1') {
+    if (request.method === 'GET' && (path === '/device/shared-access/v1' || path === '/device/shared-access/v2')) {
       try {
         const identity = await verifyDeviceTokenFromRequest(request, env);
         if (!identity) return json({ code: 'INVALID_DEVICE_TOKEN' }, 401);
@@ -520,9 +520,10 @@ export const deviceRouter = {
         const owner = await env.DB.prepare('SELECT account_id FROM profiles WHERE id = ?')
           .bind(identity.profileId).first<{ account_id: string }>();
         if (!owner) return json({ code: 'CHILD_NOT_FOUND' }, 404);
-        const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
+        const read = path.endsWith('/v2') ? readSharedAccessPolicyV2ForChild : readSharedAccessPolicyForChild;
+        const policy = await read(env.DB, owner.account_id, identity.profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         if (!policy) return json({ code: 'CHILD_NOT_FOUND' }, 404);
-        return json({ schemaVersion: 1, profileId: identity.profileId, policy }, 200);
+        return json({ schemaVersion: policy.schemaVersion, profileId: identity.profileId, policy }, 200);
       } catch {
         return json({ code: 'SHARED_ACCESS_POLICY_UNAVAILABLE' }, 503);
       }

@@ -1,14 +1,14 @@
 import { sharedReminderIdentity, validateSharedReminderState } from '../core/shared-reminder-lifecycle.js';
 
 // Explicit candidate caller. No bootstrap hook, wall-clock timeout action or Rest mutation.
-export function createSharedReminderLifecycle({ enabled = false, request, present, dismiss, update } = {}) {
+export function createSharedReminderLifecycle({ enabled = false, request, present, dismiss, update, schemaVersion = 1 } = {}) {
   let state = null;
   let displayedId = null;
   let displayedDelivery = null;
   let busy = false;
   let generation = 0;
   const identityKey = value => JSON.stringify(sharedReminderIdentity(value));
-  const copy = value => value ? { ...value, kinds: [...value.kinds] } : null;
+  const copy = value => value ? structuredClone(value) : null;
 
   async function clearDisplay() {
     if (!displayedId) return;
@@ -45,7 +45,8 @@ export function createSharedReminderLifecycle({ enabled = false, request, presen
 
   function poll(date) {
     return run(async isCurrent => {
-      const read = await accept(await request('getSharedReminderState', { date }), { date }, isCurrent);
+      const query = schemaVersion === 2 ? { schemaVersion: 2, date } : { date };
+      const read = await accept(await request('getSharedReminderState', query), { date, schemaVersion }, isCurrent);
       if (!read.ok || !state || state.presenter !== 'browser'
         || !['offered', 'visible'].includes(state.status)) return read;
       const identity = sharedReminderIdentity(state);

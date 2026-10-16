@@ -18,12 +18,13 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
 
 async function run() {
   const coreUrl = pathToFileURL(path.join(root, 'extension/core/shared-access-policy.js')).href;
-  const { validateSharedAccessPolicyV1 } = await import(coreUrl);
+  const { validateSharedAccessPolicyV1, validateSharedAccessPolicyV2 } = await import(coreUrl);
+const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/shared-access.js')).href);
   let source = fs.readFileSync(path.join(root, 'extension/infra/shared-access-policy-reader.js'), 'utf8')
     .replace(/from '\.\.\/core\/shared-access-policy.js'/, `from '${coreUrl}'`)
     .replace(/import \{ runStorageMutation \} from '[^']+';/, 'const runStorageMutation = () => { throw Error("no default writes"); };')
-    .replace(/import \{ readSharedAccessPolicyCloudScope, readCloudSharedAccessPolicy \} from '[^']+';/,
-      'const readSharedAccessPolicyCloudScope = () => { throw Error("no default reads"); }; const readCloudSharedAccessPolicy = () => { throw Error("no default requests"); };')
+    .replace(/import \{ readSharedAccessPolicyCloudScope, readCloudSharedAccessPolicy, readCloudSharedAccessPolicyV2 \} from '[^']+';/,
+      'const readSharedAccessPolicyCloudScope = () => { throw Error("no default reads"); }; const readCloudSharedAccessPolicy = () => { throw Error("no default requests"); }; const readCloudSharedAccessPolicyV2 = readCloudSharedAccessPolicy;')
     .replace(/import \{ hasSharedAccessPolicyCapability, observeSharedAccessPolicyCapability \} from '[^']+';/,
       'const hasSharedAccessPolicyCapability = () => false; const observeSharedAccessPolicyCapability = fn => { fn(false); };');
   const mod = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
@@ -56,7 +57,7 @@ async function run() {
     value => { value.autonomy.visibleResponseDeadlineSeconds = 59; }]) {
     const candidate = clone(valid); change(candidate); assert.equal(validateSharedAccessPolicyV1(candidate).ok, false);
   }
-  function fixture() {
+  function fixture(key = mod.SHARED_ACCESS_POLICY_LKG_KEY) {
     let value, context = { deviceId: 'device-A', childId: 'child-A', deviceToken: 'fixture-credential-A', apiBase: 'https://fixture.invalid' };
     let reply = { ok: true, profileId: context.childId, policy: policy(4) }, support = true, failWrite = false;
     let pending = Promise.resolve();
@@ -79,6 +80,21 @@ async function run() {
       reader: () => mod.createSharedAccessPolicyReader(options) };
   }
   const f = fixture();
+  const v2 = fixture(mod.SHARED_ACCESS_POLICY_V2_LKG_KEY);
+  const v2Policy = v2Contract.projectSharedAccessPolicyV2({ autonomyConfig: { timeWindowAdvisoryEnabled: true } }, 4, 1234);
+  assert.equal(validateSharedAccessPolicyV2(v2Policy).ok, true);
+  assert.equal(validateSharedAccessPolicyV2(policy(4)).ok, false, 'V1 cannot enter V2 cache');
+  v2.response({ ok: true, profileId: 'child-A', policy: v2Policy });
+  const v2Reader = mod.createSharedAccessPolicyV2Reader(v2.options);
+  assert.equal((await v2Reader.refresh()).status, 'fresh');
+  assert.equal(v2.cache().policy.schemaVersion, 2);
+  const changedAutonomy = clone(v2Policy);
+  changedAutonomy.autonomy.timeWindowAdvisoryEnabled = false;
+  v2.response({ ok: true, profileId: 'child-A', policy: changedAutonomy });
+  assert.equal((await v2Reader.refresh()).errorCode, 'shared_access_policy_conflict');
+  assert.equal(v2.cache().policy.autonomy.timeWindowAdvisoryEnabled, true);
+  v2.context({ childId: 'child-B' });
+  assert.equal((await v2Reader.read()).ok, false, 'V2 cache is scoped to binding identity');
   const disabled = mod.createSharedAccessPolicyReader({ ...f.options, enabled: false });
   assert.equal((await disabled.refresh()).errorCode, 'shared_access_disabled');
   assert.equal((await disabled.read()).ok, false); assert.equal(f.requests.length, 0);
@@ -196,6 +212,16 @@ async function run() {
     assert(Object.values(events).every(list => list.length === 1));
     events.startup[0](); events.installed[0](); events.changed[0]({ cloud_device_token: {} }, 'local');
     assert.equal((await mod.readSharedAccessPolicyLkg()).errorCode, 'shared_access_disabled');
+    const alarms = [];
+    global.chrome.alarms = { create(name, options) { alarms.push({ name, options }); }, onAlarm: event('alarm') };
+    mod.initSharedAccessPolicyV2Reader({ isEnabled: () => false });
+    mod.initSharedAccessPolicyV2Reader({ isEnabled: () => false });
+    assert.equal(alarms.length, 1, 'repeated bootstrap creates one V2 refresh controller');
+    assert.equal(events.startup.length, 2);
+    assert.equal(events.changed.length, 2);
+    events.changed[1]({ guardian_config: {} }, 'local');
+    events.alarm[0]({ name: alarms[0].name });
+    assert.equal((await mod.readSharedAccessPolicyV2Lkg()).ok, false, 'disabled monitoring cannot read V2 policy');
   } finally { global.chrome = oldChrome; }
 
   // Execute the actual isolated read transport without importing the accounting stack.
@@ -207,13 +233,17 @@ async function run() {
   const context = { AbortController, TextDecoder, TextEncoder, setTimeout, clearTimeout, CLOUD_CONFIG: { REQUEST_TIMEOUT_MS: 15000 },
     requireRuntimeActivation: async () => ({ ok: true }), getCloudApiBase: () => 'https://fixture.invalid',
     fetch: async (url, options) => { calls.push({ url, options }); return response; } };
-  vm.runInNewContext(`${transport};this.read = readCloudSharedAccessPolicy;this.uploadWeb=postCloudSharedWebContribution;this.bindWeb=requestCloudSharedWebSourceBinding;this.webCapability=readCloudSharedWebCapabilities;this.webWatermark=readCloudSharedWebWatermark;`, context);
+  vm.runInNewContext(`${transport};this.read = readCloudSharedAccessPolicy;this.readV2=readCloudSharedAccessPolicyV2;this.uploadWeb=postCloudSharedWebContribution;this.bindWeb=requestCloudSharedWebSourceBinding;this.webCapability=readCloudSharedWebCapabilities;this.webWatermark=readCloudSharedWebWatermark;`, context);
   const input = { deviceToken: 'fixture-credential-A', apiBase: 'https://fixture.invalid' };
   assert.equal((await context.read(input)).profileId, 'child-A');
   assert.equal(calls[0].url, 'https://fixture.invalid/device/shared-access/v1');
   assert.equal(calls[0].options.headers.Authorization, 'Bearer fixture-credential-A');
   assert.equal(calls[0].options.method, 'GET'); assert.equal(calls[0].options.body, undefined);
   assert.equal(calls[0].options.redirect, 'error');
+  response = new Response(JSON.stringify({ schemaVersion: 2, profileId: 'child-A', policy: v2Policy }));
+  assert.equal((await context.readV2(input)).policy.schemaVersion, 2);
+  assert.equal(calls.at(-1).url, 'https://fixture.invalid/device/shared-access/v2');
+  assert.equal(calls.at(-1).options.body, undefined, 'caller cannot choose another child');
   response = new Response(JSON.stringify({ accepted: true }));
   assert.equal((await context.uploadWeb(input, { schemaVersion: 1, example: 'fixture' })).ok, true);
   assert.equal(calls.at(-1).url, 'https://fixture.invalid/device/shared-web-contributions/v1');

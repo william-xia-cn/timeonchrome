@@ -10,6 +10,8 @@ import type {
   UploadAcceptance,
 } from './contracts';
 import { randomToken, sha256Hex } from './crypto';
+import {SHARED_ACCESS_POLICY_V2_CAPABILITY} from '@timeonchrome/app-runtime-contracts/shared-access';
+import {NATIVE_APPLICATION_CONTROL_STATUS_CAPABILITY} from '@timeonchrome/app-runtime-contracts';
 import { commitUninstallOperation } from './uninstallOperations';
 import { getAppPolicy, resolveClassification } from './appPolicy';
 import type { AppPolicyDocument } from './contracts';
@@ -443,6 +445,9 @@ export async function getMachinePolicy(
   const loggingPolicy = await getLoggingPolicy(database, machine.accountId, machine.machineId);
   const policy = {
     capabilities: ['heartbeat-os-version-v1', 'uninstall-operation-receipt-v1',
+      ...(reportedCapabilities.includes(SHARED_ACCESS_POLICY_V2_CAPABILITY)?[SHARED_ACCESS_POLICY_V2_CAPABILITY]:[]),
+      ...(reportedCapabilities.includes(NATIVE_APPLICATION_CONTROL_STATUS_CAPABILITY)&&await programPolicyStatusReady(database)
+        ?[NATIVE_APPLICATION_CONTROL_STATUS_CAPABILITY]:[]),
       ...(await programPolicyStatusReady(database)?[PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY]:[]),
       ...(supportsProgramExecution?[PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY]:[]),
       ...(supportsOther?['application-other-v1']:[])],

@@ -1,4 +1,5 @@
-import { configureSharedAccessRuntime, isSharedAccessRuntimeEnabled } from './shared-access-runtime.js';
+import { configureSharedAccessRuntime, isSharedAccessRuntimeEnabled, isSharedAccessRuntimeV2Enabled } from './shared-access-runtime.js';
+import { pollSharedForcedUseV2 } from './shared-forced-use-v2.js';
 import { configureSharedWebContributionSync } from '../infra/shared-web-contribution-sync.js';
 import { configureSharedBrowserActivity } from './shared-browser-activity.js';
 import { configureSharedQuotaNativeBridge, hasSharedAccessExecutionCapability, observeSharedAccessPolicyCapability } from '../infra/native-host-client.js';
@@ -10,6 +11,7 @@ import { readSharedBrowserCloseCapability } from './shared-browser-closer.js';
 
 let timer = null, busy = false, epoch = 0;
 export async function pollSharedAccessIntegration() {
+  if (isSharedAccessRuntimeV2Enabled()) return pollSharedForcedUseV2();
   if (!isSharedAccessRuntimeEnabled() || busy) return { ok: true, skipped: true };
   const generation = epoch; busy = true;
   try {
@@ -47,8 +49,9 @@ export function createSharedAccessBootstrap({ allowed = async () => false,
   native = configureSharedQuotaNativeBridge, policyReader = configureSharedAccessPolicyReader,
   basisReader = configureSharedQuotaExecutionReader, contributions = configureSharedWebContributionSync,
   runtime = configureSharedAccessRuntime, activity = configureSharedBrowserActivity,
-  reminder = configureSharedReminderContentBridge } = {}) {
+  reminder = configureSharedReminderContentBridge, v2 = null } = {}) {
   let preparing = false, execution = false, effects = false, inflight = null;
+  let v2Execution = false, v2Effects = false;
   async function reconcile() {
     if (inflight) return inflight;
     inflight = run().catch(() => ({ ok: false, errorCode: 'shared_access_bootstrap_unavailable' }))
@@ -57,6 +60,31 @@ export function createSharedAccessBootstrap({ allowed = async () => false,
   }
   async function run() {
     const permitted = await readChannel() && await allowed();
+    if (permitted && v2) {
+      native({ enabled: true });
+      if (v2.available()) {
+        const result = await v2.policy();
+        const next = result?.ok === true && result.policy?.schemaVersion === 2
+          && result.policy.stage === 'shared' && result.policy.forcedUsePolicyV1?.enabled === true;
+        const nextEffects = next && (await capability()).available === true;
+        if (!v2Execution && next) {
+          reminder({ enabled: false }); runtime({ enabled: false }); activity({ enabled: false });
+          await contributions({ enabled: false }); await basisReader({ enabled: false }); await policyReader({ enabled: false });
+        }
+        if (next !== v2Execution || nextEffects !== v2Effects) {
+          await v2.configure({ enabled: next, effectsEnabled: nextEffects });
+          runtime({ enabled: next, schemaVersion: 2 });
+          await onExecutionChanged(next);
+          v2Execution = next; v2Effects = nextEffects;
+        }
+        preparing = true; execution = false; effects = false;
+        return { ok: true, preparing, execution: v2Execution, effectsEnabled: v2Effects, schemaVersion: 2 };
+      }
+    }
+    if (v2Execution) {
+      await v2.configure({ enabled: false }); runtime({ enabled: false });
+      await onExecutionChanged(false); v2Execution = false; v2Effects = false; preparing = false;
+    }
     if (permitted !== preparing) {
       preparing = permitted;
       native({ enabled: permitted });
@@ -80,9 +108,9 @@ export function createSharedAccessBootstrap({ allowed = async () => false,
 }
 
 let bootstrapController = null;
-export function initSharedAccessIntegration({ allowed, onExecutionChanged } = {}) {
+export function initSharedAccessIntegration({ allowed, onExecutionChanged, v2 } = {}) {
   if (bootstrapController) return;
-  bootstrapController = createSharedAccessBootstrap({ allowed, onExecutionChanged });
+  bootstrapController = createSharedAccessBootstrap({ allowed, onExecutionChanged, v2 });
   const refresh = () => { void bootstrapController.reconcile().catch(() => {}); };
   chrome.runtime.onStartup.addListener(refresh);
   chrome.runtime.onInstalled.addListener(refresh);

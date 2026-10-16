@@ -7,9 +7,12 @@ const clone = v => structuredClone(v);
 async function run() {
   const contract = await import(url('extension/core/shared-contracts/1.30.0/shared-access.js'));
   const identity = await import(url('extension/core/shared-contracts/1.30.0/shared-web-sync.js'));
+const v2Contract = await import(url('extension/core/shared-contracts/1.54.0/shared-access.js'));
   let source = fs.readFileSync(path.join(root, 'extension/product/shared-access-runtime.js'), 'utf8');
   source = source.replace(/^import .*;\r?\n/gm, '').replace(/^import[\s\S]*?;\r?\n/gm, '');
   source = `import {matchesSharedAccessPolicyIdentityV1} from '${url('extension/core/shared-contracts/1.30.0/shared-access.js')}';\n`
+    + `import {canonicalSharedAccessPolicyV2,createSharedAccessPolicyIdentityV2} from '${url('extension/core/shared-contracts/1.54.0/shared-access.js')}';\n`
+    + `import {projectIndependentSharedQuotaSeconds,sourceStatisticsDates} from '${url('extension/core/shared-contracts/1.54.0/source-statistics.js')}';\n`
     + `import {sharedQuotaExecutionIdentityV1} from '${url('extension/core/shared-contracts/1.30.0/shared-web-sync.js')}';\n`
     + 'const readLocalSharedQuotaPreparation=async()=>null,readSharedWebSourceBinding=async()=>null,readSharedAccessPolicyLkg=async()=>null,requestSharedQuotaState=async()=>null,getSharedBrowserActivityLease=()=>null,browserExecutionFence={invalidate(){}};\n' + source;
   const runtime = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
@@ -42,6 +45,54 @@ async function run() {
   assert.equal(projected.usage.restSeconds, 1200); assert.equal(projected.usage.totalSeconds, 600);
   assert.deepEqual(projected.usage.domainSeconds, { example: 600 });
   assert.equal(projected.config.timeQuota.daily.monday.onlineMinutes, 240);
+  const v2Policy = v2Contract.projectSharedAccessPolicyV2({ timeQuota: { daily: { monday: {
+    studyMinutes: null, compositeMinutes: 1, restMinutes: 120 } }, weekly: { restMinutes: 840 } },
+    forcedUsePolicyV1: { schemaVersion: 1, enabled: true, reminderIntervalMinutes: 30,
+      quotaOverrunMinutes: { dailyStudy: null, dailyComposite: null, dailyRest: null,
+        dailyOnline: null, weeklyRest: null, domain: null }, advisoryWindowDailyMaxMinutes: null } }, 8, 0);
+  const snapshot = (kind, categoriesSeconds) => ({ schemaVersion: 1, durationUnit: 'seconds', source: kind,
+    childId: 'fixture-child', fromDate: date, toDate: date, revision: kind + '-1', readAtMs: 1000,
+    includedSourceKeys: [kind + '-source'], excludedSourceKeys: [], days: [{ date,
+      totalSeconds: Object.values(categoriesSeconds).reduce((a,b) => a+b, 0), categoriesSeconds,
+      ...(kind === 'application' ? { nonSpecialTotalSeconds: Object.values(categoriesSeconds).reduce((a,b) => a+b, 0) } : {}),
+      settledThroughMs: 1000, complete: true, reasonCodes: [] }] });
+  const independentModel = { ok: true, policy: v2Policy, executionRevision: 'independent-1', sourceStatistics: {
+    web: snapshot('web', { study: 0, composite: 300, rest: 300 }),
+    application: snapshot('application', { study: 0, composite: 1200, restrictedEntertainment: 600 }) } };
+  const independentConfig = { timeQuota: { daily: { monday: { onlineMinutes: 240 } } }, domainQuotas: { example: 1 } };
+  const independent = runtime.projectSharedRuntimeQuota(independentConfig, independentModel,
+    { totalMinutes: 10, totalSeconds: 600, domainSeconds: { example: 600 } }, date);
+  assert.equal(independent.ok, true);
+  assert.equal(independent.usage.compositeSeconds, 1500, 'application composite never borrows rest in V2');
+  assert.equal(independent.usage.restSeconds, 900);
+  assert.equal(independent.usage.totalSeconds, 600, 'online remains web-only');
+  assert.deepEqual(independent.usage.domainSeconds, { example: 600 });
+  assert.deepEqual(independent.config.domainQuotas, { example: 1 });
+  assert.equal(independent.config.timeQuota.daily.monday.onlineMinutes, 240);
+  assert.equal(independentConfig.forcedUsePolicyV1, undefined, 'projection never rewrites configuration');
+  let localVersion = 8, replaceDuringRead = false;
+  const independentReader = runtime.createIndependentSharedAccessRuntime({ enabled: true,
+    readPolicy: async () => ({ ok: true, policy: { ...v2Policy, stage: 'shared' } }),
+    readScope: async () => ({ childId: 'fixture-child', scopeHash: 'fixture-scope' }),
+    readConfigContext: async () => ({ version: localVersion, config: independentConfig }),
+    readSources: async () => {
+      if (replaceDuringRead) localVersion++;
+      return { ok: true, childId: 'fixture-child', scopeHash: 'fixture-scope', sourceStatistics: independentModel.sourceStatistics };
+    }, fence: { invalidate() {} } });
+  assert.equal((await independentReader.read(date)).ok, true, 'V2 needs no legacy basis or local replacement version');
+  replaceDuringRead = true;
+  assert.equal((await independentReader.read(date)).errorCode, 'shared_access_context_changed',
+    'configuration changes invalidate an in-flight shared read');
+  const partial = clone(independentModel); partial.sourceStatistics.application.days[0].complete = false;
+  partial.sourceStatistics.application.days[0].reasonCodes = ['fixture_gap'];
+  assert.equal(runtime.projectSharedRuntimeQuota(independentConfig, partial, {}, date).usage.ok, false);
+  const incompleteUsage = runtime.projectSharedRuntimeQuota(independentConfig, partial,
+    { ok: true, restSeconds: 7200, undeterminedSeconds: 60, totalSeconds: 7260 }, date).usage;
+  assert.equal(incompleteUsage.ok, false);
+  assert.equal(incompleteUsage.sharedIncomplete, true);
+  assert.equal(incompleteUsage.restSeconds, 7200, 'known local lower bound survives a missing shared source');
+  assert.equal(incompleteUsage.compositeSeconds, 60);
+  assert.equal(incompleteUsage.weekRestSeconds, undefined, 'unknown fields must not become zero');
   reply.sharedQuotaPreparation.replacementVersions[1].revisionOrdinal++;
   reply.sharedQuotaPreparation.projection.days[0].usedMs.rest -= 1000;
   reply.sharedQuotaPreparation.projection.week.restUsedMs -= 1000;
@@ -61,6 +112,8 @@ async function run() {
   const quotaSource = fs.readFileSync(path.join(root, 'extension/product/quota.js'), 'utf8').replace(/^import[\s\S]*?;\r?\n/gm, '');
   const quota = await import('data:text/javascript;base64,' + Buffer.from(
     `import {getEffectiveQuotaForDate} from '${url('extension/core/quota-config.js')}';\n`
+    + `import {readForcedUsePolicy} from '${url('extension/core/forced-use-policy.js')}';\n`
+    + `import {buildForcedUseHardQuotaState} from '${url('extension/core/forced-use-quota-facts.js')}';\n`
     + 'const g=globalThis.__sharedQuotaConsumer;const isSharedAccessRuntimeEnabled=()=>true,readSharedAccessRuntime=async()=>g.model,projectSharedRuntimeQuota=g.project,getConfig=async()=>g.config;\n'
     + 'const readQuotaReadModelV2=async()=>({ok:true,usage:{ok:true,totalMinutes:10,totalSeconds:600,domainSeconds:{example:600}}});\n'
     + `const getQuotaCalendarContext=()=>({date:'${date}',weekStart:'${date}'}),CLOUD_QUOTA_STATE_FACT_KEY='unused',chrome={storage:{local:{remove:async()=>{}}}};\n`
@@ -74,6 +127,12 @@ async function run() {
   assert.equal((await quota.evaluateQuotaState()).newState.restLocked, true);
   globalThis.__sharedQuotaConsumer.model.policy.dailyMinutes.monday.rest = 240;
   assert.equal((await quota.evaluateQuotaState()).newState.restLocked, false, 'raised limit releases local derived restriction');
+  globalThis.__sharedQuotaConsumer.model = clone(independentModel);
+  const independentEvaluation = await quota.evaluateQuotaState();
+  assert.equal(independentEvaluation.usage.compositeSeconds, 1500);
+  assert.equal(independentEvaluation.newState.undeterminedLocked, false, 'standard quota allows confirmation before final block');
+  globalThis.__sharedQuotaConsumer.model.policy.autonomy.quotaOverrunConfirmationRequired = false;
+  assert.equal((await quota.evaluateQuotaState()).newState.undeterminedLocked, true, 'confirmation-off blocks at standard quota');
   globalThis.__sharedQuotaConsumer.model = { ok: false };
   assert.equal((await quota.evaluateQuotaState()).accountingUnavailable, true);
   delete globalThis.__sharedQuotaConsumer;

@@ -21,7 +21,7 @@ export type { SourceStatisticsExchange, SourceStatisticsSnapshot, SourceStatisti
 export const SHARED_QUOTA_EXECUTION_PREPARATION_CAPABILITY = 'shared-quota-execution-preparation-read-v1' as const;
 export const SHARED_REMINDER_RESULT_SHADOW_CAPABILITY = 'shared-reminder-result-shadow' as const;
 export { SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_REMINDER_CONTINUITY_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY,
-  SHARED_BROWSER_EXECUTION_CAPABILITY } from './shared-reminder-lifecycle.js';
+  SHARED_BROWSER_EXECUTION_CAPABILITY, SHARED_FORCED_USE_RUNTIME_V2_CAPABILITY } from './shared-reminder-lifecycle.js';
 
 export interface SharedQuotaStateQuery { date: string }
 
@@ -90,7 +90,7 @@ export interface NativeHostResponse {
   sourceStatistics?: import('./source-statistics.js').SourceStatisticsSnapshot;
   sharedQuota?: import('./shared-access.js').SharedQuotaStateV1;
   /** Optional only after capability negotiation; equality is not execution authorization. */
-  sharedAccessPolicyIdentity?: import('./shared-access.js').SharedAccessPolicyIdentityV1;
+  sharedAccessPolicyIdentity?: import('./shared-access.js').SharedAccessPolicyIdentityV1 | import('./shared-access.js').SharedAccessPolicyIdentityV2;
   sharedQuotaPreparation?: import('./shared-web-sync.js').SharedQuotaExecutionPreparationV1;
   /** Returned only to the verified BrowserBridge connection that created this challenge. */
   sharedWebSourceChallenge?: import('./shared-web-sync.js').SharedWebSourceChallengeV1;
@@ -100,14 +100,17 @@ export interface NativeHostResponse {
   sharedWebIdentity?: { status: 'verified'; webSourceKey:string; expiresAtMs:number };
   sharedWebContributionAccepted?: { date:string;revisionOrdinal:number;contentHash:string;duplicate:boolean };
   /** Read success is not permission to enforce quota or end an application. */
-  sharedQuotaStage?: 'shadow';
-  sharedReminder?: import('./shared-reminder-lifecycle.js').SharedReminderState | null;
+  sharedQuotaStage?: 'shadow' | 'shared';
+  sharedReminder?: import('./shared-reminder-lifecycle.js').SharedReminderState | import('./shared-reminder-lifecycle.js').SharedReminderStateV2 | null;
   /** Service-issued scope-bound lease, returned only when its capability is supported. */
   browserActivityLeaseId?: string;
-  browserActivityAck?: { leaseId: string; acceptedSequence: number; duplicate: boolean; stale: boolean };
+  browserActivityAck?: { leaseId: string; acceptedSequence: number; duplicate: boolean; stale: boolean }
+    | import('./shared-reminder-lifecycle.js').SharedBrowserActivityAckV2;
   /** Only an explicit, freshly revalidated permit authorizes the bound webpage. */
-  browserExecution?: import('./shared-reminder-lifecycle.js').SharedBrowserExecution | null;
-  browserExecutionAck?: { executionId:string;duplicate:boolean };
+  browserExecution?: import('./shared-reminder-lifecycle.js').SharedBrowserExecution | import('./shared-reminder-lifecycle.js').SharedBrowserExecutionV2 | null;
+  /** Legacy ACK may omit outcome; runtime V2 consumers require it to match the acknowledged action. */
+  browserExecutionAck?: { executionId:string;duplicate:boolean;
+    outcome?: import('./shared-reminder-lifecycle.js').SharedBrowserExecutionAckV2['outcome'] };
 }
 
 export type BrowserBridgeChannel = 'health' | 'ledger';
