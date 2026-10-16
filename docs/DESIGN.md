@@ -8,7 +8,7 @@
 
 网页直接映射现有quota_read_model_v2.usage，不再拆本机重建；应用读取既有统计，在配额模块唯一转换非特殊分类到桶。新云端分支复用现有鉴权URL作为薄转接，schemaVersion:2的query只带source/日期/scope；机器侧排除自身范围由服务端绑定推导，调用既有持久统计/网页账户快照读取器，不新增SQL统计、表或迁移。共享层桥→云端→同scope缓存择一，不计算借用；缺失无缓存临时按0参与核算并明确缺源。共享开关保持关闭，真实联调尚未通过。
 
-当前终端发布目标：1.7.49 内部managed；本轮只发布提醒展示修订，保留现有云端接口、家庭配置和Native共享关闭边界。
+当前Windows开发候选目标：1.7.56，等待架构最终集成SHA后制作唯一候选；共享仍关闭，本轮不更新正式managed托管源。已通过共享桶读取源码与隔离回归不等于实机已贯通；家庭配置、权限、绑定及原账保持不变。
 
 强行使用弹层从同次准入结果携带只读presentation（配额已用/标准秒数、首次或再次提醒、上次确认后增量、下一允许时段）。该字段不参与任何准入、签名或确认状态计算；恢复弹层沿用原快照，缺失数据不补零。源码/隔离unpacked与渲染证据沿用已通过版本；发布仅新增manifest版本及打包验证。
 
@@ -378,7 +378,15 @@ schema3接收复用原application-accounts/manifests的begin/chunks/commit/statu
 
 v3 manifest沿用日期、修订、截止、算法、原始事实数量／摘要、行／块摘要和完整性，移除policyVersions、associationVersion、correctionVersion及applicationUsage；增加observationResolutionHash，记录本次采用的观测解析集合摘要（无解析用空数组摘要）。解析关系改变触发新派生版本，不修改原始事实摘要；产品规则或名称改变不改基础统计。分类／特殊应用／产品展示在独立读取投影中处理，须引用同一基础版本；不能把缺映射表示为基础时长缺失。v1/v2格式及校验不变，新接收能力未就绪前不冒充旧格式发送。
 
-## 2026-10-07 Windows共享分域读取接线（已批准实施）
+## 2026-10-16 共享配额桶读取简化（PO批准，源码实施）
+
+覆盖下方旧来源键、分类快照和逐日混填规则。网页直接读取现有readQuotaReadModelV2.usage的studySeconds/compositeSeconds/restSeconds，本机与云端其他设备已由原读取器合并且自带缓存，桥不再次汇总或缓存兜底网页。应用由自身读取器提供既有非特殊桶；桥只传结果，失败再读云端，最后取当前孩子/绑定范围/周期最近成功的整份缓存，来源互斥替换，允许新结果下降。不再构造revision/sourceKeys/hash，不将不同日期代次混成新快照。
+
+固定契约1.55.0，来源提交8e6dcd3fb128ed12c7a56c354535b37c39939b43，包SHA256见tools/timewhere-native-contract-lock.json。quota-buckets-read-v1明确协商，v3/sharedQuota exchangeQuotaBuckets请求仅fromDate/toDate/webUsage，响应applicationUsage可null。schemaVersion=2、durationUnit=seconds，逐日bucketsSeconds仅study/composite/rest，另含Child、日期范围、readAtMs、settledThroughMs、complete/reasonCodes；不含分类/余额/来源键/派生摘要。旧1.54及V1接口保留，不假冒新能力。准备/续期证明在业务队列外，协商完成后取context，发送及接收严格复核孩子、设备、连接、日期和整数秒；读取时间允许最多5分钟时钟偏差。
+
+共享配额只相加两侧已有桶，不重新借用。缺源无当前缓存时仅在临时核算中按0，并明确missingSources/sharedIncomplete，不保存完整零快照、不清空另一有效来源。黑名单、停用时间及已知用量的最终限制仍独立优先。执行身份fence保留对当前策略及来源响应的校验摘要；这不是统计账摘要，不上传或生成另一统计账。readSources只读既有网页读模型及应用缓存，不启动Native或云请求。当前仅源码/隔离验证，不启共享、不安装、部署或更新加载包。
+
+## 2026-10-07 Windows共享分域读取接线（旧兼容记录，冲突处以上文为准）
 
 沿用D-114对称方案：自己负责的来源采用本机最新＋云端其他来源，不依赖云端本机旧副本或混合清单。另一侧优先桥接总统计，失联查云端全量，失败用同Child／来源／日周范围最近成功缓存，三者不相加。未知不当零；合理同步延迟只标注截止和缓存状态，不阻断有效本机量。
 

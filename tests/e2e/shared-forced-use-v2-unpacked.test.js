@@ -146,7 +146,7 @@ globalThis.readSharedV2Fixture = async()=>{
 };
 `;
 
-test('V2 actual access entry, merged repeat, canceled close and pending Composite timeout use default factories', async () => {
+test('V2 actual access entry, merged repeat, canceled close and Composite timeout conserve original segments', async () => {
   test.setTimeout(120000);
   const server = http.createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end(`<html><body><h1>Isolated shared V2 entry</h1><video autoplay muted width="320" height="180"></video><script>
     addEventListener('beforeunload',e=>{e.preventDefault();e.returnValue=''});
@@ -166,11 +166,18 @@ test('V2 actual access entry, merged repeat, canceled close and pending Composit
     await context.route('https://**/*',route=>route.abort());
     await probe.evaluate(async()=>{const {DEFAULT_CONFIG,saveConfig}=await import('./infra/storage.js');
       await saveConfig({...DEFAULT_CONFIG,mode:'study',isInitialized:true,studyList:['127.0.0.1'],restConfig:{firstReminderMinutes:null,weeklyFirstReminderMinutes:null}});});
+    const unaffected=await context.newPage();
+    await unaffected.goto('about:blank');
+    await unaffected.evaluate(()=>{window.isolatedWitness='still-open';});
     const page=await context.newPage();
     await page.goto('http://127.0.0.1:'+server.address().port+'/');
     await page.waitForFunction(()=>window.videoReady===true);
     await page.bringToFront();
     const tabId=await worker.evaluate(async()=> (await chrome.tabs.query({active:true,lastFocusedWindow:true}))[0].id);
+    const readRaw=()=>worker.evaluate(async()=> (await chrome.storage.local.get('usage_segments_v1')).usage_segments_v1||{});
+    const assertUnchanged=(before,after)=>{for(const [id,row] of Object.entries(before))expect(after[id],id).toEqual(row);};
+    const closedRows=raw=>Object.values(raw).filter(row=>row.tabId===tabId&&row.settlementReason==='tab_close');
+    const newTargetRows=(before,after)=>Object.entries(after).filter(([id,row])=>!before[id]&&row.tabId===tabId).map(([,row])=>row);
     await worker.evaluate(()=>startSharedV2Fixture());
     await worker.evaluate(id=>observeSharedV2Fixture(id),tabId);
     fs.writeFileSync(path.join(directory,'entry-diagnostic.json'),JSON.stringify(await worker.evaluate(()=>readSharedV2Fixture()),null,2));
@@ -207,25 +214,70 @@ test('V2 actual access entry, merged repeat, canceled close and pending Composit
     await expect(page.locator('#__toc_shared_reminder__')).toHaveCount(0);
     for(let index=0;index<12;index++)await worker.evaluate(()=>advanceSharedV2Fixture(5000));
     await expect(input).toBeEnabled();
+    const beforeCanceled=await readRaw();
     page.on('dialog',dialog=>dialog.dismiss());
     await page.getByRole('button',{name:'结束使用',exact:true}).click();
     await expect.poll(async()=> (await worker.evaluate(()=>readSharedV2Fixture())).messages
       .filter(row=>row.method==='acknowledgeBrowserExecution').map(row=>row.request.outcome)).toContain('canceled');
     expect(page.isClosed()).toBe(false);
+    const afterCanceled=await readRaw();
+    assertUnchanged(beforeCanceled,afterCanceled);
+    expect(newTargetRows(beforeCanceled,afterCanceled)).toHaveLength(0);
+    expect(closedRows(afterCanceled)).toHaveLength(closedRows(beforeCanceled).length);
+    expect(unaffected.isClosed()).toBe(false);
+    expect(await unaffected.evaluate(()=>window.isolatedWitness)).toBe('still-open');
     await worker.evaluate(()=>compositeSharedV2Fixture());
     await worker.evaluate(id=>observeSharedV2Fixture(id),tabId);
     await expect(input).toBeEnabled();
     const composite=await worker.evaluate(()=>readSharedV2Fixture());
     expect(composite.messages.filter(row=>row.method==='reportBrowserActivity').at(-1).request.quotaBucket).toBe('composite');
     expect(composite.messages.filter(row=>row.method==='reportBrowserActivity').at(-1).request.status).toBe('pending-entry');
+    await input.fill('强行使用');await page.getByRole('button',{name:'确认继续',exact:true}).click();
+    await expect.poll(async()=> (await worker.evaluate(()=>readSharedV2Fixture())).timing?.state).toBe('ACTIVE');
+    await expect.poll(async()=>{
+      await worker.evaluate(()=>pollSharedV2Fixture());
+      return (await worker.evaluate(()=>readSharedV2Fixture())).messages
+        .filter(row=>row.method==='reportBrowserActivity').at(-1)?.request.status;
+    }).toBe('active');
+    // Real elapsed time is used only for a positive original segment, not the accelerated Service clock.
+    await expect.poll(async()=>Date.now()-(await worker.evaluate(()=>readSharedV2Fixture())).timing?.startTime,
+      {timeout:10000}).toBeGreaterThan(2000);
+    for(let index=0;index<12;index++)await worker.evaluate(()=>advanceSharedV2Fixture(5000));
+    await expect(input).toBeEnabled();
+    const beforeForce=await readRaw();
+    const beforeForceTiming=(await worker.evaluate(()=>readSharedV2Fixture())).timing;
+    expect(beforeForceTiming.tabId).toBe(tabId);
+    expect(beforeForceTiming.state).toBe('ACTIVE');
     await worker.evaluate(()=>expireSharedV2Fixture());
     await worker.evaluate(()=>pollSharedV2Fixture());
     await expect.poll(()=>page.isClosed()).toBe(true);
+    try {
+      await expect.poll(async()=>newTargetRows(beforeForce,await readRaw()).length).toBe(1);
+    } finally {
+      fs.writeFileSync(path.join(directory,'accounting-close-diagnostic.json'),JSON.stringify({beforeCanceled,afterCanceled,
+        beforeForce,beforeForceTiming,afterForce:await readRaw(),stateAfterForce:await worker.evaluate(()=>readSharedV2Fixture())},null,2));
+    }
+    const afterForce=await readRaw();
+    assertUnchanged(beforeForce,afterForce);
+    const closed=newTargetRows(beforeForce,afterForce);
+    expect(closed).toHaveLength(1);
+    expect(closed[0].startMs).toBe(beforeForceTiming.startTime);
+    expect(['transition_complete','tab_close']).toContain(closed[0].settlementReason);
+    expect(closed[0].durationSeconds).toBe(Math.floor((closed[0].endMs-closed[0].startMs)/1000));
+    expect(closed[0].durationSeconds).toBeGreaterThan(0);
+    const activeRows=Object.values(afterForce).filter(row=>row.tabId===tabId&&row.channel==='active'&&row.durationSeconds>0)
+      .sort((a,b)=>a.startMs-b.startMs);
+    for(let index=1;index<activeRows.length;index++)expect(activeRows[index].startMs).toBeGreaterThanOrEqual(activeRows[index-1].endMs);
+    await expect.poll(async()=>await readRaw()).toEqual(afterForce);
+    expect(unaffected.isClosed()).toBe(false);
+    expect(await unaffected.evaluate(()=>window.isolatedWitness)).toBe('still-open');
     const final=await worker.evaluate(()=>readSharedV2Fixture());
     expect(final.messages.filter(row=>row.method==='acknowledgeBrowserExecution').at(-1).request.outcome).toBe('completed');
     fs.writeFileSync(path.join(directory,'message-replay.json'),JSON.stringify({evidence:'real_unpacked_sw_content_access_coordinator_and_cdp_closer',
       service:'isolated_contract_state_machine_with_accelerated_clock',nativeTransport:'not_used_in_this_browser_case',
-      executionContext:'production_default_v2_no_context_injection',originalLedgerFixtureWrites:false,...final},null,2));
+      executionContext:'production_default_v2_no_context_injection',originalLedgerFixtureWrites:false,
+      accounting:{beforeCanceled,afterCanceled,beforeForce,afterForce,originalCloseSegmentIds:closed.map(row=>row.id),
+        unaffectedPageStillOpen:true,existingSegmentsUnchanged:true,positiveActiveSegmentsNonOverlapping:true},...final},null,2));
     console.log('Shared V2 actual entry evidence: '+directory);
   } finally {if(fixture)await fixture.context.close();await new Promise(resolve=>server.close(resolve));}
 });

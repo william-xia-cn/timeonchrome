@@ -1,6 +1,7 @@
 import { readNativeHostDiagnosticState } from './native-host-client.js';
 import { readSharedWebDiagnosticState } from './shared-web-contribution-sync.js';
 import { SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
+import { readSharedAccessPolicyContext, readSharedAccessPolicyV2Lkg } from './shared-access-policy-reader.js';
 
 export const SHARED_SYNC_DIAGNOSTICS_MESSAGE = 'TIMEONCHROME_SHARED_SYNC_DIAGNOSTICS_READ';
 const integer = v => Number.isSafeInteger(v) && v >= 0 ? v : null;
@@ -27,7 +28,114 @@ const stages = ['local_context', 'local_projection', 'native_replace', 'cloud_ca
   'cloud_watermark', 'source_binding', 'cloud_upload', 'cloud_ack', 'local_preparation'];
 const capabilities = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1', 'shared-web-source-reusable-v2',
   'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1', 'shared-browser-activity-v1',
-  'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1', 'shared-web-local-lease-v1'];
+  'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1', 'shared-web-local-lease-v1',
+  'source-statistics-read-v1', 'quota-buckets-read-v1', 'shared-forced-use-runtime-v2'];
+const sourceOrigins = ['native', 'cloud', 'last_known_good', 'local_plus_cloud_other', 'cloud_other',
+  'fresh_with_last_known_good_days', 'unavailable'];
+const sourceErrors = new Set(['source_statistics_disabled', 'source_statistics_unavailable',
+  'APPLICATION_STATISTICS_NOT_AVAILABLE', 'APPLICATION_STATISTICS_INCOMPLETE', 'APPLICATION_QUOTA_USAGE_INCOMPLETE',
+  'WEB_STATISTICS_NOT_AVAILABLE', 'WEB_QUOTA_USAGE_INCOMPLETE', 'APPLICATION_LOCAL_MISSING', 'APPLICATION_OTHER_MISSING',
+  'QUOTA_BUCKETS_PARTIAL', 'WEB_SOURCE_UNAVAILABLE', 'WEB_SOURCE_PARTIAL', 'APPLICATION_SOURCE_UNAVAILABLE', 'APPLICATION_SOURCE_PARTIAL',
+  ...SHARED_WEB_IDENTITY_ERRORS, 'source_statistics_native_binding_required', 'source_statistics_native_binding_unavailable',
+  'application_identity_usage_binding_unavailable', 'shared_web_identity_changed', 'shared_web_scope_unavailable',
+  'shared_web_proof_unavailable', 'shared_web_identity_unverified', 'shared_web_invalid_reusable_proof',
+  'SOURCE_STATISTICS_INVALID', 'SOURCE_STATISTICS_CONTEXT_CHANGED', 'SOURCE_STATISTICS_STALE', 'SOURCE_STATISTICS_UNAVAILABLE',
+  'SOURCE_STATISTICS_TIMEOUT', 'SOURCE_STATISTICS_REDIRECTED', 'SOURCE_STATISTICS_RESPONSE_TOO_LARGE',
+  'QUOTA_BUCKETS_INVALID', 'QUOTA_BUCKETS_CONTEXT_CHANGED', 'QUOTA_BUCKETS_STALE', 'QUOTA_BUCKETS_UNAVAILABLE',
+  'QUOTA_BUCKETS_TIMEOUT', 'QUOTA_BUCKETS_REDIRECTED', 'QUOTA_BUCKETS_RESPONSE_TOO_LARGE',
+  'BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
+  'native_host_unavailable', 'native_port_disconnected', 'native_response_timeout', 'native_post_failed', 'native_invalid_response',
+  'source_statistics_native_context_unavailable', 'source_statistics_native_context_changed',
+  'source_statistics_native_invalid_request', 'source_statistics_native_busy', 'managed_marker_unavailable',
+  'source_statistics_context_changed', 'source_statistics_identity_unavailable', 'source_statistics_native_timeout',
+  'source_statistics_native_unavailable', 'source_statistics_native_unsupported', 'source_statistics_native_invalid_response',
+  'source_statistics_web_identity_unavailable', 'source_statistics_web_unavailable', 'source_statistics_application_unavailable',
+  'shared_access_unauthorized', 'shared_access_unbound', 'shared_access_unsupported', 'shared_access_snapshot_changed',
+  'shared_access_unavailable', 'shared_access_invalid_policy', 'shared_access_cancelled']);
+const sourceError = value => value == null ? null : sourceErrors.has(value) ? value : 'unknown';
+const sourceOrigin = value => sourceOrigins.includes(value) ? value : 'unknown';
+
+export function projectSharedV2Observation(stored, context, policyResult, debuggerGranted, now, nativeState = {}) {
+  const today = new Date(now + 28800000).toISOString().slice(0, 10);
+  const midnight = Date.parse(today + 'T00:00:00Z');
+  const monday = new Date(midnight - (new Date(midnight).getUTCDay() + 6) % 7 * 86400000).toISOString().slice(0, 10);
+  const cache = stored.source_statistics_shadow_cache_v1;
+  const scopeCurrent = !!context?.childId && !!context?.scopeHash && cache?.childId === context.childId
+    && cache.scopeHash === context.scopeHash && cache.fromDate === monday && cache.toDate === today;
+  const report = scopeCurrent && stored.source_statistics_shadow_v1?.fromDate === monday
+    && stored.source_statistics_shadow_v1?.toDate === today ? stored.source_statistics_shadow_v1 : null;
+  const reportGenerationCurrent = report && integer(report.readAtMs) !== null && report.readAtMs <= now
+    && now - report.readAtMs <= 8 * 86400000 && ['web', 'application'].some(name =>
+      cache[name]?.childId === context.childId && integer(cache[name]?.readAtMs) !== null
+      && cache[name].readAtMs === report.source?.[name]?.readAtMs);
+  const sources = {};
+  for (const name of ['web', 'application']) {
+    const snapshot = scopeCurrent ? cache[name] : null;
+    const valid = snapshot?.childId === context?.childId && snapshot?.source === name
+      && snapshot?.fromDate === monday && snapshot?.toDate === today
+      && integer(snapshot.readAtMs) !== null && snapshot.readAtMs <= now + 300000 && now - snapshot.readAtMs <= 8 * 86400000
+      && Array.isArray(snapshot.days) && snapshot.days.length <= 7;
+    const reportCurrent = valid && report?.source?.[name]?.readAtMs === snapshot.readAtMs;
+    sources[name] = { available: valid, origin: valid ? sourceOrigin((reportCurrent ? report.source[name].origin : null)
+      || cache[name + 'Origin']) : 'unknown',
+      fromDate: valid ? snapshot.fromDate : null, toDate: valid ? snapshot.toDate : null,
+      readAtMs: valid ? snapshot.readAtMs : null, weeklyTotalSeconds: null,
+      errorCode: reportGenerationCurrent ? sourceError(report[name + 'ErrorCode']) : null,
+      days: valid ? snapshot.days.filter(day => dateKey(day.date) && day.date >= monday && day.date <= today).map(day => {
+        const origin = cache[name + 'DayOrigins']?.[day.date];
+        return { date: day.date, totalSeconds: integer(day.totalSeconds), complete: boolean(day.complete),
+          ...(snapshot.schemaVersion === 2 ? { bucketsSeconds: Object.fromEntries(['study', 'composite', 'rest']
+            .map(bucket => [bucket, integer(day.bucketsSeconds?.[bucket])])) } : {}),
+          settledThroughMs: integer(day.settledThroughMs), readAtMs: integer(origin?.readAtMs ?? snapshot.readAtMs),
+          localReadAtMs: integer(origin?.localReadAtMs), cloudReadAtMs: integer(origin?.cloudReadAtMs),
+          origin: sourceOrigin(origin?.origin || cache[name + 'Origin']), cloudOrigin: sourceOrigin(origin?.cloudOrigin),
+          categoriesSeconds: Object.fromEntries(['study', 'composite', 'rest', 'restrictedEntertainment', 'other']
+            .filter(key => Object.hasOwn(day.categoriesSeconds || {}, key)).map(key => [key, integer(day.categoriesSeconds[key])])),
+          reasonCodes: Array.isArray(day.reasonCodes) ? day.reasonCodes.slice(0, 16).map(code =>
+            ['WEB_LOCAL_DAY_INCOMPLETE', 'WEB_QUOTA_READ_INCOMPLETE', 'WEB_QUOTA_READ_UNAVAILABLE', 'LOCAL_STATISTICS_MISSING',
+              'LOCAL_STATISTICS_INCOMPLETE', 'SOURCE_UNAVAILABLE', 'APPLICATION_STATISTICS_NOT_AVAILABLE',
+              'APPLICATION_STATISTICS_INCOMPLETE', 'APPLICATION_QUOTA_USAGE_INCOMPLETE', 'WEB_STATISTICS_NOT_AVAILABLE',
+              'WEB_QUOTA_USAGE_INCOMPLETE', 'APPLICATION_LOCAL_MISSING', 'APPLICATION_OTHER_MISSING', 'QUOTA_BUCKETS_PARTIAL',
+              'WEB_SOURCE_UNAVAILABLE', 'WEB_SOURCE_PARTIAL', 'APPLICATION_SOURCE_UNAVAILABLE', 'APPLICATION_SOURCE_PARTIAL']
+              .includes(code) ? code : 'UNKNOWN_REASON') : null };
+      }) : [] };
+  }
+  const record = stored.shared_access_policy_lkg_v2, policy = policyResult?.ok ? policyResult.policy : null;
+  const attemptReport = stored.source_statistics_shadow_v1, attempt = attemptReport?.nativeAttempt;
+  const attemptScoped = !!context?.scopeHash && attemptReport?.scopeHash === context.scopeHash
+    && attemptReport.fromDate === monday && attemptReport.toDate === today
+    && integer(attemptReport.readAtMs) !== null && attemptReport.readAtMs <= now
+    && now - attemptReport.readAtMs <= 8 * 86400000 && !!attempt;
+  const memoryAttempt = nativeState.sourceStatisticsAttempt;
+  const sameConnection = nativeState.connected === false ? false
+    : nativeState.connected === true && memoryAttempt && integer(memoryAttempt.startedAtMs) !== null
+      ? memoryAttempt.startedAtMs === attempt?.startedAtMs
+        && memoryAttempt.connectionGeneration === nativeState.connectionGeneration
+        && attempt?.connectionGeneration === nativeState.connectionGeneration : null;
+  const policyCurrent = policy?.schemaVersion === 2 && context?.scopeHash && record?.scopeHash === context.scopeHash
+    && ['schemaVersion', 'revision', 'effectiveAtMs', 'stage'].every(key => record.policy?.[key] === policy[key])
+    && /^[a-f0-9]{64}$/.test(record.policyHash || '');
+  return { debuggerGranted: boolean(debuggerGranted),
+    scopeCurrent, nativePeerSameChild: null,
+    nativeAttempt: { available: attemptScoped, current: attemptScoped ? sameConnection : null,
+      readAtMs: attemptScoped ? attemptReport.readAtMs : null,
+      sent: attemptScoped ? boolean(attempt.sent) : null,
+      responseReceived: attemptScoped ? boolean(attempt.responseReceived) : null,
+      accepted: attemptScoped ? boolean(attempt.accepted) : null,
+      errorCode: attemptScoped ? sourceError(attempt.errorCode) : null },
+    policy: policyCurrent ? { schemaVersion: 2, revision: policy.revision, effectiveAtMs: integer(policy.effectiveAtMs),
+      stage: ['legacy', 'shadow', 'shared'].includes(policy.stage) ? policy.stage : null,
+      policyHash: record.policyHash, receivedAtMs: integer(record.receivedAtMs) } : null,
+    sources };
+}
+
+export async function readSharedV2Observation(stored, permissions, {
+  readContext = readSharedAccessPolicyContext, readPolicy = readSharedAccessPolicyV2Lkg, now = Date.now, nativeState = {} } = {}) {
+  const [context, policy, granted] = await Promise.all([
+    Promise.resolve().then(readContext).catch(() => null), Promise.resolve().then(readPolicy).catch(() => null),
+    permissions?.contains ? Promise.resolve().then(() => permissions.contains({ permissions: ['debugger'] })).catch(() => null) : null]);
+  return projectSharedV2Observation(stored, context, policy, granted, now(), nativeState);
+}
 function projectedCoverage(value) {
   const bucketNames = ['study', 'composite', 'rest', 'other', 'unknown'];
   const fields = ['allBucketMs', 'knownBucketMs', 'unknownBucketMs', 'unknownBucketKeyCount'];
@@ -58,7 +166,7 @@ function samePolicy(identity, cached) {
     && identity.effectiveAtMs === cached.policy.effectiveAtMs;
 }
 
-export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, now = Date.now(), version = null) {
+export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, now = Date.now(), version = null, v2 = null) {
   const q = stored.shared_web_contribution_queue_v1, p = stored.shared_access_policy_lkg_v1;
   const rawHistory = stored.shared_web_sync_diagnostics_v1, host = stored.local_guardian_status_v1;
   const historyCurrent = live.cacheScopeCurrent === true && typeof q?.scopeHash === 'string' && rawHistory?.scopeHash === q.scopeHash
@@ -91,7 +199,7 @@ export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, 
         ? integer(history?.cloudAckAtMsByDate?.[date]) : null,
       failures: integer(item?.failures), lastErrorCode: errorCode(item?.lastErrorCode), nextRetryAtMs: integer(item?.nextRetryAtMs) });
   }
-  return { observedAtMs: now, version: typeof version === 'string' && /^[0-9.]{1,32}$/.test(version) ? version : null,
+  return { observedAtMs: now, version: typeof version === 'string' && /^[0-9.]{1,32}$/.test(version) ? version : null, v2,
     connection: { connectedCurrent: boolean(native.connected), protocolVersion: integer(native.protocolVersion),
       capabilities: Array.isArray(native.capabilities) ? capabilities.filter(v => native.capabilities.includes(v)) : null,
       applicationUsageSupported: boolean(native.applicationUsageSupported), lastSuccessAtMsHistorical: integer(host?.lastSuccessAt),
@@ -100,12 +208,13 @@ export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, 
         atMs: integer(native.lastResponseRejection.atMs),
         serviceErrorCode: ['BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
           'NATIVE_ENVELOPE_REJECTED', 'NATIVE_MESSAGE_INVALID'].includes(native.lastResponseRejection.serviceErrorCode)
-          || SHARED_WEB_IDENTITY_ERRORS.has(native.lastResponseRejection.serviceErrorCode)
+          || SHARED_WEB_IDENTITY_ERRORS.has(native.lastResponseRejection.serviceErrorCode) || sourceErrors.has(native.lastResponseRejection.serviceErrorCode)
           ? native.lastResponseRejection.serviceErrorCode : null,
         reason: ['service_message_rejected', 'service_unavailable', 'negative_response', 'received_at_invalid',
           'snapshot_stale', 'snapshot_revision_mismatch', 'application_request_mismatch', 'application_payload_missing'].includes(native.lastResponseRejection.reason)
           ? native.lastResponseRejection.reason : 'unknown',
-        messageType: ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'settledUsageSegments',
+        messageType: ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getApplicationUsageSeconds',
+          'getApplicationIdentityUsage', 'exchangeSourceStatistics', 'exchangeQuotaBuckets', 'settledUsageSegments',
           'getSharedQuotaState', 'reportReminderResult', 'getSharedReminderState', 'acknowledgeSharedReminderDelivery',
           'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution', 'getSharedWebSourceChallenge',
           'bindSharedWebSource', 'replaceSharedWebContribution', 'getSharedWebSourceScope',
@@ -125,7 +234,8 @@ export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, 
 }
 
 export function registerSharedSyncDiagnosticsReader({ runtime = chrome.runtime, storage = chrome.storage.local,
-  native = readNativeHostDiagnosticState, live = readSharedWebDiagnosticState } = {}) {
+  native = readNativeHostDiagnosticState, live = readSharedWebDiagnosticState,
+  permissions = typeof chrome === 'undefined' ? null : chrome.permissions, observeV2 = readSharedV2Observation } = {}) {
   runtime.onMessage.addListener((message, sender, respond) => {
     if (message?.type !== SHARED_SYNC_DIAGNOSTICS_MESSAGE) return false;
     let authorized = false;
@@ -141,15 +251,17 @@ export function registerSharedSyncDiagnosticsReader({ runtime = chrome.runtime, 
       let failure = 'diagnostics_storage_read_failed';
       try {
       const stored = await storage.get(['shared_web_contribution_queue_v1', 'shared_access_policy_lkg_v1',
-      'shared_web_sync_diagnostics_v1', 'local_guardian_status_v1']);
+      'shared_web_sync_diagnostics_v1', 'local_guardian_status_v1', 'shared_access_policy_lkg_v2',
+      'source_statistics_shadow_cache_v1', 'source_statistics_shadow_v1']);
       const q = stored.shared_web_contribution_queue_v1, p = stored.shared_access_policy_lkg_v1;
       failure = 'diagnostics_native_read_failed';
       const nativeState = native();
       failure = 'diagnostics_shared_read_failed';
       const liveState = live(p?.policyHash, q?.days || {}, q?.scopeHash);
+      const v2 = await observeV2(stored, permissions, { nativeState }).catch(() => null);
       failure = 'diagnostics_projection_failed';
       respond({ ok: true, diagnostics: buildSharedSyncDiagnostics(stored, nativeState, liveState,
-        Date.now(), runtime.getManifest().version) });
+        Date.now(), runtime.getManifest().version, v2) });
       } catch (_) { respond({ ok: false, errorCode: failure }); }
     })();
     return true;
