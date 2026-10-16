@@ -765,15 +765,24 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     if (!localUserId||localUserId.length<32||localUserId.length>128||!/^[A-Za-z0-9_-]+$/u.test(localUserId)
       ||!Number.isSafeInteger(assignmentVersion)||assignmentVersion<1)
       throw new HttpError(400,'INVALID_REQUEST','Shared access scope is invalid.');
-    const assignment=await env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
+    const assignmentQuery=env.RUNTIME_DB.prepare(`SELECT a.child_id FROM runtime_user_assignments_v2 a
       WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3
         AND a.protected=1 AND a.child_id IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM runtime_user_assignments_v2 newer
           WHERE newer.machine_id=a.machine_id AND newer.local_user_id=a.local_user_id
             AND newer.assignment_version>a.assignment_version)`)
-      .bind(machine.machineId,localUserId,assignmentVersion).first<{child_id:string}>();
+      .bind(machine.machineId,localUserId,assignmentVersion);
+    const assignment=await assignmentQuery.first<{child_id:string}>();
     if (!assignment) throw new HttpError(403,'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE','Assignment is unavailable.');
-    return jsonResponse({ policy: await readSharedAccessPolicy(env, machine.accountId, assignment.child_id, schema === '2' ? 2 : 1) });
+    const policy=await readSharedAccessPolicy(env, machine.accountId, assignment.child_id, schema === '2' ? 2 : 1);
+    if (schema === '2') {
+      const currentMachine=await requireMachine(request,env.RUNTIME_DB,nowMs,false);
+      const currentAssignment=await assignmentQuery.first<{child_id:string}>();
+      if (currentMachine.machineId!==machine.machineId || currentMachine.accountId!==machine.accountId
+        || currentAssignment?.child_id!==assignment.child_id)
+        throw new HttpError(409,'SHARED_ACCESS_BINDING_CHANGED','Assignment changed while reading policy.');
+    }
+    return jsonResponse({ policy });
   }
   if (url.pathname === '/v2/machines/shared-quota/state') {
     if (request.method !== 'GET') return methodNotAllowed('GET');

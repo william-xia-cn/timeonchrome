@@ -15,8 +15,9 @@ export function validateSharedReminderStateQueryV2(value: unknown): {schemaVersi
   return {schemaVersion: 2,date: query.date};
 }
 /** 仅当前活动/确认上下文，禁止通过此消息上传统计或选择孩子。 */
-export interface SharedBrowserActivityV2 extends Omit<SharedBrowserActivity, 'schemaVersion' | 'quotaBucket'> {
+export interface SharedBrowserActivityV2 extends Omit<SharedBrowserActivity, 'schemaVersion' | 'quotaBucket' | 'status'> {
   schemaVersion: 2;
+  status: 'active' | 'pending-entry' | 'inactive';
   quotaBucket: 'study' | 'composite' | 'rest' | 'other' | null;
   policyIdentity: SharedAccessPolicyIdentityV2;
   ruleScopeKey: string | null;
@@ -39,8 +40,9 @@ export function validateSharedBrowserActivityV2(value: unknown): SharedBrowserAc
     || item.schemaVersion !== 2 || !v2Key(item.leaseId) || !v2Key(item.activityId)
     || !validTime(item.sequence) || item.sequence < 1 || typeof item.presentationEligible !== 'boolean'
     || !forcedReasons(item.reasonCodes) || item.independentRoundId !== null && !v2Key(item.independentRoundId)
-    || (item.status === 'active' ? !['study','composite','rest','other'].includes(String(item.quotaBucket))
+    || (item.status === 'active' || item.status === 'pending-entry' ? !['study','composite','rest','other'].includes(String(item.quotaBucket))
       || typeof item.ruleScopeKey !== 'string' || !/^[a-f0-9]{64}$/.test(item.ruleScopeKey)
+      || item.status === 'pending-entry' && item.reasonCodes.length === 0
       : item.status !== 'inactive' || item.quotaBucket !== null || item.ruleScopeKey !== null
         || item.presentationEligible || item.reasonCodes.length !== 0)) throw new Error('INVALID_SHARED_BROWSER_ACTIVITY_V2');
   validateSharedAccessPolicyIdentityV2(item.policyIdentity);
@@ -113,6 +115,8 @@ export function advanceSharedForcedUseClock(state: SharedForcedUseClock, bootId:
 
 export interface SharedReminderStateV2 extends Omit<SharedReminderState, 'schemaVersion' | 'kinds'> {
   schemaVersion: 2; kinds: readonly ('entry' | 'repeat')[];
+  timeoutAction: 'end';
+  resolution: 'continue' | 'end_rest' | 'timeout_end' | null;
   policyIdentity: SharedAccessPolicyIdentityV2;
   ruleScopeKey: string;
   reasonCodes: readonly SharedForcedUseReason[];
@@ -140,9 +144,9 @@ export function validateSharedReminderStateV2(value: unknown): SharedReminderSta
     || !['browser','native'].includes(s.presenter) || !['shadow','shared'].includes(s.stage)
     || !validTime(s.issuedAtMs) || !validTime(s.offerExpiresAtMs) || s.offerExpiresAtMs <= s.issuedAtMs
     || s.visibleAtMs !== null && (!validTime(s.visibleAtMs) || s.visibleAtMs < s.issuedAtMs)
-    || s.responseDeadlineSeconds !== 60 || !['continue','end'].includes(s.timeoutAction)
+    || s.responseDeadlineSeconds !== 60 || s.timeoutAction !== 'end'
     || !['offered','visible','delivery_failed','resolved','withdrawn'].includes(s.status)
-    || s.resolution !== null && !['continue','end_rest','timeout_continue','timeout_end'].includes(s.resolution)
+    || s.resolution !== null && !['continue','end_rest','timeout_end'].includes(s.resolution)
     || s.status === 'resolved' && (s.resolution === null || s.visibleAtMs === null)
     || s.status !== 'resolved' && s.resolution !== null || s.status === 'visible' && s.visibleAtMs === null)
     throw new Error('INVALID_SHARED_REMINDER_STATE_V2');
@@ -200,6 +204,7 @@ function v2RuntimeContext(context: SharedReminderRuntimeContextV2): SharedRemind
   };
 }
 function v2Transition(context: SharedReminderRuntimeContextV2, transition: SharedReminderTransition): SharedReminderTransitionV2 {
+  if (transition.state.resolution === 'timeout_continue') throw new Error('INVALID_SHARED_REMINDER_STATE_V2');
   const resolvedNow = transition.state.status === 'resolved' && context.state.status !== 'resolved';
   const advanceBaseline = resolvedNow && (context.state.confirmedAtUsageSeconds === null || context.state.kinds.includes('repeat'));
   return {...transition, state: {...context.state, status: transition.state.status,

@@ -23,6 +23,8 @@ const identityV2=await createSharedAccessPolicyIdentityV2(policyV2);
 const activityV2={schemaVersion:2,leaseId:'lease',activityId:'activity',sequence:1,status:'active',quotaBucket:'composite',
   presentationEligible:false,policyIdentity:identityV2,ruleScopeKey:'a'.repeat(64),reasonCodes:['timeWindow'],independentRoundId:null};
 assert.equal(validateSharedBrowserActivityV2(activityV2).quotaBucket,'composite');
+assert.equal(validateSharedBrowserActivityV2({...activityV2,status:'pending-entry',presentationEligible:true}).status,'pending-entry');
+assert.throws(()=>validateSharedBrowserActivityV2({...activityV2,status:'pending-entry',reasonCodes:[]}));
 assert.deepEqual(validateSharedBrowserActivityV2({...activityV2,quotaBucket:'rest',reasonCodes:['restrictedEntry']}).reasonCodes,['restrictedEntry']);
 assert.throws(()=>validateSharedBrowserActivity(activityV2));
 for(const patch of [{schemaVersion:1},{forcedUsageSeconds:10},{childId:'other'},{reasonCodes:['diagnostic']},
@@ -59,12 +61,14 @@ assert.equal(advanceSharedForcedUseClock(expired,'newboot',0,active).accumulated
 assert.throws(()=>advanceSharedForcedUseClock(tick,'boot',5000,active));
 const reminderV2={...data.state,schemaVersion:2,policyRevision:identityV2.revision,stage:'shared',
   policyIdentity:identityV2,ruleScopeKey:'a'.repeat(64),reasonCodes:['dailyComposite'],kinds:['entry'],
-  forcedUsageSeconds:600,confirmedAtUsageSeconds:0,status:'offered',visibleAtMs:null,resolution:null};
+  forcedUsageSeconds:600,confirmedAtUsageSeconds:0,status:'offered',visibleAtMs:null,resolution:null,timeoutAction:'end'};
 const contextV2={...data.context,state:reminderV2,currentPolicyIdentity:identityV2,
   currentStateRevision:reminderV2.stateRevision,executionEnabled:true};
 assert.equal(validateSharedReminderStateV2(reminderV2).schemaVersion,2);
 for(const patch of [{date:'2026-02-30'},{confirmedAtUsageSeconds:601},{policyIdentity:{...identityV2,stage:'shadow'}},
   {reasonCodes:['unknown']},{extra:true}]) assert.throws(()=>validateSharedReminderStateV2({...reminderV2,...patch}));
+assert.throws(()=>validateSharedReminderStateV2({...reminderV2,timeoutAction:'continue'}));
+assert.throws(()=>validateSharedReminderStateV2({...reminderV2,reasonCodes:['restrictedEntry'],timeoutAction:'continue'}));
 const messageV2=Object.fromEntries(['schemaVersion','roundId','reminderId','deliveryId','policyRevision','stateRevision'].map(k=>[k,reminderV2[k]]));
 const visibleV2=acknowledgeSharedReminderDeliveryV2(contextV2,{...messageV2,delivery:'visible'});
 assert.equal(visibleV2.state.status,'visible');

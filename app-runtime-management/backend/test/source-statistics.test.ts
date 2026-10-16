@@ -136,12 +136,15 @@ it('machine web fallback is domain-only and concurrent rebind invalidates the re
 });
 it('machine negotiates the current policy explicitly without upgrading legacy callers',async()=>{
   const f=await fixture();
-  let reads=0, malformed=false;
+  let reads=0, malformed=false, rebind=false;
   const guardian={fetch:async(request:Request)=>{
     reads++;
     expect(new URL(request.url).pathname).toBe('/readSharedAccessPolicy');
     expect(await request.json()).toEqual({accountId:f.account,childId:f.child,schemaVersion:2});
     const policy=projectSharedAccessPolicyV2({},34,now);
+    if(rebind)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+      VALUES(?1,?2,2,'other-child',1,'override',?3,?3)`).bind(f.machine,user,now).run();
     return Response.json({policy:malformed?{...policy,extra:true}:policy});
   }} as typeof env.GUARDIAN_COMPUTER_USAGE;
   const request=(schema='2',version=1)=>new Request(`https://runtime.test/v2/machines/shared-access-policy?localUserId=${user}&assignmentVersion=${version}&schemaVersion=${schema}`,
@@ -153,6 +156,8 @@ it('machine negotiates the current policy explicitly without upgrading legacy ca
   expect(reads).toBe(1);
   malformed=true;
   await expect(routeV2(request(),options,now)).rejects.toMatchObject({status:503,code:'SHARED_ACCESS_POLICY_UNAVAILABLE'});
+  malformed=false;rebind=true;
+  await expect(routeV2(request(),options,now)).rejects.toMatchObject({status:409,code:'SHARED_ACCESS_BINDING_CHANGED'});
 });
 it('Runtime Service Binding verifies Guardian ownership and returns only persisted application domain',async()=>{
   const f=await fixture({account:'seconds-source-account',child:'seconds-source-child'});

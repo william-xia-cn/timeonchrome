@@ -39,6 +39,10 @@ Runtime机器策略现仅对明确报告shared-access-policy-v2的机器返回�
 
 1.53集中开发包SHA256 6b6b087da08336cab4aa747544e9ceed3191d35aab31eea849eed11cd5336925，待两端实际运行消费者与状态上传接线；不作为终端候选或生产上线。源码/契约范围Matched，真实提醒/结束/硬限制及完整Windows联调仍Missing。保留application-accounts原有未提交改动，未动原账/配置/生产。Native/控件当前均为活跃实施，Mac迁移未开始。
 
+真实入口复核补丁（1.54）：首次确认尚无ACTIVE，V2新增pending-entry保持可呈现/原因/scope而不计时；新V2统一文字确认固定可见60秒后结束当前访问，拒绝timeoutAction=continue及timeout_continue，保持V1旧兼容。该行为来自既有10/16决定和控件实际实现，不是新裁决。契约build、生命周期/V1黄金及包兼容通过；机器V2配置下发返回前重验分配/机器鉴权，请求期间改绑返回409，9项来源/配置专项及backend typecheck通过。控件交接已通过本地撤销/缺ACK不交接/迟到回执专项，真实隔离弹层目视验证进行中。
+
+1.54开发契约SHA256 a577c0f61cdea9b1da75c5d8a9be0e33f3c9c5ad8c85d1d0a96b42cffaf57b2d。本批源码接线Matched；尚未用安装包/生产状态宣称真实通过，完整Windows执行验收继续，未知来源无缓存行为仍等PO决定。
+
 固定已安装3011c7e导出核实核心断点：RuntimeServiceCoordinator.ApplicationObjects.cs:25的ReadNativeTargetConfigurationAsync仅有定义，注释明确blocked/quota本批不启动；NativeApplicationManagementApi中的dailyQuotaMinutes只有校验，尚无生产执行消费者。旧product/instance黑名单路径不能充当新NativeId对象执行验收。下一批应集中贯通新对象配置→可核验目标→现有Service/Agent执行→结果回报，先核清新旧配置优先级和撤销语义，保持既有阻止键、不把NativeId塞进productId；原账/统计保持不变。独立额度及提醒不能以打开shared gate代替接线；锁屏/休眠/完整重启仍需安排受控实测，不自动打断用户。当前是实际断点核对及设计接线，尚未改产品或制包。
 
 ## COMPLETED：本轮Windows原账→本机统计→上传→云端→真实页面贯通（2026-10-16）
