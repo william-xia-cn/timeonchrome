@@ -1,5 +1,13 @@
 # TimeOnChrome — 技术设计文档
 
+## 共享配额桶读取简化（2026-10-16，实施中）
+
+新能力quota-buckets-read-v1、新消息exchangeQuotaBuckets沿用既有本地桥和同孩子核验。请求为{fromDate,toDate,webUsage}，响应applicationUsage；各域snapshot为schemaVersion:2、durationUnit:seconds、source、childId、日期范围、readAtMs和逐日{date,bucketsSeconds:{study,composite,rest},settledThroughMs,complete,reasonCodes}。不传来源键清单、派生revision、分类、余额。旧v1能力/消息保留兼容，不冒称v2。
+
+契约集中为1.55.0，旧1.54.0不原地覆盖。云端契约专项、Guardian既有快照/桶读取专项、Runtime来源读取12/12及两侧typecheck通过；Native Dispatcher+RuntimeJson合成wire通过TS1.55校验。以上仅源码/隔离证据，未部署、安装或启用共享；真实Windows当前孩子验收仍待统一候选。
+
+网页直接映射现有quota_read_model_v2.usage，不再拆本机重建；应用读取既有统计，在配额模块唯一转换非特殊分类到桶。新云端分支复用现有鉴权URL作为薄转接，schemaVersion:2的query只带source/日期/scope；机器侧排除自身范围由服务端绑定推导，调用既有持久统计/网页账户快照读取器，不新增SQL统计、表或迁移。共享层桥→云端→同scope缓存择一，不计算借用；缺失无缓存临时按0参与核算并明确缺源。共享开关保持关闭，真实联调尚未通过。
+
 当前终端发布目标：1.7.49 内部managed；本轮只发布提醒展示修订，保留现有云端接口、家庭配置和Native共享关闭边界。
 
 强行使用弹层从同次准入结果携带只读presentation（配额已用/标准秒数、首次或再次提醒、上次确认后增量、下一允许时段）。该字段不参与任何准入、签名或确认状态计算；恢复弹层沿用原快照，缺失数据不补零。源码/隔离unpacked与渲染证据沿用已通过版本；发布仅新增manifest版本及打包验证。

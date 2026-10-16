@@ -80,5 +80,39 @@ function load(file,deps={}){
  }}};
  assert.deepEqual(await (await router.handle(request({...query,source:'application',scope:'all'}),appEnv)).json(),app);
  assert.equal((await router.handle(request({...query,source:'application',scope:'all'}),{...env,RUNTIME_COMPUTER_USAGE:{fetch:async()=>new Response(null,{status:503})}})).status,503);
+ // 新桶路径复用原账户快照和原配额读取器；不读取新来源head，不另建统计。
+ const quotaModel=await import('../../extension/core/quota-read-model-v2.js');
+ const calendar=await import('../../extension/core/profile-account-v2.js');
+ const period=calendar.getBeijingWeekPeriod(date);
+ const accounts=[['self',600],['peer',400]].map(([deviceId,n])=>({deviceId,date,complete:true,
+   quotaProjection:{activeSeconds:n,byQuotaBucket:[{quotaBucket:'study',durationSeconds:n}],byDomain:[]}}));
+ const frozen=JSON.stringify(accounts);let snapshotReads=0,pageReads=0;
+ const reused=load('workers/src/services/sourceStatistics.ts',{
+  '@timeonchrome/app-runtime-contracts/source-statistics':contract,
+  '../../../extension/core/quota-read-model-v2.js':quotaModel,
+  '../../../extension/core/profile-account-v2.js':calendar,
+  './profileAccountSnapshotsV2':{
+   createOrReuseProfileAccountSnapshotV2:async(_env,child,week)=>{
+    assert.equal(child,'child');assert.equal(week,period.weekStart);snapshotReads++;return{id:'existing-snapshot',page_count:2};},
+   readProfileAccountSnapshotPageV2:async(_env,child,id,page)=>{
+    assert.equal(child,'child');assert.equal(id,'existing-snapshot');pageReads++;
+    return{snapshotId:id,period,asOf:now,completeness:{complete:true,inventoryAvailable:true},deviceAccounts:[accounts[page]]};}
+  }
+ });
+ const noSql={DB:{prepare(){throw Error('quota adapter must delegate existing snapshot instead of duplicating SQL');}}};
+ const bucketQuery={schemaVersion:2,...query,scope:'all'};
+ const bucketRead=await reused.readWebQuotaBuckets(noSql,'child',bucketQuery,undefined,now);
+ assert.deepEqual(bucketRead.days[0].bucketsSeconds,{study:1000,composite:0,rest:0});
+ assert.equal(bucketRead.days[0].complete,true);assert.equal(snapshotReads,1);assert.equal(pageReads,2);
+ const bucketOther=await reused.readWebQuotaBuckets(noSql,'child',{...bucketQuery,scope:'other'},'self',now);
+ assert.equal(bucketOther.days[0].bucketsSeconds.study,400);
+ assert.equal(JSON.stringify(accounts),frozen,'source snapshot is not modified');
+ assert.equal(Object.hasOwn(bucketRead,'includedSourceKeys'),false);assert.equal(Object.hasOwn(bucketRead,'revision'),false);
+ const bucketApp={...bucketRead,source:'application'};
+ const bucketAppEnv={...env,RUNTIME_COMPUTER_USAGE:{fetch:async request=>{
+  const input=await request.json();assert.equal(input.query.schemaVersion,2);assert.equal(input.accountId,'account');
+  return Response.json(bucketApp);
+ }}};
+ assert.deepEqual(await(await router.handle(request({...bucketQuery,source:'application'}),bucketAppEnv)).json(),bucketApp);
  console.log('source-statistics cloud PASS: actual V2 projection/correction, domain/own exclusion, decrease, unknown, bounded response, auth/rebind; original accounting untouched');
 })().catch(error=>{console.error(error);process.exitCode=1;});
