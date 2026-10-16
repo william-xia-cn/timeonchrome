@@ -2,6 +2,7 @@
 
 import { clearTemporaryCompositeDomains, getConfig, getSession } from '../infra/storage.js';
 import { recordQuotaDenial } from '../infra/diagnostic-evidence.js';
+import { recordAccessDiagnostic } from '../infra/access-diagnostics.js';
 import { commitModeChange, normalizeMode } from './mode-service.js';
 import {
   applyModeTransitionSideEffects,
@@ -165,8 +166,23 @@ export async function executeModeDecision(decision = {}, context = {}) {
     noticeDelivery: null,
     reminderSent: false,
   };
+  let diagnosticFailure = null;
 
   const finalize = async () => {
+    if (typeof recordAccessDiagnostic === 'function') recordAccessDiagnostic('decision', {
+      auditId: decisionAuditId, phase: 'executed', source: context.event?.source,
+      eventType: context.event?.type, tabId, foreground: context.event?.foreground,
+      access: decision.access,
+      reason: diagnosticFailure || (result.noticeError ? 'notice_delivery_failed' : null)
+        || decision.reminder?.reason || decision.reason,
+      reasons: decision.forcedAdmission?.reasons, kind: decision.forcedAdmission?.kind,
+      quotaBucket: decision.forcedAdmission?.quotaBucket,
+      forcedUsageSeconds: decision.forcedAdmission?.progress?.forcedUsageSeconds,
+      baselineSeconds: decision.forcedAdmission?.progress?.baselineSeconds,
+      ok: result.ok && !diagnosticFailure && !result.noticeError,
+      visible: result.noticeVisible, blocked: result.blocked, confirmationPending: result.confirmationPending,
+      reminderSent: result.reminderSent,
+    });
     await recordModeEffectTrace({
       event: context.event || {},
       auditId: decisionAuditId,
@@ -192,6 +208,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
         await releaseScheduleConfirmationWaiters(decision.confirmation);
       }
     } else if (delivery?.ok !== true) {
+      diagnosticFailure = 'schedule_confirmation_delivery_failed';
       await redirectToReminder(tabId, domain, `${decision.confirmation.mode}_schedule_locked`, config?.blockMessage,
         { confirmationFailure: 'delivery_failed', targetUrl: reminderTargetUrlFromEvent(context.event) });
       result.reminderSent = true;
@@ -202,11 +219,12 @@ export async function executeModeDecision(decision = {}, context = {}) {
     const delivery = tabId === null ? { ok: false, error: 'tab_missing' }
       : typeof context.requestForcedUsePrompt !== 'function'
         ? { ok: false, error: 'forced_use_handler_missing' }
-        : await context.requestForcedUsePrompt({ tabId, host: domain, admission: decision.forcedAdmission })
+        : await context.requestForcedUsePrompt({ tabId, host: domain, admission: decision.forcedAdmission, auditId: decisionAuditId })
           .catch(() => ({ ok: false, error: 'forced_use_delivery_failed' }));
     result.blocked = true;
     result.confirmationPending = delivery?.ok === true;
     if (delivery?.ok !== true) {
+      diagnosticFailure = delivery?.error || 'forced_use_delivery_failed';
       await redirectToReminder(tabId, domain, 'forced_use_confirmation_blocked', config?.blockMessage,
         { confirmationFailure: delivery?.error || 'delivery_failed', targetUrl: reminderTargetUrlFromEvent(context.event) });
       result.reminderSent = true;
@@ -233,6 +251,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
       ? await context.ensureForcedUseGrant(decision.forcedAdmission, domain)
         .catch(() => ({ ok: false })) : { ok: false };
     if (grant?.ok !== true) {
+      diagnosticFailure = 'forced_use_grant_failed';
       await redirectToReminder(tabId, domain, 'accounting_unavailable', config?.blockMessage,
         { targetUrl: reminderTargetUrlFromEvent(context.event) });
       result.blocked = true;
@@ -243,6 +262,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
     const retired = typeof context.retireForcedUseGrants === 'function'
       ? await context.retireForcedUseGrants(domain).catch(() => ({ ok: false })) : { ok: false };
     if (retired?.ok !== true) {
+      diagnosticFailure = 'forced_use_grant_close_failed';
       await redirectToReminder(tabId, domain, 'accounting_unavailable', config?.blockMessage,
         { targetUrl: reminderTargetUrlFromEvent(context.event) });
       result.blocked = true;

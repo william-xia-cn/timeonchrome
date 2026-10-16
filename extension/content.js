@@ -1158,13 +1158,48 @@
   function restReminderCopy(payload) {
     if (payload.confirmationKind === 'forced_use') {
       const names = { dailyStudy: '今日学习配额', dailyComposite: '今日复合配额',
-        dailyRest: '今日休息配额', dailyOnline: '今日网页配额', weeklyRest: '本周休息配额',
-        domain: '单站点配额', timeWindow: '建议使用时段' };
-      const labels = [...new Set((Array.isArray(payload.forcedUseReasons) ? payload.forcedUseReasons : [])
-        .map(reason => names[reason]).filter(Boolean))];
-      return { title: '请确认强行使用',
-        subtitle: labels.length ? `${labels.join('、')}已到提醒条件。继续前请手动确认。`
-          : '当前使用已到提醒条件。继续前请手动确认。' };
+        dailyRest: '今日休息配额', dailyOnline: '今日在线配额', weeklyRest: '本周休息配额',
+        domain: '单站点配额', timeWindow: '限制时段' };
+      const reasons = [...new Set((Array.isArray(payload.forcedUseReasons) ? payload.forcedUseReasons : [])
+        .filter(reason => Object.hasOwn(names, reason)))];
+      const view = payload.forcedUsePresentation || {};
+      const known = value => Number.isSafeInteger(value) && value >= 0;
+      const duration = value => known(value) ? formatReminderDuration(value) : '暂时无法读取';
+      const quotas = Array.isArray(view.quotas) ? view.quotas : [];
+      const quota = reason => quotas.find(row => row?.id === reason);
+      const lines = reasons.map(reason => {
+        if (reason !== 'timeWindow') {
+          const row = quota(reason);
+          if (!known(row?.usedSeconds) || !known(row?.limitSeconds)) {
+            return `${names[reason]}：用量或标准配额暂时无法读取。`;
+          }
+          const excess = row.usedSeconds - row.limitSeconds;
+          return `${names[reason]}：已用${duration(row.usedSeconds)}，标准配额${duration(row.limitSeconds)}，`
+            + (excess > 0 ? `已超出${duration(excess)}。` : '已达到配额。');
+        }
+        const category = { study: '学习网站', composite: '复合网站', restricted: '受限娱乐',
+          unclassified: '待归类网站', other: '其他网站' }[view.classification];
+        const window = view.nextWindow;
+        const validTime = value => typeof value === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$|^24:00$/.test(value);
+        const next = Number.isInteger(window?.dayOffset) && window.dayOffset >= 0 && window.dayOffset <= 7
+          && validTime(window.start) && validTime(window.end)
+          ? `${window.dayOffset === 0 ? '今天' : window.dayOffset === 1 ? '明天' : `${window.dayOffset}天后`}${window.start}–${window.end}（北京时间）`
+          : '暂时无法读取';
+        return `${category ? `当前网站属于${category}，` : ''}现在不在允许使用时段。<br>下一允许时段：${next}。`;
+      });
+      let title = '继续使用需要确认';
+      if (view.kind === 'repeat') {
+        title = known(view.sinceConfirmationSeconds)
+          ? `强行使用已满${duration(view.sinceConfirmationSeconds)}，请再次确认` : '请再次确认强行使用';
+        lines.unshift(`自上次确认后，已累计强行使用${duration(view.sinceConfirmationSeconds)}。<br>当前仍需确认的原因：`);
+      } else if (reasons.length === 1) {
+        const row = quota(reasons[0]);
+        title = reasons[0] === 'timeWindow' ? '当前不在允许使用时段'
+          : known(row?.usedSeconds) && known(row?.limitSeconds)
+            ? `${names[reasons[0]].replace('配额', '')}已${row.usedSeconds > row.limitSeconds ? '超出' : '达到'}配额`
+            : '继续使用需要确认';
+      }
+      return { title, subtitle: lines.join('<br><br>') || '提醒原因暂时无法读取，请确认是否继续。' };
     }
     const reminders = Array.isArray(payload.reminders) ? payload.reminders.filter(r => ['daily', 'weekly'].includes(r.scope)) : [];
     const softLimitMinutes = Math.max(1, Math.floor(Number(payload.softLimitMinutes) || 120));
@@ -1302,7 +1337,7 @@
     const updateCountdown = () => {
       const remaining = Math.max(0, Math.ceil((Number(payload.deadlineAt) - Date.now()) / 1000));
       const countdown = restReminderShadow?.getElementById('toc-rest-reminder-countdown');
-      if (countdown) countdown.textContent = `${String(Math.floor(remaining / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')} 后将强制阻断`;
+      if (countdown) countdown.textContent = `请在60秒内完成确认，剩余${remaining}秒。超时将阻断当前访问，可重新访问后再次申请。`;
       if (remaining <= 0) {
         if (restReminderCountdownTimer) clearInterval(restReminderCountdownTimer);
         restReminderCountdownTimer = null;
