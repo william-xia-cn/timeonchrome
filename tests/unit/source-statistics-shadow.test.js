@@ -1,250 +1,157 @@
 'use strict';
-
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-
+const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path');
 const root = path.resolve(__dirname, '../..');
+const load = source => import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
-const dataModule = source => import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
-
-async function loadModules() {
-const contractSource = read('extension/core/shared-contracts/1.54.0/source-statistics.js');
-  const contract = await dataModule(contractSource);
-  const effectiveQuota = (config, date) => {
-    const weekday = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][
-      new Date(Date.parse(`${date}T00:00:00+08:00`) + 28_800_000).getUTCDay()];
-    const daily = Object.fromEntries(Object.entries(config.timeQuota.daily));
-    return { daily, todayEffectiveQuota: { weeklyRestMinutes: config.timeQuota.weekly.restMinutes } };
-  };
-  globalThis.__sourceStatisticsShadowDeps = { ...contract, getEffectiveQuotaForDate: effectiveQuota };
-  globalThis.chrome = { storage: { local: { get: async () => ({}) } } };
-  const source = read('extension/infra/source-statistics-shadow.js')
-    .replace(/^import .*;\r?\n/gm, '')
-    .replace(/^export const /gm, 'const ')
-    .replace(/^export (async )?function /gm, '$1function ');
-  const bindings = `const {combineOwnAndOtherStatistics,projectSharedQuotaSeconds,sourceStatisticsDates,validateSourceStatisticsSnapshot,getEffectiveQuotaForDate}=globalThis.__sourceStatisticsShadowDeps;\nconst readSourceStatisticsNativeContext=options=>globalThis.__sourceStatisticsNativeContext(options);\n`;
-  const exports = '\nexport { SOURCE_STATISTICS_SHADOW_KEY, SOURCE_STATISTICS_SHADOW_CACHE_KEY, buildLocalWebSourceSnapshot, createSourceStatisticsShadow, sourceStatisticsWeekRange };';
-  return dataModule(`${bindings}${source}${exports}`);
+async function contract() {
+  const file = process.env.TIMEONCHROME_SOURCE_STATISTICS_CONTRACT_PATH;
+  if (!file) return load(read('extension/core/shared-contracts/1.55.0/source-statistics.js'));
+  const source = fs.readFileSync(file, 'utf8');
+  return load(file.endsWith('.ts') ? require('typescript').transpileModule(source, {
+    compilerOptions: { module: require('typescript').ModuleKind.ESNext, target: require('typescript').ScriptTarget.ES2022 },
+  }).outputText : source);
 }
-
-const CHILD = 'child-1';
-const RANGE = { fromDate: '2026-10-05', toDate: '2026-10-07', dates: ['2026-10-05', '2026-10-06', '2026-10-07'] };
-const nowInitial = Date.parse('2026-10-07T10:00:00+08:00');
-const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-const config = { timeQuota: { weekly: { restMinutes: 600 }, daily: Object.fromEntries(weekdays.map(day => [day,
-  { studyMinutes: null, compositeMinutes: 120, restMinutes: 600, onlineMinutes: null }])) } };
-
-function snapshot(source, days, { includedSourceKeys = [], excludedSourceKeys = [] } = {}) {
-  return { schemaVersion: 1, durationUnit: 'seconds', source, childId: CHILD,
-    fromDate: RANGE.fromDate, toDate: RANGE.toDate, revision: `${source}-revision-1`, readAtMs: nowInitial,
-    includedSourceKeys, excludedSourceKeys, days };
-}
-function day(date, totalSeconds, categoriesSeconds, { complete = true, reasonCodes = [], nonSpecialTotalSeconds } = {}) {
-  return { date, totalSeconds, categoriesSeconds, settledThroughMs: nowInitial - 1000, complete, reasonCodes,
-    ...(nonSpecialTotalSeconds === undefined ? {} : { nonSpecialTotalSeconds }) };
-}
-function webOtherSnapshot({ monday = 100, tuesday = 200, wednesday = 300 } = {}) {
-  return snapshot('web', [
-    day('2026-10-05', monday, { rest: monday, study: 0, composite: 0 }, { complete: monday !== null, reasonCodes: monday === null ? ['cloud_gap'] : [] }),
-    day('2026-10-06', tuesday, { rest: tuesday, study: 0, composite: 0 }),
-    day('2026-10-07', wednesday, { rest: wednesday, study: 0, composite: 0 }),
-  ], { includedSourceKeys: ['web-cloud-device'], excludedSourceKeys: ['web-own-source'] });
-}
-function applicationSnapshot(values = [1, 2, 3]) {
-  return snapshot('application', RANGE.dates.map((date, index) => day(date, values[index],
-    { study: 0, composite: 0, unclassified: 0, restrictedEntertainment: values[index] },
-    { nonSpecialTotalSeconds: values[index] })), { includedSourceKeys: ['app-own', 'app-other'] });
-}
-function localModel(date, seconds) {
-  return { ok: true, date, usage: { totalSeconds: 900_000, studySeconds: 800_000, compositeSeconds: 50_000, restSeconds: 50_000 },
-    local: { today: { onlineSeconds: seconds, byQuotaBucket: { rest: seconds, study: 0, composite: 0 }, complete: true } },
-    completeness: { complete: false, localComplete: false, otherDevicesUnknown: true } };
-}
-
 async function run() {
-  const mod = await loadModules();
-  const disabled = mod.createSourceStatisticsShadow({
-    readContext: async () => { throw new Error('disabled reader must not access identity'); },
-    nativeContext: async () => null, nativeExchange: async () => null,
-    cloudRead: async () => null, readModel: async () => null, write: async () => null,
-  });
-  assert.equal((await disabled.refresh({ force: true })).skipped, true);
-  assert.deepEqual(mod.sourceStatisticsWeekRange(nowInitial), { fromDate: '2026-10-05', toDate: '2026-10-07', dates: RANGE.dates });
-  assert.equal(mod.sourceStatisticsWeekRange(Date.parse('2026-10-04T23:59:00+08:00')).fromDate, '2026-09-28');
-
-  const storage = {};
-  const writes = [];
-  let currentTime = nowInitial;
-  let localSeconds = [10, 20, 30];
-  let online = true;
-  let nativeAvailable = true;
-  let scopeHash = 'same-account-scope';
-  let appCloudReads = 0;
-  const cloudCalls = [];
-  const nativeCalls = [];
-  const cloudRead = async (_credentials, query) => {
-    cloudCalls.push(query);
-    if (query.source === 'web') return online ? { ok: true, snapshot: webOtherSnapshot() } : { ok: false, errorCode: 'network_offline' };
-    appCloudReads++;
-    return online ? { ok: true, snapshot: applicationSnapshot() } : { ok: false, errorCode: 'network_offline' };
+  globalThis.__quotaBucketsContract = await contract();
+  assert.equal(typeof globalThis.__quotaBucketsContract.validateQuotaBucketsSnapshot, 'function', 'requires the approved V2 contract');
+  const mod = await load('const sourceStatisticsContract=globalThis.__quotaBucketsContract;\n'
+    + read('extension/infra/source-statistics-shadow.js').replace(/^import .*;\r?\n/gm, ''));
+  const cloudFunction = read('extension/infra/cloud-sync.js').match(/export async function readCloudSourceStatistics[\s\S]*?(?=export async function readCloudSharedWebWatermark)/)[0];
+  const cloudRequests = [];
+  globalThis.__quotaCloudRequests = cloudRequests;
+  const cloudClient = await load('const sourceStatisticsContract=globalThis.__quotaBucketsContract;'
+    + 'const validateSourceStatisticsQuery=sourceStatisticsContract.validateSourceStatisticsQuery;'
+    + 'const readCapturedSharedDeviceJson=async(_options,route,body)=>{globalThis.__quotaCloudRequests.push({route,body});return {ok:true,value:null};};\n'
+    + cloudFunction);
+  const query = { schemaVersion: 2, source: 'application', fromDate: '2026-10-12', toDate: '2026-10-12', scope: 'all' };
+  assert.equal((await cloudClient.readCloudSourceStatistics({}, query)).ok, true);
+  assert.deepEqual(cloudRequests[0], { route: '/device/source-statistics', body: query });
+  assert.equal((await cloudClient.readCloudSourceStatistics({}, { ...query, childId: 'forbidden' })).ok, false);
+  const { schemaVersion, ...oldQuery } = query;
+  assert.equal((await cloudClient.readCloudSourceStatistics({}, oldQuery)).ok, true, 'legacy query remains supported');
+  const child = 'synthetic-child', day = '2026-10-12';
+  let time = Date.parse(day + 'T10:00:00+08:00'), scope = 'synthetic-scope', currentChild = child;
+  const snapshot = (rest, complete = true) => ({ schemaVersion: 2, durationUnit: 'seconds', source: 'application',
+    childId: currentChild, fromDate: day, toDate: day, readAtMs: time, days: [{ date: day,
+      bucketsSeconds: { study: 0, composite: 0, rest }, settledThroughMs: null, complete,
+      reasonCodes: complete ? [] : ['SOURCE_PARTIAL'] }] });
+  let webRest = 600, webReadable = true, bridge = snapshot(600), cloud = snapshot(900);
+  let bridgeError = null, cloudError = null, preparationError = null, cloudReads = 0, exchanges = 0, preparations = 0;
+  let reboundDuringExchange = false;
+  const stored = {}, order = [];
+  const context = async () => ({ apiBase: 'https://example.invalid', deviceToken: 'synthetic-secret',
+    childId: currentChild, scopeHash: scope });
+  const readModel = async ({ date }) => {
+    order.push('web');
+    return webReadable ? { ok: true, date, usage: { studySeconds: 5, compositeSeconds: 7, restSeconds: webRest },
+      local: { today: { onlineSeconds: 1, byQuotaBucket: { rest: 1 } } }, completeness: { complete: true } } : { ok: false };
   };
-  const nativeContext = async () => ({ ok: true, contextId: 'native-context', childId: CHILD,
-    connectionGeneration: 7, capabilityAvailable: nativeAvailable });
-  const nativeExchange = async request => {
-    nativeCalls.push(request);
-    return nativeAvailable ? { ok: true, source: 'native', snapshot: applicationSnapshot(),
-      contextId: 'native-context', connectionGeneration: 7 } : { ok: false, errorCode: 'native_unavailable' };
-  };
-  const shadow = mod.createSourceStatisticsShadow({
-    readContext: async () => ({ apiBase: 'https://example.invalid', childId: CHILD, deviceToken: 'never-persist',
-      scopeHash }),
-    nativeContext, nativeExchange, cloudRead,
-    isEnabled: () => true,
-    readModel: async ({ date }) => localModel(date, localSeconds[RANGE.dates.indexOf(date)]),
-    readConfiguration: async () => config,
-    storage: { get: async key => ({ [key]: storage[key] }) },
-    write: async (items, options) => { writes.push(options); Object.assign(storage, items); },
-    now: () => currentTime,
-  });
-
-  let preparedReads = 0;
-  globalThis.__sourceStatisticsNativeContext = async options => {
-    if (options?.prepare === true) preparedReads++;
-    return nativeContext();
-  };
-  const defaultNativeReader = mod.createSourceStatisticsShadow({
-    readContext: async () => ({ apiBase: 'https://example.invalid', childId: CHILD,
-      deviceToken: 'never-persist', scopeHash }),
-    nativeExchange: async () => ({ ok: true, source: 'native', snapshot: applicationSnapshot(),
-      contextId: 'native-context', connectionGeneration: 7 }),
-    cloudRead: async (_credentials, query) => ({ ok: true,
-      snapshot: query.source === 'web' ? webOtherSnapshot() : applicationSnapshot() }),
-    isEnabled: () => true, now: () => currentTime,
-    readModel: async ({ date }) => localModel(date, localSeconds[RANGE.dates.indexOf(date)]),
-    storage: { get: async () => ({}) }, write: async () => ({ ok: true }),
-  });
-  assert.equal((await defaultNativeReader.refresh({ force: true })).report.source.application.origin, 'native');
-  assert.equal(preparedReads, 1, 'only refresh entry prepares the Native context');
-  await defaultNativeReader.readSources(RANGE.toDate);
-  assert.equal(preparedReads, 1, 'cache reads and final identity checks never negotiate');
-  globalThis.__sourceStatisticsNativeContext = async options => {
-    return { ok: false, errorCode: 'native_port_disconnected' };
-  };
-  const preparationFailed = await defaultNativeReader.refresh({ force: true });
-  assert.equal(preparationFailed.report.nativeAttempt.errorCode, 'native_port_disconnected');
-  assert.equal(preparationFailed.report.nativeAttempt.sent, false);
-  assert.equal(preparationFailed.report.nativeAttempt.responseReceived, false);
-
-  const first = await shadow.refresh({ force: true });
+  const dependencies = { isEnabled: () => true, now: () => time, readContext: context, readModel,
+    storage: { get: async key => ({ [key]: stored[key] }) },
+    write: async values => { Object.assign(stored, structuredClone(values)); return { ok: true }; },
+    nativeContext: async options => {
+      if (options?.prepare) { preparations++; order.push('prepare'); }
+      return preparationError ? { ok: false, errorCode: preparationError }
+        : { ok: true, childId: currentChild, contextId: 'native-context', connectionGeneration: 7 };
+    },
+    nativeExchange: async request => {
+      exchanges++; order.push('bridge');
+      if (request.webUsage) {
+        assert.equal(request.webUsage.schemaVersion, 2);
+        assert.equal(request.webUsage.days[0].bucketsSeconds.rest, webRest);
+      } else assert.equal(webReadable, false);
+      assert.equal(Object.hasOwn(request, 'webStatistics'), false);
+      Object.assign(request.attempt, { sent: true, responseReceived: true, accepted: !bridgeError && !!bridge });
+      if (reboundDuringExchange) { currentChild = 'different-child'; scope = 'different-scope'; }
+      return bridgeError ? { ok: false, errorCode: bridgeError }
+        : { ok: true, snapshot: structuredClone(bridge), connectionGeneration: 7 };
+    },
+    cloudRead: async (_credentials, query) => {
+      cloudReads++; order.push('cloud');
+      assert.deepEqual(query, { schemaVersion: 2, source: 'application', fromDate: day, toDate: day, scope: 'all' });
+      if (cloudError === 'throw') throw Error('private-response');
+      return cloudError ? { ok: false, errorCode: cloudError } : { ok: true, snapshot: structuredClone(cloud) };
+    } };
+  const reader = mod.createSourceStatisticsShadow(dependencies);
+  const own = await mod.buildWebQuotaBucketsSnapshot({ childId: child, fromDate: day, toDate: day,
+    quotaModels: [await readModel({ date: day })], readAtMs: time });
+  assert.equal(own.days[0].bucketsSeconds.rest, 600, 'use the complete usage, never local.today');
+  for (const key of ['revision', 'includedSourceKeys', 'excludedSourceKeys']) assert.equal(Object.hasOwn(own, key), false);
+  order.length = 0;
+  const first = await reader.refresh({ force: true });
   assert.equal(first.ok, true);
-  assert.equal(first.report.status, 'available');
-  assert.deepEqual(first.report.source.web.days.map(d => d.totalSeconds), [110,220,330]);
-  assert.deepEqual(first.report.source.application.days.map(d => d.totalSeconds), [1,2,3]);
-  assert.deepEqual(first.report.daily, [], 'read-only sources must not use legacy borrowed quota projection');
-  assert.equal(nativeCalls.length, 1);
-  assert.equal(nativeCalls[0].webStatistics.days[0].totalSeconds, 110,
-    'web total must be current own ledger + actual cloud-other snapshot, not merged V2 usage');
-  assert.deepEqual(nativeCalls[0].webStatistics.includedSourceKeys, ['web-cloud-device', 'web-own-source']);
-  assert.equal(appCloudReads, 0, 'successful Native application snapshot is selected alone');
-  assert.equal(storage[mod.SOURCE_STATISTICS_SHADOW_KEY].source.web.days[0].localReadAtMs, nowInitial);
-  assert.equal(writes.every(item => item.priority === 'derived'), true);
-  assert.equal(JSON.stringify(storage).includes('never-persist'), false);
-
-  currentTime += 5 * 60_000;
-  localSeconds = [50, 60, 70];
-  online = false;
-  nativeAvailable = false;
-  const offline = await shadow.refresh();
-  assert.equal(offline.ok, true);
-  assert.equal(offline.report.source.web.complete, true);
-  assert.deepEqual(offline.report.source.web.days.map(d => d.totalSeconds), [150,260,370],
-    'offline read refreshes own local ledger while reusing only cloud-other LKG');
-  assert.equal(offline.report.source.web.stale, true);
-  assert.equal(offline.report.source.web.days[0].cloudOrigin, 'last_known_good');
-  assert.equal(offline.report.source.web.days[0].cloudReadAtMs, nowInitial);
-  assert.equal(offline.report.source.application.complete, true);
-  assert.equal(offline.report.source.application.stale, true);
-  assert.equal(offline.report.source.application.days[0].readAtMs, nowInitial);
-  assert.deepEqual(offline.report.source.application.days.map(d => d.totalSeconds), [1,2,3]);
-  assert.equal(appCloudReads, 1, 'cloud application fallback attempted once after Native became unavailable');
-  localSeconds = [80, 90, 100];
-  const currentSources = await shadow.readSources(RANGE.toDate);
-  assert.equal(currentSources.ok, true);
-  assert.deepEqual(currentSources.sourceStatistics.web.days.map(row => row.totalSeconds), [180, 290, 400],
-    'quota consumer reads current local data even between background refreshes');
-  assert.deepEqual(currentSources.sourceStatistics.application.days.map(row => row.totalSeconds), [1, 2, 3]);
-
-  const incompleteLocal = await mod.buildLocalWebSourceSnapshot({ childId: CHILD, ...RANGE,
-    quotaModels: [localModel(RANGE.dates[0], 10), { ok: true, date: RANGE.dates[1], local: { today: { onlineSeconds: 7,
-      byQuotaBucket: { rest: 7 }, complete: false } } }, localModel(RANGE.dates[2], 30)],
-    ownSourceKeys: ['web-own-source'], readAtMs: currentTime });
-  assert.equal(incompleteLocal.days[0].complete, true,
-    'one local day incompleteness must not contaminate another day');
-  assert.equal(incompleteLocal.days[1].complete, false);
-  assert.equal(incompleteLocal.days[2].complete, true);
-  scopeHash = 'new-binding-scope';
-  shadow.invalidate();
-  const rebound = await shadow.refresh({ force: true });
-  assert.equal(rebound.report.status, 'incomplete');
-  assert.equal(rebound.report.source.web.origin, 'unavailable');
-  assert.equal((await shadow.readSources(RANGE.toDate)).ok, false);
-  scopeHash = 'same-account-scope';
-  currentTime = Date.parse('2026-10-12T10:00:00+08:00');
-  shadow.invalidate();
-  const nextWeek = await shadow.refresh({ force: true });
-  assert.equal(nextWeek.report.fromDate, '2026-10-12');
-  assert.equal(nextWeek.report.status, 'incomplete', 'prior week cache cannot enter a new period');
-  const attemptReader = ({ nativeContext: readNative = async () => ({ ok: true, childId: CHILD, contextId: 'attempt-context', connectionGeneration: 7 }),
-    nativeExchange: exchange, cloudApplication = false, cloudThrows = false, readContext: readScope } = {}) => mod.createSourceStatisticsShadow({
-      readContext: readScope || (async () => ({ childId: CHILD, scopeHash: 'attempt-scope', apiBase: 'https://example.invalid', deviceToken: 'never-persist' })),
-      nativeContext: readNative, nativeExchange: exchange, isEnabled: () => true, now: () => nowInitial,
-      cloudRead: async (_credentials, query) => {
-        if (query.source === 'web') return { ok: true, snapshot: webOtherSnapshot() };
-        if (cloudThrows) throw Error('synthetic fallback failure');
-        return cloudApplication ? { ok: true, snapshot: applicationSnapshot() } : { ok: false, errorCode: 'shared_access_unavailable' };
-      },
-      readModel: async ({ date }) => localModel(date, 10), storage: { get: async () => ({}) }, write: async () => {},
-    });
-  const rejectedAttempt = await attemptReader({ nativeExchange: async ({ attempt }) => {
-    Object.assign(attempt, { sent: true, responseReceived: true, accepted: false });
-    return { ok: false, errorCode: 'SOURCE_STATISTICS_CONTEXT_CHANGED' };
-  } }).refresh({ force: true });
-  assert.equal(rejectedAttempt.report.applicationErrorCode, 'shared_access_unavailable');
-  assert.equal(rejectedAttempt.report.nativeAttempt.errorCode, 'SOURCE_STATISTICS_CONTEXT_CHANGED', 'cloud fallback cannot overwrite the Native result');
-  assert.equal(rejectedAttempt.report.nativeAttempt.sent, true);
-  assert.equal(rejectedAttempt.report.nativeAttempt.responseReceived, true);
-  const noContextAttempt = await attemptReader({ nativeContext: async () => null,
-    nativeExchange: async () => { throw Error('no context must not send'); } }).refresh({ force: true });
-  assert.equal(noContextAttempt.report.nativeAttempt.sent, false);
-  assert.equal(noContextAttempt.report.nativeAttempt.responseReceived, false);
-  assert.equal(noContextAttempt.report.nativeAttempt.errorCode, 'source_statistics_native_context_unavailable');
-  const thrownFallback = await attemptReader({ cloudThrows: true, nativeExchange: async ({ attempt }) => {
-    Object.assign(attempt, { sent: true, responseReceived: true, accepted: false });
-    return { ok: false, errorCode: 'SOURCE_STATISTICS_STALE' };
-  } }).refresh({ force: true });
-  assert.equal(thrownFallback.report.nativeAttempt.errorCode, 'SOURCE_STATISTICS_STALE');
-  assert.equal(thrownFallback.report.applicationErrorCode, 'source_statistics_application_unavailable');
-  let connectionReads = 0;
-  const changedConnection = await attemptReader({ cloudApplication: true,
-    nativeContext: async () => ({ ok: true, childId: CHILD, contextId: 'attempt-context', connectionGeneration: ++connectionReads === 1 ? 7 : 8 }),
-    nativeExchange: async ({ attempt }) => {
-      Object.assign(attempt, { sent: true, responseReceived: true, accepted: true });
-      return { ok: true, snapshot: applicationSnapshot(), connectionGeneration: 7 };
-    } }).refresh({ force: true });
-  assert.equal(changedConnection.report.source.application.origin, 'cloud');
-  assert.equal(changedConnection.report.nativeAttempt.accepted, false);
-  assert.equal(changedConnection.report.nativeAttempt.errorCode, 'source_statistics_native_context_changed');
-  let scopeReads = 0;
-  const changedScope = await attemptReader({
-    readContext: async () => ({ childId: ++scopeReads === 1 ? CHILD : 'other-child', scopeHash: 'attempt-scope',
-      apiBase: 'https://example.invalid', deviceToken: 'never-persist' }),
-    nativeExchange: async ({ attempt }) => {
-      Object.assign(attempt, { sent: true, responseReceived: true, accepted: true });
-      return { ok: true, snapshot: applicationSnapshot(), connectionGeneration: 7 };
-    } }).refresh({ force: true });
-  assert.equal(changedScope.errorCode, 'source_statistics_context_changed');
+  assert.deepEqual(order, ['web', 'prepare', 'bridge']);
+  assert.equal(cloudReads, 0, 'a valid bridge response excludes cloud fallback');
+  const readFirst = await reader.readSources(day);
+  assert.equal(readFirst.sourceStatistics.web.days[0].bucketsSeconds.rest, 600);
+  assert.equal(readFirst.sourceStatistics.application.days[0].bucketsSeconds.rest, 600);
+  assert.deepEqual(readFirst.missingSources, []);
+  assert.equal(exchanges, 1, 'cache reads never open the bridge');
+  assert.equal(preparations, 1, 'cache reads never prepare Native');
+  await reader.refresh({ force: true });
+  assert.equal((await reader.readSources(day)).sourceStatistics.application.days[0].bucketsSeconds.rest, 600,
+    'duplicate reads replace, never accumulate');
+  bridge = snapshot(100);
+  await reader.refresh({ force: true });
+  assert.equal((await reader.readSources(day)).sourceStatistics.application.days[0].bucketsSeconds.rest, 100,
+    'a newer lower value replaces the old value');
+  bridgeError = 'SOURCE_STATISTICS_CONTEXT_CHANGED';
+  const fallback = await reader.refresh({ force: true });
+  assert.equal(fallback.report.source.application.origin, 'cloud');
+  assert.equal(fallback.report.nativeAttempt.errorCode, bridgeError);
+  assert.equal((await reader.readSources(day)).sourceStatistics.application.days[0].bucketsSeconds.rest, 900);
+  cloudError = 'shared_access_unavailable';
+  const cached = await reader.refresh({ force: true });
+  assert.equal(cached.report.source.application.origin, 'last_known_good');
+  assert.equal(cached.report.nativeAttempt.errorCode, bridgeError);
+  assert.equal((await reader.readSources(day)).sourceStatistics.application.days[0].bucketsSeconds.rest, 900);
+  bridgeError = null; bridge = snapshot(50, false);
+  await reader.refresh({ force: true });
+  assert.equal((await reader.readSources(day)).sourceStatistics.application.days[0].bucketsSeconds.rest, 50,
+    'a partial fresh snapshot is not mixed with old days');
+  assert.equal((await reader.readSources(day)).sourceStatistics.application.days[0].complete, false);
+  bridge = snapshot(80); bridge.readAtMs = time + 2000;
+  assert.equal((await reader.refresh({ force: true })).report.source.application.origin, 'native',
+    'small clock skew does not reject an otherwise valid source');
+  bridge.readAtMs = time + 300001; cloud = snapshot(90); cloudError = null;
+  assert.equal((await reader.refresh({ force: true })).report.source.application.origin, 'cloud',
+    'a future timestamp beyond tolerance is rejected');
+  scope = 'fresh-empty-scope'; bridge = null; cloudError = 'throw';
+  const missing = await reader.refresh({ force: true });
+  assert.equal(missing.report.source.web.missing, false);
+  assert.equal(missing.report.source.application.missing, true);
+  assert.equal(missing.report.nativeAttempt.errorCode, 'source_statistics_application_unavailable');
+  assert.equal((await reader.readSources(day)).sourceStatistics.application, null);
+  assert.equal((await reader.readSources(day)).sourceStatistics.web.days[0].bucketsSeconds.rest, 600);
+  assert.deepEqual((await reader.readSources(day)).missingSources, ['application']);
+  preparationError = 'native_port_disconnected';
+  const beforeExchanges = exchanges;
+  const unavailable = await reader.refresh({ force: true });
+  assert.equal(exchanges, beforeExchanges);
+  assert.equal(unavailable.report.nativeAttempt.sent, false);
+  assert.equal(unavailable.report.nativeAttempt.errorCode, preparationError);
+  preparationError = null; bridge = snapshot(600); cloudError = null;
+  webReadable = false;
+  const appOnly = await reader.refresh({ force: true });
+  assert.equal(appOnly.report.source.web.missing, true, 'the existing web reader owns its cache; no second bridge cache');
+  assert.equal(appOnly.report.source.application.missing, false);
+  scope = 'no-web-cache';
+  const noWebCache = await reader.refresh({ force: true });
+  assert.equal(noWebCache.report.source.web.missing, true);
+  assert.equal(noWebCache.report.source.application.missing, false);
+  webReadable = true; reboundDuringExchange = true;
+  const keysBefore = structuredClone(stored);
+  assert.equal((await reader.refresh({ force: true })).errorCode, 'source_statistics_context_changed');
+  assert.deepEqual(stored, keysBefore, 'identity changes cannot publish the preceding child results');
+  reboundDuringExchange = false;
+  assert.equal((await reader.readSources(day)).sourceStatistics.application, null, 'different-child cache is rejected');
+  time = Date.parse('2026-10-19T10:00:00+08:00');
+  const newWeek = await reader.readSources('2026-10-19');
+  assert.equal(newWeek.sourceStatistics.application, null, 'previous-week cache cannot be reused');
+  assert.equal((await reader.readSources(day)).errorCode, 'source_statistics_period_changed');
+  reader.configure(false);
+  assert.equal((await reader.refresh({ force: true })).skipped, true);
+  assert.equal((await reader.readSources('2026-10-19')).errorCode, 'source_statistics_disabled');
 }
-
-run().then(() => console.log('source-statistics-shadow.test.js: all assertions passed'))
+run().then(() => console.log('source-statistics-shadow: V2 usage / bridge / cloud / cache / identity PASS'))
   .catch(error => { console.error(error); process.exitCode = 1; });

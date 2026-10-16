@@ -7,6 +7,7 @@ import { sharedQuotaExecutionIdentityV1 } from '../core/shared-contracts/1.30.0/
 import { browserExecutionFence } from '../infra/shared-browser-execution-fence.js';
 import { canonicalSharedAccessPolicyV2, createSharedAccessPolicyIdentityV2 } from '../core/shared-contracts/1.54.0/shared-access.js';
 import { projectIndependentSharedQuotaSeconds, sourceStatisticsDates } from '../core/shared-contracts/1.54.0/source-statistics.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.55.0/source-statistics.js';
 
 const failure = errorCode => ({ ok: false, errorCode, executionEnabled: false });
 const canonical = v => JSON.stringify(v, Object.keys(v).sort());
@@ -81,8 +82,8 @@ export function createIndependentSharedAccessRuntime({ enabled = false, readPoli
         || !latestPolicy?.ok || canonicalSharedAccessPolicyV2(latestPolicy.policy) !== canonicalSharedAccessPolicyV2(policy)) {
         return reject('shared_access_context_changed');
       }
-      const bytes = new TextEncoder().encode(JSON.stringify([policyIdentity, sources?.sourceStatistics?.web?.revision ?? null,
-        sources?.sourceStatistics?.application?.revision ?? null]));
+      const bytes = new TextEncoder().encode(JSON.stringify([policyIdentity, sources?.sourceStatistics ?? null],
+        (key, value) => ['readAtMs', 'settledThroughMs'].includes(key) ? undefined : value));
       const executionRevision = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
         .map(value => value.toString(16).padStart(2, '0')).join('');
       return { ok: true, policy, policyIdentity, sourceStatistics: sources?.ok ? sources.sourceStatistics : null,
@@ -132,7 +133,7 @@ export function projectIndependentSharedRuntimeQuota(config, model, webUsage, da
   const invalid = () => ({ ok: false, usage: { ...(webUsage?.ok === true ? webUsage : {}),
     compositeSeconds: webUsage?.ok === true ? webUsage.compositeSeconds ?? webUsage.undeterminedSeconds : null,
     ok: false, source: 'shared_source_statistics_v2', sharedIncomplete: true } });
-  if (!model?.ok || webUsage?.ok === false) return invalid();
+  if (!model?.ok) return invalid();
   try {
     const policy = JSON.parse(canonicalSharedAccessPolicyV2(model.policy));
     const { web, application } = model.sourceStatistics || {};
@@ -140,11 +141,13 @@ export function projectIndependentSharedRuntimeQuota(config, model, webUsage, da
     const weekday = new Date(midnight + 28800000).getUTCDay();
     const fromDate = new Date(midnight - (weekday + 6) % 7 * 86400000 + 28800000).toISOString().slice(0, 10);
     const dates = sourceStatisticsDates(fromDate, date);
-    if (!web || !application || [web, application].some(source => source.fromDate !== fromDate || source.toDate !== date)
-      || web.childId !== application.childId) return invalid();
-    const days = dates.map(day => projectIndependentSharedQuotaSeconds(policy, day, web, application));
+    if ([web, application].some(source => source && (source.fromDate !== fromDate || source.toDate !== date))
+      || web && application && web.childId !== application.childId) return invalid();
+    const bucketVersion = [web, application].some(source => source?.schemaVersion === 2) || !web && !application;
+    const project = bucketVersion ? sourceStatisticsContract.projectQuotaBucketsSeconds : projectIndependentSharedQuotaSeconds;
+    const days = dates.map(day => project(policy, day, web || null, application || null));
     const day = days.at(-1), complete = days.every(row => row.complete);
-    if (!complete) return { ...invalid(), completeness: { complete: false,
+    if (!bucketVersion && !complete) return { ...invalid(), completeness: { complete: false,
       reasonCodes: [...new Set(days.flatMap(row => row.reasonCodes))] } };
     const weekRestSeconds = days.reduce((seconds, row) => seconds + row.usedSeconds.rest, 0);
     if (!Number.isSafeInteger(weekRestSeconds)) return invalid();
@@ -172,7 +175,10 @@ export function projectIndependentSharedRuntimeQuota(config, model, webUsage, da
         compositeSeconds: day.usedSeconds.composite, compositeMinutes: day.usedSeconds.composite / 60,
         restSeconds: day.usedSeconds.rest, restMinutes: day.usedSeconds.rest / 60,
         weekRestSeconds, weekRestMinutes: weekRestSeconds / 60,
+        sharedIncomplete: !complete,
+        missingSources: [!web ? 'web' : null, !application ? 'application' : null].filter(Boolean),
         executionRevision: model.executionRevision },
-      completeness: { complete: true }, sourceStatistics: model.sourceStatistics };
+      completeness: { complete, missingSources: [!web ? 'web' : null, !application ? 'application' : null].filter(Boolean),
+        reasonCodes: [...new Set(days.flatMap(row => row.reasonCodes))] }, sourceStatistics: model.sourceStatistics };
   } catch (_) { return invalid(); }
 }

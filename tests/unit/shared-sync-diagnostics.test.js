@@ -74,6 +74,17 @@ async function run() {
   assert.equal(v2.sources.web.days[0].totalSeconds, 120);
   assert.equal(v2.sources.application.origin, 'native');
   assert.equal(v2.sources.application.errorCode, 'unknown');
+  const quotaCache = structuredClone(v2Stored);
+  quotaCache.source_statistics_shadow_cache_v1.schemaVersion = 2;
+  const quotaApplication = quotaCache.source_statistics_shadow_cache_v1.application;
+  quotaApplication.schemaVersion = 2;
+  quotaApplication.days = quotaApplication.days.map(day => ({ date: day.date,
+    bucketsSeconds: { study: 100, composite: 200, rest: 600 }, complete: false,
+    reasonCodes: ['APPLICATION_LOCAL_MISSING', 'QUOTA_BUCKETS_PARTIAL'], settledThroughMs: null }));
+  const bucketView = mod.projectSharedV2Observation(quotaCache, contextV2, { ok: false }, null, now);
+  assert.deepEqual(bucketView.sources.application.days[0].bucketsSeconds, { study: 100, composite: 200, rest: 600 });
+  assert.equal(bucketView.sources.application.days[0].totalSeconds, null, 'diagnostics do not rebuild totals from buckets');
+  assert.deepEqual(bucketView.sources.application.days[0].reasonCodes, ['APPLICATION_LOCAL_MISSING', 'QUOTA_BUCKETS_PARTIAL']);
   const missingApplication = structuredClone(v2Stored);
   missingApplication.source_statistics_shadow_cache_v1.application = null;
   missingApplication.source_statistics_shadow_v1.applicationErrorCode = 'source_statistics_native_unavailable';
@@ -107,7 +118,8 @@ async function run() {
   assert.equal(observedAttempt.nativeAttempt.current, true);
   assert.equal(observedAttempt.nativeAttempt.errorCode, 'SOURCE_STATISTICS_CONTEXT_CHANGED');
   for (const code of ['source_statistics_native_binding_required', 'source_statistics_native_binding_unavailable',
-    'application_identity_usage_binding_unavailable', 'WEB_SOURCE_PROOF_EXPIRED', 'shared_web_identity_changed']) {
+    'application_identity_usage_binding_unavailable', 'WEB_SOURCE_PROOF_EXPIRED', 'shared_web_identity_changed',
+    'QUOTA_BUCKETS_CONTEXT_CHANGED', 'QUOTA_BUCKETS_UNAVAILABLE']) {
     const preparationFailure = structuredClone(attempted);
     Object.assign(preparationFailure.source_statistics_shadow_v1.nativeAttempt,
       { sent: false, responseReceived: false, accepted: false, errorCode: code });
@@ -177,7 +189,7 @@ async function run() {
   assert.equal(record({ messageType: 'private_token', channel: 'private_id' }, 'negative_response').messageType, 'unknown');
   const rejectionModel = mod.buildSharedSyncDiagnostics({}, { lastResponseRejection: { atMs: 123, reason: 'private_token', messageType: 'private_id', channel: 'private_channel' } }, {}, now);
   assert(!JSON.stringify(rejectionModel).includes('private_'));
-  for (const messageType of ['getApplicationIdentityUsage', 'getApplicationUsageSeconds', 'exchangeSourceStatistics']) {
+  for (const messageType of ['getApplicationIdentityUsage', 'getApplicationUsageSeconds', 'exchangeSourceStatistics', 'exchangeQuotaBuckets']) {
     const readable = mod.buildSharedSyncDiagnostics({}, { lastResponseRejection: {
       atMs: now, reason: 'negative_response', messageType, channel: messageType === 'exchangeSourceStatistics' ? 'sharedQuota' : 'application' } }, {}, now);
     assert.equal(readable.connection.responseRejection.messageType, messageType);
@@ -352,6 +364,10 @@ async function run() {
   assert(contents(container).includes('未知；不能由缓存来源推断'));
   assert(contents(container).includes('以下为旧版历史贡献'));
   assert(!contents(container).match(/private|PRIVATE|指纹/));
+  ui.renderSharedSyncDiagnostics(container, { ...model, v2: bucketView, days: [] });
+  assert(contents(container).includes('休息600秒'));
+  assert(contents(container).includes('缺少应用本机用量'));
+  assert(contents(container).includes('配额桶数据不完整'));
   ui.renderSharedSyncDiagnostics(container, { ...model, v2: observedAttempt, days: [] });
   assert(contents(container).includes('已实际发送至本地组件'));
   assert(contents(container).includes('SOURCE_STATISTICS_CONTEXT_CHANGED'));

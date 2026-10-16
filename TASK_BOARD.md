@@ -1,5 +1,12 @@
 # TASK_BOARD
 
+## 共享配额桶读取简化（2026-10-16）
+
+共享桶1.55收口（2026-10-16，源码与隔离PASS，未交付）：4项直接专项local-guardian、source-statistics-shadow、shared-access-runtime、shared-sync-diagnostics及typecheck/diff通过。网页只读现有usage完整桶，自身缓存仍由原读取器负责；已删除local.today重建、web-other前置、来源键、派生统计hash及逐日混填。桥/云/整份成功缓存互斥，可接null，缺源仅临算0并显式missing，不丢另一有效来源；600+600=1200、重复不累加、下降、身份/周期、启动协商/证明/严格接收回归通过。保留既有执行fence摘要，但排除纯读取/截止时间，避免新readAt让确认永远失效；实际桶变化仍失效。不改网页/应用原账、ACTIVE、上传、配置或共享开关。既有诊断仅补新能力/消息、桶原值和已知缺源码中文，不重排UI、不重建诊断总账。实际Native最终Dispatcher/RuntimeJson合成wire冻结tests/fixtures/native-quota-buckets-dispatcher.json，SHA256 eebd518565a27d831babb0eb85c8360c00771e460f5e7228bdd65f5046e6a4b5，生产消费者回放PASS，不是家庭现场验证。契约固定1.55.0，包SHA256 1a0e5efb60711f1e9ce7a84ec6cfa54eea4ab7048402a0cdec108c73f6c0c9db、sourceGitSha 8e6dcd3fb128ed12c7a56c354535b37c39939b43；只新增versioned vendor，不改旧1.54，锁记录同步。方案审计Matched，无未批准Extra；按集中交付授权只提交本批代码/测试/vendor/锁/设计及本任务块，保留PROJECT_MASTER/CHANGELOG等旧草稿；不push/制包/安装/重载/部署/启共享，Windows真实整链验收待后续一次集中交付。本次跨会话发送计划被工具安全审核拒绝，未绕过；精确结果保留此任务块及最终回复供架构读取。
+
+共享配额桶读取简化（2026-10-16，PO批准、未提交实施）：以架构固定树最新决定为准。实施顺序：1）source-statistics-shadow直接从readQuotaReadModelV2.usage包装已有study/composite/rest桶，不读local.today、不额外查询web-other或依赖sourceKeys；2）新增quota-buckets-read-v1/exchangeQuotaBuckets严格V2桶协议，保留V1兼容及已就绪时序/同孩子证明；3）应用桥→云端→同孩子同周期最近成功缓存互斥整份选择，不逐日混填、不派生摘要；4）共享只加已有桶，不重新借用，缺源核算暂按0但标missing，保留另一有效来源；5）自身读取/桥/备用/缓存/600+600/重复/下降/身份周期专项、typecheck、diff。仅终端读取/消费/既有只读诊断及直接测试，契约由架构追加并最终锁版；不改原账/计时/上传/配置，不安装/制包/重载/部署/启共享，不新树。不因未发布契约停止源码验证，结果由架构读取现有工作树。
+
+
 ## 本机统计启动链修复（2026-10-16）
 
 1.7.55启动链收口：PO已明确允许必要聚焦复验并集中更新。local-guardian最终PASS，完整覆盖延迟health ACK等待、首次证明准备、过期刷新、无Port冷启动、重连、真实不支持及改绑/断连，保留生产者合成回放和旧排队用例。source-statistics-shadow专项PASS，验证仅实际refresh入口准备，readSources及终检纯读、准备错误不被覆盖；typecheck/diff通过。方案Matched，仅两infra及两直接测试，不改协议/原账/Native/云端/共享开关。固定提交后唯一1.7.55候选仅两JS与manifest变化，备份核验后原路径更新、manifest最后；不重载/推送/托管，现场成功仍待实机回读。前两失败分别为旧Mac健康探针竞态及已修的已就绪连接错误等待，已按新增PO授权完成复验。

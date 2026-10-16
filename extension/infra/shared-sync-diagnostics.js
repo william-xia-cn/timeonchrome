@@ -29,15 +29,20 @@ const stages = ['local_context', 'local_projection', 'native_replace', 'cloud_ca
 const capabilities = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1', 'shared-web-source-reusable-v2',
   'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1', 'shared-browser-activity-v1',
   'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1', 'shared-web-local-lease-v1',
-  'source-statistics-read-v1', 'shared-forced-use-runtime-v2'];
+  'source-statistics-read-v1', 'quota-buckets-read-v1', 'shared-forced-use-runtime-v2'];
 const sourceOrigins = ['native', 'cloud', 'last_known_good', 'local_plus_cloud_other', 'cloud_other',
   'fresh_with_last_known_good_days', 'unavailable'];
 const sourceErrors = new Set(['source_statistics_disabled', 'source_statistics_unavailable',
+  'APPLICATION_STATISTICS_NOT_AVAILABLE', 'APPLICATION_STATISTICS_INCOMPLETE', 'APPLICATION_QUOTA_USAGE_INCOMPLETE',
+  'WEB_STATISTICS_NOT_AVAILABLE', 'WEB_QUOTA_USAGE_INCOMPLETE', 'APPLICATION_LOCAL_MISSING', 'APPLICATION_OTHER_MISSING',
+  'QUOTA_BUCKETS_PARTIAL', 'WEB_SOURCE_UNAVAILABLE', 'WEB_SOURCE_PARTIAL', 'APPLICATION_SOURCE_UNAVAILABLE', 'APPLICATION_SOURCE_PARTIAL',
   ...SHARED_WEB_IDENTITY_ERRORS, 'source_statistics_native_binding_required', 'source_statistics_native_binding_unavailable',
   'application_identity_usage_binding_unavailable', 'shared_web_identity_changed', 'shared_web_scope_unavailable',
   'shared_web_proof_unavailable', 'shared_web_identity_unverified', 'shared_web_invalid_reusable_proof',
   'SOURCE_STATISTICS_INVALID', 'SOURCE_STATISTICS_CONTEXT_CHANGED', 'SOURCE_STATISTICS_STALE', 'SOURCE_STATISTICS_UNAVAILABLE',
   'SOURCE_STATISTICS_TIMEOUT', 'SOURCE_STATISTICS_REDIRECTED', 'SOURCE_STATISTICS_RESPONSE_TOO_LARGE',
+  'QUOTA_BUCKETS_INVALID', 'QUOTA_BUCKETS_CONTEXT_CHANGED', 'QUOTA_BUCKETS_STALE', 'QUOTA_BUCKETS_UNAVAILABLE',
+  'QUOTA_BUCKETS_TIMEOUT', 'QUOTA_BUCKETS_REDIRECTED', 'QUOTA_BUCKETS_RESPONSE_TOO_LARGE',
   'BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
   'native_host_unavailable', 'native_port_disconnected', 'native_response_timeout', 'native_post_failed', 'native_invalid_response',
   'source_statistics_native_context_unavailable', 'source_statistics_native_context_changed',
@@ -68,25 +73,31 @@ export function projectSharedV2Observation(stored, context, policyResult, debugg
     const snapshot = scopeCurrent ? cache[name] : null;
     const valid = snapshot?.childId === context?.childId && snapshot?.source === name
       && snapshot?.fromDate === monday && snapshot?.toDate === today
-      && integer(snapshot.readAtMs) !== null && now >= snapshot.readAtMs && now - snapshot.readAtMs <= 8 * 86400000
+      && integer(snapshot.readAtMs) !== null && snapshot.readAtMs <= now + 300000 && now - snapshot.readAtMs <= 8 * 86400000
       && Array.isArray(snapshot.days) && snapshot.days.length <= 7;
     const reportCurrent = valid && report?.source?.[name]?.readAtMs === snapshot.readAtMs;
     sources[name] = { available: valid, origin: valid ? sourceOrigin((reportCurrent ? report.source[name].origin : null)
-      || (name === 'application' ? cache.applicationOrigin : null)) : 'unknown',
+      || cache[name + 'Origin']) : 'unknown',
       fromDate: valid ? snapshot.fromDate : null, toDate: valid ? snapshot.toDate : null,
       readAtMs: valid ? snapshot.readAtMs : null, weeklyTotalSeconds: null,
       errorCode: reportGenerationCurrent ? sourceError(report[name + 'ErrorCode']) : null,
       days: valid ? snapshot.days.filter(day => dateKey(day.date) && day.date >= monday && day.date <= today).map(day => {
         const origin = cache[name + 'DayOrigins']?.[day.date];
         return { date: day.date, totalSeconds: integer(day.totalSeconds), complete: boolean(day.complete),
+          ...(snapshot.schemaVersion === 2 ? { bucketsSeconds: Object.fromEntries(['study', 'composite', 'rest']
+            .map(bucket => [bucket, integer(day.bucketsSeconds?.[bucket])])) } : {}),
           settledThroughMs: integer(day.settledThroughMs), readAtMs: integer(origin?.readAtMs ?? snapshot.readAtMs),
           localReadAtMs: integer(origin?.localReadAtMs), cloudReadAtMs: integer(origin?.cloudReadAtMs),
-          origin: sourceOrigin(origin?.origin), cloudOrigin: sourceOrigin(origin?.cloudOrigin),
+          origin: sourceOrigin(origin?.origin || cache[name + 'Origin']), cloudOrigin: sourceOrigin(origin?.cloudOrigin),
           categoriesSeconds: Object.fromEntries(['study', 'composite', 'rest', 'restrictedEntertainment', 'other']
             .filter(key => Object.hasOwn(day.categoriesSeconds || {}, key)).map(key => [key, integer(day.categoriesSeconds[key])])),
           reasonCodes: Array.isArray(day.reasonCodes) ? day.reasonCodes.slice(0, 16).map(code =>
-            ['WEB_LOCAL_DAY_INCOMPLETE', 'WEB_QUOTA_READ_UNAVAILABLE', 'LOCAL_STATISTICS_MISSING',
-              'LOCAL_STATISTICS_INCOMPLETE', 'SOURCE_UNAVAILABLE'].includes(code) ? code : 'UNKNOWN_REASON') : null };
+            ['WEB_LOCAL_DAY_INCOMPLETE', 'WEB_QUOTA_READ_INCOMPLETE', 'WEB_QUOTA_READ_UNAVAILABLE', 'LOCAL_STATISTICS_MISSING',
+              'LOCAL_STATISTICS_INCOMPLETE', 'SOURCE_UNAVAILABLE', 'APPLICATION_STATISTICS_NOT_AVAILABLE',
+              'APPLICATION_STATISTICS_INCOMPLETE', 'APPLICATION_QUOTA_USAGE_INCOMPLETE', 'WEB_STATISTICS_NOT_AVAILABLE',
+              'WEB_QUOTA_USAGE_INCOMPLETE', 'APPLICATION_LOCAL_MISSING', 'APPLICATION_OTHER_MISSING', 'QUOTA_BUCKETS_PARTIAL',
+              'WEB_SOURCE_UNAVAILABLE', 'WEB_SOURCE_PARTIAL', 'APPLICATION_SOURCE_UNAVAILABLE', 'APPLICATION_SOURCE_PARTIAL']
+              .includes(code) ? code : 'UNKNOWN_REASON') : null };
       }) : [] };
   }
   const record = stored.shared_access_policy_lkg_v2, policy = policyResult?.ok ? policyResult.policy : null;
@@ -203,7 +214,7 @@ export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, 
           'snapshot_stale', 'snapshot_revision_mismatch', 'application_request_mismatch', 'application_payload_missing'].includes(native.lastResponseRejection.reason)
           ? native.lastResponseRejection.reason : 'unknown',
         messageType: ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getApplicationUsageSeconds',
-          'getApplicationIdentityUsage', 'exchangeSourceStatistics', 'settledUsageSegments',
+          'getApplicationIdentityUsage', 'exchangeSourceStatistics', 'exchangeQuotaBuckets', 'settledUsageSegments',
           'getSharedQuotaState', 'reportReminderResult', 'getSharedReminderState', 'acknowledgeSharedReminderDelivery',
           'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution', 'getSharedWebSourceChallenge',
           'bindSharedWebSource', 'replaceSharedWebContribution', 'getSharedWebSourceScope',

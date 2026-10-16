@@ -35,9 +35,11 @@ function createPort(onPost) {
 }
 
 function moduleSource(instance, requireLegacySourceStage = false) {
-  const source = requireLegacySourceStage ? originalSource.replace('if (!ack.sourceStatistics) {',
-    "if (ack.sharedQuotaStage !== 'shadow' || !ack.sourceStatistics) {") : originalSource;
+  const source = requireLegacySourceStage ? originalSource.replace('if (!snapshot) {',
+    "if (ack.sharedQuotaStage !== 'shadow' || !snapshot) {") : originalSource;
   return source
+    .replace(/import \* as sourceStatisticsContract from '\.\.\/core\/shared-contracts\/1\.55\.0\/source-statistics\.js';/,
+      'const sourceStatisticsContract=globalThis.__GUARDIAN_QUOTA_BUCKETS_CONTRACT;')
     .replace(/from '\.\.\/core\/shared-forced-use-runtime-v2.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-forced-use-runtime-v2.js')).href}'`)
 .replace(/from '\.\.\/core\/shared-contracts\/1\.54\.0\/source-statistics.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/source-statistics.js')).href}'`)
     .replace(/from '\.\/mac-guardian-health.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/infra/mac-guardian-health.js')).href}'`)
@@ -68,6 +70,15 @@ function moduleSource(instance, requireLegacySourceStage = false) {
 }
 
 async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [], platform = 'win', requireLegacySourceStage = false } = {}) {
+  const sourceContractPath = process.env.TIMEONCHROME_SOURCE_STATISTICS_CONTRACT_PATH;
+  if (sourceContractPath) {
+    const ts = require('typescript');
+    const contractJs = ts.transpileModule(fs.readFileSync(sourceContractPath, 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    globalThis.__GUARDIAN_QUOTA_BUCKETS_CONTRACT = await import('data:text/javascript;base64,' + Buffer.from(contractJs).toString('base64'));
+  } else globalThis.__GUARDIAN_QUOTA_BUCKETS_CONTRACT = await import(require('node:url')
+    .pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.55.0/source-statistics.js')).href);
   const identityContractSource = fs.readFileSync(path.join(root, 'extension', 'core', 'shared-contracts', '1.43.0', 'application-usage-seconds.js'), 'utf8')
     .replace("import { parseApplicationUsageSeconds } from './usage-account.js';",
       'const { parseApplicationUsageSeconds } = globalThis.__GUARDIAN_APPLICATION_USAGE_ACCOUNT;');
@@ -1722,6 +1733,75 @@ async function run() {
     holdHealth = false; releaseHealth();
     assert.equal((await changingContext).errorCode, 'source_statistics_native_context_changed');
     startupStorage.cloud_profile_id = child;
+    const quotaBucketRequests = [];
+    let quotaFault = null;
+    const bucketSnapshot = { schemaVersion: 2, durationUnit: 'seconds', source: 'application', childId: child,
+      fromDate: query.fromDate, toDate: query.toDate, readAtMs: Date.now(), days: [{ date: query.fromDate,
+        bucketsSeconds: { study: 0, composite: 0, rest: 600 }, settledThroughMs: null, complete: true, reasonCodes: [] }] };
+    const bucketHost = await loadGuardian({ policy,
+      storage: { cloud_profile_id: child, cloud_device_id: 'synthetic-bucket-device' },
+      connectNative: () => createPort((request, onMessage) => {
+        quotaBucketRequests.push(request);
+        const response = { ok: true, receivedAt: Date.now(), requestId: request.requestId, supportedProtocols: [3],
+          capabilities: ['health', 'quota-buckets-read-v1'] };
+        if (request.messageType === 'exchangeQuotaBuckets') {
+          response.applicationUsage = quotaFault === 'missing' ? null : structuredClone(bucketSnapshot);
+          if (quotaFault === 'child') response.applicationUsage.childId = 'different-child';
+          if (quotaFault === 'unit') response.applicationUsage.durationUnit = 'milliseconds';
+          if (quotaFault === 'date') response.applicationUsage.toDate = '1970-01-01';
+          if (quotaFault === 'requestId') response.requestId = null;
+          if (quotaFault === 'service') { response.ok = false; response.errorCode = 'SOURCE_STATISTICS_CONTEXT_CHANGED'; }
+          if (quotaFault?.startsWith('service:')) { response.ok = false; response.errorCode = quotaFault.slice(8); }
+        }
+        queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+      }) });
+    await waitFor(() => bucketHost.module.readNativeHostDiagnosticState().capabilities?.includes('quota-buckets-read-v1'));
+    installSourceBinding(bucketHost);
+    const bucketQuery = { fromDate: query.fromDate, toDate: query.toDate, webUsage: null };
+    const bucketsRead = await bucketHost.module.requestQuotaBucketsExchange(bucketQuery);
+    assert.equal(bucketsRead.ok, true);
+    assert.equal(bucketsRead.snapshot.days[0].bucketsSeconds.rest, 600);
+    assert.equal(bucketsRead.nativeAttempt.accepted, true);
+    assert.deepEqual(quotaBucketRequests.find(row => row.messageType === 'exchangeQuotaBuckets').payload, bucketQuery);
+    quotaFault = 'missing';
+    const missingBuckets = await bucketHost.module.requestQuotaBucketsExchange(bucketQuery);
+    assert.equal(missingBuckets.ok, true);
+    assert.equal(missingBuckets.snapshot, null);
+    assert.equal(missingBuckets.missing, true);
+    for (quotaFault of ['child', 'unit', 'date', 'requestId', 'service']) {
+      const result = await bucketHost.module.requestQuotaBucketsExchange(bucketQuery);
+      assert.equal(result.ok, false, quotaFault);
+      assert.equal(result.errorCode, quotaFault === 'service' ? 'SOURCE_STATISTICS_CONTEXT_CHANGED'
+        : 'source_statistics_native_invalid_response');
+    }
+    for (const code of ['QUOTA_BUCKETS_INVALID', 'QUOTA_BUCKETS_CONTEXT_CHANGED', 'QUOTA_BUCKETS_STALE',
+      'QUOTA_BUCKETS_UNAVAILABLE', 'QUOTA_BUCKETS_TIMEOUT', 'QUOTA_BUCKETS_REDIRECTED', 'QUOTA_BUCKETS_RESPONSE_TOO_LARGE']) {
+      quotaFault = 'service:' + code;
+      const rejected = await bucketHost.module.requestQuotaBucketsExchange(bucketQuery);
+      assert.equal(rejected.errorCode, code);
+      assert.equal(rejected.nativeAttempt.sent, true);
+      assert.equal(rejected.nativeAttempt.responseReceived, true);
+    }
+    const legacyBuckets = await loadGuardian(wireHostOptions);
+    await waitFor(() => legacyBuckets.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+    const legacyRejection = await legacyBuckets.module.requestQuotaBucketsExchange(bucketQuery);
+    assert.equal(legacyRejection.errorCode, 'source_statistics_native_unsupported');
+    assert.equal(legacyRejection.nativeAttempt.sent, false, 'V1 capability never impersonates bucket exchange support');
+    const bucketWire = JSON.parse(fs.readFileSync(process.env.TOC_NATIVE_QUOTA_BUCKETS_WIRE
+      || path.join(__dirname, '../fixtures/native-quota-buckets-dispatcher.json'), 'utf8'))[0];
+    const producerBuckets = await loadGuardian({ policy,
+      storage: { cloud_profile_id: bucketWire.response.applicationUsage.childId, cloud_device_id: 'synthetic-producer-device' },
+      connectNative: () => createPort((request, onMessage) => {
+        const response = request.messageType === 'exchangeQuotaBuckets' ? structuredClone(bucketWire.response)
+          : { ok: true, supportedProtocols: [3], capabilities: ['health', 'quota-buckets-read-v1'] };
+        response.requestId = request.requestId; response.receivedAt = Date.now();
+        queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+      }) });
+    await waitFor(() => producerBuckets.module.readNativeHostDiagnosticState().capabilities?.includes('quota-buckets-read-v1'));
+    installSourceBinding(producerBuckets);
+    const producerResult = await producerBuckets.module.requestQuotaBucketsExchange(bucketWire.request.payload);
+    assert.equal(producerResult.ok, true, 'actual new Dispatcher/RuntimeJson wire must be accepted without stage or revision');
+    assert.deepEqual(producerResult.snapshot, bucketWire.response.applicationUsage);
     console.log('[Source statistics C# wire replay] success, child/date/unit/requestId/connection checks passed');
   }
   const v2PolicyIdentity = { schemaVersion: 2, revision: 'profile-config:1', effectiveAtMs: 0,

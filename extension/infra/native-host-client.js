@@ -15,6 +15,7 @@ import { browserExecutionFence, browserExecutionIdentityHash } from './shared-br
 import { sharedBrowserExecutionAttempts } from './shared-browser-execution-attempts.js';
 import { captureSharedWebNativeRequest, captureSharedWebNativeReceipt, captureSharedQuotaPreparation, SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
 import { SOURCE_STATISTICS_EXCHANGE_MESSAGE, SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsExchange, validateSourceStatisticsSnapshot } from '../core/shared-contracts/1.54.0/source-statistics.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.55.0/source-statistics.js';
 import { checkSharedActivityV2, checkSharedActivityAckV2, checkSharedReminderStateV2,
   checkSharedReminderMessageV2, checkSharedExecutionV2 } from '../core/shared-forced-use-runtime-v2.js';
 import { APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, validateApplicationIdentityUsageQuery, validateApplicationIdentityUsageSnapshot } from '../core/shared-contracts/1.43.0/application-usage-seconds.js';
@@ -118,7 +119,9 @@ let lastSourceStatisticsAttempt = null;
 const SOURCE_STATISTICS_ERRORS = new Set(['SOURCE_STATISTICS_INVALID', 'SOURCE_STATISTICS_CONTEXT_CHANGED',
   'SOURCE_STATISTICS_STALE', 'SOURCE_STATISTICS_UNAVAILABLE', 'SOURCE_STATISTICS_TIMEOUT',
   'SOURCE_STATISTICS_REDIRECTED', 'SOURCE_STATISTICS_RESPONSE_TOO_LARGE',
-  'BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE']);
+  'BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
+  'QUOTA_BUCKETS_INVALID', 'QUOTA_BUCKETS_CONTEXT_CHANGED', 'QUOTA_BUCKETS_STALE', 'QUOTA_BUCKETS_UNAVAILABLE',
+  'QUOTA_BUCKETS_TIMEOUT', 'QUOTA_BUCKETS_REDIRECTED', 'QUOTA_BUCKETS_RESPONSE_TOO_LARGE']);
 const SOURCE_STATISTICS_BINDING_ERRORS = new Set(['application_identity_usage_binding_unavailable',
   'shared_web_identity_changed', 'shared_web_scope_unavailable', 'shared_web_proof_unavailable',
   'shared_web_identity_unverified', 'shared_web_invalid_reusable_proof']);
@@ -129,7 +132,7 @@ function recordResponseRejection(request, reason, serviceErrorCode = null) {
     'getSharedQuotaState', 'reportReminderResult', 'getSharedReminderState', 'acknowledgeSharedReminderDelivery',
     'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution', 'getSharedWebSourceChallenge',
     'bindSharedWebSource', 'replaceSharedWebContribution', 'getSharedWebSourceScope',
-    'bindSharedWebSourceV2', 'replaceSharedWebContributionV2', SOURCE_STATISTICS_EXCHANGE_MESSAGE];
+    'bindSharedWebSourceV2', 'replaceSharedWebContributionV2', SOURCE_STATISTICS_EXCHANGE_MESSAGE, 'exchangeQuotaBuckets'];
   lastResponseRejection = { atMs: safeNow(), reason,
     serviceErrorCode: ['BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
       'NATIVE_ENVELOPE_REJECTED', 'NATIVE_MESSAGE_INVALID'].includes(serviceErrorCode)
@@ -580,7 +583,8 @@ function postToNativeHost(payload, sourceStatisticsAttempt = null) {
   const browserActivity = payload.channel === 'sharedQuota' && payload.messageType === 'reportBrowserActivity';
   const sharedWeb = payload.channel === 'sharedQuota' && ['getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution',
     'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'replaceSharedWebContributionV2'].includes(payload.messageType);
-  const sourceStatisticsRead = payload.channel === 'sharedQuota' && payload.messageType === SOURCE_STATISTICS_EXCHANGE_MESSAGE;
+  const sourceStatisticsRead = payload.channel === 'sharedQuota'
+    && [SOURCE_STATISTICS_EXCHANGE_MESSAGE, 'exchangeQuotaBuckets'].includes(payload.messageType);
   const applicationIdentityRead = payload.channel === 'application' && payload.messageType === 'getApplicationIdentityUsage';
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
@@ -912,7 +916,7 @@ async function performSend(options) {
     const failed = errorCode => { attempt.errorCode = errorCode;
       return { ok: false, errorCode, nativeAttempt: { ...attempt } }; };
     try {
-      const before = await readSourceStatisticsNativeContext();
+      const before = await readSourceStatisticsNativeContext({ quotaBuckets: options.quotaBuckets });
       if (!before.ok || before.contextId !== options.expectedContextId || !before.capabilityAvailable) {
         return failed('source_statistics_native_context_changed');
       }
@@ -920,23 +924,30 @@ async function performSend(options) {
       const port = nativePort;
       if (!port) return failed('source_statistics_native_unavailable');
       const request = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
-        messageType: SOURCE_STATISTICS_EXCHANGE_MESSAGE, extensionId: chrome.runtime.id,
+        messageType: options.quotaBuckets ? 'exchangeQuotaBuckets' : SOURCE_STATISTICS_EXCHANGE_MESSAGE, extensionId: chrome.runtime.id,
         profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.payload };
       const ack = await postToNativeHost(request, attempt);
-      const after = await readSourceStatisticsNativeContext();
+      const after = await readSourceStatisticsNativeContext({ quotaBuckets: options.quotaBuckets });
       if (nativePort !== port || ack.requestId !== request.requestId || !after.ok
         || after.contextId !== options.expectedContextId || after.connectionGeneration !== before.connectionGeneration) {
         return failed('source_statistics_native_context_changed');
       }
-      if (!ack.sourceStatistics) {
+      if (options.quotaBuckets && ack.applicationUsage === null) {
+        attempt.errorCode = 'source_statistics_application_unavailable';
+        return { ok: true, source: 'native', snapshot: null, missing: true, contextId: after.contextId,
+          connectionGeneration: after.connectionGeneration, nativeAttempt: { ...attempt } };
+      }
+      const snapshot = options.quotaBuckets ? ack.applicationUsage : ack.sourceStatistics;
+      if (!snapshot) {
         return failed('source_statistics_native_invalid_response');
       }
       try {
-        validateSourceStatisticsSnapshot(ack.sourceStatistics, { source: 'application', childId: options.childId,
+        const validate = options.quotaBuckets ? sourceStatisticsContract.validateQuotaBucketsSnapshot : validateSourceStatisticsSnapshot;
+        validate(snapshot, { source: 'application', childId: options.childId,
           fromDate: options.fromDate, toDate: options.toDate });
       } catch (_) { return failed('source_statistics_native_invalid_response'); }
       attempt.accepted = true;
-      return { ok: true, source: 'native', snapshot: ack.sourceStatistics, contextId: after.contextId,
+      return { ok: true, source: 'native', snapshot, contextId: after.contextId,
         connectionGeneration: after.connectionGeneration, nativeAttempt: { ...attempt } };
     } catch (error) {
       return failed(SOURCE_STATISTICS_ERRORS.has(error?.message) ? error.message
@@ -1686,7 +1697,7 @@ export function readNativeHostDiagnosticState() {
   const allowed = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1',
     'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1',
     'shared-browser-activity-v1', 'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1',
-    'shared-web-local-lease-v1', 'shared-web-source-reusable-v2', SOURCE_STATISTICS_READ_CAPABILITY,
+    'shared-web-local-lease-v1', 'shared-web-source-reusable-v2', SOURCE_STATISTICS_READ_CAPABILITY, 'quota-buckets-read-v1',
     APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, 'shared-access-policy-v2', 'shared-forced-use-runtime-v2'];
   return { connected, protocolVersion: known ? 3 : null,
     connectionGeneration: connected ? applicationConnectionGeneration : null,
@@ -1742,18 +1753,19 @@ function sharedCapabilityAvailable(method) {
     && typeof token === 'string' && sharedNativeCapabilities.has(token);
 }
 
-function sourceStatisticsCapabilityAvailable() {
-  return nativePort !== null && sharedNativeV3 && sharedNativeCapabilities.has(SOURCE_STATISTICS_READ_CAPABILITY);
+function sourceStatisticsCapabilityAvailable(quotaBuckets = false) {
+  return nativePort !== null && sharedNativeV3
+    && sharedNativeCapabilities.has(quotaBuckets ? 'quota-buckets-read-v1' : SOURCE_STATISTICS_READ_CAPABILITY);
 }
 
-export async function readSourceStatisticsNativeContext({ prepare = false } = {}) {
+export async function readSourceStatisticsNativeContext({ prepare = false, quotaBuckets = false } = {}) {
   try {
     const stored = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id']);
     const childId = typeof stored?.cloud_profile_id === 'string' ? stored.cloud_profile_id : '';
     const deviceId = typeof stored?.cloud_device_id === 'string' ? stored.cloud_device_id : '';
     if (!childId || !deviceId) return { ok: false, errorCode: 'source_statistics_identity_unavailable' };
     if (prepare) {
-      const ready = await ensureSourceStatisticsCapability();
+      const ready = await ensureSourceStatisticsCapability(quotaBuckets);
       if (!ready.ok) return ready;
       const latest = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id']);
       if (latest.cloud_profile_id !== childId || latest.cloud_device_id !== deviceId) {
@@ -1763,28 +1775,37 @@ export async function readSourceStatisticsNativeContext({ prepare = false } = {}
     const connectionGeneration = applicationConnectionGeneration;
     const contextId = await stableDigest({ connectionGeneration, childId, deviceId });
     return { ok: true, childId, deviceId, contextId, connectionGeneration,
-      capabilityAvailable: sourceStatisticsCapabilityAvailable() };
+      capabilityAvailable: sourceStatisticsCapabilityAvailable(quotaBuckets) };
   } catch (_) { return { ok: false, errorCode: 'source_statistics_identity_unavailable' }; }
 }
 
-async function ensureSourceStatisticsCapability() {
-  if (sourceStatisticsCapabilityAvailable()) return { ok: true };
+async function ensureSourceStatisticsCapability(quotaBuckets = false) {
+  if (sourceStatisticsCapabilityAvailable(quotaBuckets)) return { ok: true };
   if (activeSendPromise) {
     const pending = await activeSendPromise.catch(() => ({ ok: false, errorCode: 'source_statistics_native_unavailable' }));
-    if (!pending.ok && !sourceStatisticsCapabilityAvailable()) {
+    if (!pending.ok && !sourceStatisticsCapabilityAvailable(quotaBuckets)) {
       return { ok: false, errorCode: pending.errorCode || 'source_statistics_native_unavailable' };
     }
   }
-  if (sourceStatisticsCapabilityAvailable()) return { ok: true };
+  if (sourceStatisticsCapabilityAvailable(quotaBuckets)) return { ok: true };
   // A port can exist before its first health ACK; a queued probe has a real completion promise.
   const health = await requestLocalGuardianHeartbeat({ type: 'probe', trigger: 'source_statistics_shadow', force: true });
   if (!health.ok) return { ok: false, errorCode: health.errorCode || 'source_statistics_native_unavailable' };
   if (!nativePort) return { ok: false, errorCode: 'native_port_disconnected' };
-  return sourceStatisticsCapabilityAvailable() ? { ok: true }
+  return sourceStatisticsCapabilityAvailable(quotaBuckets) ? { ok: true }
     : { ok: false, errorCode: 'source_statistics_native_unsupported' };
 }
 
-export async function requestSourceStatisticsExchange({ fromDate, toDate, webStatistics, expectedContextId = null, attempt = {} } = {}) {
+export function requestSourceStatisticsExchange(query = {}) {
+  return requestStatisticsExchange(query);
+}
+
+export function requestQuotaBucketsExchange({ webUsage, ...query } = {}) {
+  return requestStatisticsExchange({ ...query, webStatistics: webUsage, quotaBuckets: true });
+}
+
+async function requestStatisticsExchange({ fromDate, toDate, webStatistics, expectedContextId = null,
+  attempt = {}, quotaBuckets = false } = {}) {
   Object.assign(attempt, { sent: false, responseReceived: false, accepted: false, errorCode: null,
     startedAtMs: safeNow(), connectionGeneration: null });
   lastSourceStatisticsAttempt = attempt;
@@ -1792,14 +1813,18 @@ export async function requestSourceStatisticsExchange({ fromDate, toDate, webSta
   if (!await readNativeHostDeploymentMarker().catch(() => false)) {
     return failed('managed_marker_unavailable');
   }
-  const negotiated = await ensureSourceStatisticsCapability();
+  const negotiated = await ensureSourceStatisticsCapability(quotaBuckets);
   if (!negotiated.ok) return failed(negotiated.errorCode);
-  const context = await readSourceStatisticsNativeContext();
+  const context = await readSourceStatisticsNativeContext({ quotaBuckets });
   attempt.connectionGeneration = context.connectionGeneration ?? null;
   if (!context.ok || expectedContextId && context.contextId !== expectedContextId || !context.capabilityAvailable) {
     return failed('source_statistics_native_context_changed');
   }
-  try { validateSourceStatisticsExchange({ fromDate, toDate, webStatistics }, context.childId); }
+  const payload = quotaBuckets ? { fromDate, toDate, webUsage: webStatistics } : { fromDate, toDate, webStatistics };
+  try {
+    const validate = quotaBuckets ? sourceStatisticsContract.validateQuotaBucketsExchange : validateSourceStatisticsExchange;
+    validate(payload, context.childId);
+  }
   catch (_) { return failed('source_statistics_native_invalid_request'); }
   if (typeof applicationIdentityBindingEnsurer !== 'function') {
     return failed('source_statistics_native_binding_required');
@@ -1814,7 +1839,7 @@ export async function requestSourceStatisticsExchange({ fromDate, toDate, webSta
       || SOURCE_STATISTICS_ERRORS.has(binding?.errorCode) || SOURCE_STATISTICS_BINDING_ERRORS.has(binding?.errorCode)
       ? binding.errorCode : 'source_statistics_native_binding_unavailable');
   }
-  const prepared = await readSourceStatisticsNativeContext();
+  const prepared = await readSourceStatisticsNativeContext({ quotaBuckets });
   if (nativePort !== port || !prepared.ok || !prepared.capabilityAvailable
     || prepared.contextId !== context.contextId || prepared.connectionGeneration !== context.connectionGeneration) {
     return failed('source_statistics_native_context_changed');
@@ -1823,7 +1848,7 @@ export async function requestSourceStatisticsExchange({ fromDate, toDate, webSta
     || !Number.isSafeInteger(binding.expiresAtMs) || binding.expiresAtMs <= safeNow()) {
     return failed('source_statistics_native_binding_unavailable');
   }
-  const options = { type: 'sourceStatisticsRead', payload: { fromDate, toDate, webStatistics },
+  const options = { type: 'sourceStatisticsRead', payload, quotaBuckets,
     childId: context.childId, fromDate, toDate, expectedContextId: context.contextId,
     bindingExpiresAtMs: binding.expiresAtMs, attempt };
   if (!activeSendPromise) return startSend(options);

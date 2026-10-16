@@ -8,6 +8,7 @@ import { DEFAULT_CONFIG } from './storage.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 import { readDowntimeConfig } from '../core/downtime.js';
 import { validateSourceStatisticsQuery } from '../core/shared-contracts/1.54.0/source-statistics.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.55.0/source-statistics.js';
 import {
   buildSiteClassificationRequestsUploadPayload,
   getPendingSiteClassificationRequestUploads,
@@ -470,7 +471,8 @@ export async function readCloudSourceStatistics(options = {}, query = {}) {
   let body;
   try {
     body = { ...query };
-    validateSourceStatisticsQuery(body);
+    if (body.schemaVersion === 2) sourceStatisticsContract.validateQuotaBucketsQuery(body);
+    else validateSourceStatisticsQuery(body);
   } catch (_) { return { ok: false, errorCode: 'source_statistics_invalid_query' }; }
   if (new TextEncoder().encode(JSON.stringify(body)).length > 16384) return { ok: false, errorCode: 'source_statistics_size_limit' };
   const response = await readCapturedSharedDeviceJson(options, '/device/source-statistics', body);

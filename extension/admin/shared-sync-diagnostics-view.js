@@ -76,8 +76,14 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
     const originNames = { native: '本地组件', cloud: '云端', last_known_good: '可信缓存',
       local_plus_cloud_other: '本机网页＋云端其他设备', cloud_other: '云端其他设备',
       fresh_with_last_known_good_days: '最新读取＋部分日期可信缓存', unavailable: '不可用', unknown: '未知' };
-    const reasonNames = { WEB_LOCAL_DAY_INCOMPLETE: '本机网页日期不完整', WEB_QUOTA_READ_UNAVAILABLE: '网页用量暂不可读',
+    const reasonNames = { WEB_LOCAL_DAY_INCOMPLETE: '本机网页日期不完整', WEB_QUOTA_READ_INCOMPLETE: '网页数据不完整', WEB_QUOTA_READ_UNAVAILABLE: '网页用量暂不可读',
       LOCAL_STATISTICS_MISSING: '缺少本机统计', LOCAL_STATISTICS_INCOMPLETE: '本机统计不完整',
+      APPLICATION_STATISTICS_NOT_AVAILABLE: '应用统计暂不可用', APPLICATION_STATISTICS_INCOMPLETE: '应用统计不完整',
+      APPLICATION_QUOTA_USAGE_INCOMPLETE: '应用配额用量不完整', WEB_STATISTICS_NOT_AVAILABLE: '网页统计暂不可用',
+      WEB_QUOTA_USAGE_INCOMPLETE: '网页配额用量不完整', APPLICATION_LOCAL_MISSING: '缺少应用本机用量',
+      APPLICATION_OTHER_MISSING: '缺少应用其他设备用量', QUOTA_BUCKETS_PARTIAL: '配额桶数据不完整',
+      WEB_SOURCE_UNAVAILABLE: '缺少网页来源', WEB_SOURCE_PARTIAL: '网页来源不完整',
+      APPLICATION_SOURCE_UNAVAILABLE: '缺少应用来源', APPLICATION_SOURCE_PARTIAL: '应用来源不完整',
       SOURCE_UNAVAILABLE: '来源不可用', UNKNOWN_REASON: '原因未知' };
     for (const [key, label] of [['web', '网页'], ['application', '应用']]) {
       const source = v2.sources?.[key];
@@ -85,7 +91,10 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
       row(`V2 ${label}范围与读取`, source?.available ? `${source.fromDate} 至 ${source.toDate} · ${time(source.readAtMs)}` : '未知');
       row(`V2 ${label}读取错误`, source?.errorCode || '无可归属的当前错误记录');
       for (const day of source?.days || []) {
-        row(`${label} ${day.date}`, `${day.totalSeconds == null ? '未知用量' : `${day.totalSeconds}秒`} · ${day.complete === true ? '完整' : day.complete === false ? '不完整' : '完整性未知'} · ${originNames[day.origin] || '未知来源'} · 结算截至 ${time(day.settledThroughMs)} · 读取 ${time(day.readAtMs)}${day.reasonCodes?.length ? ` · ${day.reasonCodes.map(code => reasonNames[code] || '原因未知').join('、')}` : ''}`);
+        const usage = day.bucketsSeconds
+          ? `学习${day.bucketsSeconds.study ?? '未知'}秒／复合${day.bucketsSeconds.composite ?? '未知'}秒／休息${day.bucketsSeconds.rest ?? '未知'}秒`
+          : day.totalSeconds == null ? '未知用量' : `${day.totalSeconds}秒`;
+        row(`${label} ${day.date}`, `${usage} · ${day.complete === true ? '完整' : day.complete === false ? '不完整' : '完整性未知'} · ${originNames[day.origin] || '未知来源'} · 结算截至 ${time(day.settledThroughMs)} · 读取 ${time(day.readAtMs)}${day.reasonCodes?.length ? ` · ${day.reasonCodes.map(code => reasonNames[code] || '原因未知').join('、')}` : ''}`);
       }
     }
     row('V2 周合计', '缓存未保存独立周合计；仅列已有逐日结果，不在诊断中重算');
