@@ -3,6 +3,7 @@ import { canonicalUsageAccountJson, hashUsageAccountValue, parseApplicationAccou
   USAGE_ACCOUNT_CHUNK_ROWS, USAGE_ACCOUNT_MAX_ROWS, APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY,
   APPLICATION_INSTANCE_STATISTICS_CAPABILITY, APPLICATION_PRODUCT_PROJECTION_UPLOAD_CAPABILITY,
   APPLICATION_PRODUCT_PROJECTION_MAX_BYTES,
+  APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM, APPLICATION_FIXED_IDENTITY_STATISTICS_CAPABILITY,
   type UsageAccountReceipt } from '@timeonchrome/app-runtime-contracts/usage-account';
 import { verifyApplicationInstanceAccountManifest, parseApplicationInstanceAccountRows,
   validateApplicationInstanceAccountDimensions } from '@timeonchrome/app-runtime-contracts/usage-account';
@@ -13,7 +14,7 @@ import { receiveApplicationProductProjection } from './applicationProductProject
 import {receiveNativeApplicationProjection} from './nativeApplicationProjections';
 import {nativeApplicationObjectStorageReady,NATIVE_APPLICATION_MANAGEMENT_CAPABILITY} from './nativeApplicationObjects';
 import { publishApplicationAccounts } from './applicationAccountPublication';
-import { requireCurrentApplicationManifest, retiredApplicationRevision, readApplicationLedgerRetirement, V3_ONLY_ALGORITHMS } from './applicationLedgerRetirement';
+import { requireCurrentApplicationManifest, requireApplicationStatisticsProducer, retiredApplicationRevision, readApplicationLedgerRetirement, V3_ONLY_ALGORITHMS } from './applicationLedgerRetirement';
 
 const prefix = '/v2/machines/application-accounts/manifests';
 /** 只检查既有存储结构；缺产品投影存储不关闭基础统计上传。 */
@@ -22,7 +23,8 @@ async function accountStorageCapabilities(db:D1Database) {
     'runtime_application_account_receipts_v1','runtime_application_account_publications_v1',
     'runtime_application_account_publication_checks_v1','runtime_application_statistics_days_v1','runtime_application_statistics_queue_v1'];
   const optional=['runtime_retired_application_manifest_insert','runtime_retired_application_publication_insert',
-    'runtime_application_product_projections_v1','runtime_product_projection_immutable_v1','runtime_application_knowledge_versions_v1'];
+    'runtime_application_product_projections_v1','runtime_product_projection_immutable_v1','runtime_application_knowledge_versions_v1',
+    'runtime_fixed_statistics_manifest_insert','runtime_fixed_statistics_manifest_receive','runtime_fixed_statistics_publication_insert'];
   const names=[...tables,...optional];
   const result=await db.prepare(`SELECT name,type,sql FROM sqlite_master WHERE name IN (${names.map((_,i)=>`?${i+1}`).join(',')})`)
     .bind(...names).all<{name:string;type:string;sql:string|null}>();
@@ -31,13 +33,15 @@ async function accountStorageCapabilities(db:D1Database) {
   const instanceReady=enabled&&optional.slice(0,2).every(name=>result.results.some(row=>
     row.name===name&&row.type==='trigger'&&row.sql?.includes('application-instance-seconds-v1')));
   const productReady=instanceReady&&has(optional[2],'table')&&has(optional[3],'trigger')&&has(optional[4],'table');
-  return {enabled,instanceReady,productReady};
+  const fixedIdentityReady=enabled&&optional.slice(5).every(name=>has(name,'trigger'))&&optional.slice(0,2).every(name=>result.results.some(row=>
+    row.name===name&&row.type==='trigger'&&row.sql?.includes(APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM)));
+  return {enabled,instanceReady,productReady,fixedIdentityReady};
 }
 async function verifyIncomingManifest(value:unknown) {
   return isRecord(value)&&value.schemaVersion===3 ? verifyApplicationInstanceAccountManifest(value) : verifyApplicationAccountManifest(value);
 }
-function parseIncomingRows(value:unknown,schemaVersion:1|2|3,maximum=USAGE_ACCOUNT_MAX_ROWS) {
-  return schemaVersion===3 ? parseApplicationInstanceAccountRows(value,maximum) : parseApplicationAccountRows(value,schemaVersion,maximum);
+function parseIncomingRows(value:unknown,schemaVersion:1|2|3,maximum=USAGE_ACCOUNT_MAX_ROWS,algorithmVersion?:string) {
+  return schemaVersion===3 ? parseApplicationInstanceAccountRows(value,maximum) : parseApplicationAccountRows(value,schemaVersion,maximum,algorithmVersion);
 }
 const categories = new Set(['study','composite','restrictedEntertainment','unclassified','other','blocked','historicalUnknown']);
 const applicationAccountAlgorithms = { windows:'windows-application-v1', macos:'macos-application-v1' } as const;
@@ -92,6 +96,8 @@ export async function beginApplicationAccount(db: D1Database, machine: MachineSe
   if (manifest.schemaVersion !== 1 && manifest.childId !== undefined && manifest.childId !== assignment.child_id)
     fail(403, 'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH');
   const retirement=await requireCurrentApplicationManifest(db,machine.accountId,assignment.child_id,manifest);
+  await requireApplicationStatisticsProducer(db,{accountId:machine.accountId,childId:assignment.child_id,
+    machineId:machine.machineId,localUserId:v.localUserId,assignmentVersion:v.assignmentVersion},manifest.algorithmVersion);
   if(retirement&&manifest.revision<=retiredApplicationRevision(retirement,{machineId:machine.machineId,
     localUserId:v.localUserId,assignmentVersion:v.assignmentVersion,date:manifest.date}))
     fail(409,'APPLICATION_ACCOUNT_STALE_REVISION');
@@ -115,7 +121,7 @@ export async function putApplicationAccountChunk(db: D1Database, machine: Machin
   const stored = await load(db, machine, id), manifest = await verifyIncomingManifest(JSON.parse(stored.manifest_json));
   const v = body(value, ['rows','chunkHash']);
   if (!Number.isSafeInteger(index) || index < 0 || index >= manifest.chunkCount) fail(400, 'APPLICATION_ACCOUNT_INVALID_CHUNK_INDEX');
-  const rows = parseIncomingRows(v.rows, manifest.schemaVersion, USAGE_ACCOUNT_CHUNK_ROWS);
+  const rows = parseIncomingRows(v.rows, manifest.schemaVersion, USAGE_ACCOUNT_CHUNK_ROWS,manifest.algorithmVersion);
   const expectedCount = Math.min(USAGE_ACCOUNT_CHUNK_ROWS, manifest.rowCount - index * USAGE_ACCOUNT_CHUNK_ROWS);
   if (rows.length !== expectedCount) fail(400, 'APPLICATION_ACCOUNT_CHUNK_COUNT_MISMATCH');
   if (rows.some(r => r.kind === 'category' && !categories.has(r.category!))) fail(400, 'APPLICATION_ACCOUNT_INVALID_CATEGORY');
@@ -132,17 +138,19 @@ export async function putApplicationAccountChunk(db: D1Database, machine: Machin
 }
 export async function commitApplicationAccount(db: D1Database, machine: MachineSelfResponse, id: string, now: number) {
   const stored = await load(db, machine, id);
-  if (stored.state === 'received') return receipt(stored);
   const manifest = await verifyIncomingManifest(JSON.parse(stored.manifest_json));
+  await requireApplicationStatisticsProducer(db,{accountId:stored.account_id,childId:stored.child_id,
+    machineId:stored.machine_id,localUserId:stored.local_user_id,assignmentVersion:stored.assignment_version},manifest.algorithmVersion);
+  if (stored.state === 'received') return receipt(stored);
   const chunks = await db.prepare(`SELECT chunk_index,rows_json FROM runtime_application_account_chunks_v1
     WHERE manifest_id=?1 ORDER BY chunk_index LIMIT 100`).bind(id).all<{ chunk_index: number; rows_json: string }>();
   if (chunks.results.length !== manifest.chunkCount || chunks.results.some((c, i) => c.chunk_index !== i))
     fail(409, 'APPLICATION_ACCOUNT_CHUNKS_MISSING');
-  const rows = parseIncomingRows(chunks.results.flatMap(c => JSON.parse(c.rows_json)), manifest.schemaVersion);
+  const rows = parseIncomingRows(chunks.results.flatMap(c => JSON.parse(c.rows_json)), manifest.schemaVersion,USAGE_ACCOUNT_MAX_ROWS,manifest.algorithmVersion);
   if (rows.length !== manifest.rowCount || await hashUsageAccountValue(rows) !== manifest.rowsHash)
     fail(409, 'APPLICATION_ACCOUNT_ROWS_HASH_MISMATCH');
   if(manifest.schemaVersion===3) validateApplicationInstanceAccountDimensions(parseApplicationInstanceAccountRows(rows));
-  else if(manifest.schemaVersion===2) validateUsageAccountDimensionsV2(parseApplicationAccountRows(rows,2));
+  else if(manifest.schemaVersion===2) validateUsageAccountDimensionsV2(parseApplicationAccountRows(rows,2,USAGE_ACCOUNT_MAX_ROWS,manifest.algorithmVersion),manifest.algorithmVersion);
   else validateUsageAccountDimensions(parseApplicationAccountRows(rows,1));
   // D1 batch 原子提交接收状态和水位；不存在发布头，不能用于配额或页面。
   await db.batch([
@@ -181,9 +189,11 @@ export async function routeApplicationAccounts(request: Request, db: D1Database,
         applicationAccountAlgorithm('windows',2),applicationAccountAlgorithm('macos',2),...V3_ONLY_ALGORITHMS];
       return jsonResponse({protocol:'usage-account-v1',schemaVersion:1,enabled:storage.enabled,
         chunkRows:USAGE_ACCOUNT_CHUNK_ROWS,maxRows:USAGE_ACCOUNT_MAX_ROWS,
-        acceptedAlgorithms:[...algorithms,...(storage.instanceReady?['application-instance-seconds-v1']:[])],
+        acceptedAlgorithms:[...algorithms,...(storage.instanceReady?['application-instance-seconds-v1']:[]),
+          ...(storage.fixedIdentityReady?[APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM]:[])],
         capabilities:['application-usage-projection-v1','application-statistics-seconds-v2',APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY,
           ...(storage.instanceReady?[APPLICATION_INSTANCE_STATISTICS_CAPABILITY]:[]),
+          ...(storage.fixedIdentityReady?[APPLICATION_FIXED_IDENTITY_STATISTICS_CAPABILITY]:[]),
           ...(storage.productReady?[APPLICATION_PRODUCT_PROJECTION_UPLOAD_CAPABILITY]:[]),
           ...(storage.instanceReady&&await nativeApplicationObjectStorageReady(db)?[NATIVE_APPLICATION_MANAGEMENT_CAPABILITY]:[])]});
     }

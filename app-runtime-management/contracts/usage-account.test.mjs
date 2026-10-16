@@ -5,7 +5,7 @@ import { createUsageAccount, hashUsageAccountValue, canonicalUsageAccountJson,
   usageAccountDayStart, parseUsageAccountReceipt, parseApplicationUsageProjection,
   createUsageAccountV2, verifyUsageAccountManifestV2, parseApplicationUsageSeconds,
   allocateUsageAccountSeconds,parseUsageAccountRowsV2,validateUsageAccountDimensionsV2,
-  APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY } from './dist/usage-account.js';
+  APPLICATION_STATISTICS_CHILD_SCOPE_CAPABILITY, APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM } from './dist/usage-account.js';
 import { createApplicationInstanceAccount, parseApplicationInstanceAccountRows, verifyApplicationInstanceAccountManifest,
   validateApplicationInstanceAccountDimensions, parseApplicationProductStatisticsProjection,
   verifyApplicationProductStatisticsProjection } from './dist/usage-account.js';
@@ -188,6 +188,28 @@ const secondRows = [row('total',null,51), ...Array.from({length:24},(_,h)=>row('
 const secondProjection = {nonSpecialTotal:51,nonSpecialCategories:{study:51,composite:51},
   specialTotal:0,complete:true,reasonCodes:[]};
 const secondAccount = await createUsageAccountV2({...secondHeader,applicationUsage:secondProjection},secondRows);
+// 新算法原样传输本机合法身份与名称，旧算法的合法域不被隐式放宽。
+const fixedSubject = 'app.' + 'a'.repeat(252);
+const fixedRows = [...secondRows, ...[null,12].map(hour=>({kind:'subject',hour,category:null,
+  subjectKey:fixedSubject,displayName:'应用/@'+'名'.repeat(507),duration:51,
+  classifications:hour===null?['study','other'].sort():['study']}))]
+  .sort((a,b)=>canonicalUsageAccountJson(a)<canonicalUsageAccountJson(b)?-1:1);
+assert.throws(()=>parseUsageAccountRowsV2(fixedRows),/INVALID_SUBJECT/);
+const fixedAccount=await createUsageAccountV2({...secondHeader,
+  algorithmVersion:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,
+  complete:false,reasonCodes:['LOCAL_IDENTITYLESS_RECORD_EXCLUDED'],applicationUsage:secondProjection},fixedRows);
+assert.equal(fixedAccount.rows.find(r=>r.kind==='subject').subjectKey,fixedSubject);
+assert.equal(fixedAccount.manifest.complete,false,'有效已知统计保留不完整状态，不伪装完整');
+const zeroSubject={...fixedAccount.rows.find(r=>r.kind==='subject'),duration:0,classifications:[]};
+assert.deepEqual(parseUsageAccountRowsV2([zeroSubject],100,APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM)[0].classifications,[]);
+assert.throws(()=>parseUsageAccountRowsV2([{...zeroSubject,duration:1}],100,APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM),/INVALID_SUBJECT_CLASSIFICATIONS/);
+assert.equal(validateUsageAccountDimensionsV2(fixedAccount.rows,APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM).total,51);
+for(const badId of ['a'.repeat(257),'app/path','app@name']) {
+  assert.throws(()=>parseUsageAccountRowsV2([{...fixedRows.find(r=>r.kind==='subject'),subjectKey:badId}],
+    100,APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM),/INVALID_SUBJECT/);
+}
+assert.throws(()=>parseUsageAccountRowsV2([{...fixedRows.find(r=>r.kind==='subject'),displayName:'x'.repeat(513)}],
+  100,APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM),/INVALID_SUBJECT/);
 for(const vector of vectors.childScopeCases){
   const input={...secondHeader,...vector.patch},before=JSON.stringify(input);
   if(!vector.valid)await assert.rejects(createUsageAccountV2(input,secondRows),/INVALID_CHILD_SCOPE/,vector.id);
