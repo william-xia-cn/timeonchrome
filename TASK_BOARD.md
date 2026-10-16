@@ -8,6 +8,10 @@
 
 普通合并已完成内容核对：仅PROJECT_MASTER与TASK_BOARD顶部各一处独立追加冲突，双方正文均保留；产品源码无冲突且保留所属控件提交原样，不用合并阶段再重写实现。本次集成源码Matched、无新增Extra；控件既有同内容测试/截图复用，受控实机仍Missing。后续在同一PR284声明8ac137c为直接merge父提交，保留源PR285供追溯，不另开集成PR。
 
+集成CI38877911812：scope/console/release-config通过，contracts在shared-access.test.mjs失败；旧测试将完整控件源码装入data URL，新增真实相对依赖后不能解析。仅将该契约测试改为实际文件URL导入，保留全部V1/V2断言，运行本文件及diff，不改产品代码/协议/版本或回退依赖。Native最终源码7b704fe已本地提交；远端push被权限审核明确拒绝，已向PO集中请求准确提交推送及后续交付范围，不代推绕过。
+
+该实际模块加载回归已通过：共享配额/Bridge、10个旧提醒黄金用例及跨端canonical/完整身份/非法字段/异步摘要断言均PASS；修改仅测试加载方式和既有状态记录，Matched，无产品行为改动。其余未变代码证据复用，CI按本次最终集成SHA继续。
+
 集中集成状态：已fetch远端并在现有cloud-management普通合入origin/master，50fde005df10a6ada424d19f8ce4d33721d5e998已推送；三个文档顶部独立记录冲突均保留双方内容。唯一旧application-accounts能力夹具差异先保存stash恢复快照，合并后与快照完整文件相同，无内容丢失；未跟踪产物保留。未创建分支或工作树。PR284为整批草稿，不合并/部署；精确head的App Runtime CI38871880415 changes/console/contracts-worker/gate全部success，含完整契约与Worker测试/typecheck/dry-run；Guardian Integration38871880378 success。能力/协议源码证据可复用，不将CI通过冒充两端实际消费者完成。附件绑定因已有100项上限失败，PR本身成功，未删旧附件。
 
 实际消费者审查更新（两端仍活跃实施，非实机通过）：Native已修复按active列表修剪Confirmed及repeat/新entry同时发生的基线问题；控件grantKey已包含dateKey，避免跨日沿用。真实控件首链与真实C# Service各自隔离回放已取得，见下方证据，尚未完成已安装两端互通，不以契约/CI通过覆盖。

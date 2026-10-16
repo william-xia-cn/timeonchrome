@@ -123,8 +123,7 @@ assert.equal(await matchesSharedAccessPolicyIdentityV1(identityPolicy, identity)
 const reorder = value => Array.isArray(value) ? value.map(reorder) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).reverse().map(key => [key, reorder(value[key])])) : value;
 assert.deepEqual(await createSharedAccessPolicyIdentityV1(reorder(identityPolicy)), identity);
-const source = fs.readFileSync(new URL('../../extension/core/shared-access-policy.js', import.meta.url), 'utf8');
-const deviceValidator = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const deviceValidator = await import(new URL('../../extension/core/shared-access-policy.js', import.meta.url).href);
 assert.equal(canonicalSharedAccessPolicyV1(identityPolicy), deviceValidator.validateSharedAccessPolicyV1(identityPolicy).canonical);
 for (const change of [p => { p.stage = 'shared'; }, p => { p.effectiveAtMs += 1; },
   p => { p.dailyMinutes.monday.study += 1; }, p => { p.autonomy.repeatReminderMinutes += 1; },
