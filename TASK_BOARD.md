@@ -2,6 +2,8 @@
 
 ## NOW：Windows共享消费者接续（2026-10-16，源码与隔离验证）
 
+PO缺源裁决追加：同孩子周期无可信共享缓存时，保留本机已知用量作为下界，未知不补零；有适用额度也不因缺源单独阻断，已知用量到最终硬上限仍阻断，黑名单/停用/对象限制优先。仅共享V2判定允许逐项缺失，旧路径保持严格；来源投影保留可读本机分量与不完整标志。最小验证为实际mode-service及共享runtime专项；随后普通merge主线解决PR范围反向diff，不改账本。
+
 最终结果：集中1.54.0固定包与生产消费者接线完成；source-statistics-shadow、local-guardian（25条真实C#响应回放）、shared-access-runtime/integration/policy-reader、forced-use-prompt、shared-reminder-lifecycle/content-bridge、shared-browser-activity/executor、163项mode-service、typecheck、扩展根及diff检查通过。真实隔离扩展VPS6Ud通过首访问pending-entry到ACTIVE、合并复提醒、正常关闭取消及Composite超时强制关闭，使用契约状态机与加速时钟，不冒充真实Native联通或计时精度验收。最终桌面/窄屏DOM截图已核对，文字、原因合并、手动输入及布局Matched；同规则跨标签、跨日/异规则/新增原因隔离专项通过。没有已知Deviated/Extra；待验为真实Chrome↔Native双端端到端、有限配额缺源无缓存策略裁决。未改原始计时/账本/聚合/上传，不更新候选、重载或启用生产共享。本批按架构交接整包提交，其他历史文档脏改保留。
 
 隔离真实扩展完整入口、合并复提醒、默认关闭执行链及Composite待确认超时专项已通过（VPS6Ud）；复用该产物，不重复运行未改代码。真实C#回放启动阻塞已定位为夹具漏识别不带channel的兼容V1健康探针，仅修正测试分派后验证真实响应兼容，不调整产品探针或记账行为。

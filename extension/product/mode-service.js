@@ -822,8 +822,7 @@ async function handleAccessObserved(event = {}) {
   }
 
   const sharedV2 = quotaResult?.sharedModel?.policy?.schemaVersion === 2;
-  if (quotaResult?.accountingUnavailable === true && isRestricted
-    && (!sharedV2 || hasApplicableSharedQuota(config, 'rest', domain, quotaResult.calendar.date))) {
+  if (quotaResult?.accountingUnavailable === true && isRestricted && !sharedV2) {
     return baseDecision({
       access: 'reminder',
       reminder: { reason: 'accounting_unavailable', params: {} },
@@ -935,7 +934,7 @@ async function handleAccessObserved(event = {}) {
       const facts = sharedV2 && !hasApplicableSharedQuota(config, quotaBucket, domain, dateKey)
         ? { ok: true, quotas: [] }
         : buildForcedUseQuotaFacts(config, quotaResult.usage, forcedPolicy, { date: dateKey, domain,
-          ...(sharedV2 ? { quotaBucket } : {}) });
+          ...(sharedV2 ? { quotaBucket, allowIncomplete: true } : {}) });
       const final = forcedCompositeFinalRemainingSeconds(facts);
       if (!final.ok) return baseDecision({ access: 'reminder', reminder: { reason: 'accounting_unavailable', params: {} }, domain, config });
       forcedCompositeRemaining = final.seconds;

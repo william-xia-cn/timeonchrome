@@ -1467,7 +1467,7 @@ this.__modeService = {
     final = true;
     expect('final Composite point blocks', (await svc.handleModeEvent(event)).reminder?.reason, 'quota_undetermined');
   }
-  section('Shared V2 first entry and unknown statistics without applicable quota');
+  section('Shared V2 entry and incomplete statistics retain known hard limits');
   {
     const sharedCore = await import(require('node:url').pathToFileURL(path.join(__dirname, '../../extension/core/shared-forced-use-admission.js')).href);
     const forcedCore = await import(require('node:url').pathToFileURL(path.join(__dirname, '../../extension/core/forced-use-policy.js')).href);
@@ -1480,6 +1480,7 @@ this.__modeService = {
         quotaOverrunMinutes: { dailyStudy: null, dailyComposite: null, dailyRest: null, dailyOnline: null, weeklyRest: null, domain: null },
         advisoryWindowDailyMaxMinutes: null } };
     let confirmed = false;
+    let sharedUsage = { ok: false };
     const svc = loadModeService({ getConfig: async () => cfg, isSharedAccessRuntimeEnabled: () => true,
       readForcedUsePolicy: forcedCore.readForcedUsePolicy,
       prepareSharedForcedUseAdmission: sharedCore.prepareSharedForcedUseAdmission,
@@ -1488,7 +1489,7 @@ this.__modeService = {
       ensureForcedUseContributions: async () => { throw Error('shared runtime cannot read an independent reminder counter'); },
       evaluateQuotaState: async () => ({ ok: true, accountingVersion: 2, sharedRuntime: true,
         sharedModel: { policy: { schemaVersion: 2 }, policyIdentity: { schemaVersion: 2, policyHash: 'a'.repeat(64) } },
-        config: cfg, calendar: { date: '2026-10-16' }, newState: {}, accountingUnavailable: true, usage: { ok: false } }) });
+        config: cfg, calendar: { date: '2026-10-16' }, newState: {}, accountingUnavailable: true, usage: sharedUsage }) });
     const event = { type: 'ACCESS_OBSERVED', tabId: 8, windowId: 9, foreground: true,
       url: 'https://fixture.test/page', nowMs: Date.parse('2026-10-16T12:15:00+08:00') };
     const entry = await svc.handleModeEvent(event);
@@ -1500,7 +1501,14 @@ this.__modeService = {
     expect('Service confirmation resumes existing Rest mode routing', entered.modeChange?.toMode, 'rest');
     expect('unknown usage is not filled with synthetic quota values', entered.forcedAdmission.presentation.quotas, []);
     cfg.timeQuota.daily.friday.restMinutes = 120;
-    expect('an applicable unknown quota stays distinguishable', (await svc.handleModeEvent(event)).reminder?.reason, 'accounting_unavailable');
+    expect('an applicable unknown quota does not block access', (await svc.handleModeEvent(event)).modeChange?.toMode, 'rest');
+    cfg.forcedUsePolicyV1.quotaOverrunMinutes.dailyRest = 0;
+    sharedUsage = { ok: false, restSeconds: 7200 };
+    expect('known local usage at the hard limit blocks despite missing other sources',
+      (await svc.handleModeEvent(event)).reminder?.reason, 'daily_rest_locked');
+    sharedUsage = { ok: false, restSeconds: 60 };
+    expect('known usage below the hard limit can continue with incomplete sources',
+      (await svc.handleModeEvent(event)).modeChange?.toMode, 'rest');
     cfg.unsafeList = ['fixture.test'];
     expect('blacklist remains enforceable with unknown statistics', (await svc.handleModeEvent(event)).reminder?.reason, 'unsafe');
   }

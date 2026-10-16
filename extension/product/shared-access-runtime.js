@@ -129,7 +129,9 @@ export function projectSharedRuntimeQuota(config, model, webUsage, date) {
 }
 
 export function projectIndependentSharedRuntimeQuota(config, model, webUsage, date) {
-  const invalid = () => ({ ok: false, usage: { ok: false, source: 'shared_source_statistics_v2' } });
+  const invalid = () => ({ ok: false, usage: { ...(webUsage?.ok === true ? webUsage : {}),
+    compositeSeconds: webUsage?.ok === true ? webUsage.compositeSeconds ?? webUsage.undeterminedSeconds : null,
+    ok: false, source: 'shared_source_statistics_v2', sharedIncomplete: true } });
   if (!model?.ok || webUsage?.ok === false) return invalid();
   try {
     const policy = JSON.parse(canonicalSharedAccessPolicyV2(model.policy));

@@ -20,7 +20,7 @@ export function prepareSharedForcedUseAdmission({ config, usage, dateKey, domain
   if (!policy.enabled) return { ok: false, action: 'block', reasons: ['shared_forced_use_policy_unavailable'] };
   const applicable = hasApplicableSharedQuota(config, quotaBucket, domain, dateKey);
   const facts = applicable
-    ? buildForcedUseQuotaFacts(config, usage, policy, { date: dateKey, domain, quotaBucket })
+    ? buildForcedUseQuotaFacts(config, usage, policy, { date: dateKey, domain, quotaBucket, allowIncomplete: true })
     : { ok: true, quotas: [] };
   const selected = selectForcedUseQuotaFacts(facts, quotaBucket);
   if (!selected.ok) return { ok: false, action: 'block', reasons: [selected.reason] };

@@ -86,6 +86,13 @@ const v2Contract = await import(url('extension/core/shared-contracts/1.54.0/shar
   const partial = clone(independentModel); partial.sourceStatistics.application.days[0].complete = false;
   partial.sourceStatistics.application.days[0].reasonCodes = ['fixture_gap'];
   assert.equal(runtime.projectSharedRuntimeQuota(independentConfig, partial, {}, date).usage.ok, false);
+  const incompleteUsage = runtime.projectSharedRuntimeQuota(independentConfig, partial,
+    { ok: true, restSeconds: 7200, undeterminedSeconds: 60, totalSeconds: 7260 }, date).usage;
+  assert.equal(incompleteUsage.ok, false);
+  assert.equal(incompleteUsage.sharedIncomplete, true);
+  assert.equal(incompleteUsage.restSeconds, 7200, 'known local lower bound survives a missing shared source');
+  assert.equal(incompleteUsage.compositeSeconds, 60);
+  assert.equal(incompleteUsage.weekRestSeconds, undefined, 'unknown fields must not become zero');
   reply.sharedQuotaPreparation.replacementVersions[1].revisionOrdinal++;
   reply.sharedQuotaPreparation.projection.days[0].usedMs.rest -= 1000;
   reply.sharedQuotaPreparation.projection.week.restUsedMs -= 1000;

@@ -16,8 +16,8 @@ function validLimit(value) {
   return value === null || Number.isInteger(value) && value >= 0;
 }
 
-export function buildForcedUseQuotaFacts(config, usage, policy, { date, domain, quotaBucket } = {}) {
-  if (usage?.ok !== true || !policy?.enabled || !policy.quotaOverrunMinutes
+export function buildForcedUseQuotaFacts(config, usage, policy, { date, domain, quotaBucket, allowIncomplete = false } = {}) {
+  if ((usage?.ok !== true && !allowIncomplete) || !policy?.enabled || !policy.quotaOverrunMinutes
     || typeof date !== 'string' || domain !== undefined && (typeof domain !== 'string' || !domain)) {
     return { ok: false, reason: 'quota_facts_unavailable' };
   }
@@ -33,7 +33,8 @@ export function buildForcedUseQuotaFacts(config, usage, policy, { date, domain, 
     const limit = effective[limitField];
     if (!validLimit(limit)) return { ok: false, reason: 'quota_limit_invalid' };
     if (limit === null) continue;
-    const seconds = usage[usageField];
+    const seconds = usage?.[usageField];
+    if (!validSeconds(seconds) && allowIncomplete) continue;
     if (!validSeconds(seconds)) return { ok: false, reason: 'quota_usage_invalid' };
     const overrunMinutes = config?.autonomyConfig?.quotaOverrunConfirmationRequired === false ? 0
       : ['dailyRest', 'weeklyRest'].includes(id) ? policy.quotaOverrunMinutes[id] : null;
@@ -49,10 +50,12 @@ export function buildForcedUseQuotaFacts(config, usage, policy, { date, domain, 
       return { ok: false, reason: 'domain_limit_invalid' };
     }
     if (parsedDomainLimit === 0) return { ok: true, quotas };
-    if (!usage.domainSeconds || typeof usage.domainSeconds !== 'object') {
+    if (!usage?.domainSeconds || typeof usage.domainSeconds !== 'object') {
+      if (allowIncomplete) return { ok: true, quotas };
       return { ok: false, reason: 'domain_usage_invalid' };
     }
-    const seconds = usage.domainSeconds[domain] ?? 0;
+    const seconds = usage.domainSeconds[domain] ?? (allowIncomplete ? null : 0);
+    if (!validSeconds(seconds) && allowIncomplete) return { ok: true, quotas };
     if (!validSeconds(seconds)) return { ok: false, reason: 'domain_usage_invalid' };
     const overrunMinutes = config?.autonomyConfig?.quotaOverrunConfirmationRequired === false ? 0 : null;
     if (!validLimit(overrunMinutes)) return { ok: false, reason: 'quota_policy_invalid' };
