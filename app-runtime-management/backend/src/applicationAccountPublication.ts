@@ -1,6 +1,6 @@
 import { hashUsageAccountValue, canonicalUsageAccountJson, verifyUsageAccountManifest,usageAccountDayStart,
   parseUsageAccountRows,parseApplicationAccountRows,verifyApplicationAccountManifest,validateUsageAccountDimensions,validateUsageAccountDimensionsV2,UsageAccountError,
-  type UsageAccountManifest,type UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
+  APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,type UsageAccountManifest,type UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
 import {verifyApplicationInstanceAccountManifest,parseApplicationInstanceAccountRows,
   validateApplicationInstanceAccountDimensions} from '@timeonchrome/app-runtime-contracts/usage-account';
 import {isRecord} from './validation';
@@ -12,7 +12,7 @@ import { HttpError } from './http';
 import { mapApplicationUsageClock, APPLICATION_CLOCK_MARGIN_MS } from './applicationUsageClock';
 import { applicationAccountAlgorithm } from './applicationAccounts';
 import { isConfirmedSpecialApplication } from './specialApplications';
-import { requireCurrentApplicationManifest, isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
+import { requireCurrentApplicationManifest, requireApplicationStatisticsProducer, isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
 
 interface Candidate {id:string;machine_id:string;local_user_id:string;assignment_version:number;
   account_id:string;child_id:string;date:string;revision:number;manifest_json:string}
@@ -141,18 +141,23 @@ export async function verifyApplicationAccountPublication(db:D1Database,candidat
 }
 /** 仅旧账归属缺口可发布已知秒统计；其他不完整事实仍拒绝。 */
 export function isReadableApplicationAccountSnapshot(manifest:{schemaVersion:number;durationUnit:string;
-  childId?:string;complete:boolean;reasonCodes:readonly string[]}):boolean {
+  childId?:string;algorithmVersion?:string;complete:boolean;reasonCodes:readonly string[]}):boolean {
   return manifest.complete || manifest.schemaVersion===2 && manifest.durationUnit==='seconds'
     && typeof manifest.childId==='string' && manifest.childId.trim().length>0
-    && manifest.reasonCodes.length===1 && manifest.reasonCodes[0]==='APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING';
+    && (manifest.algorithmVersion===APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM && manifest.reasonCodes.length>0
+      ||manifest.reasonCodes.length===1 && manifest.reasonCodes[0]==='APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING');
 }
 /** Validate the authenticated producer's snapshot, not a second cloud calculation. */
 export async function validateApplicationAccountSnapshot(db:D1Database,candidate:Candidate) {
   const input:unknown=JSON.parse(candidate.manifest_json);
+  if(isRecord(input)&&typeof input.algorithmVersion==='string')
+    await requireApplicationStatisticsProducer(db,{accountId:candidate.account_id,childId:candidate.child_id,
+      machineId:candidate.machine_id,localUserId:candidate.local_user_id,assignmentVersion:candidate.assignment_version},input.algorithmVersion);
   if(isRecord(input)&&input.schemaVersion===3) return validateInstanceSnapshot(db,candidate,input);
   const manifest=await verifyApplicationAccountManifest(input);
   const retirement=await requireCurrentApplicationManifest(db,candidate.account_id,candidate.child_id,manifest);
-  if(retirement&&!manifest.complete)fail('APPLICATION_ACCOUNT_INCOMPLETE');
+  const fixedIdentity=manifest.schemaVersion===2&&manifest.algorithmVersion===APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM;
+  if(retirement&&!manifest.complete&&!fixedIdentity)fail('APPLICATION_ACCOUNT_INCOMPLETE');
   if(!isReadableApplicationAccountSnapshot(manifest))fail('APPLICATION_ACCOUNT_INCOMPLETE');
   if(manifest.schemaVersion===2&&manifest.childId!==undefined&&manifest.childId!==candidate.child_id)
     fail('APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH');
@@ -164,7 +169,9 @@ export async function validateApplicationAccountSnapshot(db:D1Database,candidate
     fail('APPLICATION_ACCOUNT_ASSIGNMENT_UNAVAILABLE');
   const v3Algorithm=`${assignment.platform}-application-v3-only-seconds-v1`;
   if(manifest.algorithmVersion!==applicationAccountAlgorithm(assignment.platform,manifest.schemaVersion)
-    && !(manifest.algorithmVersion===v3Algorithm&&isV3OnlyApplicationManifest(manifest,candidate.child_id)))fail('APPLICATION_ACCOUNT_ALGORITHM_UNSUPPORTED');
+    && !(manifest.algorithmVersion===v3Algorithm&&isV3OnlyApplicationManifest(manifest,candidate.child_id))
+    && !(fixedIdentity&&isV3OnlyApplicationManifest(manifest,candidate.child_id)
+      &&(assignment.platform==='windows'||assignment.platform==='macos')))fail('APPLICATION_ACCOUNT_ALGORITHM_UNSUPPORTED');
   if(manifest.date!==candidate.date||manifest.revision!==candidate.revision||manifest.sourceKind!=='application')
     fail('APPLICATION_ACCOUNT_INVALID_SOURCE');
   const chunks=await db.prepare(`SELECT chunk_index,chunk_hash,rows_json FROM runtime_application_account_chunks_v1
@@ -174,15 +181,15 @@ export async function validateApplicationAccountSnapshot(db:D1Database,candidate
     fail('APPLICATION_ACCOUNT_CHUNKS_MISSING');
   const rows:UsageAccountRow[]=[];
   for(const chunk of chunks.results){
-    const chunkRows=parseApplicationAccountRows(JSON.parse(chunk.rows_json),manifest.schemaVersion,100);
+    const chunkRows=parseApplicationAccountRows(JSON.parse(chunk.rows_json),manifest.schemaVersion,100,manifest.algorithmVersion);
     if(chunkRows.length!==Math.min(100,manifest.rowCount-chunk.chunk_index*100)
       ||await hashUsageAccountValue(chunkRows)!==chunk.chunk_hash)fail('APPLICATION_ACCOUNT_CHUNK_HASH_MISMATCH');
     rows.push(...chunkRows);
   }
-  parseApplicationAccountRows(rows,manifest.schemaVersion);
+  parseApplicationAccountRows(rows,manifest.schemaVersion,10000,manifest.algorithmVersion);
   if(rows.length!==manifest.rowCount||await hashUsageAccountValue(rows)!==manifest.rowsHash)
     fail('APPLICATION_ACCOUNT_ROWS_HASH_MISMATCH');
-  const {total}=manifest.schemaVersion===2?validateUsageAccountDimensionsV2(rows):validateUsageAccountDimensions(rows);
+  const {total}=manifest.schemaVersion===2?validateUsageAccountDimensionsV2(rows,manifest.algorithmVersion):validateUsageAccountDimensions(rows);
   const categories=new Set(['study','composite','restrictedEntertainment','unclassified','other','blocked','historicalUnknown']);
   const divisor=manifest.durationUnit==='seconds'?1000:1;
   if(rows.some(row=>row.duration>(row.hour===null?DAY:HOUR)/divisor

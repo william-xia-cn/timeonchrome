@@ -1,7 +1,7 @@
 import {env,exports} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
-import {createUsageAccount,createUsageAccountV2,hashUsageAccountValue,type UsageAccountRow,type ApplicationUsageProjection,
-  type ApplicationUsageSeconds,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {createUsageAccount,createUsageAccountV2,hashUsageAccountValue,canonicalUsageAccountJson,type UsageAccountRow,type ApplicationUsageProjection,
+  APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,type ApplicationUsageSeconds,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
 // @ts-expect-error Browser UMD intentionally has no TypeScript declaration; exercise the production adapter.
 import AppRuntimeTime from '../../console/app-runtime-time.js';
 import {readApplicationSharedQuotaContributions,readCoveredChromeDeduction} from '../src/applicationSharedQuota';
@@ -16,6 +16,7 @@ import type {ProductIdentityProjection} from '@timeonchrome/app-runtime-contract
 import type {MachineSelfResponse} from '../src/contracts';
 import {readPersistentApplicationUsage,rebuildApplicationStatistics,type StatisticsValue} from '../src/applicationStatistics';
 import {readNativeApplicationStatisticsSeconds,readNativeApplicationStatisticsRangeSeconds} from '../src/applicationStatisticsNative';
+import {readApplicationIdentityUsage} from '../src/applicationProductProjections';
 import {routeV2} from '../src/v2Routes';
 // 从隔离Native原账→物化测试导出，不复制C#生成算法或真实家庭数据。
 import nativeGenerated from './application-seconds-native-generated.json';
@@ -27,6 +28,9 @@ import childServiceGenerated from './application-child-service-native-generated.
 import childServiceCloudResponses from './application-child-service-cloud-responses.json';
 // 正式Native兼容物化及Uploader捕获的全合成请求；不在云端夹具重造行或哈希。
 import childMixedGenerated from './application-child-mixed-native-generated.json';
+// 来自Native实际日生成器/SQLite冻结/HTTP发送器；manifest、rows和hash不可在Worker夹具重造。
+import fixedNativeGenerated from './application-fixed-native-generated.json';
+import fixedZeroNativeGenerated from './application-fixed-zero-native-generated.json';
 const DAY=86400000,start=Date.parse('2026-09-27T00:00:00+08:00'),now=start+DAY;
 const user='a'.repeat(64);
 async function fixture(platform:MachineSelfResponse['platform']='windows',scope?:{accountId:string;child:string;machineId?:string;localUserId?:string}){
@@ -41,7 +45,7 @@ async function fixture(platform:MachineSelfResponse['platform']='windows',scope?
   const content:Omit<ProductIdentityProjection,'version'>={knowledgeVersion:1,
     items:[{platform,runtimeIdentity:'leaf',associationKey:`product:${platform}:test`,productId:'test',canonicalName:'测试产品',status:'confirmed',reasonCode:'APPROVED_PRODUCT',isChromeContainer:false}]};
   const projection=await productIdentityProjectionVersion(content,knowledge);
-  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_child_app_policy_versions_v1
+  await env.RUNTIME_DB.prepare(`INSERT OR IGNORE INTO runtime_child_app_policy_versions_v1
     (account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms) VALUES(?1,?2,1,?3,'fixture',0,0)`)
     .bind(accountId,child,JSON.stringify({...policy,applicationKnowledge:knowledge,classifications:[{platform,runtimeIdentity:'leaf',displayName:null,classification:'study'}],productIdentityProjection:{version:projection,...content}})).run();
   const machine:MachineSelfResponse={machineId,accountId,platform,displayName:null,defaultChildId:child,desiredPolicyVersion:1,
@@ -67,7 +71,7 @@ async function drainFixtureStatistics(f:Awaited<ReturnType<typeof fixture>>) {
 async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{empty?:boolean;classification?:string;duration?:number;
   associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string;
   associationKey?:string;reasonCodes?:string[];cutoff?:number;date?:string;hour?:number;policyVersions?:number[];applicationUsage?:ApplicationUsageProjection;extraSubjectKey?:string;deferCommit?:boolean;
-  seconds?:boolean;secondsProjection?:ApplicationUsageSeconds;detailHour?:number;childId?:string}={}){
+  seconds?:boolean;secondsProjection?:ApplicationUsageSeconds;detailHour?:number;childId?:string;nativeId?:string;nativeName?:string}={}){
   const duration=options.empty?0:options.duration??1501;
   const row=(kind:UsageAccountRow['kind'],hour:number|null,category:string|null=null,subjectKey:string|null=null,displayName:string|null=null,d=duration):UsageAccountRow=>
     ({kind,hour,category,subjectKey,displayName,duration:d});
@@ -75,7 +79,7 @@ async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{
   const rows=[row('total',null),...Array.from({length:24},(_,h)=>row('total',h,null,null,null,h===hour?duration:0))];
   const detailHour=options.detailHour??hour;
   if(!options.empty){rows.push(row('category',null,options.classification??'study'),row('category',detailHour,options.classification??'study'),
-    row('subject',null,null,await sha256Hex(key),'测试产品'),row('subject',detailHour,null,await sha256Hex(key),'测试产品'));}
+    row('subject',null,null,options.nativeId??await sha256Hex(key),options.nativeName??'测试产品'),row('subject',detailHour,null,options.nativeId??await sha256Hex(key),options.nativeName??'测试产品'));}
   if(options.extraSubjectKey)rows.push(row('subject',null,null,await sha256Hex(options.extraSubjectKey),'测试产品'),
     row('subject',hour,null,await sha256Hex(options.extraSubjectKey),'测试产品'));
   const date=options.date??'2026-09-27',cutoff=options.cutoff??Date.parse(date+'T00:00:00+08:00')+DAY;
@@ -99,6 +103,97 @@ async function commitRequest(f:Awaited<ReturnType<typeof fixture>>,id:string){
   return routeApplicationAccounts(new Request(`http://runtime.test/v2/machines/application-accounts/manifests/${id}/commit`,
     {method:'POST'}),env.RUNTIME_DB,f.machine,now);
 }
+it('fixed identity seconds upload publishes known partial usage without raw facts or a second projection',async()=>{
+  const f=await fixture(),nativeId='app.'+'n'.repeat(252),nativeName='应用/@'+'名'.repeat(507);
+  const reasons=['LOCAL_IDENTITYLESS_RECORD_EXCLUDED'];
+  const first=await upload(f,1,{seconds:true,childId:f.child,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,
+    duration:51,complete:false,reasonCodes:reasons,nativeId,nativeName});
+  expect(await (await commitRequest(f,first.manifestId)).json()).toMatchObject({received:true,published:true});
+  const read=await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27');
+  expect(read).toMatchObject({complete:false,reasonCodes:reasons});
+  expect(read?.rows.find(row=>row.kind==='subject'&&row.hour===null)).toMatchObject({target:{machineId:f.machine.machineId,nativeId},displayName:nativeName,duration:51});
+  const page=await readApplicationIdentityUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,start+DAY);
+  expect(page).toMatchObject({complete:false,availableTotalDuration:51});
+  expect(page.instances).toEqual([]);
+  expect(page.applications[0]).toMatchObject({target:{machineId:f.machine.machineId,nativeId},displayName:nativeName,duration:51});
+  const display=AppRuntimeTime.applicationIdentityView(page);
+  expect(display).toMatchObject({complete:false,totalDurationSeconds:null,availableTotalDurationSeconds:51});
+  expect(display.applications[0]).toMatchObject({target:{machineId:f.machine.machineId,nativeId},displayName:nativeName,durationSeconds:51});
+  expect(display.buckets[0].durationSeconds).toBe(51);
+  const next=await upload(f,2,{seconds:true,childId:f.child,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,
+    duration:40,complete:false,reasonCodes:reasons,nativeId,nativeName});
+  expect(await (await commitRequest(f,next.manifestId)).json()).toMatchObject({published:true});
+  expect((await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27'))
+    ?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration).toBe(40);
+});
+for(const captured of [fixedNativeGenerated,fixedZeroNativeGenerated])it(`Native fixed generator captured ${captured.local.knownTotalSeconds} seconds survives cloud upload and page adapter unchanged`,async()=>{
+  expect(captured.synthetic).toBe(true);
+  const f=await fixture('windows',{accountId:crypto.randomUUID(),child:captured.scope.childId});
+  const at=captured.manifest.generatedAtMs,from=Date.parse(captured.manifest.date+'T00:00:00+08:00');
+  const before=JSON.stringify(captured);
+  // 仅将合成鉴权外壳的短user替换成HTTP要求的有效脱敏来源；清单/统计/哈希逐字不改。
+  const begin=await beginApplicationAccount(env.RUNTIME_DB,f.machine,
+    {localUserId:user,assignmentVersion:captured.scope.assignmentVersion,manifest:captured.manifest},at);
+  for(const chunk of captured.chunks){
+    const body='chunkBodies' in captured
+      ?(captured.chunkBodies as Record<string,unknown>)[String(chunk.chunkIndex)]
+      :{rows:chunk.rows,chunkHash:chunk.chunkHash};
+    await putApplicationAccountChunk(env.RUNTIME_DB,f.machine,begin.manifestId,chunk.chunkIndex,body);
+  }
+  const result=await routeApplicationAccounts(new Request(`http://runtime.test/v2/machines/application-accounts/manifests/${begin.manifestId}/commit`,
+    {method:'POST'}),env.RUNTIME_DB,f.machine,at);
+  expect(await result.json()).toMatchObject({received:true,published:true,manifestHash:captured.manifest.manifestHash});
+  const cloud=await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,captured.manifest.date);
+  const plain=cloud!.rows.map(({target,...row})=>({...row,subjectKey:target?.nativeId??row.subjectKey}))
+    .sort((a,b)=>canonicalUsageAccountJson(a).localeCompare(canonicalUsageAccountJson(b)));
+  const sent=captured.chunks.flatMap(chunk=>chunk.rows).slice()
+    .sort((a,b)=>canonicalUsageAccountJson(a).localeCompare(canonicalUsageAccountJson(b)));
+  expect(plain).toEqual(sent); // 全部日/小时、分类、应用行一致；不是只对总量。
+  const page=await readApplicationIdentityUsage(env.RUNTIME_DB,f.machine.accountId,f.child,from,from+DAY);
+  const display=AppRuntimeTime.applicationIdentityView(page);
+  expect(display.availableTotalDurationSeconds).toBe(captured.local.knownTotalSeconds);
+  expect(display.complete).toBe(captured.local.complete);
+  expect(page.applicationUsage).toEqual(captured.manifest.applicationUsage);
+  for(const app of captured.local.applications){
+    expect(display.applications.find((row:{target?:{nativeId:string}})=>row.target?.nativeId===app.nativeId))
+      .toMatchObject({displayName:app.name,durationSeconds:app.knownTotalSeconds,classifications:app.classifications});
+  }
+  for(let hour=0;hour<24;hour++)expect(display.buckets[hour].durationSeconds)
+    .toBe((captured.local.days[0].hourlySeconds as Record<string,number>)[String(hour)]??0);
+  expect(JSON.stringify(captured)).toBe(before);
+});
+it('fixed statistics prevent delayed old producers from taking authority without blocking another machine',async()=>{
+  const f=await fixture();
+  const delayed=await upload(f,10,{seconds:true,deferCommit:true});
+  const received=await upload(f,11,{seconds:true});
+  const fixed=await upload(f,12,{seconds:true,childId:f.child,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,duration:50});
+  expect(await (await commitRequest(f,fixed.manifestId)).json()).toMatchObject({published:true});
+  await expect(upload(f,100,{seconds:true})).rejects.toMatchObject({code:'APPLICATION_STATISTICS_PRODUCER_SUPERSEDED'});
+  await expect(commitApplicationAccount(env.RUNTIME_DB,f.machine,delayed.manifestId,now)).rejects.toMatchObject({code:'APPLICATION_STATISTICS_PRODUCER_SUPERSEDED'});
+  await expect(commitApplicationAccount(env.RUNTIME_DB,f.machine,received.manifestId,now)).rejects.toMatchObject({code:'APPLICATION_STATISTICS_PRODUCER_SUPERSEDED'});
+  const other=await fixture('windows',{accountId:f.machine.accountId,child:f.child});
+  await expect(upload(other,100,{seconds:true})).resolves.toMatchObject({revision:100});
+  // 即使跳过HTTP层，也不能直接把先前旧清单写回发布头。
+  await expect(env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_publications_v1
+    (machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_id,source_revision,published_at_ms)
+    VALUES(?1,?2,1,?3,?4,'2026-09-27',100,?5,'old',?6)
+    ON CONFLICT(machine_id,local_user_id,assignment_version,date) DO UPDATE SET manifest_id=excluded.manifest_id,revision=excluded.revision`)
+    .bind(f.machine.machineId,user,f.machine.accountId,f.child,received.manifestId,now).run()).rejects.toThrow(/APPLICATION_STATISTICS_PRODUCER_SUPERSEDED/);
+});
+it('same NativeId on two machines stays two management targets while durations accumulate',async()=>{
+  const first=await fixture(),second=await fixture('windows',{accountId:first.machine.accountId,child:first.child});
+  for(const f of [first,second]){
+    const r=await upload(f,1,{seconds:true,childId:f.child,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,
+      nativeId:'app.browser',nativeName:'同名应用',duration:60});
+    await commitRequest(f,r.manifestId);
+  }
+  const page=await readApplicationIdentityUsage(env.RUNTIME_DB,first.machine.accountId,first.child,start,start+DAY);
+  expect(page.availableTotalDuration).toBe(120);
+  expect(page.applications).toHaveLength(2);
+  expect(new Set(page.applications.map(row=>'target' in row?row.target?.machineId:null)).size).toBe(2);
+  const isolated=await fixture();
+  expect((await readApplicationIdentityUsage(env.RUNTIME_DB,isolated.machine.accountId,isolated.child,start,start+DAY)).applications).toHaveLength(0);
+});
 it('mixed-ledger child seconds publish known usage without advertising a complete day, and replace rather than add',async()=>{
   const f=await fixture(),reasons=['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING'];
   const first=await upload(f,409,{seconds:true,childId:f.child,duration:1457,complete:false,reasonCodes:reasons,deferCommit:true});
@@ -356,8 +451,8 @@ it.each([
     contractsVersion:generated.contractsVersion,requestManifestHash:begin.manifest.manifestHash,
     // 原跨仓捕获不可改写；只剔除本轮新增的能力声明，统计/ACK仍逐字段等于原证据。
     capability:{...capability,
-      acceptedAlgorithms:(capability.acceptedAlgorithms as string[]).filter(value=>!value.includes('v3-only')&&value!=='application-instance-seconds-v1'),
-      capabilities:(capability.capabilities as string[]).filter(value=>!['application-instance-statistics-v1','application-product-projection-upload-v1','native-application-management-v1'].includes(value))},
+      acceptedAlgorithms:(capability.acceptedAlgorithms as string[]).filter(value=>!value.includes('v3-only')&&value!=='application-instance-seconds-v1'&&value!==APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM),
+      capabilities:(capability.capabilities as string[]).filter(value=>!['application-instance-statistics-v1','application-product-projection-upload-v1','native-application-management-v1','application-fixed-identity-statistics-v1'].includes(value))},
     begin:receipt,pendingStatus,chunks:chunkReceipts,commit,publishedStatus}).toEqual(childServiceCloudResponses);
   // 重放原请求不累加；没有原段云端接收、旧策略历史或云端重算前提。
   expect(await call('manifests','POST',begin)).toMatchObject({manifestId:receipt.manifestId,received:true});

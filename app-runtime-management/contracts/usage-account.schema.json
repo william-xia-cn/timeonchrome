@@ -34,6 +34,27 @@
     { "if": { "properties": { "complete": { "const": true } } }, "then": { "properties": { "reasonCodes": { "maxItems": 0 }, "settledThroughMs": { "type": "integer" } } }, "else": { "properties": { "reasonCodes": { "minItems": 1 } } } }
   ],
   "$defs": {
+    "fixedIdentityRowV2": {
+      "description": "仅application-fixed-identity-seconds-v1使用；subjectKey原样引用本机NativeId，小时分类独立于日标签。",
+      "type":"object","additionalProperties":false,
+      "required":["kind","hour","category","subjectKey","displayName","duration"],
+      "properties":{
+        "kind":{"$ref":"#/$defs/row/properties/kind"},"hour":{"$ref":"#/$defs/row/properties/hour"},
+        "category":{"$ref":"#/$defs/row/properties/category"},
+        "subjectKey":{"type":["string","null"],"pattern":"^[A-Za-z0-9_.:-]{1,256}$"},
+        "displayName":{"type":["string","null"],"minLength":1,"maxLength":512,"pattern":"^[^\\u0000-\\u001f\\u007f]+$"},
+        "duration":{"type":"integer","minimum":0,"maximum":86400},
+        "classifications":{"type":"array","minItems":0,"maxItems":7,"uniqueItems":true,
+          "items":{"enum":["study","composite","restrictedEntertainment","unclassified","other","blocked","historicalUnknown"]}}
+      },
+      "allOf":[
+        {"$ref":"#/$defs/row/allOf/0"},
+        {"if":{"properties":{"kind":{"const":"subject"}}},"then":{"required":["classifications"],"properties":{"subjectKey":{"type":"string"},"displayName":{"type":"string"}}},
+          "else":{"properties":{"subjectKey":{"type":"null"},"displayName":{"type":"null"}},"not":{"required":["classifications"]}}},
+        {"if":{"properties":{"hour":{"type":"integer"}}},"then":{"properties":{"duration":{"maximum":3600}}}}
+        ,{"if":{"properties":{"duration":{"minimum":1}}},"then":{"properties":{"classifications":{"minItems":1}}}}
+      ]
+    },
     "productProjectionReceipt": {
       "description":"PUT /v2/machines/application-accounts/manifests/{manifestId}/product-projection 的接收ACK。需要application-product-projection-upload-v1能力；请求正文引用productProjection，最大1048576字节。ACK还必须与此次请求的manifestId、revision、projectionHash逐值相等。",
       "type":"object","additionalProperties":false,
