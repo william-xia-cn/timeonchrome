@@ -52,16 +52,49 @@ async function run() {
   const partial = structuredClone(stored); partial.shared_access_policy_lkg_v1.policy = { revision: identity.revision };
   assert.equal(mod.buildSharedSyncDiagnostics(partial, {}, { cacheScopeCurrent: true }, now).days[2].policyMatchesCurrentCache, null);
   assert.equal(mod.buildSharedSyncDiagnostics({}, {}, {}, Date.parse('2026-10-04T16:00:00Z')).days.length, 1);
+  const policyV2 = { schemaVersion: 2, revision: 'profile-config:35', stage: 'shadow', effectiveAtMs: 0 };
+  const sourceCache = { childId: 'private_child', scopeHash: 'private_scope', fromDate: '2026-09-28', toDate: '2026-10-03',
+    applicationOrigin: 'native', webDayOrigins: { '2026-10-03': { origin: 'cloud_other', readAtMs: now } },
+    applicationDayOrigins: { '2026-10-03': { origin: 'native', readAtMs: now } } };
+  for (const source of ['web', 'application']) sourceCache[source] = { childId: 'private_child', source,
+    fromDate: sourceCache.fromDate, toDate: sourceCache.toDate, readAtMs: now,
+    days: [{ date: '2026-10-03', totalSeconds: 120, complete: false, settledThroughMs: now - 1000,
+      categoriesSeconds: { rest: 60, private_title: 60 }, reasonCodes: ['PRIVATE_PATH'] }] };
+  const v2Stored = { source_statistics_shadow_cache_v1: sourceCache,
+    shared_access_policy_lkg_v2: { scopeHash: 'private_scope', policy: policyV2, policyHash: 'c'.repeat(64), receivedAtMs: now },
+    source_statistics_shadow_v1: { fromDate: sourceCache.fromDate, toDate: sourceCache.toDate,
+      source: { web: { origin: 'local_plus_cloud_other', readAtMs: now }, application: { origin: 'native', readAtMs: now } },
+      applicationErrorCode: 'PRIVATE_TOKEN' } };
+  const contextV2 = { childId: 'private_child', scopeHash: 'private_scope' };
+  const v2 = mod.projectSharedV2Observation(v2Stored, contextV2, { ok: true, policy: policyV2 }, true, now);
+  assert.equal(v2.scopeCurrent, true); assert.equal(v2.debuggerGranted, true);
+  assert.equal(v2.nativePeerSameChild, null, 'a cached Native source never claims current peer verification');
+  assert.equal(v2.policy.policyHash, 'c'.repeat(64)); assert.equal(v2.policy.stage, 'shadow');
+  assert.equal(v2.sources.web.days[0].totalSeconds, 120);
+  assert.equal(v2.sources.application.origin, 'native');
+  assert.equal(v2.sources.application.errorCode, 'unknown');
+  assert.equal(v2.sources.web.weeklyTotalSeconds, null, 'diagnostics do not calculate a new weekly aggregate');
+  assert(!JSON.stringify(v2).match(/private|PRIVATE|childFingerprint|childId|scopeHash/));
+  for (const changedContext of [{ ...contextV2, childId: 'other' }, { ...contextV2, scopeHash: 'other' }]) {
+    assert.equal(mod.projectSharedV2Observation(v2Stored, changedContext, { ok: false }, null, now).sources.web.available, false);
+  }
+  assert.equal(mod.projectSharedV2Observation(v2Stored, contextV2, { ok: false }, null, now + 86400000).sources.web.available, false);
+  assert.equal(mod.projectSharedV2Observation(v2Stored, contextV2, { ok: false }, null, now + 2 * 86400000).scopeCurrent, false);
+  const permissionFailure = await mod.readSharedV2Observation(v2Stored, { contains() { throw Error('private'); } },
+    { readContext: async () => contextV2, readPolicy: async () => ({ ok: true, policy: policyV2 }), now: () => now });
+  assert.equal(permissionFailure.debuggerGranted, null);
+  assert.equal(permissionFailure.policy.revision, policyV2.revision, 'permission read errors do not erase other observations');
   let listener, reads = 0, nativeReads = 0, reply;
   const runtime = { id: 'self', getURL: p => 'chrome-extension://self/' + p,
     getManifest: () => ({ version: '1.7.40' }), onMessage: { addListener: fn => { listener = fn; } } };
   mod.registerSharedSyncDiagnosticsReader({ runtime, storage: { get: async keys => { reads++; assert(!keys.some(k => /token|config|usage_stats|usage_segments/.test(k))); return stored; } },
-    native: () => { nativeReads++; return {}; }, live: () => ({}) });
+    native: () => { nativeReads++; return {}; }, live: () => ({}), observeV2: async () => v2 });
   assert.equal(listener({ type: mod.SHARED_SYNC_DIAGNOSTICS_MESSAGE }, { id: 'self', url: 'https://untrusted/' }, v => reply = v), false);
   assert.equal(reads, 0); assert.equal(reply.errorCode, 'diagnostics_sender_rejected');
   assert.equal(listener({ type: mod.SHARED_SYNC_DIAGNOSTICS_MESSAGE }, { id: 'self', url: runtime.getURL('admin/admin.html') }, v => reply = v), true);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(reply.ok, true); assert.equal(reads, 1); assert.equal(nativeReads, 1);
+  assert.deepEqual(reply.diagnostics.v2, v2);
   for (const suffix of ['?view=system-management', '#system-management', '?view=system-management#local']) {
     assert.equal(listener({ type: mod.SHARED_SYNC_DIAGNOSTICS_MESSAGE }, { id: 'self', url: runtime.getURL('admin/admin.html') + suffix }, v => reply = v), true);
     await new Promise(resolve => setImmediate(resolve)); assert.equal(reply.ok, true);
@@ -87,7 +120,7 @@ async function run() {
   }
   const nativeSource = read('extension/infra/native-host-client.js');
   const recordBody = nativeSource.match(/function recordResponseRejection\(request, reason, serviceErrorCode = null\) \{([\s\S]*?)\n\}/)[1];
-  const record = new Function('request', 'reason', 'serviceErrorCode', `const SHARED_WEB_IDENTITY_ERRORS=globalThis.__sharedIdentityErrors; let lastResponseRejection; const safeNow=()=>123; ${recordBody}; return lastResponseRejection;`);
+  const record = new Function('request', 'reason', 'serviceErrorCode', `const SHARED_WEB_IDENTITY_ERRORS=globalThis.__sharedIdentityErrors; const SOURCE_STATISTICS_EXCHANGE_MESSAGE='exchangeSourceStatistics'; let lastResponseRejection; const safeNow=()=>123; ${recordBody}; return lastResponseRejection;`);
   assert.deepEqual(record({ messageType: 'dailyUsageSnapshot', channel: 'statistics', requestId: 'private_id', proof: 'private_token' }, 'snapshot_stale'),
     { atMs: 123, reason: 'snapshot_stale', serviceErrorCode: null, messageType: 'dailyUsageSnapshot', channel: 'statistics' });
   assert.equal(record({ messageType: 'private_token', channel: 'private_id' }, 'negative_response').messageType, 'unknown');
@@ -104,7 +137,7 @@ async function run() {
   const callbackBody = nativeSource.slice(nativeSource.indexOf('  port.onMessage.addListener((response) => {') + '  port.onMessage.addListener((response) => {'.length,
     nativeSource.indexOf('\n  port.onDisconnect.addListener'));
   const callback = new Function('response', 'pendingAck', 'recordResponseRejection', 'rejectPendingAck', 'disconnectPort', 'LIFECYCLE_ERRORS', 'clearTimeout',
-    callbackBody.replace(/\n  \}\);\s*$/, ''));
+    'const port = {}, nativePort = port;\n' + callbackBody.replace(/\n  \}\);\s*$/, ''));
   for (const [response, expected] of [[{ ok: false, errorCode: 'BROWSER_BRIDGE_MESSAGE_REJECTED' }, 'service_message_rejected'],
     [{ ok: false, errorCode: 'private_token' }, 'negative_response'], [{ ok: true, receivedAt: '123' }, 'received_at_invalid']]) {
     let reason, disconnected = false;
@@ -122,7 +155,8 @@ async function run() {
     assert.equal(disconnected, !isolated); assert.equal(rejected, isolated ? 'native_snapshot_rejected' : 'native_invalid_response');
   }
   const body = nativeSource.match(/export function readNativeHostDiagnosticState\(\) \{([\s\S]*?)\n\}/)[1];
-  const inspect = new Function('nativePort', 'sharedNativeV3', 'sharedNativeCapabilities', 'applicationUsageSupported', 'lastResponseRejection', body);
+  const inspect = new Function('nativePort', 'sharedNativeV3', 'sharedNativeCapabilities', 'applicationUsageSupported', 'lastResponseRejection',
+    "const SOURCE_STATISTICS_READ_CAPABILITY='source-statistics-read-v1', APPLICATION_IDENTITY_USAGE_READ_CAPABILITY='application-identity-usage-read-v1'; const applicationUsageSecondsSupported=false,applicationIdentityUsageSupported=false;\n" + body);
   assert.equal(inspect({}, false, new Set(), false).applicationUsageSupported, null);
   assert.equal(inspect(null, true, new Set(), true).applicationUsageSupported, null);
   assert.equal(inspect({}, true, new Set(['private_capability', 'shared-web-local-lease-v1']), false).capabilities.length, 1);
@@ -136,7 +170,7 @@ async function run() {
     .replace(/import \{ readCloudSharedWebCapabilities[^;]+;/, 'const readCloudSharedWebCapabilities=()=>null,readCloudSharedWebWatermark=()=>null,postCloudSharedWebContribution=()=>null,requestCloudSharedWebSourceBinding=()=>null,requestCloudSharedWebSourceBindingV2=()=>null;')
     .replace(/from '(\.\/shared-web-reusable-binding.js|\.\.\/core\/shared-web-native.js)'/g,
       (_, p) => `from '${url('extension/' + path.posix.normalize('infra/' + p))}'`)
-    .replace(/import \{ requestSharedWebSync[^;]+;/, 'const requestSharedWebSync=()=>null,observeSharedAccessPolicyCapability=()=>null,readSharedWebLocalConnection=()=>({connection:null});')
+    .replace(/import \{ requestSharedWebSync[^;]+;/, 'const requestSharedWebSync=()=>null,observeSharedAccessPolicyCapability=()=>null,readSharedWebLocalConnection=()=>({connection:null}),requestApplicationIdentityBindingNative=()=>null,readApplicationIdentityBindingConnection=()=>({connection:null}),setApplicationIdentityBindingEnsurer=()=>{};')
     .replace(/import \{ runStorageMutation[^;]+;/, 'const runStorageMutation=()=>null,budgetedLocalSet=async(value,options)=>globalThis.__diagnosticWrites.push({value,options});')
     .replace(/import \{ readSharedQuotaExecutionLkg[^;]+;/, 'const readSharedQuotaExecutionLkg=()=>null;');
   globalThis.__diagnosticWrites = [];
@@ -255,6 +289,14 @@ async function run() {
   assert(contents(container).includes('学习 → 未知'));
   assert(contents(container).includes('已应用 1 条 · 失败 1 条'));
   assert(!contents(container).includes('private'));
+  ui.renderSharedSyncDiagnostics(container, { ...model, v2, days: [] });
+  assert(contents(container).includes('V2 当前只读观测'));
+  assert(contents(container).includes('已授予'));
+  assert(contents(container).includes('本地组件'));
+  assert(contents(container).includes('未知；不能由缓存来源推断'));
+  assert(contents(container).includes('以下为旧版历史贡献'));
+  assert(!contents(container).match(/private|PRIVATE|指纹/));
+  assert(contents(container).includes('原因未知')); assert(!contents(container).includes('UNKNOWN_REASON'));
   ui.renderSharedSyncDiagnostics(container, null, 'private_token', '1.7.41');
   assert(!contents(container).includes('private_token')); assert(contents(container).includes('1.7.41'));
   container.replaceChildren();
