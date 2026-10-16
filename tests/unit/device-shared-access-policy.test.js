@@ -18,7 +18,7 @@ function load(relative, dependencies) {
   const contract = await import('../../app-runtime-management/contracts/dist/shared-access.js');
   const quota = load('extension/core/quota-config.js', {});
   const downtime = load('pages/downtime-config.js', {});
-  const { readSharedAccessPolicyForChild, normalizeSharedAccessRolloutV1 } = load('workers/src/routes/profiles.ts', {
+  const { readSharedAccessPolicyForChild, readSharedAccessPolicyV2ForChild, normalizeSharedAccessRolloutV1 } = load('workers/src/routes/profiles.ts', {
     '@timeonchrome/app-runtime-contracts/shared-access': contract,
     '../../../extension/core/quota-config.js': quota,
     '../../../pages/downtime-config.js': downtime,
@@ -46,7 +46,7 @@ function load(relative, dependencies) {
   const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
   const { deviceRouter } = load('workers/src/routes/device.ts', {
     '../db/middleware': { json },
-    './profiles': { readSharedAccessPolicyForChild },
+    './profiles': { readSharedAccessPolicyForChild, readSharedAccessPolicyV2ForChild },
     '@timeonchrome/app-runtime-contracts/shared-access': contract,
     '../services/sharedWebContributions': {
       readSharedWebJson: request => request.json(),
@@ -121,6 +121,24 @@ function load(relative, dependencies) {
   assert.equal(body.policy.dailyMinutes.friday.study, 0);
   assert.equal(body.policy.dailyMinutes.friday.composite, 30);
   assert.equal(body.policy.weeklyRestMinutes, 120);
+  const v2request = (query = '', auth = true) => new Request('https://fixture/device/shared-access/v2' + query,
+    {headers: auth ? {Authorization: 'Bearer fixture-device'} : {}});
+  assert.equal((await deviceRouter.handle(v2request('',false),env)).status,401);
+  assert.equal((await deviceRouter.handle(v2request('?childId=foreign'),env)).status,400);
+  const v2body=await (await deviceRouter.handle(v2request(),env)).json();
+  assert.equal(v2body.schemaVersion,2);assert.equal(v2body.profileId,'bound-child');
+  assert.equal(v2body.policy.stage,'legacy');assert.equal(v2body.policy.forcedUsePolicyV1,null);
+  assert.deepEqual(v2body.policy.dailyMinutes,body.policy.dailyMinutes);
+  config.downtimeConfig={schemaVersion:1,enabled:true,windowsByWeekday:{friday:[{start:'22:00',end:'07:00'}]},
+    allowedWebsiteTypes:['study'],allowedApplicationTypes:['other']};
+  const withDowntime=await (await deviceRouter.handle(v2request(),env)).json();
+  assert.deepEqual(withDowntime.policy.downtimeConfig.windowsByWeekday.friday,[{start:'22:00',end:'07:00'}]);
+  assert.deepEqual(withDowntime.policy.downtimeConfig.windowsByWeekday.monday,[]);
+  assert.deepEqual(withDowntime.policy.downtimeConfig.allowedApplicationTypes,['other']);
+  delete config.downtimeConfig;
+  config.sharedAccessRolloutV1={schemaVersion:1,stage:'shared'};
+  assert.equal((await (await deviceRouter.handle(v2request(),env)).json()).policy.stage,'shadow');
+  delete config.sharedAccessRolloutV1;
   assert.deepEqual(body.policy, await readSharedAccessPolicyForChild(env.DB, 'bound-owner', 'bound-child'),
     'device and parent consume exactly the same projection');
   for(const invalid of [null,[],{schemaVersion:2,stage:'shared'}, {schemaVersion:1,stage:'active'},

@@ -9,7 +9,7 @@ import { projectCompositeDailyRows, readCompositeCorrections } from './composite
 import { applyCorrectionsToV1StatsRows, listUsageAccountingCorrections } from './usageAccountingCorrections';
 import { generateToken } from '../db/middleware';
 import { statsRouter } from '../routes/stats';
-import { readSharedAccessPolicyForChild } from '../routes/profiles';
+import { readSharedAccessPolicyForChild, readSharedAccessPolicyV2ForChild } from '../routes/profiles';
 import { readSharedAccessDayState, readSharedQuotaExecutionBasis, pageSharedQuotaExecutionBasis, type SharedAccessStateEnv } from './sharedAccessState';
 import { createSharedAccessPolicyIdentityV1, type SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { createSharedWebSourceChallenge, createSharedWebMachineScope, readSharedWebVerificationKey, verifyCurrentSharedWebSource } from './sharedWebSourceBinding';
@@ -304,7 +304,10 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
         return Response.json({profileId:input.childId,...page},{headers:{'cache-control':'no-store'}});
       }
       if(operation==='/readSharedAccessPolicy'){
-        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId),this.env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
+        if(input.schemaVersion!==undefined&&input.schemaVersion!==1&&input.schemaVersion!==2)
+          return Response.json({code:'INVALID_SHARED_ACCESS_QUERY'},{status:400});
+        const read=input.schemaVersion===2?readSharedAccessPolicyV2ForChild:readSharedAccessPolicyForChild;
+        const policy=await read(this.env.DB,String(input.accountId),String(input.childId),this.env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         return policy?Response.json({policy}):Response.json({code:'CHILD_NOT_FOUND'},{status:404});
       }
       if(operation==='/readSharedQuotaState'){

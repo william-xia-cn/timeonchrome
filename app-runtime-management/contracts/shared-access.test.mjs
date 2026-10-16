@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {projectSharedAccessPolicyV2, canonicalSharedAccessPolicyV2, createSharedAccessPolicyIdentityV2, SHARED_ACCESS_POLICY_V2_CAPABILITY} from './dist/shared-access.js';
 import {validateSharedQuotaStateQuery, SHARED_QUOTA_STATE_READ_CAPABILITY, SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY,
   SHARED_REMINDER_RESULT_SHADOW_CAPABILITY} from './dist/native-host.js';
 import { projectSharedQuotaDay, projectLegacySharedAccessPolicy, SHARED_ACCESS_SCHEMA_VERSION,
@@ -7,6 +8,34 @@ import { projectSharedQuotaDay, projectLegacySharedAccessPolicy, SHARED_ACCESS_S
   validateSharedAccessPolicyIdentityV1, matchesSharedAccessPolicyIdentityV1 } from './dist/shared-access.js';
 
 const date = '2026-10-02';
+assert.equal(SHARED_ACCESS_POLICY_V2_CAPABILITY,'shared-access-policy-v2');
+const modernConfig={forcedUsePolicyV1:{schemaVersion:1,enabled:true,reminderIntervalMinutes:20,
+  quotaOverrunMinutes:{dailyStudy:0,dailyComposite:0,dailyRest:10,dailyOnline:0,weeklyRest:null,domain:0},
+  advisoryWindowDailyMaxMinutes:null},autonomyConfig:{quotaOverrunConfirmationRequired:false,
+  timeWindowAdvisoryEnabled:true,softReminderTimeoutAction:'continue'}};
+const modern=projectSharedAccessPolicyV2(modernConfig,9,100);
+assert.equal(modern.schemaVersion,2);assert.equal(modern.stage,'legacy');
+assert.deepEqual(modern.forcedUsePolicyV1,modernConfig.forcedUsePolicyV1);
+assert.equal(modern.autonomy.quotaOverrunConfirmationRequired,false);
+assert.equal(modern.autonomy.timeWindowAdvisoryEnabled,true);
+assert.equal(modern.autonomy.visibleResponseDeadlineSeconds,60);
+assert.equal(Object.hasOwn(modern.autonomy,'dailyFirstReminderMinutes'),false);
+assert.equal(projectSharedAccessPolicyV2({},1,1).forcedUsePolicyV1,null);
+assert.equal(projectSharedAccessPolicyV2({},1,1).downtimeConfig.enabled,false);
+assert.throws(()=>canonicalSharedAccessPolicyV2({...modern,schemaVersion:1}));
+assert.throws(()=>canonicalSharedAccessPolicyV2({...modern,extra:true}));
+assert.throws(()=>projectSharedAccessPolicyV2({...modernConfig,autonomyConfig:{quotaOverrunConfirmationRequired:'false'}},1,1));
+assert.throws(()=>projectSharedAccessPolicyV2({...modernConfig,forcedUsePolicyV1:{...modernConfig.forcedUsePolicyV1,reminderIntervalMinutes:0}},1,1));
+assert.throws(()=>canonicalSharedAccessPolicyV2({...modern,downtimeConfig:{...modern.downtimeConfig,allowedApplicationTypes:['blocked']}}));
+const captured=structuredClone(modern);modernConfig.forcedUsePolicyV1.quotaOverrunMinutes.dailyRest=99;
+assert.deepEqual(modern,captured,'projection must capture configuration rather than retain mutable references');
+const modernIdentity=await createSharedAccessPolicyIdentityV2(modern);
+assert.equal(modernIdentity.schemaVersion,2);
+for (const change of [p=>{p.stage='shadow';}, p=>{p.autonomy.quotaOverrunConfirmationRequired=true;},
+  p=>{p.forcedUsePolicyV1.quotaOverrunMinutes.dailyRest=11;}, p=>{p.downtimeConfig.enabled=true;}]) {
+  const updated=structuredClone(modern);change(updated);
+  assert.notEqual((await createSharedAccessPolicyIdentityV2(updated)).policyHash,modernIdentity.policyHash);
+}
 assert.equal(SHARED_QUOTA_STATE_READ_CAPABILITY, 'shared-quota-state-read');
 assert.equal(SHARED_REMINDER_RESULT_SHADOW_CAPABILITY, 'shared-reminder-result-shadow');
 assert.deepEqual(validateSharedQuotaStateQuery({date}), {date});

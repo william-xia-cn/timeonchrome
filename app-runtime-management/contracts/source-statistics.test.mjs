@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { validateSourceStatisticsQuery, validateSourceStatisticsSnapshot, combineOwnAndOtherStatistics, sourceStatisticsDates,projectSharedQuotaSeconds,validateSourceStatisticsExchange } from './dist/source-statistics.js';
 import {projectLegacySharedAccessPolicy} from './dist/shared-access.js';
+import {projectIndependentSharedQuotaSeconds} from './dist/source-statistics.js';
 const date='2026-10-07';
 function snapshot(source,key,total=600,excluded=[]) { return {schemaVersion:1,durationUnit:'seconds',source,childId:'child-a',fromDate:date,toDate:date,
   revision:`${key}:${total}`,readAtMs:1791320000000,includedSourceKeys:key?[key]:[],excludedSourceKeys:excluded,
@@ -41,6 +42,18 @@ const wb=snapshot('web','browser');wb.days[0].categoriesSeconds={composite:200,r
 const ab=snapshot('application','local');ab.days[0].categoriesSeconds={composite:200,unclassified:100};
 const quota=projectSharedQuotaSeconds(limited,date,wb,ab);
 assert.deepEqual(quota.usedSeconds,{study:0,composite:300,rest:300});assert.equal(quota.borrowedRestSeconds,200);
+const independent=projectIndependentSharedQuotaSeconds(limited,date,wb,ab);
+assert.deepEqual(independent.usedSeconds,{study:0,composite:500,rest:100});
+assert.equal(independent.borrowedRestSeconds,0);
+assert.equal(independent.remainingSeconds.composite,0);
+assert.equal(projectIndependentSharedQuotaSeconds(policy,date,web,snapshot('application','local')).usedSeconds.study,1200);
+assert.equal(projectIndependentSharedQuotaSeconds(policy,date,web,special).usedSeconds.study,600);
+assert.equal(projectIndependentSharedQuotaSeconds(policy,date,web,ordinaryOther).usedSeconds.study,600);
+assert.equal(projectIndependentSharedQuotaSeconds(policy,date,web,null).remainingSeconds.study,null);
+assert.throws(()=>projectIndependentSharedQuotaSeconds(policy,date,web,{...snapshot('application','local'),childId:'other-child'}));
+assert.deepEqual(projectIndependentSharedQuotaSeconds(limited,date,wb,ab),independent);
+const corrected=structuredClone(ab);corrected.days[0].categoriesSeconds={composite:20,unclassified:10};
+assert.equal(projectIndependentSharedQuotaSeconds(limited,date,wb,corrected).usedSeconds.composite,230);
 assert.equal(projectSharedQuotaSeconds(policy,date,web,null).remainingSeconds.study,null);
 assert.throws(()=>projectSharedQuotaSeconds(policy,date,web,{...snapshot('application','local'),childId:'other-child'}));
 assert.equal(validateSourceStatisticsExchange({fromDate:date,toDate:date,webStatistics:web},'child-a').webStatistics.source,'web');

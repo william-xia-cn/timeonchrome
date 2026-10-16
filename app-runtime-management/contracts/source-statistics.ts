@@ -115,6 +115,18 @@ export async function combineOwnAndOtherStatistics(local: SourceStatisticsSnapsh
 /** 独立配额纯函数；保留网页既有rest借用桶，只对应用复合/未归类计算新增借用。 */
 export function projectSharedQuotaSeconds(policy: import('./shared-access.js').UnifiedChildAccessPolicyV1,
   date: string, web: SourceStatisticsSnapshot | null, application: SourceStatisticsSnapshot | null): SharedQuotaSecondsDay {
+  return projectQuotaSeconds(policy, date, web, application, true);
+}
+
+/** 新自主度核算：各分类独立，网页已经发生的桶归属原样保留。 */
+export function projectIndependentSharedQuotaSeconds(policy: Pick<import('./shared-access.js').UnifiedChildAccessPolicyV1, 'dailyMinutes'>,
+  date: string, web: SourceStatisticsSnapshot | null, application: SourceStatisticsSnapshot | null): SharedQuotaSecondsDay {
+  return projectQuotaSeconds(policy, date, web, application, false);
+}
+
+function projectQuotaSeconds(policy: Pick<import('./shared-access.js').UnifiedChildAccessPolicyV1, 'dailyMinutes'>,
+  date: string, web: SourceStatisticsSnapshot | null, application: SourceStatisticsSnapshot | null,
+  allowApplicationBorrowing: boolean): SharedQuotaSecondsDay {
   sourceStatisticsDates(date,date);
   const childId=web?.childId??application?.childId, reasons=new Set<string>();
   for(const [source,snapshot] of [['web',web],['application',application]] as const){
@@ -130,7 +142,7 @@ export function projectSharedQuotaSeconds(policy: import('./shared-access.js').U
   const limits=policy.dailyMinutes[weekday],wc=w?.categoriesSeconds??{},ac=a?.categoriesSeconds??{};
   const appComposite=(ac.composite??0)+(ac.unclassified??0),webComposite=wc.composite??0;
   const available=limits.composite===null?Infinity:Math.max(0,limits.composite*60-webComposite);
-  const borrowedRestSeconds=Math.max(0,appComposite-available);
+  const borrowedRestSeconds=allowApplicationBorrowing?Math.max(0,appComposite-available):0;
   const usedSeconds={study:(wc.study??0)+(ac.study??0),composite:webComposite+appComposite-borrowedRestSeconds,
     rest:(wc.rest??0)+(ac.restrictedEntertainment??0)+borrowedRestSeconds};
   if(!Object.values(usedSeconds).every(integer)||!integer(borrowedRestSeconds))fail();
