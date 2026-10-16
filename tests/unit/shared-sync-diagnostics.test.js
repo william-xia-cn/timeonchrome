@@ -63,6 +63,7 @@ async function run() {
   const v2Stored = { source_statistics_shadow_cache_v1: sourceCache,
     shared_access_policy_lkg_v2: { scopeHash: 'private_scope', policy: policyV2, policyHash: 'c'.repeat(64), receivedAtMs: now },
     source_statistics_shadow_v1: { fromDate: sourceCache.fromDate, toDate: sourceCache.toDate,
+      readAtMs: now,
       source: { web: { origin: 'local_plus_cloud_other', readAtMs: now }, application: { origin: 'native', readAtMs: now } },
       applicationErrorCode: 'PRIVATE_TOKEN' } };
   const contextV2 = { childId: 'private_child', scopeHash: 'private_scope' };
@@ -73,6 +74,18 @@ async function run() {
   assert.equal(v2.sources.web.days[0].totalSeconds, 120);
   assert.equal(v2.sources.application.origin, 'native');
   assert.equal(v2.sources.application.errorCode, 'unknown');
+  const missingApplication = structuredClone(v2Stored);
+  missingApplication.source_statistics_shadow_cache_v1.application = null;
+  missingApplication.source_statistics_shadow_v1.applicationErrorCode = 'source_statistics_native_unavailable';
+  missingApplication.source_statistics_shadow_v1.source.application = { origin: 'unavailable', readAtMs: null };
+  assert.equal(mod.projectSharedV2Observation(missingApplication, contextV2, { ok: false }, null, now)
+    .sources.application.errorCode, 'source_statistics_native_unavailable', 'missing snapshot must not hide current read failure');
+  assert.equal(mod.projectSharedV2Observation(missingApplication, { ...contextV2, scopeHash: 'other' }, { ok: false }, null, now)
+    .sources.application.errorCode, null, 'another scope cannot inherit a report error');
+  const unrelatedReport = structuredClone(missingApplication);
+  unrelatedReport.source_statistics_shadow_v1.source.web.readAtMs--;
+  assert.equal(mod.projectSharedV2Observation(unrelatedReport, contextV2, { ok: false }, null, now)
+    .sources.application.errorCode, null, 'a report without a current cached read anchor stays unverified');
   assert.equal(v2.sources.web.weeklyTotalSeconds, null, 'diagnostics do not calculate a new weekly aggregate');
   assert(!JSON.stringify(v2).match(/private|PRIVATE|childFingerprint|childId|scopeHash/));
   for (const changedContext of [{ ...contextV2, childId: 'other' }, { ...contextV2, scopeHash: 'other' }]) {
@@ -126,6 +139,11 @@ async function run() {
   assert.equal(record({ messageType: 'private_token', channel: 'private_id' }, 'negative_response').messageType, 'unknown');
   const rejectionModel = mod.buildSharedSyncDiagnostics({}, { lastResponseRejection: { atMs: 123, reason: 'private_token', messageType: 'private_id', channel: 'private_channel' } }, {}, now);
   assert(!JSON.stringify(rejectionModel).includes('private_'));
+  for (const messageType of ['getApplicationIdentityUsage', 'getApplicationUsageSeconds', 'exchangeSourceStatistics']) {
+    const readable = mod.buildSharedSyncDiagnostics({}, { lastResponseRejection: {
+      atMs: now, reason: 'negative_response', messageType, channel: messageType === 'exchangeSourceStatistics' ? 'sharedQuota' : 'application' } }, {}, now);
+    assert.equal(readable.connection.responseRejection.messageType, messageType);
+  }
   for (const code of ['WEB_SOURCE_PROOF_EXPIRED', 'WEB_SOURCE_SCOPE_MISMATCH', 'WEB_SOURCE_CONTEXT_CHANGED', 'WEB_SOURCE_PROOF_REQUIRED']) {
     const rejection = record({ messageType: 'bindSharedWebSourceV2', channel: 'sharedQuota' }, 'negative_response', code);
     const diagnostic = mod.buildSharedSyncDiagnostics({}, { connected: true, lastResponseRejection: rejection }, { bindingState: 'expired_or_changed' }, now);

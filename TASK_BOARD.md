@@ -2,6 +2,10 @@
 
 ## NOW：Windows共享消费者接续（2026-10-16，源码与隔离验证）
 
+确证兼容修复（架构已批准，先测试不交付）：Native Dispatcher真实成功exchange省略可选stage，控件错误必填shadow导致合法应用统计必拒；仅去掉取数分支stage依赖，保留请求/Port/context/child/range/秒snapshot校验，不改共享执行。使用Native生产Dispatcher+RuntimeJson合成报文回放，覆盖身份/范围/请求/连接负例。同步修两个已证观测缺陷：无应用snapshot时仍显示可与当前scope/period读取批次关联的report错误；允许两种应用读取messageType及exchange准确显示。不新增状态/协议/采样，不制包/提交/覆盖/重载，不触及原账。
+
+本批验证通过：实际2.6.59候选DLL的Dispatcher+RuntimeJson生产者合成probe/exchange报文经生产Native客户端回放，旧必填stage条件确实拒收同一成功响应，新条件接受；错child/date/单位拒收，错requestId不消费正确ACK，断连拒收，读取不启用共享。local-guardian、shared-sync-diagnostics专项、typecheck及diff通过。纯合成生产者JSON原样冻结tests/fixtures/native-source-statistics-dispatcher.json，SHA256 4cf036bab0c4588b11a4c0de387d023be96363ba876944403698035a789492b3；专项默认执行回放，环境变量仅可额外替换资料，不再默默跳过。诊断空snapshot错误需同scope/period并有同批次现存来源readAt锚定，防止跨绑定/旧报告串用；请求名不再把identity/seconds/exchange二次压成unknown。架构批准仅提交本批并准备1.7.52，须与1.7.51严格两产品文件及版本差异；暂不覆盖/重载或推送，真实终端exchange成功仍待验证，不以合成回放冒报。
+
 观测隐私收窄：不展示/导出ChildID及其SHA256，不新增识别字段；仅保留已有内部scope核验结果及真实绑定状态布尔/枚举，实时peer身份缺实证显示未知。最终以此边界为准，不增加持久状态或跨会话传输。
 
 观测修复已完成源码验证：仅shared-sync-diagnostics infra/view及原专项，读取已有V2策略/来源缓存并验证scope、日期、8天有效期；权限读取异常保留未知，其余观测不被抹去。无ChildID/指纹/凭据/路径输出，来源日期原值只读、周合计不重算、当前peer核验不由Native历史缓存推断。专项覆盖隐私/改绑/跨日周/权限异常/消息发送者/既有UI生命周期，通过；typecheck及diff通过。隔离真实Admin CSS+renderer桌面1280/窄屏390无溢出、中文原因已目视（合成数据，不是真实运行诊断）。旧专项夹具新增Native常量/Port/身份接口依赖已补齐，产品Native模块未修改。架构已复核并批准仅提交本批3文件及任务块、生成1.7.51开发候选，需证明对原3ad候选仅两诊断文件与版本差异，不推送/覆盖/重载或发布；当前已重载1.7.50尚不含新诊断。

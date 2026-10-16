@@ -34,8 +34,10 @@ function createPort(onPost) {
   };
 }
 
-function moduleSource(instance) {
-  return originalSource
+function moduleSource(instance, requireLegacySourceStage = false) {
+  const source = requireLegacySourceStage ? originalSource.replace('if (!ack.sourceStatistics) {',
+    "if (ack.sharedQuotaStage !== 'shadow' || !ack.sourceStatistics) {") : originalSource;
+  return source
     .replace(/from '\.\.\/core\/shared-forced-use-runtime-v2.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-forced-use-runtime-v2.js')).href}'`)
 .replace(/from '\.\.\/core\/shared-contracts\/1\.54\.0\/source-statistics.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/source-statistics.js')).href}'`)
     .replace(/from '\.\/mac-guardian-health.js'/, `from '${require('node:url').pathToFileURL(path.join(root, 'extension/infra/mac-guardian-health.js')).href}'`)
@@ -65,7 +67,7 @@ function moduleSource(instance) {
     + `\nexport const executionFenceForTest = browserExecutionFence; export const retirementEvidenceForTest = retirementEvidence; export const expireSnapshotRetryForTest=()=>{snapshotRetryAtMs=0;};\n// test-instance-${instance}`;
 }
 
-async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [], platform = 'win' } = {}) {
+async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [], platform = 'win', requireLegacySourceStage = false } = {}) {
   const identityContractSource = fs.readFileSync(path.join(root, 'extension', 'core', 'shared-contracts', '1.43.0', 'application-usage-seconds.js'), 'utf8')
     .replace("import { parseApplicationUsageSeconds } from './usage-account.js';",
       'const { parseApplicationUsageSeconds } = globalThis.__GUARDIAN_APPLICATION_USAGE_ACCOUNT;');
@@ -111,7 +113,7 @@ async function loadGuardian({ storage, incognito = false, connectNative, policy,
     return { ok: true };
   };
 
-  const encoded = Buffer.from(moduleSource(Math.random())).toString('base64');
+  const encoded = Buffer.from(moduleSource(Math.random(), requireLegacySourceStage)).toString('base64');
   const module = await import(`data:text/javascript;base64,${encoded}`);
   return { module, alarms, runtime };
 }
@@ -1438,7 +1440,7 @@ async function run() {
       const response = { ok: true, receivedAt: Date.now(), requestId: payload.requestId,
         supportedProtocols: [3], capabilities: ['health', 'source-statistics-read-v1'],
         ...(payload.messageType === 'exchangeSourceStatistics' ? {
-          sharedQuotaStage: 'shadow', sourceStatistics: {
+          sourceStatistics: {
             schemaVersion: 1, durationUnit: 'seconds', source: 'application', childId: 'child-source-stats',
             fromDate: '2026-10-07', toDate: '2026-10-07', revision: 'native-source-revision', readAtMs: Date.now(),
             includedSourceKeys: ['application-source'], excludedSourceKeys: [], days: [{ date: '2026-10-07',
@@ -1461,12 +1463,12 @@ async function run() {
   assert.deepEqual(sourceRequest.payload, { fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null });
   assert.equal(sourceStatisticsHost.module.readNativeHostDiagnosticState().capabilities.includes('source-statistics-read-v1'), true);
 
-  const wrongStageHost = await loadGuardian({
+  const independentStageHost = await loadGuardian({
     storage: { cloud_profile_id: 'child-source-stats', cloud_device_id: 'device-source-stats' }, policy,
     connectNative: () => createPort((payload, onMessage) => queueMicrotask(() => onMessage.listeners.forEach(listener => listener({
       ok: true, receivedAt: Date.now(), requestId: payload.requestId, supportedProtocols: [3],
       capabilities: ['source-statistics-read-v1'],
-      ...(payload.messageType === 'exchangeSourceStatistics' ? { sharedQuotaStage: 'enforce', sourceStatistics: {
+      ...(payload.messageType === 'exchangeSourceStatistics' ? { sharedQuotaStage: 'shared', sourceStatistics: {
         schemaVersion: 1, durationUnit: 'seconds', source: 'application', childId: 'child-source-stats',
         fromDate: '2026-10-07', toDate: '2026-10-07', revision: 'native-source-revision', readAtMs: Date.now(),
         includedSourceKeys: [], excludedSourceKeys: [], days: [{ date: '2026-10-07', totalSeconds: 0,
@@ -1474,10 +1476,64 @@ async function run() {
       } } : {}),
     })))),
   });
-  await waitFor(() => wrongStageHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
-  const wrongStage = await wrongStageHost.module.requestSourceStatisticsExchange({ fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null });
-  assert.equal(wrongStage.ok, false);
-  assert.equal(wrongStage.errorCode, 'source_statistics_native_invalid_response', 'only shadow-stage responses are accepted');
+  await waitFor(() => independentStageHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+  const stageIndependent = await independentStageHost.module.requestSourceStatisticsExchange({ fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null });
+  assert.equal(stageIndependent.ok, true, 'source statistics reading does not depend on the execution stage');
+  assert.equal(independentStageHost.module.hasSharedForcedUseRuntimeV2Capability(), false, 'reading cannot enable shared execution');
+  {
+    // Frozen Dispatcher/RuntimeJson output from synthetic 2.6.59 producer, SHA-256 4cf036bab0c4588b11a4c0de387d023be96363ba876944403698035a789492b3.
+    const wirePath = process.env.TOC_NATIVE_SOURCE_STATISTICS_WIRE
+      || path.join(__dirname, '../fixtures/native-source-statistics-dispatcher.json');
+    const wire = JSON.parse(fs.readFileSync(wirePath, 'utf8'));
+    const probe = wire.find(row => row.request.messageType === 'probe');
+    const exchange = wire.find(row => row.request.messageType === 'exchangeSourceStatistics');
+    assert(probe && exchange, 'actual Dispatcher fixture must include probe and exchange');
+    assert.equal(Object.hasOwn(exchange.response, 'sharedQuotaStage'), false, 'producer must serialize the real omitted-stage shape');
+    const child = exchange.response.sourceStatistics.childId;
+    const query = exchange.request.payload;
+    let fault = null;
+    const wireHostOptions = { policy,
+      storage: { cloud_profile_id: child, cloud_device_id: 'synthetic-source-wire-device' },
+      connectNative: () => createPort((request, onMessage, onDisconnect) => {
+        const source = request.messageType === 'exchangeSourceStatistics' ? exchange.response : probe.response;
+        const response = structuredClone(source);
+        response.requestId = request.requestId; response.receivedAt = Date.now();
+        if (request.messageType === 'exchangeSourceStatistics') {
+          if (fault === 'child') response.sourceStatistics.childId = 'different-synthetic-child';
+          if (fault === 'date') response.sourceStatistics.toDate = '1970-01-01';
+          if (fault === 'unit') response.sourceStatistics.durationUnit = 'milliseconds';
+          if (fault === 'connection') {
+            queueMicrotask(() => onDisconnect.listeners.forEach(listener => listener())); return;
+          }
+          if (fault === 'requestId') {
+            const foreignReply = { ok: false, requestId: 'foreign-request', receivedAt: Date.now(), errorCode: 'RUNTIME_SERVICE_UNAVAILABLE' };
+            queueMicrotask(() => onMessage.listeners.forEach(listener => listener(foreignReply)));
+          }
+        }
+        queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+      }),
+    };
+    const legacyConsumer = await loadGuardian({ ...wireHostOptions, requireLegacySourceStage: true });
+    await waitFor(() => legacyConsumer.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+    assert.equal((await legacyConsumer.module.requestSourceStatisticsExchange(query)).errorCode,
+      'source_statistics_native_invalid_response', 'the former mandatory-stage guard rejects the same actual producer success');
+    const productionHost = await loadGuardian(wireHostOptions);
+    await waitFor(() => productionHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+    assert.equal((await productionHost.module.requestSourceStatisticsExchange(query)).ok, true,
+      'actual C# Dispatcher/RuntimeJson success without stage must pass the production consumer');
+    for (fault of ['child', 'date', 'unit']) {
+      const rejected = await productionHost.module.requestSourceStatisticsExchange(query);
+      assert.equal(rejected.errorCode, 'source_statistics_native_invalid_response', fault);
+    }
+    fault = 'requestId';
+    assert.equal((await productionHost.module.requestSourceStatisticsExchange(query)).ok, true,
+      'foreign request response must not consume the correct exchange ACK slot');
+    fault = 'connection';
+    assert.equal((await productionHost.module.requestSourceStatisticsExchange(query)).ok, false,
+      'a disconnected peer cannot confirm an exchange');
+    assert.equal(productionHost.module.hasSharedForcedUseRuntimeV2Capability(), false);
+    console.log('[Source statistics C# wire replay] success, child/date/unit/requestId/connection checks passed');
+  }
   const v2PolicyIdentity = { schemaVersion: 2, revision: 'profile-config:1', effectiveAtMs: 0,
     stage: 'shared', policyHash: 'a'.repeat(64) };
   const v2State = { schemaVersion: 2, roundId: 'v2-round', reminderId: 'v2-reminder', deliveryId: 'v2-delivery',

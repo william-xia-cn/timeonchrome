@@ -912,7 +912,7 @@ async function performSend(options) {
         || after.contextId !== options.expectedContextId || after.connectionGeneration !== before.connectionGeneration) {
         return { ok: false, errorCode: 'source_statistics_native_context_changed' };
       }
-      if (ack.sharedQuotaStage !== 'shadow' || !ack.sourceStatistics) {
+      if (!ack.sourceStatistics) {
         return { ok: false, errorCode: 'source_statistics_native_invalid_response' };
       }
       try {

@@ -35,7 +35,9 @@ const sourceOrigins = ['native', 'cloud', 'last_known_good', 'local_plus_cloud_o
 const sourceErrors = new Set(['source_statistics_disabled', 'source_statistics_unavailable',
   'source_statistics_context_changed', 'source_statistics_identity_unavailable', 'source_statistics_native_timeout',
   'source_statistics_native_unavailable', 'source_statistics_native_unsupported', 'source_statistics_native_invalid_response',
-  'source_statistics_web_identity_unavailable', 'source_statistics_web_unavailable', 'source_statistics_application_unavailable']);
+  'source_statistics_web_identity_unavailable', 'source_statistics_web_unavailable', 'source_statistics_application_unavailable',
+  'shared_access_unauthorized', 'shared_access_unbound', 'shared_access_unsupported', 'shared_access_snapshot_changed',
+  'shared_access_unavailable', 'shared_access_invalid_policy', 'shared_access_cancelled']);
 const sourceError = value => value == null ? null : sourceErrors.has(value) ? value : 'unknown';
 const sourceOrigin = value => sourceOrigins.includes(value) ? value : 'unknown';
 
@@ -48,6 +50,10 @@ export function projectSharedV2Observation(stored, context, policyResult, debugg
     && cache.scopeHash === context.scopeHash && cache.fromDate === monday && cache.toDate === today;
   const report = scopeCurrent && stored.source_statistics_shadow_v1?.fromDate === monday
     && stored.source_statistics_shadow_v1?.toDate === today ? stored.source_statistics_shadow_v1 : null;
+  const reportGenerationCurrent = report && integer(report.readAtMs) !== null && report.readAtMs <= now
+    && now - report.readAtMs <= 8 * 86400000 && ['web', 'application'].some(name =>
+      cache[name]?.childId === context.childId && integer(cache[name]?.readAtMs) !== null
+      && cache[name].readAtMs === report.source?.[name]?.readAtMs);
   const sources = {};
   for (const name of ['web', 'application']) {
     const snapshot = scopeCurrent ? cache[name] : null;
@@ -60,7 +66,7 @@ export function projectSharedV2Observation(stored, context, policyResult, debugg
       || (name === 'application' ? cache.applicationOrigin : null)) : 'unknown',
       fromDate: valid ? snapshot.fromDate : null, toDate: valid ? snapshot.toDate : null,
       readAtMs: valid ? snapshot.readAtMs : null, weeklyTotalSeconds: null,
-      errorCode: reportCurrent ? sourceError(report[name + 'ErrorCode']) : null,
+      errorCode: reportGenerationCurrent ? sourceError(report[name + 'ErrorCode']) : null,
       days: valid ? snapshot.days.filter(day => dateKey(day.date) && day.date >= monday && day.date <= today).map(day => {
         const origin = cache[name + 'DayOrigins']?.[day.date];
         return { date: day.date, totalSeconds: integer(day.totalSeconds), complete: boolean(day.complete),
@@ -170,7 +176,8 @@ export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, 
         reason: ['service_message_rejected', 'service_unavailable', 'negative_response', 'received_at_invalid',
           'snapshot_stale', 'snapshot_revision_mismatch', 'application_request_mismatch', 'application_payload_missing'].includes(native.lastResponseRejection.reason)
           ? native.lastResponseRejection.reason : 'unknown',
-        messageType: ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'settledUsageSegments',
+        messageType: ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getApplicationUsageSeconds',
+          'getApplicationIdentityUsage', 'exchangeSourceStatistics', 'settledUsageSegments',
           'getSharedQuotaState', 'reportReminderResult', 'getSharedReminderState', 'acknowledgeSharedReminderDelivery',
           'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution', 'getSharedWebSourceChallenge',
           'bindSharedWebSource', 'replaceSharedWebContribution', 'getSharedWebSourceScope',
