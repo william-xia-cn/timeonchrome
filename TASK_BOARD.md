@@ -1,5 +1,10 @@
 # TASK_BOARD
 
+## 1.7.56集中集成准备（2026-10-16）
+
+1.7.56集中集成准备（2026-10-16，PO授权）：当前加载1.7.55，本批开发候选只递增一次为1.7.56；先版本元数据/设计/变更记录与已通过35cfed0源码集中推送现有codex/extension-local，不新树/分支或逐零件PR。中低风险版本元数据变更，复用本批四专项、typecheck和diff；新增最小manifest纯版本差异及扩展根检查，排除重复全量/E2E及云端操作。候选尚不制作：等待架构给最终合入主线SHA，再从精确源码只制作最终唯一候选、完整备份原目录后更新。共享关闭，权限/ID/metadata/storage/绑定/配置保持，不自动重载、不托管/R2。旧PROJECT_MASTER/CHANGELOG及任务板草稿不混提交。
+
+
 ## 共享配额桶读取简化（2026-10-16）
 
 共享桶1.55收口（2026-10-16，源码与隔离PASS，未交付）：4项直接专项local-guardian、source-statistics-shadow、shared-access-runtime、shared-sync-diagnostics及typecheck/diff通过。网页只读现有usage完整桶，自身缓存仍由原读取器负责；已删除local.today重建、web-other前置、来源键、派生统计hash及逐日混填。桥/云/整份成功缓存互斥，可接null，缺源仅临算0并显式missing，不丢另一有效来源；600+600=1200、重复不累加、下降、身份/周期、启动协商/证明/严格接收回归通过。保留既有执行fence摘要，但排除纯读取/截止时间，避免新readAt让确认永远失效；实际桶变化仍失效。不改网页/应用原账、ACTIVE、上传、配置或共享开关。既有诊断仅补新能力/消息、桶原值和已知缺源码中文，不重排UI、不重建诊断总账。实际Native最终Dispatcher/RuntimeJson合成wire冻结tests/fixtures/native-quota-buckets-dispatcher.json，SHA256 eebd518565a27d831babb0eb85c8360c00771e460f5e7228bdd65f5046e6a4b5，生产消费者回放PASS，不是家庭现场验证。契约固定1.55.0，包SHA256 1a0e5efb60711f1e9ce7a84ec6cfa54eea4ab7048402a0cdec108c73f6c0c9db、sourceGitSha 8e6dcd3fb128ed12c7a56c354535b37c39939b43；只新增versioned vendor，不改旧1.54，锁记录同步。方案审计Matched，无未批准Extra；按集中交付授权只提交本批代码/测试/vendor/锁/设计及本任务块，保留PROJECT_MASTER/CHANGELOG等旧草稿；不push/制包/安装/重载/部署/启共享，Windows真实整链验收待后续一次集中交付。本次跨会话发送计划被工具安全审核拒绝，未绕过；精确结果保留此任务块及最终回复供架构读取。
