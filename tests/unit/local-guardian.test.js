@@ -126,6 +126,11 @@ async function waitFor(predicate, timeoutMs = 300) {
   }
 }
 
+function installSourceBinding(host, ensure = async () => ({ ok: true,
+  bindingContextId: 'c'.repeat(64), expiresAtMs: Date.now() + 300_000 })) {
+  host.module.setApplicationIdentityBindingEnsurer(ensure);
+}
+
 async function run() {
   const policy = {
     enabled: true,
@@ -1452,6 +1457,7 @@ async function run() {
     }),
   });
   await waitFor(() => sourceStatisticsHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+  installSourceBinding(sourceStatisticsHost);
   const sourceRead = await sourceStatisticsHost.module.requestSourceStatisticsExchange({
     fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null,
   });
@@ -1477,6 +1483,7 @@ async function run() {
     })))),
   });
   await waitFor(() => independentStageHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+  installSourceBinding(independentStageHost);
   const stageIndependent = await independentStageHost.module.requestSourceStatisticsExchange({ fromDate: '2026-10-07', toDate: '2026-10-07', webStatistics: null });
   assert.equal(stageIndependent.ok, true, 'source statistics reading does not depend on the execution stage');
   assert.equal(independentStageHost.module.hasSharedForcedUseRuntimeV2Capability(), false, 'reading cannot enable shared execution');
@@ -1522,16 +1529,63 @@ async function run() {
     };
     const legacyConsumer = await loadGuardian({ ...wireHostOptions, requireLegacySourceStage: true });
     await waitFor(() => legacyConsumer.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+    installSourceBinding(legacyConsumer);
     assert.equal((await legacyConsumer.module.requestSourceStatisticsExchange(query)).errorCode,
       'source_statistics_native_invalid_response', 'the former mandatory-stage guard rejects the same actual producer success');
     const productionHost = await loadGuardian(wireHostOptions);
     await waitFor(() => productionHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+    const missingBinding = await productionHost.module.requestSourceStatisticsExchange(query);
+    assert.equal(missingBinding.errorCode, 'source_statistics_native_binding_required');
+    assert.equal(missingBinding.nativeAttempt.sent, false);
+    let bindingCalls = 0, proofExpiresAt = 0, proofRefreshes = 0;
+    installSourceBinding(productionHost, async () => {
+      bindingCalls++;
+      if (proofExpiresAt <= Date.now()) {
+        // Exercise the real queue outside the source read, as binding preparation does.
+        await productionHost.module.requestLocalGuardianHeartbeat({ trigger: 'source_binding_test' });
+        proofExpiresAt = Date.now() + 300_000;
+        proofRefreshes++;
+      }
+      return { ok: true, bindingContextId: 'c'.repeat(64), expiresAtMs: proofExpiresAt };
+    });
     const acceptedSource = await productionHost.module.requestSourceStatisticsExchange(query);
     assert.equal(acceptedSource.ok, true,
       'actual C# Dispatcher/RuntimeJson success without stage must pass the production consumer');
     assert.equal(acceptedSource.nativeAttempt.sent, true);
     assert.equal(acceptedSource.nativeAttempt.responseReceived, true);
     assert.equal(acceptedSource.nativeAttempt.accepted, true);
+    assert.equal(bindingCalls, 1, 'first exchange prepares its same-child binding');
+    assert.equal(proofRefreshes, 1);
+    assert.equal((await productionHost.module.requestSourceStatisticsExchange(query)).ok, true);
+    assert.equal(bindingCalls, 2, 'each read asks the existing ensurer to verify freshness');
+    assert.equal(proofRefreshes, 1, 'existing valid proof can be reused');
+    proofExpiresAt = 0;
+    assert.equal((await productionHost.module.requestSourceStatisticsExchange(query)).ok, true);
+    assert.equal(proofRefreshes, 2, 'expired proof is refreshed before exchange');
+    for (const code of ['WEB_SOURCE_PROOF_EXPIRED', 'SOURCE_STATISTICS_CONTEXT_CHANGED',
+      'application_identity_usage_binding_unavailable']) {
+      installSourceBinding(productionHost, async () => ({ ok: false, errorCode: code }));
+      const rejected = await productionHost.module.requestSourceStatisticsExchange(query);
+      assert.equal(rejected.errorCode, code);
+      assert.equal(rejected.nativeAttempt.sent, false);
+      assert.equal(rejected.nativeAttempt.responseReceived, false);
+    }
+    installSourceBinding(productionHost, async () => { throw Error('PRIVATE_CREDENTIAL'); });
+    const bindingThrown = await productionHost.module.requestSourceStatisticsExchange(query);
+    assert.equal(bindingThrown.errorCode, 'source_statistics_native_binding_unavailable');
+    assert.equal(bindingThrown.nativeAttempt.sent, false);
+    installSourceBinding(productionHost, async () => ({ ok: true,
+      bindingContextId: 'c'.repeat(64), expiresAtMs: Date.now() - 1 }));
+    assert.equal((await productionHost.module.requestSourceStatisticsExchange(query)).nativeAttempt.sent, false);
+    installSourceBinding(productionHost, async () => {
+      wireHostOptions.storage.cloud_profile_id = 'different-synthetic-child';
+      return { ok: true, bindingContextId: 'c'.repeat(64), expiresAtMs: Date.now() + 300_000 };
+    });
+    const rebound = await productionHost.module.requestSourceStatisticsExchange(query);
+    assert.equal(rebound.errorCode, 'source_statistics_native_context_changed');
+    assert.equal(rebound.nativeAttempt.sent, false, 'binding identity change cannot send an exchange');
+    wireHostOptions.storage.cloud_profile_id = child;
+    installSourceBinding(productionHost);
     for (const code of ['SOURCE_STATISTICS_INVALID', 'SOURCE_STATISTICS_CONTEXT_CHANGED', 'SOURCE_STATISTICS_STALE',
       'SOURCE_STATISTICS_UNAVAILABLE', 'SOURCE_STATISTICS_TIMEOUT', 'SOURCE_STATISTICS_REDIRECTED', 'SOURCE_STATISTICS_RESPONSE_TOO_LARGE']) {
       fault = 'service:' + code;
@@ -1575,8 +1629,19 @@ async function run() {
     assert.equal(disconnectedSource.nativeAttempt.accepted, false);
     const malformedTimeHost = await loadGuardian(wireHostOptions);
     await waitFor(() => malformedTimeHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+    installSourceBinding(malformedTimeHost);
     fault = 'receivedAt';
     assert.equal((await malformedTimeHost.module.requestSourceStatisticsExchange(query)).errorCode, 'native_invalid_response');
+    fault = null;
+    const bindingDisconnectHost = await loadGuardian(wireHostOptions);
+    await waitFor(() => bindingDisconnectHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+    installSourceBinding(bindingDisconnectHost, async () => {
+      bindingDisconnectHost.module.readApplicationIdentityBindingConnection().connection.disconnect();
+      return { ok: true, bindingContextId: 'c'.repeat(64), expiresAtMs: Date.now() + 300_000 };
+    });
+    const disconnectedDuringBinding = await bindingDisconnectHost.module.requestSourceStatisticsExchange(query);
+    assert.equal(disconnectedDuringBinding.errorCode, 'source_statistics_native_context_changed');
+    assert.equal(disconnectedDuringBinding.nativeAttempt.sent, false);
     assert.equal(productionHost.module.hasSharedForcedUseRuntimeV2Capability(), false);
     console.log('[Source statistics C# wire replay] success, child/date/unit/requestId/connection checks passed');
   }

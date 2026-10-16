@@ -106,6 +106,16 @@ async function run() {
     { connected: true, connectionGeneration: 7, sourceStatisticsAttempt: memoryAttempt });
   assert.equal(observedAttempt.nativeAttempt.current, true);
   assert.equal(observedAttempt.nativeAttempt.errorCode, 'SOURCE_STATISTICS_CONTEXT_CHANGED');
+  for (const code of ['source_statistics_native_binding_required', 'source_statistics_native_binding_unavailable',
+    'application_identity_usage_binding_unavailable', 'WEB_SOURCE_PROOF_EXPIRED', 'shared_web_identity_changed']) {
+    const preparationFailure = structuredClone(attempted);
+    Object.assign(preparationFailure.source_statistics_shadow_v1.nativeAttempt,
+      { sent: false, responseReceived: false, accepted: false, errorCode: code });
+    const projected = mod.projectSharedV2Observation(preparationFailure, contextV2, { ok: false }, null, now);
+    assert.equal(projected.nativeAttempt.errorCode, code);
+    assert.equal(projected.nativeAttempt.sent, false);
+    assert.equal(projected.nativeAttempt.responseReceived, false);
+  }
   for (const state of [{ connected: true, connectionGeneration: 8, sourceStatisticsAttempt: memoryAttempt }, { connected: false, connectionGeneration: null }]) {
     const oldAttempt = mod.projectSharedV2Observation(attempted, contextV2, { ok: false }, null, now, state);
     assert.equal(oldAttempt.nativeAttempt.current, false);

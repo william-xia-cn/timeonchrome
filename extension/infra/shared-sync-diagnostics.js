@@ -33,6 +33,9 @@ const capabilities = ['application-usage-read', 'shared-quota-state-read', 'shar
 const sourceOrigins = ['native', 'cloud', 'last_known_good', 'local_plus_cloud_other', 'cloud_other',
   'fresh_with_last_known_good_days', 'unavailable'];
 const sourceErrors = new Set(['source_statistics_disabled', 'source_statistics_unavailable',
+  ...SHARED_WEB_IDENTITY_ERRORS, 'source_statistics_native_binding_required', 'source_statistics_native_binding_unavailable',
+  'application_identity_usage_binding_unavailable', 'shared_web_identity_changed', 'shared_web_scope_unavailable',
+  'shared_web_proof_unavailable', 'shared_web_identity_unverified', 'shared_web_invalid_reusable_proof',
   'SOURCE_STATISTICS_INVALID', 'SOURCE_STATISTICS_CONTEXT_CHANGED', 'SOURCE_STATISTICS_STALE', 'SOURCE_STATISTICS_UNAVAILABLE',
   'SOURCE_STATISTICS_TIMEOUT', 'SOURCE_STATISTICS_REDIRECTED', 'SOURCE_STATISTICS_RESPONSE_TOO_LARGE',
   'BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',

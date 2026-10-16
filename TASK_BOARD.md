@@ -1,5 +1,14 @@
 # TASK_BOARD
 
+## 本机exchange证明准备修复（2026-10-16）
+
+1.7.54集中交付授权：架构已独立审阅证明准备修复，复用PO集中更新授权。只提交本批2infra、2直接测试及本任务块；专项/typecheck/diff通过，原UI未变复用目视证据，方案Matched。固定提交准备唯一1.7.54开发候选，对原1.7.53仅两infra及manifest版本字节差异，权限/ID/key/marker不变，完整备份核验后原加载目录更新、manifest最后。不推送/托管/云端部署/Native安装/启共享，不自动重载；真实读取成功仍待重载实证。其他未提交文档保持原样。
+
+上述证明准备修复源码验证通过：local-guardian（含真实生产者合成回放、首次准备/已有证明/过期刷新/准备失败不发/改绑与断连）、shared-sync-diagnostics、typecheck、diff检查均PASS；首轮最后的断连夹具复用了已被无效时间响应关闭的连接，改独立连接后通过。队列外准备避免串行死锁，实际发送前再次检查证明期限，排队过期拒绝而不绕过。仅2个infra和2个直接测试；既有source shadow及UI证据复用，界面未改。未提交、未制包、未覆盖1.7.53或重载；等待架构独立审阅，不宣称真实读取已成功。
+
+1.7.53真实读取后续修复（PO既有贯通授权，架构定位）：exchange已实际发送并收到SOURCE_STATISTICS_CONTEXT_CHANGED，而同孩子绑定ACK随后才建立。requestSourceStatisticsExchange遗漏现有applicationIdentityBindingEnsurer前置准备。仅在exchange发送队列外调用既有准备/续期入口，成功后重新核对孩子/设备context、Port和连接代次；准备缺失/失败/过期不发送并保留有界真实错误。直接回归覆盖首次准备、过期刷新、已有证明、准备失败、改绑及断连；保留生产者回放和原有严格校验。中风险Native读取修复，仅native-host-client/现有诊断错误白名单及直接测试，不改Native、协议、云端、记账或共享开关。先源码、相关unit、typecheck及diff，架构复核前不提交、不制包、不更新或重载。
+
+
 ## 本机exchange读取诊断收口（2026-10-16）
 
 本机exchange集中收口（2026-10-16）：本批仅4个产品JS、3个直接专项及本任务记录。固定服务端错误白名单保留；实际发送、对应响应、完整接受分别记录，排队不算已发送、超时不算拒绝；备用失败不覆盖本机结果。断连保留当前身份/周期的历史请求，重启无内存attempt时连接归属显示未知。local-guardian最终复验PASS（含C#生产者合成报文回放及排队断言），source-statistics-shadow与shared-sync-diagnostics已通过，typecheck通过；既有隔离桌面/窄屏截图经架构目视Matched。方案审计Matched：不改账本/选择顺序/权限/协议/Native/共享开关。按PO集中更新授权，本批提交后只制作唯一1.7.53开发候选，严格限定4JS及manifest版本差异，备份原目录后manifest最后更新；不推送/托管/云端部署/自动重载。真实本机exchange是否成功仍待一次重载后实证，不以合成回放替代。

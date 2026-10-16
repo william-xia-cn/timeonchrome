@@ -119,6 +119,9 @@ const SOURCE_STATISTICS_ERRORS = new Set(['SOURCE_STATISTICS_INVALID', 'SOURCE_S
   'SOURCE_STATISTICS_STALE', 'SOURCE_STATISTICS_UNAVAILABLE', 'SOURCE_STATISTICS_TIMEOUT',
   'SOURCE_STATISTICS_REDIRECTED', 'SOURCE_STATISTICS_RESPONSE_TOO_LARGE',
   'BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE']);
+const SOURCE_STATISTICS_BINDING_ERRORS = new Set(['application_identity_usage_binding_unavailable',
+  'shared_web_identity_changed', 'shared_web_scope_unavailable', 'shared_web_proof_unavailable',
+  'shared_web_identity_unverified', 'shared_web_invalid_reusable_proof']);
 let snapshotRetryAtMs = 0;
 function recordResponseRejection(request, reason, serviceErrorCode = null) {
   const types = ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getApplicationUsageSeconds', 'settledUsageSegments',
@@ -913,6 +916,7 @@ async function performSend(options) {
       if (!before.ok || before.contextId !== options.expectedContextId || !before.capabilityAvailable) {
         return failed('source_statistics_native_context_changed');
       }
+      if (options.bindingExpiresAtMs <= safeNow()) return failed('WEB_SOURCE_PROOF_EXPIRED');
       const port = nativePort;
       if (!port) return failed('source_statistics_native_unavailable');
       const request = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
@@ -1782,8 +1786,31 @@ export async function requestSourceStatisticsExchange({ fromDate, toDate, webSta
   }
   try { validateSourceStatisticsExchange({ fromDate, toDate, webStatistics }, context.childId); }
   catch (_) { return failed('source_statistics_native_invalid_request'); }
+  if (typeof applicationIdentityBindingEnsurer !== 'function') {
+    return failed('source_statistics_native_binding_required');
+  }
+  const port = nativePort;
+  // Binding uses the same Native send queue, so prepare it before enqueuing this read.
+  let binding;
+  try { binding = await applicationIdentityBindingEnsurer(); }
+  catch (_) { return failed('source_statistics_native_binding_unavailable'); }
+  if (!binding?.ok) {
+    return failed(SHARED_WEB_IDENTITY_ERRORS.has(binding?.errorCode)
+      || SOURCE_STATISTICS_ERRORS.has(binding?.errorCode) || SOURCE_STATISTICS_BINDING_ERRORS.has(binding?.errorCode)
+      ? binding.errorCode : 'source_statistics_native_binding_unavailable');
+  }
+  const prepared = await readSourceStatisticsNativeContext();
+  if (nativePort !== port || !prepared.ok || !prepared.capabilityAvailable
+    || prepared.contextId !== context.contextId || prepared.connectionGeneration !== context.connectionGeneration) {
+    return failed('source_statistics_native_context_changed');
+  }
+  if (typeof binding.bindingContextId !== 'string' || !/^[a-f0-9]{64}$/.test(binding.bindingContextId)
+    || !Number.isSafeInteger(binding.expiresAtMs) || binding.expiresAtMs <= safeNow()) {
+    return failed('source_statistics_native_binding_unavailable');
+  }
   const options = { type: 'sourceStatisticsRead', payload: { fromDate, toDate, webStatistics },
-    childId: context.childId, fromDate, toDate, expectedContextId: context.contextId, attempt };
+    childId: context.childId, fromDate, toDate, expectedContextId: context.contextId,
+    bindingExpiresAtMs: binding.expiresAtMs, attempt };
   if (!activeSendPromise) return startSend(options);
   if (queuedSourceStatisticsRead) return failed('source_statistics_native_busy');
   return new Promise(resolve => { queuedSourceStatisticsRead = { options, resolve }; });
