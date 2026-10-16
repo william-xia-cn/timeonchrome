@@ -34,9 +34,9 @@ function createPort(onPost) {
   };
 }
 
-function moduleSource(instance, requireLegacySourceStage = false) {
-  const source = requireLegacySourceStage ? originalSource.replace('if (!snapshot) {',
-    "if (ack.sharedQuotaStage !== 'shadow' || !snapshot) {") : originalSource;
+function moduleSource(instance, requireLegacySourceStage = false, inputSource = originalSource) {
+  const source = requireLegacySourceStage ? inputSource.replace('if (!snapshot) {',
+    "if (ack.sharedQuotaStage !== 'shadow' || !snapshot) {") : inputSource;
   return source
     .replace(/import \* as sourceStatisticsContract from '\.\.\/core\/shared-contracts\/1\.55\.0\/source-statistics\.js';/,
       'const sourceStatisticsContract=globalThis.__GUARDIAN_QUOTA_BUCKETS_CONTRACT;')
@@ -69,7 +69,7 @@ function moduleSource(instance, requireLegacySourceStage = false) {
     + `\nexport const executionFenceForTest = browserExecutionFence; export const retirementEvidenceForTest = retirementEvidence; export const expireSnapshotRetryForTest=()=>{snapshotRetryAtMs=0;};\n// test-instance-${instance}`;
 }
 
-async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [], platform = 'win', requireLegacySourceStage = false } = {}) {
+async function loadGuardian({ storage, incognito = false, connectNative, policy, policyRead = null, development = false, snapshots = [], platform = 'win', requireLegacySourceStage = false, sourceOverride = originalSource } = {}) {
   const sourceContractPath = process.env.TIMEONCHROME_SOURCE_STATISTICS_CONTRACT_PATH;
   if (sourceContractPath) {
     const ts = require('typescript');
@@ -124,7 +124,7 @@ async function loadGuardian({ storage, incognito = false, connectNative, policy,
     return { ok: true };
   };
 
-  const encoded = Buffer.from(moduleSource(Math.random(), requireLegacySourceStage)).toString('base64');
+  const encoded = Buffer.from(moduleSource(Math.random(), requireLegacySourceStage, sourceOverride)).toString('base64');
   const module = await import(`data:text/javascript;base64,${encoded}`);
   return { module, alarms, runtime };
 }
@@ -142,6 +142,106 @@ function installSourceBinding(host, ensure = async () => ({ ok: true,
   host.module.setApplicationIdentityBindingEnsurer(ensure);
 }
 
+async function testColdProtocolNegotiation(policy) {
+  const baseCaps = ['health', 'ledger-item-ack', 'ledger-durable-shadow', 'authoritative-daily-snapshot', 'application-usage-read'];
+  async function createHost({ sourceOverride = originalSource, missing = false, fault = null } = {}) {
+    const messages = [], ports = [], store = { cloud_profile_id: 'protocol-child', cloud_device_id: 'protocol-device' };
+    const control = { missing, old: false, fault };
+    const host = await loadGuardian({ policy, storage: store, sourceOverride,
+      connectNative: () => {
+        if (control.missing) throw Error('Host unavailable');
+        const port = createPort((request, onMessage, onDisconnect) => {
+          messages.push(request);
+          if (request.protocolVersion === 3 && request.channel === 'health') {
+            if (control.fault === 'disconnect') { queueMicrotask(() => onDisconnect.listeners.forEach(listener => listener())); return; }
+            if (control.fault === 'timeout') return;
+          }
+          const modern = request.protocolVersion === 3 && !control.old;
+          const response = { ok: true, requestId: request.requestId, receivedAt: Date.now(),
+            supportedProtocols: control.old ? [1] : [1, 2, 3], capabilities: modern
+              ? [...baseCaps, 'quota-buckets-read-v1', 'application-usage-seconds-read-v1'] : baseCaps };
+          if (request.messageType === 'getApplicationUsage') {
+            response.ok = false; response.errorCode = 'BROWSER_BRIDGE_MESSAGE_REJECTED';
+          }
+          if (request.messageType === 'getApplicationUsageSeconds') response.applicationUsageSeconds = { revision: 'seconds-read' };
+          if (request.messageType === 'exchangeQuotaBuckets') response.applicationUsage = {
+            schemaVersion: 2, durationUnit: 'seconds', source: 'application', childId: store.cloud_profile_id,
+            fromDate: request.payload.fromDate, toDate: request.payload.toDate, readAtMs: Date.now(),
+            days: [{ date: request.payload.fromDate, bucketsSeconds: { study: 0, composite: 0, rest: 600 },
+              settledThroughMs: null, complete: true, reasonCodes: [] }] };
+          if (control.fault === 'missingId' && request.protocolVersion === 3 && request.channel === 'health') delete response.requestId;
+          queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+        });
+        ports.push(port); return port;
+      } });
+    await waitFor(() => missing ? store.local_guardian_status_v1?.lastErrorCode === 'native_host_unavailable'
+      : store.local_guardian_status_v1?.lastSuccessAt > 0);
+    return { ...host, messages, ports, store, control };
+  }
+  const baselineFile = process.env.TOC_NATIVE_PROTOCOL_BASELINE_SOURCE;
+  if (baselineFile) {
+    const baseline = fs.readFileSync(baselineFile, 'utf8');
+    const cold = await createHost({ sourceOverride: baseline, missing: true });
+    cold.control.missing = false;
+    const result = await cold.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true });
+    assert.equal(result.errorCode, 'source_statistics_native_unsupported');
+    assert.equal(cold.messages[0].protocolVersion, 1);
+    assert(!cold.messages.some(row => row.channel === 'health' && row.protocolVersion === 3));
+    const app = await createHost({ sourceOverride: baseline });
+    const oldRead = await app.module.requestApplicationUsage({ fromDate: '2026-10-16', toDate: '2026-10-16', offset: 0 });
+    assert.equal(oldRead.ok, false);
+    assert(app.messages.some(row => row.messageType === 'getApplicationUsage'), 'unpatched consumer actually chooses the rejected millisecond method');
+    console.log('[Native cold baseline] full V1 five capabilities: recovered Host unsupported; app chose legacy milliseconds');
+  }
+  const cold = await createHost({ missing: true });
+  cold.control.missing = false;
+  const context = await cold.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true });
+  assert.equal(context.ok, true);
+  assert.equal(cold.ports.length, 1);
+  assert.equal(cold.messages[0].protocolVersion, 1);
+  assert.equal(cold.messages.filter(row => row.channel === 'health' && row.protocolVersion === 3).length, 1);
+  installSourceBinding(cold, async () => {
+    assert(cold.messages.some(row => row.channel === 'health' && row.protocolVersion === 3));
+    return { ok: true, bindingContextId: 'c'.repeat(64), expiresAtMs: Date.now() + 300000 };
+  });
+  assert.equal((await cold.module.requestQuotaBucketsExchange({ fromDate: '2026-10-16', toDate: '2026-10-16',
+    webUsage: null, expectedContextId: context.contextId })).ok, true);
+  cold.ports.at(-1).disconnect();
+  const before = cold.messages.length;
+  const reconnected = await cold.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true });
+  assert.equal(reconnected.ok, true);
+  assert.notEqual(reconnected.contextId, context.contextId);
+  assert.equal(cold.messages.slice(before).find(row => ['heartbeat', 'probe'].includes(row.messageType)).protocolVersion, 1,
+    'a new Port cannot inherit the previous connection protocol');
+  assert.equal(cold.messages.slice(before).filter(row => row.channel === 'health' && row.protocolVersion === 3).length, 1);
+  const app = await createHost();
+  const read = await app.module.requestApplicationUsage({ fromDate: '2026-10-16', toDate: '2026-10-16', offset: 0 });
+  assert.equal(read.ok, true);
+  assert.equal(read.readUnit, 'seconds');
+  assert(app.messages.some(row => row.messageType === 'getApplicationUsageSeconds'));
+  assert(!app.messages.some(row => row.messageType === 'getApplicationUsage'));
+  const concurrent = await createHost();
+  const together = await Promise.all([concurrent.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true }),
+    concurrent.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true })]);
+  assert(together.every(result => result.ok));
+  assert.equal(concurrent.messages.filter(row => row.channel === 'health' && row.protocolVersion === 3).length, 1,
+    'concurrent consumers share one completed V3 negotiation on the same Port');
+  const old = await createHost({ missing: true });
+  old.control.missing = false; old.control.old = true;
+  assert.equal((await old.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true })).errorCode,
+    'source_statistics_native_unsupported');
+  assert(!old.messages.some(row => row.protocolVersion === 3));
+  for (const [fault, code] of [['disconnect', 'native_port_disconnected'], ['timeout', 'native_response_timeout'],
+    ['missingId', 'native_invalid_response']]) {
+    const interrupted = await createHost({ fault });
+    const result = await interrupted.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true });
+    assert.equal(result.errorCode, code);
+    assert.equal(interrupted.module.readNativeHostDiagnosticState().connected, false);
+    assert.equal(interrupted.messages.filter(row => row.channel === 'health' && row.protocolVersion === 3).length, 1);
+  }
+  console.log('[Native cold protocol] full V1 capabilities, cold recovery/V3/seconds/reconnect/legacy/timeout/correlation passed');
+}
+
 async function run() {
   const policy = {
     enabled: true,
@@ -150,6 +250,7 @@ async function run() {
     managedDeviceToken: 'secret-token-a',
     managedProfileEmail: 'child@example.test',
   };
+  await testColdProtocolNegotiation(policy);
   const storage = {};
   const payloads = [];
   const ports = [];
@@ -851,7 +952,7 @@ async function run() {
   const appOldService = await loadGuardian({ storage: {}, policy, development: true,
     connectNative: () => createPort((payload, onMessage) => queueMicrotask(() =>
       onMessage.listeners.forEach(listener => listener({ ok: true, receivedAt: Date.now(),
-        supportedProtocols: [1, 2, 3], capabilities: ['health', 'authoritative-daily-snapshot'] })))) });
+        requestId: payload.requestId, supportedProtocols: [1, 2, 3], capabilities: ['health', 'authoritative-daily-snapshot'] })))) });
   assert.strictEqual((await appOldService.module.requestApplicationUsage(query)).errorCode, 'application_usage_unsupported');
   const pendingPayloads = [];
   const appPending = await loadGuardian({ storage: {}, policy, development: true,
@@ -1332,9 +1433,11 @@ async function run() {
   await waitFor(() => releaseApplication);
   const oldBefore = dualMessages.filter(x => x.host === 'com.timeonchrome.guardian').length;
   // Request a probe on both listeners: the Native probe queues behind its business read.
+  const dualProbeResults = [];
   for (const listener of dual.runtime.onMessage.listeners) listener({ type: 'TIMEONCHROME_LOCAL_HEALTH_PROBE' },
-    { id: dual.runtime.id, url: dual.runtime.getURL('health-probe.html') }, () => {});
-  await waitFor(() => dualMessages.filter(x => x.host === 'com.timeonchrome.guardian').length > oldBefore);
+    { id: dual.runtime.id, url: dual.runtime.getURL('health-probe.html') }, result => dualProbeResults.push(result));
+  try { await waitFor(() => dualMessages.filter(x => x.host === 'com.timeonchrome.guardian').length > oldBefore); }
+  catch (error) { throw Error(`${error.message}: isolated dual probe ${JSON.stringify(dualProbeResults)}`); }
   assert.strictEqual(dualMessages.filter(x => x.host === 'com.timeonchrome.guardian').at(-1).payload.type, 'probe');
   releaseApplication(); assert.strictEqual((await business).ok, true);
   await waitFor(() => dualStorage.mac_guardian_health_status_v1.lastErrorCode === null);
@@ -1687,7 +1790,7 @@ async function run() {
     assert.deepEqual(startupOrder, []);
     holdHealth = false; releaseHealth();
     assert.equal((await startupRead).ok, true);
-    assert.deepEqual(startupOrder, ['health', 'binding', 'exchange']);
+    assert.deepEqual(startupOrder, ['health', 'health', 'binding', 'exchange']);
 
     delayedStartup.module.readApplicationIdentityBindingConnection().connection.disconnect();
     startupOrder.length = 0; releaseHealth = null; holdHealth = true;
@@ -1702,7 +1805,7 @@ async function run() {
     assert.equal(preparedReconnect.ok, true);
     assert.equal((await delayedStartup.module.requestSourceStatisticsExchange({ ...query,
       expectedContextId: preparedReconnect.contextId })).ok, true);
-    assert.deepEqual(startupOrder, ['health', 'binding', 'exchange']);
+    assert.deepEqual(startupOrder, ['health', 'health', 'binding', 'exchange']);
 
     hostMissing = true;
     const coldHost = await loadGuardian(startupOptions);
@@ -1717,7 +1820,7 @@ async function run() {
     assert.equal(coldContext.ok, true, 'cold context must be captured after the new connection is negotiated');
     assert.equal((await coldHost.module.requestSourceStatisticsExchange({ ...query,
       expectedContextId: coldContext.contextId })).ok, true);
-    assert.deepEqual(startupOrder, ['health', 'binding', 'exchange']);
+    assert.deepEqual(startupOrder, ['health', 'health', 'binding', 'exchange']);
 
     advertised = false;
     const unsupportedHost = await loadGuardian(startupOptions);
