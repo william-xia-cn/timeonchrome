@@ -464,9 +464,11 @@ function ensureNativePort() {
     if (response?.requestId && pendingAck.requestId && response.requestId !== pendingAck.requestId) return;
     if ((pendingAck.strictHealth || pendingAck.sharedWeb || pendingAck.sharedQuotaRead || pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity || pendingAck.applicationIdentityRead || pendingAck.sourceStatisticsRead)
       && response?.requestId !== pendingAck.requestId) {
+      const strictHealth = pendingAck.strictHealth;
       rejectPendingAck(pendingAck.strictHealth ? 'native_invalid_response' : pendingAck.applicationIdentityRead ? 'application_identity_usage_invalid_response'
         : pendingAck.sourceStatisticsRead ? 'source_statistics_native_invalid_response'
         : pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity ? 'shared_reminder_invalid_ack' : 'shared_quota_invalid_state');
+      if (strictHealth) disconnectPort();
       return;
     }
     if (pendingAck.sourceStatisticsAttempt) pendingAck.sourceStatisticsAttempt.responseReceived = true;

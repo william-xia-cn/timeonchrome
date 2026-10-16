@@ -1,5 +1,8 @@
 # TASK_BOARD
 
+冷协商最后审计修正（2026-10-17）：根指出排队initial probe自然采用V3时，options未显式protocolVersion=3，缺requestId严格拒绝后可能未断连。仅在strictHealth相关字段拒绝分支记录标记后失效当前实际Port，保留connected=false负例，不新增场景/协议/数据；同批追加修正后再次最小专项，不制作中间候选。
+
+
 ## 冷连接有界协议升级修复（2026-10-17）
 
 1.7.57冷协商修复收口（2026-10-17，冻结补丁PASS）：最终local-guardian exit0，完整真实V1五cap＋固定8f97665未改客户端两缺口回放成立；新冷恢复/实际秒接口/同Port单次V3/重连首V1/真旧端/超时/断连/相关requestId/并发共用一次升级/实际C#wire通过。保留serialized手动probe原断言；内部negotiation不改手工冷却。补充严格升级相关时曾发现normalized丢negotiation标记，已确证修复；负例fault改为夹具初始参数仅确定失败时点，不替代该代码修复。旧startup精确顺序更新为V1/V3两health；旧Mac探针间歇超时未改产品，保留失败诊断，最终完整专项通过不等于Mac问题已关闭。source-statistics-shadow、最终typecheck及diff通过；方案Matched，仅native-host-client、直接测试和本任务块。本批不改计时/原账/统计/Native/云端/共享配置或手工节流阈值。集中本地提交后从固定干净提交制作唯一1.7.57开发候选，仅客户端JS与manifest版本变化，完整备份并原路径更新，不自动重载/托管/推送/启共享；保留其他三份脏文档。现场23:44超时仍未定唯一原因，重载后真实交换待根统一验收。
