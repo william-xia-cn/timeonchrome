@@ -167,6 +167,55 @@ async function run() {
   const nextWeek = await shadow.refresh({ force: true });
   assert.equal(nextWeek.report.fromDate, '2026-10-12');
   assert.equal(nextWeek.report.status, 'incomplete', 'prior week cache cannot enter a new period');
+  const attemptReader = ({ nativeContext: readNative = async () => ({ ok: true, childId: CHILD, contextId: 'attempt-context', connectionGeneration: 7 }),
+    nativeExchange: exchange, cloudApplication = false, cloudThrows = false, readContext: readScope } = {}) => mod.createSourceStatisticsShadow({
+      readContext: readScope || (async () => ({ childId: CHILD, scopeHash: 'attempt-scope', apiBase: 'https://example.invalid', deviceToken: 'never-persist' })),
+      nativeContext: readNative, nativeExchange: exchange, isEnabled: () => true, now: () => nowInitial,
+      cloudRead: async (_credentials, query) => {
+        if (query.source === 'web') return { ok: true, snapshot: webOtherSnapshot() };
+        if (cloudThrows) throw Error('synthetic fallback failure');
+        return cloudApplication ? { ok: true, snapshot: applicationSnapshot() } : { ok: false, errorCode: 'shared_access_unavailable' };
+      },
+      readModel: async ({ date }) => localModel(date, 10), storage: { get: async () => ({}) }, write: async () => {},
+    });
+  const rejectedAttempt = await attemptReader({ nativeExchange: async ({ attempt }) => {
+    Object.assign(attempt, { sent: true, responseReceived: true, accepted: false });
+    return { ok: false, errorCode: 'SOURCE_STATISTICS_CONTEXT_CHANGED' };
+  } }).refresh({ force: true });
+  assert.equal(rejectedAttempt.report.applicationErrorCode, 'shared_access_unavailable');
+  assert.equal(rejectedAttempt.report.nativeAttempt.errorCode, 'SOURCE_STATISTICS_CONTEXT_CHANGED', 'cloud fallback cannot overwrite the Native result');
+  assert.equal(rejectedAttempt.report.nativeAttempt.sent, true);
+  assert.equal(rejectedAttempt.report.nativeAttempt.responseReceived, true);
+  const noContextAttempt = await attemptReader({ nativeContext: async () => null,
+    nativeExchange: async () => { throw Error('no context must not send'); } }).refresh({ force: true });
+  assert.equal(noContextAttempt.report.nativeAttempt.sent, false);
+  assert.equal(noContextAttempt.report.nativeAttempt.responseReceived, false);
+  assert.equal(noContextAttempt.report.nativeAttempt.errorCode, 'source_statistics_native_context_unavailable');
+  const thrownFallback = await attemptReader({ cloudThrows: true, nativeExchange: async ({ attempt }) => {
+    Object.assign(attempt, { sent: true, responseReceived: true, accepted: false });
+    return { ok: false, errorCode: 'SOURCE_STATISTICS_STALE' };
+  } }).refresh({ force: true });
+  assert.equal(thrownFallback.report.nativeAttempt.errorCode, 'SOURCE_STATISTICS_STALE');
+  assert.equal(thrownFallback.report.applicationErrorCode, 'source_statistics_application_unavailable');
+  let connectionReads = 0;
+  const changedConnection = await attemptReader({ cloudApplication: true,
+    nativeContext: async () => ({ ok: true, childId: CHILD, contextId: 'attempt-context', connectionGeneration: ++connectionReads === 1 ? 7 : 8 }),
+    nativeExchange: async ({ attempt }) => {
+      Object.assign(attempt, { sent: true, responseReceived: true, accepted: true });
+      return { ok: true, snapshot: applicationSnapshot(), connectionGeneration: 7 };
+    } }).refresh({ force: true });
+  assert.equal(changedConnection.report.source.application.origin, 'cloud');
+  assert.equal(changedConnection.report.nativeAttempt.accepted, false);
+  assert.equal(changedConnection.report.nativeAttempt.errorCode, 'source_statistics_native_context_changed');
+  let scopeReads = 0;
+  const changedScope = await attemptReader({
+    readContext: async () => ({ childId: ++scopeReads === 1 ? CHILD : 'other-child', scopeHash: 'attempt-scope',
+      apiBase: 'https://example.invalid', deviceToken: 'never-persist' }),
+    nativeExchange: async ({ attempt }) => {
+      Object.assign(attempt, { sent: true, responseReceived: true, accepted: true });
+      return { ok: true, snapshot: applicationSnapshot(), connectionGeneration: 7 };
+    } }).refresh({ force: true });
+  assert.equal(changedScope.errorCode, 'source_statistics_context_changed');
 }
 
 run().then(() => console.log('source-statistics-shadow.test.js: all assertions passed'))

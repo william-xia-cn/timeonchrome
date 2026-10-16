@@ -97,6 +97,33 @@ async function run() {
     { readContext: async () => contextV2, readPolicy: async () => ({ ok: true, policy: policyV2 }), now: () => now });
   assert.equal(permissionFailure.debuggerGranted, null);
   assert.equal(permissionFailure.policy.revision, policyV2.revision, 'permission read errors do not erase other observations');
+  const attempted = structuredClone(v2Stored);
+  attempted.source_statistics_shadow_v1.scopeHash = contextV2.scopeHash;
+  attempted.source_statistics_shadow_v1.nativeAttempt = { sent: true, responseReceived: true, accepted: false,
+    errorCode: 'SOURCE_STATISTICS_CONTEXT_CHANGED', connectionGeneration: 7, startedAtMs: now };
+  const memoryAttempt = attempted.source_statistics_shadow_v1.nativeAttempt;
+  const observedAttempt = mod.projectSharedV2Observation(attempted, contextV2, { ok: false }, null, now,
+    { connected: true, connectionGeneration: 7, sourceStatisticsAttempt: memoryAttempt });
+  assert.equal(observedAttempt.nativeAttempt.current, true);
+  assert.equal(observedAttempt.nativeAttempt.errorCode, 'SOURCE_STATISTICS_CONTEXT_CHANGED');
+  for (const state of [{ connected: true, connectionGeneration: 8, sourceStatisticsAttempt: memoryAttempt }, { connected: false, connectionGeneration: null }]) {
+    const oldAttempt = mod.projectSharedV2Observation(attempted, contextV2, { ok: false }, null, now, state);
+    assert.equal(oldAttempt.nativeAttempt.current, false);
+    assert.equal(oldAttempt.nativeAttempt.available, true);
+    assert.equal(oldAttempt.nativeAttempt.sent, true);
+    assert.equal(oldAttempt.nativeAttempt.errorCode, 'SOURCE_STATISTICS_CONTEXT_CHANGED');
+  }
+  const formerSuccess = structuredClone(attempted);
+  Object.assign(formerSuccess.source_statistics_shadow_v1.nativeAttempt, { accepted: true, errorCode: null });
+  const reconnected = mod.projectSharedV2Observation(formerSuccess, contextV2, { ok: false }, null, now,
+    { connected: true, connectionGeneration: 8, sourceStatisticsAttempt: memoryAttempt });
+  assert.equal(reconnected.nativeAttempt.accepted, true);
+  assert.equal(reconnected.nativeAttempt.current, false, 'a former accepted exchange is not current-connection confirmation');
+  const restarted = mod.projectSharedV2Observation(formerSuccess, contextV2, { ok: false }, null, now,
+    { connected: true, connectionGeneration: 7 });
+  assert.equal(restarted.nativeAttempt.current, null, 'reused generation after background restart cannot confirm a persistent attempt');
+  assert.equal(mod.projectSharedV2Observation(attempted, { ...contextV2, scopeHash: 'other' }, { ok: false }, null, now)
+    .nativeAttempt.errorCode, null);
   let listener, reads = 0, nativeReads = 0, reply;
   const runtime = { id: 'self', getURL: p => 'chrome-extension://self/' + p,
     getManifest: () => ({ version: '1.7.40' }), onMessage: { addListener: fn => { listener = fn; } } };
@@ -133,7 +160,8 @@ async function run() {
   }
   const nativeSource = read('extension/infra/native-host-client.js');
   const recordBody = nativeSource.match(/function recordResponseRejection\(request, reason, serviceErrorCode = null\) \{([\s\S]*?)\n\}/)[1];
-  const record = new Function('request', 'reason', 'serviceErrorCode', `const SHARED_WEB_IDENTITY_ERRORS=globalThis.__sharedIdentityErrors; const SOURCE_STATISTICS_EXCHANGE_MESSAGE='exchangeSourceStatistics'; let lastResponseRejection; const safeNow=()=>123; ${recordBody}; return lastResponseRejection;`);
+  const sourceErrorsDeclaration = nativeSource.match(/const SOURCE_STATISTICS_ERRORS = new Set\([\s\S]*?\);/)[0];
+  const record = new Function('request', 'reason', 'serviceErrorCode', `${sourceErrorsDeclaration} const SHARED_WEB_IDENTITY_ERRORS=globalThis.__sharedIdentityErrors; const SOURCE_STATISTICS_EXCHANGE_MESSAGE='exchangeSourceStatistics'; let lastResponseRejection; const safeNow=()=>123; ${recordBody}; return lastResponseRejection;`);
   assert.deepEqual(record({ messageType: 'dailyUsageSnapshot', channel: 'statistics', requestId: 'private_id', proof: 'private_token' }, 'snapshot_stale'),
     { atMs: 123, reason: 'snapshot_stale', serviceErrorCode: null, messageType: 'dailyUsageSnapshot', channel: 'statistics' });
   assert.equal(record({ messageType: 'private_token', channel: 'private_id' }, 'negative_response').messageType, 'unknown');
@@ -174,7 +202,7 @@ async function run() {
   }
   const body = nativeSource.match(/export function readNativeHostDiagnosticState\(\) \{([\s\S]*?)\n\}/)[1];
   const inspect = new Function('nativePort', 'sharedNativeV3', 'sharedNativeCapabilities', 'applicationUsageSupported', 'lastResponseRejection',
-    "const SOURCE_STATISTICS_READ_CAPABILITY='source-statistics-read-v1', APPLICATION_IDENTITY_USAGE_READ_CAPABILITY='application-identity-usage-read-v1'; const applicationUsageSecondsSupported=false,applicationIdentityUsageSupported=false;\n" + body);
+    "const SOURCE_STATISTICS_READ_CAPABILITY='source-statistics-read-v1', APPLICATION_IDENTITY_USAGE_READ_CAPABILITY='application-identity-usage-read-v1'; const applicationUsageSecondsSupported=false,applicationIdentityUsageSupported=false,applicationConnectionGeneration=7,lastSourceStatisticsAttempt=null;\n" + body);
   assert.equal(inspect({}, false, new Set(), false).applicationUsageSupported, null);
   assert.equal(inspect(null, true, new Set(), true).applicationUsageSupported, null);
   assert.equal(inspect({}, true, new Set(['private_capability', 'shared-web-local-lease-v1']), false).capabilities.length, 1);
@@ -314,6 +342,12 @@ async function run() {
   assert(contents(container).includes('未知；不能由缓存来源推断'));
   assert(contents(container).includes('以下为旧版历史贡献'));
   assert(!contents(container).match(/private|PRIVATE|指纹/));
+  ui.renderSharedSyncDiagnostics(container, { ...model, v2: observedAttempt, days: [] });
+  assert(contents(container).includes('已实际发送至本地组件'));
+  assert(contents(container).includes('SOURCE_STATISTICS_CONTEXT_CHANGED'));
+  ui.renderSharedSyncDiagnostics(container, { ...model, v2: reconnected, days: [] });
+  assert(contents(container).includes('是否属于当前连接'));
+  assert(contents(container).includes('不代表当前连接已确认'));
   assert(contents(container).includes('原因未知')); assert(!contents(container).includes('UNKNOWN_REASON'));
   ui.renderSharedSyncDiagnostics(container, null, 'private_token', '1.7.41');
   assert(!contents(container).includes('private_token')); assert(contents(container).includes('1.7.41'));

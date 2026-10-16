@@ -65,6 +65,14 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
     row('V2 策略生效时间', time(v2.policy?.effectiveAtMs));
     row('V2 策略摘要', text(v2.policy?.policyHash));
     row('V2 策略读取时间', time(v2.policy?.receivedAtMs));
+    const attempt = v2.nativeAttempt;
+    const outcome = value => value === true ? '是' : value === false ? '否' : '未知';
+    row('最近本机交换记录', attempt?.available ? `当前身份与周期 · ${time(attempt.readAtMs)}；仅代表该次请求` : '无可确认的当前身份与周期记录');
+    row('是否属于当前连接', outcome(attempt?.current));
+    row('已实际发送至本地组件', outcome(attempt?.sent));
+    row('控件已收到对应响应', outcome(attempt?.responseReceived));
+    row('当次控件已校验接受', `${outcome(attempt?.accepted)}；不代表当前连接已确认`);
+    row('本机交换结果', attempt?.errorCode || (attempt?.accepted === true ? '读取成功' : '未知／尚无明确错误'));
     const originNames = { native: '本地组件', cloud: '云端', last_known_good: '可信缓存',
       local_plus_cloud_other: '本机网页＋云端其他设备', cloud_other: '云端其他设备',
       fresh_with_last_known_good_days: '最新读取＋部分日期可信缓存', unavailable: '不可用', unknown: '未知' };

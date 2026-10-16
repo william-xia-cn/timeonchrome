@@ -1,5 +1,12 @@
 # TASK_BOARD
 
+## 本机exchange读取诊断收口（2026-10-16）
+
+本机exchange集中收口（2026-10-16）：本批仅4个产品JS、3个直接专项及本任务记录。固定服务端错误白名单保留；实际发送、对应响应、完整接受分别记录，排队不算已发送、超时不算拒绝；备用失败不覆盖本机结果。断连保留当前身份/周期的历史请求，重启无内存attempt时连接归属显示未知。local-guardian最终复验PASS（含C#生产者合成报文回放及排队断言），source-statistics-shadow与shared-sync-diagnostics已通过，typecheck通过；既有隔离桌面/窄屏截图经架构目视Matched。方案审计Matched：不改账本/选择顺序/权限/协议/Native/共享开关。按PO集中更新授权，本批提交后只制作唯一1.7.53开发候选，严格限定4JS及manifest版本差异，备份原目录后manifest最后更新；不推送/托管/云端部署/自动重载。真实本机exchange是否成功仍待一次重载后实证，不以合成回放替代。
+
+PO批准恢复最小贯通实施：Native固定SOURCE_STATISTICS错误白名单原码透传；本机attempt以实际postMessage/相关响应/完整接收校验记录sent/responseReceived/accepted，排队非已发、超时非明确拒绝。沿现有source报告独立保存本机结果及当前scope/周期/连接代次，云端备用不覆盖；只读摘要不展示ChildID/派生指纹/路径/凭据，旧连接结果不得标成当前。不改Native优先/云端备用选择、统计/配额/原账/上传/计时/权限或共享开关。仅相关三组unit、typecheck、diff及诊断隔离目视；先集中源码验证，不提交/推送/托管或逐件制包，不自动重载。
+
+
 ## NOW：Windows共享消费者接续（2026-10-16，源码与隔离验证）
 
 确证兼容修复（架构已批准，先测试不交付）：Native Dispatcher真实成功exchange省略可选stage，控件错误必填shadow导致合法应用统计必拒；仅去掉取数分支stage依赖，保留请求/Port/context/child/range/秒snapshot校验，不改共享执行。使用Native生产Dispatcher+RuntimeJson合成报文回放，覆盖身份/范围/请求/连接负例。同步修两个已证观测缺陷：无应用snapshot时仍显示可与当前scope/period读取批次关联的report错误；允许两种应用读取messageType及exchange准确显示。不新增状态/协议/采样，不制包/提交/覆盖/重载，不触及原账。

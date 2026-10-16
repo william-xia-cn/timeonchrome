@@ -33,6 +33,12 @@ const capabilities = ['application-usage-read', 'shared-quota-state-read', 'shar
 const sourceOrigins = ['native', 'cloud', 'last_known_good', 'local_plus_cloud_other', 'cloud_other',
   'fresh_with_last_known_good_days', 'unavailable'];
 const sourceErrors = new Set(['source_statistics_disabled', 'source_statistics_unavailable',
+  'SOURCE_STATISTICS_INVALID', 'SOURCE_STATISTICS_CONTEXT_CHANGED', 'SOURCE_STATISTICS_STALE', 'SOURCE_STATISTICS_UNAVAILABLE',
+  'SOURCE_STATISTICS_TIMEOUT', 'SOURCE_STATISTICS_REDIRECTED', 'SOURCE_STATISTICS_RESPONSE_TOO_LARGE',
+  'BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
+  'native_host_unavailable', 'native_port_disconnected', 'native_response_timeout', 'native_post_failed', 'native_invalid_response',
+  'source_statistics_native_context_unavailable', 'source_statistics_native_context_changed',
+  'source_statistics_native_invalid_request', 'source_statistics_native_busy', 'managed_marker_unavailable',
   'source_statistics_context_changed', 'source_statistics_identity_unavailable', 'source_statistics_native_timeout',
   'source_statistics_native_unavailable', 'source_statistics_native_unsupported', 'source_statistics_native_invalid_response',
   'source_statistics_web_identity_unavailable', 'source_statistics_web_unavailable', 'source_statistics_application_unavailable',
@@ -41,7 +47,7 @@ const sourceErrors = new Set(['source_statistics_disabled', 'source_statistics_u
 const sourceError = value => value == null ? null : sourceErrors.has(value) ? value : 'unknown';
 const sourceOrigin = value => sourceOrigins.includes(value) ? value : 'unknown';
 
-export function projectSharedV2Observation(stored, context, policyResult, debuggerGranted, now) {
+export function projectSharedV2Observation(stored, context, policyResult, debuggerGranted, now, nativeState = {}) {
   const today = new Date(now + 28800000).toISOString().slice(0, 10);
   const midnight = Date.parse(today + 'T00:00:00Z');
   const monday = new Date(midnight - (new Date(midnight).getUTCDay() + 6) % 7 * 86400000).toISOString().slice(0, 10);
@@ -81,11 +87,28 @@ export function projectSharedV2Observation(stored, context, policyResult, debugg
       }) : [] };
   }
   const record = stored.shared_access_policy_lkg_v2, policy = policyResult?.ok ? policyResult.policy : null;
+  const attemptReport = stored.source_statistics_shadow_v1, attempt = attemptReport?.nativeAttempt;
+  const attemptScoped = !!context?.scopeHash && attemptReport?.scopeHash === context.scopeHash
+    && attemptReport.fromDate === monday && attemptReport.toDate === today
+    && integer(attemptReport.readAtMs) !== null && attemptReport.readAtMs <= now
+    && now - attemptReport.readAtMs <= 8 * 86400000 && !!attempt;
+  const memoryAttempt = nativeState.sourceStatisticsAttempt;
+  const sameConnection = nativeState.connected === false ? false
+    : nativeState.connected === true && memoryAttempt && integer(memoryAttempt.startedAtMs) !== null
+      ? memoryAttempt.startedAtMs === attempt?.startedAtMs
+        && memoryAttempt.connectionGeneration === nativeState.connectionGeneration
+        && attempt?.connectionGeneration === nativeState.connectionGeneration : null;
   const policyCurrent = policy?.schemaVersion === 2 && context?.scopeHash && record?.scopeHash === context.scopeHash
     && ['schemaVersion', 'revision', 'effectiveAtMs', 'stage'].every(key => record.policy?.[key] === policy[key])
     && /^[a-f0-9]{64}$/.test(record.policyHash || '');
   return { debuggerGranted: boolean(debuggerGranted),
     scopeCurrent, nativePeerSameChild: null,
+    nativeAttempt: { available: attemptScoped, current: attemptScoped ? sameConnection : null,
+      readAtMs: attemptScoped ? attemptReport.readAtMs : null,
+      sent: attemptScoped ? boolean(attempt.sent) : null,
+      responseReceived: attemptScoped ? boolean(attempt.responseReceived) : null,
+      accepted: attemptScoped ? boolean(attempt.accepted) : null,
+      errorCode: attemptScoped ? sourceError(attempt.errorCode) : null },
     policy: policyCurrent ? { schemaVersion: 2, revision: policy.revision, effectiveAtMs: integer(policy.effectiveAtMs),
       stage: ['legacy', 'shadow', 'shared'].includes(policy.stage) ? policy.stage : null,
       policyHash: record.policyHash, receivedAtMs: integer(record.receivedAtMs) } : null,
@@ -93,11 +116,11 @@ export function projectSharedV2Observation(stored, context, policyResult, debugg
 }
 
 export async function readSharedV2Observation(stored, permissions, {
-  readContext = readSharedAccessPolicyContext, readPolicy = readSharedAccessPolicyV2Lkg, now = Date.now } = {}) {
+  readContext = readSharedAccessPolicyContext, readPolicy = readSharedAccessPolicyV2Lkg, now = Date.now, nativeState = {} } = {}) {
   const [context, policy, granted] = await Promise.all([
     Promise.resolve().then(readContext).catch(() => null), Promise.resolve().then(readPolicy).catch(() => null),
     permissions?.contains ? Promise.resolve().then(() => permissions.contains({ permissions: ['debugger'] })).catch(() => null) : null]);
-  return projectSharedV2Observation(stored, context, policy, granted, now());
+  return projectSharedV2Observation(stored, context, policy, granted, now(), nativeState);
 }
 function projectedCoverage(value) {
   const bucketNames = ['study', 'composite', 'rest', 'other', 'unknown'];
@@ -171,7 +194,7 @@ export function buildSharedSyncDiagnostics(stored = {}, native = {}, live = {}, 
         atMs: integer(native.lastResponseRejection.atMs),
         serviceErrorCode: ['BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
           'NATIVE_ENVELOPE_REJECTED', 'NATIVE_MESSAGE_INVALID'].includes(native.lastResponseRejection.serviceErrorCode)
-          || SHARED_WEB_IDENTITY_ERRORS.has(native.lastResponseRejection.serviceErrorCode)
+          || SHARED_WEB_IDENTITY_ERRORS.has(native.lastResponseRejection.serviceErrorCode) || sourceErrors.has(native.lastResponseRejection.serviceErrorCode)
           ? native.lastResponseRejection.serviceErrorCode : null,
         reason: ['service_message_rejected', 'service_unavailable', 'negative_response', 'received_at_invalid',
           'snapshot_stale', 'snapshot_revision_mismatch', 'application_request_mismatch', 'application_payload_missing'].includes(native.lastResponseRejection.reason)
@@ -221,7 +244,7 @@ export function registerSharedSyncDiagnosticsReader({ runtime = chrome.runtime, 
       const nativeState = native();
       failure = 'diagnostics_shared_read_failed';
       const liveState = live(p?.policyHash, q?.days || {}, q?.scopeHash);
-      const v2 = await observeV2(stored, permissions).catch(() => null);
+      const v2 = await observeV2(stored, permissions, { nativeState }).catch(() => null);
       failure = 'diagnostics_projection_failed';
       respond({ ok: true, diagnostics: buildSharedSyncDiagnostics(stored, nativeState, liveState,
         Date.now(), runtime.getManifest().version, v2) });

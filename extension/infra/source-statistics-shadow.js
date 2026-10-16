@@ -201,10 +201,13 @@ export function createSourceStatisticsShadow({ readContext, nativeContext, nativ
 
   async function fetchApplication(range, context, web, cached, epoch, signal) {
     let fresh = null, origin = null, errorCode = null, nativeConnectionGeneration = null;
+    const nativeAttempt = { sent: false, responseReceived: false, accepted: false,
+      errorCode: 'source_statistics_native_context_unavailable', startedAtMs: now(), connectionGeneration: context.native?.connectionGeneration ?? null };
     if (context.native) {
+      Object.assign(nativeAttempt, { sent: null, responseReceived: null, errorCode: null });
       const result = await withTimeout(Promise.resolve().then(() => nativeExchange({ fromDate: range.fromDate,
         toDate: range.toDate, webStatistics: web?.nativeSnapshot || null,
-        expectedContextId: context.native.contextId })), 12_000,
+        expectedContextId: context.native.contextId, attempt: nativeAttempt })), 12_000,
       'source_statistics_native_timeout').catch(() => ({ ok: false, errorCode: 'source_statistics_native_unavailable' }));
       if (epoch !== generation || signal.aborted) return { selected: null, errorCode: 'source_statistics_context_changed' };
       if (result?.ok && isSnapshot(result.snapshot, expected('application', context.cloud.childId, range))) {
@@ -213,12 +216,22 @@ export function createSourceStatisticsShadow({ readContext, nativeContext, nativ
           fresh = result.snapshot;
           origin = 'native';
           nativeConnectionGeneration = result.connectionGeneration;
+          nativeAttempt.accepted = true;
+          nativeAttempt.errorCode = null;
+        } else {
+          nativeAttempt.accepted = false;
+          nativeAttempt.errorCode = 'source_statistics_native_context_changed';
         }
-      } else errorCode = result?.errorCode || 'source_statistics_native_unavailable';
+      } else {
+        errorCode = result?.errorCode || 'source_statistics_native_invalid_response';
+        nativeAttempt.accepted = false;
+        nativeAttempt.errorCode = errorCode;
+      }
     }
     if (!fresh) {
-      const response = await cloudRead({ deviceToken: context.cloud.deviceToken, apiBase: context.cloud.apiBase, signal },
-        { source: 'application', fromDate: range.fromDate, toDate: range.toDate, scope: 'all' });
+      const response = await Promise.resolve().then(() => cloudRead({ deviceToken: context.cloud.deviceToken, apiBase: context.cloud.apiBase, signal },
+        { source: 'application', fromDate: range.fromDate, toDate: range.toDate, scope: 'all' }))
+        .catch(() => ({ ok: false, errorCode: 'source_statistics_application_unavailable' }));
       if (epoch !== generation || signal.aborted) return { selected: null, errorCode: 'source_statistics_context_changed' };
       if (response?.ok && isSnapshot(response.snapshot, expected('application', context.cloud.childId, range))) {
         fresh = response.snapshot;
@@ -229,7 +242,7 @@ export function createSourceStatisticsShadow({ readContext, nativeContext, nativ
     const selected = await mergeLastGoodDays(fresh, cached?.application, 'application', context.cloud.childId,
       range, now(), origin || 'unavailable', cached?.applicationOrigin || 'last_known_good', cached?.applicationDayOrigins);
     if (origin === 'native' && selected.snapshot) selected.nativeContextGeneration = nativeConnectionGeneration;
-    return { selected, errorCode };
+    return { selected, errorCode, nativeAttempt: { ...nativeAttempt } };
   }
 
   async function writeBestEffort(key, value) {
@@ -268,7 +281,9 @@ export function createSourceStatisticsShadow({ readContext, nativeContext, nativ
         snapshot: cached.application, origin: 'last_known_good', stale: true,
         dayOrigins: cached.applicationDayOrigins || Object.fromEntries(cached.application.days.map(day => [day.date, { origin: 'last_known_good', readAtMs: cached.application.readAtMs }])),
       } : application.selected;
-      const report = { schemaVersion: 1, status: webSelected?.snapshot && applicationSelected?.snapshot ? 'available' : 'incomplete',
+      const report = { schemaVersion: 1, scopeHash: context.cloud.scopeHash,
+        nativeAttempt: application.nativeAttempt || null,
+        status: webSelected?.snapshot && applicationSelected?.snapshot ? 'available' : 'incomplete',
         fromDate: range.fromDate, toDate: range.toDate, readAtMs: now(),
         source: { web: sourceStatus(webSelected), application: sourceStatus(applicationSelected) },
         webErrorCode: web.errorCode, applicationErrorCode: application.errorCode,

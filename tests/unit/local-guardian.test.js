@@ -1491,7 +1491,7 @@ async function run() {
     assert.equal(Object.hasOwn(exchange.response, 'sharedQuotaStage'), false, 'producer must serialize the real omitted-stage shape');
     const child = exchange.response.sourceStatistics.childId;
     const query = exchange.request.payload;
-    let fault = null;
+    let fault = null, releaseSourceReply = null;
     const wireHostOptions = { policy,
       storage: { cloud_profile_id: child, cloud_device_id: 'synthetic-source-wire-device' },
       connectNative: () => createPort((request, onMessage, onDisconnect) => {
@@ -1499,9 +1499,16 @@ async function run() {
         const response = structuredClone(source);
         response.requestId = request.requestId; response.receivedAt = Date.now();
         if (request.messageType === 'exchangeSourceStatistics') {
+          if (fault?.startsWith('service:')) { response.ok = false; response.errorCode = fault.slice(8); }
           if (fault === 'child') response.sourceStatistics.childId = 'different-synthetic-child';
           if (fault === 'date') response.sourceStatistics.toDate = '1970-01-01';
           if (fault === 'unit') response.sourceStatistics.durationUnit = 'milliseconds';
+          if (fault === 'missingRequestId') delete response.requestId;
+          if (fault === 'receivedAt') response.receivedAt = 'invalid-time';
+          if (fault === 'hold') {
+            releaseSourceReply = () => queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+            return;
+          }
           if (fault === 'connection') {
             queueMicrotask(() => onDisconnect.listeners.forEach(listener => listener())); return;
           }
@@ -1519,18 +1526,57 @@ async function run() {
       'source_statistics_native_invalid_response', 'the former mandatory-stage guard rejects the same actual producer success');
     const productionHost = await loadGuardian(wireHostOptions);
     await waitFor(() => productionHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
-    assert.equal((await productionHost.module.requestSourceStatisticsExchange(query)).ok, true,
+    const acceptedSource = await productionHost.module.requestSourceStatisticsExchange(query);
+    assert.equal(acceptedSource.ok, true,
       'actual C# Dispatcher/RuntimeJson success without stage must pass the production consumer');
+    assert.equal(acceptedSource.nativeAttempt.sent, true);
+    assert.equal(acceptedSource.nativeAttempt.responseReceived, true);
+    assert.equal(acceptedSource.nativeAttempt.accepted, true);
+    for (const code of ['SOURCE_STATISTICS_INVALID', 'SOURCE_STATISTICS_CONTEXT_CHANGED', 'SOURCE_STATISTICS_STALE',
+      'SOURCE_STATISTICS_UNAVAILABLE', 'SOURCE_STATISTICS_TIMEOUT', 'SOURCE_STATISTICS_REDIRECTED', 'SOURCE_STATISTICS_RESPONSE_TOO_LARGE']) {
+      fault = 'service:' + code;
+      const failure = await productionHost.module.requestSourceStatisticsExchange(query);
+      assert.equal(failure.errorCode, code);
+      assert.equal(failure.nativeAttempt.sent, true);
+      assert.equal(failure.nativeAttempt.responseReceived, true);
+      assert.equal(failure.nativeAttempt.accepted, false);
+      assert.equal(productionHost.module.readNativeHostDiagnosticState().lastResponseRejection.serviceErrorCode, code);
+    }
+    fault = 'service:PRIVATE_PATH_OR_TOKEN';
+    assert(!JSON.stringify(await productionHost.module.requestSourceStatisticsExchange(query)).includes('PRIVATE_PATH_OR_TOKEN'));
+    fault = 'hold';
+    const inFlightSource = productionHost.module.requestSourceStatisticsExchange(query);
+    await waitFor(() => releaseSourceReply !== null);
+    const queuedAttempt = {};
+    const queuedSource = productionHost.module.requestSourceStatisticsExchange({ ...query, attempt: queuedAttempt });
+    await waitFor(() => queuedAttempt.connectionGeneration != null);
+    assert.equal(queuedAttempt.sent, false, 'queued call is not an actual Native send');
+    assert.equal(queuedAttempt.responseReceived, false);
+    fault = null; releaseSourceReply();
+    assert.equal((await inFlightSource).ok, true);
+    assert.equal((await queuedSource).ok, true);
+    assert.equal(queuedAttempt.sent, true, 'actual postMessage advances the send evidence');
     for (fault of ['child', 'date', 'unit']) {
       const rejected = await productionHost.module.requestSourceStatisticsExchange(query);
       assert.equal(rejected.errorCode, 'source_statistics_native_invalid_response', fault);
     }
+    fault = 'missingRequestId';
+    assert.equal((await productionHost.module.requestSourceStatisticsExchange(query)).errorCode,
+      'source_statistics_native_invalid_response');
     fault = 'requestId';
     assert.equal((await productionHost.module.requestSourceStatisticsExchange(query)).ok, true,
       'foreign request response must not consume the correct exchange ACK slot');
     fault = 'connection';
-    assert.equal((await productionHost.module.requestSourceStatisticsExchange(query)).ok, false,
+    const disconnectedSource = await productionHost.module.requestSourceStatisticsExchange(query);
+    assert.equal(disconnectedSource.ok, false,
       'a disconnected peer cannot confirm an exchange');
+    assert.equal(disconnectedSource.nativeAttempt.sent, true);
+    assert.equal(disconnectedSource.nativeAttempt.responseReceived, false);
+    assert.equal(disconnectedSource.nativeAttempt.accepted, false);
+    const malformedTimeHost = await loadGuardian(wireHostOptions);
+    await waitFor(() => malformedTimeHost.module.readNativeHostDiagnosticState().capabilities?.includes('source-statistics-read-v1'));
+    fault = 'receivedAt';
+    assert.equal((await malformedTimeHost.module.requestSourceStatisticsExchange(query)).errorCode, 'native_invalid_response');
     assert.equal(productionHost.module.hasSharedForcedUseRuntimeV2Capability(), false);
     console.log('[Source statistics C# wire replay] success, child/date/unit/requestId/connection checks passed');
   }
