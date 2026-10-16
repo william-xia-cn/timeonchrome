@@ -11,6 +11,7 @@ async function run() {
   const mod = await import('data:text/javascript;base64,' + Buffer.from(`
     const f=globalThis.__integration;
     const isSharedAccessRuntimeEnabled=f.enabled,configureSharedAccessRuntime=({enabled})=>{f.set(enabled);f.calls.push(['runtime',enabled]);};
+    const isSharedAccessRuntimeV2Enabled=()=>false,pollSharedForcedUseV2=async()=>({ok:true});
     const configureSharedBrowserActivity=v=>f.calls.push(['activity',v.enabled]),configureSharedQuotaNativeBridge=v=>f.calls.push(['native',v.enabled]);
     const hasSharedAccessExecutionCapability=()=>false,observeSharedAccessPolicyCapability=()=>{},readSharedAccessPolicyLkg=async()=>null;
     const readNativeHostDeploymentMarker=async()=>false,readSharedBrowserCloseCapability=async()=>({available:false});
@@ -59,10 +60,33 @@ async function run() {
   assert.equal(enabled, false, 'Host loss leaves shared consumers immediately');
   allowed = false;
   assert.equal((await controller.reconcile()).preparing, false);
+  const v2Calls = [];
+  let v2Supported = true;
+  const v2Controller = mod.createSharedAccessBootstrap({ readChannel: async () => true, allowed: async () => true,
+    hostAvailable: () => false, capability: async () => ({ available: false }),
+    native: options => v2Calls.push(['native', options.enabled]),
+    policyReader: async options => { if (v2Supported) assert.equal(options.enabled, false); },
+    basisReader: async options => { if (v2Supported) assert.equal(options.enabled, false); },
+    contributions: async options => { if (v2Supported) assert.equal(options.enabled, false); },
+    reminder: () => ({ ok: true }), activity: () => {},
+    runtime: options => v2Calls.push(['runtime', options.enabled, options.schemaVersion]),
+    v2: { available: () => v2Supported,
+      policy: async () => ({ ok: true, policy: { schemaVersion: 2, stage: 'shared', forcedUsePolicyV1: { enabled: true } } }),
+      configure: async options => v2Calls.push(['v2', options.enabled]) } });
+  assert.equal((await v2Controller.reconcile()).schemaVersion, 2);
+  assert(v2Calls.some(row => row[0] === 'runtime' && row[1] === true && row[2] === 2));
+  await v2Controller.reconcile();
+  assert.equal(v2Calls.filter(row => row[0] === 'v2' && row[1] === true).length, 1,
+    'periodic bootstrap cannot reset same-rule confirmation grants');
+  v2Supported = false;
+  // Disable the standalone fixture before falling back to V1 readers.
+  assert.equal((await v2Controller.reconcile()).execution, false);
   const background = fs.readFileSync(path.resolve(__dirname, '../../extension/background.js'), 'utf8');
-  assert(background.includes('initSharedAccessIntegration({ onExecutionChanged: suspendLegacyRestUsageReminder, allowed: async () =>'));
-  assert(background.includes('if (!isSharedAccessRuntimeEnabled()) await restoreRestUsageReminderForTab'));
-  assert(background.includes("error: 'legacy_rest_reminder_inactive'"));
+  assert(background.includes('initSharedAccessIntegration({ onExecutionChanged: suspendLegacyRestUsageReminder,'));
+  assert(background.includes('available: hasSharedForcedUseRuntimeV2Capability, policy: readSharedAccessPolicyV2Lkg'));
+  assert(background.includes('await restoreRestUsageReminderForTab(tabId).catch'));
+  const legacyReminder = fs.readFileSync(path.resolve(__dirname, '../../extension/product/rest-usage-reminder.js'), 'utf8');
+  assert(legacyReminder.includes("if (sharedRuntimeSuspended && !prompt?.schedule) return { ok: false, error: 'legacy_rest_reminder_inactive' }"));
   delete globalThis.__integration;
   console.log('Shared integration: explicit readers, default off, busy and late-enable isolation PASS');
 }

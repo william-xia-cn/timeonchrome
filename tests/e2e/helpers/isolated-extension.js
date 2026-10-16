@@ -2,12 +2,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('@playwright/test');
 
-async function isolatedExtension(name, harness = '') {
+async function isolatedExtension(name, harness = '', { prepare } = {}) {
   const testRoot = process.env.TOC_ISOLATED_TEST_ROOT || path.resolve('.tmp');
   fs.mkdirSync(testRoot, { recursive: true });
   const directory = fs.mkdtempSync(path.join(testRoot, `${name}-`));
   const extension = path.join(directory, 'extension');
   fs.cpSync(path.resolve('extension'), extension, { recursive: true });
+  if (prepare) await prepare(extension);
   // Harness exists only in an ignored disposable copy, never in the loaded candidate.
   if (harness) fs.appendFileSync(path.join(extension, 'background.js'), '\n' + harness);
   const context = await chromium.launchPersistentContext(path.join(directory, 'profile'), {

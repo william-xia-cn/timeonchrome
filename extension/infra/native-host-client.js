@@ -14,6 +14,9 @@ import { validateSharedBrowserExecution } from '../core/shared-browser-execution
 import { browserExecutionFence, browserExecutionIdentityHash } from './shared-browser-execution-fence.js';
 import { sharedBrowserExecutionAttempts } from './shared-browser-execution-attempts.js';
 import { captureSharedWebNativeRequest, captureSharedWebNativeReceipt, captureSharedQuotaPreparation, SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
+import { SOURCE_STATISTICS_EXCHANGE_MESSAGE, SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsExchange, validateSourceStatisticsSnapshot } from '../core/shared-contracts/1.54.0/source-statistics.js';
+import { checkSharedActivityV2, checkSharedActivityAckV2, checkSharedReminderStateV2,
+  checkSharedReminderMessageV2, checkSharedExecutionV2 } from '../core/shared-forced-use-runtime-v2.js';
 import { APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, validateApplicationIdentityUsageQuery, validateApplicationIdentityUsageSnapshot } from '../core/shared-contracts/1.43.0/application-usage-seconds.js';
 
 export const TIMEONCHROME_NATIVE_HOST = 'com.timeonchrome.nativehost';
@@ -64,6 +67,7 @@ let queuedSharedQuotaRead = null;
 let queuedSharedReminderReport = null;
 let queuedSharedLifecycle = null;
 let queuedSharedWeb = null;
+let queuedSourceStatisticsRead = null;
 let queuedBrowserActivity = null;
 let browserActivityLeaseId = null;
 let browserActivityObserver = null;
@@ -73,6 +77,7 @@ const SHARED_NATIVE_CAPABILITIES = {
   getSharedWebSourceScope: 'shared-web-source-reusable-v2',
   bindSharedWebSourceV2: 'shared-web-source-reusable-v2',
   replaceSharedWebContributionV2: 'shared-web-source-reusable-v2',
+  exchangeSourceStatistics: SOURCE_STATISTICS_READ_CAPABILITY,
   getSharedWebSourceChallenge: 'shared-web-contribution-sync-v1',
   bindSharedWebSource: 'shared-web-contribution-sync-v1',
   replaceSharedWebContribution: 'shared-web-contribution-sync-v1',
@@ -116,7 +121,7 @@ function recordResponseRejection(request, reason, serviceErrorCode = null) {
     'getSharedQuotaState', 'reportReminderResult', 'getSharedReminderState', 'acknowledgeSharedReminderDelivery',
     'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution', 'getSharedWebSourceChallenge',
     'bindSharedWebSource', 'replaceSharedWebContribution', 'getSharedWebSourceScope',
-    'bindSharedWebSourceV2', 'replaceSharedWebContributionV2'];
+    'bindSharedWebSourceV2', 'replaceSharedWebContributionV2', SOURCE_STATISTICS_EXCHANGE_MESSAGE];
   lastResponseRejection = { atMs: safeNow(), reason,
     serviceErrorCode: ['BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
       'NATIVE_ENVELOPE_REJECTED', 'NATIVE_MESSAGE_INVALID'].includes(serviceErrorCode)
@@ -351,6 +356,9 @@ function normalizeErrorCode(value) {
     'shared_reminder_unavailable',
     'shared_reminder_invalid_ack',
     'shared_reminder_not_issued',
+    'source_statistics_native_invalid_response',
+    'source_statistics_native_unavailable',
+    'source_statistics_native_context_changed',
   ]);
   return allowed.has(value) ? value : 'heartbeat_build_failed';
 }
@@ -440,9 +448,10 @@ function ensureNativePort() {
     }
     // A delayed v3 response cannot consume the ACK slot of a different request.
     if (response?.requestId && pendingAck.requestId && response.requestId !== pendingAck.requestId) return;
-    if ((pendingAck.sharedWeb || pendingAck.sharedQuotaRead || pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity || pendingAck.applicationIdentityRead)
+    if ((pendingAck.sharedWeb || pendingAck.sharedQuotaRead || pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity || pendingAck.applicationIdentityRead || pendingAck.sourceStatisticsRead)
       && response?.requestId !== pendingAck.requestId) {
       rejectPendingAck(pendingAck.applicationIdentityRead ? 'application_identity_usage_invalid_response'
+        : pendingAck.sourceStatisticsRead ? 'source_statistics_native_invalid_response'
         : pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity ? 'shared_reminder_invalid_ack' : 'shared_quota_invalid_state');
       return;
     }
@@ -472,6 +481,7 @@ function ensureNativePort() {
         : pendingAck.applicationRead ? 'application_usage_unavailable'
         : pendingAck.sharedWeb ? SHARED_WEB_IDENTITY_ERRORS.has(response?.errorCode)
           ? response.errorCode : 'shared_web_native_unavailable'
+        : pendingAck.sourceStatisticsRead ? 'source_statistics_native_unavailable'
         : pendingAck.applicationIdentityRead ? identityUsageErrorCode(response?.errorCode)
         : pendingAck.sharedQuotaRead ? 'shared_quota_unavailable'
         : pendingAck.sharedReminderReport ? 'shared_reminder_unavailable' : 'native_invalid_response';
@@ -516,6 +526,8 @@ function ensureNativePort() {
       browserActivityAck: response.browserActivityAck,
       browserExecution: response.browserExecution,
       browserExecutionAck: response.browserExecutionAck,
+      sourceStatistics: response.sourceStatistics,
+      sharedQuotaStage: response.sharedQuotaStage,
       requestId: response.requestId,
     });
   });
@@ -525,6 +537,7 @@ function ensureNativePort() {
     if (nativePort === port) {
       browserExecutionFence.invalidate();
       nativePort = null;
+      applicationConnectionGeneration++;
       sharedNativeV3 = false;
       sharedNativeCapabilities.clear();
       browserActivityLeaseId = null;
@@ -557,6 +570,7 @@ function postToNativeHost(payload) {
   const browserActivity = payload.channel === 'sharedQuota' && payload.messageType === 'reportBrowserActivity';
   const sharedWeb = payload.channel === 'sharedQuota' && ['getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution',
     'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'replaceSharedWebContributionV2'].includes(payload.messageType);
+  const sourceStatisticsRead = payload.channel === 'sharedQuota' && payload.messageType === SOURCE_STATISTICS_EXCHANGE_MESSAGE;
   const applicationIdentityRead = payload.channel === 'application' && payload.messageType === 'getApplicationIdentityUsage';
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
@@ -564,10 +578,10 @@ function postToNativeHost(payload) {
       pendingAck = null;
       disconnectPort();
       reject(new Error('native_response_timeout'));
-    }, applicationRead || applicationIdentityRead || sharedQuotaRead || sharedWeb ? APPLICATION_USAGE_RESPONSE_TIMEOUT_MS : NATIVE_RESPONSE_TIMEOUT_MS);
+    }, sourceStatisticsRead ? 12_000 : applicationRead || applicationIdentityRead || sharedQuotaRead || sharedWeb ? APPLICATION_USAGE_RESPONSE_TIMEOUT_MS : NATIVE_RESPONSE_TIMEOUT_MS);
     pendingAck = { resolve, reject, timeoutId, requestId: payload.requestId, messageType: payload.messageType || payload.type,
       channel: payload.channel || 'health',
-      applicationRead, applicationReadSeconds, applicationIdentityRead, sharedQuotaRead, sharedReminderReport, sharedLifecycle, browserActivity, sharedWeb };
+      applicationRead, applicationReadSeconds, applicationIdentityRead, sharedQuotaRead, sharedReminderReport, sharedLifecycle, browserActivity, sharedWeb, sourceStatisticsRead };
     try {
       port.postMessage(payload);
     } catch (_) {
@@ -881,7 +895,43 @@ async function performSend(options) {
     } catch (error) { return { ok: false, errorCode: SHARED_WEB_IDENTITY_ERRORS.has(error?.message)
       ? error.message : 'shared_web_native_unavailable' }; }
   }
+  if (options.type === 'sourceStatisticsRead') {
+    try {
+      const before = await readSourceStatisticsNativeContext();
+      if (!before.ok || before.contextId !== options.expectedContextId || !before.capabilityAvailable) {
+        return { ok: false, errorCode: 'source_statistics_native_context_changed' };
+      }
+      const port = nativePort;
+      if (!port) return { ok: false, errorCode: 'source_statistics_native_unavailable' };
+      const request = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
+        messageType: SOURCE_STATISTICS_EXCHANGE_MESSAGE, extensionId: chrome.runtime.id,
+        profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.payload };
+      const ack = await postToNativeHost(request);
+      const after = await readSourceStatisticsNativeContext();
+      if (nativePort !== port || ack.requestId !== request.requestId || !after.ok
+        || after.contextId !== options.expectedContextId || after.connectionGeneration !== before.connectionGeneration) {
+        return { ok: false, errorCode: 'source_statistics_native_context_changed' };
+      }
+      if (ack.sharedQuotaStage !== 'shadow' || !ack.sourceStatistics) {
+        return { ok: false, errorCode: 'source_statistics_native_invalid_response' };
+      }
+      try {
+        validateSourceStatisticsSnapshot(ack.sourceStatistics, { source: 'application', childId: options.childId,
+          fromDate: options.fromDate, toDate: options.toDate });
+      } catch (_) { return { ok: false, errorCode: 'source_statistics_native_invalid_response' }; }
+      return { ok: true, source: 'native', snapshot: ack.sourceStatistics, contextId: after.contextId,
+        connectionGeneration: after.connectionGeneration };
+    } catch (error) {
+      return { ok: false, errorCode: ['native_host_unavailable', 'native_port_disconnected', 'native_response_timeout', 'native_post_failed']
+        .includes(normalizeErrorCode(error?.message)) ? normalizeErrorCode(error.message) : 'source_statistics_native_unavailable' };
+    }
+  }
   if (options.type === 'browserActivity') {
+    const v2 = options.payload.schemaVersion === 2;
+    if (v2 && !hasSharedForcedUseRuntimeV2Capability()) return { ok: false, errorCode: 'shared_forced_use_v2_unsupported' };
+    if (v2 && (await readSourceStatisticsNativeContext()).contextId !== options.expectedContextId) {
+      return { ok: false, errorCode: 'shared_reminder_context_changed' };
+    }
     if (getSharedBrowserActivityLease() !== options.payload.leaseId) return { ok: false, errorCode: 'SHARED_BROWSER_ACTIVITY_LEASE_CHANGED' };
     try {
       const payload = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
@@ -889,6 +939,14 @@ async function performSend(options) {
         profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.payload };
       const ack = await postToNativeHost(payload);
       const receipt = ack.browserActivityAck;
+      if (v2) {
+        if (!hasSharedForcedUseRuntimeV2Capability() || getSharedBrowserActivityLease() !== options.payload.leaseId
+          || ack.requestId !== payload.requestId
+          || (await readSourceStatisticsNativeContext()).contextId !== options.expectedContextId) {
+          return { ok: false, errorCode: 'shared_reminder_context_changed' };
+        }
+        return checkSharedActivityAckV2(receipt, options.payload);
+      }
       if (getSharedBrowserActivityLease() !== options.payload.leaseId
         || ack.requestId !== payload.requestId || receipt?.leaseId !== options.payload.leaseId
         || receipt.acceptedSequence !== options.payload.sequence || typeof receipt.duplicate !== 'boolean'
@@ -896,6 +954,45 @@ async function performSend(options) {
       return { ok: true, receipt: { leaseId: receipt.leaseId, acceptedSequence: receipt.acceptedSequence,
         duplicate: receipt.duplicate, stale: false } };
     } catch (error) { return { ok: false, errorCode: normalizeErrorCode(error?.message) }; }
+  }
+  if (options.type === 'sharedLifecycleV2') {
+    try {
+      const before = await readSourceStatisticsNativeContext();
+      const port = nativePort;
+      if (!hasSharedForcedUseRuntimeV2Capability() || before.contextId !== options.expectedContextId
+        || getSharedBrowserActivityLease() !== options.expectedLease) return { ok: false, errorCode: 'shared_reminder_context_changed' };
+      const payload = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
+        messageType: options.method, extensionId: chrome.runtime.id,
+        profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.payload };
+      const ack = await postToNativeHost(payload);
+      const after = await readSourceStatisticsNativeContext();
+      if (port !== nativePort || !hasSharedForcedUseRuntimeV2Capability() || after.contextId !== options.expectedContextId
+        || ack.requestId !== payload.requestId || getSharedBrowserActivityLease() !== options.expectedLease
+        || !browserExecutionFence.current(options.executionGeneration)) return { ok: false, errorCode: 'shared_reminder_context_changed' };
+      if (options.method === 'acknowledgeBrowserExecution') {
+        const receipt = ack.browserExecutionAck;
+        if (!receipt || Object.keys(receipt).length !== 3 || receipt.executionId !== options.payload.executionId
+          || receipt.outcome !== options.payload.outcome
+          || typeof receipt.duplicate !== 'boolean') return { ok: false, errorCode: 'shared_reminder_invalid_ack' };
+        const proof = browserExecutionFence.acknowledge(options.identityHash, options.payload.executionId,
+          options.payload.leaseId, options.payload.outcome);
+        return { ok: true, receipt, retirement: await sharedBrowserExecutionAttempts.retireAttempt(proof) };
+      }
+      const checked = checkSharedReminderStateV2(ack.sharedReminder ?? null, options.expected);
+      if (!checked.ok) return checked;
+      if (ack.browserExecution == null) return { ...checked, browserExecution: null,
+        requestStartedMonotonicMs: options.requestStartedMonotonicMs };
+      const execution = checkSharedExecutionV2(ack.browserExecution), state = checked.state;
+      if (!execution.ok || !state || state.stage !== 'shared' || state.status !== 'resolved'
+        || state.visibleAtMs === null || Object.keys(sharedReminderIdentityForExecution(state))
+          .some(key => execution.payload[key] !== state[key])
+        || ['schemaVersion', 'revision', 'effectiveAtMs', 'stage', 'policyHash']
+          .some(key => execution.payload.policyIdentity[key] !== state.policyIdentity[key])) {
+        return { ok: false, errorCode: 'INVALID_SHARED_BROWSER_EXECUTION_V2' };
+      }
+      return { ...checked, browserExecution: execution.payload,
+        requestStartedMonotonicMs: options.requestStartedMonotonicMs };
+    } catch (_) { return { ok: false, errorCode: 'shared_reminder_unavailable' }; }
   }
   if (options.type === 'sharedLifecycle') {
     try {
@@ -1071,7 +1168,8 @@ async function performSend(options) {
     if (options.type === 'heartbeat' || options.type === 'probe') {
       sharedNativeV3 = ack.supportedProtocols?.includes(3) === true;
       sharedNativeCapabilities = new Set(ack.capabilities || []);
-      browserActivityLeaseId = sharedNativeV3 && sharedNativeCapabilities.has('shared-browser-activity-v1')
+      browserActivityLeaseId = sharedNativeV3 && (sharedNativeCapabilities.has('shared-browser-activity-v1')
+        || sharedNativeCapabilities.has('shared-forced-use-runtime-v2'))
         && typeof ack.browserActivityLeaseId === 'string' && ack.browserActivityLeaseId.trim()
         && ack.browserActivityLeaseId.length <= 128 ? ack.browserActivityLeaseId : null;
       notifyBrowserActivityLease();
@@ -1175,6 +1273,12 @@ function drainQueuedSend() {
     const queued = queuedApplicationIdentityRead;
     queuedApplicationIdentityRead = null;
     startSend(queued.options).then(queued.resolve, () => queued.resolve({ ok: false, errorCode: 'application_identity_usage_unavailable' }));
+    return;
+  }
+  if (queuedSourceStatisticsRead) {
+    const queued = queuedSourceStatisticsRead;
+    queuedSourceStatisticsRead = null;
+    startSend(queued.options).then(queued.resolve, () => queued.resolve({ ok: false, errorCode: 'source_statistics_native_unavailable' }));
     return;
   }
   if (queuedSharedQuotaRead) {
@@ -1537,7 +1641,11 @@ export function configureSharedQuotaNativeBridge({ enabled = false } = {}) {
 }
 
 export function getSharedBrowserActivityLease() {
-  return sharedCapabilityAvailable('reportBrowserActivity') ? browserActivityLeaseId : null;
+  return sharedCapabilityAvailable('reportBrowserActivity') || hasSharedForcedUseRuntimeV2Capability() ? browserActivityLeaseId : null;
+}
+export function hasSharedForcedUseRuntimeV2Capability() {
+  return sharedBridgeConfig.enabled === true && nativePort !== null && sharedNativeV3
+    && sharedNativeCapabilities.has('shared-forced-use-runtime-v2');
 }
 export function hasSharedReminderContinuityCapability() {
   return sharedBridgeConfig.enabled === true && nativePort !== null && sharedNativeV3
@@ -1558,8 +1666,8 @@ export function readNativeHostDiagnosticState() {
   const allowed = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1',
     'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1',
     'shared-browser-activity-v1', 'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1',
-    'shared-web-local-lease-v1', 'shared-web-source-reusable-v2',
-    APPLICATION_IDENTITY_USAGE_READ_CAPABILITY];
+    'shared-web-local-lease-v1', 'shared-web-source-reusable-v2', SOURCE_STATISTICS_READ_CAPABILITY,
+    APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, 'shared-access-policy-v2', 'shared-forced-use-runtime-v2'];
   return { connected, protocolVersion: known ? 3 : null,
     capabilities: known ? allowed.filter(v => sharedNativeCapabilities.has(v)) : null,
     applicationUsageSupported: applicationUsageSupported && connected ? true : known ? false : null,
@@ -1593,13 +1701,14 @@ export function observeSharedBrowserActivityLease(observer) {
   browserActivityObserver = typeof observer === 'function' ? observer : null;
   notifyBrowserActivityLease();
 }
-export function reportSharedBrowserActivity(value) {
-  const checked = validateSharedBrowserActivity(value);
+export async function reportSharedBrowserActivity(value) {
+  const checked = value?.schemaVersion === 2 ? checkSharedActivityV2(value) : validateSharedBrowserActivity(value);
   if (!checked.ok) return Promise.resolve(checked);
   if (getSharedBrowserActivityLease() !== checked.payload.leaseId) {
     return Promise.resolve({ ok: false, errorCode: 'SHARED_BROWSER_ACTIVITY_LEASE_CHANGED' });
   }
-  const options = { type: 'browserActivity', payload: checked.payload };
+  const options = { type: 'browserActivity', payload: checked.payload,
+    ...(value.schemaVersion === 2 ? { expectedContextId: (await readSourceStatisticsNativeContext()).contextId } : {}) };
   if (!activeSendPromise) return startSend(options);
   if (queuedBrowserActivity) queuedBrowserActivity.resolve({ ok: true, skipped: true, reason: 'activity_superseded' });
   return new Promise(resolve => { queuedBrowserActivity = { options, resolve }; });
@@ -1609,6 +1718,52 @@ function sharedCapabilityAvailable(method) {
   const token = SHARED_NATIVE_CAPABILITIES[method];
   return sharedBridgeConfig.enabled === true && nativePort !== null && sharedNativeV3
     && typeof token === 'string' && sharedNativeCapabilities.has(token);
+}
+
+function sourceStatisticsCapabilityAvailable() {
+  return nativePort !== null && sharedNativeV3 && sharedNativeCapabilities.has(SOURCE_STATISTICS_READ_CAPABILITY);
+}
+
+export async function readSourceStatisticsNativeContext() {
+  try {
+    const stored = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id']);
+    const childId = typeof stored?.cloud_profile_id === 'string' ? stored.cloud_profile_id : '';
+    const deviceId = typeof stored?.cloud_device_id === 'string' ? stored.cloud_device_id : '';
+    if (!childId || !deviceId) return { ok: false, errorCode: 'source_statistics_identity_unavailable' };
+    const connectionGeneration = applicationConnectionGeneration;
+    const contextId = await stableDigest({ connectionGeneration, childId, deviceId });
+    return { ok: true, childId, deviceId, contextId, connectionGeneration,
+      capabilityAvailable: sourceStatisticsCapabilityAvailable() };
+  } catch (_) { return { ok: false, errorCode: 'source_statistics_identity_unavailable' }; }
+}
+
+async function ensureSourceStatisticsCapability() {
+  if (!nativePort) {
+    const health = await requestLocalGuardianHeartbeat({ trigger: 'source_statistics_shadow' });
+    if (!health.ok && !nativePort) return { ok: false, errorCode: health.errorCode || 'source_statistics_native_unavailable' };
+    if (activeSendPromise) await activeSendPromise.catch(() => {});
+  }
+  return sourceStatisticsCapabilityAvailable() ? { ok: true }
+    : { ok: false, errorCode: 'source_statistics_native_unsupported' };
+}
+
+export async function requestSourceStatisticsExchange({ fromDate, toDate, webStatistics, expectedContextId = null } = {}) {
+  if (!await readNativeHostDeploymentMarker().catch(() => false)) {
+    return { ok: false, errorCode: 'managed_marker_unavailable' };
+  }
+  const negotiated = await ensureSourceStatisticsCapability();
+  if (!negotiated.ok) return negotiated;
+  const context = await readSourceStatisticsNativeContext();
+  if (!context.ok || expectedContextId && context.contextId !== expectedContextId || !context.capabilityAvailable) {
+    return { ok: false, errorCode: 'source_statistics_native_context_changed' };
+  }
+  try { validateSourceStatisticsExchange({ fromDate, toDate, webStatistics }, context.childId); }
+  catch (_) { return { ok: false, errorCode: 'source_statistics_native_invalid_request' }; }
+  const options = { type: 'sourceStatisticsRead', payload: { fromDate, toDate, webStatistics },
+    childId: context.childId, fromDate, toDate, expectedContextId: context.contextId };
+  if (!activeSendPromise) return startSend(options);
+  if (queuedSourceStatisticsRead) return { ok: false, errorCode: 'source_statistics_native_busy' };
+  return new Promise(resolve => { queuedSourceStatisticsRead = { options, resolve }; });
 }
 
 async function negotiateSharedCapability(method, errorPrefix) {
@@ -1640,6 +1795,7 @@ export async function reportSharedReminderResult(result) {
 }
 
 export async function requestSharedReminderLifecycle(method, value) {
+  if (value?.schemaVersion === 2) return requestSharedReminderLifecycleV2(method, value);
   const requestStartedMonotonicMs = Math.floor(performance.now());
   const executionGeneration = browserExecutionFence.capture();
   let checked;
@@ -1665,6 +1821,25 @@ export async function requestSharedReminderLifecycle(method, value) {
   const options = { type: 'sharedLifecycle', method, payload: checked.payload,
     requestStartedMonotonicMs, executionGeneration, identityHash,
     expected: method === 'getSharedReminderState' ? { date: value.date } : identity };
+  if (!activeSendPromise) return startSend(options);
+  if (queuedSharedLifecycle) return { ok: false, errorCode: 'shared_reminder_busy' };
+  return new Promise(resolve => { queuedSharedLifecycle = { options, resolve }; });
+}
+
+async function requestSharedReminderLifecycleV2(method, value) {
+  if (!hasSharedForcedUseRuntimeV2Capability()) return { ok: false, errorCode: 'shared_forced_use_v2_unsupported' };
+  const checked = checkSharedReminderMessageV2(value, method);
+  if (!checked.ok) return checked;
+  if (!await readNativeHostDeploymentMarker().catch(() => false)) return { ok: false, errorCode: 'managed_marker_unavailable' };
+  const context = await readSourceStatisticsNativeContext();
+  const expectedLease = getSharedBrowserActivityLease();
+  if (!context.ok || !expectedLease) return { ok: false, errorCode: 'shared_reminder_context_changed' };
+  const { delivery, action, ...identity } = checked.payload;
+  const options = { type: 'sharedLifecycleV2', method, payload: checked.payload,
+    expectedContextId: context.contextId, expectedLease, executionGeneration: browserExecutionFence.capture(),
+    requestStartedMonotonicMs: Math.floor(performance.now()),
+    identityHash: method === 'acknowledgeBrowserExecution' ? await browserExecutionIdentityHash(checked.payload) : null,
+    expected: method === 'getSharedReminderState' ? { schemaVersion: 2, date: value.date } : identity };
   if (!activeSendPromise) return startSend(options);
   if (queuedSharedLifecycle) return { ok: false, errorCode: 'shared_reminder_busy' };
   return new Promise(resolve => { queuedSharedLifecycle = { options, resolve }; });

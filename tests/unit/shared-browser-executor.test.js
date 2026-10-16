@@ -7,6 +7,7 @@ async function run() {
   const source = fs.readFileSync(path.join(root, 'extension/product/shared-browser-executor.js'), 'utf8').replace(/^import .*;\r?\n/gm, '');
   const mod = await import('data:text/javascript;base64,' + Buffer.from(
     `import {sharedBrowserExecutionEligibility} from '${url('extension/core/shared-browser-execution.js')}';\n`
+    + `import {sharedExecutionEligibilityV2} from '${url('extension/core/shared-forced-use-runtime-v2.js')}';\n`
     + `import {sharedReminderIdentity} from '${url('extension/core/shared-reminder-lifecycle.js')}';\n`
     + 'const createSharedBrowserExecutionPreparation=()=>null,readBrowserExecutionContext=()=>null,requestSharedReminderLifecycle=()=>null,readSharedBrowserCloseCapability=async()=>({available:false}),createSharedBrowserCloser=()=>{throw Error("no real close in unit")};\n'
     + source).toString('base64'));
@@ -49,6 +50,22 @@ async function run() {
   const blocked = mod.createSharedBrowserExecutor({ enabled: true, effectsEnabled: true,
     preparation: { inspect: async () => { throw Error('permission failure must precede inspect/claim'); } } });
   assert.equal((await blocked.execute(state, target)).errorCode, 'shared_browser_close_permission_unavailable');
+  const policyIdentityV2 = { schemaVersion: 2, revision: 'profile-config:2', effectiveAtMs: 0,
+    stage: 'shared', policyHash: 'a'.repeat(64) };
+  const stateV2 = { ...state, schemaVersion: 2, policyRevision: policyIdentityV2.revision, policyIdentity: policyIdentityV2 };
+  const permitV2 = { ...permit, schemaVersion: 2, policyRevision: policyIdentityV2.revision, policyIdentity: policyIdentityV2 };
+  let livePolicy = policyIdentityV2, v2Closes = 0;
+  const v2Executor = mod.createSharedBrowserExecutor({ enabled: true, effectsEnabled: true, schemaVersion: 2, now: () => 1000,
+    readCapability: async () => ({ available: true }),
+    preparation: { inspect: async () => ({ eligible: true, permit: permitV2 }), claim: async () => ({ ok: true }) },
+    readContext: async () => ({ ...context, policyIdentity: livePolicy }),
+    closer: { close: async (_target, _effect, current) => { assert.equal(await current(), true); v2Closes++; return { outcome: 'canceled' }; } },
+    request: async (_method, payload) => { assert.equal(payload.schemaVersion, 2);
+      assert.deepEqual(payload.policyIdentity, policyIdentityV2); assert.equal(payload.outcome, 'canceled'); return { ok: true }; } });
+  assert.equal((await v2Executor.execute(stateV2, target)).outcome, 'canceled');
+  livePolicy = { ...policyIdentityV2, policyHash: 'b'.repeat(64) };
+  assert.equal((await v2Executor.execute(stateV2, target)).errorCode, 'shared_browser_execution_stale');
+  assert.equal(v2Closes, 1, 'changed policy identity prevents a second browser effect');
   console.log('Shared browser executor: cancellation, explicit timeout policy, stale identity and ACK retry PASS');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

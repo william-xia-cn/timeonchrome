@@ -32,6 +32,8 @@ import { prepareForcedUseAdmission } from '../core/forced-use-admission.js';
 import { buildForcedUseQuotaFacts, forcedCompositeFinalRemainingSeconds } from '../core/forced-use-quota-facts.js';
 import { readForcedUseDay, ensureForcedUseContributions } from '../infra/forced-use-contribution-store.js';
 import { readForcedUsePromptProgress } from './forced-use-prompt.js';
+import { prepareSharedForcedUseAdmission, hasApplicableSharedQuota } from '../core/shared-forced-use-admission.js';
+import { hasSharedForcedUseConfirmation } from './shared-forced-use-v2.js';
 
 export const REST_EXIT_GRACE_MS = 30_000;
 
@@ -819,7 +821,9 @@ async function handleAccessObserved(event = {}) {
     });
   }
 
-  if (quotaResult?.accountingUnavailable === true && isRestricted) {
+  const sharedV2 = quotaResult?.sharedModel?.policy?.schemaVersion === 2;
+  if (quotaResult?.accountingUnavailable === true && isRestricted
+    && (!sharedV2 || hasApplicableSharedQuota(config, 'rest', domain, quotaResult.calendar.date))) {
     return baseDecision({
       access: 'reminder',
       reminder: { reason: 'accounting_unavailable', params: {} },
@@ -848,7 +852,7 @@ async function handleAccessObserved(event = {}) {
 
   const advisory = config?.autonomyConfig?.timeWindowAdvisoryEnabled === true;
   const scheduleContext = scheduleConfirmationContext(config, siteClassification.classification, Number(event.tabId), url, nowMs, siteClassification);
-  const forcedPolicy = !quotaResult?.sharedRuntime && quotaResult?.accountingVersion === 2
+  const forcedPolicy = (!quotaResult?.sharedRuntime || sharedV2) && quotaResult?.accountingVersion === 2
     ? readForcedUsePolicy(config) : { enabled: false };
   const scheduleConfirmed = !forcedPolicy.enabled && scheduleContext
     ? await hasScheduleConfirmation(scheduleContext) : false;
@@ -856,7 +860,7 @@ async function handleAccessObserved(event = {}) {
     return baseDecision({ access: 'reminder', reminder: { reason: reminderReasonForModeWindow(scheduleContext.mode),
       params: { confirmationFailure: event.confirmationFailure || 'user_end' } }, domain, config });
   }
-  if (quotaResult?.sharedModel) {
+  if (quotaResult?.sharedModel && !sharedV2) {
     const model = quotaResult.sharedModel, projection = model.preparation.projection;
     const attribution = resolveManagedTargetAttribution(config, siteClassificationRecords, url);
     const category = attribution?.targetClassificationAtTime === 'other' ? 'other'
@@ -888,6 +892,18 @@ async function handleAccessObserved(event = {}) {
       siteClassification.classification, scheduleContext?.key || null]);
     const ruleDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(ruleSource));
     const ruleKey = Array.from(new Uint8Array(ruleDigest), byte => byte.toString(16).padStart(2, '0')).join('');
+    if (sharedV2) {
+      const mode = await getCurrentModeSnapshot(config, monitoringEnabled);
+      forcedAdmission = prepareSharedForcedUseAdmission({ config, usage: quotaResult.usage, dateKey,
+        domain, quotaBucket, classification: siteClassification.classification, identityKey, ruleKey,
+        policyIdentity: quotaResult.sharedModel.policyIdentity, observedAt: nowMs,
+        advisoryWindow: scheduleContext ? { active: true, id: 'timeWindow' } : null,
+        restrictedEntry: isRestricted && config?.autonomyConfig?.restrictedEntryConfirmationRequired !== false
+          && mode.mode !== 'rest' && !isRestExitGraceActive({ restExitGraceUntilMs: mode.restExitGraceUntilMs, nowMs }) });
+      if (forcedAdmission.ok && forcedAdmission.action === 'confirm' && hasSharedForcedUseConfirmation(forcedAdmission)) {
+        forcedAdmission = { ...forcedAdmission, action: 'allow' };
+      }
+    } else {
     const initialized = await ensureForcedUseContributions();
     const identity = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id']);
     const derived = initialized.ok ? await readForcedUseDay({ profileId: identity.cloud_profile_id,
@@ -900,6 +916,7 @@ async function handleAccessObserved(event = {}) {
       domain, quotaBucket, advisoryWindow: windowFact, reminderState: progress,
       identityKey, ruleKey, forcedUsageSeconds: derived.ok ? derived.seconds : null,
       classification: siteClassification.classification, observedAt: nowMs });
+    }
     if (forcedAdmission.action === 'block' || forcedAdmission.ok === false) {
       const reasons = forcedAdmission.reasons || [];
       const reason = reasons.includes('dailyComposite') ? 'quota_undetermined'
@@ -915,7 +932,10 @@ async function handleAccessObserved(event = {}) {
         classification: siteClassification.classification });
     }
     if (quotaBucket === 'composite') {
-      const facts = buildForcedUseQuotaFacts(config, quotaResult.usage, forcedPolicy, { date: dateKey, domain });
+      const facts = sharedV2 && !hasApplicableSharedQuota(config, quotaBucket, domain, dateKey)
+        ? { ok: true, quotas: [] }
+        : buildForcedUseQuotaFacts(config, quotaResult.usage, forcedPolicy, { date: dateKey, domain,
+          ...(sharedV2 ? { quotaBucket } : {}) });
       const final = forcedCompositeFinalRemainingSeconds(facts);
       if (!final.ok) return baseDecision({ access: 'reminder', reminder: { reason: 'accounting_unavailable', params: {} }, domain, config });
       forcedCompositeRemaining = final.seconds;
@@ -936,7 +956,7 @@ async function handleAccessObserved(event = {}) {
   const windowCheckAt = new Date(nowMs);
   const hasModeWindows = hasTimeWindowsDaily(config);
   const sharedWindow = mode => {
-    if (!quotaResult?.sharedModel) return getModeWindowStatus(config, mode, windowCheckAt);
+    if (!quotaResult?.sharedModel || sharedV2) return getModeWindowStatus(config, mode, windowCheckAt);
     const local = new Date(nowMs + 28800000);
     const result = sharedAccessAdmissionV1(quotaResult.sharedModel.policy,
       { date: local.toISOString().slice(0, 10), complete: true, remainingMs: { study: null, composite: null, rest: null } },

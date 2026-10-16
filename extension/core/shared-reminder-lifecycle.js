@@ -1,4 +1,5 @@
 // Wire validation only; Service owns issuance, authorization and the timeout clock.
+import { checkSharedReminderStateV2, checkSharedReminderMessageV2 } from './shared-forced-use-runtime-v2.js';
 const ID_FIELDS = ['schemaVersion', 'roundId', 'reminderId', 'deliveryId', 'policyRevision', 'stateRevision'];
 const STATE_FIELDS = [...ID_FIELDS, 'date', 'kinds', 'presenter', 'stage', 'issuedAtMs',
   'offerExpiresAtMs', 'visibleAtMs', 'responseDeadlineSeconds', 'timeoutAction', 'status', 'resolution'];
@@ -19,6 +20,7 @@ export function sharedReminderIdentity(state) {
 }
 
 export function validateSharedReminderMessage(value, method) {
+  if (value?.schemaVersion === 2) return checkSharedReminderMessageV2(value, method);
   const key = method === 'acknowledgeSharedReminderDelivery' ? 'delivery'
     : method === 'resolveSharedReminder' ? 'action' : null;
   if (!key || !exact(value, [...ID_FIELDS, key]) || !identityValid(value)
@@ -29,6 +31,7 @@ export function validateSharedReminderMessage(value, method) {
 }
 
 export function validateSharedReminderState(value, expected = {}) {
+  if (value?.schemaVersion === 2) return checkSharedReminderStateV2(value, expected);
   if (value === null && !expected.roundId) return { ok: true, state: null };
   if (!exact(value, STATE_FIELDS) || !identityValid(value)
     || !/^\d{4}-\d{2}-\d{2}$/.test(value.date)

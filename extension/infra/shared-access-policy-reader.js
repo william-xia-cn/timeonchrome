@@ -1,9 +1,10 @@
-import { validateSharedAccessPolicyV1 } from '../core/shared-access-policy.js';
+import { validateSharedAccessPolicyV1, validateSharedAccessPolicyV2 } from '../core/shared-access-policy.js';
 import { runStorageMutation } from './storage-budget.js';
-import { readSharedAccessPolicyCloudScope, readCloudSharedAccessPolicy } from './cloud-sync.js';
+import { readSharedAccessPolicyCloudScope, readCloudSharedAccessPolicy, readCloudSharedAccessPolicyV2 } from './cloud-sync.js';
 import { hasSharedAccessPolicyCapability, observeSharedAccessPolicyCapability } from './native-host-client.js';
 
 export const SHARED_ACCESS_POLICY_LKG_KEY = 'shared_access_policy_lkg_v1';
+export const SHARED_ACCESS_POLICY_V2_LKG_KEY = 'shared_access_policy_lkg_v2';
 const IDENTITY_KEYS = ['cloud_device_id', 'cloud_profile_id', 'cloud_device_token'];
 const FORBIDDEN_CACHE = new Set(['shared_access_unauthorized', 'shared_access_unbound', 'shared_access_unsupported', 'shared_access_identity_mismatch']);
 const MAX_CACHE_BYTES = 32 * 1024;
@@ -32,11 +33,11 @@ async function capturedContext(readContext) {
 // Internal captured identity for read-only consumers. Never sent to UI or logs.
 export async function readSharedAccessPolicyContext() { return capturedContext(readCurrentContext); }
 
-async function validRecord(value, scopeHash) {
+async function validRecord(value, scopeHash, validate = validateSharedAccessPolicyV1) {
   if (!value || Object.keys(value).length !== 6 || value.schemaVersion !== 1 || value.scopeHash !== scopeHash
     || !Number.isSafeInteger(value.receivedAtMs) || value.receivedAtMs < 0
     || !/^[0-9a-f]{64}$/.test(value.policyHash) || new TextEncoder().encode(JSON.stringify(value)).length > MAX_CACHE_BYTES) return null;
-  const checked = validateSharedAccessPolicyV1(value.policy);
+  const checked = validate(value.policy);
   if (!checked.ok || checked.version !== value.version || await hash(checked.canonical) !== value.policyHash) return null;
   return { ...value, policy: checked.policy };
 }
@@ -44,7 +45,8 @@ async function validRecord(value, scopeHash) {
 export function createSharedAccessPolicyReader({ enabled = false, readContext = readCurrentContext,
   request = readCloudSharedAccessPolicy, supported = hasSharedAccessPolicyCapability,
   readCache = async () => (await chrome.storage.local.get(SHARED_ACCESS_POLICY_LKG_KEY))[SHARED_ACCESS_POLICY_LKG_KEY],
-  mutate = runStorageMutation, now = Date.now, requestTimeoutMs = 15000 } = {}) {
+  mutate = runStorageMutation, now = Date.now, requestTimeoutMs = 15000,
+  validate = validateSharedAccessPolicyV1, cacheKey = SHARED_ACCESS_POLICY_LKG_KEY } = {}) {
   let generation = 0;
   let controller = null;
   let current = null;
@@ -61,7 +63,7 @@ export function createSharedAccessPolicyReader({ enabled = false, readContext = 
   async function fallback(epoch, scope, errorCode) {
     if (!await matches(epoch, scope)) return fail('shared_access_identity_changed');
     if (blockedScope === scope) return fail('shared_access_authorization_unavailable');
-    const cached = await validRecord(await readCache(), scope);
+    const cached = await validRecord(await readCache(), scope, validate);
     if (!await matches(epoch, scope)) return fail('shared_access_identity_changed');
     current = cached;
     return cached ? present(cached, 'lkg', errorCode) : fail(errorCode);
@@ -98,16 +100,16 @@ export function createSharedAccessPolicyReader({ enabled = false, readContext = 
           blockedScope = context.scopeHash;
           await mutate(async storage => {
             if (!await matches(epoch, context.scopeHash)) return;
-            const record = (await storage.get(SHARED_ACCESS_POLICY_LKG_KEY))[SHARED_ACCESS_POLICY_LKG_KEY];
+            const record = (await storage.get(cacheKey))[cacheKey];
             if (record?.scopeHash === context.scopeHash && await matches(epoch, context.scopeHash)) {
-              await storage.remove(SHARED_ACCESS_POLICY_LKG_KEY);
+              await storage.remove(cacheKey);
             }
           }, { priority: 'derived', source: 'shared_policy_authorization' });
           return fail(errorCode);
         }
         return await fallback(epoch, context.scopeHash, errorCode);
       }
-      const checked = validateSharedAccessPolicyV1(response.policy);
+      const checked = validate(response.policy);
       if (!checked.ok) return await fallback(epoch, context.scopeHash, checked.errorCode);
       const record = { schemaVersion: 1, scopeHash: context.scopeHash, version: checked.version,
         policyHash: await hash(checked.canonical), policy: checked.policy, receivedAtMs: now() };
@@ -115,12 +117,12 @@ export function createSharedAccessPolicyReader({ enabled = false, readContext = 
         || new TextEncoder().encode(JSON.stringify(record)).length > MAX_CACHE_BYTES) return fail('shared_access_invalid_policy');
       const committed = await mutate(async storage => {
         if (!await matches(epoch, context.scopeHash)) return fail('shared_access_identity_changed');
-        const previous = await validRecord((await storage.get(SHARED_ACCESS_POLICY_LKG_KEY))[SHARED_ACCESS_POLICY_LKG_KEY], context.scopeHash);
+        const previous = await validRecord((await storage.get(cacheKey))[cacheKey], context.scopeHash, validate);
         if (previous?.version > record.version) return fail('shared_access_stale_policy');
         if (previous?.version === record.version && previous.policyHash !== record.policyHash) return fail('shared_access_policy_conflict');
         if (previous && record.policy.effectiveAtMs < previous.policy.effectiveAtMs) return fail('shared_access_stale_policy');
         if (!await matches(epoch, context.scopeHash)) return fail('shared_access_identity_changed');
-        await storage.set({ [SHARED_ACCESS_POLICY_LKG_KEY]: record });
+        await storage.set({ [cacheKey]: record });
         return { ok: true };
       }, { priority: 'derived', source: 'shared_policy_lkg' });
       if (!await matches(epoch, context.scopeHash)) return fail('shared_access_identity_changed');
@@ -146,6 +148,32 @@ export function createSharedAccessPolicyReader({ enabled = false, readContext = 
 }
 
 let reader = null;
+let v2Reader = null;
+export function createSharedAccessPolicyV2Reader(options = {}) {
+  return createSharedAccessPolicyReader({
+    request: readCloudSharedAccessPolicyV2, validate: validateSharedAccessPolicyV2,
+    cacheKey: SHARED_ACCESS_POLICY_V2_LKG_KEY,
+    readCache: async () => (await chrome.storage.local.get(SHARED_ACCESS_POLICY_V2_LKG_KEY))[SHARED_ACCESS_POLICY_V2_LKG_KEY],
+    ...options,
+  });
+}
+export function readSharedAccessPolicyV2Lkg() {
+  return v2Reader?.read() || Promise.resolve(fail('shared_access_disabled'));
+}
+export function initSharedAccessPolicyV2Reader({ isEnabled = () => false } = {}) {
+  if (v2Reader) return;
+  v2Reader = createSharedAccessPolicyV2Reader({ enabled: true, supported: isEnabled });
+  const refresh = () => { void v2Reader.refresh().catch(() => {}); };
+  chrome.runtime.onStartup.addListener(refresh);
+  chrome.runtime.onInstalled.addListener(refresh);
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || ![...IDENTITY_KEYS, 'guardian_config'].some(key => Object.hasOwn(changes, key))) return;
+    v2Reader.invalidate(); refresh();
+  });
+  chrome.alarms.create('shared_access_policy_v2_refresh', { periodInMinutes: 5 });
+  chrome.alarms.onAlarm.addListener(alarm => { if (alarm?.name === 'shared_access_policy_v2_refresh') refresh(); });
+  refresh();
+}
 export function configureSharedAccessPolicyReader({ enabled = false } = {}) {
   return reader?.configure(enabled) || Promise.resolve(fail('shared_access_disabled'));
 }

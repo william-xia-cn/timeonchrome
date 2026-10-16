@@ -16,14 +16,20 @@ function validLimit(value) {
   return value === null || Number.isInteger(value) && value >= 0;
 }
 
-export function buildForcedUseQuotaFacts(config, usage, policy, { date, domain } = {}) {
+export function buildForcedUseQuotaFacts(config, usage, policy, { date, domain, quotaBucket } = {}) {
   if (usage?.ok !== true || !policy?.enabled || !policy.quotaOverrunMinutes
     || typeof date !== 'string' || domain !== undefined && (typeof domain !== 'string' || !domain)) {
     return { ok: false, reason: 'quota_facts_unavailable' };
   }
   const effective = getEffectiveQuotaForDate(config, date).todayEffectiveQuota;
   const quotas = [];
+  const applicable = quotaBucket === undefined ? null : {
+    study: ['dailyStudy', 'dailyOnline', 'domain'], composite: ['dailyComposite', 'dailyOnline', 'domain'],
+    rest: ['dailyRest', 'weeklyRest', 'dailyOnline', 'domain'], other: ['dailyOnline', 'domain'],
+  }[quotaBucket];
+  if (quotaBucket !== undefined && !applicable) return { ok: false, reason: 'quota_bucket_unavailable' };
   for (const [id, usageField, limitField] of FIELDS) {
+    if (applicable && !applicable.includes(id)) continue;
     const limit = effective[limitField];
     if (!validLimit(limit)) return { ok: false, reason: 'quota_limit_invalid' };
     if (limit === null) continue;

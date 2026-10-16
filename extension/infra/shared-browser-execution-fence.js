@@ -3,7 +3,10 @@ const IDENTITY = ['schemaVersion', 'roundId', 'reminderId', 'deliveryId', 'polic
 
 export async function browserExecutionIdentityHash(value) {
   const fields = Object.hasOwn(value, 'triggerStateRevision') ? [...IDENTITY, 'triggerStateRevision'] : IDENTITY;
-  const bytes = new TextEncoder().encode(JSON.stringify(fields.map(key => value[key])));
+  const identity = fields.map(key => value[key]);
+  if (value.schemaVersion === 2) identity.push(['schemaVersion', 'revision', 'effectiveAtMs', 'stage', 'policyHash']
+    .map(key => value.policyIdentity?.[key]));
+  const bytes = new TextEncoder().encode(JSON.stringify(identity));
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }

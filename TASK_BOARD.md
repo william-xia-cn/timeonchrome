@@ -1,5 +1,31 @@
 # TASK_BOARD
 
+## NOW：Windows共享消费者接续（2026-10-16，源码与隔离验证）
+
+最终结果：集中1.54.0固定包与生产消费者接线完成；source-statistics-shadow、local-guardian（25条真实C#响应回放）、shared-access-runtime/integration/policy-reader、forced-use-prompt、shared-reminder-lifecycle/content-bridge、shared-browser-activity/executor、163项mode-service、typecheck、扩展根及diff检查通过。真实隔离扩展VPS6Ud通过首访问pending-entry到ACTIVE、合并复提醒、正常关闭取消及Composite超时强制关闭，使用契约状态机与加速时钟，不冒充真实Native联通或计时精度验收。最终桌面/窄屏DOM截图已核对，文字、原因合并、手动输入及布局Matched；同规则跨标签、跨日/异规则/新增原因隔离专项通过。没有已知Deviated/Extra；待验为真实Chrome↔Native双端端到端、有限配额缺源无缓存策略裁决。未改原始计时/账本/聚合/上传，不更新候选、重载或启用生产共享。本批按架构交接整包提交，其他历史文档脏改保留。
+
+隔离真实扩展完整入口、合并复提醒、默认关闭执行链及Composite待确认超时专项已通过（VPS6Ud）；复用该产物，不重复运行未改代码。真实C#回放启动阻塞已定位为夹具漏识别不带channel的兼容V1健康探针，仅修正测试分派后验证真实响应兼容，不调整产品探针或记账行为。
+
+收口验证补同规则跨标签沿用、不同规则及跨日失效的协调器断言；浏览器状态机替身ACK补齐outcome字段，真实Native外层兼容由25条C#响应通过生产客户端回放证明，不将替身等同实机联通。
+
+运行时接线包：升级集中1.52契约，按schema2及独立能力显式适配活动、状态、可见ACK/resolve和执行许可，不将V2请求交给V1解释器。Service单机OR为共享提醒进度唯一权威；控件先暂停及撤销独立token并取得DISMISS确认，后报调度交接，Service确认后才进入共享状态。保留无Host独立路径；不声明未验证能力，不修改ACTIVE/账本/贡献，不制包或启用生产共享。最小测试为现有Native、生命周期、活动和执行专项加V2分支。
+
+协议收口到集中1.54（source 3778dff632b930c1c80a3517c0a64539522ed4c0）：pending-entry只表达待确认、不能推动clock；restrictedEntry不冒充超额；V2一律60秒未确认结束，旧soft timeout字段不影响V2。首访问、周期重判及规则范围确认将接入同一Service调度。无适用额度时不能因共享统计未知而阻断，未知用量保持unknown；有适用额度且缺源无缓存的策略仍待PO集中裁决。先验证完整合成账及无额度场景，保留家庭配置。
+
+V2接线包：核验集中1.51.0包SHA256后更新现有契约锁及生成式JS副本；新增独立V2策略只读缓存与路由，保持V1兼容。来源统计提供同身份、同周期快照给新三桶纯函数；投影保留网页online/domain及同版配置。配置身份改变使在途结果失效。只读专项、策略身份/冲突及实际quota消费者专项为本包最小测试，不构建/安装/启用共享。
+
+共享调度交接准备：为现有forced prompt串行运行时增加按明确token撤销接口；存储先失效、清deadline及Content撤销ACK后才报告完成，拒绝旧按钮和旧timeout。交接接口不执行放行、阻断或媒体恢复，不改变已结算派生贡献；正式调用等待集中运行时V2契约，禁止两端同时弹窗或相加本机进度。
+
+本包结果：集中1.51包哈希71e17887912422e51fddbe381674b21bd8ea98e73ac995390162260b18b248bf已核验，生成式副本与锁已接。V2严格策略/独立LKG/真实GET路由/同版本自主度冲突/初始化幂等专项通过；新三桶投影和真实quota消费者专项通过，Composite不转Rest、网页online/domain保留，关闭超额确认到线阻断。来源读取每次重读本机web最新量，改绑和跨周隔离通过。prompt交接暂停/明确token撤销/缺ACK失败/旧点击及timeout无效/恢复不复活旧token通过。Native只读专项、typecheck、扩展根检查和diff通过。Matched：源码只读与核算接点、V1兼容、单轮交接API；Missing且未冒报：集中运行时V2包后的真实调度接入与双端验收。未触及原账或网页计时；未提交、候选、安装、启用共享或生产配置。既有其他文档脏改保留。
+
+接续范围：后台bootstrap完成后初始化来源统计只读刷新，以既有激活及监控开关控制，不以旧shared执行状态作为数据读取条件；来源不可用保持显式不完整。新V2访问接管等待架构通过验证的集中契约，已反馈online及单站点来源边界。
+
+后台接线typecheck通过；架构裁决online及domain继续网页专属，三桶共享不覆盖原配置整体。新增默认关闭、改绑、跨周断言因夹具缺依赖stub及误用available字段连续两次失败，修正后依据本轮完整实施与必要验证授权定点复验通过。后台启动本身目前为源码接线与类型证据，尚无真实浏览器启动验收。集中V2契约源码build及架构专项已通过，发布包仍待集中封装。当前代码未提交、未构建候选。
+
+首包验证：恢复只读cloud查询、Native串行交换和来源/LKG消费者，1.50仅取只读验证合并子集，排除旧借用投影；默认关闭、未接background启动。source-statistics-shadow、local-guardian（含交换成功及错误阶段拒绝）、typecheck、diff-check通过。Native夹具先补新增导入；后续原健康探针等待曾偶发超时，未改断言复验通过。已回报架构，后续采用集中契约projectIndependentSharedQuotaSeconds，应用明确新配置优先、缺省继承。未提交、构建、重载、发布或启用共享；真实双端联验尚未执行。
+
+沿架构交接，仅extension-local：核对现行统一配置与提醒契约；恢复806abac已有source-statistics只读分域读取和串行Native交换，网页本机最新加cloud-other、应用Native总量优先再cloud-all再同身份周期LKG，不双加。原提交未进入本固定分支；当前shared-access-runtime仍依赖旧basis/replacementVersions，不可用于新模型。公共契约由架构集中修订，不恢复旧复合转借或旧软提醒。分步核对读取、缓存、身份/断连保护，最小source-statistics-shadow/local-guardian专项与typecheck；不跑全量，不创建候选、不重载、不发布、不改真实档案或启用生产共享。原始网页账、统计、ACTIVE及上传不改；若必须触及按D-076单项批准。整体共享执行待新版契约及两端隔离联验，不以只读通过冒称完成。
+
 ## 强行使用提醒原因与用量展示（2026-10-16，1.7.49已托管）
 
 后续PO明确授权提交、推送及托管：源码3dc9731经PR282合入master ddb5e72，CI 38806762712通过。managed隐私边界与渠道16/16专项通过，复用同产品代码的既有专项/目视证据。deployment 48c0fc9c；CRX 649346字节，SHA256 a59f7ee910c573e550a30828b28161856e5a86756269e43b39858f2820dce9f6；签名/稳定ID及双域名六项回读通过，22个旧包保留。只读终端日志确认04:42合并weeklyRest/timeWindow并visible、04:44单独timeWindow并visible；最新上报1.7.48，1.7.49安装待观察。本次不改家庭配置，不将Native状态等同Chrome同步状态。下述未发布说明为更新前阶段记录。

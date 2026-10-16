@@ -7,6 +7,7 @@ import { recordSyncHealth } from './diagnostic-evidence.js';
 import { DEFAULT_CONFIG } from './storage.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 import { readDowntimeConfig } from '../core/downtime.js';
+import { validateSourceStatisticsQuery } from '../core/shared-contracts/1.54.0/source-statistics.js';
 import {
   buildSiteClassificationRequestsUploadPayload,
   getPendingSiteClassificationRequestUploads,
@@ -465,6 +466,17 @@ async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {
 export async function readCloudSharedWebCapabilities(options = {}) {
   return readCapturedSharedDeviceJson(options, '/device/shared-web-capabilities/v1');
 }
+export async function readCloudSourceStatistics(options = {}, query = {}) {
+  let body;
+  try {
+    body = { ...query };
+    validateSourceStatisticsQuery(body);
+  } catch (_) { return { ok: false, errorCode: 'source_statistics_invalid_query' }; }
+  if (new TextEncoder().encode(JSON.stringify(body)).length > 16384) return { ok: false, errorCode: 'source_statistics_size_limit' };
+  const response = await readCapturedSharedDeviceJson(options, '/device/source-statistics', body);
+  if (!response.ok) return response;
+  return { ok: true, snapshot: response.value };
+}
 export async function readCloudSharedWebWatermark(options = {}, date) {
   const ms = Date.parse(`${date}T00:00:00Z`);
   if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== date) return { ok: false, errorCode: 'shared_web_invalid_date' };
@@ -494,6 +506,15 @@ export async function readCloudSharedAccessPolicy(options = {}) {
   if (!response.ok) return response;
   const result = response.value;
   if (!result || result.schemaVersion !== 1 || Object.keys(result).length !== 3 || !Object.hasOwn(result, 'policy')
+    || typeof result.profileId !== 'string' || !result.profileId) return { ok: false, errorCode: 'shared_access_invalid_policy' };
+  return { ok: true, profileId: result.profileId, policy: result.policy };
+}
+
+export async function readCloudSharedAccessPolicyV2(options = {}) {
+  const response = await readCapturedSharedDeviceJson(options, '/device/shared-access/v2');
+  if (!response.ok) return response;
+  const result = response.value;
+  if (!result || result.schemaVersion !== 2 || Object.keys(result).length !== 3 || !Object.hasOwn(result, 'policy')
     || typeof result.profileId !== 'string' || !result.profileId) return { ok: false, errorCode: 'shared_access_invalid_policy' };
   return { ok: true, profileId: result.profileId, policy: result.policy };
 }

@@ -105,7 +105,7 @@ function emptyQuotaState(extra = {}) {
 }
 
 async function evaluateQuotaStateV2(config, calendar, effectiveQuota, capturedUsage = null,
-  { sharedRuntime = false } = {}) {
+  { sharedRuntime = false, sharedPolicyVersion = 1 } = {}) {
   const usage = capturedUsage || await getQuotaUsageForConfig(config, calendar.date);
   await chrome.storage.local.remove(CLOUD_QUOTA_STATE_FACT_KEY).catch(() => {});
   if (usage?.ok === false) {
@@ -129,7 +129,7 @@ async function evaluateQuotaStateV2(config, calendar, effectiveQuota, capturedUs
     };
   }
 
-  const forcedPolicy = sharedRuntime ? { enabled: false } : readForcedUsePolicy(config);
+  const forcedPolicy = sharedRuntime && sharedPolicyVersion !== 2 ? { enabled: false } : readForcedUsePolicy(config);
   const forcedHard = forcedPolicy.enabled
     ? buildForcedUseHardQuotaState(config, usage, forcedPolicy, { date: calendar.date })
     : null;
@@ -207,8 +207,8 @@ export async function evaluateQuotaState() {
     const projected = projectSharedRuntimeQuota(config, sharedModel, web?.ok ? web.usage : { ok: false }, calendar.date);
     const runtimeConfig = projected.config || { ...config, timeQuota: { ...config.timeQuota, accountingVersion: 2 } };
     return { ...await evaluateQuotaStateV2(runtimeConfig, calendar, getEffectiveQuotaForDate(runtimeConfig, calendar.date), projected.usage,
-      { sharedRuntime: true }),
-      sharedRuntime: true, sharedModel: projected.ok ? sharedModel : null };
+      { sharedRuntime: true, sharedPolicyVersion: sharedModel?.policy?.schemaVersion }),
+      sharedRuntime: true, sharedModel: sharedModel?.ok ? sharedModel : null };
   }
   if (getQuotaAccountingVersion(config) === 2) {
     return evaluateQuotaStateV2(config, calendar, effectiveQuota);

@@ -18,7 +18,7 @@ vm.runInNewContext(ts.transpileModule(source, {
 })[name], crypto: { randomUUID: () => 'test-token' } });
 
 function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = false,
-  evidenceFails = false, diagnosticFails = false } = {}) {
+  evidenceFails = false, diagnosticFails = false, dismissFails = false } = {}) {
   const diagnostics = [];
   const values = {}, messages = [], blocks = [], grants = [], alarms = [], evidence = [], closures = [];
   let clock = 1000;
@@ -32,6 +32,7 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
     if (['SHOW_REST_USAGE_REMINDER', 'ACTIVATE_REST_USAGE_REMINDER'].includes(payload.type)) {
       return { ok: true, visible: true, confirmationVersion: 1 };
     }
+    if (payload.type === 'DISMISS_REST_USAGE_REMINDER') return dismissFails ? null : { ok: true, visible: false };
     return { ok: true };
   } }, alarms: { create: async (name, value) => alarms.push([name, value]), clear: async () => true } };
   const storage = { get: async key => ({ [key]: values[key] }), set: async next => Object.assign(values, next) };
@@ -51,6 +52,38 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
 
 (async () => {
   const f = fixture();
+  const handoff = fixture();
+  await handoff.runtime.request({ tabId: 7, host: 'wiki.example', admission: handoff.admission });
+  assert.equal((await handoff.runtime.readIndependentRound()).roundId, 'test-token');
+  assert.equal((await handoff.runtime.retireIndependentRound('other-token')).error, 'independent_round_changed');
+  assert.equal(handoff.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt.token, 'test-token');
+  assert.equal((await handoff.runtime.retireIndependentRound('test-token')).retiredIndependentRoundId, 'test-token');
+  const lateAction = await handoff.runtime.handleAction({ token: 'test-token', action: 'continue',
+    confirmationText: '强行使用' }, { tab: { id: 7 }, frameId: 0 });
+  assert.equal(lateAction.error, 'stale_prompt');
+  handoff.setClock(61000);
+  assert.equal((await handoff.runtime.checkDeadline()).pending, false);
+  assert.equal(handoff.blocks.length, 0);
+  assert.equal(handoff.grants.length, 0);
+  assert.equal(handoff.messages.some(([,message]) => message.type === 'RESUME_REST_USAGE_MEDIA'), false);
+  assert.equal((await handoff.runtime.retireIndependentRound('test-token')).ok, true, 'retirement retry is idempotent');
+  assert.equal((await handoff.runtime.request({ tabId: 7, host: 'wiki.example', admission: handoff.admission })).error,
+    'independent_prompt_suspended', 'new local round cannot race with Service ownership handoff');
+  assert.equal((await handoff.runtime.recover()).skipped, 'independent_prompt_suspended');
+  await handoff.runtime.resumeIndependent();
+  assert.equal(handoff.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt, null, 'resuming never restores the old round');
+  const noRound = fixture();
+  assert.equal((await noRound.runtime.retireIndependentRound(null)).ok, true);
+  assert.equal((await noRound.runtime.request({ tabId: 7, host: 'wiki.example', admission: noRound.admission })).error,
+    'independent_prompt_suspended');
+  const failedRetirement = fixture({ dismissFails: true });
+  await failedRetirement.runtime.request({ tabId: 7, host: 'wiki.example', admission: failedRetirement.admission });
+  assert.equal((await failedRetirement.runtime.retireIndependentRound('test-token')).error,
+    'independent_display_retirement_failed', 'missing UI ACK cannot be reported as a completed handoff');
+  assert.equal(failedRetirement.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt, null);
+  failedRetirement.setClock(61000);
+  await failedRetirement.runtime.checkDeadline();
+  assert.equal(failedRetirement.blocks.length, 0, 'revoked action remains invalid even when cleanup ACK is lost');
   assert.equal((await f.runtime.request({ tabId: 7, host: 'wiki.example', admission: f.admission })).ok, true);
   assert.deepEqual(f.messages.slice(0, 2).map(([, payload]) => payload.type),
     ['SHOW_REST_USAGE_REMINDER', 'ACTIVATE_REST_USAGE_REMINDER']);
