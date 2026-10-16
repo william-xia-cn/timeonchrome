@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import {validateSharedBrowserActivityV2,advanceSharedForcedUseClock,acknowledgeSharedReminderDeliveryV2,
   resolveSharedReminderV2,expireSharedReminderV2,receiveSharedBrowserActivityV2,
   validateSharedBrowserExecutionV2,validateSharedBrowserExecutionAckV2,validateSharedBrowserActivityAckV2,
-  validateSharedReminderStateV2} from './dist/shared-reminder-lifecycle.js';
+  validateSharedReminderStateV2,validateSharedReminderStateQueryV2} from './dist/shared-reminder-lifecycle.js';
 import {projectSharedAccessPolicyV2,createSharedAccessPolicyIdentityV2} from './dist/shared-access.js';
 import { acknowledgeSharedReminderDelivery, resolveSharedReminder, expireSharedReminder,
   validateSharedReminderDeliveryAck, validateSharedReminderResolution,
@@ -15,10 +15,15 @@ import { acknowledgeSharedReminderDelivery, resolveSharedReminder, expireSharedR
   sharedBrowserExecutionEligibility, acknowledgeSharedBrowserExecution } from './dist/shared-reminder-lifecycle.js';
 const data=JSON.parse(fs.readFileSync(new URL('./shared-reminder-lifecycle.vectors.json',import.meta.url),'utf8'));
 const policyV2=projectSharedAccessPolicyV2({},9,100);policyV2.stage='shared';
+assert.deepEqual(validateSharedReminderStateQueryV2({schemaVersion:2,date:'2026-10-16'}),{schemaVersion:2,date:'2026-10-16'});
+for(const query of [{date:'2026-10-16'},{schemaVersion:1,date:'2026-10-16'},
+  {schemaVersion:2,date:'2026-02-30'},{schemaVersion:2,date:'2026-10-16',childId:'other'}])
+  assert.throws(()=>validateSharedReminderStateQueryV2(query));
 const identityV2=await createSharedAccessPolicyIdentityV2(policyV2);
 const activityV2={schemaVersion:2,leaseId:'lease',activityId:'activity',sequence:1,status:'active',quotaBucket:'composite',
   presentationEligible:false,policyIdentity:identityV2,ruleScopeKey:'a'.repeat(64),reasonCodes:['timeWindow'],independentRoundId:null};
 assert.equal(validateSharedBrowserActivityV2(activityV2).quotaBucket,'composite');
+assert.deepEqual(validateSharedBrowserActivityV2({...activityV2,quotaBucket:'rest',reasonCodes:['restrictedEntry']}).reasonCodes,['restrictedEntry']);
 assert.throws(()=>validateSharedBrowserActivity(activityV2));
 for(const patch of [{schemaVersion:1},{forcedUsageSeconds:10},{childId:'other'},{reasonCodes:['diagnostic']},
   {policyIdentity:{...identityV2,schemaVersion:1}},{status:'inactive'},{ruleScopeKey:'https://private.test'}])

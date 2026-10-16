@@ -16,6 +16,12 @@
 
 重连回复显式确认已撤销本次请求携带的独立roundId后，控件才能把调度交给Service；旧动作令牌随本地独立轮次撤销。State V2携带完整policyIdentity、原因及entry/repeat，ACK/resolve绑定其schema、round/reminder/delivery/revision/stateRevision；不能经V1处理器解释。强制结束只由Service本地超时/硬限制决定，主动结束仅正常关闭，未送达不算用户超时。具体纯协议验证完成后由两端接到现有真实Presenter/Closer；不因DTO存在宣称联调完成。
 
+State查询V2显式为getSharedReminderState payload {schemaVersion:2,date}；旧{date}仍走V1，不凭Host能力猜版本。State不重复保存日账/余额展示，展示读取同policyIdentity下现有配额读模型；State累计与确认基线仅用于本机再次提醒时长。V2严格校验日期/额外字段，不允许客户端选择孩子或用户。
+
+正常进入受限娱乐的确认使用独立原因restrictedEntry，不能借quota/timeWindow原因伪装超额；仅该原因不构成强行使用计时资格，不推进强行使用调度钟。它复用统一进入确认界面与Service本机轮次，是否要求确认来自原restrictedEntryConfirmationRequired。
+
+新身份动作诊断复用现有programInstancePolicy心跳字段及runtime_program_policy_status_v1的JSON存储，新增schemaVersion2报告：用户/分配、configurationVersion和可空latestResult；结果沿Native真实resultId/sequence/configurationVersion/nativeId/outcome/reasonCode。没有结果表示未知，不把已发送快照或策略ACK当动作成功，不拿catalogVersion冒充配置版本。归属仍由认证机器和当前分配核验；读取同家庭，配置版本已过期或机器离线时保留实际历史结果并标明状态，不能冒称当前配置执行成功。无需新表/迁移，旧schema1报告保持原义；不在本批构造历史动作记录。
+
 PO明确新旧配置优先级：同一目标已有明确Native应用身份配置时采用它，包括显式非blocked覆盖旧产品blocked；新配置不存在时才继承旧配置。不得叠加两个可写配置源，也不得迁移或改写现有管理键。
 
 ## 2026-10-16 独立应用统计上传改接：已查实的断点及实施边界

@@ -1,4 +1,5 @@
-import {parseProgramInstancePolicyStatusReport} from '@timeonchrome/app-runtime-contracts';
+import {parseProgramInstancePolicyStatusReport,parseNativeApplicationControlStatusReport} from '@timeonchrome/app-runtime-contracts';
+import {getAppPolicy} from './appPolicy';
 import type {MachineSelfResponse} from './contracts';
 import {HttpError} from './http';
 
@@ -7,7 +8,8 @@ export async function programPolicyStatusReady(db:D1Database):Promise<boolean> {
 }
 
 export async function receiveProgramPolicyStatus(db:D1Database,machine:MachineSelfResponse,input:unknown,nowMs:number) {
-  const report=(()=>{try{return parseProgramInstancePolicyStatusReport(input);}
+  const report=(()=>{try{return input&&typeof input==='object'&&'schemaVersion' in input&&input.schemaVersion===2
+      ?parseNativeApplicationControlStatusReport(input):parseProgramInstancePolicyStatusReport(input);}
     catch{throw new HttpError(400,'INVALID_PROGRAM_INSTANCE_POLICY_STATUS','Invalid adoption report.');}})();
   if(!await programPolicyStatusReady(db))throw new HttpError(503,'PROGRAM_POLICY_STATUS_UNAVAILABLE','Adoption storage unavailable.');
   // Validation and write share one SQL statement: a concurrent reassignment cannot admit a stale scope.
@@ -34,18 +36,24 @@ export async function readProgramPolicyStatus(db:D1Database,accountId:string,mac
     WHERE s.machine_id=?1 AND m.account_id=?2`).bind(machineId,accountId)
     .first<{payload_json:string;received_at_ms:number;last_seen_at_ms:number;revoked_at_ms:number|null;catalog_version:number|null;catalog_schema:number|null}>();
   if(!row)return [];
-  const report=parseProgramInstancePolicyStatusReport(JSON.parse(row.payload_json));
+  const payload=JSON.parse(row.payload_json);
+  const report=payload.schemaVersion===2?parseNativeApplicationControlStatusReport(payload):parseProgramInstancePolicyStatusReport(payload);
   const assignments=await db.prepare(`SELECT a.local_user_id,a.assignment_version,a.protected,a.child_id
     FROM runtime_user_assignments_v2 a WHERE a.machine_id=?1 AND NOT EXISTS(
       SELECT 1 FROM runtime_user_assignments_v2 n WHERE n.machine_id=a.machine_id
       AND n.local_user_id=a.local_user_id AND n.assignment_version>a.assignment_version)`)
     .bind(machineId).all<{local_user_id:string;assignment_version:number;protected:number;child_id:string|null}>();
-  return report.users.map(user=>{
+  return Promise.all(report.users.map(async user=>{
     const assignment=assignments.results.find(a=>a.local_user_id===user.localUserId);
     const scope=assignment?.protected===1&&assignment.child_id!==null&&assignment.assignment_version===user.assignmentVersion;
     const fresh=row.revoked_at_ms===null&&nowMs>=row.received_at_ms&&nowMs-row.received_at_ms<=600_000
       &&nowMs-row.last_seen_at_ms<=600_000;
+    if ('configurationVersion' in user) {
+      const policy=scope?await getAppPolicy(db,accountId,assignment!.child_id!):null;
+      return {...user,model:'nativeApplication' as const,receivedAtMs:row.received_at_ms,
+        currentState:!scope||!fresh?'unknown':user.configurationVersion!==policy?.version?'pending':'reported'};
+    }
     return {...user,receivedAtMs:row.received_at_ms,currentState:!scope||!fresh?'unknown':
       user.state==='accepted'&&(user.catalogVersion!==row.catalog_version||row.catalog_schema!==4)?'pending':user.state};
-  });
+  }));
 }

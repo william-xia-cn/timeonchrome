@@ -232,6 +232,34 @@ it('安装引用存储未就绪明确503，原程序实例登记不受影响',as
   }
 });
 
+it('新身份动作结果经真实心跳持久化且不冒充目录接纳，缺结果未知，跨家庭和改绑隔离',async()=>{
+  const {machine,value,token}=await fixture(),user='a'.repeat(64);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,1,?3,1,'override',0,0)`)
+    .bind(machine.machineId,user,value.childId).run();
+  const configuration=await getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId);
+  const entry={localUserId:user,assignmentVersion:1,configurationVersion:configuration.version,latestResult:null as null|Record<string,unknown>};
+  const report={schemaVersion:2,users:[entry]};
+  const heartbeat=()=>routeV2(new Request('https://runtime.test/v2/machines/heartbeat',{method:'POST',
+    headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
+    body:JSON.stringify({serviceVersion:'test',windowsVersion:'10',architecture:'x64',tamperCount:0,policyState:'applied',programInstancePolicy:report})}),env,100);
+  expect((await heartbeat())?.status).toBe(200);
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,101))
+    .toMatchObject([{model:'nativeApplication',currentState:'reported',configurationVersion:configuration.version,latestResult:null}]);
+  entry.latestResult={resultId:'a'.repeat(32),sequence:1,configurationVersion:configuration.version,nativeId:'native:sample',
+    outcome:'exit_unconfirmed',reasonCode:'NATIVE_APPLICATION_BLOCKED'};
+  expect((await heartbeat())?.status).toBe(200);
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,101))
+    .toMatchObject([{latestResult:{outcome:'exit_unconfirmed'},currentState:'reported'}]);
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,'foreign',machine.machineId,101)).toEqual([]);
+  entry.latestResult.outcome='accepted';
+  await expect(heartbeat()).rejects.toMatchObject({status:400});
+  entry.latestResult.outcome='terminated';
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,2,'other-child',1,'override',0,0)`)
+    .bind(machine.machineId,user).run();
+  await expect(heartbeat()).rejects.toMatchObject({status:409});
+  expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,101))
+    .toMatchObject([{currentState:'unknown',latestResult:{outcome:'exit_unconfirmed'}}]);
+});
 it('新目录接纳经真实心跳持久化，改目录/改绑/离线不冒充当前，跨家庭不可读取',async()=>{
   const {machine,value,token}=await fixture(),user='a'.repeat(64);
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,1,?3,1,'override',0,0)`)

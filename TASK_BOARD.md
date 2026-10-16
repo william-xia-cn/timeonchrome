@@ -35,6 +35,10 @@ V2真实云端下发源码已接：机器shared-access-policy显式schemaVersion
 
 Runtime机器策略现仅对明确报告shared-access-policy-v2的机器返回该能力，改变ETag而不改配置版本，也不声明新runtime已完成；定点真实路由专项1/1（其余74未跑）和backend typecheck通过。1.52运行协议开发包已固定SHA256 9a3502e4768d6439f6875ed8dacbe5a6d7fad1760eae55d9414bdb1a7bef65f0，待两端接实际调度/执行，并非终端候选。统计来源缺失无缓存时的实际访问容错有一项PO问题待答，不阻塞其余代码；当前生产共享仍关闭。
 
+消费者复核补齐：V2 State查询显式{schemaVersion:2,date}，正常娱乐进入使用restrictedEntry真实原因（仅此不推进强行使用钟）。新身份动作状态复用现有心跳programInstancePolicy/JSON存储schema2，按真实Native结果DTO区分terminated/failed/exit_unconfirmed；无结果null，不虚构采纳成功。设备状态函数增加相应文案，无布局/HTML/CSS改动。真实心跳定点新旧报告2/2、能力协商1/1、页面函数专项、契约build/运行/机器状态专项/包兼容及backend typecheck通过；38/74无关测试跳过。首次包兼容检查因1.50旧字面量失败，同步1.53版本后通过，未隐藏首轮失败。
+
+1.53集中开发包SHA256 6b6b087da08336cab4aa747544e9ceed3191d35aab31eea849eed11cd5336925，待两端实际运行消费者与状态上传接线；不作为终端候选或生产上线。源码/契约范围Matched，真实提醒/结束/硬限制及完整Windows联调仍Missing。保留application-accounts原有未提交改动，未动原账/配置/生产。Native/控件当前均为活跃实施，Mac迁移未开始。
+
 固定已安装3011c7e导出核实核心断点：RuntimeServiceCoordinator.ApplicationObjects.cs:25的ReadNativeTargetConfigurationAsync仅有定义，注释明确blocked/quota本批不启动；NativeApplicationManagementApi中的dailyQuotaMinutes只有校验，尚无生产执行消费者。旧product/instance黑名单路径不能充当新NativeId对象执行验收。下一批应集中贯通新对象配置→可核验目标→现有Service/Agent执行→结果回报，先核清新旧配置优先级和撤销语义，保持既有阻止键、不把NativeId塞进productId；原账/统计保持不变。独立额度及提醒不能以打开shared gate代替接线；锁屏/休眠/完整重启仍需安排受控实测，不自动打断用户。当前是实际断点核对及设计接线，尚未改产品或制包。
 
 ## COMPLETED：本轮Windows原账→本机统计→上传→云端→真实页面贯通（2026-10-16）

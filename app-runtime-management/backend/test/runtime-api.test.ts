@@ -502,12 +502,13 @@ describe('Runtime product API', () => {
     expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':removed}})).status).toBe(200);
     expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':`"policy-${enrolled.machineId}-${policy.version}"`}})).status).toBe(200);
     await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET capabilities_json=? WHERE id=?')
-      .bind(JSON.stringify(['shared-access-policy-v2']),enrolled.machineId).run();
+      .bind(JSON.stringify(['shared-access-policy-v2','native-application-control-status-v1']),enrolled.machineId).run();
     const modernResponse=await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':etag}});
     expect(modernResponse.status).toBe(200);
     const modernPolicy=await modernResponse.json<{version:number;capabilities:string[]}>();
     expect(modernPolicy.version).toBe(policy.version);
     expect(modernPolicy.capabilities).toContain('shared-access-policy-v2');
+    expect(modernPolicy.capabilities).toContain('native-application-control-status-v1');
     expect(modernPolicy.capabilities).not.toContain('shared-forced-use-runtime-v2');
     expect(modernResponse.headers.get('etag')).not.toBe(etag);
   });

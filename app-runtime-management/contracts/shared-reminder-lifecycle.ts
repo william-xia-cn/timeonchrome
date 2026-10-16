@@ -1,9 +1,19 @@
 /** Service-issued reminders. These messages never select a child, user or process. */
 import {validateSharedAccessPolicyIdentityV2, type SharedAccessPolicyIdentityV2} from './shared-access.js';
+import {sourceStatisticsDates} from './source-statistics.js';
 
 export const SHARED_FORCED_USE_RUNTIME_V2_CAPABILITY = 'shared-forced-use-runtime-v2' as const;
-export const SHARED_FORCED_USE_REASONS = ['dailyStudy', 'dailyComposite', 'dailyRest', 'dailyOnline', 'weeklyRest', 'domain', 'timeWindow'] as const;
+export const SHARED_FORCED_USE_REASONS = ['restrictedEntry', 'dailyStudy', 'dailyComposite', 'dailyRest', 'dailyOnline', 'weeklyRest', 'domain', 'timeWindow'] as const;
 export type SharedForcedUseReason = typeof SHARED_FORCED_USE_REASONS[number];
+export function validateSharedReminderStateQueryV2(value: unknown): {schemaVersion: 2; date: string} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('INVALID_SHARED_REMINDER_QUERY_V2');
+  const query = value as Record<string, unknown>;
+  if (Object.keys(query).length !== 2 || !Object.hasOwn(query,'date') || query.schemaVersion !== 2 || typeof query.date !== 'string')
+    throw new Error('INVALID_SHARED_REMINDER_QUERY_V2');
+  try { sourceStatisticsDates(query.date,query.date); }
+  catch { throw new Error('INVALID_SHARED_REMINDER_QUERY_V2'); }
+  return {schemaVersion: 2,date: query.date};
+}
 /** 仅当前活动/确认上下文，禁止通过此消息上传统计或选择孩子。 */
 export interface SharedBrowserActivityV2 extends Omit<SharedBrowserActivity, 'schemaVersion' | 'quotaBucket'> {
   schemaVersion: 2;
