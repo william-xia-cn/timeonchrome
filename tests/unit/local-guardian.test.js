@@ -1643,6 +1643,85 @@ async function run() {
     assert.equal(disconnectedDuringBinding.errorCode, 'source_statistics_native_context_changed');
     assert.equal(disconnectedDuringBinding.nativeAttempt.sent, false);
     assert.equal(productionHost.module.hasSharedForcedUseRuntimeV2Capability(), false);
+    const startupStorage = { cloud_profile_id: child, cloud_device_id: 'synthetic-startup-device' };
+    const startupOrder = [];
+    let releaseHealth = null, holdHealth = true, hostMissing = false, advertised = true;
+    const startupOptions = { policy, storage: startupStorage,
+      connectNative: () => {
+        if (hostMissing) throw Error('Host unavailable');
+        return createPort((request, onMessage) => {
+          const isSource = request.messageType === 'exchangeSourceStatistics';
+          const response = structuredClone(isSource ? exchange.response : probe.response);
+          response.requestId = request.requestId; response.receivedAt = Date.now();
+          if (!advertised && !isSource) response.capabilities = ['health'];
+          const reply = () => {
+            startupOrder.push(isSource ? 'exchange' : 'health');
+            queueMicrotask(() => onMessage.listeners.forEach(listener => listener(response)));
+          };
+          if (!isSource && holdHealth) releaseHealth = reply;
+          else reply();
+        });
+      } };
+    const delayedStartup = await loadGuardian(startupOptions);
+    await waitFor(() => releaseHealth !== null);
+    installSourceBinding(delayedStartup, async () => {
+      startupOrder.push('binding');
+      return { ok: true, bindingContextId: 'c'.repeat(64), expiresAtMs: Date.now() + 300_000 };
+    });
+    let startupSettled = false;
+    const startupRead = delayedStartup.module.requestSourceStatisticsExchange(query)
+      .then(result => { startupSettled = true; return result; });
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(startupSettled, false, 'an existing port without its health ACK is not unsupported');
+    assert.deepEqual(startupOrder, []);
+    holdHealth = false; releaseHealth();
+    assert.equal((await startupRead).ok, true);
+    assert.deepEqual(startupOrder, ['health', 'binding', 'exchange']);
+
+    delayedStartup.module.readApplicationIdentityBindingConnection().connection.disconnect();
+    startupOrder.length = 0; releaseHealth = null; holdHealth = true;
+    let contextSettled = false;
+    const reconnectContext = delayedStartup.module.readSourceStatisticsNativeContext({ prepare: true })
+      .then(result => { contextSettled = true; return result; });
+    await waitFor(() => releaseHealth !== null);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(contextSettled, false);
+    holdHealth = false; releaseHealth();
+    const preparedReconnect = await reconnectContext;
+    assert.equal(preparedReconnect.ok, true);
+    assert.equal((await delayedStartup.module.requestSourceStatisticsExchange({ ...query,
+      expectedContextId: preparedReconnect.contextId })).ok, true);
+    assert.deepEqual(startupOrder, ['health', 'binding', 'exchange']);
+
+    hostMissing = true;
+    const coldHost = await loadGuardian(startupOptions);
+    await waitFor(() => startupStorage.local_guardian_status_v1?.lastErrorCode === 'native_host_unavailable');
+    assert.equal(coldHost.module.readApplicationIdentityBindingConnection().connection, null);
+    hostMissing = false; startupOrder.length = 0;
+    installSourceBinding(coldHost, async () => {
+      startupOrder.push('binding');
+      return { ok: true, bindingContextId: 'c'.repeat(64), expiresAtMs: Date.now() + 300_000 };
+    });
+    const coldContext = await coldHost.module.readSourceStatisticsNativeContext({ prepare: true });
+    assert.equal(coldContext.ok, true, 'cold context must be captured after the new connection is negotiated');
+    assert.equal((await coldHost.module.requestSourceStatisticsExchange({ ...query,
+      expectedContextId: coldContext.contextId })).ok, true);
+    assert.deepEqual(startupOrder, ['health', 'binding', 'exchange']);
+
+    advertised = false;
+    const unsupportedHost = await loadGuardian(startupOptions);
+    await waitFor(() => unsupportedHost.module.readApplicationIdentityBindingConnection().connection !== null);
+    assert.equal((await unsupportedHost.module.requestSourceStatisticsExchange(query)).errorCode,
+      'source_statistics_native_unsupported', 'unsupported is only returned after health negotiation');
+    advertised = true; holdHealth = true; releaseHealth = null;
+    const changingStartup = await loadGuardian(startupOptions);
+    await waitFor(() => releaseHealth !== null);
+    const changingContext = changingStartup.module.readSourceStatisticsNativeContext({ prepare: true });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    startupStorage.cloud_profile_id = 'rebound-during-health';
+    holdHealth = false; releaseHealth();
+    assert.equal((await changingContext).errorCode, 'source_statistics_native_context_changed');
+    startupStorage.cloud_profile_id = child;
     console.log('[Source statistics C# wire replay] success, child/date/unit/requestId/connection checks passed');
   }
   const v2PolicyIdentity = { schemaVersion: 2, revision: 'profile-config:1', effectiveAtMs: 0,

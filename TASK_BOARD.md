@@ -1,5 +1,12 @@
 # TASK_BOARD
 
+## 本机统计启动链修复（2026-10-16）
+
+1.7.55启动链收口：PO已明确允许必要聚焦复验并集中更新。local-guardian最终PASS，完整覆盖延迟health ACK等待、首次证明准备、过期刷新、无Port冷启动、重连、真实不支持及改绑/断连，保留生产者合成回放和旧排队用例。source-statistics-shadow专项PASS，验证仅实际refresh入口准备，readSources及终检纯读、准备错误不被覆盖；typecheck/diff通过。方案Matched，仅两infra及两直接测试，不改协议/原账/Native/云端/共享开关。固定提交后唯一1.7.55候选仅两JS与manifest变化，备份核验后原路径更新、manifest最后；不重载/推送/托管，现场成功仍待实机回读。前两失败分别为旧Mac健康探针竞态及已修的已就绪连接错误等待，已按新增PO授权完成复验。
+
+1.7.54冷启动时序修复（PO贯通授权，架构定位）：端口先建立但health ACK未返回时，source能力被提前判为unsupported；完全冷启动先取context再建立端口还会使expectedContextId失效。先文档后最小修复：复用现有health协商并等待真实结果，默认shadow在取得Native context前完成准备；内部发送复核保持纯读取，避免同队列死锁。孩子/设备在协商中变化、断连和真实不支持均明确失败，不移除context fence。验证延迟首ACK、无端口冷启动、重连、证明准备顺序及1.7.54既有回归。仅Native读取infra、source shadow默认context接线和直接测试；不新状态机/协议，不改Native/云端/计时/原账/配额/历史/共享开关；先源码与最小测试交架构审阅，不制包/重载。
+
+
 ## 本机exchange证明准备修复（2026-10-16）
 
 1.7.54集中交付授权：架构已独立审阅证明准备修复，复用PO集中更新授权。只提交本批2infra、2直接测试及本任务块；专项/typecheck/diff通过，原UI未变复用目视证据，方案Matched。固定提交准备唯一1.7.54开发候选，对原1.7.53仅两infra及manifest版本字节差异，权限/ID/key/marker不变，完整备份核验后原加载目录更新、manifest最后。不推送/托管/云端部署/Native安装/启共享，不自动重载；真实读取成功仍待重载实证。其他未提交文档保持原样。

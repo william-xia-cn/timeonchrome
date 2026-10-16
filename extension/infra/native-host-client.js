@@ -1746,12 +1746,20 @@ function sourceStatisticsCapabilityAvailable() {
   return nativePort !== null && sharedNativeV3 && sharedNativeCapabilities.has(SOURCE_STATISTICS_READ_CAPABILITY);
 }
 
-export async function readSourceStatisticsNativeContext() {
+export async function readSourceStatisticsNativeContext({ prepare = false } = {}) {
   try {
     const stored = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id']);
     const childId = typeof stored?.cloud_profile_id === 'string' ? stored.cloud_profile_id : '';
     const deviceId = typeof stored?.cloud_device_id === 'string' ? stored.cloud_device_id : '';
     if (!childId || !deviceId) return { ok: false, errorCode: 'source_statistics_identity_unavailable' };
+    if (prepare) {
+      const ready = await ensureSourceStatisticsCapability();
+      if (!ready.ok) return ready;
+      const latest = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id']);
+      if (latest.cloud_profile_id !== childId || latest.cloud_device_id !== deviceId) {
+        return { ok: false, errorCode: 'source_statistics_native_context_changed' };
+      }
+    }
     const connectionGeneration = applicationConnectionGeneration;
     const contextId = await stableDigest({ connectionGeneration, childId, deviceId });
     return { ok: true, childId, deviceId, contextId, connectionGeneration,
@@ -1760,11 +1768,18 @@ export async function readSourceStatisticsNativeContext() {
 }
 
 async function ensureSourceStatisticsCapability() {
-  if (!nativePort) {
-    const health = await requestLocalGuardianHeartbeat({ trigger: 'source_statistics_shadow' });
-    if (!health.ok && !nativePort) return { ok: false, errorCode: health.errorCode || 'source_statistics_native_unavailable' };
-    if (activeSendPromise) await activeSendPromise.catch(() => {});
+  if (sourceStatisticsCapabilityAvailable()) return { ok: true };
+  if (activeSendPromise) {
+    const pending = await activeSendPromise.catch(() => ({ ok: false, errorCode: 'source_statistics_native_unavailable' }));
+    if (!pending.ok && !sourceStatisticsCapabilityAvailable()) {
+      return { ok: false, errorCode: pending.errorCode || 'source_statistics_native_unavailable' };
+    }
   }
+  if (sourceStatisticsCapabilityAvailable()) return { ok: true };
+  // A port can exist before its first health ACK; a queued probe has a real completion promise.
+  const health = await requestLocalGuardianHeartbeat({ type: 'probe', trigger: 'source_statistics_shadow', force: true });
+  if (!health.ok) return { ok: false, errorCode: health.errorCode || 'source_statistics_native_unavailable' };
+  if (!nativePort) return { ok: false, errorCode: 'native_port_disconnected' };
   return sourceStatisticsCapabilityAvailable() ? { ok: true }
     : { ok: false, errorCode: 'source_statistics_native_unsupported' };
 }

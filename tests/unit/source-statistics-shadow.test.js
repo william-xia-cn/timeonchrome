@@ -23,7 +23,7 @@ const contractSource = read('extension/core/shared-contracts/1.54.0/source-stati
     .replace(/^import .*;\r?\n/gm, '')
     .replace(/^export const /gm, 'const ')
     .replace(/^export (async )?function /gm, '$1function ');
-  const bindings = `const {combineOwnAndOtherStatistics,projectSharedQuotaSeconds,sourceStatisticsDates,validateSourceStatisticsSnapshot,getEffectiveQuotaForDate}=globalThis.__sourceStatisticsShadowDeps;\n`;
+  const bindings = `const {combineOwnAndOtherStatistics,projectSharedQuotaSeconds,sourceStatisticsDates,validateSourceStatisticsSnapshot,getEffectiveQuotaForDate}=globalThis.__sourceStatisticsShadowDeps;\nconst readSourceStatisticsNativeContext=options=>globalThis.__sourceStatisticsNativeContext(options);\n`;
   const exports = '\nexport { SOURCE_STATISTICS_SHADOW_KEY, SOURCE_STATISTICS_SHADOW_CACHE_KEY, buildLocalWebSourceSnapshot, createSourceStatisticsShadow, sourceStatisticsWeekRange };';
   return dataModule(`${bindings}${source}${exports}`);
 }
@@ -107,6 +107,34 @@ async function run() {
     write: async (items, options) => { writes.push(options); Object.assign(storage, items); },
     now: () => currentTime,
   });
+
+  let preparedReads = 0;
+  globalThis.__sourceStatisticsNativeContext = async options => {
+    if (options?.prepare === true) preparedReads++;
+    return nativeContext();
+  };
+  const defaultNativeReader = mod.createSourceStatisticsShadow({
+    readContext: async () => ({ apiBase: 'https://example.invalid', childId: CHILD,
+      deviceToken: 'never-persist', scopeHash }),
+    nativeExchange: async () => ({ ok: true, source: 'native', snapshot: applicationSnapshot(),
+      contextId: 'native-context', connectionGeneration: 7 }),
+    cloudRead: async (_credentials, query) => ({ ok: true,
+      snapshot: query.source === 'web' ? webOtherSnapshot() : applicationSnapshot() }),
+    isEnabled: () => true, now: () => currentTime,
+    readModel: async ({ date }) => localModel(date, localSeconds[RANGE.dates.indexOf(date)]),
+    storage: { get: async () => ({}) }, write: async () => ({ ok: true }),
+  });
+  assert.equal((await defaultNativeReader.refresh({ force: true })).report.source.application.origin, 'native');
+  assert.equal(preparedReads, 1, 'only refresh entry prepares the Native context');
+  await defaultNativeReader.readSources(RANGE.toDate);
+  assert.equal(preparedReads, 1, 'cache reads and final identity checks never negotiate');
+  globalThis.__sourceStatisticsNativeContext = async options => {
+    return { ok: false, errorCode: 'native_port_disconnected' };
+  };
+  const preparationFailed = await defaultNativeReader.refresh({ force: true });
+  assert.equal(preparationFailed.report.nativeAttempt.errorCode, 'native_port_disconnected');
+  assert.equal(preparationFailed.report.nativeAttempt.sent, false);
+  assert.equal(preparationFailed.report.nativeAttempt.responseReceived, false);
 
   const first = await shadow.refresh({ force: true });
   assert.equal(first.ok, true);

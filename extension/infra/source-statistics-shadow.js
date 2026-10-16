@@ -141,11 +141,12 @@ export function createSourceStatisticsShadow({ readContext, nativeContext, nativ
   storage ||= chrome.storage.local;
   write ||= budgetedLocalSet;
 
-  async function currentContext() {
-    const [cloud, native] = await Promise.all([getContext(), nativeContext()]);
+  async function currentContext({ prepare = false } = {}) {
+    const [cloud, native] = await Promise.all([getContext(), nativeContext({ prepare })]);
     if (!cloud?.deviceToken || !cloud?.apiBase || !cloud?.childId || !cloud?.scopeHash)
       throw Error('source_statistics_identity_unavailable');
-    return { cloud, native: native?.ok && native.childId === cloud.childId ? native : null };
+    return { cloud, native: native?.ok && native.childId === cloud.childId ? native : null,
+      nativeErrorCode: native?.ok === false ? native.errorCode : null };
   }
 
   async function readCache(childId, scopeHash, range) {
@@ -202,7 +203,7 @@ export function createSourceStatisticsShadow({ readContext, nativeContext, nativ
   async function fetchApplication(range, context, web, cached, epoch, signal) {
     let fresh = null, origin = null, errorCode = null, nativeConnectionGeneration = null;
     const nativeAttempt = { sent: false, responseReceived: false, accepted: false,
-      errorCode: 'source_statistics_native_context_unavailable', startedAtMs: now(), connectionGeneration: context.native?.connectionGeneration ?? null };
+      errorCode: context.nativeErrorCode || 'source_statistics_native_context_unavailable', startedAtMs: now(), connectionGeneration: context.native?.connectionGeneration ?? null };
     if (context.native) {
       Object.assign(nativeAttempt, { sent: null, responseReceived: null, errorCode: null });
       const result = await withTimeout(Promise.resolve().then(() => nativeExchange({ fromDate: range.fromDate,
@@ -260,7 +261,7 @@ export function createSourceStatisticsShadow({ readContext, nativeContext, nativ
     const signal = controller.signal;
     try {
       const range = sourceStatisticsWeekRange(now());
-      const context = await currentContext();
+      const context = await currentContext({ prepare: true });
       const cached = await readCache(context.cloud.childId, context.cloud.scopeHash, range);
       const web = await fetchWeb(range, context, cached, epoch, signal);
       if (epoch !== generation || signal.aborted) return { ok: false, errorCode: 'source_statistics_context_changed' };
