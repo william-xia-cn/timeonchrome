@@ -13,8 +13,8 @@ import { readSharedAccessPolicyForChild, readSharedAccessPolicyV2ForChild } from
 import { readSharedAccessDayState, readSharedQuotaExecutionBasis, pageSharedQuotaExecutionBasis, type SharedAccessStateEnv } from './sharedAccessState';
 import { createSharedAccessPolicyIdentityV1, type SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { createSharedWebSourceChallenge, createSharedWebMachineScope, readSharedWebVerificationKey, verifyCurrentSharedWebSource } from './sharedWebSourceBinding';
-import { validateSourceStatisticsQuery, validateSourceStatisticsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
-import { readWebSourceStatistics,readSourceStatisticsResponse } from './sourceStatistics';
+import { validateSourceStatisticsQuery, validateSourceStatisticsSnapshot,validateQuotaBucketsQuery,validateQuotaBucketsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
+import { readWebSourceStatistics,readWebQuotaBuckets,readSourceStatisticsResponse } from './sourceStatistics';
 
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
@@ -260,16 +260,19 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     if(!input||['accountId','childId'].some(key=>typeof input[key]!=='string'||!String(input[key]).length||String(input[key]).length>200))return Response.json({code:'INVALID_SCOPE'},{status:400});
     try {
       if(operation==='/readSourceStatistics') {
-        const accountId=String(input.accountId),childId=String(input.childId),query=validateSourceStatisticsQuery(input.query);
+        const buckets=(input.query as {schemaVersion?:unknown})?.schemaVersion===2;
+        const accountId=String(input.accountId),childId=String(input.childId),query=buckets?validateQuotaBucketsQuery(input.query):validateSourceStatisticsQuery(input.query);
         const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(childId,accountId).first();
         if(!owned)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
         if(query.scope!=='all')return Response.json({code:'SOURCE_STATISTICS_INVALID'},{status:400});
-        const value=query.source==='web'?await readWebSourceStatistics(this.env,accountId,childId,query)
+        const value=query.source==='web'?(buckets?await readWebQuotaBuckets(this.env,childId,validateQuotaBucketsQuery(input.query))
+          :await readWebSourceStatistics(this.env,accountId,childId,validateSourceStatisticsQuery(input.query)))
           :this.env.RUNTIME_COMPUTER_USAGE?.fetch?await readSourceStatisticsResponse(await this.env.RUNTIME_COMPUTER_USAGE.fetch(
             new Request('https://runtime-capability/getApplicationSourceStatistics',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId,query})})))
           :null;
         if(!value)throw new Error('SOURCE_STATISTICS_UNAVAILABLE');
-        return Response.json(validateSourceStatisticsSnapshot(value,{source:query.source,childId,fromDate:query.fromDate,toDate:query.toDate}),{headers:{'cache-control':'no-store'}});
+        const expected={source:query.source,childId,fromDate:query.fromDate,toDate:query.toDate};
+        return Response.json(buckets?validateQuotaBucketsSnapshot(value,expected):validateSourceStatisticsSnapshot(value,expected),{headers:{'cache-control':'no-store'}});
       }
       if(operation==='/createSharedWebSourceChallenge'){
         return Response.json(await createSharedWebSourceChallenge(this.env,input),{headers:{'cache-control':'no-store'}});

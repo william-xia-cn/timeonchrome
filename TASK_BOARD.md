@@ -1,5 +1,11 @@
 # TASK_BOARD
 
+## 2026-10-16 集中推送／合并／部署与唯一Windows候选（PO批准，执行中）
+
+PR286集成CI发现兼容测试仍断言旧包版本1.54.0，实际已批准契约为1.55.0。仅修正该测试的版本断言，先运行完整契约专项及diff检查再继续合并；不改变产品实现、契约内容或候选哈希。
+
+本批统一集成云端8e6dcd3、控件549ea51（含35cfed0）与Native26fdca1；仅部署实际修改的Runtime/Guardian Worker，无Pages产品变化，不执行migration、不改R2/latest，不启共享。最终Windows候选2.6.60与控件1.7.56一次交付，保留配对、配置、原账及outbox。已通过精确源码专项复用，集成/部署/安装/真实读取分别登记；暂存恢复的更早任务板草稿不夹带提交。
+
 ## NOW：Windows完整闭环（包含共享）后再迁移Mac（2026-10-16，PO已明确）
 
 最新裁决已收到：有限适用配额缺源且无有效缓存时采用可用性优先容错，允许使用并提示不完整，已知黑名单/停用/对象限制及已知到硬上限仍执行，未知不补零。已交两端补实际消费者及最小回归；下方“待PO裁决”均为历史状态，不再是当前阻塞。云端8ff3b39相关CI全部success。控件6167b14已push并建立集中PR285；其首次CI失败为scope按两端diff看到落后主线的反向差异，正在保留脏稿普通合并主线，不扩大职责或放宽checker。
@@ -152,8 +158,64 @@ Native已完成最小文件评估并收到源码实施交接：复用同事务�
 - 后续范围：网页与应用共享账管理、共享配额及跨来源共享提醒／限制的整体启用与验收。历史共享待办保留，但不再作为本版发布前置、阻塞或必须完成项。
 - 当前应用原账修订仍由PO直接对接Native；本范围登记不扩大该任务，不把此前Chrome局部通过视作原账结构已全部对齐。网页独立工作按其现有任务继续。
 - 本次只修改范围记录；不改代码、数据、家庭配置或共享开关，不安装、部署或删除既有共享实现。
+
+## 1.7.56集中集成准备（2026-10-16）
+
+1.7.56集中集成准备（2026-10-16，PO授权）：当前加载1.7.55，本批开发候选只递增一次为1.7.56；先版本元数据/设计/变更记录与已通过35cfed0源码集中推送现有codex/extension-local，不新树/分支或逐零件PR。中低风险版本元数据变更，复用本批四专项、typecheck和diff；新增最小manifest纯版本差异及扩展根检查，排除重复全量/E2E及云端操作。候选尚不制作：等待架构给最终合入主线SHA，再从精确源码只制作最终唯一候选、完整备份原目录后更新。共享关闭，权限/ID/metadata/storage/绑定/配置保持，不自动重载、不托管/R2。旧PROJECT_MASTER/CHANGELOG及任务板草稿不混提交。
+
+
+## 共享配额桶读取简化（2026-10-16）
+
+共享桶1.55收口（2026-10-16，源码与隔离PASS，未交付）：4项直接专项local-guardian、source-statistics-shadow、shared-access-runtime、shared-sync-diagnostics及typecheck/diff通过。网页只读现有usage完整桶，自身缓存仍由原读取器负责；已删除local.today重建、web-other前置、来源键、派生统计hash及逐日混填。桥/云/整份成功缓存互斥，可接null，缺源仅临算0并显式missing，不丢另一有效来源；600+600=1200、重复不累加、下降、身份/周期、启动协商/证明/严格接收回归通过。保留既有执行fence摘要，但排除纯读取/截止时间，避免新readAt让确认永远失效；实际桶变化仍失效。不改网页/应用原账、ACTIVE、上传、配置或共享开关。既有诊断仅补新能力/消息、桶原值和已知缺源码中文，不重排UI、不重建诊断总账。实际Native最终Dispatcher/RuntimeJson合成wire冻结tests/fixtures/native-quota-buckets-dispatcher.json，SHA256 eebd518565a27d831babb0eb85c8360c00771e460f5e7228bdd65f5046e6a4b5，生产消费者回放PASS，不是家庭现场验证。契约固定1.55.0，包SHA256 1a0e5efb60711f1e9ce7a84ec6cfa54eea4ab7048402a0cdec108c73f6c0c9db、sourceGitSha 8e6dcd3fb128ed12c7a56c354535b37c39939b43；只新增versioned vendor，不改旧1.54，锁记录同步。方案审计Matched，无未批准Extra；按集中交付授权只提交本批代码/测试/vendor/锁/设计及本任务块，保留PROJECT_MASTER/CHANGELOG等旧草稿；不push/制包/安装/重载/部署/启共享，Windows真实整链验收待后续一次集中交付。本次跨会话发送计划被工具安全审核拒绝，未绕过；精确结果保留此任务块及最终回复供架构读取。
+
+共享配额桶读取简化（2026-10-16，PO批准、未提交实施）：以架构固定树最新决定为准。实施顺序：1）source-statistics-shadow直接从readQuotaReadModelV2.usage包装已有study/composite/rest桶，不读local.today、不额外查询web-other或依赖sourceKeys；2）新增quota-buckets-read-v1/exchangeQuotaBuckets严格V2桶协议，保留V1兼容及已就绪时序/同孩子证明；3）应用桥→云端→同孩子同周期最近成功缓存互斥整份选择，不逐日混填、不派生摘要；4）共享只加已有桶，不重新借用，缺源核算暂按0但标missing，保留另一有效来源；5）自身读取/桥/备用/缓存/600+600/重复/下降/身份周期专项、typecheck、diff。仅终端读取/消费/既有只读诊断及直接测试，契约由架构追加并最终锁版；不改原账/计时/上传/配置，不安装/制包/重载/部署/启共享，不新树。不因未发布契约停止源码验证，结果由架构读取现有工作树。
+
+
+## 本机统计启动链修复（2026-10-16）
+
+1.7.55启动链收口：PO已明确允许必要聚焦复验并集中更新。local-guardian最终PASS，完整覆盖延迟health ACK等待、首次证明准备、过期刷新、无Port冷启动、重连、真实不支持及改绑/断连，保留生产者合成回放和旧排队用例。source-statistics-shadow专项PASS，验证仅实际refresh入口准备，readSources及终检纯读、准备错误不被覆盖；typecheck/diff通过。方案Matched，仅两infra及两直接测试，不改协议/原账/Native/云端/共享开关。固定提交后唯一1.7.55候选仅两JS与manifest变化，备份核验后原路径更新、manifest最后；不重载/推送/托管，现场成功仍待实机回读。前两失败分别为旧Mac健康探针竞态及已修的已就绪连接错误等待，已按新增PO授权完成复验。
+
+1.7.54冷启动时序修复（PO贯通授权，架构定位）：端口先建立但health ACK未返回时，source能力被提前判为unsupported；完全冷启动先取context再建立端口还会使expectedContextId失效。先文档后最小修复：复用现有health协商并等待真实结果，默认shadow在取得Native context前完成准备；内部发送复核保持纯读取，避免同队列死锁。孩子/设备在协商中变化、断连和真实不支持均明确失败，不移除context fence。验证延迟首ACK、无端口冷启动、重连、证明准备顺序及1.7.54既有回归。仅Native读取infra、source shadow默认context接线和直接测试；不新状态机/协议，不改Native/云端/计时/原账/配额/历史/共享开关；先源码与最小测试交架构审阅，不制包/重载。
+
+
+## 本机exchange证明准备修复（2026-10-16）
+
+1.7.54集中交付授权：架构已独立审阅证明准备修复，复用PO集中更新授权。只提交本批2infra、2直接测试及本任务块；专项/typecheck/diff通过，原UI未变复用目视证据，方案Matched。固定提交准备唯一1.7.54开发候选，对原1.7.53仅两infra及manifest版本字节差异，权限/ID/key/marker不变，完整备份核验后原加载目录更新、manifest最后。不推送/托管/云端部署/Native安装/启共享，不自动重载；真实读取成功仍待重载实证。其他未提交文档保持原样。
+
+上述证明准备修复源码验证通过：local-guardian（含真实生产者合成回放、首次准备/已有证明/过期刷新/准备失败不发/改绑与断连）、shared-sync-diagnostics、typecheck、diff检查均PASS；首轮最后的断连夹具复用了已被无效时间响应关闭的连接，改独立连接后通过。队列外准备避免串行死锁，实际发送前再次检查证明期限，排队过期拒绝而不绕过。仅2个infra和2个直接测试；既有source shadow及UI证据复用，界面未改。未提交、未制包、未覆盖1.7.53或重载；等待架构独立审阅，不宣称真实读取已成功。
+
+1.7.53真实读取后续修复（PO既有贯通授权，架构定位）：exchange已实际发送并收到SOURCE_STATISTICS_CONTEXT_CHANGED，而同孩子绑定ACK随后才建立。requestSourceStatisticsExchange遗漏现有applicationIdentityBindingEnsurer前置准备。仅在exchange发送队列外调用既有准备/续期入口，成功后重新核对孩子/设备context、Port和连接代次；准备缺失/失败/过期不发送并保留有界真实错误。直接回归覆盖首次准备、过期刷新、已有证明、准备失败、改绑及断连；保留生产者回放和原有严格校验。中风险Native读取修复，仅native-host-client/现有诊断错误白名单及直接测试，不改Native、协议、云端、记账或共享开关。先源码、相关unit、typecheck及diff，架构复核前不提交、不制包、不更新或重载。
+
+
+## 本机exchange读取诊断收口（2026-10-16）
+
+本机exchange集中收口（2026-10-16）：本批仅4个产品JS、3个直接专项及本任务记录。固定服务端错误白名单保留；实际发送、对应响应、完整接受分别记录，排队不算已发送、超时不算拒绝；备用失败不覆盖本机结果。断连保留当前身份/周期的历史请求，重启无内存attempt时连接归属显示未知。local-guardian最终复验PASS（含C#生产者合成报文回放及排队断言），source-statistics-shadow与shared-sync-diagnostics已通过，typecheck通过；既有隔离桌面/窄屏截图经架构目视Matched。方案审计Matched：不改账本/选择顺序/权限/协议/Native/共享开关。按PO集中更新授权，本批提交后只制作唯一1.7.53开发候选，严格限定4JS及manifest版本差异，备份原目录后manifest最后更新；不推送/托管/云端部署/自动重载。真实本机exchange是否成功仍待一次重载后实证，不以合成回放替代。
+
+PO批准恢复最小贯通实施：Native固定SOURCE_STATISTICS错误白名单原码透传；本机attempt以实际postMessage/相关响应/完整接收校验记录sent/responseReceived/accepted，排队非已发、超时非明确拒绝。沿现有source报告独立保存本机结果及当前scope/周期/连接代次，云端备用不覆盖；只读摘要不展示ChildID/派生指纹/路径/凭据，旧连接结果不得标成当前。不改Native优先/云端备用选择、统计/配额/原账/上传/计时/权限或共享开关。仅相关三组unit、typecheck、diff及诊断隔离目视；先集中源码验证，不提交/推送/托管或逐件制包，不自动重载。
+
+
 ## 强行使用提醒原因与用量展示（2026-10-16，开发包完成）
 ## NOW：Windows共享消费者接续（2026-10-16，源码与隔离验证）
+
+确证兼容修复（架构已批准，先测试不交付）：Native Dispatcher真实成功exchange省略可选stage，控件错误必填shadow导致合法应用统计必拒；仅去掉取数分支stage依赖，保留请求/Port/context/child/range/秒snapshot校验，不改共享执行。使用Native生产Dispatcher+RuntimeJson合成报文回放，覆盖身份/范围/请求/连接负例。同步修两个已证观测缺陷：无应用snapshot时仍显示可与当前scope/period读取批次关联的report错误；允许两种应用读取messageType及exchange准确显示。不新增状态/协议/采样，不制包/提交/覆盖/重载，不触及原账。
+
+本批验证通过：实际2.6.59候选DLL的Dispatcher+RuntimeJson生产者合成probe/exchange报文经生产Native客户端回放，旧必填stage条件确实拒收同一成功响应，新条件接受；错child/date/单位拒收，错requestId不消费正确ACK，断连拒收，读取不启用共享。local-guardian、shared-sync-diagnostics专项、typecheck及diff通过。纯合成生产者JSON原样冻结tests/fixtures/native-source-statistics-dispatcher.json，SHA256 4cf036bab0c4588b11a4c0de387d023be96363ba876944403698035a789492b3；专项默认执行回放，环境变量仅可额外替换资料，不再默默跳过。诊断空snapshot错误需同scope/period并有同批次现存来源readAt锚定，防止跨绑定/旧报告串用；请求名不再把identity/seconds/exchange二次压成unknown。架构批准仅提交本批并准备1.7.52，须与1.7.51严格两产品文件及版本差异；暂不覆盖/重载或推送，真实终端exchange成功仍待验证，不以合成回放冒报。
+
+观测隐私收窄：不展示/导出ChildID及其SHA256，不新增识别字段；仅保留已有内部scope核验结果及真实绑定状态布尔/枚举，实时peer身份缺实证显示未知。最终以此边界为准，不增加持久状态或跨会话传输。
+
+观测修复已完成源码验证：仅shared-sync-diagnostics infra/view及原专项，读取已有V2策略/来源缓存并验证scope、日期、8天有效期；权限读取异常保留未知，其余观测不被抹去。无ChildID/指纹/凭据/路径输出，来源日期原值只读、周合计不重算、当前peer核验不由Native历史缓存推断。专项覆盖隐私/改绑/跨日周/权限异常/消息发送者/既有UI生命周期，通过；typecheck及diff通过。隔离真实Admin CSS+renderer桌面1280/窄屏390无溢出、中文原因已目视（合成数据，不是真实运行诊断）。旧专项夹具新增Native常量/Port/身份接口依赖已补齐，产品Native模块未修改。架构已复核并批准仅提交本批3文件及任务块、生成1.7.51开发候选，需证明对原3ad候选仅两诊断文件与版本差异，不推送/覆盖/重载或发布；当前已重载1.7.50尚不含新诊断。
+
+D-114关闭原账补证最终PASS：既有shared-forced-use-v2-unpacked定点1/1通过（K5hYGE）。正常取消前后原账均3段，目标无新增；force前4段、后5段，唯一目标新增段1792144232440→1792144235483、3秒（既有floor取整）、自然transition_complete，旧段逐项不变、正秒区间无重叠，见证标签仍开。补齐真实active回执后再推进Service模拟时钟，消除测试竞态，不修改计时。脱敏message-replay.json SHA256 b344a8fad6dcd05cfcb95574f027922f516b26b0d5653dbedfcfb36582e7df85。仅提交测试及本批证据记录；候选仍为精确3ad源码1.7.50/原哈希，无重建、覆盖、重载或新增权限已获授权的声明。
+
+D-114受控关闭补证：仅扩展既有shared-forced-use-v2-unpacked场景，增加原始分段只读前后快照、正常取消不产生tab_close、目标ACTIVE经自然onRemoved结算一次、旧分段不变/不重叠及旁路标签保留断言。为取得正秒原账，Composite先实际确认并恢复ACTIVE，再等待既有短时真实采样后触发复提醒超时；Service加速仅用于提醒，不代替网页计时。不改产品源码/采样/ledger，不重打包或覆盖原Profile；实证失败保持待验。
+
+补证两轮尚未通过：正常取消及旧段未改断言通过，force真实关闭后已有自然tabActivated先结算2秒transition_complete，三条旧段不变，新段start与前段end一致；随后onRemoved不重复关账。测试写死必须新增tab_close导致失败，已将隔离原账快照回报架构裁决自然事件顺序，不改产品或伪造事件，不提交失败测试。
+
+架构已核验并确认自然activation先结算符合D-114，不要求onRemoved独占；本次仅修测试断言，目标新增单段须起点等于关闭前session.startTime，秒数遵循既有取整，旧段不变、无重叠重复、旁路标签保持。批准同场景定点复验，产品源码和3ad候选不变。
+
+受控验收准备：按架构转达PO授权从精确master 3adcad36b51f8fcf08285350f0a4ff26f255fdd5导出干净源码生成唯一1.7.50开发候选，不改正式manifest或托管；保持既有公开key/ID，仅为真实关闭验收增加debugger及sharedBrowserCloseDevelopment开发标记。家庭配置不打包、不更改，原目录更新时点由架构协调；本步骤只生成哈希/权限差异及备份计划，不覆盖当前加载目录或重载。
+
+候选结果：dist/shared-v2-development-1.7.50-3adcad3/candidate/package-extension共203文件；按相对路径排序的[path,fileSHA256]数组JSON再SHA256为a8dac1e6bdbc5aaa82479961bce7b1b126f4690c913a015066371d5cb0ae0da6。除manifest/开发marker外逐文件等于精确Git导出；稳定ID/公开key/host权限不变，仅新增debugger，无CRX/feed。原包磁盘仍1.7.48，未覆盖/重载。D-114门禁保留：精确target及取消已有单测/隔离浏览器证据；本次真实原账守恒、原Profile新增权限确认、非测试标签不受影响仍待受控验收，不以源码diff代替通过。备份计划为同dist完整旧包备份并核hash后manifest最后替换，等待架构统一时点。
 
 PO缺源裁决追加：同孩子周期无可信共享缓存时，保留本机已知用量作为下界，未知不补零；有适用额度也不因缺源单独阻断，已知用量到最终硬上限仍阻断，黑名单/停用/对象限制优先。仅共享V2判定允许逐项缺失，旧路径保持严格；来源投影保留可读本机分量与不完整标志。最小验证为实际mode-service及共享runtime专项；随后普通merge主线解决PR范围反向diff，不改账本。
 

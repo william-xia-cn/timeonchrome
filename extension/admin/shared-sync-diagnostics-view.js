@@ -8,7 +8,8 @@ const capabilityNames = { 'application-usage-read': '应用用量读取', 'share
   'shared-web-contribution-sync-v1': '网页贡献同步', 'shared-access-policy-identity-read': '策略身份读取',
   'shared-quota-execution-preparation-read-v1': '执行准备读取', 'shared-browser-activity-v1': '浏览器活动',
   'shared-reminder-lifecycle-v1': '提醒生命周期', 'shared-reminder-continuity-v1': '提醒连续性',
-  'shared-web-local-lease-v1': '本地来源租约', 'shared-web-source-reusable-v2': '可复用孩子身份核验' };
+  'shared-web-local-lease-v1': '本地来源租约', 'shared-web-source-reusable-v2': '可复用孩子身份核验',
+  'source-statistics-read-v1': '分域统计读取', 'shared-forced-use-runtime-v2': '统一强行使用运行时' };
 
 const failures = {
   diagnostics_sender_rejected: '管理页身份校验未通过',
@@ -39,7 +40,8 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
     return;
   }
   const rows = append(container, 'dl', '', 'shared-sync-summary');
-  const row = (name, value) => { append(rows, 'dt', name); append(rows, 'dd', value); };
+  const row = (name, value) => { append(rows, 'dt', name); const detail = append(rows, 'dd', value);
+    if (detail.style) { detail.style.overflowWrap = 'anywhere'; detail.style.minWidth = '0'; } };
   const c = model.connection || {};
   row('运行版本', text(model.version));
   row('当前连接', c.connectedCurrent === true ? '已连接' : c.connectedCurrent === false ? '未连接' : '未知');
@@ -52,6 +54,52 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
   row('协议', c.protocolVersion == null ? '未知' : `v${c.protocolVersion}`);
   row('已协商能力', c.capabilities == null ? '未知' : c.capabilities.map(v => capabilityNames[v] || '未知能力').join('、') || '无');
   row('应用用量读取能力', c.applicationUsageSupported === true ? '支持' : c.applicationUsageSupported === false ? '未协商' : '未知');
+  const v2 = model.v2;
+  if (v2) {
+    row('V2 当前只读观测', '读取已有缓存，不发起同步；以下不代表共享已启用');
+    row('网页调试权限', v2.debuggerGranted === true ? '已授予' : v2.debuggerGranted === false ? '未授予' : '未知');
+    row('来源缓存身份与周期', v2.scopeCurrent === true ? '匹配当前孩子与本周' : '无可信当前缓存');
+    row('V2 当前本地连接同孩子核验', v2.nativePeerSameChild === true ? '已确认' : '未知；不能由缓存来源推断');
+    row('V2 策略身份', v2.policy ? `版本 ${v2.policy.schemaVersion} · ${v2.policy.revision}` : '未知');
+    row('V2 策略阶段', { legacy: '旧链路', shadow: '影子核对', shared: '共享执行' }[v2.policy?.stage] || '未知');
+    row('V2 策略生效时间', time(v2.policy?.effectiveAtMs));
+    row('V2 策略摘要', text(v2.policy?.policyHash));
+    row('V2 策略读取时间', time(v2.policy?.receivedAtMs));
+    const attempt = v2.nativeAttempt;
+    const outcome = value => value === true ? '是' : value === false ? '否' : '未知';
+    row('最近本机交换记录', attempt?.available ? `当前身份与周期 · ${time(attempt.readAtMs)}；仅代表该次请求` : '无可确认的当前身份与周期记录');
+    row('是否属于当前连接', outcome(attempt?.current));
+    row('已实际发送至本地组件', outcome(attempt?.sent));
+    row('控件已收到对应响应', outcome(attempt?.responseReceived));
+    row('当次控件已校验接受', `${outcome(attempt?.accepted)}；不代表当前连接已确认`);
+    row('本机交换结果', attempt?.errorCode || (attempt?.accepted === true ? '读取成功' : '未知／尚无明确错误'));
+    const originNames = { native: '本地组件', cloud: '云端', last_known_good: '可信缓存',
+      local_plus_cloud_other: '本机网页＋云端其他设备', cloud_other: '云端其他设备',
+      fresh_with_last_known_good_days: '最新读取＋部分日期可信缓存', unavailable: '不可用', unknown: '未知' };
+    const reasonNames = { WEB_LOCAL_DAY_INCOMPLETE: '本机网页日期不完整', WEB_QUOTA_READ_INCOMPLETE: '网页数据不完整', WEB_QUOTA_READ_UNAVAILABLE: '网页用量暂不可读',
+      LOCAL_STATISTICS_MISSING: '缺少本机统计', LOCAL_STATISTICS_INCOMPLETE: '本机统计不完整',
+      APPLICATION_STATISTICS_NOT_AVAILABLE: '应用统计暂不可用', APPLICATION_STATISTICS_INCOMPLETE: '应用统计不完整',
+      APPLICATION_QUOTA_USAGE_INCOMPLETE: '应用配额用量不完整', WEB_STATISTICS_NOT_AVAILABLE: '网页统计暂不可用',
+      WEB_QUOTA_USAGE_INCOMPLETE: '网页配额用量不完整', APPLICATION_LOCAL_MISSING: '缺少应用本机用量',
+      APPLICATION_OTHER_MISSING: '缺少应用其他设备用量', QUOTA_BUCKETS_PARTIAL: '配额桶数据不完整',
+      WEB_SOURCE_UNAVAILABLE: '缺少网页来源', WEB_SOURCE_PARTIAL: '网页来源不完整',
+      APPLICATION_SOURCE_UNAVAILABLE: '缺少应用来源', APPLICATION_SOURCE_PARTIAL: '应用来源不完整',
+      SOURCE_UNAVAILABLE: '来源不可用', UNKNOWN_REASON: '原因未知' };
+    for (const [key, label] of [['web', '网页'], ['application', '应用']]) {
+      const source = v2.sources?.[key];
+      row(`V2 ${label}来源`, `${originNames[source?.origin] || '未知'} · ${source?.available ? '有缓存记录' : '暂不可读'}`);
+      row(`V2 ${label}范围与读取`, source?.available ? `${source.fromDate} 至 ${source.toDate} · ${time(source.readAtMs)}` : '未知');
+      row(`V2 ${label}读取错误`, source?.errorCode || '无可归属的当前错误记录');
+      for (const day of source?.days || []) {
+        const usage = day.bucketsSeconds
+          ? `学习${day.bucketsSeconds.study ?? '未知'}秒／复合${day.bucketsSeconds.composite ?? '未知'}秒／休息${day.bucketsSeconds.rest ?? '未知'}秒`
+          : day.totalSeconds == null ? '未知用量' : `${day.totalSeconds}秒`;
+        row(`${label} ${day.date}`, `${usage} · ${day.complete === true ? '完整' : day.complete === false ? '不完整' : '完整性未知'} · ${originNames[day.origin] || '未知来源'} · 结算截至 ${time(day.settledThroughMs)} · 读取 ${time(day.readAtMs)}${day.reasonCodes?.length ? ` · ${day.reasonCodes.map(code => reasonNames[code] || '原因未知').join('、')}` : ''}`);
+      }
+    }
+    row('V2 周合计', '缓存未保存独立周合计；仅列已有逐日结果，不在诊断中重算');
+    row('以下为旧版历史贡献', '不代表上方 V2 来源读取或当前连接已确认');
+  }
   const stage = { legacy: '旧链路', shadow: '影子核对', shared: '共享执行' }[model.policy?.stage] || '未知';
   row('缓存配置', `${text(model.policy?.revision)} · ${stage}`);
   row('配置读取时间', time(model.policy?.receivedAtMs));
@@ -130,7 +178,8 @@ export function attachSharedSyncDiagnostics(details, container, { runtime = chro
   details.addEventListener('toggle', toggle);
   const changed = (changes, area) => {
     if (area === 'local' && ['shared_web_contribution_queue_v1', 'shared_access_policy_lkg_v1',
-      'shared_web_sync_diagnostics_v1', 'local_guardian_status_v1'].some(k => Object.hasOwn(changes, k))) void read();
+      'shared_web_sync_diagnostics_v1', 'local_guardian_status_v1', 'shared_access_policy_lkg_v2',
+      'source_statistics_shadow_cache_v1', 'source_statistics_shadow_v1'].some(k => Object.hasOwn(changes, k))) void read();
   };
   storage.onChanged.addListener(changed);
   return () => { disposed = true; generation++; reading = false; if (timer !== null) cancel(timer); details.removeEventListener('toggle', toggle); storage.onChanged.removeListener(changed); };

@@ -4,8 +4,47 @@ import {readManifestAccountV2} from './profileAccountsV2';
 import {compactDeviceAccount} from './profileAccountSnapshotsV2';
 import {applyCorrectionsToCompactDeviceAccounts,listUsageAccountingCorrections} from './usageAccountingCorrections';
 import {sharedWebSourceKey} from './sharedAccessState';
+import {createOrReuseProfileAccountSnapshotV2,readProfileAccountSnapshotPageV2} from './profileAccountSnapshotsV2';
+import {buildQuotaReadModelV2} from '../../../extension/core/quota-read-model-v2.js';
+import {getBeijingWeekPeriod} from '../../../extension/core/profile-account-v2.js';
+import {validateQuotaBucketsSnapshot,type QuotaBucketsQuery,type QuotaBucketsSnapshot} from '@timeonchrome/app-runtime-contracts/source-statistics';
 
-/** 网页V2权威统计的只读归集；不触碰原账、物化或原上传。 */
+/** 复用网页已验收账户快照及配额读取器，既有URL只保留鉴权转接。 */
+export async function readWebQuotaBuckets(env:Env,childId:string,query:QuotaBucketsQuery,
+  excludedDeviceId?:string,now=Date.now()):Promise<QuotaBucketsSnapshot>{
+  if(query.source!=='web'||query.scope==='other'&&!excludedDeviceId)throw new Error('SOURCE_STATISTICS_INVALID');
+  const snapshots=new Map<string,{deviceAccounts:unknown[];period:ReturnType<typeof getBeijingWeekPeriod>;
+    asOf:number;completeness:Record<string,unknown>}>();
+  const days:QuotaBucketsSnapshot['days'][number][]=[];
+  for(const date of sourceStatisticsDates(query.fromDate,query.toDate)){
+    const period=getBeijingWeekPeriod(date);
+    if(!snapshots.has(period.weekStart)){
+      const head=await createOrReuseProfileAccountSnapshotV2(env,childId,period.weekStart);
+      if(head){
+        const deviceAccounts:unknown[]=[];let metadata:Awaited<ReturnType<typeof readProfileAccountSnapshotPageV2>>=null;
+        for(let page=0;page<Number(head.page_count);page++){
+          const value=await readProfileAccountSnapshotPageV2(env,childId,head.id,page);
+          if(!value||value.snapshotId!==head.id)throw new Error('SOURCE_STATISTICS_UNAVAILABLE');
+          metadata=value;deviceAccounts.push(...value.deviceAccounts);
+        }
+        if(!metadata)throw new Error('SOURCE_STATISTICS_UNAVAILABLE');
+        snapshots.set(period.weekStart,{deviceAccounts,period,asOf:Number(metadata.asOf),completeness:metadata.completeness});
+      }
+    }
+    const snapshot=snapshots.get(period.weekStart);
+    const input={date,...period,now,deviceId:query.scope==='other'?excludedDeviceId:null,
+      localProjection:{today:{onlineSeconds:0,byQuotaBucket:{},byDomain:{}},weekRestSeconds:0,days:[],complete:true},cloudSnapshot:snapshot};
+    const model=buildQuotaReadModelV2(input);
+    const complete=Boolean(snapshot&&model.completeness.complete);
+    days.push({date,bucketsSeconds:{study:model.usage.studySeconds,composite:model.usage.compositeSeconds,rest:model.usage.restSeconds},
+      // 账户asOf是读取快照水位，不冒充原账结算截止。
+      settledThroughMs:null,complete,reasonCodes:complete?[]:[snapshot?'WEB_QUOTA_USAGE_INCOMPLETE':'WEB_STATISTICS_NOT_AVAILABLE']});
+  }
+  return validateQuotaBucketsSnapshot({schemaVersion:2,durationUnit:'seconds',source:'web',childId,
+    fromDate:query.fromDate,toDate:query.toDate,readAtMs:now,days},{source:'web',childId,fromDate:query.fromDate,toDate:query.toDate});
+}
+
+/** 旧v1调用者兼容；新共享不得调用此逐设备来源清单。 */
 export async function readWebSourceStatistics(env:Env,accountId:string,childId:string,query:SourceStatisticsQuery,
   excludedDeviceId?:string,now=Date.now()):Promise<SourceStatisticsSnapshot>{
   if(query.source!=='web'||query.ownSourceKeys!==undefined||query.scope==='other'&&!excludedDeviceId)throw new Error('SOURCE_STATISTICS_INVALID');

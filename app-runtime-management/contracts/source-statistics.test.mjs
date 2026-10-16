@@ -59,3 +59,27 @@ assert.throws(()=>projectSharedQuotaSeconds(policy,date,web,{...snapshot('applic
 assert.equal(validateSourceStatisticsExchange({fromDate:date,toDate:date,webStatistics:web},'child-a').webStatistics.source,'web');
 assert.throws(()=>validateSourceStatisticsExchange({fromDate:date,toDate:date,webStatistics:web},'other-child'));
 console.log('source-statistics: focused validation/1200s/other/special/borrowing/partial/child-isolation assertions passed');
+
+// 新共享只消费已有桶；旧v1用例保留兼容，不通过改名把分类冒充桶。
+const bucketsContract=await import('./dist/source-statistics.js');
+function quotaBuckets(source,study=600){return {schemaVersion:2,durationUnit:'seconds',source,childId:'child-a',
+  fromDate:date,toDate:date,readAtMs:1791320000000,days:[{date,bucketsSeconds:{study,composite:200,rest:100},
+    settledThroughMs:null,complete:true,reasonCodes:[]}]};}
+const qbWeb=quotaBuckets('web'),qbApp=quotaBuckets('application');
+assert.equal(bucketsContract.validateQuotaBucketsSnapshot(qbApp,expected),qbApp);
+assert.deepEqual(bucketsContract.applicationQuotaBucketsSeconds({study:600,composite:200,unclassified:10,restrictedEntertainment:100,other:900}),
+  {study:600,composite:210,rest:100});
+assert.deepEqual(bucketsContract.projectQuotaBucketsSeconds(limited,date,qbWeb,qbApp).usedSeconds,{study:1200,composite:400,rest:200});
+assert.equal(bucketsContract.projectQuotaBucketsSeconds(limited,date,qbWeb,qbApp).borrowedRestSeconds,0,'已解释的桶不二次借用');
+const missingQuota=bucketsContract.projectQuotaBucketsSeconds(limited,date,qbWeb,null);
+assert.equal(missingQuota.usedSeconds.study,600);assert.equal(missingQuota.complete,false);
+assert.ok(missingQuota.reasonCodes.includes('APPLICATION_SOURCE_UNAVAILABLE'));
+assert.equal(bucketsContract.projectQuotaBucketsSeconds(policy,date,qbWeb,quotaBuckets('application',10)).usedSeconds.study,610);
+assert.equal(bucketsContract.validateQuotaBucketsExchange({fromDate:date,toDate:date,webUsage:qbWeb},'child-a').webUsage,qbWeb);
+assert.throws(()=>bucketsContract.validateQuotaBucketsExchange({fromDate:date,toDate:date,webUsage:qbWeb},'other-child'));
+assert.throws(()=>bucketsContract.validateQuotaBucketsSnapshot({...qbApp,revision:'redundant'},expected));
+assert.throws(()=>bucketsContract.validateQuotaBucketsSnapshot({...qbApp,includedSourceKeys:['invented']},expected));
+assert.throws(()=>bucketsContract.validateQuotaBucketsSnapshot({...qbApp,durationUnit:'milliseconds'},expected));
+assert.throws(()=>bucketsContract.validateQuotaBucketsQuery({schemaVersion:2,source:'application',scope:'all',fromDate:date,toDate:date,ownSourceKeys:['invented']}));
+assert.throws(()=>bucketsContract.validateQuotaBucketsSnapshot({...qbApp,days:[{...qbApp.days[0],bucketsSeconds:{study:0.5,composite:0,rest:0}}]},expected));
+console.log('quota-buckets: direct buckets/1200s/missing-as-zero/decrease/no-reborrowing/child-scope/minimal-wire PASS');

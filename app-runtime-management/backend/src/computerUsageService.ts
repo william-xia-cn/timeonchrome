@@ -10,8 +10,8 @@ import { CHROME_DISPLAY_RULES } from './specialApplications';
 import { readApplicationSharedQuotaContributions } from './applicationSharedQuota';
 import { verifySharedWebSourceAssignment, verifySharedWebSourceScope } from './sharedWebSourceBinding';
 import { readApplicationLedgerRetirement } from './applicationLedgerRetirement';
-import { validateSourceStatisticsQuery } from '@timeonchrome/app-runtime-contracts/source-statistics';
-import { readApplicationSourceStatistics } from './sourceStatistics';
+import { validateSourceStatisticsQuery,validateQuotaBucketsQuery } from '@timeonchrome/app-runtime-contracts/source-statistics';
+import { readApplicationSourceStatistics,readApplicationQuotaBuckets } from './sourceStatistics';
 import { readApplicationIdentityUsage } from './applicationProductProjections';
 
 /** Capability-bound entrypoint; this is never exposed by the public fetch router. */
@@ -42,10 +42,12 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
       if(operation==='verifySharedWebSourceScope')return jsonResponse({owned:await verifySharedWebSourceScope(this.env.RUNTIME_DB,input)});
       if(operation==='getApplicationSourceStatistics') {
         if(typeof input.accountId!=='string'||typeof input.childId!=='string')throw new HttpError(400,'INVALID_SCOPE','统计范围无效。');
-        const query=validateSourceStatisticsQuery(input.query);
+        const query=(input.query as {schemaVersion?:unknown})?.schemaVersion===2?validateQuotaBucketsQuery(input.query):validateSourceStatisticsQuery(input.query);
         if(query.source!=='application'||query.scope!=='all')throw new HttpError(400,'INVALID_SCOPE','该内部入口仅提供全应用统计。');
         await this.requireChildScope(input.accountId,input.childId);
-        return jsonResponse(await readApplicationSourceStatistics(this.env.RUNTIME_DB,input.accountId,input.childId,query));
+        return jsonResponse('schemaVersion' in query
+          ?await readApplicationQuotaBuckets(this.env.RUNTIME_DB,input.accountId,input.childId,query)
+          :await readApplicationSourceStatistics(this.env.RUNTIME_DB,input.accountId,input.childId,query));
       }
       if(!input||['accountId','childId','fromDate','toDate'].some(key=>typeof input[key]!=='string'||String(input[key]).length>200))
         throw new HttpError(400,'INVALID_SCOPE','Read scope is invalid.');

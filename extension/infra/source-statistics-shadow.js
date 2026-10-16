@@ -1,8 +1,8 @@
 import { readQuotaReadModelV2 } from '../core/quota-read-model-v2.js';
-import { combineOwnAndOtherStatistics, sourceStatisticsDates, validateSourceStatisticsSnapshot } from '../core/shared-contracts/1.54.0/source-statistics.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.55.0/source-statistics.js';
 import { readSharedAccessPolicyContext } from './shared-access-policy-reader.js';
 import { readCloudSourceStatistics } from './cloud-sync.js';
-import { readSourceStatisticsNativeContext, requestSourceStatisticsExchange } from './native-host-client.js';
+import { readSourceStatisticsNativeContext, requestQuotaBucketsExchange } from './native-host-client.js';
 import { budgetedLocalSet } from './storage-budget.js';
 
 export const SOURCE_STATISTICS_SHADOW_KEY = 'source_statistics_shadow_v1';
@@ -10,300 +10,163 @@ export const SOURCE_STATISTICS_SHADOW_CACHE_KEY = 'source_statistics_shadow_cach
 export const SOURCE_STATISTICS_SHADOW_ALARM = 'source_statistics_shadow_refresh';
 const REFRESH_INTERVAL_MINUTES = 5;
 const CACHE_MAX_AGE_MS = 8 * 86_400_000;
-const OFFSET_MS = 8 * 60 * 60 * 1000;
-const sha256 = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))]
-  .map(byte => byte.toString(16).padStart(2, '0')).join('');
+const OFFSET_MS = 28_800_000;
 const dayAt = time => new Date(time + OFFSET_MS).toISOString().slice(0, 10);
-const isSnapshot = (value, expected) => {
-  try { validateSourceStatisticsSnapshot(value, expected); return true; } catch (_) { return false; }
+const expected = (source, childId, range) => ({ source, childId, fromDate: range.fromDate, toDate: range.toDate });
+const validSnapshot = (value, scope, now) => {
+  try {
+    sourceStatisticsContract.validateQuotaBucketsSnapshot(value, scope);
+    return value.readAtMs <= now + 300_000 && now - value.readAtMs <= CACHE_MAX_AGE_MS;
+  } catch (_) { return false; }
 };
 async function withTimeout(promise, timeoutMs, errorCode) {
   let timer;
-  try { return await Promise.race([Promise.resolve(promise), new Promise(resolve => {
+  try { return await Promise.race([promise, new Promise(resolve => {
     timer = setTimeout(() => resolve({ ok: false, errorCode }), timeoutMs);
   })]); } finally { clearTimeout(timer); }
 }
 
 export function sourceStatisticsWeekRange(now = Date.now()) {
-  const today = dayAt(now);
-  const beijingMidnight = Date.parse(`${today}T00:00:00+08:00`);
-  const mondayOffset = (new Date(beijingMidnight + OFFSET_MS).getUTCDay() + 6) % 7;
-  const fromDate = dayAt(beijingMidnight - mondayOffset * 86_400_000);
-  return { fromDate, toDate: today, dates: sourceStatisticsDates(fromDate, today) };
+  const today = dayAt(now), midnight = Date.parse(`${today}T00:00:00+08:00`);
+  const mondayOffset = (new Date(midnight + OFFSET_MS).getUTCDay() + 6) % 7;
+  const fromDate = dayAt(midnight - mondayOffset * 86_400_000);
+  return { fromDate, toDate: today, dates: sourceStatisticsContract.sourceStatisticsDates(fromDate, today) };
 }
 
-function dayProjection(model, date) {
-  const local = model?.local?.today;
-  if (!model?.ok || model.date !== date || !local) return null;
-  const buckets = local.byQuotaBucket || {};
-  const values = [local.onlineSeconds, buckets.study ?? 0, buckets.composite ?? 0, buckets.rest ?? 0];
-  const usable = values.every(value => Number.isSafeInteger(value) && value >= 0);
-  const complete = local.complete === true && usable;
-  const reasonCodes = complete ? [] : [...new Set([
-    ...(local.complete === true ? [] : ['WEB_LOCAL_DAY_INCOMPLETE']),
-    ...(!usable ? ['WEB_QUOTA_READ_UNAVAILABLE'] : []),
-  ])].sort();
-  return {
-    date,
-    totalSeconds: usable ? local.onlineSeconds : null,
-    categoriesSeconds: usable ? { study: buckets.study ?? 0, composite: buckets.composite ?? 0, rest: buckets.rest ?? 0 } : {},
-    settledThroughMs: null,
-    complete,
-    reasonCodes: usable ? reasonCodes : [...new Set([...reasonCodes, 'WEB_QUOTA_READ_UNAVAILABLE'])].sort(),
-  };
-}
-
-export async function buildLocalWebSourceSnapshot({ childId, fromDate, toDate, quotaModels, ownSourceKeys, readAtMs = Date.now() }) {
-  const dates = sourceStatisticsDates(fromDate, toDate);
-  if (typeof childId !== 'string' || !childId || !Array.isArray(quotaModels) || quotaModels.length !== dates.length
-    || !Array.isArray(ownSourceKeys)) {
-    throw new Error('SOURCE_STATISTICS_WEB_CONTEXT_INVALID');
-  }
-  const includedSourceKeys = [...new Set(ownSourceKeys)].sort();
-  if (includedSourceKeys.length !== ownSourceKeys.length || !includedSourceKeys.length)
-    throw new Error('SOURCE_STATISTICS_WEB_IDENTITY_INCOMPLETE');
-  const days = dates.map((date, index) => dayProjection(quotaModels[index], date)
-    || { date, totalSeconds: null, categoriesSeconds: {}, settledThroughMs: null, complete: false, reasonCodes: ['WEB_QUOTA_READ_UNAVAILABLE'] });
-  const revision = await sha256(JSON.stringify({ childId, fromDate, toDate, includedSourceKeys, days }));
-  const snapshot = { schemaVersion: 1, durationUnit: 'seconds', source: 'web', childId, fromDate, toDate,
-    revision, readAtMs, includedSourceKeys, excludedSourceKeys: [], days };
-  validateSourceStatisticsSnapshot(snapshot, { source: 'web', childId, fromDate, toDate });
+export async function buildWebQuotaBucketsSnapshot({ childId, fromDate, toDate, quotaModels, readAtMs = Date.now() }) {
+  const dates = sourceStatisticsContract.sourceStatisticsDates(fromDate, toDate);
+  if (!Array.isArray(quotaModels) || quotaModels.length !== dates.length) throw Error('source_statistics_web_unavailable');
+  const days = dates.map((date, index) => {
+    const model = quotaModels[index], usage = model?.usage;
+    if (!model?.ok || model.date !== date || !usage) throw Error('source_statistics_web_unavailable');
+    const bucketsSeconds = { study: usage.studySeconds, composite: usage.compositeSeconds, rest: usage.restSeconds };
+    if (!Object.values(bucketsSeconds).every(value => Number.isSafeInteger(value) && value >= 0)) {
+      throw Error('source_statistics_web_unavailable');
+    }
+    const complete = model.completeness?.complete === true;
+    return { date, bucketsSeconds, settledThroughMs: null, complete,
+      reasonCodes: complete ? [] : ['WEB_QUOTA_READ_INCOMPLETE'] };
+  });
+  const snapshot = { schemaVersion: 2, durationUnit: 'seconds', source: 'web', childId,
+    fromDate, toDate, readAtMs, days };
+  sourceStatisticsContract.validateQuotaBucketsSnapshot(snapshot, { source: 'web', childId, fromDate, toDate });
   return snapshot;
 }
 
-function expected(source, childId, range) {
-  return { source, childId, fromDate: range.fromDate, toDate: range.toDate };
-}
+const status = selected => ({ origin: selected.origin, missing: !selected.snapshot,
+  complete: !!selected.snapshot && selected.snapshot.days.every(day => day.complete),
+  readAtMs: selected.snapshot?.readAtMs ?? null, days: selected.snapshot?.days ?? [] });
 
-function sameKeys(a = [], b = []) {
-  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-  const left = [...a].sort(), right = [...b].sort();
-  return left.every((key, index) => key === right[index]);
-}
-
-async function mergeLastGoodDays(fresh, lastGood, source, childId, range, now, freshOrigin, lastGoodOrigin, lastGoodMeta = {}) {
-  if (!fresh) return lastGood && isSnapshot(lastGood, expected(source, childId, range))
-    ? { snapshot: lastGood, origin: lastGoodOrigin, stale: true,
-      dayOrigins: Object.fromEntries(lastGood.days.map(day => [day.date,
-        { ...(lastGoodMeta[day.date] || {}), sourceOrigin: lastGoodMeta[day.date]?.sourceOrigin
-          || lastGoodMeta[day.date]?.origin || lastGoodOrigin,
-        origin: lastGoodOrigin, readAtMs: lastGoodMeta[day.date]?.readAtMs ?? lastGood.readAtMs }])) }
-    : { snapshot: null, origin: 'unavailable', stale: false, dayOrigins: {} };
-  if (!lastGood || !isSnapshot(lastGood, expected(source, childId, range))
-    || !sameKeys(fresh.includedSourceKeys, lastGood.includedSourceKeys)
-    || !sameKeys(fresh.excludedSourceKeys, lastGood.excludedSourceKeys)) {
-    return { snapshot: fresh, origin: freshOrigin, stale: false,
-      dayOrigins: Object.fromEntries(fresh.days.map(day => [day.date, { origin: freshOrigin, readAtMs: fresh.readAtMs }])) };
-  }
-  let substituted = false;
-  const dayOrigins = {};
-  const days = fresh.days.map((day, index) => {
-    if (day.totalSeconds === null && lastGood.days[index]?.totalSeconds !== null) {
-      substituted = true;
-    dayOrigins[day.date] = { ...(lastGoodMeta[day.date] || {}),
-      sourceOrigin: lastGoodMeta[day.date]?.sourceOrigin || lastGoodMeta[day.date]?.origin || lastGoodOrigin,
-      origin: lastGoodOrigin, readAtMs: lastGoodMeta[day.date]?.readAtMs ?? lastGood.readAtMs };
-      return lastGood.days[index];
-    }
-    dayOrigins[day.date] = { origin: freshOrigin, readAtMs: fresh.readAtMs };
-    return day;
-  });
-  if (!substituted) return { snapshot: fresh, origin: freshOrigin, stale: false, dayOrigins };
-  const revision = await sha256(JSON.stringify({ fresh: fresh.revision, lastGood: lastGood.revision, days }));
-  const snapshot = { ...fresh, revision, readAtMs: Math.max(now, fresh.readAtMs, lastGood.readAtMs), days };
-  validateSourceStatisticsSnapshot(snapshot, expected(source, childId, range));
-  return { snapshot, origin: 'fresh_with_last_known_good_days', stale: true, dayOrigins };
-}
-
-function sourceStatus(selected) {
-  if (!selected?.snapshot) return { origin: 'unavailable', complete: false, readAtMs: null, days: [] };
-  const snapshot = selected.snapshot;
-  return { origin: selected.origin, complete: snapshot.days.every(day => day.complete), readAtMs: snapshot.readAtMs,
-    stale: selected.stale === true,
-    days: snapshot.days.map(day => ({ date: day.date, totalSeconds: day.totalSeconds,
-      categoriesSeconds: day.categoriesSeconds, complete: day.complete, reasonCodes: day.reasonCodes,
-      settledThroughMs: day.settledThroughMs, origin: selected.dayOrigins?.[day.date]?.origin || selected.origin,
-      readAtMs: selected.dayOrigins?.[day.date]?.readAtMs ?? snapshot.readAtMs,
-      localReadAtMs: selected.dayOrigins?.[day.date]?.localReadAtMs ?? null,
-      cloudReadAtMs: selected.dayOrigins?.[day.date]?.cloudReadAtMs ?? null,
-      cloudOrigin: selected.dayOrigins?.[day.date]?.cloudOrigin ?? null })) };
-}
-
-export function createSourceStatisticsShadow({ readContext, nativeContext, nativeExchange, cloudRead,
-  readModel, storage, write, isEnabled = () => false, now = Date.now } = {}) {
+export function createSourceStatisticsShadow({ readContext = readSharedAccessPolicyContext,
+  nativeContext = readSourceStatisticsNativeContext, nativeExchange = requestQuotaBucketsExchange,
+  cloudRead = readCloudSourceStatistics, readModel = readQuotaReadModelV2,
+  storage = chrome.storage.local, write = budgetedLocalSet, isEnabled = () => false, now = Date.now } = {}) {
   let active = true, generation = 0, busy = false, controller = null, lastRunAt = 0;
-  let getContext = readContext;
-  if (!getContext) getContext = readSharedAccessPolicyContext;
-  nativeContext ||= readSourceStatisticsNativeContext;
-  nativeExchange ||= requestSourceStatisticsExchange;
-  cloudRead ||= readCloudSourceStatistics;
-  readModel ||= readQuotaReadModelV2;
-  storage ||= chrome.storage.local;
-  write ||= budgetedLocalSet;
-
-  async function currentContext() {
-    const [cloud, native] = await Promise.all([getContext(), nativeContext()]);
-    if (!cloud?.deviceToken || !cloud?.apiBase || !cloud?.childId || !cloud?.scopeHash)
+  async function cloudContext() {
+    const context = await readContext();
+    if (!context?.deviceToken || !context.apiBase || !context.childId || !context.scopeHash) {
       throw Error('source_statistics_identity_unavailable');
-    return { cloud, native: native?.ok && native.childId === cloud.childId ? native : null };
+    }
+    return context;
   }
-
-  async function readCache(childId, scopeHash, range) {
-    const record = (await storage.get(SOURCE_STATISTICS_SHADOW_CACHE_KEY))[SOURCE_STATISTICS_SHADOW_CACHE_KEY];
-    if (!record || record.schemaVersion !== 1 || record.childId !== childId || record.scopeHash !== scopeHash
-      || record.fromDate !== range.fromDate || record.toDate !== range.toDate) return null;
-    const freshEnough = snapshot => isSnapshot(snapshot, expected(snapshot?.source, childId, range))
-      && now() - snapshot.readAtMs <= CACHE_MAX_AGE_MS;
-    return { ...record,
-      web: freshEnough(record.web) ? record.web : null,
-      webOther: freshEnough(record.webOther) ? record.webOther : null,
-      application: freshEnough(record.application) ? record.application : null };
+  async function readCache(context, range) {
+    const data = await storage.get(SOURCE_STATISTICS_SHADOW_CACHE_KEY).catch(() => ({}));
+    const record = data[SOURCE_STATISTICS_SHADOW_CACHE_KEY];
+    if (record?.schemaVersion !== 2 || record.childId !== context.childId || record.scopeHash !== context.scopeHash
+      || record.fromDate !== range.fromDate || record.toDate !== range.toDate) return {};
+    const cached = { ...record };
+    for (const source of ['web', 'application']) {
+      if (!validSnapshot(cached[source], expected(source, context.childId, range), now())) cached[source] = null;
+    }
+    return cached;
   }
-
-  async function readQuotaModels(range, epoch, signal) {
-    const models = await Promise.all(range.dates.map(date => readModel({ date, now: now() })));
-    return epoch === generation && !signal.aborted ? models : null;
-  }
-
-  async function fetchWeb(range, context, cached, epoch, signal) {
-    const [otherResult, models] = await Promise.all([
-      cloudRead({ deviceToken: context.cloud.deviceToken, apiBase: context.cloud.apiBase, signal },
-        { source: 'web', fromDate: range.fromDate, toDate: range.toDate, scope: 'other' }),
-      readQuotaModels(range, epoch, signal),
-    ]);
-    if (!models || epoch !== generation || signal.aborted) return { selected: null, nativeSnapshot: null, otherSnapshot: null, errorCode: 'source_statistics_context_changed' };
-    const otherFresh = otherResult?.ok && isSnapshot(otherResult.snapshot, expected('web', context.cloud.childId, range));
-    const otherSelected = await mergeLastGoodDays(otherFresh ? otherResult.snapshot : null, cached?.webOther,
-      'web', context.cloud.childId, range, now(), 'cloud_other', 'last_known_good', cached?.webOtherDayOrigins);
-    const otherSnapshot = otherSelected.snapshot;
-    const ownSourceKeys = otherSnapshot?.excludedSourceKeys || [];
-    if (!otherSnapshot || !ownSourceKeys.length) return { selected: null, nativeSnapshot: null,
-      otherSnapshot: otherSnapshot || null, otherSelected,
-      errorCode: otherResult?.ok ? 'source_statistics_web_identity_unavailable'
-        : otherResult?.errorCode || 'source_statistics_web_identity_unavailable' };
+  async function readWeb(context, range) {
     try {
-      const local = await buildLocalWebSourceSnapshot({ childId: context.cloud.childId, fromDate: range.fromDate,
-        toDate: range.toDate, quotaModels: models, ownSourceKeys, readAtMs: now() });
-      const snapshot = await combineOwnAndOtherStatistics(local, otherSnapshot);
-      const dayOrigins = Object.fromEntries(snapshot.days.map(day => [day.date, {
-        origin: otherSelected.dayOrigins?.[day.date]?.origin || 'cloud_other',
-        readAtMs: Math.max(local.readAtMs, otherSelected.dayOrigins?.[day.date]?.readAtMs || otherSnapshot.readAtMs),
-        localReadAtMs: local.readAtMs,
-        cloudReadAtMs: otherSelected.dayOrigins?.[day.date]?.readAtMs || otherSnapshot.readAtMs,
-        cloudOrigin: otherSelected.dayOrigins?.[day.date]?.origin || 'cloud_other',
-      }]));
-      const selected = { snapshot, origin: 'local_plus_cloud_other', stale: otherSelected.stale,
-        dayOrigins, localSnapshot: local, otherSnapshot };
-      return { selected, nativeSnapshot: snapshot, otherSnapshot, otherSelected,
-        errorCode: otherFresh ? null : otherResult?.errorCode || null };
-    } catch (_) { return { selected: null, nativeSnapshot: null, otherSnapshot, otherSelected, errorCode: 'source_statistics_web_unavailable' }; }
+      const quotaModels = await Promise.all(range.dates.map(date => readModel({ date, now: now() })));
+      const snapshot = await buildWebQuotaBucketsSnapshot({ childId: context.childId, ...range, quotaModels, readAtMs: now() });
+      return { snapshot, origin: 'local_plus_cloud_other', errorCode: null };
+    } catch (_) {
+      return { snapshot: null, origin: 'unavailable', errorCode: 'source_statistics_web_unavailable' };
+    }
   }
-
-  async function fetchApplication(range, context, web, cached, epoch, signal) {
-    let fresh = null, origin = null, errorCode = null, nativeConnectionGeneration = null;
-    if (context.native) {
+  async function readApplication(context, range, web, cached, signal) {
+    let native, errorCode = null;
+    const attempt = { sent: false, responseReceived: false, accepted: false,
+      errorCode: null, startedAtMs: now(), connectionGeneration: null };
+    try { native = await nativeContext({ prepare: true, quotaBuckets: true }); }
+    catch (_) { native = { ok: false, errorCode: 'source_statistics_native_unavailable' }; }
+    if (native?.ok && native.childId === context.childId) {
+      attempt.connectionGeneration = native.connectionGeneration;
       const result = await withTimeout(Promise.resolve().then(() => nativeExchange({ fromDate: range.fromDate,
-        toDate: range.toDate, webStatistics: web?.nativeSnapshot || null,
-        expectedContextId: context.native.contextId })), 12_000,
-      'source_statistics_native_timeout').catch(() => ({ ok: false, errorCode: 'source_statistics_native_unavailable' }));
-      if (epoch !== generation || signal.aborted) return { selected: null, errorCode: 'source_statistics_context_changed' };
-      if (result?.ok && isSnapshot(result.snapshot, expected('application', context.cloud.childId, range))) {
-        const currentNative = await nativeContext();
-        if (currentNative?.ok && currentNative.connectionGeneration === result.connectionGeneration) {
-          fresh = result.snapshot;
-          origin = 'native';
-          nativeConnectionGeneration = result.connectionGeneration;
-        }
-      } else errorCode = result?.errorCode || 'source_statistics_native_unavailable';
+        toDate: range.toDate, webUsage: web.snapshot, expectedContextId: native.contextId, attempt })),
+      12_000, 'source_statistics_native_timeout').catch(() => ({ ok: false, errorCode: 'source_statistics_native_unavailable' }));
+      const latest = await nativeContext().catch(() => null);
+      if (result?.ok && validSnapshot(result.snapshot, expected('application', context.childId, range), now())
+        && latest?.ok && latest.childId === context.childId && latest.contextId === native.contextId
+        && latest.connectionGeneration === result.connectionGeneration) {
+        attempt.accepted = true; attempt.errorCode = null;
+        return { snapshot: result.snapshot, origin: 'native', nativeAttempt: { ...attempt },
+          nativeConnectionGeneration: result.connectionGeneration, errorCode: null };
+      }
+      errorCode = result?.ok && result.snapshot === null ? 'source_statistics_application_unavailable'
+        : result?.ok ? 'source_statistics_native_context_changed'
+        : result?.errorCode || 'source_statistics_native_invalid_response';
+    } else errorCode = native?.errorCode || 'source_statistics_native_context_unavailable';
+    attempt.accepted = false; attempt.errorCode = errorCode;
+    const nativeAttempt = { ...attempt };
+    const response = await Promise.resolve().then(() => cloudRead({ deviceToken: context.deviceToken,
+      apiBase: context.apiBase, signal }, { schemaVersion: 2, source: 'application',
+      fromDate: range.fromDate, toDate: range.toDate, scope: 'all' }))
+      .catch(() => ({ ok: false, errorCode: 'source_statistics_application_unavailable' }));
+    if (response?.ok && validSnapshot(response.snapshot, expected('application', context.childId, range), now())) {
+      return { snapshot: response.snapshot, origin: 'cloud', nativeAttempt, errorCode: null };
     }
-    if (!fresh) {
-      const response = await cloudRead({ deviceToken: context.cloud.deviceToken, apiBase: context.cloud.apiBase, signal },
-        { source: 'application', fromDate: range.fromDate, toDate: range.toDate, scope: 'all' });
-      if (epoch !== generation || signal.aborted) return { selected: null, errorCode: 'source_statistics_context_changed' };
-      if (response?.ok && isSnapshot(response.snapshot, expected('application', context.cloud.childId, range))) {
-        fresh = response.snapshot;
-        origin = 'cloud';
-        errorCode = null;
-      } else errorCode = response?.errorCode || errorCode || 'source_statistics_application_unavailable';
-    }
-    const selected = await mergeLastGoodDays(fresh, cached?.application, 'application', context.cloud.childId,
-      range, now(), origin || 'unavailable', cached?.applicationOrigin || 'last_known_good', cached?.applicationDayOrigins);
-    if (origin === 'native' && selected.snapshot) selected.nativeContextGeneration = nativeConnectionGeneration;
-    return { selected, errorCode };
+    return { snapshot: cached.application || null,
+      origin: cached.application ? 'last_known_good' : 'unavailable', nativeAttempt,
+      errorCode: response?.errorCode || errorCode || 'source_statistics_application_unavailable' };
   }
-
   async function writeBestEffort(key, value) {
     try { await write({ [key]: value }, { priority: 'derived', source: 'source_statistics_shadow' }); } catch (_) {}
   }
-
   async function refresh({ force = false } = {}) {
-    if (!active || !isEnabled() || busy || !force && now() - lastRunAt < REFRESH_INTERVAL_MINUTES * 60_000)
+    if (!active || !isEnabled() || busy || !force && now() - lastRunAt < REFRESH_INTERVAL_MINUTES * 60_000) {
       return { ok: false, skipped: true };
-    busy = true;
-    lastRunAt = now();
+    }
+    busy = true; lastRunAt = now();
     const epoch = ++generation;
-    controller?.abort();
-    controller = new AbortController();
+    controller?.abort(); controller = new AbortController();
     const signal = controller.signal;
     try {
-      const range = sourceStatisticsWeekRange(now());
-      const context = await currentContext();
-      const cached = await readCache(context.cloud.childId, context.cloud.scopeHash, range);
-      const web = await fetchWeb(range, context, cached, epoch, signal);
+      const range = sourceStatisticsWeekRange(now()), context = await cloudContext();
+      const cached = await readCache(context, range);
+      const web = await readWeb(context, range);
       if (epoch !== generation || signal.aborted) return { ok: false, errorCode: 'source_statistics_context_changed' };
-      const application = await fetchApplication(range, context, web, cached, epoch, signal);
-      if (epoch !== generation || signal.aborted) return { ok: false, errorCode: 'source_statistics_context_changed' };
-      const [latestContext, latestNative] = await Promise.all([getContext(), nativeContext()]);
-      if (!latestContext || latestContext.childId !== context.cloud.childId || latestContext.scopeHash !== context.cloud.scopeHash
-        || latestContext.apiBase !== context.cloud.apiBase) return { ok: false, errorCode: 'source_statistics_context_changed' };
-      if (!application.selected?.stale && application.selected?.origin === 'native'
-        && latestNative?.connectionGeneration !== application.selected.nativeContextGeneration) {
+      const application = await readApplication(context, range, web, cached, signal);
+      const latest = await cloudContext();
+      if (epoch !== generation || signal.aborted || latest.childId !== context.childId
+        || latest.scopeHash !== context.scopeHash || latest.apiBase !== context.apiBase) {
         return { ok: false, errorCode: 'source_statistics_context_changed' };
       }
-      const webSelected = web.selected?.snapshot ? web.selected : cached?.web ? {
-        snapshot: cached.web, origin: 'last_known_good', stale: true,
-        dayOrigins: cached.webDayOrigins || Object.fromEntries(cached.web.days.map(day => [day.date, { origin: 'last_known_good', readAtMs: cached.web.readAtMs }])),
-      } : web.selected;
-      const applicationSelected = application.selected?.snapshot ? application.selected : cached?.application ? {
-        snapshot: cached.application, origin: 'last_known_good', stale: true,
-        dayOrigins: cached.applicationDayOrigins || Object.fromEntries(cached.application.days.map(day => [day.date, { origin: 'last_known_good', readAtMs: cached.application.readAtMs }])),
-      } : application.selected;
-      const report = { schemaVersion: 1, status: webSelected?.snapshot && applicationSelected?.snapshot ? 'available' : 'incomplete',
-        fromDate: range.fromDate, toDate: range.toDate, readAtMs: now(),
-        source: { web: sourceStatus(webSelected), application: sourceStatus(applicationSelected) },
-        webErrorCode: web.errorCode, applicationErrorCode: application.errorCode,
-        daily: [], weeklyComplete: false };
-      if (epoch !== generation || signal.aborted) return { ok: false, errorCode: 'source_statistics_context_changed' };
-      await writeBestEffort(SOURCE_STATISTICS_SHADOW_KEY, report);
-      if (webSelected?.snapshot || applicationSelected?.snapshot) {
-        const next = { schemaVersion: 1, childId: context.cloud.childId, scopeHash: context.cloud.scopeHash,
-          fromDate: range.fromDate, toDate: range.toDate,
-          web: webSelected?.snapshot || cached?.web || null,
-          webOther: web.otherSnapshot || cached?.webOther || null,
-          webOtherDayOrigins: web.otherSelected?.dayOrigins || cached?.webOtherDayOrigins || null,
-          application: applicationSelected?.snapshot || cached?.application || null,
-          applicationOrigin: applicationSelected?.origin || cached?.applicationOrigin || 'unavailable',
-          webDayOrigins: webSelected?.dayOrigins || cached?.webDayOrigins || null,
-          applicationDayOrigins: applicationSelected?.dayOrigins || cached?.applicationDayOrigins || null };
-        await writeBestEffort(SOURCE_STATISTICS_SHADOW_CACHE_KEY, next);
+      if (application.origin === 'native') {
+        const currentNative = await nativeContext();
+        if (currentNative?.connectionGeneration !== application.nativeConnectionGeneration
+          || currentNative.childId !== context.childId) return { ok: false, errorCode: 'source_statistics_context_changed' };
       }
-      return { ok: true, report };
-    } catch (error) {
-      if (epoch !== generation) return { ok: false, errorCode: 'source_statistics_context_changed' };
-      const report = { schemaVersion: 1, status: 'unavailable', readAtMs: now(),
-        errorCode: error?.message || 'source_statistics_unavailable', daily: [], weeklyRestSeconds: null,
-        weeklyRemainingSeconds: null, weeklyComplete: false };
+      const report = { schemaVersion: 2, scopeHash: context.scopeHash,
+        status: web.snapshot && application.snapshot ? 'available' : 'incomplete',
+        fromDate: range.fromDate, toDate: range.toDate, readAtMs: now(),
+        nativeAttempt: application.nativeAttempt, source: { web: status(web), application: status(application) },
+        webErrorCode: web.errorCode, applicationErrorCode: application.errorCode };
+      await writeBestEffort(SOURCE_STATISTICS_SHADOW_CACHE_KEY, { schemaVersion: 2, childId: context.childId,
+        scopeHash: context.scopeHash, fromDate: range.fromDate, toDate: range.toDate,
+        web: web.snapshot, application: application.snapshot, webOrigin: web.origin, applicationOrigin: application.origin });
       await writeBestEffort(SOURCE_STATISTICS_SHADOW_KEY, report);
-      return { ok: false, errorCode: report.errorCode };
-    } finally { if (epoch === generation) { busy = false; controller = null; } }
+      return { ok: true, report };
+    } catch (_) { return { ok: false, errorCode: 'source_statistics_unavailable' }; }
+    finally { if (epoch === generation) { busy = false; controller = null; } }
   }
-
   function invalidate() {
-    generation++;
-    controller?.abort();
-    controller = null;
-    busy = false;
-    lastRunAt = 0;
+    generation++; controller?.abort(); controller = null; busy = false; lastRunAt = 0;
   }
   async function readSources(date) {
     if (!active || !isEnabled()) return { ok: false, errorCode: 'source_statistics_disabled' };
@@ -311,23 +174,19 @@ export function createSourceStatisticsShadow({ readContext, nativeContext, nativ
     try {
       const range = sourceStatisticsWeekRange(now());
       if (date !== range.toDate) return { ok: false, errorCode: 'source_statistics_period_changed' };
-      const context = await currentContext();
-      const cached = await readCache(context.cloud.childId, context.cloud.scopeHash, range);
-      if (!cached?.webOther || !cached.application) return { ok: false, errorCode: 'source_statistics_unavailable' };
-      const quotaModels = await Promise.all(range.dates.map(day => readModel({ date: day })));
-      const own = await buildLocalWebSourceSnapshot({ childId: context.cloud.childId, ...range,
-        quotaModels, ownSourceKeys: cached.webOther.excludedSourceKeys, readAtMs: now() });
-      const web = await combineOwnAndOtherStatistics(own, cached.webOther);
-      const latest = await getContext();
-      if (epoch !== generation || !isEnabled() || latest?.scopeHash !== context.cloud.scopeHash
-        || date !== sourceStatisticsWeekRange(now()).toDate) {
+      const context = await cloudContext(), cached = await readCache(context, range);
+      const web = await readWeb(context, range), latest = await cloudContext();
+      if (epoch !== generation || latest.scopeHash !== context.scopeHash || latest.childId !== context.childId
+        || latest.apiBase !== context.apiBase || date !== dayAt(now()) || !isEnabled()) {
         return { ok: false, errorCode: 'source_statistics_context_changed' };
       }
-      return { ok: true, childId: context.cloud.childId, scopeHash: context.cloud.scopeHash,
-        sourceStatistics: { web, application: cached.application } };
+      return { ok: true, childId: context.childId, scopeHash: context.scopeHash,
+        sourceStatistics: { web: web.snapshot, application: cached.application || null },
+        missingSources: [!web.snapshot ? 'web' : null, !cached.application ? 'application' : null].filter(Boolean) };
     } catch (_) { return { ok: false, errorCode: 'source_statistics_unavailable' }; }
   }
-  return { refresh, readSources, invalidate, configure(value) { active = value === true; invalidate(); }, inspect: () => ({ active, busy }) };
+  return { refresh, readSources, invalidate, configure(value) { active = value === true; invalidate(); },
+    inspect: () => ({ active, busy }) };
 }
 
 let shadow = null;
@@ -340,14 +199,11 @@ export function initSourceStatisticsShadow({ isEnabled = () => false } = {}) {
   chrome.runtime.onInstalled.addListener(run);
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local' || !['cloud_profile_id', 'cloud_device_id', 'cloud_device_token'].some(key => Object.hasOwn(changes, key))) return;
-    shadow.invalidate();
-    run();
+    shadow.invalidate(); run();
   });
   chrome.alarms.onAlarm.addListener(alarm => { if (alarm?.name === SOURCE_STATISTICS_SHADOW_ALARM) run(); });
-  run();
-  return shadow;
+  run(); return shadow;
 }
-
 export function refreshSourceStatisticsShadow(options) {
   return shadow?.refresh(options) || Promise.resolve({ ok: false, skipped: true });
 }

@@ -15,6 +15,7 @@ import { browserExecutionFence, browserExecutionIdentityHash } from './shared-br
 import { sharedBrowserExecutionAttempts } from './shared-browser-execution-attempts.js';
 import { captureSharedWebNativeRequest, captureSharedWebNativeReceipt, captureSharedQuotaPreparation, SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
 import { SOURCE_STATISTICS_EXCHANGE_MESSAGE, SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsExchange, validateSourceStatisticsSnapshot } from '../core/shared-contracts/1.54.0/source-statistics.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.55.0/source-statistics.js';
 import { checkSharedActivityV2, checkSharedActivityAckV2, checkSharedReminderStateV2,
   checkSharedReminderMessageV2, checkSharedExecutionV2 } from '../core/shared-forced-use-runtime-v2.js';
 import { APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, validateApplicationIdentityUsageQuery, validateApplicationIdentityUsageSnapshot } from '../core/shared-contracts/1.43.0/application-usage-seconds.js';
@@ -114,6 +115,16 @@ let lastScheduledAttemptAt = 0;
 let lastProbeAt = 0;
 let persistedStatus = null;
 let lastResponseRejection = null;
+let lastSourceStatisticsAttempt = null;
+const SOURCE_STATISTICS_ERRORS = new Set(['SOURCE_STATISTICS_INVALID', 'SOURCE_STATISTICS_CONTEXT_CHANGED',
+  'SOURCE_STATISTICS_STALE', 'SOURCE_STATISTICS_UNAVAILABLE', 'SOURCE_STATISTICS_TIMEOUT',
+  'SOURCE_STATISTICS_REDIRECTED', 'SOURCE_STATISTICS_RESPONSE_TOO_LARGE',
+  'BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
+  'QUOTA_BUCKETS_INVALID', 'QUOTA_BUCKETS_CONTEXT_CHANGED', 'QUOTA_BUCKETS_STALE', 'QUOTA_BUCKETS_UNAVAILABLE',
+  'QUOTA_BUCKETS_TIMEOUT', 'QUOTA_BUCKETS_REDIRECTED', 'QUOTA_BUCKETS_RESPONSE_TOO_LARGE']);
+const SOURCE_STATISTICS_BINDING_ERRORS = new Set(['application_identity_usage_binding_unavailable',
+  'shared_web_identity_changed', 'shared_web_scope_unavailable', 'shared_web_proof_unavailable',
+  'shared_web_identity_unverified', 'shared_web_invalid_reusable_proof']);
 let snapshotRetryAtMs = 0;
 function recordResponseRejection(request, reason, serviceErrorCode = null) {
   const types = ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getApplicationUsageSeconds', 'settledUsageSegments',
@@ -121,11 +132,11 @@ function recordResponseRejection(request, reason, serviceErrorCode = null) {
     'getSharedQuotaState', 'reportReminderResult', 'getSharedReminderState', 'acknowledgeSharedReminderDelivery',
     'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution', 'getSharedWebSourceChallenge',
     'bindSharedWebSource', 'replaceSharedWebContribution', 'getSharedWebSourceScope',
-    'bindSharedWebSourceV2', 'replaceSharedWebContributionV2', SOURCE_STATISTICS_EXCHANGE_MESSAGE];
+    'bindSharedWebSourceV2', 'replaceSharedWebContributionV2', SOURCE_STATISTICS_EXCHANGE_MESSAGE, 'exchangeQuotaBuckets'];
   lastResponseRejection = { atMs: safeNow(), reason,
     serviceErrorCode: ['BROWSER_BRIDGE_MESSAGE_REJECTED', 'RUNTIME_SERVICE_UNAVAILABLE',
       'NATIVE_ENVELOPE_REJECTED', 'NATIVE_MESSAGE_INVALID'].includes(serviceErrorCode)
-      || SHARED_WEB_IDENTITY_ERRORS.has(serviceErrorCode) ? serviceErrorCode : null,
+      || SHARED_WEB_IDENTITY_ERRORS.has(serviceErrorCode) || SOURCE_STATISTICS_ERRORS.has(serviceErrorCode) ? serviceErrorCode : null,
     messageType: types.includes(request?.messageType) ? request.messageType : 'unknown',
     channel: ['health', 'statistics', 'application', 'ledger', 'sharedQuota'].includes(request?.channel) ? request.channel : 'unknown' };
 }
@@ -320,7 +331,7 @@ async function persistStatus(patch) {
 }
 
 function normalizeErrorCode(value) {
-  if (LIFECYCLE_ERRORS.has(value) || SHARED_WEB_IDENTITY_ERRORS.has(value) || value === 'shared_reminder_invalid_state') return value;
+  if (LIFECYCLE_ERRORS.has(value) || SHARED_WEB_IDENTITY_ERRORS.has(value) || SOURCE_STATISTICS_ERRORS.has(value) || value === 'shared_reminder_invalid_state') return value;
   const allowed = new Set([
     'native_host_unavailable',
     'native_port_disconnected',
@@ -455,6 +466,7 @@ function ensureNativePort() {
         : pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity ? 'shared_reminder_invalid_ack' : 'shared_quota_invalid_state');
       return;
     }
+    if (pendingAck.sourceStatisticsAttempt) pendingAck.sourceStatisticsAttempt.responseReceived = true;
     if (response?.ok !== true) {
       recordResponseRejection(pendingAck, response?.errorCode === 'BROWSER_BRIDGE_MESSAGE_REJECTED'
         ? 'service_message_rejected' : response?.errorCode === 'RUNTIME_SERVICE_UNAVAILABLE'
@@ -466,7 +478,8 @@ function ensureNativePort() {
         rejectPendingAck('native_snapshot_rejected');
         return;
       }
-      const code = response?.errorCode === 'RUNTIME_SERVICE_UNAVAILABLE' ? 'runtime_service_unavailable'
+      const code = pendingAck.sourceStatisticsRead && SOURCE_STATISTICS_ERRORS.has(response?.errorCode) ? response.errorCode
+        : response?.errorCode === 'RUNTIME_SERVICE_UNAVAILABLE' ? 'runtime_service_unavailable'
         : pendingAck.sharedLifecycle || pendingAck.browserActivity ? LIFECYCLE_ERRORS.has(response?.errorCode)
           ? response.errorCode : 'shared_reminder_unavailable'
         : pendingAck.sharedReminderReport && response?.errorCode === 'SHARED_REMINDER_NOT_ISSUED' ? 'shared_reminder_not_issued'
@@ -558,7 +571,7 @@ function ensureNativePort() {
   return port;
 }
 
-function postToNativeHost(payload) {
+function postToNativeHost(payload, sourceStatisticsAttempt = null) {
   const port = ensureNativePort();
   const applicationRead = payload.channel === 'application'
     && ['getApplicationUsage', 'getApplicationUsageSeconds'].includes(payload.messageType);
@@ -570,7 +583,8 @@ function postToNativeHost(payload) {
   const browserActivity = payload.channel === 'sharedQuota' && payload.messageType === 'reportBrowserActivity';
   const sharedWeb = payload.channel === 'sharedQuota' && ['getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution',
     'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'replaceSharedWebContributionV2'].includes(payload.messageType);
-  const sourceStatisticsRead = payload.channel === 'sharedQuota' && payload.messageType === SOURCE_STATISTICS_EXCHANGE_MESSAGE;
+  const sourceStatisticsRead = payload.channel === 'sharedQuota'
+    && [SOURCE_STATISTICS_EXCHANGE_MESSAGE, 'exchangeQuotaBuckets'].includes(payload.messageType);
   const applicationIdentityRead = payload.channel === 'application' && payload.messageType === 'getApplicationIdentityUsage';
   return new Promise((resolve, reject) => {
     const timeoutId = setTimeout(() => {
@@ -581,9 +595,11 @@ function postToNativeHost(payload) {
     }, sourceStatisticsRead ? 12_000 : applicationRead || applicationIdentityRead || sharedQuotaRead || sharedWeb ? APPLICATION_USAGE_RESPONSE_TIMEOUT_MS : NATIVE_RESPONSE_TIMEOUT_MS);
     pendingAck = { resolve, reject, timeoutId, requestId: payload.requestId, messageType: payload.messageType || payload.type,
       channel: payload.channel || 'health',
-      applicationRead, applicationReadSeconds, applicationIdentityRead, sharedQuotaRead, sharedReminderReport, sharedLifecycle, browserActivity, sharedWeb, sourceStatisticsRead };
+      applicationRead, applicationReadSeconds, applicationIdentityRead, sharedQuotaRead, sharedReminderReport, sharedLifecycle, browserActivity, sharedWeb, sourceStatisticsRead,
+      sourceStatisticsAttempt };
     try {
       port.postMessage(payload);
+      if (sourceStatisticsAttempt) sourceStatisticsAttempt.sent = true;
     } catch (_) {
       pendingAck = null;
       clearTimeout(timeoutId);
@@ -896,34 +912,49 @@ async function performSend(options) {
       ? error.message : 'shared_web_native_unavailable' }; }
   }
   if (options.type === 'sourceStatisticsRead') {
+    const attempt = options.attempt;
+    const failed = errorCode => { attempt.errorCode = errorCode;
+      return { ok: false, errorCode, nativeAttempt: { ...attempt } }; };
     try {
-      const before = await readSourceStatisticsNativeContext();
+      const before = await readSourceStatisticsNativeContext({ quotaBuckets: options.quotaBuckets });
       if (!before.ok || before.contextId !== options.expectedContextId || !before.capabilityAvailable) {
-        return { ok: false, errorCode: 'source_statistics_native_context_changed' };
+        return failed('source_statistics_native_context_changed');
       }
+      if (options.bindingExpiresAtMs <= safeNow()) return failed('WEB_SOURCE_PROOF_EXPIRED');
       const port = nativePort;
-      if (!port) return { ok: false, errorCode: 'source_statistics_native_unavailable' };
+      if (!port) return failed('source_statistics_native_unavailable');
       const request = { protocolVersion: 3, channel: 'sharedQuota', requestId: createUuid(),
-        messageType: SOURCE_STATISTICS_EXCHANGE_MESSAGE, extensionId: chrome.runtime.id,
+        messageType: options.quotaBuckets ? 'exchangeQuotaBuckets' : SOURCE_STATISTICS_EXCHANGE_MESSAGE, extensionId: chrome.runtime.id,
         profileId: await getOrCreateProfileUuid(), sentAtMs: safeNow(), payload: options.payload };
-      const ack = await postToNativeHost(request);
-      const after = await readSourceStatisticsNativeContext();
+      const ack = await postToNativeHost(request, attempt);
+      const after = await readSourceStatisticsNativeContext({ quotaBuckets: options.quotaBuckets });
       if (nativePort !== port || ack.requestId !== request.requestId || !after.ok
         || after.contextId !== options.expectedContextId || after.connectionGeneration !== before.connectionGeneration) {
-        return { ok: false, errorCode: 'source_statistics_native_context_changed' };
+        return failed('source_statistics_native_context_changed');
       }
-      if (ack.sharedQuotaStage !== 'shadow' || !ack.sourceStatistics) {
-        return { ok: false, errorCode: 'source_statistics_native_invalid_response' };
+      if (options.quotaBuckets && ack.applicationUsage === null) {
+        attempt.errorCode = 'source_statistics_application_unavailable';
+        return { ok: true, source: 'native', snapshot: null, missing: true, contextId: after.contextId,
+          connectionGeneration: after.connectionGeneration, nativeAttempt: { ...attempt } };
+      }
+      const snapshot = options.quotaBuckets ? ack.applicationUsage : ack.sourceStatistics;
+      if (!snapshot) {
+        return failed('source_statistics_native_invalid_response');
       }
       try {
-        validateSourceStatisticsSnapshot(ack.sourceStatistics, { source: 'application', childId: options.childId,
+        const validate = options.quotaBuckets ? sourceStatisticsContract.validateQuotaBucketsSnapshot : validateSourceStatisticsSnapshot;
+        validate(snapshot, { source: 'application', childId: options.childId,
           fromDate: options.fromDate, toDate: options.toDate });
-      } catch (_) { return { ok: false, errorCode: 'source_statistics_native_invalid_response' }; }
-      return { ok: true, source: 'native', snapshot: ack.sourceStatistics, contextId: after.contextId,
-        connectionGeneration: after.connectionGeneration };
+      } catch (_) { return failed('source_statistics_native_invalid_response'); }
+      attempt.accepted = true;
+      return { ok: true, source: 'native', snapshot, contextId: after.contextId,
+        connectionGeneration: after.connectionGeneration, nativeAttempt: { ...attempt } };
     } catch (error) {
-      return { ok: false, errorCode: ['native_host_unavailable', 'native_port_disconnected', 'native_response_timeout', 'native_post_failed']
-        .includes(normalizeErrorCode(error?.message)) ? normalizeErrorCode(error.message) : 'source_statistics_native_unavailable' };
+      return failed(SOURCE_STATISTICS_ERRORS.has(error?.message) ? error.message
+        : ['native_host_unavailable', 'native_port_disconnected', 'native_response_timeout', 'native_post_failed',
+          'native_invalid_response', 'source_statistics_native_invalid_response', 'source_statistics_native_context_changed',
+          'source_statistics_native_unavailable', 'runtime_service_unavailable']
+          .includes(normalizeErrorCode(error?.message)) ? normalizeErrorCode(error.message) : 'source_statistics_native_unavailable');
     }
   }
   if (options.type === 'browserActivity') {
@@ -1666,9 +1697,11 @@ export function readNativeHostDiagnosticState() {
   const allowed = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1',
     'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1',
     'shared-browser-activity-v1', 'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1',
-    'shared-web-local-lease-v1', 'shared-web-source-reusable-v2', SOURCE_STATISTICS_READ_CAPABILITY,
+    'shared-web-local-lease-v1', 'shared-web-source-reusable-v2', SOURCE_STATISTICS_READ_CAPABILITY, 'quota-buckets-read-v1',
     APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, 'shared-access-policy-v2', 'shared-forced-use-runtime-v2'];
   return { connected, protocolVersion: known ? 3 : null,
+    connectionGeneration: connected ? applicationConnectionGeneration : null,
+    sourceStatisticsAttempt: lastSourceStatisticsAttempt ? { ...lastSourceStatisticsAttempt } : null,
     capabilities: known ? allowed.filter(v => sharedNativeCapabilities.has(v)) : null,
     applicationUsageSupported: applicationUsageSupported && connected ? true : known ? false : null,
     applicationUsageSecondsSupported: applicationUsageSecondsSupported && connected ? true : known ? false : null,
@@ -1720,49 +1753,106 @@ function sharedCapabilityAvailable(method) {
     && typeof token === 'string' && sharedNativeCapabilities.has(token);
 }
 
-function sourceStatisticsCapabilityAvailable() {
-  return nativePort !== null && sharedNativeV3 && sharedNativeCapabilities.has(SOURCE_STATISTICS_READ_CAPABILITY);
+function sourceStatisticsCapabilityAvailable(quotaBuckets = false) {
+  return nativePort !== null && sharedNativeV3
+    && sharedNativeCapabilities.has(quotaBuckets ? 'quota-buckets-read-v1' : SOURCE_STATISTICS_READ_CAPABILITY);
 }
 
-export async function readSourceStatisticsNativeContext() {
+export async function readSourceStatisticsNativeContext({ prepare = false, quotaBuckets = false } = {}) {
   try {
     const stored = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id']);
     const childId = typeof stored?.cloud_profile_id === 'string' ? stored.cloud_profile_id : '';
     const deviceId = typeof stored?.cloud_device_id === 'string' ? stored.cloud_device_id : '';
     if (!childId || !deviceId) return { ok: false, errorCode: 'source_statistics_identity_unavailable' };
+    if (prepare) {
+      const ready = await ensureSourceStatisticsCapability(quotaBuckets);
+      if (!ready.ok) return ready;
+      const latest = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id']);
+      if (latest.cloud_profile_id !== childId || latest.cloud_device_id !== deviceId) {
+        return { ok: false, errorCode: 'source_statistics_native_context_changed' };
+      }
+    }
     const connectionGeneration = applicationConnectionGeneration;
     const contextId = await stableDigest({ connectionGeneration, childId, deviceId });
     return { ok: true, childId, deviceId, contextId, connectionGeneration,
-      capabilityAvailable: sourceStatisticsCapabilityAvailable() };
+      capabilityAvailable: sourceStatisticsCapabilityAvailable(quotaBuckets) };
   } catch (_) { return { ok: false, errorCode: 'source_statistics_identity_unavailable' }; }
 }
 
-async function ensureSourceStatisticsCapability() {
-  if (!nativePort) {
-    const health = await requestLocalGuardianHeartbeat({ trigger: 'source_statistics_shadow' });
-    if (!health.ok && !nativePort) return { ok: false, errorCode: health.errorCode || 'source_statistics_native_unavailable' };
-    if (activeSendPromise) await activeSendPromise.catch(() => {});
+async function ensureSourceStatisticsCapability(quotaBuckets = false) {
+  if (sourceStatisticsCapabilityAvailable(quotaBuckets)) return { ok: true };
+  if (activeSendPromise) {
+    const pending = await activeSendPromise.catch(() => ({ ok: false, errorCode: 'source_statistics_native_unavailable' }));
+    if (!pending.ok && !sourceStatisticsCapabilityAvailable(quotaBuckets)) {
+      return { ok: false, errorCode: pending.errorCode || 'source_statistics_native_unavailable' };
+    }
   }
-  return sourceStatisticsCapabilityAvailable() ? { ok: true }
+  if (sourceStatisticsCapabilityAvailable(quotaBuckets)) return { ok: true };
+  // A port can exist before its first health ACK; a queued probe has a real completion promise.
+  const health = await requestLocalGuardianHeartbeat({ type: 'probe', trigger: 'source_statistics_shadow', force: true });
+  if (!health.ok) return { ok: false, errorCode: health.errorCode || 'source_statistics_native_unavailable' };
+  if (!nativePort) return { ok: false, errorCode: 'native_port_disconnected' };
+  return sourceStatisticsCapabilityAvailable(quotaBuckets) ? { ok: true }
     : { ok: false, errorCode: 'source_statistics_native_unsupported' };
 }
 
-export async function requestSourceStatisticsExchange({ fromDate, toDate, webStatistics, expectedContextId = null } = {}) {
+export function requestSourceStatisticsExchange(query = {}) {
+  return requestStatisticsExchange(query);
+}
+
+export function requestQuotaBucketsExchange({ webUsage, ...query } = {}) {
+  return requestStatisticsExchange({ ...query, webStatistics: webUsage, quotaBuckets: true });
+}
+
+async function requestStatisticsExchange({ fromDate, toDate, webStatistics, expectedContextId = null,
+  attempt = {}, quotaBuckets = false } = {}) {
+  Object.assign(attempt, { sent: false, responseReceived: false, accepted: false, errorCode: null,
+    startedAtMs: safeNow(), connectionGeneration: null });
+  lastSourceStatisticsAttempt = attempt;
+  const failed = errorCode => { attempt.errorCode = errorCode; return { ok: false, errorCode, nativeAttempt: { ...attempt } }; };
   if (!await readNativeHostDeploymentMarker().catch(() => false)) {
-    return { ok: false, errorCode: 'managed_marker_unavailable' };
+    return failed('managed_marker_unavailable');
   }
-  const negotiated = await ensureSourceStatisticsCapability();
-  if (!negotiated.ok) return negotiated;
-  const context = await readSourceStatisticsNativeContext();
+  const negotiated = await ensureSourceStatisticsCapability(quotaBuckets);
+  if (!negotiated.ok) return failed(negotiated.errorCode);
+  const context = await readSourceStatisticsNativeContext({ quotaBuckets });
+  attempt.connectionGeneration = context.connectionGeneration ?? null;
   if (!context.ok || expectedContextId && context.contextId !== expectedContextId || !context.capabilityAvailable) {
-    return { ok: false, errorCode: 'source_statistics_native_context_changed' };
+    return failed('source_statistics_native_context_changed');
   }
-  try { validateSourceStatisticsExchange({ fromDate, toDate, webStatistics }, context.childId); }
-  catch (_) { return { ok: false, errorCode: 'source_statistics_native_invalid_request' }; }
-  const options = { type: 'sourceStatisticsRead', payload: { fromDate, toDate, webStatistics },
-    childId: context.childId, fromDate, toDate, expectedContextId: context.contextId };
+  const payload = quotaBuckets ? { fromDate, toDate, webUsage: webStatistics } : { fromDate, toDate, webStatistics };
+  try {
+    const validate = quotaBuckets ? sourceStatisticsContract.validateQuotaBucketsExchange : validateSourceStatisticsExchange;
+    validate(payload, context.childId);
+  }
+  catch (_) { return failed('source_statistics_native_invalid_request'); }
+  if (typeof applicationIdentityBindingEnsurer !== 'function') {
+    return failed('source_statistics_native_binding_required');
+  }
+  const port = nativePort;
+  // Binding uses the same Native send queue, so prepare it before enqueuing this read.
+  let binding;
+  try { binding = await applicationIdentityBindingEnsurer(); }
+  catch (_) { return failed('source_statistics_native_binding_unavailable'); }
+  if (!binding?.ok) {
+    return failed(SHARED_WEB_IDENTITY_ERRORS.has(binding?.errorCode)
+      || SOURCE_STATISTICS_ERRORS.has(binding?.errorCode) || SOURCE_STATISTICS_BINDING_ERRORS.has(binding?.errorCode)
+      ? binding.errorCode : 'source_statistics_native_binding_unavailable');
+  }
+  const prepared = await readSourceStatisticsNativeContext({ quotaBuckets });
+  if (nativePort !== port || !prepared.ok || !prepared.capabilityAvailable
+    || prepared.contextId !== context.contextId || prepared.connectionGeneration !== context.connectionGeneration) {
+    return failed('source_statistics_native_context_changed');
+  }
+  if (typeof binding.bindingContextId !== 'string' || !/^[a-f0-9]{64}$/.test(binding.bindingContextId)
+    || !Number.isSafeInteger(binding.expiresAtMs) || binding.expiresAtMs <= safeNow()) {
+    return failed('source_statistics_native_binding_unavailable');
+  }
+  const options = { type: 'sourceStatisticsRead', payload, quotaBuckets,
+    childId: context.childId, fromDate, toDate, expectedContextId: context.contextId,
+    bindingExpiresAtMs: binding.expiresAtMs, attempt };
   if (!activeSendPromise) return startSend(options);
-  if (queuedSourceStatisticsRead) return { ok: false, errorCode: 'source_statistics_native_busy' };
+  if (queuedSourceStatisticsRead) return failed('source_statistics_native_busy');
   return new Promise(resolve => { queuedSourceStatisticsRead = { options, resolve }; });
 }
 

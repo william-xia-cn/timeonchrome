@@ -5,6 +5,14 @@ const root = path.resolve(__dirname, '../..');
 const url = f => pathToFileURL(path.join(root, f)).href;
 const clone = v => structuredClone(v);
 async function run() {
+  const quotaContractPath = process.env.TIMEONCHROME_SOURCE_STATISTICS_CONTRACT_PATH;
+  if (quotaContractPath) {
+    const ts = require('typescript');
+    const js = ts.transpileModule(fs.readFileSync(quotaContractPath, 'utf8'), {
+      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    globalThis.__sharedBucketsContract = await import('data:text/javascript;base64,' + Buffer.from(js).toString('base64'));
+  } else globalThis.__sharedBucketsContract = await import(url('extension/core/shared-contracts/1.55.0/source-statistics.js'));
   const contract = await import(url('extension/core/shared-contracts/1.30.0/shared-access.js'));
   const identity = await import(url('extension/core/shared-contracts/1.30.0/shared-web-sync.js'));
 const v2Contract = await import(url('extension/core/shared-contracts/1.54.0/shared-access.js'));
@@ -14,7 +22,7 @@ const v2Contract = await import(url('extension/core/shared-contracts/1.54.0/shar
     + `import {canonicalSharedAccessPolicyV2,createSharedAccessPolicyIdentityV2} from '${url('extension/core/shared-contracts/1.54.0/shared-access.js')}';\n`
     + `import {projectIndependentSharedQuotaSeconds,sourceStatisticsDates} from '${url('extension/core/shared-contracts/1.54.0/source-statistics.js')}';\n`
     + `import {sharedQuotaExecutionIdentityV1} from '${url('extension/core/shared-contracts/1.30.0/shared-web-sync.js')}';\n`
-    + 'const readLocalSharedQuotaPreparation=async()=>null,readSharedWebSourceBinding=async()=>null,readSharedAccessPolicyLkg=async()=>null,requestSharedQuotaState=async()=>null,getSharedBrowserActivityLease=()=>null,browserExecutionFence={invalidate(){}};\n' + source;
+    + 'const sourceStatisticsContract=globalThis.__sharedBucketsContract;const readLocalSharedQuotaPreparation=async()=>null,readSharedWebSourceBinding=async()=>null,readSharedAccessPolicyLkg=async()=>null,requestSharedQuotaState=async()=>null,getSharedBrowserActivityLease=()=>null,browserExecutionFence={invalidate(){}};\n' + source;
   const runtime = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const date = '2026-09-28';
   const policy = { ...contract.projectLegacySharedAccessPolicy({ timeQuota: { daily: {
@@ -93,6 +101,42 @@ const v2Contract = await import(url('extension/core/shared-contracts/1.54.0/shar
   assert.equal(incompleteUsage.restSeconds, 7200, 'known local lower bound survives a missing shared source');
   assert.equal(incompleteUsage.compositeSeconds, 60);
   assert.equal(incompleteUsage.weekRestSeconds, undefined, 'unknown fields must not become zero');
+  const buckets = (kind, rest) => ({ schemaVersion: 2, durationUnit: 'seconds', source: kind,
+    childId: 'fixture-child', fromDate: date, toDate: date, readAtMs: 1000, days: [{ date,
+      bucketsSeconds: { study: 0, composite: 0, rest }, settledThroughMs: null, complete: true, reasonCodes: [] }] });
+  const bucketModel = { ...independentModel, sourceStatistics: {
+    web: buckets('web', 600), application: buckets('application', 600) } };
+  const combinedBuckets = () => runtime.projectSharedRuntimeQuota(independentConfig, bucketModel, {}, date);
+  assert.equal(combinedBuckets().usage.restSeconds, 1200, '600 web + 600 application = 1200, no borrowing');
+  assert.equal(combinedBuckets().usage.restSeconds, 1200, 'repeated projections never accumulate');
+  bucketModel.sourceStatistics.application.days[0].bucketsSeconds.rest = 100;
+  assert.equal(combinedBuckets().usage.restSeconds, 700, 'decreased usage is honored');
+  bucketModel.sourceStatistics.application = null;
+  assert.equal(combinedBuckets().usage.restSeconds, 600);
+  assert.equal(combinedBuckets().usage.ok, true);
+  assert.equal(combinedBuckets().usage.sharedIncomplete, true);
+  assert.deepEqual(combinedBuckets().usage.missingSources, ['application']);
+  bucketModel.sourceStatistics = { web: null, application: buckets('application', 600) };
+  assert.equal(runtime.projectSharedRuntimeQuota(independentConfig, bucketModel, { ok: false }, date).usage.restSeconds, 600,
+    'unavailable web cannot erase known application usage');
+  bucketModel.sourceStatistics.application = null;
+  assert.equal(combinedBuckets().usage.restSeconds, 0, 'missing sources count as zero only in ephemeral calculation');
+  assert.equal(combinedBuckets().completeness.complete, false);
+  assert.deepEqual(combinedBuckets().usage.missingSources, ['web', 'application']);
+  const fenceSources = { web: buckets('web', 600), application: buckets('application', 600) };
+  const bucketReader = runtime.createIndependentSharedAccessRuntime({ enabled: true,
+    readPolicy: async () => ({ ok: true, policy: { ...v2Policy, stage: 'shared' } }),
+    readScope: async () => ({ childId: 'fixture-child', scopeHash: 'fixture-scope' }),
+    readConfigContext: async () => ({ version: 8, config: independentConfig }),
+    readSources: async () => ({ ok: true, childId: 'fixture-child', scopeHash: 'fixture-scope', sourceStatistics: fenceSources }),
+    fence: { invalidate() {} } });
+  const firstBucketRevision = (await bucketReader.read(date)).executionRevision;
+  fenceSources.web.readAtMs++;
+  assert.equal((await bucketReader.read(date)).executionRevision, firstBucketRevision,
+    'a fresh read timestamp alone cannot invalidate an ongoing confirmation');
+  fenceSources.application.days[0].bucketsSeconds.rest = 100;
+  assert.notEqual((await bucketReader.read(date)).executionRevision, firstBucketRevision,
+    'changed bucket values still invalidate the execution fence');
   reply.sharedQuotaPreparation.replacementVersions[1].revisionOrdinal++;
   reply.sharedQuotaPreparation.projection.days[0].usedMs.rest -= 1000;
   reply.sharedQuotaPreparation.projection.week.restUsedMs -= 1000;
