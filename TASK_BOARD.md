@@ -2,6 +2,18 @@
 
 ## NOW：Windows共享消费者接续（2026-10-16，源码与隔离验证）
 
+D-114关闭原账补证最终PASS：既有shared-forced-use-v2-unpacked定点1/1通过（K5hYGE）。正常取消前后原账均3段，目标无新增；force前4段、后5段，唯一目标新增段1792144232440→1792144235483、3秒（既有floor取整）、自然transition_complete，旧段逐项不变、正秒区间无重叠，见证标签仍开。补齐真实active回执后再推进Service模拟时钟，消除测试竞态，不修改计时。脱敏message-replay.json SHA256 b344a8fad6dcd05cfcb95574f027922f516b26b0d5653dbedfcfb36582e7df85。仅提交测试及本批证据记录；候选仍为精确3ad源码1.7.50/原哈希，无重建、覆盖、重载或新增权限已获授权的声明。
+
+D-114受控关闭补证：仅扩展既有shared-forced-use-v2-unpacked场景，增加原始分段只读前后快照、正常取消不产生tab_close、目标ACTIVE经自然onRemoved结算一次、旧分段不变/不重叠及旁路标签保留断言。为取得正秒原账，Composite先实际确认并恢复ACTIVE，再等待既有短时真实采样后触发复提醒超时；Service加速仅用于提醒，不代替网页计时。不改产品源码/采样/ledger，不重打包或覆盖原Profile；实证失败保持待验。
+
+补证两轮尚未通过：正常取消及旧段未改断言通过，force真实关闭后已有自然tabActivated先结算2秒transition_complete，三条旧段不变，新段start与前段end一致；随后onRemoved不重复关账。测试写死必须新增tab_close导致失败，已将隔离原账快照回报架构裁决自然事件顺序，不改产品或伪造事件，不提交失败测试。
+
+架构已核验并确认自然activation先结算符合D-114，不要求onRemoved独占；本次仅修测试断言，目标新增单段须起点等于关闭前session.startTime，秒数遵循既有取整，旧段不变、无重叠重复、旁路标签保持。批准同场景定点复验，产品源码和3ad候选不变。
+
+受控验收准备：按架构转达PO授权从精确master 3adcad36b51f8fcf08285350f0a4ff26f255fdd5导出干净源码生成唯一1.7.50开发候选，不改正式manifest或托管；保持既有公开key/ID，仅为真实关闭验收增加debugger及sharedBrowserCloseDevelopment开发标记。家庭配置不打包、不更改，原目录更新时点由架构协调；本步骤只生成哈希/权限差异及备份计划，不覆盖当前加载目录或重载。
+
+候选结果：dist/shared-v2-development-1.7.50-3adcad3/candidate/package-extension共203文件；按相对路径排序的[path,fileSHA256]数组JSON再SHA256为a8dac1e6bdbc5aaa82479961bce7b1b126f4690c913a015066371d5cb0ae0da6。除manifest/开发marker外逐文件等于精确Git导出；稳定ID/公开key/host权限不变，仅新增debugger，无CRX/feed。原包磁盘仍1.7.48，未覆盖/重载。D-114门禁保留：精确target及取消已有单测/隔离浏览器证据；本次真实原账守恒、原Profile新增权限确认、非测试标签不受影响仍待受控验收，不以源码diff代替通过。备份计划为同dist完整旧包备份并核hash后manifest最后替换，等待架构统一时点。
+
 PO缺源裁决追加：同孩子周期无可信共享缓存时，保留本机已知用量作为下界，未知不补零；有适用额度也不因缺源单独阻断，已知用量到最终硬上限仍阻断，黑名单/停用/对象限制优先。仅共享V2判定允许逐项缺失，旧路径保持严格；来源投影保留可读本机分量与不完整标志。最小验证为实际mode-service及共享runtime专项；随后普通merge主线解决PR范围反向diff，不改账本。
 
 最终结果：集中1.54.0固定包与生产消费者接线完成；source-statistics-shadow、local-guardian（25条真实C#响应回放）、shared-access-runtime/integration/policy-reader、forced-use-prompt、shared-reminder-lifecycle/content-bridge、shared-browser-activity/executor、163项mode-service、typecheck、扩展根及diff检查通过。真实隔离扩展VPS6Ud通过首访问pending-entry到ACTIVE、合并复提醒、正常关闭取消及Composite超时强制关闭，使用契约状态机与加速时钟，不冒充真实Native联通或计时精度验收。最终桌面/窄屏DOM截图已核对，文字、原因合并、手动输入及布局Matched；同规则跨标签、跨日/异规则/新增原因隔离专项通过。没有已知Deviated/Extra；待验为真实Chrome↔Native双端端到端、有限配额缺源无缓存策略裁决。未改原始计时/账本/聚合/上传，不更新候选、重载或启用生产共享。本批按架构交接整包提交，其他历史文档脏改保留。
