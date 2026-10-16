@@ -13,6 +13,7 @@ import { parseProgramInstanceProjectionContext } from '@timeonchrome/app-runtime
 import {readProgramPolicyStatus,receiveProgramPolicyStatus} from '../src/programPolicyStatus';
 import { updateUserAssignment } from '../src/v2Repository';
 import {receiveProgramInstallationLinks,readProgramInstallationSummaries} from '../src/programInstallationLinks';
+import nativeControlHeartbeats from './fixtures/native-control-heartbeats-v2.json';
 
 it('实例列表读取安装正向事实、有界摘要与家庭孩子隔离，不读取原账或猜产品',async()=>{
   const f=await installationFixture(),keys=Array.from({length:8},(_,i)=>`entry-${i}`);
@@ -229,6 +230,28 @@ it('安装引用存储未就绪明确503，原程序实例登记不受影响',as
     expect(page.items[0].installation).toEqual({state:'unavailable',reasonCode:'PROGRAM_INSTALLATION_STORAGE_UNAVAILABLE'});
   } finally {
     await env.RUNTIME_DB.prepare('ALTER TABLE installation_links_test_unavailable RENAME TO runtime_program_installation_links_v1').run();
+  }
+});
+
+it('Native生产心跳冻结载荷经过HTTP接收、持久化和读取保留真实动作状态',async()=>{
+  // Native实际BuildNativeControlStatusAsync及心跳生产者的隔离输出，不是手写HTTP响应。
+  const {machine,value,token}=await fixture();
+  const user=nativeControlHeartbeats[0].programInstancePolicy.users[0].localUserId;
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,1,?3,1,'override',0,0)`)
+    .bind(machine.machineId,user,value.childId).run();
+  const configuration=await getAppPolicy(env.RUNTIME_DB,machine.accountId,value.childId);
+  for (const [index,original] of nativeControlHeartbeats.entries()) {
+    const heartbeat=structuredClone(original);
+    const entry=heartbeat.programInstancePolicy.users[0];
+    // 仅适配隔离数据库配置版本；身份、字段、结果与生产者冻结输出保持一致。
+    entry.configurationVersion=configuration.version;
+    if(entry.latestResult)entry.latestResult.configurationVersion=configuration.version;
+    const response=await routeV2(new Request('https://runtime.test/v2/machines/heartbeat',{method:'POST',
+      headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(heartbeat)}),env,100+index);
+    expect(response?.status).toBe(200);
+    expect(await readProgramPolicyStatus(env.RUNTIME_DB,machine.accountId,machine.machineId,103))
+      .toMatchObject([{model:'nativeApplication',currentState:'reported',configurationVersion:configuration.version,
+        latestResult:entry.latestResult}]);
   }
 });
 

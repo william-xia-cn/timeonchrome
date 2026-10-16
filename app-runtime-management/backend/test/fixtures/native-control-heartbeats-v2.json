@@ -1,0 +1,38 @@
+[
+  {
+    "serviceVersion": "1.0.0.0",
+    "windowsVersion": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "x64",
+    "tamperCount": 0,
+    "policyState": "applied",
+    "capabilities": ["shared-access-policy-v2", "native-application-control-status-v1"],
+    "programInstancePolicy": {
+      "schemaVersion": 2,
+      "users": [{"localUserId":"windows-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":1,"configurationVersion":1,"latestResult":null}]
+    }
+  },
+  {
+    "serviceVersion": "1.0.0.0",
+    "windowsVersion": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "x64",
+    "tamperCount": 0,
+    "policyState": "applied",
+    "capabilities": ["shared-access-policy-v2", "native-application-control-status-v1"],
+    "programInstancePolicy": {
+      "schemaVersion": 2,
+      "users": [{"localUserId":"windows-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":1,"configurationVersion":1,"latestResult":{"resultId":"53b2532e90e94d68b344cb67355ee47d","sequence":1,"configurationVersion":1,"nativeId":"native-app","outcome":"terminated","reasonCode":"NATIVE_APPLICATION_BLOCKED"}}]
+    }
+  },
+  {
+    "serviceVersion": "1.0.0.0",
+    "windowsVersion": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "x64",
+    "tamperCount": 0,
+    "policyState": "applied",
+    "capabilities": ["shared-access-policy-v2", "native-application-control-status-v1"],
+    "programInstancePolicy": {
+      "schemaVersion": 2,
+      "users": [{"localUserId":"windows-user-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","assignmentVersion":1,"configurationVersion":1,"latestResult":{"resultId":"dcb2597cdee840c9b92685f1d2b81c98","sequence":1,"configurationVersion":1,"nativeId":"native-app","outcome":"exit_unconfirmed","reasonCode":"NATIVE_APPLICATION_BLOCKED"}}]
+    }
+  }
+]

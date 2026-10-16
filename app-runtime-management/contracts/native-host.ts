@@ -100,7 +100,7 @@ export interface NativeHostResponse {
   sharedWebIdentity?: { status: 'verified'; webSourceKey:string; expiresAtMs:number };
   sharedWebContributionAccepted?: { date:string;revisionOrdinal:number;contentHash:string;duplicate:boolean };
   /** Read success is not permission to enforce quota or end an application. */
-  sharedQuotaStage?: 'shadow';
+  sharedQuotaStage?: 'shadow' | 'shared';
   sharedReminder?: import('./shared-reminder-lifecycle.js').SharedReminderState | import('./shared-reminder-lifecycle.js').SharedReminderStateV2 | null;
   /** Service-issued scope-bound lease, returned only when its capability is supported. */
   browserActivityLeaseId?: string;
@@ -108,7 +108,9 @@ export interface NativeHostResponse {
     | import('./shared-reminder-lifecycle.js').SharedBrowserActivityAckV2;
   /** Only an explicit, freshly revalidated permit authorizes the bound webpage. */
   browserExecution?: import('./shared-reminder-lifecycle.js').SharedBrowserExecution | import('./shared-reminder-lifecycle.js').SharedBrowserExecutionV2 | null;
-  browserExecutionAck?: { executionId:string;duplicate:boolean };
+  /** Legacy ACK may omit outcome; runtime V2 consumers require it to match the acknowledged action. */
+  browserExecutionAck?: { executionId:string;duplicate:boolean;
+    outcome?: import('./shared-reminder-lifecycle.js').SharedBrowserExecutionAckV2['outcome'] };
 }
 
 export type BrowserBridgeChannel = 'health' | 'ledger';

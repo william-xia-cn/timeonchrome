@@ -2,6 +2,24 @@
 
 ## NOW：Windows完整闭环（包含共享）后再迁移Mac（2026-10-16，PO已明确）
 
+集中集成状态：已fetch远端并在现有cloud-management普通合入origin/master，50fde005df10a6ada424d19f8ce4d33721d5e998已推送；三个文档顶部独立记录冲突均保留双方内容。唯一旧application-accounts能力夹具差异先保存stash恢复快照，合并后与快照完整文件相同，无内容丢失；未跟踪产物保留。未创建分支或工作树。PR284为整批草稿，不合并/部署；精确head的App Runtime CI38871880415 changes/console/contracts-worker/gate全部success，含完整契约与Worker测试/typecheck/dry-run；Guardian Integration38871880378 success。能力/协议源码证据可复用，不将CI通过冒充两端实际消费者完成。附件绑定因已有100项上限失败，PR本身成功，未删旧附件。
+
+实际消费者审查更新（两端仍活跃实施，非实机通过）：Native已修复按active列表修剪Confirmed及repeat/新entry同时发生的基线问题；控件grantKey已包含dateKey，避免跨日沿用。真实控件首链与真实C# Service各自隔离回放已取得，见下方证据，尚未完成已安装两端互通，不以契约/CI通过覆盖。
+
+Native真实生产Dispatcher→RuntimeServiceCoordinator回放已通过，根独立以公共1.54验证器核对26条请求、24份State、16份ownership ACK及2份执行许可，全部有效；包含pending-entry不计秒、ACTIVE心跳后60秒repeat、主动结束request-normal-close/取消及重复ACK、超时force-close/completed。回放发现并修复心跳前Poll先产生超时许可却未交付的问题；相关Service接线与边界7项通过。此为合成数据库与动态lease/round的实际C#路由证据，不是TS替身，但仍不等于已安装Native与真实Chrome互通，也不证明原生窗口前台或人工输入已通过；Agent专项、生产心跳JSON和整链关闭验证继续。
+
+接收边界聚焦补验：保留Native实际BuildNativeControlStatus/heartbeat生产者生成的三份合成载荷（无结果、terminated、exit_unconfirmed），加入既有program-instances心跳测试；仅将测试分配/配置版本对齐隔离数据库，真实HTTP路由→持久化→读取核对不重新手造报告结构。仅修改该直接测试和夹具，运行此专项及typecheck/diff检查，不访问生产、不变更协议或原账。
+
+该补验已通过：Native生产者冻结载荷/既有隔离拒绝用例2/2（其余39未跑），backend typecheck通过。Native并行复跑更新了随机resultId，根对比除各轮生成的32位hex结果ID外全部字段一致，未将随机ID变化误判协议变化。控件消费实际C#载荷发现Host能力与云端机器能力混淆、执行ACK多outcome及GET省略State的三处真实兼容缺口，正在所属会话集中修正；公共1.54包保持不可变，不以先前子验证器通过推断实际控件全响应可用。响应静态类型尚需最终集中补齐stage/ACK含义，不逐字段发包。
+
+公共响应类型收口：native-host.ts只补齐已实际存在的sharedQuotaStage=shared及执行ACK的outcome可选兼容字段；V2实际消费者仍要求outcome存在且匹配本次结果，不能用可选类型放松V2校验。仅静态声明修正，不新增消息/能力/运行行为；build验证，固定1.54开发包不覆盖、不因本项单独打包，最终集中产物另行固定。
+
+整链隔离证据更新：控件默认生产工厂unpacked通过首次进入、合并repeat、正常关闭取消及Composite pending超时实际CDP关闭，未注入执行上下文、未直接写原账。根核对69条请求、38份State、29份ownership及4份执行许可均符合1.54，动作ACK顺序canceled/completed；该浏览器场景Service仍为加速时钟的契约替身，ACK wrapper不能代替原始Host。另控件已将真实C#25条sharedQuota响应送入生产Native client全部通过，补齐该外层兼容证据；启动失败仅为fixture漏识别无channel的兼容V1 probe，产品探针未修改。Native正式管道/手输控件/回执相关13项通过，原生真实全屏前台及已安装双方互通尚未验收。
+
+本次4文件提交核对：响应静态声明及Native实际心跳回归Matched，无Deviated或未批准Extra；contract build、2项直接Worker回归及backend typecheck/diff通过，无产品UI变更。整批Windows实机联调仍Missing，不因本次测试提交通过而移入完成；既有1.54产物、无关tgz/.wrangler及恢复stash均不改。
+
+控件首链已有真实unpacked通过证据：实际background/ModeService/ModeEffects/V2协调器/Content手动输入，pending-entry→ownership→State→visibleACK→continue→Rest→原计时ACTIVE→active；没有直接写原账夹具。此前无弹层是夹具customStudyList未清，而非产品错判；进入后一次旧断言错读config.mode，改读真实模式会话后通过。根独立将实际生成message-replay的6条请求、4份State、2份ownership回执交给公共1.54验证器全部通过。Service仍为集中TS隔离状态机、未用Native运输，此证据不等于真实Windows联验；Native真实Service/Dispatcher回放已在运行。默认V2执行器旧上下文缺口、跨日grant已修源码，后续repeat/正常取消/超时强制及默认生产工厂回归仍待完成。
+
 PO已答复本轮纳入共享，不再待澄清。本次按三个整链批次连续实施，不逐零件制包：①配置/管理对象与对称统计读取、独立配额核算接线；②统一提醒及独立/共享实际执行和结果回报；③一次集成、匹配候选及Windows受控联调验收。先使用隔离数据和自有替身，不改变真实家庭配置或自动启动安装、部署/共享启用。新配置执行按最新自主度决定，不能复用过时提醒/借用规则冒充一致。
 
 | 调用链／实施核对项 | 负责人 | 当前状态／最小证据 |
