@@ -127,6 +127,12 @@ export interface SharedAccessPolicyIdentityV2 {
   schemaVersion: 2; revision: string; effectiveAtMs: number;
   stage: SharedAccessStage; policyHash: string;
 }
+export function validateSharedAccessPolicyIdentityV2(value: unknown): asserts value is SharedAccessPolicyIdentityV2 {
+  if (!policyExact(value, ['schemaVersion', 'revision', 'effectiveAtMs', 'stage', 'policyHash']) || value.schemaVersion !== 2)
+    throw new Error('INVALID_SHARED_ACCESS_POLICY_IDENTITY_V2');
+  try { validateSharedAccessPolicyIdentityV1({...value, schemaVersion: 1}); }
+  catch { throw new Error('INVALID_SHARED_ACCESS_POLICY_IDENTITY_V2'); }
+}
 /** V2缓存与在途请求身份必须覆盖新自主度、停用及兼容字段的完整内容。 */
 export async function createSharedAccessPolicyIdentityV2(policy: UnifiedChildAccessPolicyV2): Promise<SharedAccessPolicyIdentityV2> {
   const canonical = canonicalSharedAccessPolicyV2(policy);

@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {validateSharedBrowserActivityV2,advanceSharedForcedUseClock,acknowledgeSharedReminderDeliveryV2,
+  resolveSharedReminderV2,expireSharedReminderV2,receiveSharedBrowserActivityV2,
+  validateSharedBrowserExecutionV2,validateSharedBrowserExecutionAckV2,validateSharedBrowserActivityAckV2,
+  validateSharedReminderStateV2} from './dist/shared-reminder-lifecycle.js';
+import {projectSharedAccessPolicyV2,createSharedAccessPolicyIdentityV2} from './dist/shared-access.js';
 import { acknowledgeSharedReminderDelivery, resolveSharedReminder, expireSharedReminder,
   validateSharedReminderDeliveryAck, validateSharedReminderResolution,
   SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY,
@@ -9,6 +14,78 @@ import { acknowledgeSharedReminderDelivery, resolveSharedReminder, expireSharedR
   validateSharedBrowserExecution, validateSharedBrowserExecutionAck, authorizeSharedBrowserExecution,
   sharedBrowserExecutionEligibility, acknowledgeSharedBrowserExecution } from './dist/shared-reminder-lifecycle.js';
 const data=JSON.parse(fs.readFileSync(new URL('./shared-reminder-lifecycle.vectors.json',import.meta.url),'utf8'));
+const policyV2=projectSharedAccessPolicyV2({},9,100);policyV2.stage='shared';
+const identityV2=await createSharedAccessPolicyIdentityV2(policyV2);
+const activityV2={schemaVersion:2,leaseId:'lease',activityId:'activity',sequence:1,status:'active',quotaBucket:'composite',
+  presentationEligible:false,policyIdentity:identityV2,ruleScopeKey:'a'.repeat(64),reasonCodes:['timeWindow'],independentRoundId:null};
+assert.equal(validateSharedBrowserActivityV2(activityV2).quotaBucket,'composite');
+assert.throws(()=>validateSharedBrowserActivity(activityV2));
+for(const patch of [{schemaVersion:1},{forcedUsageSeconds:10},{childId:'other'},{reasonCodes:['diagnostic']},
+  {policyIdentity:{...identityV2,schemaVersion:1}},{status:'inactive'},{ruleScopeKey:'https://private.test'}])
+  assert.throws(()=>validateSharedBrowserActivityV2({...activityV2,...patch}));
+assert.equal(validateSharedBrowserActivityV2({...activityV2,status:'inactive',quotaBucket:null,
+  ruleScopeKey:null,reasonCodes:[]}).status,'inactive');
+const activityContext={leaseId:'lease',leaseCurrent:true,currentPolicyIdentity:identityV2,monotonicNowMs:1000,bootId:'boot',current:null};
+const firstActivity=receiveSharedBrowserActivityV2(activityContext,activityV2);
+assert.equal(firstActivity.baselineReset,true);
+const nextActivityContext={...activityContext,current:firstActivity.receipt,monotonicNowMs:2000};
+assert.equal(receiveSharedBrowserActivityV2(nextActivityContext,activityV2).duplicate,true);
+assert.throws(()=>receiveSharedBrowserActivityV2(nextActivityContext,{...activityV2,quotaBucket:'study'}));
+const secondActivity=receiveSharedBrowserActivityV2(nextActivityContext,{...activityV2,sequence:2});
+assert.equal(secondActivity.baselineReset,false);
+assert.equal(receiveSharedBrowserActivityV2({...nextActivityContext,current:secondActivity.receipt},activityV2).stale,true);
+assert.equal(receiveSharedBrowserActivityV2({...nextActivityContext,monotonicNowMs:20000},{...activityV2,sequence:2}).baselineReset,true);
+assert.throws(()=>receiveSharedBrowserActivityV2({...activityContext,leaseCurrent:false},activityV2));
+assert.throws(()=>receiveSharedBrowserActivityV2({...activityContext,currentPolicyIdentity:{...identityV2,policyHash:'b'.repeat(64)}},activityV2));
+const ownershipAck={schemaVersion:2,leaseId:'lease',acceptedSequence:1,duplicate:false,stale:false,ownership:'accepted',retiredIndependentRoundId:'old-round'};
+const ownershipExpected={leaseId:'lease',sequence:1,independentRoundId:'old-round'};
+assert.equal(validateSharedBrowserActivityAckV2(ownershipAck,ownershipExpected).ownership,'accepted');
+assert.throws(()=>validateSharedBrowserActivityAckV2({...ownershipAck,retiredIndependentRoundId:null},ownershipExpected));
+assert.throws(()=>validateSharedBrowserActivityAckV2({...ownershipAck,stale:true},ownershipExpected));
+const clock={bootId:'boot',lastMonotonicMs:1000,accumulatedMs:0};
+const active=[{eligible:true,validThroughMonotonicMs:16000},{eligible:true,validThroughMonotonicMs:16000}];
+const tick=advanceSharedForcedUseClock(clock,'boot',6000,active);
+assert.equal(tick.accumulatedMs,5000,'two active sources count once');
+assert.deepEqual(advanceSharedForcedUseClock(tick,'boot',6000,active),tick,'duplicate tick adds nothing');
+const expired=advanceSharedForcedUseClock(tick,'boot',20000,active);
+assert.equal(expired.accumulatedMs,15000,'expired lease cannot count past its end');
+assert.equal(advanceSharedForcedUseClock(expired,'boot',30000,[]).accumulatedMs,15000);
+assert.equal(advanceSharedForcedUseClock(expired,'newboot',0,active).accumulatedMs,15000,'restart does not count offline time');
+assert.throws(()=>advanceSharedForcedUseClock(tick,'boot',5000,active));
+const reminderV2={...data.state,schemaVersion:2,policyRevision:identityV2.revision,stage:'shared',
+  policyIdentity:identityV2,ruleScopeKey:'a'.repeat(64),reasonCodes:['dailyComposite'],kinds:['entry'],
+  forcedUsageSeconds:600,confirmedAtUsageSeconds:0,status:'offered',visibleAtMs:null,resolution:null};
+const contextV2={...data.context,state:reminderV2,currentPolicyIdentity:identityV2,
+  currentStateRevision:reminderV2.stateRevision,executionEnabled:true};
+assert.equal(validateSharedReminderStateV2(reminderV2).schemaVersion,2);
+for(const patch of [{date:'2026-02-30'},{confirmedAtUsageSeconds:601},{policyIdentity:{...identityV2,stage:'shadow'}},
+  {reasonCodes:['unknown']},{extra:true}]) assert.throws(()=>validateSharedReminderStateV2({...reminderV2,...patch}));
+const messageV2=Object.fromEntries(['schemaVersion','roundId','reminderId','deliveryId','policyRevision','stateRevision'].map(k=>[k,reminderV2[k]]));
+const visibleV2=acknowledgeSharedReminderDeliveryV2(contextV2,{...messageV2,delivery:'visible'});
+assert.equal(visibleV2.state.status,'visible');
+const seenV2={...contextV2,...visibleV2,state:visibleV2.state};
+assert.equal(resolveSharedReminderV2(seenV2,{...messageV2,action:'end_rest'}).effect,'request-normal-close');
+assert.equal(resolveSharedReminderV2(seenV2,{...messageV2,action:'continue'}).state.confirmedAtUsageSeconds,0,
+  'new entry reasons must not reset an existing repeat interval');
+assert.equal(resolveSharedReminderV2({...seenV2,state:{...seenV2.state,kinds:['repeat']}},
+  {...messageV2,action:'continue'}).state.confirmedAtUsageSeconds,600);
+assert.equal(resolveSharedReminderV2({...seenV2,state:{...seenV2.state,confirmedAtUsageSeconds:null}},
+  {...messageV2,action:'end_rest'}).state.confirmedAtUsageSeconds,600);
+assert.throws(()=>resolveSharedReminderV2(seenV2,{...messageV2,schemaVersion:1,action:'end_rest'}));
+assert.equal(resolveSharedReminderV2({...seenV2,currentPolicyIdentity:{...identityV2,policyHash:'b'.repeat(64)}},
+  {...messageV2,action:'end_rest'}).state.status,'withdrawn');
+assert.throws(()=>expireSharedReminderV2(seenV2));
+const timeoutV2=expireSharedReminderV2({...seenV2,monotonicNowMs:seenV2.visibleMonotonicMs+60000});
+assert.equal(timeoutV2.effect,reminderV2.timeoutAction==='end'?'force-close':'none');
+const permitV2={...messageV2,policyIdentity:identityV2,executionId:'execute',leaseId:'lease',activityId:'activity',
+  targetSource:'browser',effect:'request-normal-close',maxAgeMs:5000};
+assert.equal(validateSharedBrowserExecutionV2(permitV2).effect,'request-normal-close');
+const ackV2={...messageV2,policyIdentity:identityV2,executionId:'execute',leaseId:'lease',activityId:'activity',outcome:'canceled'};
+assert.equal(validateSharedBrowserExecutionAckV2(ackV2).outcome,'canceled');
+assert.throws(()=>validateSharedBrowserExecutionV2({...permitV2,triggerStateRevision:'old'}));
+assert.throws(()=>validateSharedBrowserExecutionV2({...permitV2,schemaVersion:1}));
+assert.throws(()=>validateSharedBrowserExecutionV2({...permitV2,policyRevision:'other'}));
+console.log('forced-use runtime V2: PASS (activity/identity/sequence, single clock, lifecycle and execution boundaries)');
 const identity=Object.fromEntries(['schemaVersion','roundId','reminderId','deliveryId','policyRevision','stateRevision']
   .map(key=>[key,data.state[key]]));
 for (const vector of data.cases) {

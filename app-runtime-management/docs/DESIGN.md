@@ -10,6 +10,12 @@
 
 下发接线：机器现有shared-access-policy读取显式schemaVersion=2才请求V2，缺省保持V1；Guardian内部Service Binding沿用已授权孩子范围并携带同一版本选择，不新增鉴权体系。网页设备入口使用/device/shared-access/v2，沿用原设备归属校验且不接受调用者childId。两种版本均从同一profiles.config投影、受同一rollout和生产执行开关约束；V2响应严格验证后交消费者，失败不降级为新能力。
 
+共享提醒运行时V2：同机Service唯一仲裁，原lease/序号/可见ACK/60秒规则复用。浏览器活动携带当前完整policyIdentity、study/composite/rest/other桶、原因集合、同活动单调累计forcedUsageSeconds及可空独立roundId；不传孩子/用户/URL/进程。计数仅为执行进度，来自当前确认强行使用上下文，不取云端日账差额、不写入统计。首消息仅建立基线，重复/旧序号不推进，活动/连接/身份变化重建基线，累计倒退拒绝；应用/网页由本机前台证据互斥选取，同一时段不双加。租约过期或锁屏不补失联段，恢复首消息重建基线。
+
+两端实际接点复核后的最终简化取代上一段sender计数字段：浏览器不发送forcedUsageSeconds；Service以本机单调时钟对合格活动做OR，成为唯一提醒进度权威。活动由网页既有ACTIVE/强媒体资格产生，不能仅凭前台聚焦；presentationEligible只控制呈现。Service在状态改变前先结算至租约有效边界，断连/锁屏/失效停止，重启换boot仅重新锚定、不补离线；所有tick和活动更新串行/原子执行，已结算区间不重计。原有网页媒体容错不修改。State返回Service累计forcedUsageSeconds和confirmedAtUsageSeconds供文案显示；规则/原因变化影响进入确认，不重置本机累计。
+
+重连回复显式确认已撤销本次请求携带的独立roundId后，控件才能把调度交给Service；旧动作令牌随本地独立轮次撤销。State V2携带完整policyIdentity、原因及entry/repeat，ACK/resolve绑定其schema、round/reminder/delivery/revision/stateRevision；不能经V1处理器解释。强制结束只由Service本地超时/硬限制决定，主动结束仅正常关闭，未送达不算用户超时。具体纯协议验证完成后由两端接到现有真实Presenter/Closer；不因DTO存在宣称联调完成。
+
 PO明确新旧配置优先级：同一目标已有明确Native应用身份配置时采用它，包括显式非blocked覆盖旧产品blocked；新配置不存在时才继承旧配置。不得叠加两个可写配置源，也不得迁移或改写现有管理键。
 
 ## 2026-10-16 独立应用统计上传改接：已查实的断点及实施边界
