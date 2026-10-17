@@ -145,6 +145,11 @@ export async function getModeEffectTrace(limit = MODE_EFFECT_TRACE_LIMIT) {
 }
 
 export async function executeModeDecision(decision = {}, context = {}) {
+  if (decision.reminder?.reason === 'accounting_unavailable') {
+    decision = { ...decision, ok: true, access: 'allow', reminder: null, modeChange: null,
+      notice: null, forcedAdmission: null, accountingUnavailable: true,
+      accountingEvidence: { stage: 'execution', causeCode: 'accounting_unavailable' } };
+  }
   const decisionAuditId = context.event?.auditId || decision.modeChange?.auditId || `access-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tabId = Number.isInteger(context.tabId) ? context.tabId : null;
   const domain = context.domain || decision.domain || null;
@@ -170,7 +175,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
 
   const finalize = async () => {
     if (typeof recordAccessDiagnostic === 'function') recordAccessDiagnostic('decision', {
-      auditId: decisionAuditId, phase: 'executed', source: context.event?.source,
+      auditId: decisionAuditId, evaluationId: decision.evaluationId, phase: 'executed', source: context.event?.source,
       eventType: context.event?.type, tabId, foreground: context.event?.foreground,
       access: decision.access,
       reason: diagnosticFailure || (result.noticeError ? 'notice_delivery_failed' : null)
@@ -179,10 +184,20 @@ export async function executeModeDecision(decision = {}, context = {}) {
       quotaBucket: decision.forcedAdmission?.quotaBucket,
       forcedUsageSeconds: decision.forcedAdmission?.progress?.forcedUsageSeconds,
       baselineSeconds: decision.forcedAdmission?.progress?.baselineSeconds,
-      ok: result.ok && !diagnosticFailure && !result.noticeError,
+      quotaRead: decision.quotaEvidence?.bucketReadStatus,
+      recoveryEligible: decision.quotaEvidence?.bucketReadStatus === 'ok' && decision.auxiliaryEvidence?.ok !== false,
+      ok: result.ok && !diagnosticFailure && !result.noticeError && decision.accountingUnavailable !== true,
       visible: result.noticeVisible, blocked: result.blocked, confirmationPending: result.confirmationPending,
       reminderSent: result.reminderSent,
     });
+    if (typeof recordAccessDiagnostic === 'function' && (decision.accountingEvidence || diagnosticFailure?.startsWith('forced_use_grant'))) {
+      recordAccessDiagnostic('accounting', { auditId: decisionAuditId, evaluationId: decision.evaluationId, tabId,
+        phase: decision.accountingEvidence?.stage || (diagnosticFailure === 'forced_use_grant_close_failed' ? 'grant_close' : 'grant_open'),
+        causeCode: decision.accountingEvidence?.causeCode || diagnosticFailure,
+        quotaRead: decision.quotaEvidence?.bucketReadStatus || 'not_executed',
+        access: decision.access, blocked: result.blocked, ok: false,
+        ...(decision.auxiliaryEvidence || {}) });
+    }
     await recordModeEffectTrace({
       event: context.event || {},
       auditId: decisionAuditId,
@@ -219,8 +234,13 @@ export async function executeModeDecision(decision = {}, context = {}) {
     const delivery = tabId === null ? { ok: false, error: 'tab_missing' }
       : typeof context.requestForcedUsePrompt !== 'function'
         ? { ok: false, error: 'forced_use_handler_missing' }
-        : await context.requestForcedUsePrompt({ tabId, host: domain, admission: decision.forcedAdmission, auditId: decisionAuditId })
+        : await context.requestForcedUsePrompt({ tabId, host: domain, admission: decision.forcedAdmission,
+          auditId: decisionAuditId, evaluationId: decision.evaluationId })
           .catch(() => ({ ok: false, error: 'forced_use_delivery_failed' }));
+    if (delivery?.accountingUnavailable === true) {
+      diagnosticFailure = 'forced_use_grant_failed';
+      return await finalize();
+    }
     result.blocked = true;
     result.confirmationPending = delivery?.ok === true;
     if (delivery?.ok !== true) {
@@ -235,6 +255,7 @@ export async function executeModeDecision(decision = {}, context = {}) {
     if (typeof recordQuotaDenial === 'function') void recordQuotaDenial({
       auditId: decisionAuditId,
       reason: decision.reminder.reason, config, decisionUsage: decision.diagnosticUsage,
+      evaluationId: decision.evaluationId, evaluation: decision.quotaEvidence,
     });
     await redirectToReminder(tabId, domain, decision.reminder.reason, config?.blockMessage, {
       ...(decision.reminder.params || {}),
@@ -252,10 +273,6 @@ export async function executeModeDecision(decision = {}, context = {}) {
         .catch(() => ({ ok: false })) : { ok: false };
     if (grant?.ok !== true) {
       diagnosticFailure = 'forced_use_grant_failed';
-      await redirectToReminder(tabId, domain, 'accounting_unavailable', config?.blockMessage,
-        { targetUrl: reminderTargetUrlFromEvent(context.event) });
-      result.blocked = true;
-      result.reminderSent = true;
       return await finalize();
     }
   } else if (decision.access === 'allow' && decision.forcedAdmission) {
@@ -263,10 +280,6 @@ export async function executeModeDecision(decision = {}, context = {}) {
       ? await context.retireForcedUseGrants(domain).catch(() => ({ ok: false })) : { ok: false };
     if (retired?.ok !== true) {
       diagnosticFailure = 'forced_use_grant_close_failed';
-      await redirectToReminder(tabId, domain, 'accounting_unavailable', config?.blockMessage,
-        { targetUrl: reminderTargetUrlFromEvent(context.event) });
-      result.blocked = true;
-      result.reminderSent = true;
       return await finalize();
     }
   }

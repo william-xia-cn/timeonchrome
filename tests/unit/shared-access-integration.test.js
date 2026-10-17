@@ -14,6 +14,7 @@ async function run() {
     const isSharedAccessRuntimeV2Enabled=()=>false,pollSharedForcedUseV2=async()=>({ok:true});
     const configureSharedBrowserActivity=v=>f.calls.push(['activity',v.enabled]),configureSharedQuotaNativeBridge=v=>f.calls.push(['native',v.enabled]);
     const hasSharedAccessExecutionCapability=()=>false,observeSharedAccessPolicyCapability=()=>{},readSharedAccessPolicyLkg=async()=>null;
+    const readQuotaBucketsReadCapability=()=>({known:false,available:false});
     const readNativeHostDeploymentMarker=async()=>false,readSharedBrowserCloseCapability=async()=>({available:false});
     const configureSharedAccessPolicyReader=({enabled})=>f.policy(enabled),configureSharedQuotaExecutionReader=async v=>f.calls.push(['basis',v.enabled]);
     const configureSharedWebContributionSync=async v=>f.calls.push(['contribution',v.enabled]),configureSharedReminderContentBridge=({enabled})=>f.display(enabled);
@@ -41,6 +42,7 @@ async function run() {
   gate = null;
   let channel = false, allowed = true, host = false, stage = 'shadow', permittedClose = false;
   const controller = mod.createSharedAccessBootstrap({ readChannel: async () => channel,
+    bucketCapability: () => ({ known: true, available: false }),
     allowed: async () => allowed, hostAvailable: () => host,
     policy: async () => ({ ok: true, policy: { stage } }),
     capability: async () => ({ available: permittedClose }) });
@@ -63,6 +65,7 @@ async function run() {
   const v2Calls = [];
   let v2Supported = true;
   const v2Controller = mod.createSharedAccessBootstrap({ readChannel: async () => true, allowed: async () => true,
+    bucketCapability: () => ({ known: true, available: v2Supported }),
     hostAvailable: () => false, capability: async () => ({ available: false }),
     native: options => v2Calls.push(['native', options.enabled]),
     policyReader: async options => { if (v2Supported) assert.equal(options.enabled, false); },
@@ -81,6 +84,31 @@ async function run() {
   v2Supported = false;
   // Disable the standalone fixture before falling back to V1 readers.
   assert.equal((await v2Controller.reconcile()).execution, false);
+  const coldCalls = [];
+  let bucketState = { known: false, available: false }, executionSupported = false;
+  const coldController = mod.createSharedAccessBootstrap({ readChannel: async () => true,
+    allowed: async () => true, bucketCapability: () => bucketState,
+    native: () => {}, reminder: () => ({ ok: true }), runtime: () => {}, activity: () => {},
+    policyReader: async value => coldCalls.push(['policy', value.enabled]),
+    basisReader: async value => coldCalls.push(['basis', value.enabled]),
+    contributions: async value => coldCalls.push(['contributions', value.enabled]),
+    capability: async () => ({ available: false }),
+    v2: { available: () => executionSupported,
+      policy: async () => ({ ok: true, policy: { schemaVersion: 2, stage: 'shared', forcedUsePolicyV1: { enabled: true } } }),
+      configure: async value => coldCalls.push(['execution', value.enabled]) } });
+  assert.equal((await coldController.reconcile()).preparing, false);
+  assert.equal(coldCalls.length, 0, 'unknown handshake does not start legacy preparation');
+  bucketState = { known: true, available: true };
+  assert.equal((await coldController.reconcile()).schemaVersion, 2);
+  assert.equal((await coldController.reconcile()).execution, false, 'bucket read does not require shared execution');
+  assert.equal(coldCalls.length, 3, 'legacy preparation is disabled once');
+  await coldController.reconcile();
+  assert.equal(coldCalls.length, 3, 'reconcile does not repeatedly invalidate identity');
+  executionSupported = true;
+  assert.equal((await coldController.reconcile()).execution, true);
+  bucketState = { known: false, available: false };
+  assert.equal((await coldController.reconcile()).execution, false);
+  assert(!coldCalls.some(([name, value]) => name !== 'execution' && value), 'unknown recovery never starts legacy readers');
   const background = fs.readFileSync(path.resolve(__dirname, '../../extension/background.js'), 'utf8');
   assert(background.includes('initSharedAccessIntegration({ onExecutionChanged: suspendLegacyRestUsageReminder,'));
   assert(background.includes('available: hasSharedForcedUseRuntimeV2Capability, policy: readSharedAccessPolicyV2Lkg'));

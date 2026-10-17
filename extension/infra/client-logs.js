@@ -67,7 +67,8 @@ function serializeLogMutation(task) {
   return result;
 }
 const HEALTH_EVENTS = new Set(['sync_health_summary', 'quota_denial_evidence', 'cloud_failure_incident_resolved', 'client_log_loss_summary',
-  'access_management_decision', 'access_management_prompt', 'access_management_periodic']);
+  'access_management_decision', 'access_management_prompt', 'access_management_periodic',
+  'access_management_accounting', 'access_accounting_recovered']);
 const lossCounters = { writeFailed: 0, readFailed: 0, dropped: 0, truncated: 0 };
 const countLoss = key => { lossCounters[key] = Math.min(Number.MAX_SAFE_INTEGER, lossCounters[key] + 1); };
 export function noteClientLogLoss(key = 'dropped') { if (key in lossCounters) countLoss(key); }
@@ -634,7 +635,8 @@ export async function getPendingClientLogsForUpload({ limit = 200 } = {}) {
     .filter((log) => shouldUploadClientLog(log, policy))
     .filter((log) => log.uploadStatus !== 'uploaded')
     .filter((log) => Number(log.uploadAttempts || 0) < 5)
-    .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0))
+    .sort((a, b) => Number(b.eventCode === 'access_management_accounting') - Number(a.eventCode === 'access_management_accounting')
+      || Number(a.timestamp || 0) - Number(b.timestamp || 0))
     .slice(0, Math.max(1, Math.min(500, Number(limit || 200))));
   return { logs: pending, pendingCount: pending.length, policy };
 }
