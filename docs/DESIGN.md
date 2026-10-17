@@ -1,5 +1,13 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-17 控件网页分项补齐（PO批准）
+
+交换已经实机通过，本轮不重新修复交换。控件仅保留现有网页quota readModel的本浏览器、其他设备和合计分项到内部缓存／诊断展示，不改既有webUsage传输或契约1.56。每日本浏览器完整性取`local.today.complete`及已有本机依据，不借用整周`local.complete`或合计状态；空日期没有明确完整性时为未知。没有可靠结算截止返回null，展示“未提供”，不使用读取时间或云端asOf冒充。
+
+现有网页已校验快照缓存带hash／verifiedAt／period，但未保留Child ID范围，仅凭空expectedDevices或缺字段默认值不能宣称当前孩子无其他网页来源。本轮在既有真实分页读取前后核对apiBase／deviceId／childId／deviceToken，并在既有缓存事务写前确认绑定仍一致；只有该次新读取验证成功，才给本机cache envelope附可选scope:{apiBase,deviceId,childId}。token仅在内存用于在途比对，不新增凭据副本、tokenHash、挑战或队列；不向旧缓存追贴范围。原请求、分页验证、snapshot内容／hash／完整性、同步频率和既有配额消费者不变，此为已批准的读取状态展示元数据，不修改D-076记账语义。
+
+新增展示仅在scope匹配当前孩子／服务／设备、原快照已验证且期间与有效期匹配、inventoryAvailable严格为true、预期来源列表明确且排除本设备后确无其他预期或实际来源时显示none。无范围旧缓存、失配、失败、缺清单及未上报均unknown；不将其数值冒称当前孩子已知other，不影响本浏览器有效结果。没有可靠截止仍显示“未提供”。不新增云端字段或证明系统，不改变交换；Native63及云端既有已验制品不改。控件保留61候选，再集中形成最终62候选，不覆盖当前60，不启共享。合成验证与真实新请求范围核验分别记录。
+
 ## 2026-10-17 本机与其他来源独立说明（PO批准，实施中）
 
 本机统计的完整性与截止只由本机读取结果决定；其他来源未知不阻塞本机。保留 `exchangeQuotaBuckets` 请求和 `applicationUsage` 合计快照不变，不新增请求、账本、统计或云端查询端点。新增能力 `quota-buckets-sources-v1` 表明同一响应可带 `applicationSources:{local,other,otherState}`：local／other使用既有schema2应用桶快照或null；otherState为none／available／unknown。none必须由云端权威来源范围证明，且other为null；available必须有other快照，其完整性独立；unknown时other为null。不能由合计反拆本机，也不能将合计与分项再次相加。旧端只消费原合计，不冒称已取得本机分项。
