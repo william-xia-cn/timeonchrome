@@ -35,7 +35,7 @@ export async function readWebQuotaBuckets(env:Env,childId:string,query:QuotaBuck
     const input={date,...period,now,deviceId:query.scope==='other'?excludedDeviceId:null,
       localProjection:{today:{onlineSeconds:0,byQuotaBucket:{},byDomain:{}},weekRestSeconds:0,days:[],complete:true},cloudSnapshot:snapshot};
     const model=buildQuotaReadModelV2(input);
-    const complete=Boolean(snapshot&&model.completeness.complete);
+    const complete=Boolean(snapshot&&model.completeness.cloudCoverageComplete);
     days.push({date,bucketsSeconds:{study:model.usage.studySeconds,composite:model.usage.compositeSeconds,rest:model.usage.restSeconds},
       // 账户asOf是读取快照水位，不冒充原账结算截止。
       settledThroughMs:null,complete,reasonCodes:complete?[]:[snapshot?'WEB_QUOTA_USAGE_INCOMPLETE':'WEB_STATISTICS_NOT_AVAILABLE']});

@@ -7,9 +7,9 @@ import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest 
 import { readSharedAccessPolicyForChild, readSharedAccessPolicyV2ForChild } from './profiles';
 import { pageSharedQuotaExecutionBasis, readSharedQuotaExecutionBasis, sharedWebSourceKey, type SharedAccessStateEnv } from '../services/sharedAccessState';
 import { publishSharedWebContribution, readSharedWebWatermark, readSharedWebJson } from '../services/sharedWebContributions';
-import { issueSharedWebSourceBinding, issueSharedWebSourceBindingV2 } from '../services/sharedWebSourceBinding';
+import { issueSharedWebSourceBinding, issueSharedWebSourceBindingV2, readApplicationSourceForDevice } from '../services/sharedWebSourceBinding';
 import { createSharedAccessPolicyIdentityV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
-import {validateSourceStatisticsQuery,validateSourceStatisticsSnapshot,validateQuotaBucketsQuery,validateQuotaBucketsSnapshot} from '@timeonchrome/app-runtime-contracts/source-statistics';
+import {validateSourceStatisticsQuery,validateSourceStatisticsSnapshot,validateQuotaBucketsQuery,validateQuotaBucketsSnapshot,readQuotaBucketsCloudRequest,readQuotaBucketsCloudResponse} from '@timeonchrome/app-runtime-contracts/source-statistics';
 import {readWebSourceStatistics,readWebQuotaBuckets,readSourceStatisticsResponse} from '../services/sourceStatistics';
 
 type DeviceIdentityLinkBody = {
@@ -263,21 +263,27 @@ export const deviceRouter = {
         const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.byteLength;}
         const body=JSON.parse(new TextDecoder().decode(bytes));
         const buckets=body?.schemaVersion===2;
-        const query=buckets?validateQuotaBucketsQuery(body):validateSourceStatisticsQuery(body);
+        const transport=buckets?readQuotaBucketsCloudRequest(body):null;
+        const query=transport?transport.query:validateSourceStatisticsQuery(body);
         if('ownSourceKeys' in query&&query.ownSourceKeys!==undefined||query.source==='application'&&query.scope!=='all')return json({code:'SOURCE_STATISTICS_INVALID'},400);
         const owner=await env.DB.prepare('SELECT account_id FROM profiles WHERE id=?').bind(identity.profileId).first<{account_id:string}>();
         if(!owner)return json({code:'CHILD_NOT_FOUND'},404);
         const binding=env as import('../services/computerUsage').ComputerUsageEnv;
-        const value=query.source==='web'?(buckets?await readWebQuotaBuckets(env,identity.profileId,validateQuotaBucketsQuery(body),identity.deviceId)
+        const applicationScope=transport?.includeSources&&identity.deviceId
+          ?await readApplicationSourceForDevice(env,{accountId:owner.account_id,childId:identity.profileId,deviceId:identity.deviceId,
+            deviceToken:request.headers.get('Authorization')!.slice(7)},transport.sourceProof):null;
+        const value=query.source==='web'?(transport?await readWebQuotaBuckets(env,identity.profileId,transport.query,identity.deviceId)
           :await readWebSourceStatistics(env,owner.account_id,identity.profileId,validateSourceStatisticsQuery(body),identity.deviceId))
           :binding.RUNTIME_COMPUTER_USAGE?.fetch?await readSourceStatisticsResponse(await binding.RUNTIME_COMPUTER_USAGE.fetch(new Request(
-            'https://runtime-capability/getApplicationSourceStatistics',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:owner.account_id,childId:identity.profileId,query})})))
+            'https://runtime-capability/getApplicationSourceStatistics',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:owner.account_id,childId:identity.profileId,query,
+              ...(transport?.includeSources?{includeSources:true,...(applicationScope?{applicationScope}:{})}:{})})})))
           :null;
         if(!value)throw new Error('SOURCE_STATISTICS_UNAVAILABLE');
         const current=await verifyDeviceTokenFromRequest(request,env);
         if(!current||current.unbound||current.profileId!==identity.profileId||current.deviceId!==identity.deviceId)return json({code:'SOURCE_STATISTICS_CONTEXT_CHANGED'},409);
         const expected={source:query.source,childId:identity.profileId,fromDate:query.fromDate,toDate:query.toDate};
-        return json(buckets?validateQuotaBucketsSnapshot(value,expected):validateSourceStatisticsSnapshot(value,expected));
+        return json(transport?.includeSources?readQuotaBucketsCloudResponse(value,expected)
+          :buckets?validateQuotaBucketsSnapshot(value,expected):validateSourceStatisticsSnapshot(value,expected));
       }catch(error){const code=error instanceof Error&&error.message==='SOURCE_STATISTICS_INVALID'?'SOURCE_STATISTICS_INVALID':'SOURCE_STATISTICS_UNAVAILABLE';return json({code},code==='SOURCE_STATISTICS_INVALID'?400:503);}
     }
 

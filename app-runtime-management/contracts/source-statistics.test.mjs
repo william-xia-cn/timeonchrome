@@ -66,6 +66,26 @@ function quotaBuckets(source,study=600){return {schemaVersion:2,durationUnit:'se
   fromDate:date,toDate:date,readAtMs:1791320000000,days:[{date,bucketsSeconds:{study,composite:200,rest:100},
     settledThroughMs:null,complete:true,reasonCodes:[]}]};}
 const qbWeb=quotaBuckets('web'),qbApp=quotaBuckets('application');
+const cloudQuery={schemaVersion:2,source:'application',scope:'all',fromDate:date,toDate:date};
+assert.deepEqual(bucketsContract.readQuotaBucketsCloudRequest(cloudQuery),{query:cloudQuery,includeSources:false});
+const sideRequest=bucketsContract.readQuotaBucketsCloudRequest({...cloudQuery,includeSources:true,sourceProof:{malformed:true}});
+assert.equal(sideRequest.includeSources,true,'坏证明仅用于可选侧车，不改变原合法查询');
+assert.deepEqual(sideRequest.query,cloudQuery);
+assert.throws(()=>bucketsContract.readQuotaBucketsCloudRequest({...cloudQuery,includeSources:true,childId:'foreign'}));
+assert.throws(()=>bucketsContract.readQuotaBucketsCloudRequest({...cloudQuery,source:'web',includeSources:true}));
+assert.throws(()=>bucketsContract.readQuotaBucketsCloudRequest({...cloudQuery,sourceProof:{}}));
+assert.deepEqual(bucketsContract.readQuotaBucketsCloudResponse(qbApp,expected),{snapshot:qbApp,applicationSources:null});
+const cloudSources={local:qbApp,other:null,otherState:'none'};
+assert.deepEqual(bucketsContract.readQuotaBucketsCloudResponse({snapshot:qbApp,applicationSources:cloudSources},expected),
+  {snapshot:qbApp,applicationSources:cloudSources});
+for(const invalid of [{...cloudSources,otherState:'available'}, {...cloudSources,local:{...qbApp,childId:'foreign'}},
+  {...cloudSources,local:{...qbApp,fromDate:'2026-10-06'}}]) {
+  assert.deepEqual(bucketsContract.readQuotaBucketsCloudResponse({snapshot:qbApp,applicationSources:invalid},expected),
+    {snapshot:qbApp,applicationSources:null},'坏侧车不损坏有效合计');
+}
+assert.throws(()=>bucketsContract.readQuotaBucketsCloudResponse({snapshot:{...qbApp,childId:'foreign'},applicationSources:cloudSources},expected));
+assert.throws(()=>bucketsContract.validateQuotaBucketsSnapshot({...qbApp,applicationSources:cloudSources},expected),
+  '新侧车不可塞入旧严格快照');
 assert.equal(bucketsContract.validateQuotaBucketsSnapshot(qbApp,expected),qbApp);
 assert.deepEqual(bucketsContract.applicationQuotaBucketsSeconds({study:600,composite:200,unclassified:10,restrictedEntertainment:100,other:900}),
   {study:600,composite:210,rest:100});

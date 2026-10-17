@@ -7,6 +7,7 @@ import { verifyApplicationAccountPublication,isReadableApplicationAccountSnapsho
 import { readApplicationLedgerRetirement, isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
 import {nativeApplicationManagementTargetKey,type NativeApplicationManagementTarget} from '@timeonchrome/app-runtime-contracts/native-application-identification';
 type Filters={machineId?:string;localUserId?:string;platform?:string;fixedIdentityOnly?:boolean;
+  quotaRead?:boolean;onlySource?:{machineId:string;localUserId:string;assignmentVersion:number};
   excludeSources?:ReadonlyArray<{machineId:string;localUserId:string;assignmentVersion:number}>};
 type StatisticsRow=UsageAccountRowV2&{target?:NativeApplicationManagementTarget};
 const DAY=86400000,OFFSET=8*3600000;
@@ -35,8 +36,10 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
       AND snapshot.assignment_version=p.assignment_version AND snapshot.revision=p.revision
       AND (?4 IS NULL OR p.machine_id=?4) AND (?5 IS NULL OR p.local_user_id=?5)
       AND (?6 IS NULL OR machine.platform=?6)
+      AND (?7 IS NULL OR (p.machine_id=?7 AND p.local_user_id=?8 AND p.assignment_version=?9))
     ORDER BY p.machine_id,p.local_user_id,p.assignment_version LIMIT 101`)
-    .bind(account,child,date,filters.machineId??null,filters.localUserId??null,filters.platform??null)
+    .bind(account,child,date,filters.machineId??null,filters.localUserId??null,filters.platform??null,
+      filters.onlySource?.machineId??null,filters.onlySource?.localUserId??null,filters.onlySource?.assignmentVersion??null)
     .all<{manifest_id:string;revision:number;machine_id:string;local_user_id:string;assignment_version:number;
       manifest_json:string;manifest_hash:string}>();
   if(heads.results.length>100)throw new HttpError(503,'APPLICATION_STATISTICS_SOURCE_LIMIT','统计来源超过单次读取限制。');
@@ -86,8 +89,17 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
     }
   }
   if(references.length===0)return null;
+  // 配额只消费已确认的分类贡献；另一来源缺分类或旧单位不清空可读来源。
+  // 普通统计保留原先的整组完整性语义，且两条路径共用上面的范围与哈希校验。
+  const quotaUsage=filters.quotaRead?mergeApplicationUsage(applicationUsage.filter((value):value is ApplicationUsageSeconds=>!!value)):null;
+  if(quotaUsage&&(legacySourceCount>0||applicationUsage.some(value=>!value))){
+    quotaUsage.complete=false;
+    quotaUsage.reasonCodes=[...new Set([...quotaUsage.reasonCodes,
+      ...(legacySourceCount>0?['LEGACY_STATISTICS_UNIT']:[]),
+      ...(applicationUsage.some(value=>!value)?['APPLICATION_QUOTA_USAGE_INCOMPLETE']:[])])].sort();
+  }
   return {durationUnit:'seconds' as const,rows:[...merged.values()],references,legacySourceCount,
-    applicationUsage:legacySourceCount?null:mergeApplicationUsage(applicationUsage),
+    applicationUsage:filters.quotaRead?quotaUsage:legacySourceCount?null:mergeApplicationUsage(applicationUsage),
     complete:complete&&legacySourceCount===0,reasonCodes:[...reasonCodes].sort(),revision:await hashUsageAccountValue(references)};
 }
 /** 日／周统计只归集来源秒统计；缺日期不等于零，余额由独立配额模块计算。 */

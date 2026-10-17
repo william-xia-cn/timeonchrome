@@ -1,5 +1,75 @@
 # TASK_BOARD
 
+## 本批整合回归修正（2026-10-17）
+
+PR291 Guardian CI已定位：控件获批将配额读取器`completeness.complete`改为本机可用状态后，云端纯快照适配仍把该字段误当云端覆盖状态。仅把`workers/src/services/sourceStatistics.ts`的诊断字段读取切至同一既有读取器的`cloudCoverageComplete`；数值、原账、上传和业务放行不变，不放宽现有失败断言。补跑直接云端回归、跨线原始LF夹具及typecheck，之后由原PR复验；不扩大其他历史或Native范围。
+
+## 只读复核：当天未归类新统计计入复合（2026-10-17）
+
+按Native会话最新人类指令，旧来源4825秒本轮不处理、不用来解释新链路。根已独立读取正式SDK安全结果`new-unclassified-cloud-safe.json`：查询仅2026-10-17，schema1 included仅当前用户来源，基础20699秒、`categories.unclassified=163`；schema2为学习0／复合163／休息0，均保留partial及`NATIVE_LEGACY_SELECTION_UNAVAILABLE`。因此当天已生成的163秒未归类在现网正确进入复合桶，未混入前日旧来源。已发布基线4919227的契约`source-statistics.ts:79～83`即`composite + unclassified`，Runtime原持久读取器把`applicationUsage.nonSpecialCategories`直接委托此唯一适配；1.57未改该业务公式，既有固定用例composite200＋unclassified10→210通过证据复用。
+
+该结果不证明“全部未配置新应用都已正确生成未归类”。当天基础与已知配额差额20536秒不能直接说成漏记，也不能未经依据全部扣成特殊应用；须由Native区分特殊时长、已知分类及缺selection部分，并核对安装后新段，不能笼统归为10/16旧账。云端不把缺失applicationUsage猜成未归类、不重分类原账来凑数；尚未完成部分明确未验收。
+
+后续真实新段证据已到：根只读核对`post-install-new-selection-safe.json`，实际Service64启动边界后当前来源19条记录、原段合计2634秒，均`selection-not-eligible:dynamic-process`；16条仅`PROCESS_NAME_FALLBACK`，3条另有`SERVICE_BOUNDARY_IDENTITY`。2634为原段秒数，非并集有效总量，不据此直接补账或认定全部缺口。Native所属定位为无显式配置时`NativeApplicationStatistics.Build → InterpretLegacy → SelectsExecutableObject`仍要求identified／专用EXE正证据，动态身份因此进入historicalUnknown/null而非默认unclassified。此为Native新账分类接线缺口，不是云端把163丢掉或本地交换失败；`NATIVE_LEGACY_SELECTION_UNAVAILABLE`不能再笼统等同“只有旧账”。默认分类的完整验收仍未通过；这些有效新段及其派生统计必须从旧清理范围排除，云端不猜补、不删新账、不掩盖原因。
+
+旧清理边界：当前仅有旧来源B／2026-10-16／4825秒的API线索，缺精确publication manifest／revision及可删除事实范围，不能据此立即删除。只允许后续经范围核实及受限备份的旧来源派生记录清单；所有当前固定身份新统计、新原账、ACK／版本水位、配置和配对必须排除。现有`applicationLedgerRetirement.ts`整家庭退出函数有已执行保护，且旧算法白名单不等于本次语义上的旧账，不重跑或绕过它。D1只读权限仍不足，未编造完整旧清单、未清库、未执行删除或迁移。发布直接授权问题与本项只读核查分开。
+
+## NOW：本批只读容错集中发布（2026-10-17，PO明确授权）
+
+权限阻塞已解除：PO现已在本Architect会话直接批准“本批提交、推送、合并并部署Guardian和Runtime，不迁移、不启用共享、不托管”。据此恢复下述精确发布范围；此前两次拒绝记录保留，不通过其他会话或替代写接口绕过。本轮也不清理旧账，不修Native默认分类，不将其未通过状态冒充本批已修复。
+
+已直接核实控件会话本轮人类原话：“提交、推送并部署云端，把本机当前加载的控件也更新，我手工验收一轮。保留绑定和本地数据，不启用共享，暂不托管。”本条覆盖下方本批“不提交／部署／更新加载包”的阶段限制，不扩大为配置、原账、上传、migration、Native安装或托管权限。
+
+架构／标准云端负责1.57契约及必要Guardian／Runtime，只提交已审18文件和同线有效验收记录，不混未追踪包、私有证据或其他草稿；控件所属独立负责原加载目录备份／1.7.63更新与手工验收指引，不重复提交根契约／锁。复用精确源码的20项Runtime、Guardian／契约、类型、dry-run及跨wire通过证据，只运行必要CI和发布后health／未认证隔离smoke。四条旧Admin基线失败原样披露；遇真实门禁阻塞报告具体原因，不伪造绿灯，不顺带修代码或迁移。现有工作线不新建分支／工作树；源码合入、实际部署、本机加载和现场验收分别登记。
+
+当前执行阻塞：两次精确18文件提交／推送命令均在进程创建前被权限审核拒绝。第一次审核将Native另项只读other核查套用于发布；根重新直接读取控件最新人类发布原话后，第二次审核仍认定另一会话授权不能替代根当前直接授权。两次均未执行，没有暂存／提交／推送／PR或生产变更；停止重试，不换GitHub写接口或由另一会话间接代执行。待PO在根本会话直接确认本批提交／推送／合并及Guardian＋Runtime发布范围；现有源码、固定包、已通过证据及本机加载目录保留，不重新测试无变化源码。
+
+## 只读核查：other来源、零桶与云端缺陷分界（2026-10-17）
+
+独立于发布，已核实Native会话人类只读范围及其安全SDK报告`other-source-details-safe.json`。当前2026-10-12～17的schema1实际读取只有一个included来源，键与本机另一个受保护Windows用户精确相同，当前用户来源被排除；16日基础总量4825秒（80分25秒），非特殊总量null、分类空，原因`APPLICATION_USAGE_CLASSIFICATION_UNAVAILABLE`／`NATIVE_LEGACY_SELECTION_UNAVAILABLE`，截止为该日06:55:12.648。其他五日为null与`APPLICATION_SOURCE_NOT_PUBLISHED`，不是已证完整零。
+
+生产基线`4919227`的`backend/src/sourceStatistics.ts`中`included.add(key)`仅发生在已验证publication并读到日total后；expected当前保护分配另用于缺失诊断。因此只证明本次已读已发布来源是本机另一用户，不能推出所有未发布来源或历史分配不存在。schema2的available是任一天有可读统计，不代表全周期齐全、非零或另一台物理电脑。基础4825秒仍被返回，配额桶0来自缺少可采纳的分类／非特殊贡献；按PO未知增量0规则不能猜分这4825秒，也不能把分类缺项说成云端删掉总时长。该历史来源为何缺字段尚无服务器完整清单证据，不据此追改旧账。
+
+当前已证的云端读侧代码缺陷：生产`applicationStatisticsNative.ts`的`mergeApplicationUsage`任一来源缺分类／旧单位即整组null，可能抹掉其他已确认来源的配额桶。候选`quotaRead`路径保留好来源，已用600＋缺分类及下降用例证明，20项专项通过，但未提交／上线；普通统计和原账不改。本例仅一个已发布来源且自身缺分类，不能把候选的多来源缺陷复现当成本例已证根因。云端备用本机／其他分项为新增兼容能力，缺证明／坏分项／读中改绑／发布头变化只丢分项保留合计，候选已测，生产尚未提供该能力。分页TTL丢终端确认缓存及上传退避阻下行属于控件消费路径，已由所属修正，不混称云端原账错误。
+
+最小D1核查已发起一次精确source-key anchor SELECT，现有正常认证返回`D1_AUTH_PERMISSION_DENIED`，未取得数据库结果，未扩权限或重复登录。安全报告在root忽略目录`.tmp/other-sources-production-safe.json`，networkRequests=1、productWrites=false、scopeVerified=false；后续来源全集查询未执行。现阶段只能给上述API实测与基线代码结论，不能声称完整服务器来源清单或全部云端问题已查尽；未修改代码、数据、配置或部署。
+
+## NOW：云端确认账容错与备用应用分项（2026-10-17，PO逐项批准）
+
+已直接核实控件会话人类回复：批准同孩子／设备／周的过期传输快照保留确认账、未知增量0、不以完整性阻本机；批准本会话云端／必要契约修改及双向交接。中等风险，仅只读适配与兼容transport，复用现有工作线和未提交任务记录。
+
+实施checklist：①契约保留原query／snapshot并增加includeSources可选envelope及侧车隔离校验；②Runtime既有持久读取器在配额路径保留其他有效来源桶，并由可信source精确读取本机／其他分项；③Guardian原设备路由复用现有证明核验及Service Binding转接，不另造识别／配对；④核对网页既有已发布deviceAccounts可继续复用，不改原snapshot/hash／ACK／水位；⑤控件所属按固定形状接线，本会话对照审核。
+
+最小测试：契约旧响应／新envelope／坏sidecar／孩子周期隔离；Runtime已确认来源＋缺分类来源／更正下降／精确source拆分；Guardian旧端兼容／无效或缺证明仍合计可读／可信浏览器关联及家庭隔离。仅相关专项、typecheck、必要dry-run与diff检查，精确未变证据复用；排除全量、Windows／Mac／安装器、真实家庭写入、migration、部署、候选更新和共享启用。先完成源码及隔离验证，不冒充生产或实机通过。
+
+本批云端源码与隔离结果：①原业务query／snapshot保持严格，opt-in纯transport进入1.57.0；有效合计＋无效分项只保留合计；②原持久秒读取器仅quotaRead容错保留已验证分类桶，普通统计行为不变，本机云账和其他来源分别精确查询，不作减法拆分；③Guardian复用原V2签名／当前浏览器校验，Runtime当前家庭孩子内解析并在读后复核分配，缺／过期／篡改证明或改绑丢分项但不清合法合计；④网页既有快照读取无产品改动，缺inventory仍保留已发布deviceAccounts，终端同范围TTL容错由控件所属实现。无原账、上传、ACK、水位、生产配置或迁移改动。
+
+精确验证：`npm run build:app-runtime-contracts`、契约`source-statistics.test.mjs`／`contract-compatibility.test.cjs`、根`source-statistics-cloud.test.js`／`shared-web-contributions-cloud.test.js`通过；backend `npx --no-install vitest run test/source-statistics.test.ts` 20/20，含实际Service Binding旧端／可信来源／跨范围／读取中改绑。最后补验三次读取之间发布头600→100：首次已选合计800保留、分项300丢弃；下一次稳定读取合计300／本机100／其他200正常采用，不阻止更正下降。root／backend typecheck、两Worker本地dry-run、模块边界与联合职责检查通过，最后Runtime守卫变更后仅重跑其dry-run。初轮构建因沙箱生成目录EPERM未生成新dist，随后的旧dist断言不算产品失败；同范围授权构建后通过。首轮root typecheck发现V2证明联合类型未收窄，补字段守卫后通过；diff检查发现文档尾空行，修正后通过。Runtime新增夹具的assignment FK与固定范围复用问题已修正并聚焦通过，没有放宽产品断言或校验。
+
+唯一1.57内部包SHA256 `0921e4f2149642a974e62936645cc2b84dde36e3ea6ae2a802ee766803ad4157`；消费JS SHA256 `f535288d16622976a28c247ad3b5b8d7d7c50906361ef2a82acff293f99e5de1`，控件按同包接线。1.56原包hash仍为`a13f7ee1ef3ae6dd53a052efdbb2faf49f079595ace3de95065a12c1a98765f2`，未重建。根审控件实际local-first读取、只读proof访问器、固定helper与孩子／连接隔离为Matched；控件真实HTTP消费者对deviceRouter生成的纯合成wire完成7服务端＋4故障场景，wire SHA256 `5d52e38874c2526c7b80bffbba42d9cc9d6def58aa7588120e08ffa780825b1c`。这不是跨Worker全生产实机证据；route传输mock、Runtime真实D1入口及P256验证的证据分别保留。控件另报配额43／下行42／缓存11及相关来源／证明专项、typecheck／扩展根与Admin／Popup隔离目视通过；纯合成向量已入测试目录，默认专项不依赖本机临时目录。
+
+本批审计checklist①～⑤为Matched，无Deviated／Missing／未批准Extra；不将未实施的生产安装与现场验收算作本批源码缺项或通过。当前仅源码和隔离证据，未提交、推送、部署、安装、更新62加载候选或启用共享；不索PO重复重载／长诊断。后续只需按集中交付范围更新一次，再核对实际读取；不重做已通过的Native Service缓存链或追历史分类。
+
+保留风险已补齐基线依据：控件所属保存的`.tmp/admin-baseline-comparison-20261017.json`经根只读核对，HEAD `f62f8d4540fb4f354c544b0304cfe0ad57963443`原test／admin.js／admin.html通过只读fs适配在隔离VM运行，与当前均为110/114、同4项失败（原工具输出934ca0，当前856166）。四项为“admin 访问管理页默认展示网站管理”“admin 访问管理 Tab 切换只同步显示状态”“admin 本地自主度页应只读显示进入确认和休息软限额”“admin 本地提醒说明应明确账本和两种超时口径”。本批admin.js只修改周用量解释句，不涉及旧导航／自主度／提醒模型；该证据支持它们不是本批新增回归，不代表断言本身已修复。新显示专项和目视通过不覆盖综合专项失败；不顺带修复、不重跑无变化套件、不据此宣称全部测试或生产发布准备通过，本批仍未提交。
+
+## COMPLETED：Windows 实际 Service 读取云端 other 并连续刷新缓存（2026-10-17）
+
+按PO仅收口此链的授权，Native所属已完成源码 `bc6db5b841067b163bd5ca0f771eb7e89bd3aea0`、35项聚焦回归、唯一内部2.6.64候选及本机安装。后台远端读取预算改为有界15秒并尊重父取消；本机2.5秒本地读取、原后台周期和云端版本均不变。MSI exit0，实际Service／Agent为2.6.64，18表原账及管理配置保留核验通过。
+
+Native实机报告确认：升级前当前用户other缓存不存在；升级后同一实际Service进程自然创建并续写当前范围缓存。北京时间cloudRead `18:38:31.381 → 18:39:14.912`，对应diskWrite `18:38:34.459 → 18:39:17.974`；只读观察器3个样本、2个不同cloudReadAt、同1个ServiceGeneration，`actualServiceBackgroundReceiveAndCacheVerified=true`。观察器`networkRequests=0`、`productWrites=false`，没有主动诊断HTTP或代写产品缓存。该证据区别于先前SDK主动只读对照；既有本机报告为 `windows-candidate-2.6.64/后台读取与缓存验收.md`，不把受保护缓存或身份数据放入Git。
+
+本项结论：实际Service后台“云端读取 → 接收 → 当前范围缓存 → 下一轮自然更新”通过。缓存状态`available`，原6日0桶／partial及原因保持不变；available不代表非零、全部分类完整或另有物理电脑。本轮不继续查控件、交换或分类，不启用共享、不改旧账、不索页面，也不追加认证、部署或无变化测试。沿用已发布Runtime版本 `3949e355-e569-4b1b-bfaa-45237b8690ee`；本项完成不代表共享提醒／限制或全部功能已验收。
+
+## 2026-10-17 集中交付：Runtime已发布，本机分类缺项独立跟进
+
+PO已在Native所属会话授权两端更新、必要Runtime部署及真实读取显示验收，共享关闭、旧账不改。PR #289合入master `4919227c6ecfd3dc00168ac4750524ba90610f40`，精确主线CI `39021922024`必要检查全部成功。主线集成只保留双方追加文档，Runtime src／config／锁及契约与冻结6c0a613一致。
+
+Runtime于北京时间2026-10-17 18:10:20完成发布：Worker `timeonchrome-app-runtime-api`，version `3949e355-e569-4b1b-bfaa-45237b8690ee`，deployment `cf93d5f3-665c-4415-b152-1fa7d766d7fd`，版本回读为100%流量。仅执行原制品的`deploy --no-bundle --keep-vars --config wrangler.jsonc`，没有重建；上传前后本地冻结JS SHA256均为 `8e5e52729e4a1c74343b4b981246fbc5fbfb5deaa64d7548d63650fad1d5b772`。该哈希是本地上传制品证据，不冒充已下载线上脚本逐字节核对。发布后health=200、未认证机器来源接口=401。旧版回滚依据 `b83faedc-b229-4ec6-a22c-12da1ce6237f`已保存在受限本地生成证据；未执行回滚。原cron／D1／R2／Service Binding保留，没有其他Worker／Pages部署、migration、R2内容操作或配置／旧账修改。真实鉴权other来源状态由Native既有后台读取继续核对，版本上线不等于该功能现场已通过。
+
+本轮认证阻塞已解除：普通OAuth实际等待120秒，先前称5分钟错误；device flow首轮5分钟未获grant，后续设备端点403有HTML挑战特征，未猜称登录成功。跨线程转发默认及最小OAuth链接均被安全审核拒绝后停止传递，不换渠道绕过。最终由Native在同一会话内发起最小正常登录并完成IAB操作，仅回报CLI exit0；权限为account:read、workers_scripts:write及官方固定offline_access，没有传递或提取token。root直接复用官方凭据存储完成发布，没有扩scope。
+
+Native所属报告2.6.63安装、11组件及18表保留核验通过，控件原目录1.7.62逐文件核验并由PO重载。17:51:45～47正常页面为`PASS_WITH_MANUAL_EVIDENCE`：v3、当前同孩子确认，本次exchange属于当前连接且sent／received／accepted均true；网页本浏览器当日0／721／0秒完整、截止未提供；应用本机0／163／0秒仍partial、截止17:50:23。other未知独立呈现，没有遮蔽本机，不能认定共享执行或全部分类已通过。Native另一次合法Service只读结果为基础总量16131秒／Complete=true／基础reasonCodes空，classificationReasonCodes为`NATIVE_LEGACY_SELECTION_UNAVAILABLE`；分类配额桶与基础总量用途不同，不作差认定丢账。Native继续核查分类读取限制，控件所属已定位该码及`SOURCE_PARTIAL`未进诊断白名单导致“原因未知”，尚未修正；不把它们归因于exchange或other未知。本轮不自行放宽旧键、改分类／原账或新增候选。
+
 ## NOW：其他设备读取修复提交、云端部署及1.7.63本机更新（2026-10-17，PO明确授权）
 
 本次授权覆盖下方不提交/部署/更新加载包的阶段限制。extension-local提交本轮消费者及前序已验60–62读取接线，经PR集成；架构统筹云端/1.57契约的固定工作线提交及Guardian/Runtime部署。只读smoke，不部署Pages、不执行migration、不安装Native、不改家庭配置/原账/ACK/水位；共享保持关闭，正式托管feed不动。本机仅制作独立1.7.63开发候选，完整备份后更新原加载位置，保留key/ID/权限/metadata，不卸载/解绑/清storage。旧Admin四项基线失败继续披露；复用精确源码专项证据，不将失败改为通过。文档只提交本轮块，旧草稿原样保留。

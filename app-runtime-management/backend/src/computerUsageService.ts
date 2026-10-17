@@ -8,10 +8,10 @@ import { readNativeApplicationStatisticsRangeSeconds } from './applicationStatis
 import { loadUsageCorrections } from './applicationUsageCorrections';
 import { CHROME_DISPLAY_RULES } from './specialApplications';
 import { readApplicationSharedQuotaContributions } from './applicationSharedQuota';
-import { verifySharedWebSourceAssignment, verifySharedWebSourceScope } from './sharedWebSourceBinding';
+import { verifySharedWebSourceAssignment, verifySharedWebSourceScope, resolveSharedWebSourceScope } from './sharedWebSourceBinding';
 import { readApplicationLedgerRetirement } from './applicationLedgerRetirement';
-import { validateSourceStatisticsQuery,validateQuotaBucketsQuery } from '@timeonchrome/app-runtime-contracts/source-statistics';
-import { readApplicationSourceStatistics,readApplicationQuotaBuckets } from './sourceStatistics';
+import { validateSourceStatisticsQuery,validateQuotaBucketsQuery,validateQuotaBucketsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
+import { readApplicationSourceStatistics,readApplicationQuotaBuckets,readApplicationQuotaBucketsSources } from './sourceStatistics';
 import { readApplicationIdentityUsage } from './applicationProductProjections';
 
 /** Capability-bound entrypoint; this is never exposed by the public fetch router. */
@@ -44,10 +44,34 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
         if(typeof input.accountId!=='string'||typeof input.childId!=='string')throw new HttpError(400,'INVALID_SCOPE','统计范围无效。');
         const query=(input.query as {schemaVersion?:unknown})?.schemaVersion===2?validateQuotaBucketsQuery(input.query):validateSourceStatisticsQuery(input.query);
         if(query.source!=='application'||query.scope!=='all')throw new HttpError(400,'INVALID_SCOPE','该内部入口仅提供全应用统计。');
+        if(input.includeSources!==undefined&&(input.includeSources!==true||!('schemaVersion' in query)))
+          throw new HttpError(400,'INVALID_SCOPE','来源分项仅支持应用配额桶。');
         await this.requireChildScope(input.accountId,input.childId);
-        return jsonResponse('schemaVersion' in query
+        const snapshot='schemaVersion' in query
           ?await readApplicationQuotaBuckets(this.env.RUNTIME_DB,input.accountId,input.childId,query)
-          :await readApplicationSourceStatistics(this.env.RUNTIME_DB,input.accountId,input.childId,query));
+          :await readApplicationSourceStatistics(this.env.RUNTIME_DB,input.accountId,input.childId,query);
+        if(input.includeSources!==true||!('schemaVersion' in query))return jsonResponse(snapshot);
+        let applicationSources=null;
+        // Only Guardian's verified selector reaches this capability. Optional
+        // attribution must never make the already-authorized aggregate unusable.
+        try {
+          const selector=input.applicationScope as Record<string,unknown>|undefined;
+          const scope={accountId:input.accountId,childId:input.childId,
+            applicationSourceKey:selector?.applicationSourceKey,assignmentVersion:selector?.assignmentVersion};
+          const own=await resolveSharedWebSourceScope(this.env.RUNTIME_DB,scope);
+          if(own){
+            const sources=await readApplicationQuotaBucketsSources(this.env.RUNTIME_DB,input.accountId,input.childId,query,own);
+            const current=await resolveSharedWebSourceScope(this.env.RUNTIME_DB,scope);
+            const aggregate=validateQuotaBucketsSnapshot(snapshot,{source:'application',childId:input.childId,
+              fromDate:query.fromDate,toDate:query.toDate});
+            const consistent=sources.local!==null&&aggregate.days.every((day,index)=>
+              (['study','composite','rest'] as const).every(bucket=>day.bucketsSeconds[bucket]
+                ===sources.local!.days[index]!.bucketsSeconds[bucket]+(sources.other?.days[index]?.bucketsSeconds[bucket]??0)));
+            if(current&&current.machineId===own.machineId&&current.localUserId===own.localUserId
+              &&current.assignmentVersion===own.assignmentVersion&&consistent)applicationSources=sources;
+          }
+        }catch{/* Optional split unavailable; preserve the valid aggregate. */}
+        return jsonResponse({snapshot,applicationSources});
       }
       if(!input||['accountId','childId','fromDate','toDate'].some(key=>typeof input[key]!=='string'||String(input[key]).length>200))
         throw new HttpError(400,'INVALID_SCOPE','Read scope is invalid.');
