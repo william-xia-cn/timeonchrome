@@ -2,7 +2,8 @@
 
 import { budgetedLocalSet } from '../infra/storage-budget.js';
 import { getBeijingWeekPeriod } from './profile-account-v2.js';
-import { PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY } from './profile-account-shadow-v2.js';
+import { PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY, isProfileAccountShadowScopeCurrent } from './profile-account-shadow-v2.js';
+import { readSharedAccessPolicyCloudScope } from '../infra/cloud-sync.js';
 
 export const QUOTA_READ_MODEL_V2_KEY = 'quota_read_model_v2';
 
@@ -163,7 +164,7 @@ export function buildQuotaReadModelV2({
     ...(cloudCompleteness.incompleteDevices || []),
     ...projectionMissingDevices,
   ]);
-  const otherDevicesUnknown = !cloudPeriodMatches || cloudCompleteness.inventoryAvailable === false || missingDevices.length > 0 ||
+  const otherDevicesUnknown = !cloudPeriodMatches || cloudCompleteness.inventoryAvailable !== true || missingDevices.length > 0 ||
     incompatibleDevices.length > 0 || incompleteDevices.length > 0;
 
   return {
@@ -193,10 +194,12 @@ export function buildQuotaReadModelV2({
       activeSeconds: seconds(pending.activeSeconds),
     },
     completeness: {
-      complete: local.complete === true && cloudPeriodMatches && cloudCompleteness.complete === true && !otherDevicesUnknown,
+      // Execution uses confirmed amounts; cloud coverage is diagnostic only.
+      complete: local.complete === true,
       localComplete: local.complete === true,
       cloudSnapshotAvailable: cloudPeriodMatches,
-      deviceInventoryAvailable: cloudCompleteness.inventoryAvailable !== false,
+      deviceInventoryAvailable: cloudCompleteness.inventoryAvailable === true,
+      cloudCoverageComplete: cloudPeriodMatches && cloudCompleteness.complete === true && !otherDevicesUnknown,
       otherDevicesUnknown,
       expectedDevices: normalizedList(cloudCompleteness.expectedDevices),
       missingDevices,
@@ -224,6 +227,12 @@ function pendingProjection(data, weekStart, weekEnd) {
 export async function readQuotaReadModelV2({ date = null, now = Date.now() } = {}) {
   const dateKey = date || new Date(now + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const period = getBeijingWeekPeriod(dateKey);
+  const scopeFrom = (binding, cloud) => cloud?.ok === true && typeof cloud.apiBase === 'string'
+    && ['cloud_device_id', 'cloud_profile_id', 'cloud_device_token'].every(key => typeof binding?.[key] === 'string' && binding[key])
+    ? { apiBase: cloud.apiBase, deviceId: binding.cloud_device_id, childId: binding.cloud_profile_id } : null;
+  const sameScope = (a, b) => !!a && !!b && ['apiBase', 'deviceId', 'childId'].every(key => a[key] === b[key]);
+  const readBinding = () => chrome.storage.local.get(['cloud_device_id', 'cloud_profile_id', 'cloud_device_token']);
+  const readCloudScope = () => readSharedAccessPolicyCloudScope().catch(() => null);
   try {
     const data = await chrome.storage.local.get([
       DAILY_STATS_KEY,
@@ -232,8 +241,11 @@ export async function readQuotaReadModelV2({ date = null, now = Date.now() } = {
       PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY,
       QUOTA_READ_MODEL_V2_KEY,
       'cloud_device_id',
+      'cloud_profile_id',
+      'cloud_device_token',
       'guardian_config',
     ]);
+    const scope = scopeFrom(data, await readCloudScope());
     const localProjection = buildLocalQuotaProjectionV2(data[DAILY_STATS_KEY] || {}, {
       date: dateKey,
       ...period,
@@ -245,19 +257,32 @@ export async function readQuotaReadModelV2({ date = null, now = Date.now() } = {
       ...period,
       deviceId: data.cloud_device_id || null,
       localProjection,
-      cloudSnapshot: data[PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY]?.current || null,
+      cloudSnapshot: isProfileAccountShadowScopeCurrent(data[PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY], scope,
+        period.weekStart, period.weekEnd, now, { allowExpired: true }) ? data[PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY].current : null,
       pending: pendingProjection(data, period.weekStart, period.weekEnd),
       now,
     });
+    model.scope = scope;
+    const bindingStillCurrent = async () => {
+      const binding = await readBinding();
+      return ['cloud_device_id', 'cloud_profile_id', 'cloud_device_token'].every(key => binding[key] === data[key])
+        && (!scope || sameScope(scope, scopeFrom(binding, await readCloudScope())));
+    };
+    if (!await bindingStillCurrent()) {
+      throw Error('quota_account_identity_changed');
+    }
     await budgetedLocalSet({ [QUOTA_READ_MODEL_V2_KEY]: model }, {
       priority: 'derived',
       source: 'quota_read_model_v2',
     }).catch(() => {});
+    if (!await bindingStillCurrent()) throw Error('quota_account_identity_changed');
     return model;
   } catch (error) {
     const fallback = await chrome.storage.local.get(QUOTA_READ_MODEL_V2_KEY).catch(() => ({}));
     const cached = fallback?.[QUOTA_READ_MODEL_V2_KEY];
-    if (cached?.date === dateKey && cached?.weekStart === period.weekStart) {
+    const scope = scopeFrom(await readBinding().catch(() => null), await readCloudScope());
+    if (sameScope(cached?.scope, scope) && cached?.date === dateKey && cached?.weekStart === period.weekStart
+      && cached?.weekEnd === period.weekEnd) {
       return {
         ...cached,
         ok: true,

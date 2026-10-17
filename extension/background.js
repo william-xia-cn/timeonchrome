@@ -75,7 +75,11 @@ initCompositePageObserver();
 initSharedReminderContentBridge();
 initSharedAccessPolicyReader();
 initSharedQuotaExecutionReader();
-initSharedWebContributionSync({ identityAllowed: isMonitoringEnabled });
+let sourceStatisticsShadow = null;
+initSharedWebContributionSync({ identityAllowed: isMonitoringEnabled, onIdentityReady: () => {
+  sourceStatisticsShadow?.invalidate();
+  return sourceStatisticsShadow?.refresh({ force: true });
+} });
 initForcedUseContributionObserver();
 initSharedBrowserActivity();
 
@@ -293,7 +297,7 @@ async function bootstrapServiceWorker(reason) {
     await setupAlarms();
     scheduleModeBoundaryDrain(`bootstrap:${reason}`);
     localGuardianBootstrapState = 'ready';
-    initSourceStatisticsShadow({ isEnabled: isMonitoringEnabled });
+    sourceStatisticsShadow = initSourceStatisticsShadow({ isEnabled: isMonitoringEnabled });
     initSharedAccessPolicyV2Reader({ isEnabled: isMonitoringEnabled });
     downtimeEnforcement.start().catch(() => {});
     initSharedAccessIntegration({ onExecutionChanged: suspendLegacyRestUsageReminder,

@@ -8,7 +8,13 @@ const load = s => import('data:text/javascript;base64,' + Buffer.from(s).toStrin
 async function run() {
   const { SHARED_WEB_IDENTITY_ERRORS } = await import(pathToFileURL(path.join(root, 'extension/core/shared-web-native.js')).href);
   globalThis.__sharedIdentityErrors = SHARED_WEB_IDENTITY_ERRORS;
-  const mod = await load('const SHARED_WEB_IDENTITY_ERRORS=globalThis.__sharedIdentityErrors;\n' + read('extension/infra/shared-sync-diagnostics.js').replace(/^import .*;\r?\n/gm, ''));
+  globalThis.__sourceStatisticsContract = await load(read('extension/core/shared-contracts/1.56.0/source-statistics.js'));
+  globalThis.__profileShadow = await load(read('extension/core/profile-account-shadow-v2.js').replace(/^import .*;\r?\n/gm, ''));
+  const mod = await load('const SHARED_WEB_IDENTITY_ERRORS=globalThis.__sharedIdentityErrors;\n'
+    + 'const sourceStatisticsContract=globalThis.__sourceStatisticsContract;\n'
+    + 'const {PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY,isProfileAccountShadowScopeCurrent}=globalThis.__profileShadow;\n'
+    + 'const readCurrentApplicationIdentityConfirmation=async()=>({confirmed:null}),readNativeHostDiagnosticState=()=>({});\n'
+    + read('extension/infra/shared-sync-diagnostics.js').replace(/^import .*;\r?\n/gm, ''));
   const now = Date.parse('2026-10-03T04:00:00Z');
   const identity = { schemaVersion: 1, revision: 'profile-config:34', stage: 'shadow', effectiveAtMs: 0, policyHash: 'a'.repeat(64) };
   const upload = { revisionOrdinal: 1, contentHash: 'b'.repeat(64), complete: false,
@@ -66,10 +72,111 @@ async function run() {
       readAtMs: now,
       source: { web: { origin: 'local_plus_cloud_other', readAtMs: now }, application: { origin: 'native', readAtMs: now } },
       applicationErrorCode: 'PRIVATE_TOKEN' } };
-  const contextV2 = { childId: 'private_child', scopeHash: 'private_scope' };
+  const contextV2 = { childId: 'private_child', scopeHash: 'private_scope', apiBase: 'https://private.invalid', deviceId: 'private-device' };
   const v2 = mod.projectSharedV2Observation(v2Stored, contextV2, { ok: true, policy: policyV2 }, true, now);
+  const sourceSnapshot = (amount, complete = true) => ({ schemaVersion: 2, durationUnit: 'seconds', source: 'application',
+    childId: contextV2.childId, fromDate: sourceCache.fromDate, toDate: sourceCache.toDate, readAtMs: now,
+    days: globalThis.__sourceStatisticsContract.sourceStatisticsDates(sourceCache.fromDate, sourceCache.toDate).map(date => ({
+      date, bucketsSeconds: { study: 0, composite: amount, rest: 0 }, settledThroughMs: now - 1000,
+      complete, reasonCodes: complete ? [] : ['QUOTA_BUCKETS_PARTIAL'] })) });
+  const webStored = structuredClone(v2Stored);
+  webStored.source_statistics_shadow_cache_v1.webSources = {
+    local: sourceSnapshot(41), other: sourceSnapshot(17, false), otherState: 'none' };
+  const unscopedWeb = mod.projectSharedV2Observation(webStored, contextV2, { ok: false }, null, now);
+  assert.equal(unscopedWeb.webSources.other, null, 'old unscoped other values cannot leak into the current child');
+  assert.equal(unscopedWeb.webSources.otherState, 'unknown');
+  webStored.profile_account_v2_shadow_cache = { scope: { apiBase: contextV2.apiBase, deviceId: contextV2.deviceId, childId: contextV2.childId },
+    current: { schemaVersion: 2, snapshotId: 'current-web', snapshotHash: 'a'.repeat(64), totalHash: 'b'.repeat(64),
+      verifiedAt: now, expiresAt: now + 10000, period: { weekStart: sourceCache.fromDate, weekEnd: '2026-10-04' },
+      deviceAccounts: [{ deviceId: 'another-device' }], completeness: { inventoryAvailable: true, expectedDevices: ['another-device'],
+        missingDevices: [], incompatibleDevices: [], staleDevices: [], incompleteDevices: [] } } };
+  webStored.source_statistics_shadow_cache_v1.webSources.snapshotId = 'current-web';
+  const webSeparated = mod.projectSharedV2Observation(webStored, contextV2, { ok: false }, null, now);
+  assert.equal(webSeparated.webSources.local.days[0].complete, true);
+  assert.equal(webSeparated.webSources.local.days[0].bucketsSeconds.composite, 41);
+  assert.equal(webSeparated.webSources.local.days[0].settledThroughMs, null, 'quota projections have no reliable settlement cutoff');
+  assert.equal(webSeparated.webSources.otherState, 'unknown', 'unproven cached none is not promoted to confirmed absence');
+  assert.equal(webSeparated.webSources.other.days[0].bucketsSeconds.composite, 17);
+  const scopedWebNone = structuredClone(webStored);
+  scopedWebNone.profile_account_v2_shadow_cache.current.deviceAccounts = [];
+  scopedWebNone.profile_account_v2_shadow_cache.current.completeness.expectedDevices = [contextV2.deviceId];
+  scopedWebNone.profile_account_v2_shadow_cache.current.completeness.incompleteDevices = [contextV2.deviceId];
+  scopedWebNone.source_statistics_shadow_cache_v1.webSources.other = null;
+  scopedWebNone.source_statistics_shadow_cache_v1.webSources.local.days[0].complete = false;
+  assert.equal(mod.projectSharedV2Observation(scopedWebNone, contextV2, { ok: false }, null, now).webSources.otherState, 'none');
+  assert(!JSON.stringify(webSeparated.webSources).includes(contextV2.childId));
+  const brokenWebOther = structuredClone(webStored);
+  brokenWebOther.source_statistics_shadow_cache_v1.webSources.other.toDate = '1970-01-01';
+  const brokenOtherView = mod.projectSharedV2Observation(brokenWebOther, contextV2, { ok: false }, null, now);
+  assert.equal(brokenOtherView.webSources.other, null);
+  assert.equal(brokenOtherView.webSources.local.days[0].complete, true, 'invalid other explanation cannot poison local');
+  const expiredWeb = structuredClone(webStored);
+  expiredWeb.source_statistics_shadow_cache_v1.webSources.local.readAtMs = now - 9 * 86400000;
+  assert.equal(mod.projectSharedV2Observation(expiredWeb, contextV2, { ok: false }, null, now).webSources.local, null);
+  assert.equal(mod.projectSharedV2Observation(webStored, { ...contextV2, childId: 'another-child' }, { ok: false }, null, now).webSources.available, false);
+  const separated = {};
+  for (const otherState of ['none', 'available', 'unknown']) {
+    const sourceStored = structuredClone(v2Stored);
+    sourceStored.source_statistics_shadow_cache_v1.application = sourceSnapshot(163, false);
+    sourceStored.source_statistics_shadow_cache_v1.applicationSources = {
+      local: sourceSnapshot(163), other: otherState === 'available' ? sourceSnapshot(0) : null, otherState };
+    separated[otherState] = mod.projectSharedV2Observation(sourceStored, contextV2, { ok: false }, null, now);
+    assert.equal(separated[otherState].applicationSources.local.days[0].complete, true);
+    assert.equal(separated[otherState].sources.application.days[0].complete, false);
+    assert.equal(separated[otherState].applicationSources.otherState, otherState);
+    assert(!JSON.stringify(separated[otherState].applicationSources).includes(contextV2.childId));
+    const invalidSourceStored = structuredClone(sourceStored);
+    invalidSourceStored.source_statistics_shadow_cache_v1.applicationSources.local.childId = 'another-child';
+    assert.equal(mod.projectSharedV2Observation(invalidSourceStored, contextV2, { ok: false }, null, now).applicationSources.available, false);
+    const foreignScope = { ...contextV2, scopeHash: 'another-scope' };
+    assert.equal(mod.projectSharedV2Observation(sourceStored, foreignScope, { ok: false }, null, now).applicationSources.available, false);
+  }
+  const missingLocal = structuredClone(v2Stored);
+  missingLocal.source_statistics_shadow_cache_v1.applicationSources = { local: null, other: sourceSnapshot(7, false), otherState: 'available' };
+  const missingLocalView = mod.projectSharedV2Observation(missingLocal, contextV2, { ok: false }, null, now);
+  assert.equal(missingLocalView.applicationSources.local, null, 'other data cannot become a zero or inferred local source');
+  assert.equal(missingLocalView.applicationSources.other.days[0].complete, false);
+  const reasonFixture = structuredClone(missingLocal);
+  reasonFixture.source_statistics_shadow_cache_v1.applicationSources.other.days[0].reasonCodes =
+    ['LOCAL_STATISTICS_MISSING', 'APPLICATION_OTHER_MISSING', 'QUOTA_BUCKETS_PARTIAL', 'PRIVATE_PATH'];
+  assert.deepEqual(mod.projectSharedV2Observation(reasonFixture, contextV2, { ok: false }, null, now)
+    .applicationSources.other.days[0].reasonCodes,
+  ['LOCAL_STATISTICS_MISSING', 'APPLICATION_OTHER_MISSING', 'QUOTA_BUCKETS_PARTIAL', 'UNKNOWN_REASON']);
+  const staleSources = structuredClone(missingLocal);
+  staleSources.source_statistics_shadow_cache_v1.applicationSources.other.readAtMs = now - 9 * 86400000;
+  assert.equal(mod.projectSharedV2Observation(staleSources, contextV2, { ok: false }, null, now).applicationSources.available, false);
   assert.equal(v2.scopeCurrent, true); assert.equal(v2.debuggerGranted, true);
   assert.equal(v2.nativePeerSameChild, null, 'a cached Native source never claims current peer verification');
+  const currentNative = { connected: true, connectionGeneration: 7 };
+  const confirmation = { confirmed: true, connectionGeneration: 7, expiresAtMs: now + 1000 };
+  const confirmedPeer = mod.projectSharedV2Observation(v2Stored, contextV2, { ok: false }, null, now, currentNative, confirmation);
+  assert.equal(confirmedPeer.nativePeerSameChild, true);
+  for (const [state, receipt] of [
+    [{ connected: false, connectionGeneration: 7 }, confirmation],
+    [{ connected: true, connectionGeneration: 8 }, confirmation],
+    [currentNative, { ...confirmation, expiresAtMs: now }],
+    [currentNative, { ...confirmation, confirmed: null }],
+    [currentNative, null],
+  ]) assert.equal(mod.projectSharedV2Observation(v2Stored, contextV2, { ok: false }, null, now, state, receipt).nativePeerSameChild, null);
+  const fullContext = { ...contextV2, apiBase: 'https://private.invalid', deviceId: 'private-device', deviceToken: 'private-token' };
+  const observePeer = async overrides => mod.readSharedV2Observation(v2Stored, null, {
+    readContext: async () => fullContext, readPolicy: async () => ({ ok: false }),
+    readConfirmation: async expected => { assert.deepEqual(expected, fullContext); return confirmation; },
+    readNative: () => currentNative, nativeState: currentNative, now: () => now, ...overrides,
+  });
+  assert.equal((await observePeer()).nativePeerSameChild, true);
+  assert.equal((await observePeer({ readConfirmation: async () => { throw Error('private-proof'); } })).nativePeerSameChild, null);
+  assert.equal((await observePeer({ readConfirmation: async () => { throw Error('private-proof'); } })).scopeCurrent, true,
+    'identity confirmation errors do not hide same-scope statistics');
+  assert.equal((await observePeer({ readNative: () => ({ connected: true, connectionGeneration: 8 }) })).nativePeerSameChild, null);
+  assert.equal((await observePeer({ readNative: () => ({ connected: false, connectionGeneration: 7 }) })).nativePeerSameChild, null);
+  let contextReads = 0;
+  assert.equal((await observePeer({ readConfirmation: async () => confirmation,
+    readContext: async () => ++contextReads === 1 ? fullContext : { ...fullContext, childId: 'different-child' } })).nativePeerSameChild, null);
+  contextReads = 0;
+  assert.equal((await observePeer({ readContext: async () => ++contextReads === 1 ? fullContext
+    : { ...fullContext, childId: 'different-child' } })).scopeCurrent, false, 'in-flight child changes cannot return former-child source rows');
+  assert(!JSON.stringify(await observePeer()).match(/private|bindingContextId|expiresAtMs|connectionGeneration/));
   assert.equal(v2.policy.policyHash, 'c'.repeat(64)); assert.equal(v2.policy.stage, 'shadow');
   assert.equal(v2.sources.web.days[0].totalSeconds, 120);
   assert.equal(v2.sources.application.origin, 'native');
@@ -364,6 +471,33 @@ async function run() {
   assert(contents(container).includes('未知；不能由缓存来源推断'));
   assert(contents(container).includes('以下为旧版历史贡献'));
   assert(!contents(container).match(/private|PRIVATE|指纹/));
+  ui.renderSharedSyncDiagnostics(container, { ...model, v2: confirmedPeer, days: [] });
+  assert(contents(container).includes('V2 当前本地连接同孩子核验'));
+  assert(!contents(container).includes('未知；不能由缓存来源推断'));
+  assert(contents(container).includes('已确认'));
+  assert(!contents(container).match(/bindingContextId|expiresAtMs|connectionGeneration|private|PRIVATE/));
+  for (const [otherState, expectedText] of [['none', '无其他设备'], ['available', '其他设备已知用量'], ['unknown', '其他设备用量未知；不影响本机显示']]) {
+    ui.renderSharedSyncDiagnostics(container, { ...model, v2: separated[otherState], days: [] });
+    const rendered = contents(container);
+    assert(rendered.includes(expectedText));
+    assert(rendered.includes('应用本机 2026-10-03'));
+    assert(rendered.includes('复合163秒／休息0秒 · 完整'));
+    assert(rendered.includes('应用合计 2026-10-03'));
+    if (otherState === 'available') {
+      assert(rendered.includes('应用其他设备 2026-10-03'));
+      assert(!rendered.includes('无其他设备'));
+    }
+  }
+  ui.renderSharedSyncDiagnostics(container, { ...model, v2, days: [] });
+  assert(contents(container).includes('应用合计，无法区分本机'));
+  ui.renderSharedSyncDiagnostics(container, { ...model, v2: missingLocalView, days: [] });
+  assert(contents(container).includes('本机用量暂不可读'));
+  assert(contents(container).includes('其他设备已知用量'));
+  ui.renderSharedSyncDiagnostics(container, { ...model, v2: webSeparated, days: [] });
+  assert(contents(container).includes('本浏览器网页 2026-10-03'));
+  assert(contents(container).includes('复合41秒／休息0秒 · 完整 · 结算截至 未提供'));
+  assert(contents(container).includes('其他设备来源范围未确认'));
+  assert(contents(container).includes('网页其他设备（已知部分）'));
   ui.renderSharedSyncDiagnostics(container, { ...model, v2: bucketView, days: [] });
   assert(contents(container).includes('休息600秒'));
   assert(contents(container).includes('缺少应用本机用量'));

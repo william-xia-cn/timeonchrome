@@ -1,5 +1,13 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-17 其他设备账下行与业务消费
+
+现有V2分页/hash校验成功后的设备账仍为唯一云端网页输入；正常读取与可信备用缓存均按apiBase/deviceId/childId及北京时间周期隔离。云端snapshot.expiresAt是分页快照传输会话期限，不自动撤销已成功验证并接收的同周期账；离线继续使用该账，不能因短期刷新失败将已知贡献清零。旧无scope缓存不追认身份。
+
+设备账下行从本机上传成功前置中分离，同次同步即使上传退避/失败也必须执行；上传的ACK、重试、水位不变。终端消费服务器已发布deviceAccounts并排除本机；其他设备未取得的增量按0，inventory/missing等只作诊断，不作为本机/合并用量可读性的门槛。保留云端本机账用于核对，不进入执行总量。应用Native桥与云端fallback仍二选一，不能用跨来源总量相减猜算设备贡献；必要接口由架构统一。
+
+架构已固定兼容transport：原device/source-statistics旧请求及直接snapshot响应不变；schema2/application/all可显式includeSources:true，并可携带现有sourceProof（shared-web-source:v2云签证明），返回{snapshot,applicationSources}。业务query与可选transport分开验证，证明缺失/失效只缺分项、不使合法all失败。控件仅只读复用当前连接已有证明，不再握手、不持久化/记录证明；来源分项独立校验，坏分项不影响有效合计。云端返回的分项可随同合计缓存，同scope失败使用配套缓存，禁止继承另一次Native/云端结果的解释。
+
 ## 2026-10-17 控件网页分项补齐（PO批准）
 
 交换已经实机通过，本轮不重新修复交换。控件仅保留现有网页quota readModel的本浏览器、其他设备和合计分项到内部缓存／诊断展示，不改既有webUsage传输或契约1.56。每日本浏览器完整性取`local.today.complete`及已有本机依据，不借用整周`local.complete`或合计状态；空日期没有明确完整性时为未知。没有可靠结算截止返回null，展示“未提供”，不使用读取时间或云端asOf冒充。

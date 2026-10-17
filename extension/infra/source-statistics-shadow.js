@@ -1,8 +1,10 @@
 import { readQuotaReadModelV2 } from '../core/quota-read-model-v2.js';
-import * as sourceStatisticsContract from '../core/shared-contracts/1.55.0/source-statistics.js';
+import { PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY, isProfileAccountShadowScopeCurrent } from '../core/profile-account-shadow-v2.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.57.0/source-statistics.js';
 import { readSharedAccessPolicyContext } from './shared-access-policy-reader.js';
 import { readCloudSourceStatistics } from './cloud-sync.js';
 import { readSourceStatisticsNativeContext, requestQuotaBucketsExchange } from './native-host-client.js';
+import { readApplicationStatisticsSourceProof } from './shared-web-contribution-sync.js';
 import { budgetedLocalSet } from './storage-budget.js';
 
 export const SOURCE_STATISTICS_SHADOW_KEY = 'source_statistics_shadow_v1';
@@ -19,6 +21,13 @@ const validSnapshot = (value, scope, now) => {
     return value.readAtMs <= now + 300_000 && now - value.readAtMs <= CACHE_MAX_AGE_MS;
   } catch (_) { return false; }
 };
+function validApplicationSources(value, context, range, now) {
+  try {
+    sourceStatisticsContract.validateQuotaBucketsSources(value, { childId: context.childId, ...range });
+    return [value.local, value.other].every(snapshot => snapshot === null
+      || validSnapshot(snapshot, expected('application', context.childId, range), now)) ? value : null;
+  } catch (_) { return null; }
+}
 async function withTimeout(promise, timeoutMs, errorCode) {
   let timer;
   try { return await Promise.race([promise, new Promise(resolve => {
@@ -53,12 +62,59 @@ export async function buildWebQuotaBucketsSnapshot({ childId, fromDate, toDate, 
   return snapshot;
 }
 
+export function buildWebSourceBreakdown({ fromDate, toDate, quotaModels, context, profileAccountCache, readAtMs = Date.now() }) {
+  const dates = sourceStatisticsContract.sourceStatisticsDates(fromDate, toDate);
+  const weekEnd = dayAt(Date.parse(`${fromDate}T00:00:00+08:00`) + 6 * 86_400_000);
+  const amount = value => Number.isSafeInteger(value) && value >= 0 ? value : null;
+  const buckets = (projection, complete) => projection?.byQuotaBucket && Object.fromEntries(
+    ['study', 'composite', 'rest'].map(key => [key,
+      Object.hasOwn(projection.byQuotaBucket, key) ? amount(projection.byQuotaBucket[key]) : complete === true ? 0 : null]));
+  const cache = profileAccountCache, snapshot = cache?.current;
+  const scoped = isProfileAccountShadowScopeCurrent(cache, context, fromDate, weekEnd, readAtMs, { allowExpired: true });
+  const inventory = scoped ? snapshot.completeness : null;
+  const listNames = ['expectedDevices', 'missingDevices', 'incompatibleDevices', 'staleDevices', 'incompleteDevices'];
+  const inventoryKnown = inventory?.inventoryAvailable === true && listNames.every(key => Array.isArray(inventory[key])
+    && inventory[key].every(id => typeof id === 'string' && id.length > 0)
+    && new Set(inventory[key]).size === inventory[key].length);
+  const accounts = scoped ? snapshot.deviceAccounts.filter(row => row?.deviceId && row.deviceId !== context.deviceId) : [];
+  const otherIds = new Set([...accounts.map(row => row.deviceId), ...(inventoryKnown
+    ? inventory.expectedDevices.filter(id => id !== context.deviceId) : [])]);
+  const modelsMatchSnapshot = Array.isArray(quotaModels) && quotaModels.length === dates.length && quotaModels.every((model, index) =>
+    model?.ok === true && model.date === dates[index] && model.weekStart === fromDate && model.weekEnd === weekEnd
+    && model.otherDevices?.snapshotId === snapshot?.snapshotId);
+  const none = inventoryKnown && modelsMatchSnapshot && otherIds.size === 0 && listNames.slice(1)
+    .every(key => inventory[key].every(id => id === context.deviceId));
+  const localDays = [], otherDays = [];
+  let knownOther = false;
+  for (const [index, date] of dates.entries()) {
+    const model = quotaModels?.[index]?.date === date ? quotaModels[index] : null;
+    const local = model?.local?.today;
+    const localComplete = typeof local?.complete === 'boolean' ? local.complete : null;
+    const localBuckets = buckets(local, localComplete);
+    localDays.push({ date, bucketsSeconds: localBuckets || null, complete: localComplete,
+      settledThroughMs: null, readAtMs, reasonCodes: localComplete === false ? ['WEB_LOCAL_DAY_INCOMPLETE'] : [] });
+    const dayAccounts = accounts.filter(row => row.date === date && row.quotaProjection);
+    const otherReadable = scoped && model?.ok === true && model.weekStart === fromDate && model.weekEnd === weekEnd
+      && model.otherDevices?.snapshotId === snapshot.snapshotId;
+    // Consume the published result. Missing devices/increments are cloud diagnostics.
+    const otherComplete = otherReadable && dayAccounts.every(row => row.complete === true);
+    const otherBuckets = otherReadable ? buckets(model.otherDevices.today, true) || null : null;
+    knownOther ||= !!otherBuckets;
+    otherDays.push({ date, bucketsSeconds: otherBuckets, complete: otherReadable ? otherComplete : null,
+      settledThroughMs: null, readAtMs, reasonCodes: otherReadable && !otherComplete ? ['SOURCE_UNAVAILABLE'] : [] });
+  }
+  return { snapshotId: scoped ? snapshot.snapshotId : null, local: { fromDate, toDate, readAtMs, days: localDays },
+    other: none ? null : { fromDate, toDate, readAtMs, days: otherDays },
+    otherState: none ? 'none' : knownOther ? 'available' : 'unknown' };
+}
+
 const status = selected => ({ origin: selected.origin, missing: !selected.snapshot,
   complete: !!selected.snapshot && selected.snapshot.days.every(day => day.complete),
   readAtMs: selected.snapshot?.readAtMs ?? null, days: selected.snapshot?.days ?? [] });
 
 export function createSourceStatisticsShadow({ readContext = readSharedAccessPolicyContext,
   nativeContext = readSourceStatisticsNativeContext, nativeExchange = requestQuotaBucketsExchange,
+  readSourceProof = readApplicationStatisticsSourceProof,
   cloudRead = readCloudSourceStatistics, readModel = readQuotaReadModelV2,
   storage = chrome.storage.local, write = budgetedLocalSet, isEnabled = () => false, now = Date.now } = {}) {
   let active = true, generation = 0, busy = false, controller = null, lastRunAt = 0;
@@ -78,15 +134,21 @@ export function createSourceStatisticsShadow({ readContext = readSharedAccessPol
     for (const source of ['web', 'application']) {
       if (!validSnapshot(cached[source], expected(source, context.childId, range), now())) cached[source] = null;
     }
+    cached.applicationSources = cached.application && ['native', 'cloud', 'last_known_good'].includes(cached.applicationOrigin)
+      ? validApplicationSources(cached.applicationSources, context, range, now()) : null;
     return cached;
   }
   async function readWeb(context, range) {
+    const quotaModels = await Promise.all(range.dates.map(date => Promise.resolve()
+      .then(() => readModel({ date, now: now() })).catch(() => null)));
+    const data = await storage.get(PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY).catch(() => ({}));
+    const webSources = buildWebSourceBreakdown({ ...range, quotaModels, context,
+      profileAccountCache: data[PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY], readAtMs: now() });
     try {
-      const quotaModels = await Promise.all(range.dates.map(date => readModel({ date, now: now() })));
       const snapshot = await buildWebQuotaBucketsSnapshot({ childId: context.childId, ...range, quotaModels, readAtMs: now() });
-      return { snapshot, origin: 'local_plus_cloud_other', errorCode: null };
+      return { snapshot, webSources, origin: 'local_plus_cloud_other', errorCode: null };
     } catch (_) {
-      return { snapshot: null, origin: 'unavailable', errorCode: 'source_statistics_web_unavailable' };
+      return { snapshot: null, webSources, origin: 'unavailable', errorCode: 'source_statistics_web_unavailable' };
     }
   }
   async function readApplication(context, range, web, cached, signal) {
@@ -105,7 +167,8 @@ export function createSourceStatisticsShadow({ readContext = readSharedAccessPol
         && latest?.ok && latest.childId === context.childId && latest.contextId === native.contextId
         && latest.connectionGeneration === result.connectionGeneration) {
         attempt.accepted = true; attempt.errorCode = null;
-        return { snapshot: result.snapshot, origin: 'native', nativeAttempt: { ...attempt },
+        return { snapshot: result.snapshot, origin: 'native',
+          applicationSources: validApplicationSources(result.applicationSources, context, range, now()), nativeAttempt: { ...attempt },
           nativeConnectionGeneration: result.connectionGeneration, errorCode: null };
       }
       errorCode = result?.ok && result.snapshot === null ? 'source_statistics_application_unavailable'
@@ -114,14 +177,19 @@ export function createSourceStatisticsShadow({ readContext = readSharedAccessPol
     } else errorCode = native?.errorCode || 'source_statistics_native_context_unavailable';
     attempt.accepted = false; attempt.errorCode = errorCode;
     const nativeAttempt = { ...attempt };
+    // Reuse an existing current proof only; cloud fallback never initiates a bind.
+    const sourceProof = await Promise.resolve().then(() => readSourceProof(context)).catch(() => null);
     const response = await Promise.resolve().then(() => cloudRead({ deviceToken: context.deviceToken,
-      apiBase: context.apiBase, signal }, { schemaVersion: 2, source: 'application',
-      fromDate: range.fromDate, toDate: range.toDate, scope: 'all' }))
+      apiBase: context.apiBase, childId: context.childId, signal }, { schemaVersion: 2, source: 'application',
+      fromDate: range.fromDate, toDate: range.toDate, scope: 'all', includeSources: true,
+      ...(sourceProof ? { sourceProof } : {}) }))
       .catch(() => ({ ok: false, errorCode: 'source_statistics_application_unavailable' }));
     if (response?.ok && validSnapshot(response.snapshot, expected('application', context.childId, range), now())) {
-      return { snapshot: response.snapshot, origin: 'cloud', nativeAttempt, errorCode: null };
+      return { snapshot: response.snapshot, origin: 'cloud',
+        applicationSources: validApplicationSources(response.applicationSources, context, range, now()), nativeAttempt, errorCode: null };
     }
     return { snapshot: cached.application || null,
+      applicationSources: cached.applicationSources || null,
       origin: cached.application ? 'last_known_good' : 'unavailable', nativeAttempt,
       errorCode: response?.errorCode || errorCode || 'source_statistics_application_unavailable' };
   }
@@ -159,7 +227,8 @@ export function createSourceStatisticsShadow({ readContext = readSharedAccessPol
         webErrorCode: web.errorCode, applicationErrorCode: application.errorCode };
       await writeBestEffort(SOURCE_STATISTICS_SHADOW_CACHE_KEY, { schemaVersion: 2, childId: context.childId,
         scopeHash: context.scopeHash, fromDate: range.fromDate, toDate: range.toDate,
-        web: web.snapshot, application: application.snapshot, webOrigin: web.origin, applicationOrigin: application.origin });
+        web: web.snapshot, webSources: web.webSources, application: application.snapshot, applicationSources: application.applicationSources || null,
+        webOrigin: web.origin, applicationOrigin: application.origin });
       await writeBestEffort(SOURCE_STATISTICS_SHADOW_KEY, report);
       return { ok: true, report };
     } catch (_) { return { ok: false, errorCode: 'source_statistics_unavailable' }; }
