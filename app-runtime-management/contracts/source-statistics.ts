@@ -1,6 +1,90 @@
-/** 分域统计读取：不生成原账、不保存余额、不要求云端存在本机旧副本。 */
+/** v1 仅供旧端兼容；新共享只传配额桶，不使用来源清单或分类快照。 */
 export const SOURCE_STATISTICS_READ_CAPABILITY = 'source-statistics-read-v1' as const;
 export const SOURCE_STATISTICS_EXCHANGE_MESSAGE = 'exchangeSourceStatistics' as const;
+export const QUOTA_BUCKETS_READ_CAPABILITY = 'quota-buckets-read-v1' as const;
+export const QUOTA_BUCKETS_EXCHANGE_MESSAGE = 'exchangeQuotaBuckets' as const;
+export type QuotaBucketsSeconds = Readonly<Record<'study' | 'composite' | 'rest', number>>;
+export interface QuotaBucketsDay {
+  date: string; bucketsSeconds: QuotaBucketsSeconds; settledThroughMs: number | null;
+  complete: boolean; reasonCodes: readonly string[];
+}
+export interface QuotaBucketsSnapshot {
+  schemaVersion: 2; durationUnit: 'seconds'; source: 'web' | 'application'; childId: string;
+  fromDate: string; toDate: string; readAtMs: number; days: readonly QuotaBucketsDay[];
+}
+export interface QuotaBucketsQuery {
+  schemaVersion: 2; source: 'web' | 'application'; fromDate: string; toDate: string; scope: 'all' | 'other';
+}
+
+export function validateQuotaBucketsQuery(value: unknown): QuotaBucketsQuery {
+  const q = record(value); keys(q, ['schemaVersion', 'source', 'fromDate', 'toDate', 'scope']);
+  if (q.schemaVersion !== 2 || !['web', 'application'].includes(String(q.source)) || !['all', 'other'].includes(String(q.scope))) fail();
+  sourceStatisticsDates(q.fromDate, q.toDate);
+  return value as QuotaBucketsQuery;
+}
+
+export function validateQuotaBucketsSnapshot(value: unknown, expected: {
+  source: 'web' | 'application'; childId: string; fromDate: string; toDate: string;
+}): QuotaBucketsSnapshot {
+  const s = record(value);
+  keys(s, ['schemaVersion', 'durationUnit', 'source', 'childId', 'fromDate', 'toDate', 'readAtMs', 'days']);
+  const dates = sourceStatisticsDates(expected.fromDate, expected.toDate);
+  if (s.schemaVersion !== 2 || s.durationUnit !== 'seconds' || s.source !== expected.source || s.childId !== expected.childId
+    || !label(s.childId) || s.fromDate !== expected.fromDate || s.toDate !== expected.toDate || !integer(s.readAtMs)
+    || !Array.isArray(s.days) || s.days.length !== dates.length) fail();
+  for (const [index, raw] of (s.days as unknown[]).entries()) {
+    const d = record(raw); keys(d, ['date', 'bucketsSeconds', 'settledThroughMs', 'complete', 'reasonCodes']);
+    const buckets = record(d.bucketsSeconds); keys(buckets, ['study', 'composite', 'rest']);
+    if (d.date !== dates[index] || !Object.values(buckets).every(integer) || typeof d.complete !== 'boolean'
+      || d.settledThroughMs !== null && (!integer(d.settledThroughMs) || d.settledThroughMs > Number(s.readAtMs))
+      || !Array.isArray(d.reasonCodes) || d.reasonCodes.length > 32 || d.reasonCodes.some(r => !label(r))
+      || new Set(d.reasonCodes).size !== d.reasonCodes.length || d.complete && d.reasonCodes.length) fail();
+  }
+  return value as QuotaBucketsSnapshot;
+}
+
+export function validateQuotaBucketsExchange(value: unknown, childId: string): {
+  fromDate: string; toDate: string; webUsage: QuotaBucketsSnapshot | null;
+} {
+  const q = record(value); keys(q, ['fromDate', 'toDate', 'webUsage']); sourceStatisticsDates(q.fromDate, q.toDate);
+  if (q.webUsage !== null) validateQuotaBucketsSnapshot(q.webUsage, {
+    source: 'web', childId, fromDate: String(q.fromDate), toDate: String(q.toDate),
+  });
+  return value as {fromDate: string; toDate: string; webUsage: QuotaBucketsSnapshot | null};
+}
+
+/** 应用配额的唯一分类适配：输入已排除特殊应用，不更改统计、不计算借用。 */
+export function applicationQuotaBucketsSeconds(categories: Readonly<Record<string, number>>): QuotaBucketsSeconds {
+  if (!Object.values(categories).every(integer)) fail();
+  const composite = (categories.composite ?? 0) + (categories.unclassified ?? 0);
+  if (!integer(composite)) fail();
+  return { study: categories.study ?? 0, composite, rest: categories.restrictedEntertainment ?? 0 };
+}
+
+/** 只相加两个领域已有桶；缺失临时按0核算，但保留缺源原因，不改写来源统计。 */
+export function projectQuotaBucketsSeconds(policy: Pick<import('./shared-access.js').UnifiedChildAccessPolicyV1, 'dailyMinutes'>,
+  date: string, web: QuotaBucketsSnapshot | null, application: QuotaBucketsSnapshot | null): SharedQuotaSecondsDay {
+  sourceStatisticsDates(date, date);
+  const childId = web?.childId ?? application?.childId, reasons = new Set<string>();
+  const usedSeconds = { study: 0, composite: 0, rest: 0 };
+  for (const [source, snapshot] of [['web', web], ['application', application]] as const) {
+    if (snapshot) validateQuotaBucketsSnapshot(snapshot, { source, childId: childId!, fromDate: snapshot.fromDate, toDate: snapshot.toDate });
+    const day = snapshot?.days.find(d => d.date === date);
+    if (!day) { reasons.add(`${source.toUpperCase()}_SOURCE_UNAVAILABLE`); continue; }
+    for (const reason of day.reasonCodes) reasons.add(reason);
+    if (!day.complete) reasons.add(`${source.toUpperCase()}_SOURCE_PARTIAL`);
+    for (const bucket of ['study', 'composite', 'rest'] as const) {
+      usedSeconds[bucket] += day.bucketsSeconds[bucket];
+      if (!integer(usedSeconds[bucket])) fail();
+    }
+  }
+  const weekday = (['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const)[
+    new Date(Date.parse(date + 'T00:00:00+08:00') + OFFSET).getUTCDay()]!;
+  const limits = policy.dailyMinutes[weekday];
+  const remainingSeconds = Object.fromEntries((['study', 'composite', 'rest'] as const).map(k =>
+    [k, limits[k] === null ? null : Math.max(0, limits[k]! * 60 - usedSeconds[k])])) as SharedQuotaSecondsDay['remainingSeconds'];
+  return { date, complete: reasons.size === 0, reasonCodes: [...reasons].sort(), usedSeconds, remainingSeconds, borrowedRestSeconds: 0 };
+}
 export type StatisticsDomain = 'web' | 'application';
 export interface SourceStatisticsQuery {
   source: StatisticsDomain; fromDate: string; toDate: string;
@@ -115,6 +199,18 @@ export async function combineOwnAndOtherStatistics(local: SourceStatisticsSnapsh
 /** 独立配额纯函数；保留网页既有rest借用桶，只对应用复合/未归类计算新增借用。 */
 export function projectSharedQuotaSeconds(policy: import('./shared-access.js').UnifiedChildAccessPolicyV1,
   date: string, web: SourceStatisticsSnapshot | null, application: SourceStatisticsSnapshot | null): SharedQuotaSecondsDay {
+  return projectQuotaSeconds(policy, date, web, application, true);
+}
+
+/** 新自主度核算：各分类独立，网页已经发生的桶归属原样保留。 */
+export function projectIndependentSharedQuotaSeconds(policy: Pick<import('./shared-access.js').UnifiedChildAccessPolicyV1, 'dailyMinutes'>,
+  date: string, web: SourceStatisticsSnapshot | null, application: SourceStatisticsSnapshot | null): SharedQuotaSecondsDay {
+  return projectQuotaSeconds(policy, date, web, application, false);
+}
+
+function projectQuotaSeconds(policy: Pick<import('./shared-access.js').UnifiedChildAccessPolicyV1, 'dailyMinutes'>,
+  date: string, web: SourceStatisticsSnapshot | null, application: SourceStatisticsSnapshot | null,
+  allowApplicationBorrowing: boolean): SharedQuotaSecondsDay {
   sourceStatisticsDates(date,date);
   const childId=web?.childId??application?.childId, reasons=new Set<string>();
   for(const [source,snapshot] of [['web',web],['application',application]] as const){
@@ -130,7 +226,7 @@ export function projectSharedQuotaSeconds(policy: import('./shared-access.js').U
   const limits=policy.dailyMinutes[weekday],wc=w?.categoriesSeconds??{},ac=a?.categoriesSeconds??{};
   const appComposite=(ac.composite??0)+(ac.unclassified??0),webComposite=wc.composite??0;
   const available=limits.composite===null?Infinity:Math.max(0,limits.composite*60-webComposite);
-  const borrowedRestSeconds=Math.max(0,appComposite-available);
+  const borrowedRestSeconds=allowApplicationBorrowing?Math.max(0,appComposite-available):0;
   const usedSeconds={study:(wc.study??0)+(ac.study??0),composite:webComposite+appComposite-borrowedRestSeconds,
     rest:(wc.rest??0)+(ac.restrictedEntertainment??0)+borrowedRestSeconds};
   if(!Object.values(usedSeconds).every(integer)||!integer(borrowedRestSeconds))fail();

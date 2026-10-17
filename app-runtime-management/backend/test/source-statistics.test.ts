@@ -1,10 +1,13 @@
 import {env,exports} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
 import {createUsageAccountV2,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
-import {readApplicationSourceStatistics} from '../src/sourceStatistics';
+import {readApplicationSourceStatistics,readApplicationQuotaBuckets} from '../src/sourceStatistics';
+import {readNativeApplicationStatisticsSeconds} from '../src/applicationStatisticsNative';
 import {applicationSharedQuotaSourceKey} from '../src/applicationSharedQuota';
 import {sha256Hex} from '../src/crypto';
 import {routeV2} from '../src/v2Routes';
+import fixedNativeGenerated from './application-fixed-native-generated.json';
+import fixedZeroNativeGenerated from './application-fixed-zero-native-generated.json';
 
 const date='2026-10-07',start=Date.parse(date+'T00:00:00+08:00'),now=start+3600000;
 const user='a'.repeat(64),peer='b'.repeat(64);
@@ -40,6 +43,97 @@ async function seedPublished(f:Awaited<ReturnType<typeof fixture>>,local:string,
   return id;
 }
 const query={source:'application' as const,scope:'all' as const,fromDate:date,toDate:date};
+const bucketsQuery={schemaVersion:2 as const,...query};
+it('quota buckets reuse ordinary published statistics, replace decreases and exclude exactly authenticated local source',async()=>{
+  const f=await fixture();await seedPublished(f,user);await seedPublished(f,peer,200);
+  const ordinary=await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.account,f.child,date);
+  const first=await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now);
+  expect(first.days[0].bucketsSeconds.study).toBe(ordinary!.applicationUsage!.nonSpecialCategories.study);
+  expect(first.days[0].bucketsSeconds.study).toBe(800);
+  expect(await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now)).toEqual(first);
+  const other=await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,{...bucketsQuery,scope:'other'},
+    {machineId:f.machine,localUserId:user,assignmentVersion:1},now);
+  expect(other.days[0].bucketsSeconds.study).toBe(200);
+  await seedPublished(f,user,10,2);
+  expect((await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now)).days[0].bucketsSeconds.study).toBe(210);
+  const foreign=await readApplicationQuotaBuckets(env.RUNTIME_DB,'foreign-account',f.child,bucketsQuery,undefined,now);
+  expect(foreign.days[0]).toMatchObject({complete:false,bucketsSeconds:{study:0,composite:0,rest:0}});
+  expect(foreign.days[0].reasonCodes).toContain('APPLICATION_STATISTICS_NOT_AVAILABLE');
+  expect(Object.keys(first).sort()).toEqual(['schemaVersion','durationUnit','source','childId','fromDate','toDate','readAtMs','days'].sort());
+});
+it('quota bucket machine route derives exclusion without cloud self copy or caller source keys',async()=>{
+  const f=await fixture();await seedPublished(f,peer);
+  const request=(patch={})=>new Request(`https://runtime.test/v2/machines/source-statistics?localUserId=${user}&assignmentVersion=1`,{
+    method:'POST',headers:{authorization:`Bearer ${f.token}`,'content-type':'application/json'},body:JSON.stringify({...bucketsQuery,scope:'other',...patch})});
+  expect(await (await routeV2(request(),env,now))?.json()).toMatchObject({schemaVersion:2,childId:f.child,
+    days:[{bucketsSeconds:{study:600,composite:0,rest:0},complete:true}]});
+  await expect(routeV2(request({ownSourceKeys:['caller']}),env,now)).rejects.toMatchObject({status:400});
+  await expect(routeV2(request({childId:'foreign'}),env,now)).rejects.toMatchObject({status:400});
+});
+it('quota bucket web fallback and Service Binding keep authenticated child boundaries',async()=>{
+  const f=await fixture({account:'rpc-boundary-account',child:'rpc-boundary-child'});
+  await seedPublished(f,user);
+  const call=(accountId=f.account)=>new Request('https://runtime-capability/getApplicationSourceStatistics',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId:f.child,query:bucketsQuery})});
+  expect(await(await exports.RuntimeComputerUsageService.fetch(call())).json()).toMatchObject({schemaVersion:2,source:'application',
+    days:[{bucketsSeconds:{study:600,composite:0,rest:0}}]});
+  expect((await exports.RuntimeComputerUsageService.fetch(call('foreign-account'))).status).toBe(404);
+  let rebind=false;
+  const guardian={fetch:async(request:Request)=>{
+    expect(await request.json()).toEqual({accountId:f.account,childId:f.child,query:{...bucketsQuery,source:'web'}});
+    if(rebind)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+      VALUES(?1,?2,2,'other-child',1,'override',?3,?3)`).bind(f.machine,user,now).run();
+    return Response.json({schemaVersion:2,durationUnit:'seconds',source:'web',childId:f.child,fromDate:date,toDate:date,readAtMs:now,
+      days:[{date,bucketsSeconds:{study:600,composite:0,rest:0},settledThroughMs:null,complete:true,reasonCodes:[]}]});
+  }} as typeof env.GUARDIAN_COMPUTER_USAGE;
+  const request=()=>new Request(`https://runtime.test/v2/machines/source-statistics?localUserId=${user}&assignmentVersion=1`,{
+    method:'POST',headers:{authorization:`Bearer ${f.token}`,'content-type':'application/json'},body:JSON.stringify({...bucketsQuery,source:'web'})});
+  expect(await(await routeV2(request(),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now))?.json()).toMatchObject({schemaVersion:2,source:'web'});
+  rebind=true;
+  await expect(routeV2(request(),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now)).rejects.toMatchObject({status:409});
+});
+async function seedCapturedFixedPublication(f:Awaited<ReturnType<typeof fixture>>,capture:typeof fixedNativeGenerated|typeof fixedZeroNativeGenerated){
+  const {manifest,chunks}=capture,id=crypto.randomUUID(),receivedAt=manifest.generatedAtMs+1000;
+  expect(manifest.childId).toBe(f.child);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_manifests_v1
+    (id,machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_hash,manifest_json,state,created_at_ms,received_at_ms)
+    VALUES(?1,?2,?3,1,?4,?5,?6,?7,?8,?9,'received',?10,?10)`)
+    .bind(id,f.machine,user,f.account,f.child,manifest.date,manifest.revision,manifest.manifestHash,JSON.stringify(manifest),receivedAt).run();
+  for(const chunk of chunks)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_chunks_v1
+    (manifest_id,chunk_index,chunk_hash,rows_json) VALUES(?1,?2,?3,?4)`)
+    .bind(id,chunk.chunkIndex,chunk.chunkHash,JSON.stringify(chunk.rows)).run();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_publications_v1
+    (machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_id,source_revision,published_at_ms)
+    VALUES(?1,?2,1,?3,?4,?5,?6,?7,?8,?9)`)
+    .bind(f.machine,user,f.account,f.child,manifest.date,manifest.revision,id,manifest.manifestHash,receivedAt).run();
+  return receivedAt;
+}
+it('shared domain reader consumes captured fixed-identity statistics without raw facts and preserves partial known seconds',async()=>{
+  const f=await fixture({account:crypto.randomUUID(),child:fixedNativeGenerated.manifest.childId});
+  const receivedAt=await seedCapturedFixedPublication(f,fixedNativeGenerated);
+  const excludedPeer=await applicationSharedQuotaSourceKey(f.machine,peer,1);
+  const capturedQuery={source:'application' as const,scope:'other' as const,
+    fromDate:fixedNativeGenerated.manifest.date,toDate:fixedNativeGenerated.manifest.date,ownSourceKeys:[excludedPeer]};
+  const result=await readApplicationSourceStatistics(env.RUNTIME_DB,f.account,f.child,capturedQuery,receivedAt);
+  expect(result.days[0]).toMatchObject({totalSeconds:fixedNativeGenerated.local.knownTotalSeconds,
+    nonSpecialTotalSeconds:null,categoriesSeconds:{},complete:false,
+    settledThroughMs:fixedNativeGenerated.manifest.settledThroughMs});
+  expect(result.days[0].reasonCodes).toEqual(expect.arrayContaining([
+    'LOCAL_IDENTITYLESS_RECORD_EXCLUDED','APPLICATION_STATISTICS_INCOMPLETE','APPLICATION_USAGE_CLASSIFICATION_UNAVAILABLE']));
+  expect(result.includedSourceKeys).toEqual([await applicationSharedQuotaSourceKey(f.machine,user,1)]);
+  expect(result.excludedSourceKeys).toEqual([excludedPeer]);
+  expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE child_id=?1').bind(f.child).first<{n:number}>())?.n).toBe(0);
+});
+it('captured fixed-identity zero is a complete zero, not an unavailable source',async()=>{
+  const f=await fixture({account:crypto.randomUUID(),child:fixedZeroNativeGenerated.manifest.childId});
+  const receivedAt=await seedCapturedFixedPublication(f,fixedZeroNativeGenerated);
+  const result=await readApplicationSourceStatistics(env.RUNTIME_DB,f.account,f.child,{source:'application',scope:'other',
+    fromDate:fixedZeroNativeGenerated.manifest.date,toDate:fixedZeroNativeGenerated.manifest.date,
+    ownSourceKeys:[await applicationSharedQuotaSourceKey(f.machine,peer,1)]},receivedAt);
+  expect(result.days[0]).toMatchObject({totalSeconds:0,nonSpecialTotalSeconds:0,categoriesSeconds:{},complete:true,reasonCodes:[]});
+  expect(result.includedSourceKeys).toEqual([await applicationSharedQuotaSourceKey(f.machine,user,1)]);
+});
 it('other excludes exactly local source without needing its cloud copy and retains same-machine other user',async()=>{
   const f=await fixture();await seedPublished(f,peer);
   const own=await applicationSharedQuotaSourceKey(f.machine,user,1);
@@ -91,6 +185,31 @@ it('machine web fallback is domain-only and concurrent rebind invalidates the re
   expect(await (await routeV2(request(),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now))?.json()).toMatchObject({source:'web',days:[{totalSeconds:600}]});
   rebind=true;await expect(routeV2(request(),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now)).rejects.toMatchObject({status:409,code:'SOURCE_STATISTICS_CONTEXT_CHANGED'});
 });
+it('machine negotiates the current policy explicitly without upgrading legacy callers',async()=>{
+  const f=await fixture();
+  let reads=0, malformed=false, rebind=false;
+  const guardian={fetch:async(request:Request)=>{
+    reads++;
+    expect(new URL(request.url).pathname).toBe('/readSharedAccessPolicy');
+    expect(await request.json()).toEqual({accountId:f.account,childId:f.child,schemaVersion:2});
+    const policy=projectSharedAccessPolicyV2({},34,now);
+    if(rebind)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+      VALUES(?1,?2,2,'other-child',1,'override',?3,?3)`).bind(f.machine,user,now).run();
+    return Response.json({policy:malformed?{...policy,extra:true}:policy});
+  }} as typeof env.GUARDIAN_COMPUTER_USAGE;
+  const request=(schema='2',version=1)=>new Request(`https://runtime.test/v2/machines/shared-access-policy?localUserId=${user}&assignmentVersion=${version}&schemaVersion=${schema}`,
+    {headers:{authorization:`Bearer ${f.token}`}});
+  const options={...env,GUARDIAN_COMPUTER_USAGE:guardian};
+  expect(await (await routeV2(request(),options,now))?.json()).toMatchObject({policy:{schemaVersion:2,stage:'legacy',forcedUsePolicyV1:null}});
+  await expect(routeV2(request('3'),options,now)).rejects.toMatchObject({status:400});
+  await expect(routeV2(request('2',2),options,now)).rejects.toMatchObject({status:403});
+  expect(reads).toBe(1);
+  malformed=true;
+  await expect(routeV2(request(),options,now)).rejects.toMatchObject({status:503,code:'SHARED_ACCESS_POLICY_UNAVAILABLE'});
+  malformed=false;rebind=true;
+  await expect(routeV2(request(),options,now)).rejects.toMatchObject({status:409,code:'SHARED_ACCESS_BINDING_CHANGED'});
+});
 it('Runtime Service Binding verifies Guardian ownership and returns only persisted application domain',async()=>{
   const f=await fixture({account:'seconds-source-account',child:'seconds-source-child'});
   await seedPublished(f,user);await seedPublished(f,peer);
@@ -102,3 +221,4 @@ it('Runtime Service Binding verifies Guardian ownership and returns only persist
   expect((await exports.RuntimeComputerUsageService.fetch(request('foreign-account'))).status).toBe(404);
   expect((await exports.RuntimeComputerUsageService.fetch(new Request('https://runtime-capability/getApplicationSourceStatistics'))).status).toBe(405);
 });
+import {projectSharedAccessPolicyV2} from '../../contracts/shared-access';

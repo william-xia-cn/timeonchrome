@@ -2,8 +2,22 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {resolveRuntimeOsVersion,RUNTIME_UNINSTALL_RECEIPT_TTL_MS,parseProgramInstancePolicyStatusReport,
-  PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY} from './dist/app-runtime-control.js';
+  PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY,parseNativeApplicationControlStatusReport} from './dist/app-runtime-control.js';
 const vectors=JSON.parse(readFileSync(new URL('./machine-control.vectors.json',import.meta.url),'utf8'));
+const controlResult={resultId:'a'.repeat(32),sequence:1,configurationVersion:2,nativeId:'native:sample',
+  outcome:'terminated',reasonCode:'NATIVE_APPLICATION_BLOCKED'};
+const nativeUser={localUserId:'a'.repeat(64),assignmentVersion:1,configurationVersion:2,latestResult:controlResult};
+const nativeReport={schemaVersion:2,users:[nativeUser]};
+assert.deepEqual(parseNativeApplicationControlStatusReport(nativeReport),nativeReport);
+assert.notEqual(parseNativeApplicationControlStatusReport(nativeReport).users[0],nativeUser);
+assert.equal(parseNativeApplicationControlStatusReport({...nativeReport,users:[{...nativeUser,latestResult:null}]}).users[0].latestResult,null);
+for(const result of [{...controlResult,outcome:'accepted'},{...controlResult,configurationVersion:3},
+  {...controlResult,sequence:0},{...controlResult,nativeId:'bad\nidentity'},{...controlResult,targetProcess:123},
+  {...controlResult,reasonCode:'guessed'}])
+  assert.throws(()=>parseNativeApplicationControlStatusReport({...nativeReport,users:[{...nativeUser,latestResult:result}]}));
+assert.throws(()=>parseNativeApplicationControlStatusReport({...nativeReport,users:[nativeUser,nativeUser]}));
+assert.throws(()=>parseProgramInstancePolicyStatusReport(nativeReport));
+assert.throws(()=>parseNativeApplicationControlStatusReport({...nativeReport,childId:'other'}));
 for(const vector of vectors.heartbeat) assert.deepEqual(resolveRuntimeOsVersion(vector.platform,vector.input),vector.expected);
 assert.equal(createHash('sha256').update(vectors.receipt.confirmationSecret).digest('hex'),vectors.receipt.confirmationSecretHash);
 assert.equal(vectors.receipt.expiredAtMs-vectors.receipt.committedAtMs,RUNTIME_UNINSTALL_RECEIPT_TTL_MS);

@@ -37,6 +37,14 @@ async function main() {
   for(const [currentState,label] of Object.entries({pending:'等待接纳',partial:'部分会话',unsupported:'未支持',noSession:'无活动会话',unknown:'未确认'}))
     assert.match(devices.programPolicyStatus({...adoption,programInstancePolicy:{...adoption.programInstancePolicy,currentState}},1001),new RegExp(label));
   assert.match(devices.programPolicyStatus({...adoption,programInstancePolicy:{...adoption.programInstancePolicy,catalogVersion:'7'}},1001),/未确认/);
+  const native={...adoption,programInstancePolicy:{assignmentVersion:3,receivedAtMs:1000,model:'nativeApplication',
+    currentState:'reported',configurationVersion:7,latestResult:null}};
+  assert.match(devices.programPolicyStatus(native,1001),/实际动作未报告/);
+  assert.match(devices.programPolicyStatus(native,601001),/应用执行.*失效/);
+  for (const [outcome,label] of Object.entries({terminated:'已确认结束',failed:'执行失败',exit_unconfirmed:'结束未确认'}))
+    assert.match(devices.programPolicyStatus({...native,programInstancePolicy:{...native.programInstancePolicy,
+      latestResult:{outcome,configurationVersion:6}}},1001),new RegExp(label+'.*动作配置 v6'));
+  assert.match(devices.programPolicyStatus({...native,programInstancePolicy:{...native.programInstancePolicy,currentState:'pending'}},1001),/未确认/);
   assert.match(source,/AppRuntimeDevices\.programPolicyStatus\(user\)/);
   assert.equal(devices.releasePath('macos'), null);
   assert.throws(() => devices.pairingName('linux'));

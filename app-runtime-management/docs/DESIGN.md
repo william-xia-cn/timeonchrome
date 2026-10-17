@@ -1,5 +1,37 @@
 # App Runtime 技术设计
 
+## 2026-10-16 Windows共享实际执行接线
+
+缺源执行容错（PO已确认）：共享来源无有效结果且无同孩子同周期缓存时，统计仍标记不完整/未知，不生成假零余额。访问判定保留并优先执行已知黑名单、停用时间、对象限制及已知已达硬上限；无法证明额度耗尽的部分允许使用并提示共享用量不完整。网页与应用使用相同顺序，独立正常进入确认/已知时段等可确定规则不因此取消。恢复时只替换同来源结果，不累加缓存或另写贡献账。
+
+本批共享核算采用现有分域整数秒统计：网页保留权威桶，应用使用排除特殊应用后的分类；新自主度路径不把复合／未归类超额转成娱乐。旧调用的借用语义保持兼容，新调用显式选择独立分类核算；统计和原账均不改写。先在现有source-statistics契约纯函数补齐新入口及对照用例，再由新策略能力消费者接入，不将函数通过当成执行已启用。
+
+实施核对：同范围网页600秒＋应用600秒；应用复合超额仍留复合；网页已有娱乐桶原样保留；特殊应用和other不贡献三桶；缺失来源仍返回未知剩余；重复读取、更正下降和跨孩子拒绝。仅跑契约build与source-statistics专项，后续真实调用接线另验。
+
+统一策略新增显式V2能力，保留V1协议。V2复用原孩子配置中的daily/weekly额度和分类时段，直接携带forcedUsePolicyV1、autonomyConfig的三个确认开关/超时动作以及downtimeConfig，不新增可写源。旧提醒阈值不进入V2。缺少forcedUsePolicyV1返回null，不能冒充新能力已启用；配置无效拒绝投影。仅每日/每周休息使用超额上限，其余兼容字段仍传输但执行忽略；总超额确认关闭时所有额度到线阻断。schema/stage仍须由云端已有rollout及执行开关共同限制，投影默认legacy，不自行开启共享。
+
+下发接线：机器现有shared-access-policy读取显式schemaVersion=2才请求V2，缺省保持V1；Guardian内部Service Binding沿用已授权孩子范围并携带同一版本选择，不新增鉴权体系。网页设备入口使用/device/shared-access/v2，沿用原设备归属校验且不接受调用者childId。两种版本均从同一profiles.config投影、受同一rollout和生产执行开关约束；V2响应严格验证后交消费者，失败不降级为新能力。
+
+V2机器配置在跨Worker读取返回后再次核对当前分配；请求期间改绑/撤销保护时拒绝旧响应，与现有分域来源读取的迟到响应隔离一致。
+
+共享提醒运行时V2：同机Service唯一仲裁，原lease/序号/可见ACK/60秒规则复用。浏览器活动携带当前完整policyIdentity、study/composite/rest/other桶、原因集合、同活动单调累计forcedUsageSeconds及可空独立roundId；不传孩子/用户/URL/进程。计数仅为执行进度，来自当前确认强行使用上下文，不取云端日账差额、不写入统计。首消息仅建立基线，重复/旧序号不推进，活动/连接/身份变化重建基线，累计倒退拒绝；应用/网页由本机前台证据互斥选取，同一时段不双加。租约过期或锁屏不补失联段，恢复首消息重建基线。
+
+两端实际接点复核后的最终简化取代上一段sender计数字段：浏览器不发送forcedUsageSeconds；Service以本机单调时钟对合格活动做OR，成为唯一提醒进度权威。活动由网页既有ACTIVE/强媒体资格产生，不能仅凭前台聚焦；presentationEligible只控制呈现。Service在状态改变前先结算至租约有效边界，断连/锁屏/失效停止，重启换boot仅重新锚定、不补离线；所有tick和活动更新串行/原子执行，已结算区间不重计。原有网页媒体容错不修改。State返回Service累计forcedUsageSeconds和confirmedAtUsageSeconds供文案显示；规则/原因变化影响进入确认，不重置本机累计。
+
+重连回复显式确认已撤销本次请求携带的独立roundId后，控件才能把调度交给Service；旧动作令牌随本地独立轮次撤销。State V2携带完整policyIdentity、原因及entry/repeat，ACK/resolve绑定其schema、round/reminder/delivery/revision/stateRevision；不能经V1处理器解释。强制结束只由Service本地超时/硬限制决定，主动结束仅正常关闭，未送达不算用户超时。具体纯协议验证完成后由两端接到现有真实Presenter/Closer；不因DTO存在宣称联调完成。
+
+State查询V2显式为getSharedReminderState payload {schemaVersion:2,date}；旧{date}仍走V1，不凭Host能力猜版本。State不重复保存日账/余额展示，展示读取同policyIdentity下现有配额读模型；State累计与确认基线仅用于本机再次提醒时长。V2严格校验日期/额外字段，不允许客户端选择孩子或用户。
+
+正常进入受限娱乐的确认使用独立原因restrictedEntry，不能借quota/timeWindow原因伪装超额；仅该原因不构成强行使用计时资格，不推进强行使用调度钟。它复用统一进入确认界面与Service本机轮次，是否要求确认来自原restrictedEntryConfirmationRequired。
+
+新强行使用确认按已批准10/16自主度决定固定：V2统一文字确认entry/repeat可见60秒未完成确认，结束当前访问，可重新申请；旧softReminderTimeoutAction不能让该路径自动继续。经实际控件forced-use-prompt与10/16/10/15决定复核，V2 State固定timeoutAction=end（包括同轮restrictedEntry）；旧超时配置字段仅供兼容，V1旧行为不改，不能将V1继续语义带入V2。
+
+首次进入确认发生在网页ACTIVE之前，活动V2新增status=pending-entry：保留桶、规则scope及非空原因，可申请/呈现确认，但不产生调度钟进度。active仅用于实际计时资格，inactive清除原因和scope。暂停媒体且无实际活动时也可用pending-entry保持确认上下文而停止计时；不得为显示提醒伪报ACTIVE。两端必须验证待进入→确认→实际活动无循环依赖。
+
+新身份动作诊断复用现有programInstancePolicy心跳字段及runtime_program_policy_status_v1的JSON存储，新增schemaVersion2报告：用户/分配、configurationVersion和可空latestResult；结果沿Native真实resultId/sequence/configurationVersion/nativeId/outcome/reasonCode。没有结果表示未知，不把已发送快照或策略ACK当动作成功，不拿catalogVersion冒充配置版本。归属仍由认证机器和当前分配核验；读取同家庭，配置版本已过期或机器离线时保留实际历史结果并标明状态，不能冒称当前配置执行成功。无需新表/迁移，旧schema1报告保持原义；不在本批构造历史动作记录。
+
+PO明确新旧配置优先级：同一目标已有明确Native应用身份配置时采用它，包括显式非blocked覆盖旧产品blocked；新配置不存在时才继承旧配置。不得叠加两个可写配置源，也不得迁移或改写现有管理键。
+
 ## 2026-10-16 独立应用统计上传改接：已查实的断点及实施边界
 
 Windows 2.6.57 本机统计已从原账同行固定应用身份读取；现有上传仍沿旧计算和独立身份投影，不能以本机通过推定云端一致。本轮接续只打通独立应用统计，不推进共享。

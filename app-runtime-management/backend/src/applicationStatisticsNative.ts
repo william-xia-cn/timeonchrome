@@ -6,7 +6,8 @@ import { normalizeApplicationUsageClock } from './applicationUsageClock';
 import { verifyApplicationAccountPublication,isReadableApplicationAccountSnapshot } from './applicationAccountPublication';
 import { readApplicationLedgerRetirement, isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
 import {nativeApplicationManagementTargetKey,type NativeApplicationManagementTarget} from '@timeonchrome/app-runtime-contracts/native-application-identification';
-type Filters={machineId?:string;localUserId?:string;platform?:string;fixedIdentityOnly?:boolean};
+type Filters={machineId?:string;localUserId?:string;platform?:string;fixedIdentityOnly?:boolean;
+  excludeSources?:ReadonlyArray<{machineId:string;localUserId:string;assignmentVersion:number}>};
 type StatisticsRow=UsageAccountRowV2&{target?:NativeApplicationManagementTarget};
 const DAY=86400000,OFFSET=8*3600000;
 function mergeApplicationUsage(values:Array<ApplicationUsageSeconds|undefined|null>):ApplicationUsageSeconds|null {
@@ -45,6 +46,9 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
   const reasonCodes=new Set<string>();
   const applicationUsage:Array<ApplicationUsageSeconds|undefined>=[];
   for(const head of heads.results){
+    // 排除范围由已认证调用者推导；同机器其他用户仍保留。普通统计调用不传此选项。
+    if(filters.excludeSources?.some(source=>source.machineId===head.machine_id&&source.localUserId===head.local_user_id
+      &&source.assignmentVersion===head.assignment_version))continue;
     const value=JSON.parse(head.manifest_json);
     if(filters.fixedIdentityOnly&&value.algorithmVersion!==APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM){legacySourceCount++;continue;}
     if(retirement&&!isV3OnlyApplicationManifest(value,child))continue;

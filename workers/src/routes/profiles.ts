@@ -4,7 +4,7 @@ import { validateQuotaAuditRequest } from '../../../extension/core/quota-audit.j
 import { applySystemAccessDefaultsToProfileConfig, getSystemAccessConfig, mergeWithDefaults, stripDerivedSiteAccessFields, systemAccessDefaultsResponse, type SystemAccessConfig } from '../config/system-access-config';
 import { normalizeSiteClassificationTarget, validateSiteAccessConfig } from '../../../extension/core/site-classification.js';
 import { buildEffectiveTimeQuota } from '../../../extension/core/quota-config.js';
-import { projectLegacySharedAccessPolicy, type UnifiedChildAccessPolicyV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
+import { projectLegacySharedAccessPolicy, projectSharedAccessPolicyV2, type UnifiedChildAccessPolicyV1, type UnifiedChildAccessPolicyV2 } from '@timeonchrome/app-runtime-contracts/shared-access';
 import { nativeChildDeletedOutboxStatement } from '../services/nativeAppIdentityBridge';
 import { appRuntimeChildDeletedOutboxStatement } from '../services/appRuntimeIdentityBridge';
 import { readSharedAccessDayState, type SharedAccessStateEnv } from '../services/sharedAccessState';
@@ -318,16 +318,34 @@ export function normalizeSharedAccessRolloutV1(value: unknown): {schemaVersion:1
 }
 
 /** The same owner-scoped Child projection serves the parent read and the bound Runtime capability. */
-export async function readSharedAccessPolicyForChild(db: D1Database, accountId: string,
-  childId: string, executionEnabled = false): Promise<UnifiedChildAccessPolicyV1 | null> {
+async function readSharedAccessConfiguration(db: D1Database, accountId: string, childId: string) {
   const row = await db.prepare('SELECT config, version, updated_at FROM profiles WHERE id = ? AND account_id = ?')
     .bind(childId, accountId).first<{ config: string; version: number; updated_at: number }>();
   if (!row) return null;
   const config = row.config ? JSON.parse(row.config) as Record<string, unknown> : {};
   migrateLegacyTimeWindows(config);
   injectEffectiveTimeQuota(config);
-  const policy = projectLegacySharedAccessPolicy(config, Number(row.version || 0), Number(row.updated_at || 0));
+  return {config, version: Number(row.version || 0), updatedAt: Number(row.updated_at || 0)};
+}
+
+export async function readSharedAccessPolicyForChild(db: D1Database, accountId: string,
+  childId: string, executionEnabled = false): Promise<UnifiedChildAccessPolicyV1 | null> {
+  const source = await readSharedAccessConfiguration(db, accountId, childId);
+  if (!source) return null;
+  const {config, version, updatedAt} = source;
+  const policy = projectLegacySharedAccessPolicy(config, version, updatedAt);
   const rollout = normalizeSharedAccessRolloutV1(config.sharedAccessRolloutV1);
+  if (rollout) policy.stage = rollout.stage === 'shared' && !executionEnabled ? 'shadow' : rollout.stage;
+  return policy;
+}
+
+export async function readSharedAccessPolicyV2ForChild(db: D1Database, accountId: string,
+  childId: string, executionEnabled = false): Promise<UnifiedChildAccessPolicyV2 | null> {
+  const source = await readSharedAccessConfiguration(db, accountId, childId);
+  if (!source) return null;
+  const policy = projectSharedAccessPolicyV2({...source.config,
+    downtimeConfig: normalizeDowntimeConfig(source.config.downtimeConfig)}, source.version, source.updatedAt);
+  const rollout = normalizeSharedAccessRolloutV1(source.config.sharedAccessRolloutV1);
   if (rollout) policy.stage = rollout.stage === 'shared' && !executionEnabled ? 'shadow' : rollout.stage;
   return policy;
 }

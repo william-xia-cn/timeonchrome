@@ -4,13 +4,13 @@ import { applySystemAccessDefaultsToProfileConfig, composeDeviceConfigVersion, g
 import { compactUsageAccountingCorrectionDeltas, getBeijingWeekForTimestamp, listDeviceCorrectionEvidencePage, listDeviceIntervalEvidencePage, listUsageAccountingCorrections } from '../services/usageAccountingCorrections';
 import { buildEffectiveTimeQuota, getEffectiveQuotaForDate } from '../../../extension/core/quota-config.js';
 import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
-import { readSharedAccessPolicyForChild } from './profiles';
+import { readSharedAccessPolicyForChild, readSharedAccessPolicyV2ForChild } from './profiles';
 import { pageSharedQuotaExecutionBasis, readSharedQuotaExecutionBasis, sharedWebSourceKey, type SharedAccessStateEnv } from '../services/sharedAccessState';
 import { publishSharedWebContribution, readSharedWebWatermark, readSharedWebJson } from '../services/sharedWebContributions';
 import { issueSharedWebSourceBinding, issueSharedWebSourceBindingV2 } from '../services/sharedWebSourceBinding';
 import { createSharedAccessPolicyIdentityV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
-import {validateSourceStatisticsQuery,validateSourceStatisticsSnapshot} from '@timeonchrome/app-runtime-contracts/source-statistics';
-import {readWebSourceStatistics,readSourceStatisticsResponse} from '../services/sourceStatistics';
+import {validateSourceStatisticsQuery,validateSourceStatisticsSnapshot,validateQuotaBucketsQuery,validateQuotaBucketsSnapshot} from '@timeonchrome/app-runtime-contracts/source-statistics';
+import {readWebSourceStatistics,readWebQuotaBuckets,readSourceStatisticsResponse} from '../services/sourceStatistics';
 
 type DeviceIdentityLinkBody = {
   chromeIdentityId?: string;
@@ -261,19 +261,23 @@ export const deviceRouter = {
         const chunks:Uint8Array[]=[];let size=0;while(true){const c=await reader.read();if(c.done)break;size+=c.value.byteLength;
           if(size>2048){await reader.cancel();return json({code:'SOURCE_STATISTICS_INVALID'},400);}chunks.push(c.value);}
         const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.byteLength;}
-        const query=validateSourceStatisticsQuery(JSON.parse(new TextDecoder().decode(bytes)));
-        if(query.ownSourceKeys!==undefined||query.source==='application'&&query.scope!=='all')return json({code:'SOURCE_STATISTICS_INVALID'},400);
+        const body=JSON.parse(new TextDecoder().decode(bytes));
+        const buckets=body?.schemaVersion===2;
+        const query=buckets?validateQuotaBucketsQuery(body):validateSourceStatisticsQuery(body);
+        if('ownSourceKeys' in query&&query.ownSourceKeys!==undefined||query.source==='application'&&query.scope!=='all')return json({code:'SOURCE_STATISTICS_INVALID'},400);
         const owner=await env.DB.prepare('SELECT account_id FROM profiles WHERE id=?').bind(identity.profileId).first<{account_id:string}>();
         if(!owner)return json({code:'CHILD_NOT_FOUND'},404);
         const binding=env as import('../services/computerUsage').ComputerUsageEnv;
-        const value=query.source==='web'?await readWebSourceStatistics(env,owner.account_id,identity.profileId,query,identity.deviceId)
+        const value=query.source==='web'?(buckets?await readWebQuotaBuckets(env,identity.profileId,validateQuotaBucketsQuery(body),identity.deviceId)
+          :await readWebSourceStatistics(env,owner.account_id,identity.profileId,validateSourceStatisticsQuery(body),identity.deviceId))
           :binding.RUNTIME_COMPUTER_USAGE?.fetch?await readSourceStatisticsResponse(await binding.RUNTIME_COMPUTER_USAGE.fetch(new Request(
             'https://runtime-capability/getApplicationSourceStatistics',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:owner.account_id,childId:identity.profileId,query})})))
           :null;
         if(!value)throw new Error('SOURCE_STATISTICS_UNAVAILABLE');
         const current=await verifyDeviceTokenFromRequest(request,env);
         if(!current||current.unbound||current.profileId!==identity.profileId||current.deviceId!==identity.deviceId)return json({code:'SOURCE_STATISTICS_CONTEXT_CHANGED'},409);
-        return json(validateSourceStatisticsSnapshot(value,{source:query.source,childId:identity.profileId,fromDate:query.fromDate,toDate:query.toDate}));
+        const expected={source:query.source,childId:identity.profileId,fromDate:query.fromDate,toDate:query.toDate};
+        return json(buckets?validateQuotaBucketsSnapshot(value,expected):validateSourceStatisticsSnapshot(value,expected));
       }catch(error){const code=error instanceof Error&&error.message==='SOURCE_STATISTICS_INVALID'?'SOURCE_STATISTICS_INVALID':'SOURCE_STATISTICS_UNAVAILABLE';return json({code},code==='SOURCE_STATISTICS_INVALID'?400:503);}
     }
 
@@ -511,7 +515,7 @@ export const deviceRouter = {
     }
 
     // Read only the authenticated device's Child policy, never a caller-selected scope.
-    if (request.method === 'GET' && path === '/device/shared-access/v1') {
+    if (request.method === 'GET' && (path === '/device/shared-access/v1' || path === '/device/shared-access/v2')) {
       try {
         const identity = await verifyDeviceTokenFromRequest(request, env);
         if (!identity) return json({ code: 'INVALID_DEVICE_TOKEN' }, 401);
@@ -520,9 +524,10 @@ export const deviceRouter = {
         const owner = await env.DB.prepare('SELECT account_id FROM profiles WHERE id = ?')
           .bind(identity.profileId).first<{ account_id: string }>();
         if (!owner) return json({ code: 'CHILD_NOT_FOUND' }, 404);
-        const policy = await readSharedAccessPolicyForChild(env.DB, owner.account_id, identity.profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
+        const read = path.endsWith('/v2') ? readSharedAccessPolicyV2ForChild : readSharedAccessPolicyForChild;
+        const policy = await read(env.DB, owner.account_id, identity.profileId, env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         if (!policy) return json({ code: 'CHILD_NOT_FOUND' }, 404);
-        return json({ schemaVersion: 1, profileId: identity.profileId, policy }, 200);
+        return json({ schemaVersion: policy.schemaVersion, profileId: identity.profileId, policy }, 200);
       } catch {
         return json({ code: 'SHARED_ACCESS_POLICY_UNAVAILABLE' }, 503);
       }

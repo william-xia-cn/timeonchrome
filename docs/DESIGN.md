@@ -3,6 +3,15 @@
 ## 2026-10-17 D-115访问故障隔离与诊断
 
 准入与故障分离：quota_read/shared_day_missing/shared_admission/forced_admission/composite_remaining/grant_open/grant_close等故障产生非阻断结果，不创建新的配额事实、不将未知补零。独立黑名单/停用/时间窗仍按已知配置执行。学习网站只豁免配额，不豁免独立时间窗；同规则贯穿访问、手动模式、定时配额检查及确认复核。诊断绑定单次evaluationId/auditId与当次读取，禁止全局lastQuotaEvaluation冒充同次证据；保留有限白名单阶段、底层原因、进度/身份/策略匹配布尔值，不传原始身份/域名/URL/标题或异常正文。诊断复用现有日志队列、基础白名单、ACK及低优先级预算，不依赖usage/V2成功；详细到期不关闭基础授权，但明确关闭/到期授权仍尊重。当前V2上传卡点与恢复缺陷独立调查，不据新代码倒推历史原因，不改记账语义。
+## 共享配额桶读取简化（2026-10-16，实施中）
+
+集中CI补齐两处旧测试预期：兼容包版本1.55.0、机器能力清单同时含旧source-statistics-read-v1和新quota-buckets-read-v1。仅同步已批准的版本与能力，不改变生产路由、上传能力或共享开关；专项复验后进入原发布流程。
+
+新能力quota-buckets-read-v1、新消息exchangeQuotaBuckets沿用既有本地桥和同孩子核验。请求为{fromDate,toDate,webUsage}，响应applicationUsage；各域snapshot为schemaVersion:2、durationUnit:seconds、source、childId、日期范围、readAtMs和逐日{date,bucketsSeconds:{study,composite,rest},settledThroughMs,complete,reasonCodes}。不传来源键清单、派生revision、分类、余额。旧v1能力/消息保留兼容，不冒称v2。
+
+契约集中为1.55.0，旧1.54.0不原地覆盖。云端契约专项、Guardian既有快照/桶读取专项、Runtime来源读取12/12及两侧typecheck通过；Native Dispatcher+RuntimeJson合成wire通过TS1.55校验。以上仅源码/隔离证据，未部署、安装或启用共享；真实Windows当前孩子验收仍待统一候选。
+
+网页直接映射现有quota_read_model_v2.usage，不再拆本机重建；应用读取既有统计，在配额模块唯一转换非特殊分类到桶。新云端分支复用现有鉴权URL作为薄转接，schemaVersion:2的query只带source/日期/scope；机器侧排除自身范围由服务端绑定推导，调用既有持久统计/网页账户快照读取器，不新增SQL统计、表或迁移。共享层桥→云端→同scope缓存择一，不计算借用；缺失无缓存临时按0参与核算并明确缺源。共享开关保持关闭，真实联调尚未通过。
 
 当前Windows开发候选目标：1.7.56，等待架构最终集成SHA后制作唯一候选；共享仍关闭，本轮不更新正式managed托管源。已通过共享桶读取源码与隔离回归不等于实机已贯通；家庭配置、权限、绑定及原账保持不变。
 

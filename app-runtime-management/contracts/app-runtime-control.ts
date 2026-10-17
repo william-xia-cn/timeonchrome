@@ -88,7 +88,8 @@ export interface RuntimeMachineEnrollmentResponse {
 export type RuntimeMachinePolicyState = 'pending' | 'cached' | 'applied' | 'failed' | 'offline';
 
 /** Receiver capabilities are independent of the child's applied policy version. */
-export type RuntimeReceiverCapability = 'heartbeat-os-version-v1' | 'uninstall-operation-receipt-v1' | 'program-instance-policy-status-v1';
+export type RuntimeReceiverCapability = 'heartbeat-os-version-v1' | 'uninstall-operation-receipt-v1' | 'program-instance-policy-status-v1'
+  | 'shared-access-policy-v2' | 'native-application-control-status-v1';
 
 /** Optional heartbeat diagnostics only; never grants execution authority. */
 export const PROGRAM_INSTANCE_POLICY_STATUS_CAPABILITY = 'program-instance-policy-status-v1';
@@ -127,6 +128,43 @@ export function parseProgramInstancePolicyStatusReport(input: unknown): ProgramI
       state:value.state as ProgramInstancePolicyAdoptionState, catalogVersion:value.catalogVersion === null ? null : Number(value.catalogVersion)};
   });
   return {schemaVersion:1, users};
+}
+
+export const NATIVE_APPLICATION_CONTROL_STATUS_CAPABILITY = 'native-application-control-status-v1' as const;
+export interface NativeApplicationControlStatusReport {
+  schemaVersion: 2;
+  users: Array<{
+    localUserId: string; assignmentVersion: number; configurationVersion: number;
+    latestResult: null | {
+      resultId: string; sequence: number; configurationVersion: number; nativeId: string;
+      outcome: 'terminated' | 'failed' | 'exit_unconfirmed';
+      reasonCode: 'NATIVE_APPLICATION_BLOCKED' | 'NATIVE_APPLICATION_DAILY_QUOTA';
+    };
+  }>;
+}
+/** 动作结果仅诊断，不授予任何执行权限；孩子由认证机器分配决定。 */
+export function parseNativeApplicationControlStatusReport(value: unknown): NativeApplicationControlStatusReport {
+  const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  const exact = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v,k));
+  const integer = (v: unknown): v is number => Number.isSafeInteger(v) && Number(v) >= 0;
+  const fail = (): never => {throw new Error('INVALID_NATIVE_APPLICATION_CONTROL_STATUS');};
+  if (!object(value) || !exact(value,['schemaVersion','users']) || value.schemaVersion !== 2 || !Array.isArray(value.users) || value.users.length > 100) return fail();
+  const seen = new Set<string>();
+  for (const user of value.users) {
+    if (!object(user) || !exact(user,['localUserId','assignmentVersion','configurationVersion','latestResult'])
+      || typeof user.localUserId !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(user.localUserId) || seen.has(user.localUserId)
+      || !integer(user.assignmentVersion) || user.assignmentVersion < 1 || !integer(user.configurationVersion)) return fail();
+    seen.add(user.localUserId);
+    if (user.latestResult === null) continue;
+    const r = user.latestResult;
+    if (!object(r) || !exact(r,['resultId','sequence','configurationVersion','nativeId','outcome','reasonCode'])
+      || typeof r.resultId !== 'string' || !/^[a-fA-F0-9]{32}$/.test(r.resultId) || !integer(r.sequence) || r.sequence < 1
+      || !integer(r.configurationVersion) || r.configurationVersion > user.configurationVersion
+      || typeof r.nativeId !== 'string' || !r.nativeId.length || r.nativeId.length > 256 || /[\u0000-\u001f\u007f]/.test(r.nativeId)
+      || !['terminated','failed','exit_unconfirmed'].includes(String(r.outcome))
+      || !['NATIVE_APPLICATION_BLOCKED','NATIVE_APPLICATION_DAILY_QUOTA'].includes(String(r.reasonCode))) return fail();
+  }
+  return structuredClone(value) as unknown as NativeApplicationControlStatusReport;
 }
 
 export type RuntimeOsVersionResult =

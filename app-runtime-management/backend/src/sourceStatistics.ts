@@ -4,8 +4,33 @@ import { applicationSharedQuotaSourceKey } from './applicationSharedQuota';
 import { isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
+import {readNativeApplicationStatisticsSeconds} from './applicationStatisticsNative';
+import {applicationQuotaBucketsSeconds,validateQuotaBucketsSnapshot,type QuotaBucketsQuery,type QuotaBucketsSnapshot} from '@timeonchrome/app-runtime-contracts/source-statistics';
 
-/** 仅归集已发布的新版来源统计；不读取原始段、不等待原账或重算。 */
+/** 新共享只委托已验收的统计读取器；不复制publication/manifest/chunks查询。 */
+export async function readApplicationQuotaBuckets(db:D1Database,accountId:string,childId:string,query:QuotaBucketsQuery,
+  ownSource?:{machineId:string;localUserId:string;assignmentVersion:number},now=Date.now()):Promise<QuotaBucketsSnapshot>{
+  if(query.source!=='application'||query.scope==='other'&&!ownSource)throw new HttpError(400,'SOURCE_STATISTICS_INVALID','配额读取范围无效。');
+  const days:QuotaBucketsSnapshot['days'][number][]=[];
+  for(const date of sourceStatisticsDates(query.fromDate,query.toDate)){
+    const value=await readNativeApplicationStatisticsSeconds(db,accountId,childId,date,
+      query.scope==='other'?{excludeSources:[ownSource!]}:{});
+    const usage=value?.applicationUsage;
+    const reasons=[...new Set([...(value?.reasonCodes??[]),...(usage?.reasonCodes??[]),
+      ...(!value?['APPLICATION_STATISTICS_NOT_AVAILABLE']:[]),
+      ...(value&&!value.complete?['APPLICATION_STATISTICS_INCOMPLETE']:[]),
+      ...(!usage||!usage.complete?['APPLICATION_QUOTA_USAGE_INCOMPLETE']:[])])].sort();
+    days.push({date,bucketsSeconds:usage?applicationQuotaBucketsSeconds(usage.nonSpecialCategories):{study:0,composite:0,rest:0},
+      settledThroughMs:value?.references.length&&value.references.every(ref=>ref.settledThroughMs!==null)
+        ?Math.min(...value.references.map(ref=>ref.settledThroughMs!)):null,
+      complete:reasons.length===0,reasonCodes:reasons});
+  }
+  return validateQuotaBucketsSnapshot({schemaVersion:2,durationUnit:'seconds',source:'application',childId,
+    fromDate:query.fromDate,toDate:query.toDate,readAtMs:now,days},
+    {source:'application',childId,fromDate:query.fromDate,toDate:query.toDate});
+}
+
+/** 仅旧v1调用者兼容；新共享不得调用此独立来源清单。 */
 export async function readApplicationSourceStatistics(db: D1Database, accountId: string, childId: string,
   query: SourceStatisticsQuery, now = Date.now()): Promise<SourceStatisticsSnapshot> {
   if (query.source !== 'application') throw new HttpError(400, 'INVALID_SOURCE', '应用读取器只返回应用统计。');
