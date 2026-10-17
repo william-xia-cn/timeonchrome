@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## COMPLETED：1.7.59前向止血托管（2026-10-17）
+
+PR287已合入master dd68a962ec731ac8213fc1210c438a58c60deb00；源码提交1cc3ee0、主线集成043acdd，CI39013953448职责与汇总门通过，前两次PR声明失败保留。合并后扩展子树与已验源码完全一致；typecheck在重建主线已有1.55契约生成声明后通过，extension-root及managed打包隐私边界专项通过。Plan Conformance Matched；未变产品代码复用直接专项、隔离HTTP及九场景unpacked证据。
+
+正式managed 1.7.59，稳定ID jdcancbiocacabbjdkngadmjpjmkdnih，CRX3签名独立验真；695021字节，SHA256 d4efe153ef55d003ee5e532317b8320618832bd3c01d4c5096ccc6113916d7cb。仅部署timeonchrome-update，deployment aba04c5b；稳定域名及https://aba04c5b.timeonchrome-update.pages.dev的update.xml、SHA256SUMS、CRX全部匹配，旧1.7.49包hash回读一致，23个历史CRX逐字节保留。正式包无debugger或开发标记；当前加载的1.7.58开发包、浏览器存储、绑定及家庭配置未改。不部署业务Worker/控制台/Native，不执行migration，不改历史账。
+
+结论APPROVED_WITH_KNOWN_P0_RISK / FORWARD MITIGATION RELEASE。V2统计摘要mismatch继续为P0未解决，后续只读取证定位；不以本次发布认定对账通过。托管完成不代表所有终端已更新；本机unpacked不依托管feed自动升级。三份旧文档草稿在合并后恢复，Git stash副本继续保留，不删除。
+
 ## NOW：1.7.59止血发布与托管（2026-10-17，PO接受已知对账P0）
 
 PO明确批准将当前已验收的D-115故障放行、提醒确认/超时恢复和V2上传A/B发布并托管。覆盖下方这些任务此前“不发布”的阶段边界，不扩大到云端业务部署、Native安装、历史修订或家庭配置。发布结论为APPROVED_WITH_KNOWN_P0_RISK / FORWARD MITIGATION RELEASE；统计摘要mismatch仍为P0未解决，不因raw hash一致、秒数差0或上传推进而关闭。

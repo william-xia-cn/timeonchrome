@@ -78,6 +78,9 @@ PO批准PR #258/#259合入master，并批准网站分类编辑、Native本机应
 
 ## 控件1.7.59止血发布授权（2026-10-17）
 
+已完成：PR287/master dd68a962ec731ac8213fc1210c438a58c60deb00，更新站deployment aba04c5b。正式managed feed为1.7.59，CRX695021字节、SHA256 d4efe153ef55d003ee5e532317b8320618832bd3c01d4c5096ccc6113916d7cb；稳定及部署域名回读全部一致，签名和稳定ID已独立验证。无业务云端/Native部署或历史修改。本机unpacked仍1.7.58且绑定存储未动。对账P0保持未解决，结论APPROVED_WITH_KNOWN_P0_RISK / FORWARD MITIGATION RELEASE。
+
+
 PO接受V2统计摘要不一致的已知对账P0，批准发布并托管D-115及V2上传A/B。P0保持未解决，不修改历史账。故障不误阻断，独立可靠的黑名单、停用时间及强制时间窗仍生效。本次只发布managed控件和更新站，不部署业务Worker/Pages/Native、不改家庭配置；当前本机1.7.58开发候选保持原样。正式托管结果须以回读feed/CRX/hash记录，不以生成包代替上线。
 
 ## 控件1.7.46内部候选准备（2026-10-10，未托管）
