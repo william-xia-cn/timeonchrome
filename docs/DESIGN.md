@@ -8,10 +8,37 @@
 
 架构已固定兼容transport：原device/source-statistics旧请求及直接snapshot响应不变；schema2/application/all可显式includeSources:true，并可携带现有sourceProof（shared-web-source:v2云签证明），返回{snapshot,applicationSources}。业务query与可选transport分开验证，证明缺失/失效只缺分项、不使合法all失败。控件仅只读复用当前连接已有证明，不再握手、不持久化/记录证明；来源分项独立校验，坏分项不影响有效合计。云端返回的分项可随同合计缓存，同scope失败使用配套缓存，禁止继承另一次Native/云端结果的解释。
 
+## 2026-10-17 控件网页分项补齐（PO批准）
+
+交换已经实机通过，本轮不重新修复交换。控件仅保留现有网页quota readModel的本浏览器、其他设备和合计分项到内部缓存／诊断展示，不改既有webUsage传输或契约1.56。每日本浏览器完整性取`local.today.complete`及已有本机依据，不借用整周`local.complete`或合计状态；空日期没有明确完整性时为未知。没有可靠结算截止返回null，展示“未提供”，不使用读取时间或云端asOf冒充。
+
+现有网页已校验快照缓存带hash／verifiedAt／period，但未保留Child ID范围，仅凭空expectedDevices或缺字段默认值不能宣称当前孩子无其他网页来源。本轮在既有真实分页读取前后核对apiBase／deviceId／childId／deviceToken，并在既有缓存事务写前确认绑定仍一致；只有该次新读取验证成功，才给本机cache envelope附可选scope:{apiBase,deviceId,childId}。token仅在内存用于在途比对，不新增凭据副本、tokenHash、挑战或队列；不向旧缓存追贴范围。原请求、分页验证、snapshot内容／hash／完整性、同步频率和既有配额消费者不变，此为已批准的读取状态展示元数据，不修改D-076记账语义。
+
+新增展示仅在scope匹配当前孩子／服务／设备、原快照已验证且期间与有效期匹配、inventoryAvailable严格为true、预期来源列表明确且排除本设备后确无其他预期或实际来源时显示none。无范围旧缓存、失配、失败、缺清单及未上报均unknown；不将其数值冒称当前孩子已知other，不影响本浏览器有效结果。没有可靠截止仍显示“未提供”。不新增云端字段或证明系统，不改变交换；Native63及云端既有已验制品不改。控件保留61候选，再集中形成最终62候选，不覆盖当前60，不启共享。合成验证与真实新请求范围核验分别记录。
+
+## 2026-10-17 本机与其他来源独立说明（PO批准，实施中）
+
+本机统计的完整性与截止只由本机读取结果决定；其他来源未知不阻塞本机。保留 `exchangeQuotaBuckets` 请求和 `applicationUsage` 合计快照不变，不新增请求、账本、统计或云端查询端点。新增能力 `quota-buckets-sources-v1` 表明同一响应可带 `applicationSources:{local,other,otherState}`：local／other使用既有schema2应用桶快照或null；otherState为none／available／unknown。none必须由云端权威来源范围证明，且other为null；available必须有other快照，其完整性独立；unknown时other为null。不能由合计反拆本机，也不能将合计与分项再次相加。旧端只消费原合计，不冒称已取得本机分项。
+
+云端保留原schema2机器scope=other请求及JSON快照，增加 `X-Application-Quota-Source-State` 响应头（none／available／unknown）。none须确认当前家庭孩子的历史分配及日期范围已发布来源排除本次自身machine/user/assignment后均无其他来源；不能由无已发布统计直接推定。读取失败保持unknown，不能伪造完整零。Native将来源状态与同范围other缓存一起保存，不另建统计；本地交换不等待云端。无状态头的旧端响应只按已有快照接收，不推定none。
+
+本轮变更等级为中等跨端兼容修复；architecture-integration负责共享契约，standard-cloud负责现有应用只读适配与响应头；Native／控件各改所属消费者。最小验证为契约分项形状／孩子周期隔离、Worker无来源／未上报／非零／零及精确自身排除、Native本机完整性不被other污染、控件旧端降级及同孩子只读显示。仅相关专项、typecheck、dry-run和diff；不部署、安装、迁移或启共享，不处理历史／Mac／提醒。真实来源清单因现有登录失效尚未取得，不以隔离测试代替现场事实。
+
 ## 2026-10-17 D-115访问故障隔离与诊断
 
 准入与故障分离：quota_read/shared_day_missing/shared_admission/forced_admission/composite_remaining/grant_open/grant_close等故障产生非阻断结果，不创建新的配额事实、不将未知补零。独立黑名单/停用/时间窗仍按已知配置执行。学习网站只豁免配额，不豁免独立时间窗；同规则贯穿访问、手动模式、定时配额检查及确认复核。诊断绑定单次evaluationId/auditId与当次读取，禁止全局lastQuotaEvaluation冒充同次证据；保留有限白名单阶段、底层原因、进度/身份/策略匹配布尔值，不传原始身份/域名/URL/标题或异常正文。诊断复用现有日志队列、基础白名单、ACK及低优先级预算，不依赖usage/V2成功；详细到期不关闭基础授权，但明确关闭/到期授权仍尊重。当前V2上传卡点与恢复缺陷独立调查，不据新代码倒推历史原因，不改记账语义。
 ## 共享配额桶读取简化（2026-10-16，实施中）
+
+### 2026-10-17 最小读取边界（PO再次明确，覆盖混入旧链的接线）
+
+共享仅传递两侧已有配额桶：控件发送自身网页桶，Native返回自身应用桶，双方配额模块独立核算。统计、原账和桶含义不变；不新增协议、统计账、同步队列或缓存层。
+
+- 各域读取器提供本机最新＋最近成功的云端其他来源；远端刷新由该域现有后台同步负责。本地交换不等待新云端请求，不以远端成功作为可用条件。
+- Native复用现有应用读取器、非特殊分类到桶的唯一转换及现有其他来源缓存；不另建只用于共享的统计。无远端缓存仍返回本机有效桶并标缺源，不伪造完整零。
+- 新版桶读取/影子阶段不再启动旧贡献上传、旧混合清单及其准备流程；旧客户端专用兼容路径隔离保留，不进入新路径。可复用同孩子身份证明仍按已确认期限校验，不删除安全边界或扩大离线授权。
+- 本地桥仅负责同孩子、日期、整数秒和响应相关性校验及结果交换。连接协商归连接层；配额余额/借用不进入传输。
+- 身份在独立后台准备，桶热读仅消费当前有效确认，不等待云端。后台首次确认成功时，经background既有wiring通知现有SourceShadow实例：使用原invalidate/refresh及generation/AbortController使先前未就绪读取失效并刷新一次，避免只等五分钟alarm；旧的忙碌云端备用结果不得覆盖新native。复用ready缓存不重复通知，不新增协议/消息/观察者系统/队列/重试/定时器，也不改变原证明期限和孩子、Port代次边界。
+- 本批先修上述实际依赖并做针对性隔离验证，再集中交付；不修改网页/应用原账或统计上传，不改配置、不启共享、不操作migration/R2，不顺改Mac或历史缺项。
 
 集中CI补齐两处旧测试预期：兼容包版本1.55.0、机器能力清单同时含旧source-statistics-read-v1和新quota-buckets-read-v1。仅同步已批准的版本与能力，不改变生产路由、上传能力或共享开关；专项复验后进入原发布流程。
 

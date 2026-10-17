@@ -150,6 +150,30 @@ PO在Native会话提供当前1.7.58正常页：真实v3连接、同身份周期/
 
 从已发布master dd68a962ec731ac8213fc1210c438a58c60deb00的隔离源码生成1.7.59开发候选，沿用当前公开key、native-host-development及原开发权限。先逐项核对与当前已加载1.7.58的差异，再完整备份并hash校验后按差异更新，manifest最后写入。保留metadata及绑定、Chrome存储、家庭配置，不卸载/重装/解绑，不用managed标记覆盖开发包。复用未变产品专项、打包边界及签名发布证据；本次仅验候选版本、身份、功能树与更新前后hash。浏览器安全策略不允许操作内部扩展页时，不绕过，需要PO仅点击原扩展重载；磁盘更新与实际重载分别记录。
 
+## 2026-10-17 网页分项补齐（交换保持已通过）
+
+最终控件62候选已冻结，根独立核全205文件无哈希失败，tree=`b48cca26f2e1e58d7029da0c8ef4ede15bb9d1d3c5f3e5db247e86f10a33a6fc`；只7产品JS＋manifest及新增固定1.56契约，权限／key不变，原60与完整备份均未变。根独立目视网页unknown窄屏／none桌面Matched；同次model／清单snapshot不一致只降说明unknown，不影响本机或旧合计。Native63、控件62、Runtime既有制品分别源码／隔离／制品通过，安装／加载／生产部署及现场分端完整性仍未验；统一交Native协调，根不再索重测或用户操作，共享关闭。
+
+控件真实读取函数及原store事务的隔离链已通过26项：新读取一次写入非凭据scope，原snapshot内容／hash守恒；分页失败、换孩、换token、初始不一致和事务写前变化均无新写入，旧缓存不追贴。原profile shadow专项11项及SourceShadow／诊断／Native client／typecheck通过；根已独立审实际入口及scope／期限／清单分态。最终62目视与候选仍由所属任务收口，运行60尚未更新，实机新范围／完整性未验。
+
+PO批准两端分别收口：Native应用修复复用ed5ab95／唯一63候选／干净归档36项通过，不重测未变源码；云端沿用6c0a613／固定dry-run。控件补现有网页readModel到内部缓存展示的分项，日完整性不用周值，截止未知明确“未提供”，同孩子显示与应用分项保留，最终仅生成一个62候选。网页新请求在分页前后及缓存写前核绑定一致，给原cache envelope附非凭据scope，生产none据此及原已验证清单／期间判断；旧缓存不追贴、失配unknown，本机正常保留。不改原snapshot／原账／上传确认／请求或频率、不新增云端字段与证明系统。源码／隔离／安装／现场分列，不把已通过交换重列故障。
+
+## 2026-10-17 本机独立及other状态修复（PO批准，实施中）
+
+- 追加已证接线缺陷：Native原后台刷新位于`NewModelEnabled`条件内，该值实际取`forcedUse.enabled`，读取缓存错误依赖提醒开关。Native所属已将原刷新移至既有30秒后台循环的已鉴权binding范围，未增定时器或改执行开关；36项聚焦回归含无V2能力／影子且提醒关闭的真实Service入口均通过，正式1.56 JS与实际Host合成wire兼容通过。此为源码／隔离证据，不证明现场other一定有量。根已审最小diff Matched，唯一Native63／控件61候选准备，不安装／覆盖现运行62／60。
+- 联合职责限定architecture-integration＋standard-cloud；公共`package-lock.json`与backend锁仅同步本地契约版本1.55.0→1.56.0，依赖解析和完整性不改、不安装；`docs/DESIGN.md`为本批接口设计的精确职责例外。职责检查与Runtime边界检查沿用原工具，不修改规则。
+- 契约1.56.0已本地固定4bb107d635112e43308f92f697f0a25ccddae970，唯一内部包SHA256 a13f7ee1ef3ae6dd53a052efdbb2faf49f079595ace3de95065a12c1a98765f2；build／source-statistics／contract-compatibility均通过。两端所属会话按同一包接线，不改变已验combined。标准云端3路径最小实现原schema2机器端点响应头及权威空来源判断，typecheck／13项Worker专项／dry-run已通过，尚未部署；本机与完整性解释的实际联调仍待集中候选及运行授权，不混称完成。
+- 先固化兼容附项：保留既有exchange／合计，通过quota-buckets-sources-v1附local／other快照及none／available／unknown；不另建请求、统计或队列。Native一次读取保留本机、other及合计，控件独立显示且不反拆合计；同孩子纯读显示修复一并验收。
+- 云端仅复用既有应用持久统计与机器scopeother端点，权威确认空来源才能none；原JSON保持，用响应头附来源状态。真实other设备是否存在仍待登录恢复只读核实，不以当前缺缓存替代事实。源码／隔离／发布安装／现场分别登记，当前不部署、不安装、不启共享。
+
+## 2026-10-17 Windows 本地配额桶交换：现场通过
+
+- 后续事实核查状态：PO要求先确认其他设备到底有无应用用量。当前仅本机桶0／163／0秒有现场证据；其他设备是否存在及有量均未核实，不能以缺other缓存推定有量或零。既有内置控制台登录失效，Wrangler身份检查报告认证过期；未索凭据、未换Chrome profile、未改鉴权，悬挂检查已停止。同孩子诊断固定null的只读显示修复已由控件完成2专项／typecheck／diff，根审Matched；尚未更新运行包或实际显示验收。
+- 现有云端语义核查：schema2排除自身后无可读已发布统计时返回0桶、partial及不可用原因，不区分“确无其他来源”与“有来源但未上报”；有完整零快照才明确完整零。Native `APPLICATION_OTHER_MISSING` 表示other缓存整体不存在，不等于云端返回空统计。没有真实来源事实前不补零、不扩大修复或部署。
+- `PASS_WITH_MANUAL_EVIDENCE`：Native 2.6.62／控件 1.7.60，PO 正常页面确认 16:46:14 该次请求属于当前连接，已发送、收到并接受，应用来源为本地组件。结合实际 Service 当前签名证明、孩子范围及连接检查，确认该次同孩子交换通过；不外推连接永久有效或共享执行通过。
+- 根独立核对加载目录和备份各205文件，哈希全部匹配；仅3个已测JS和manifest改变，其他201文件不变。原账、配置、配对和共享开关未改；共享保持关闭。
+- “同孩子未知”来自诊断 `nativePeerSameChild: null` 固定值，登记为诊断完善项，不再据此否定已通过的交换。应用其他设备缓存缺失使结果partial、组合截止未知，属于来源完整性待验；已知桶仍保留，不冒充完整全设备用量。
+- 后续仅分开核对其他设备后台缓存、云端备用和独立核算；本地连接不重复安装／重载，历史、Mac和提醒不混入。Native现有候选目录的 `安装与现场验收.md`、`chrome-1.7.60-live-evidence-safe.json`、`current-conclusion-safe.json` 保存脱敏现场证据，未加入Git；源码、隔离测试、目录更新、实机结果分别记录。
 ## COMPLETED：1.7.59前向止血托管（2026-10-17）
 
 PR287已合入master dd68a962ec731ac8213fc1210c438a58c60deb00；源码提交1cc3ee0、主线集成043acdd，CI39013953448职责与汇总门通过，前两次PR声明失败保留。合并后扩展子树与已验源码完全一致；typecheck在重建主线已有1.55契约生成声明后通过，extension-root及managed打包隐私边界专项通过。Plan Conformance Matched；未变产品代码复用直接专项、隔离HTTP及九场景unpacked证据。
@@ -245,11 +269,104 @@ V2只读取证：accounting-recovery-investigation专项exit0，直接抽取事�
 
 ## 2026-10-16 集中推送／合并／部署与唯一Windows候选（PO批准，执行中）
 
+2026-10-17 绑定准备及自动读取已有精确复现：一行额外明细cap门槛删除后，原专项及真实init→scope/bind→注册Reader→bucket/新Port自动恢复通过。原两轮含预期红灯和既有双探针300ms时序失败，按PO更新授权原样复验通过，未改旧断言。真实initSourceStatisticsShadow+可控proof延迟证实：首读纯Reader未就绪允许cloud备用且不等待签发；随后后台scope/bind确认成功，但exchange次数仍0/缓存accepted=false，仅推进原五分钟alarm后才自动读Native成功，非永久不恢复。仅LKG receivedAt变化也会额外重绑一次且能恢复，本轮不扩修该优化。
+
+当前最小修复接线：身份准备首次成功后，通过background向已存在SourceShadow实例一次完成通知；用该实例原invalidate/refresh与generation/AbortController废弃未就绪旧读并刷新，不以新force含义放宽所有调用、不新建消息/协议/队列/重试/定时器。热读仍只Reader，旧证明期限/孩子/Port代次检查不动；ready缓存重复读取不重复通知。若通知发生在busy云端备用时，也须原代际失效机制确保旧结果不能覆盖新native。控件所属实施3处现有模块最小回归，Native62不改、不再安装；源码通过后集中一次控件交付与原Chrome验收由Native一处协调，不让PO跨任务转述。
+
+2026-10-17 安装62后新真实59页面已由PO在Native提供：V3在线/current=true，但本次sent=false/received=false/accepted=false、application_identity_usage_binding_unavailable；应用为cloud备用，同孩子未知。与安装前Host响应形变不同，这次停在发送前身份缓存不可用，不判Host回归/孩子不匹配。Native新Host已证62及Chrome经shell拉起的进程链；没有安全现成接口可回读scope/bind逐请求状态，记NOT_OBSERVED，不追加UAC/采集。根与控件只读核到ensurer/reader及后台触发确实存在，不能说完全漏接预热；同时发现performSend applicationIdentityBinding内层仍要求applicationIdentityUsageSupported，与已批准独立reusable身份能力及已修外层不一致。先以真实client scope/bind发送回归复现；再核冷启/重连准备时序及同身份LKG刷新失效，分清首读未就绪与持续缺陷，未证实不改生命周期。当前不再索页面/重载/安装/共享启用；原账/统计/Host不改。
+
+2026-10-17 2.6.62安装已独立核实：候选源码92628262、670源码/13发布/11内嵌一致，MSI实文件a87ddc8b84000a500ab1051aff755cdf0e6578400216116ef8c7f7503d010ced。启动attempt1无提升进程、attempt2进入但安装辅助PS5.1无BOM解析失败，均未进入MSI；不将其记为安装成功。四安装PS脚本补UTF8 BOM后，根独立以WindowsPowerShell5.1.26100.9444/-NoProfile/-ExecutionPolicy Bypass ParseFile四者0错误；同实际Shell参数预检通过。attempt3实际提升PID进入备份/MSI并exit0/completed，11组件/18表保留全PASS，原账/配对/配置未改。Service62新启动代际已证；首样未观察到NativeHost进程，不能用磁盘版本冒充原Chrome已用新Host。控件不更新/不重载，共享关闭；当前真实新Host/同孩子/exchange仍待自然重连及正常页一次最小结果，由Native统一取证，根不重复索问或UAC。
+
+2026-10-17 Host修复已固定Native main本地提交92628262e86a76596bfdfe9c88890325250fabe1，仅已验5路径；根独立git show及5源码SHA复核Matched，与完整实际Host/临时管道/正式控件联测产物一致。Native唯一2.6.62候选构建核验中，不混其他草稿、不重复直接测试；安装、实际Host启动代际与真实native交换仍分列待证。此次不更新或重载控件，共享保持关闭。
+
+2026-10-17 PO在Native所属明确批准安装已验Host修复并继续原Chrome/Service实际同孩子与exchange；根已读用户原话。本条更新此前先不制包安装限制，Native所属唯一准备下一2.6.62（版本按实际核实）、备份/原地升级/保留核验，根不重复构建安装。只用已验5路径Host修复，不混其他草稿或改统计/原账/配置/契约/共享开关，不部署云端/migration/R2。控件无需更新或重载：最后实际正常页为58；其后59仅磁盘manifest、读取代码相同，59实际运行未确认不阻塞本次Host修复。安装后必须核实际Host进程/连接与当次native结果，不用磁盘版本、心跳或旧fallback代替；现场一次最小正常页取证由Native统一，根与控件不重复索问/UAC/SW。
+
+2026-10-17 Host最小修复源码及完整中转联测通过（尚未交付安装）：Host只解析JSON对象并Clone透传，Program保留入口，Host类单独可由直接测试链接；内部pipeFactory只由测试代码传入，生产仍原Create/鉴权/12s交换预算/3s连接/帧上限。根审Matched，原无效array错误码仍RUNTIME_SERVICE_UNAVAILABLE、null为SERVICE_RESPONSE_INVALID，不擅改兼容语义。实际Host随机临时管道5/5最终PASS、Host build0警告0错；根独立正式1.55 JSvalidator核actual-host-responses新桶45秒partial/null-cutoff、显式applicationUsage:null及服务拒绝通过。现有控件真实客户端/消费者经过真实Host代码+随机临时管道+Dispatcher/读取器的fullScenario首轮exit0/1.9138秒：600→100→100，合计1200→700→700；重连/旧context/错误孩子/过期拒绝通过，所有observed response.actualHost=true，云端始终挂起且调用不增。根独立暖缓存变体同链exit0/1.098秒：600+200=应用800，网页600合计1400，JScloudReads0/NativecloudCalls3稳定。未触生产管道、真实账本或配置；同孩子身份仍测试fixture，不冒充现场Service验签。
+
+本次Host源码hash：Program.cs66490bb53b4e888a1164fc4994a7823db1998cd441c37b16d53a3b3eb9dcb8ba；NativeHostProgram.cs cc239eb80f0a15f0a95b961edfabc39972d1c02510a098d5886669acb4503a39；直接Host测试379046067f1b657b344dffc2d1a6a162c63c59cc20b35b75b7c9adce79e0f35e；实际Host Harness fbc5ffe99f6752b7d6bb9abce08d772607770d2bdfb24d9d9b2b0a067e4575b4。证据沿用本地host-transparent-forwarding-20261017及原测试入口，无新治理文档。已安装61仍包含旧Host缺陷，不能因本次源码PASS标为修复现场成功；控件生产无需改动，尚未再制包/安装/重载或启共享。
+
+2026-10-17 Host形变实际复现已证实（根独立读host-roundtrip-repro.json/host-roundtrip-validation.json，全合成）：Service schema2 applicationUsage含整数秒桶/childId/readAtMs/显式null，正式1.55validator接受；执行已安装Host相同typed Deserialize/Serialize后变旧fromDate/toDate/computedAtMs/totalMs/days，45秒composite桶及单位/孩子/截止字段丢失，requestId仍保留，正式validator准确拒绝SOURCE_STATISTICS_INVALID。与现场相关请求sent/received=true但accepted=false一致；不把它归咎原账/分类/孩子分配或云端备用。最小修复只在Host保持Service JSON原形转发，旧DTO/错误回执不改，新旧wire/原timeout/帧/IPC鉴权保留。直接测试新增真实Host类与随机临时管道，不触真实Service管道，不引入可由生产env/CLI改pipe的后门；现有JS消费者不变。此前Dispatcher直出跨进程证据仍有效但不覆盖Host。先完成源码及实际Host链聚焦验证，未再制包/安装/重载，未启共享。
+
+2026-10-17 已取得真实58页面结果（PO在Native所属提供，根收到脱敏字段）：当前连接/v3、当前身份周期且属于当前连接、sent=true/responseReceived=true/accepted=false，source_statistics_native_invalid_response。应用来自云端备用，不是Native成功；同孩子仍unknown。该错误只证明响应未通过控件接收校验，不能推成孩子不一致/服务拒绝。根及Native独立读到具体转发风险：NativeHost Program.cs69把Service JSON Deserialize<BrowserBridgeResponse>再输出，旧typed ApplicationUsageSnapshot与新桶RuntimeV2Values的applicationUsage同名，导致新桶可能被旧DTO解释并丢字段；控件严格schema2拒绝合理。QuotaBucketsProtocol.Wire已Never保护null，不以此前null猜测冒充根因。Native先做实际Host roundtrip复现，再只修Host转发和直接回归，不改统计/原账/契约/控件校验；已有跨进程入口须补实际Host这一步，旧Dispatcher直出通过不能外推Host链通过。暂不再制包安装或索用户操作，共享关闭。
+
+2026-10-17 PO已确认原Chrome重载1.7.58并打开正常状态页（PASS_WITH_MANUAL_EVIDENCE，仅版本/操作确认）。现有Service安全采样仍为旧fallback摘要；控件确认不存在当前工具允许的实时内部页/日志读取入口，因此本次58实际request/accepted仍NOT_OBSERVED，不是已证失败。保持已测代码和运行包不变、不追加UAC/重载/诊断系统、不启共享；仅需正常页最小实际交换结果/接受状态及今日应用桶与读取时间补最后现场证据，不要求SW或长诊断。不得将先前“保持打开即可”误称自动读到了该页。
+
+2026-10-17 Native2.6.61已安装（本轮唯一UAC）：根独立读取install-safe-result确认exit0/completed、ServiceRunning、11组件匹配及备份/保留审计完成；18表安全摘要确认配对/HMAC/应用配置/原事实/冻结版本/outbox身份均保留，状态可自然推进。MSI实文件SHA25691dab0641000e13fa502adf5998c4366197e6263c3b6302cd72198dc952aa811与固定候选一致；源码667文件、发布13组件及MSI11组件证据已核，内部未签名/latestEligible=false。控件58仅已更新磁盘，根已统一发一次原Chrome重载/保持正常状态页打开提示，不索SW或另一次UAC。安装提升进程有界读取既有adminStatus，不主动造exchange；初样为旧SourceStatisticsReader fallback（applicationOrigin=local+cloud-other、webOrigin=cloud-all），不当新桶成功/失败。新quota shadow受V2 NewModelEnabled控制，现场不为取证改共享配置；当前58真实运行/本次同孩子绑定及sent/received/accepted和返回桶仍待观察，不宣称现场通过。
+
+2026-10-17 唯一候选准备：Native源码固定5e643e5fc13cdb54e265c9946db9d16481840aad，仅2生产/2直接测试文件，2.6.61由Native所属唯一构建安装；控件固定06640b43803f70bc7f5055b34e881a6ad88b7b6f，4生产/3直接测试及本批TASK记录，旧3文档工作稿保留。控件唯一1.7.58开发候选已完整备份后更新原加载目录，204文件treeHash12c99b72026a5216091dfedfffb20de6131b2f921b2b8741cce3526f70cbc5d3；备份205文件treeHash069094376a95bfee457e80d7ce4934d55b0e22f4ef9512fd387afbfc5af44ed0。根独立读取update-evidence并核加载目录4产品SHA全与被测源码一致，严格仅4JS及manifest变化；权限、ID、metadata保持，storage未改，尚未重载，不把磁盘manifest版本称实际Chrome运行版本。Native安装/候选最终核验和真实同孩子/exchange仍待本次集中操作，无生产Worker/Pages/migration/R2或共享启用。
+
+2026-10-17 PO在Native所属会话明确批准安装本次修复并继续原Chrome/已安装Service同孩子及exchange验收，共享关闭；根已读取该用户原话核实。Native会话唯一负责下一2.6.61内部候选（版本须核实未占用）、备份/安装/保留核验，其他会话不重复构建安装。控件现存1.7.57候选不含本轮冻结4产品修复，不得以其失败评判新源码；所属会话集中固定一个包含已测源码的候选，与Native协调一次更新。只核实际同孩子身份、当前Port协商、新请求sent/received/accepted及整数秒范围；不改配置/原账/共享开关，不部署云端或migration/R2，不绕过内部页浏览器访问限制；工具不可达的现场证据明确缺失，不用合成peer或旧ACK代替。复用此前源码/跨进程精确哈希证据，必要新增验证仅候选哈希及现场smoke。
+
+2026-10-17 自行跨进程隔离联测已通过（未更新运行环境）：真实控件native-host-client/1.55契约/source-statistics-shadow消费者，经4字节LE原生帧调用实际Normalize/BrowserBridgeDispatcher/RuntimeJson、临时SQLite/LocalApplicationStatisticsReader/ApplicationQuotaBuckets/冻结QuotaBucketsReader。最终集中命令为local-guardian.test.js的TOC_NATIVE_PROCESS_CONFIG分支，--quota-bridge --cloud hang --decrease-rest-to 100 --run-id ext-concentrated-fixture-20261017、fullScenario=true；exit0/1.742秒。应用600→100→100，现有生产核算与网页600形成1200→700→700；真实断Port/重启进程后1→3重新协商，新generation拒绝旧context，新fixture绑定后接受600。错误孩子/过期回执由真实JS拒绝；Native过期fixture真实返回QUOTA_BUCKETS_CONTEXT_CHANGED。成功交换逐次cloudPending=true且每进程cloudCalls=1不增，JS备用0。根独立用最终测试文件再跑暖缓存变体--prime-other-rest 200：本机600＋缓存200=应用800，网页600＋应用800=1400，cloudCalls=3（prime两次＋挂起一次）稳定，exit0；node --check及两仓相关diff检查通过。
+
+本批两端产品源码与先前冻结哈希一致；新增仅测试Harness及既有测试入口。最终local-guardian.test.js SHA256=555da8a2d2c00b51975d3ba4e6ab413b23cbf6af292216e90f730284b89f3366；Harness SHA256=cab959ca78a77223dc9ed276ec9cec53583dcc2c46edd243cecd131a252f6827；Producer.dll SHA256=5fe2d93da12381495b784e564c34219266fb65a70ca89145bab963bb1d13800d。Native现有受限本地证据quota-local-read-20261017/bridge-harness.json、harness-smoke-result.json保留具体来源/程序集边界。早期测试失败为独立console缺SQLite本机库、600秒夹具违反180秒段上限，以及断Port抢先stderr的测试观察时序，均仅修测试/测试产物；未放宽产品校验、延长产品超时或手写成功响应。负面拒绝后的stderr可能随断Port丢失，只认实际业务错误回执，不冒称日志齐全。
+
+本轮审核Matched：无安装/重载/UAC/真实服务或真实账本访问、无部署/配置/共享开关修改，未要求PO操作。身份context及已确认回执由合成fixture提供，未验证已安装Service的SID派生/云端签名验签与真实Chrome连接；隔离链路通过不等于现场全功能已验收。下一步只集中交付已测两端源码及候选，再核已安装连接，不扩历史/Mac/提醒范围。
+
+2026-10-17 PO要求先自行测试、不反复介入：先复用既有隔离入口，将真实控件native-host-client/桶消费者跨进程连接实际C# BrowserBridgeDispatcher/QuotaBucketsReader，运输层仅替代Chrome Port；合成孩子及临时数据，产品源码冻结。先核冷协商及云端挂起时本地交换，再沿同入口核重复/下降、重连及错误范围拒绝，逐项记录真实代码与注入边界。中等风险测试接线；仅新增必要直接测试入口、聚焦编译/Node专项与diff检查，复用14项及4专项证据，不跑全量/Mac/安装器，不动真实服务/账本/配对，不安装、重载、UAC、部署或启共享。跨进程通过也不冒充当前已安装Chrome/Service身份链实测；暂不再向PO索取操作。
+
+最简读取本批源码已完成并审计Matched（2026-10-17，未交付运行）：Native仅2产品/2测试文件，14项Quota/Service聚焦PASS，根逐文件SHA核验与result.json被测源码一致；后台云端不返回时，有/无缓存的本地读取和exchange均在测试1秒限内返回，未新增网络，桶值/更正下降/重复/隔离保留。控件仅4产品/3直接测试文件：新版bucket按读取cap选路，unknown不启legacy，shadow停旧policy/basis/contributions且重复配置幂等；exchange只读当前有效身份，后台Scope/Bind不进入读数热路径，原5分钟/改绑/断连失效保留。shared-access-integration、shared-web-contribution-sync、local-guardian（固定旧五cap基线+C#wire+重复桶热读只exchange）、source-statistics-shadow四专项、typecheck及diff均PASS，根源码审查通过。两仓本批都未提交/推送/制包/安装，原脏稿保留；当前运行版本不包含此最简修复。未改原账、统计上传、配置或共享开关，未部署云端/migration/R2。下一阶段只集中交付同批两端，再做真实本地exchange；源码/隔离通过不等于实机通过，先不再向PO索取重载/安装或SW数据。
+
+2026-10-17 PO要求按最简结构实施，暂停以补重试/加时延维持复杂依赖。已核两处实际接线：Native QuotaBucketsReader.Exchange→ReadApplication→CloudAsync会等远端；控件shared-access-integration仅按强制执行V2能力选路，影子阶段可能启动旧contributions/basis准备。修正顺序：Native自身读取仅本机最新＋现有远端成功缓存，现有后台负责远端刷新；控件新版桶可用即退出旧贡献/旧清单准备，身份有效证明复用不变；随后验证云端永久未返回也不挡本地桶、无缓存仍保留本机、旧端隔离、桶值不变及真实桥交换。只沿现有模块修接线，不新增协议/统计/队列/缓存层，不原账/统计上传/配置/共享开关/云端生产操作。必要测试仅两端直接读取/桥/启动专项及typecheck/聚焦编译、diff；排除全量/Mac/历史/安装器。源码未完成，未部署/安装，不宣称通过。
+
+2026-10-17冷协商控件已交付：最终源码6266be1d7141fe0d0a8aa80c87bd276561741f8e（主修复5d1dcd9及严格健康响应拒绝失效端口补齐），该精确源码local-guardian完整、source-statistics-shadow、typecheck/diff全部PASS，根审计Matched。一次1.7.57开发候选204文件treeHash bae631ea7858e7067dce152fa2209952b5d07a866c3895e4fecf7d8a6d9f3338；原1.7.56完整205文件备份及逐项核验通过。根直接读取update-evidence确认backupVerified/allCandidateFilesVerified/permissionsUnchanged/retainedFilesUnchanged=true、manifestCopiedLast=true、storageTouched=false、reloaded=false；仅native-host-client.js与manifest版本变化。原目录已更新、等待用户一次重载及正常V2区块取证；未推送本地修复、未托管/R2/部署/Native安装或启共享。真实本地exchange仍未通过，23:44超时未宣称唯一根因已消除。
+
+2026-10-17 PO已允许必要聚焦复验并通过后更新控件。最终local-guardian完整PASS（含固定8f97665＋真实V1五cap两缺口对照、冷恢复同Port单次V3、实际秒读取、重连首V1、真旧端、升级超时/断连/相关ID拒绝、原serialized和Mac双通道断言、真实C#桶wire接收）；source-statistics-shadow/typecheck/diff通过。根审查本批仅握手infra及直接回归Matched，不扩统计/Native/云端/共享。单个1.7.57开发修复候选准备并备份更新原目录，实际重载与本地exchange仍待取证；无需再次安装Native，不启共享，不托管或R2。
+
+冷协商修复续进：完整Native V1五基础cap在固定8f97665源码重现完全冷恢复source误判unsupported、V1后应用实际抢发旧毫秒接口；不再使用漏authoritative字段的夹具结论。控件补丁仅当前Port握手版本与有界一次V3升级，保留身份/桶验证；新冷恢复/秒读取/重连/真旧端/超时/断连/缺requestId隔离用例通过，source-statistics-shadow及typecheck/diff通过。综合local-guardian暴露旧响应夹具缺V3 requestId后，又暴露补丁内部升级占用手动probe冷却，均已分别修正，原serialized断言未放松；按同命令两次失败规则暂停进一步综合复验，待PO允许必要复验。未提交/制包/更新原目录，不Native/云端/原账/配置/共享变更。现场23:44超时独立未归因，真实本机交换未通过。
+
+安装/重载后PO正常页证据：1.7.56、23:47通道在线；23:44本机交换sent=false/response=false/accepted=false、native_response_timeout，不能视为exchange消息已送达Service。网页桶读成功，应用云端备用今日study4980/composite70/rest0秒且标不完整，无备用503；本地交换仍未通过。23:47能力清单缺新桶及秒读取能力，与Dispatcher按请求protocolVersion=1返回部分能力、但SupportedProtocols包含3的路径吻合；控件ensureSourceStatisticsCapability仅一次probe后判unsupported、普通应用读取允许仅旧毫秒能力立即通过。现有local-guardian夹具多为无条件返回v3能力，未覆盖真实冷连接1→3升级。此为源码偏离/覆盖缺口，不足以确定23:44超时的唯一现场根因；不改原账/统计、不开共享、不再次要求安装/重载，下一步隔离重现真实协商序列并最小修复。
+
+后续安装实况：PO重新明确批准后，同一2.6.60候选在唯一有效UAC/PID11348下安装成功，exit0、ServiceRunning、11个内嵌组件哈希一致、18表及配对/配置/原账/outbox保留核验通过。PO已确认原Chrome控件重载，记PASS_WITH_MANUAL_EVIDENCE；不再重复安装或重载。管理员既有只读status未返回新交换证据，公共status无exchange字段；应用/网页新桶实际接收仍待现有正常页核对，不伪造peer、不启共享。下方未安装/未重载为本轮较早状态，已被本段取代。
+
+集中交付进度：PR286已合入master8f976652a6be89deb63c8d86522efc6fdad085e1；该SHA Runtime CI38914119547、Guardian CI38914119602通过，生产运行38914371905成功，仅发布Guardian版本bd923f0e-9b4a-41fa-b528-1978a5be1562和Runtime版本b83faedc-b229-4ec6-a22c-12da1ce6237f，健康/未鉴权拒绝smoke通过。迁移清单为空、未执行迁移，两套Pages步骤跳过、未操作R2/latest、共享未启。
+
+唯一控件1.7.56来自该master，204文件treeHash6b41372c1ac87d493129fa52d66adf0a885faa3d56a6a5ffb7cd567a4878dbee；原目录备份和204文件更新核验通过，权限/ID/metadata保留，storage未触及，实际reloaded=false。唯一Native2.6.60来自26fdca1，制包/组件/MSI核验通过；UAC请求实际1223取消，未开始备份/安装，失真的启动标记已更正并保留原件，当前2.6.59仍Running。安装与一次控件重载待用户完成后继续本机桶交换真实核对；不能将源码/部署/文件更新或旧ACK冒充实机通过。受保护旧任务板草稿已恢复，原stash保留，不夹带本次产品提交。
+
 PR286集成CI发现兼容测试仍断言旧包版本1.54.0，实际已批准契约为1.55.0。仅修正该测试的版本断言，先运行完整契约专项及diff检查再继续合并；不改变产品实现、契约内容或候选哈希。
 
 本批统一集成云端8e6dcd3、控件549ea51（含35cfed0）与Native26fdca1；仅部署实际修改的Runtime/Guardian Worker，无Pages产品变化，不执行migration、不改R2/latest，不启共享。最终Windows候选2.6.60与控件1.7.56一次交付，保留配对、配置、原账及outbox。已通过精确源码专项复用，集成/部署/安装/真实读取分别登记；暂存恢复的更早任务板草稿不夹带提交。
+## 2026-10-16 共享读取简化（实施中，未部署/安装/启用）
+
+- 已批准：直接共享现有配额桶，删除重复汇总、云端来源键前置及独立共享查询；保留身份核验和原读取器。
+- 中风险跨端读取改造；顺序：自身读取→本地交换→云端备用→缓存恢复→独立核算。必要测试为契约/来源读取/配额专项、两端typecheck或聚焦编译、diff；排除原账修改、全量、Mac、安装器、E2E及生产操作。
+- 本批已进入源码与隔离验证阶段，保留本任务之前全部未提交内容；部署/安装/真实验收独立登记。
+- 云端源码已接入新桶契约1.55.0；只复用原网页账户快照/配额读取器及原应用持久统计读取器，原SQL查询仅为仍有调用者的旧v1兼容保留。契约/Guardian来源专项、Runtime12/12、root/backend typecheck及diff通过；Native真实序列化合成报文通过TS新契约。控件/Native所属实现和跨端回放继续，部署/安装/真实家庭验收未做，不能标整体验收完成。
+- 云端与契约固定本地提交8e6dcd3fb128ed12c7a56c354535b37c39939b43；Native固定26fdca1fb2665946479d0d1cfdbf963e9940bbed，1.55.0同包同SHA锁定，45项相关回归及13项锁版增量通过（存在重叠，不相加冒称58项）。Native当前日读取与TS/C#完整/缺源/部分数据核算逐字段一致，Dispatcher+RuntimeJson合成产物与TS契约一致；未安装/部署/启用共享，Mac未启动。
+- 控件最终本地提交35cfed0，四项相关专项、Native实际序列化报文消费者回放、typecheck及diff通过。新路径删除web-other额外请求、云端来源键前置、共享专用摘要hash与逐日混填；V2缺源保留可用桶并标missing，已有执行上下文校验保留，不因读取时间刷新使确认失效。既有诊断只补本批已知原因中文映射，不重排UI。
+- 源码审计：自身读取、本地交换、云端备用、缓存恢复、独立核算五项均Matched（源码/隔离证据）；无未批准Extra或已知Deviated。部署、终端更新及真实Windows当前孩子联调未执行，属于下一交付阶段Missing，不得宣布线上修复或整链实机通过。三处本地提交均未推送；不启共享，不产生中间安装候选。现有任务板混合的更早未提交状态记录保留，未夹带提交。
 
 ## NOW：Windows完整闭环（包含共享）后再迁移Mac（2026-10-16，PO已明确）
+
+收到Native转交的PO真实1.7.51摘要，无需再向用户取数或重载：v3/分域统计能力/debugger/V2配置profile-config:52影子模式已证实，网页有本机＋云端其他来源缓存；V2应用无可用快照，同孩子当前V2校验未知，旧ACK不替代新exchange。已确定跨端接收缺陷：2.6.59 Dispatcher成功exchange只返回SourceStatistics、不返回可选SharedQuotaStage，而控件native-host-client.js要求stage必为shadow，因此有效统计亦必被拒绝。原夹具人为附加stage遗漏该真实响应形状。按既有完整链路修复范围，仅纠正读取器对可选阶段字段的错误必填依赖，用Native真实成功形状补回归，保留请求/连接/Child/日期/秒契约校验，不改统计或启共享、不改Native/重装。现场这轮是否出站/云端备用是否失败仍未证实，不将代码缺陷冒充唯一现场根因；两项诊断错误隐藏/消息枚举遗漏另登记，暂不独立出包。
+
+最小修复跨仓回归通过：Native直接调用已校验2.6.59候选Dispatcher/RuntimeJson编译产物生成两份合成probe/exchange响应，DLL哈希与候选相同；JSON哈希4cf036bab0c4588b11a4c0de387d023be96363ba876944403698035a789492b3，根独立确认ok/requestId及application/seconds、确无stage。控件真实消费者对同报文旧guard拒收、去掉无关阶段依赖后接受，错child/date/unit/id和断连仍拒绝；诊断空快照错误及应用请求名修正专项、typecheck/diff通过。此为隔离兼容回归，不是原Chrome实际exchange通过。只冻结合成fixture为默认回归并集中收口本批控件修复，准备单个固定1.7.52候选，暂不覆盖或要求重载；Native/云端不改、不安装、不启共享。云端源码核对web-other/application-all与机器application-other各自鉴权边界一致，尚无同范围生产HTTP备用读取证据，不以代码审查代替。
+
+修复已固定控件fe3ba4942d96671c0136d9f623af0a218b475651；默认本地回归直接消费仓库冻结的真实C#合成fixture并通过，不再依赖外部临时env路径。1.7.52成品根独立逐文件核验203→203，仅两infra脚本及manifest版本/version_name变化，权限/ID/其余业务文件不变；按既有交付授权完成原目录备份及就地更新，根已读取update-evidence：backupVerified/allCandidateFilesVerified/permissionsUnchanged=true，storageTouched=false，reloaded=false。候选hash767426e2e7debcddcf56cc5a8d96ad82de8bf61675738122b53def95da61aa48，1.7.51原包204文件备份hash1bea87eb035660a00110642da243f6e45e0cb738bb94940b787c3ce98c21f08c。实际运行尚待重载后同一V2摘要核对；不以隔离回归代替实机，不重新安装Native或部署云端，不启共享。源码及文件交付Matched，实际exchange、同孩子当前上下文及云端备用现场证据仍Missing。
+
+PO已明确“已重载1.7.51，继续核对真实读取链路，先不要启用共享”，重载操作记PASS_WITH_MANUAL_EVIDENCE，不再要求重载。Native随后一次正式公开只读status：2.6.59在线、同一启动时间、heartbeat及bridge成功时间已更新、无pending；该公开摘要不含真实probe能力/当前同孩子校验/exchange，三项仍未知，不伪判失败。protocol3的source-statistics-read-v1为读取能力判据；shared-forced-use-runtime-v2受shared阶段门控，关闭共享时缺失不能当读取失败，更不为测试能力而开启共享。根已统一仅请求一次现有正常管理页的新V2区块，所属两端不重复要求用户取数；未改代码、配置、日志授权或安装，未绕过扩展URL/ACL。收到同一份实际摘要后再逐项判断真实读取与缓存状态。
+
+PO已回复“已重载，继续验收”，该手工操作按PASS_WITH_MANUAL_EVIDENCE记录，不再等待重载。Native正式公开status确认2.6.59在线且有重载后浏览器桥接成功时间；旧聚合protocolVersion不证明实际V2能力。云端当前网页设备亦已刚刚活跃、共享水位HTTP200，但版本列为空、日志授权过期/当日无日志，未擅自启用日志上传。现有本地共享同步摘要仍只投影旧V1缓存，缺新来源读取/V2identity及debugger grant，不能要求用户复制后冒称新链路通过。已交控件任务最小补齐现有诊断只读入口，先核可用状态与文件范围，不改统计/计时/配额/执行、不新建协议或遥测、不制中间候选；需要新持久状态或产品行为则先停报。实际完整共享联验仍未完成，开关未动。
+
+观测缺口已最小修复并固定029b218（现有控件分支本地提交，未另建PR）。仅两诊断JS、直接单测及本批任务记录；专项/typecheck/diff通过，根直接核对桌面/390窄屏合成截图。只读已有V2配置、实际权限和按当前scope/周校验的源缓存，不刷新/重算/新建peer或持久状态；当前同孩子V2证明无现成证据则未知。真实身份派生指纹跨会话请求被安全审核拒绝，已放弃该额外数据传输；诊断既不计算也不输出ChildID/指纹，只保留已有本地范围校验结果。
+
+1.7.51诊断候选与已重载1.7.50逐文件核验203→203，仅两诊断JS及manifest版本/version_name变化，权限/ID/其余业务源码不变。原目录已按既有更新授权备份后完成更新，manifest最后替换、metadata保留、未触及storage。根已读update-evidence：backupVerified/allCandidateFilesVerified/permissionsUnchanged为true，reloaded=false。候选treeHash8d1cb054cf8b7f1f6d09abec4e596dbb7ff623e0e0bbc817e48def4ad548c530；原1.7.50的204文件完整备份hash20257a4dac36ef3fa1bad6ba5a8f1a0b5b906df3e5a75de15541978607f977b1。需用户在原Chrome再重载一次并从同一正常摘要返回新V2区块；不进入Service Worker、不重装Native、不部署云端，不假称已取得真实新诊断或共享已通过。
+
+重载等待期间补充只读范围核查：已登录主控制台当前孩子的绑定设备列表仅显示两个网页设备，最近活跃分别约12小时及25天；此为最近上报状态，不能证明全部当前会话已隔离。没有操作监控开关、恢复请求、Token或绑定。结合已核实Child级rollout及同孩子多Windows用户，暂不切共享；先待实际控件重载，再读取真实同孩子/来源/缓存证据。上一目标轮完成文件更新属于progress，本轮未将会话idle当作仍运行或重复启动制包；不因等待重载继续生产变更。
+
+PO已明确批准控件新增debugger权限并重载1.7.50，新增权限不再待裁决；已交所属控件会话核验固定候选、备份并更新原加载目录、完成一次允许的重载及实际权限/版本/Native连接核查。保持扩展ID、配对、存储和配置，不卸载重绑、不重制候选、不正式托管；浏览器实际授予和真实运行状态仍须核实，不能以授权答复代替。共享仍关闭；下方等待权限的表述为此前状态。
+
+原目录安全更新已完成：203文件与固定候选hash全部一致，manifest最后替换；旧1.7.48的197文件完整备份及哈希核对通过，存储未触及，Chrome生成规则元数据保留。根已读取update-evidence.json确认。因浏览器工具明确禁止扩展内部页面且无可用原生控制，未绕过；reloaded=false、debugger实际授予未验证。需用户仅在原Chrome的扩展管理页对原ID点一次重新加载并批准可能出现的新增权限/重新启用提示，然后继续运行版本及Native连接核对，不进入Service Worker、不重装重绑。源码/文件更新Matched，实际重载与共享联验Missing，共享未启。
+
+集中交付实况：PR284已合入master `3adcad36b51f8fcf08285350f0a4ff26f255fdd5`，生产运行38882019324成功，Runtime/Guardian Worker及两套Pages已发布；migration列表为空，未启共享、未操作R2。Runtime版本65408253-b298-4fcf-bd32-212b92e1ecb0，Guardian版本2af37d1d-c941-4b53-8a6a-91b55a537863；Runtime Pages f6ca2530-4a47-427a-8722-dca8ca1a05e5、主Pages 4810ac38-c856-4684-a5b3-4fee33b355a7。线上关键脚本已与该SHA的Git blob逐字节核对，避免Windows工作区CRLF误报。Native唯一2.6.59候选安装exit0，真实Service/Agent/Manager版本及18表保留核查通过，配对、配置、原始事实与冻结统计未变；主控制台真实设备详情已显示Service2.6.59.0。此为发布/安装通过，不代表共享实机验收通过。
+
+控件1.7.50候选尚未覆盖原加载目录。新增debugger开发权限的原账守恒补证已取得真实隔离账：关闭目标页时自然标签激活先结算，新增目标段恰一条2秒，原三段未变；不能硬要求结算原因必须为tab_close。仅修正过严测试断言并聚焦复验，保持产品记账线不变。新增权限需由用户在实际重载时确认，不静默授予；共享仍关闭。下一步为控件补证/统一重载、对称查询真实核对及备份恢复范围内的临时共享验收。
+
+控件补证最终通过，测试及本批记录提交0c6f2bf：正常取消3段→3段、目标保持打开；强制关闭4段→5段，恰新增目标3秒段，与关闭前活动起点一致，旧段不变、无重叠重复、见证标签仍开。根独立读取脱敏产物确认，原账夹具写入false；此仍为真实浏览器＋隔离Service状态机，不是已安装双方联调。1.7.50产品候选保持master3adcad3来源及原哈希，不因测试提交重建。真实Chrome内部管理页被工具URL策略拒绝，未绕过或要求Service Worker取数；真实profile日周来源及本地stage尚缺。正在等待新增debugger权限的明确答复，原目录未覆盖、共享未启；Native应用正式只读入口核对继续，不因此扩大UAC或重复安装。
+
+已安装Native正式LocalApplicationStatistics.v1只读入口通过当前Windows用户认证，不由请求自报Child ID；当前日已知20215秒、17应用、小时合计一致，完整总量仍null（排除旧无身份/多身份记录及分类/特殊属性缺依据），不把known下界冒充完整量，不在本批追修历史。共享exchange要求真实web remoteProof，独立诊断连接不能假造或替代。另已核实共享rollout/时间段/自主度为Child级，现有DTO无测试目标allowlist；单独限制测试进程的关闭目标不代表Child级配置已隔离。临时启用之前必须核清同孩子全部在线影响范围；范围未证实前不改共享配置，不擅自开发新allowlist、不扩大到其他用户或机器。发布/安装状态Matched，真实共享验收仍Missing。
+
+集中交付已获PO明确批准：推送Native7b704fe、通过检查后合并PR284、发布本批Worker/Pages、唯一Windows候选安装及原控件目录更新（UAC由PO批准）、仅当前Windows测试范围临时启共享并验收、结束恢复配置；只操作测试页面/程序，保留原账/配对/配置备份，不migration/R2/其他家庭。此前授权等待已解除。PR284已按精确a42c575合入master3adcad36b51f8fcf08285350f0a4ff26f255fdd5；精确主线Runtime38881806633、Guardian38881806469、Main Console38881931875全部success。Native精确7b704fe重试push成功，不force、不带草稿；唯一候选准备中。本地本段只记录发布过程，不改变Actions从干净master构建/发布的SHA，不以源码/CI代替真实验收。
 
 最新裁决已收到：有限适用配额缺源且无有效缓存时采用可用性优先容错，允许使用并提示不完整，已知黑名单/停用/对象限制及已知到硬上限仍执行，未知不补零。已交两端补实际消费者及最小回归；下方“待PO裁决”均为历史状态，不再是当前阻塞。云端8ff3b39相关CI全部success。控件6167b14已push并建立集中PR285；其首次CI失败为scope按两端diff看到落后主线的反向差异，正在保留脏稿普通合并主线，不扩大职责或放宽checker。
 
