@@ -1,8 +1,12 @@
 # TASK_BOARD
 
-## NOW：其他设备读取修复提交、云端部署及1.7.63本机更新（2026-10-17，PO明确授权）
+## NOW：其他设备读取修复已部署及1.7.63磁盘更新，待Chrome重载手工验收（2026-10-17）
 
 本次授权覆盖下方不提交/部署/更新加载包的阶段限制。extension-local提交本轮消费者及前序已验60–62读取接线，经PR集成；架构统筹云端/1.57契约的固定工作线提交及Guardian/Runtime部署。只读smoke，不部署Pages、不执行migration、不安装Native、不改家庭配置/原账/ACK/水位；共享保持关闭，正式托管feed不动。本机仅制作独立1.7.63开发候选，完整备份后更新原加载位置，保留key/ID/权限/metadata，不卸载/解绑/清storage。旧Admin四项基线失败继续披露；复用精确源码专项证据，不将失败改为通过。文档只提交本轮块，旧草稿原样保留。
+
+交付回读：控件PR290已合并9e0b10ae690f988ad7af1e4a8a25d8b3cf658be0，CI39029026764通过；云端PR291合并cb51631f3d63ada35eb06140ad18c04c998de4af，精确主线CI39031705345/39031705277及生产39031790611通过。所属云端线回读Guardian version=7ccbd372-b3bc-4acc-b6b5-d5602d294124、Runtime version=b6b758db-d559-43ba-86cf-4427533d3ef7，均100%；health200、未认证module/account-token401符合预期，实际Guardian共享执行binding=false。未执行迁移、发布Pages或修改正式托管。
+
+当前原加载目录已从1.7.62完整备份后替换为1.7.63开发候选：10文件替换、1新增，manifest最后写入；206个产品文件逐项SHA256符合冻结候选f4a6cf80dfacbc8664ae8ddd429c12ada425b5197436ff180743683959c0cf5d；196个原文件（含Chrome metadata）保持，完整备份已核验，更新前后文件计数分别为206/207。稳定ID jdcancbiocacabbjdkngadmjpjmkdnih、key、权限及开发标记不变，未操作storage/绑定/家庭配置。ignored证据.tmp/local-unpacked-1.7.63-update-evidence.json。Chrome尚未重载，不声称运行中已是63或已通过家庭实机验收；下一步仅对原扩展重新加载，再核对Popup绑定及立即同步。旧Admin4项与对账P0继续保留。
 
 ## COMPLETED：其他设备结果读取容错收口（2026-10-17，源码与隔离验收，未发布）
 
