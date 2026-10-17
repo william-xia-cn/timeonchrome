@@ -213,3 +213,19 @@ export async function verifyCurrentSharedWebSource(env:SourceBindingEnv,input:un
     throw Error('WEB_SOURCE_ASSIGNMENT_CHANGED');
   await requireCurrentAssignment(env,row);return claims;
 }
+
+/** 只复用现有证明；无有效本机关联时不伪造来源，也不影响已授权合计读取。 */
+export async function readApplicationSourceForDevice(env:SourceBindingEnv,scope:SharedWebAuthenticatedScope,
+  input:unknown,now=Date.now()):Promise<{applicationSourceKey:string;assignmentVersion:number}|null> {
+  if(input==null)return null;
+  try {
+    validateSharedWebReusableProofV2(input,'timeonchrome:shared-web-source:v2');
+    const expectedWebSource=await sharedWebSourceKey(scope.accountId,scope.deviceId);
+    if(!('webSourceKey' in input.claims)||!('bindingEpochHash' in input.claims)
+      ||input.claims.webSourceKey!==expectedWebSource
+      ||input.claims.bindingEpochHash!==await sha(`shared-web-binding\n${scope.deviceId}\n${scope.deviceToken}`))return null;
+    const claims=await verifyCurrentSharedWebSourceV2(env,input,scope.accountId,scope.childId,input.claims.applicationSourceKey,now);
+    await requireBrowserBinding(env,scope);
+    return {applicationSourceKey:claims.applicationSourceKey,assignmentVersion:claims.assignmentVersion};
+  }catch{return null;}
+}

@@ -152,6 +152,21 @@ function load(file,deps){const module={exports:{}};const code=ts.transpileModule
  assert.equal(reusable.claims.webSourceKey,proof.claims.webSourceKey);
  assert.equal(reusable.claims.bindingEpochHash,await sha('shared-web-binding\nbrowser\nfixture-token'));
  assert.deepEqual(await binding.verifyCurrentSharedWebSource(bindingEnv,reusable,'owner','child',applicationKey,now),reusable.claims);
+ const selector={applicationSourceKey:applicationKey,assignmentVersion:1};
+ assert.deepEqual(await binding.readApplicationSourceForDevice(bindingEnv,scope,reusable,now),selector);
+ assert.equal(await binding.readApplicationSourceForDevice(bindingEnv,scope,null,now),null);
+ assert.equal(await binding.readApplicationSourceForDevice(bindingEnv,scope,{bad:true},now),null);
+ assert.equal(await binding.readApplicationSourceForDevice(bindingEnv,scope,reusable,now+300000),null,'expired proof only omits attribution');
+ assert.equal(await binding.readApplicationSourceForDevice(bindingEnv,{...scope,childId:'other-child'},reusable,now),null);
+ assert.equal(await binding.readApplicationSourceForDevice(bindingEnv,{...scope,accountId:'foreign'},reusable,now),null);
+ assert.equal(await binding.readApplicationSourceForDevice(bindingEnv,{...scope,deviceId:'second',deviceToken:'second-token'},reusable,now),null,
+   'another browser of same child cannot claim this application source');
+ assert.equal(await binding.readApplicationSourceForDevice(bindingEnv,scope,
+   {...reusable,claims:{...reusable.claims,assignmentVersion:2}},now),null,'tampered source selector is not trusted');
+ assert.equal(await binding.readApplicationSourceForDevice({...bindingEnv,RUNTIME_COMPUTER_USAGE:{fetch:async()=>{throw Error('unavailable');}}},
+   scope,reusable,now),null,'optional source failure does not throw into aggregate reader');
+ assert.ok(Buffer.byteLength(JSON.stringify({schemaVersion:2,source:'application',scope:'all',fromDate:'2026-10-17',
+   toDate:'2026-10-17',includeSources:true,sourceProof:reusable}))<2048,'reuse existing bounded request size');
  let assignmentReads=0;
  const racingEnv={...bindingEnv,RUNTIME_COMPUTER_USAGE:{async fetch(request){
    const response=await bindingEnv.RUNTIME_COMPUTER_USAGE.fetch(request);

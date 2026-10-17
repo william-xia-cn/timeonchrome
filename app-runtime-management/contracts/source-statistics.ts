@@ -45,6 +45,41 @@ export function validateQuotaBucketsQuery(value: unknown): QuotaBucketsQuery {
   return value as QuotaBucketsQuery;
 }
 
+/** 原业务查询保持严格；这两个字段只控制云端备用的可选传输侧车。 */
+export function readQuotaBucketsCloudRequest(value: unknown): {
+  query: QuotaBucketsQuery; includeSources: boolean; sourceProof?: unknown;
+} {
+  const input = record(value);
+  const { includeSources, sourceProof, ...rawQuery } = input;
+  const query = validateQuotaBucketsQuery(rawQuery);
+  if (includeSources !== undefined && includeSources !== true
+    || includeSources === true && (query.source !== 'application' || query.scope !== 'all')
+    || Object.hasOwn(input, 'sourceProof') && includeSources !== true) fail();
+  return { query, includeSources: includeSources === true,
+    ...(Object.hasOwn(input, 'sourceProof') ? { sourceProof } : {}) };
+}
+
+export interface QuotaBucketsCloudResponse {
+  snapshot: QuotaBucketsSnapshot;
+  applicationSources: QuotaBucketsSources | null;
+}
+
+/** 合计仍严格验证；侧车缺失或损坏只丢解释，不能清空有效合计。 */
+export function readQuotaBucketsCloudResponse(value: unknown, expected: {
+  source: 'web' | 'application'; childId: string; fromDate: string; toDate: string;
+}): QuotaBucketsCloudResponse {
+  const input = record(value);
+  if (!Object.hasOwn(input, 'snapshot')) {
+    return { snapshot: validateQuotaBucketsSnapshot(value, expected), applicationSources: null };
+  }
+  const snapshot = validateQuotaBucketsSnapshot(input.snapshot, expected);
+  let applicationSources: QuotaBucketsSources | null = null;
+  if (expected.source === 'application' && input.applicationSources != null) {
+    try { applicationSources = validateQuotaBucketsSources(input.applicationSources, expected); } catch { /* 可选侧车不影响合计 */ }
+  }
+  return { snapshot, applicationSources };
+}
+
 export function validateQuotaBucketsSnapshot(value: unknown, expected: {
   source: 'web' | 'application'; childId: string; fromDate: string; toDate: string;
 }): QuotaBucketsSnapshot {

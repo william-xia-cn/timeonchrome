@@ -24,12 +24,14 @@ export async function parseMachineWebSourceProof(request:Request,machine:Machine
   }catch{throw new HttpError(403,v2?'WEB_SOURCE_SCOPE_MISMATCH':'WEB_SOURCE_BINDING_CONFLICT','Source proof does not match the authenticated machine.');}
 }
 /** Resolve only bounded current assignments in the trusted account/Child scope; opaque keys grant no authority. */
-export async function verifySharedWebSourceScope(db:D1Database,input:unknown):Promise<boolean> {
+export async function resolveSharedWebSourceScope(db:D1Database,input:unknown):Promise<{
+  machineId:string;localUserId:string;assignmentVersion:number;
+}|null> {
   const fields=['accountId','childId','assignmentVersion','applicationSourceKey'];
   if(!isRecord(input)||Object.keys(input).length!==fields.length||Object.keys(input).some(k=>!fields.includes(k))
     ||['accountId','childId'].some(k=>typeof input[k]!=='string'||!String(input[k]).length||String(input[k]).length>128)
     ||!Number.isSafeInteger(input.assignmentVersion)||Number(input.assignmentVersion)<1
-    ||typeof input.applicationSourceKey!=='string'||!/^[a-f0-9]{64}$/.test(input.applicationSourceKey))return false;
+    ||typeof input.applicationSourceKey!=='string'||!/^[a-f0-9]{64}$/.test(input.applicationSourceKey))return null;
   const {results}=await db.prepare(`SELECT a.machine_id,a.local_user_id,a.assignment_version FROM runtime_user_assignments_v2 a
     JOIN runtime_machines_v2 m ON m.id=a.machine_id WHERE m.account_id=? AND m.revoked_at_ms IS NULL
       AND a.child_id=? AND a.protected=1 AND NOT EXISTS(SELECT 1 FROM runtime_user_assignments_v2 n
@@ -39,9 +41,14 @@ export async function verifySharedWebSourceScope(db:D1Database,input:unknown):Pr
   if(results.length>200)throw new HttpError(503,'SOURCE_SCOPE_LIMIT','Current source scope exceeds the bounded lookup.');
   for(const row of results){
     if(row.assignment_version===input.assignmentVersion
-      &&await applicationSharedQuotaSourceKey(row.machine_id,row.local_user_id,row.assignment_version)===input.applicationSourceKey)return true;
+      &&await applicationSharedQuotaSourceKey(row.machine_id,row.local_user_id,row.assignment_version)===input.applicationSourceKey)
+      return {machineId:row.machine_id,localUserId:row.local_user_id,assignmentVersion:row.assignment_version};
   }
-  return false;
+  return null;
+}
+
+export async function verifySharedWebSourceScope(db:D1Database,input:unknown):Promise<boolean> {
+  return (await resolveSharedWebSourceScope(db,input))!==null;
 }
 
 /** Internal server scope, never a Host-specified Child. */

@@ -5,16 +5,19 @@ import { isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import {readNativeApplicationStatisticsSeconds} from './applicationStatisticsNative';
-import {applicationQuotaBucketsSeconds,validateQuotaBucketsSnapshot,type QuotaBucketsQuery,type QuotaBucketsSnapshot} from '@timeonchrome/app-runtime-contracts/source-statistics';
+import {applicationQuotaBucketsSeconds,validateQuotaBucketsSnapshot,validateQuotaBucketsSources,type QuotaBucketsQuery,type QuotaBucketsSnapshot,type QuotaBucketsSources} from '@timeonchrome/app-runtime-contracts/source-statistics';
+
+type ApplicationQuotaSource={machineId:string;localUserId:string;assignmentVersion:number};
+type ApplicationQuotaReadOptions={onlySource?:ApplicationQuotaSource};
 
 /** 新共享只委托已验收的统计读取器；不复制publication/manifest/chunks查询。 */
 export async function readApplicationQuotaBuckets(db:D1Database,accountId:string,childId:string,query:QuotaBucketsQuery,
-  ownSource?:{machineId:string;localUserId:string;assignmentVersion:number},now=Date.now()):Promise<QuotaBucketsSnapshot>{
+  ownSource?:ApplicationQuotaSource,now=Date.now(),options:ApplicationQuotaReadOptions={}):Promise<QuotaBucketsSnapshot>{
   if(query.source!=='application'||query.scope==='other'&&!ownSource)throw new HttpError(400,'SOURCE_STATISTICS_INVALID','配额读取范围无效。');
   const days:QuotaBucketsSnapshot['days'][number][]=[];
   for(const date of sourceStatisticsDates(query.fromDate,query.toDate)){
     const value=await readNativeApplicationStatisticsSeconds(db,accountId,childId,date,
-      query.scope==='other'?{excludeSources:[ownSource!]}:{});
+      {quotaRead:true,...(query.scope==='other'?{excludeSources:[ownSource!]}:{}),...options});
     const usage=value?.applicationUsage;
     const reasons=[...new Set([...(value?.reasonCodes??[]),...(usage?.reasonCodes??[]),
       ...(!value?['APPLICATION_STATISTICS_NOT_AVAILABLE']:[]),
@@ -32,8 +35,8 @@ export async function readApplicationQuotaBuckets(db:D1Database,accountId:string
 
 /** 来源状态只说明查询范围；不因没有已发布统计就断言没有其他设备。 */
 export async function readApplicationQuotaBucketsWithState(db:D1Database,accountId:string,childId:string,query:QuotaBucketsQuery,
-  ownSource?:{machineId:string;localUserId:string;assignmentVersion:number},now=Date.now()) {
-  const snapshot=await readApplicationQuotaBuckets(db,accountId,childId,query,ownSource,now);
+  ownSource?:ApplicationQuotaSource,now=Date.now(),options:ApplicationQuotaReadOptions={}) {
+  const snapshot=await readApplicationQuotaBuckets(db,accountId,childId,query,ownSource,now,options);
   if(snapshot.days.some(day=>!day.reasonCodes.includes('APPLICATION_STATISTICS_NOT_AVAILABLE')))
     return {snapshot,sourceState:'available' as const};
   if(query.scope!=='other'||!ownSource)return {snapshot,sourceState:'unknown' as const};
@@ -55,6 +58,15 @@ export async function readApplicationQuotaBucketsWithState(db:D1Database,account
   return {sourceState:'none' as const,snapshot:validateQuotaBucketsSnapshot({...snapshot,days:snapshot.days.map(day=>({
     ...day,bucketsSeconds:{study:0,composite:0,rest:0},complete:true,reasonCodes:[],settledThroughMs:null}))},
     {source:'application',childId,fromDate:query.fromDate,toDate:query.toDate})};
+}
+
+/** 本机云账仅供核对；两个分项各自读取，不用合计减其他来源反拆。 */
+export async function readApplicationQuotaBucketsSources(db:D1Database,accountId:string,childId:string,query:QuotaBucketsQuery,
+  ownSource:ApplicationQuotaSource,now=Date.now()):Promise<QuotaBucketsSources>{
+  const local=await readApplicationQuotaBuckets(db,accountId,childId,{...query,scope:'all'},undefined,now,{onlySource:ownSource});
+  const other=await readApplicationQuotaBucketsWithState(db,accountId,childId,{...query,scope:'other'},ownSource,now);
+  return validateQuotaBucketsSources({local,other:other.sourceState==='available'?other.snapshot:null,otherState:other.sourceState},
+    {childId,fromDate:query.fromDate,toDate:query.toDate});
 }
 
 /** 仅旧v1调用者兼容；新共享不得调用此独立来源清单。 */

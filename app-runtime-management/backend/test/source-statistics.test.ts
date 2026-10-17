@@ -1,11 +1,12 @@
 import {env,exports} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
-import {createUsageAccountV2,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
-import {readApplicationSourceStatistics,readApplicationQuotaBuckets,readApplicationQuotaBucketsWithState} from '../src/sourceStatistics';
+import {createUsageAccount,createUsageAccountV2,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {readApplicationSourceStatistics,readApplicationQuotaBuckets,readApplicationQuotaBucketsWithState,readApplicationQuotaBucketsSources} from '../src/sourceStatistics';
 import {readNativeApplicationStatisticsSeconds} from '../src/applicationStatisticsNative';
 import {applicationSharedQuotaSourceKey} from '../src/applicationSharedQuota';
 import {sha256Hex} from '../src/crypto';
 import {routeV2} from '../src/v2Routes';
+import {RuntimeComputerUsageService} from '../src/computerUsageService';
 import fixedNativeGenerated from './application-fixed-native-generated.json';
 import fixedZeroNativeGenerated from './application-fixed-zero-native-generated.json';
 
@@ -21,29 +22,103 @@ async function fixture(scope?:{account:string;child:string}){
   return {machine,account,child,token};
 }
 // 真实冻结清单/分块/发布表的隔离fixture；本轮不重验已经通过的上传生产链。
-async function seedPublished(f:Awaited<ReturnType<typeof fixture>>,local:string,total=600,revision=1,special=false){
+async function seedPublished(f:Awaited<ReturnType<typeof fixture>>,local:string,total=600,revision=1,special=false,
+  options:{usage?:'missing'|'partial'|'legacy';assignmentVersion?:number}={}){
   const row=(hour:number|null,duration:number):UsageAccountRowV2=>({kind:'total',hour,duration,category:null,subjectKey:null,displayName:null});
-  const snapshot=await createUsageAccountV2({schemaVersion:2,sourceKind:'application',durationUnit:'seconds',childId:f.child,
-    timezone:'Asia/Shanghai',date,revision,generatedAtMs:now,settledThroughMs:now,algorithmVersion:'windows-application-v3-only-seconds-v1',
-    policyVersions:[],associationVersion:null,correctionVersion:0,rawFactCount:1,rawFactHash:'a'.repeat(64),complete:true,reasonCodes:[],
-    applicationUsage:{nonSpecialTotal:special?0:total,nonSpecialCategories:special?{}:{study:total},specialTotal:special?total:0,complete:true,reasonCodes:[]}},
-    [row(null,total),...Array.from({length:24},(_,h)=>row(h,h===0?total:0))]);
+  const base={sourceKind:'application' as const,timezone:'Asia/Shanghai' as const,date,revision,generatedAtMs:now,settledThroughMs:now,
+    algorithmVersion:'windows-application-v3-only-seconds-v1',policyVersions:[],associationVersion:null,correctionVersion:0,
+    rawFactCount:1,rawFactHash:'a'.repeat(64),complete:true,reasonCodes:[]};
+  const rows=[row(null,total),...Array.from({length:24},(_,h)=>row(h,h===0?total:0))];
+  const snapshot=options.usage==='legacy'?await createUsageAccount({...base,schemaVersion:1,durationUnit:'milliseconds'},rows):
+    await createUsageAccountV2({...base,schemaVersion:2,durationUnit:'seconds',childId:f.child,
+      ...(options.usage==='missing'?{}:{applicationUsage:{nonSpecialTotal:special?0:total,nonSpecialCategories:special?{}:{study:total},
+        specialTotal:special?total:0,complete:options.usage!=='partial',reasonCodes:options.usage==='partial'?['NATIVE_LEGACY_SELECTION_UNAVAILABLE']:[]}})},rows);
   const id=crypto.randomUUID();
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_manifests_v1
     (id,machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_hash,manifest_json,state,created_at_ms,received_at_ms)
-    VALUES(?1,?2,?3,1,?4,?5,?6,?7,?8,?9,'received',?10,?10)`)
-    .bind(id,f.machine,local,f.account,f.child,date,revision,snapshot.manifest.manifestHash,JSON.stringify(snapshot.manifest),now).run();
+    VALUES(?1,?2,?3,?11,?4,?5,?6,?7,?8,?9,'received',?10,?10)`)
+    .bind(id,f.machine,local,f.account,f.child,date,revision,snapshot.manifest.manifestHash,JSON.stringify(snapshot.manifest),now,options.assignmentVersion??1).run();
   for(const c of snapshot.chunks)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_chunks_v1
     (manifest_id,chunk_index,chunk_hash,rows_json) VALUES(?1,?2,?3,?4)`).bind(id,c.chunkIndex,c.chunkHash,JSON.stringify(c.rows)).run();
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_publications_v1
     (machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_id,source_revision,published_at_ms)
-    VALUES(?1,?2,1,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(machine_id,local_user_id,assignment_version,date)
+    VALUES(?1,?2,?10,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(machine_id,local_user_id,assignment_version,date)
     DO UPDATE SET revision=excluded.revision,manifest_id=excluded.manifest_id,source_revision=excluded.source_revision`)
-    .bind(f.machine,local,f.account,f.child,date,revision,id,snapshot.manifest.manifestHash,now).run();
+    .bind(f.machine,local,f.account,f.child,date,revision,id,snapshot.manifest.manifestHash,now,options.assignmentVersion??1).run();
   return id;
 }
 const query={source:'application' as const,scope:'all' as const,fromDate:date,toDate:date};
 const bucketsQuery={schemaVersion:2 as const,...query};
+it('quota-only partial reading retains confirmed buckets when another source lacks classification or uses legacy units',async()=>{
+  for(const missing of ['missing','legacy'] as const){
+    const f=await fixture();await seedPublished(f,user,600);await seedPublished(f,peer,200,1,false,{usage:missing});
+    const ordinaryBefore=await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.account,f.child,date);
+    expect(ordinaryBefore!.applicationUsage).toBeNull();
+    const buckets=await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now);
+    expect(buckets.days[0]).toMatchObject({bucketsSeconds:{study:600,composite:0,rest:0},complete:false});
+    expect(buckets.days[0]!.reasonCodes).toContain('APPLICATION_QUOTA_USAGE_INCOMPLETE');
+    if(missing==='legacy')expect(buckets.days[0]!.reasonCodes).toContain('LEGACY_STATISTICS_UNIT');
+    expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.account,f.child,date)).toEqual(ordinaryBefore);
+    expect(await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now)).toEqual(buckets);
+    await seedPublished(f,user,100,2);
+    expect((await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now)).days[0])
+      .toMatchObject({bucketsSeconds:{study:100,composite:0,rest:0},complete:false});
+  }
+});
+it('source details read exact self and preserve same-machine users and assignment versions independently',async()=>{
+  const f=await fixture(),own={machineId:f.machine,localUserId:user,assignmentVersion:1};
+  await seedPublished(f,user,600,1,false,{usage:'partial'});await seedPublished(f,peer,200);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+    (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+    VALUES(?1,?2,2,?3,1,'default',?4,?4)`).bind(f.machine,user,f.child,start+1000).run();
+  await seedPublished(f,user,40,1,false,{assignmentVersion:2});
+  const details=await readApplicationQuotaBucketsSources(env.RUNTIME_DB,f.account,f.child,bucketsQuery,own,now);
+  expect(details.local!.days[0]).toMatchObject({bucketsSeconds:{study:600,composite:0,rest:0},complete:false});
+  expect(details.local!.days[0]!.reasonCodes).toContain('NATIVE_LEGACY_SELECTION_UNAVAILABLE');
+  expect(details.otherState).toBe('available');
+  expect(details.other!.days[0]).toMatchObject({bucketsSeconds:{study:240,composite:0,rest:0},complete:true});
+  const all=await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now);
+  expect(all.days[0]!.bucketsSeconds.study).toBe(840);
+  expect(await readApplicationQuotaBucketsSources(env.RUNTIME_DB,f.account,f.child,bucketsQuery,own,now)).toEqual(details);
+  await seedPublished(f,user,10,2,false,{usage:'partial'});
+  const replaced=await readApplicationQuotaBucketsSources(env.RUNTIME_DB,f.account,f.child,bucketsQuery,own,now);
+  expect(replaced.local!.days[0]!.bucketsSeconds.study).toBe(10);
+  expect(replaced.other).toEqual(details.other);
+  const foreign=await readApplicationQuotaBucketsSources(env.RUNTIME_DB,'foreign-account',f.child,bucketsQuery,own,now);
+  expect(foreign.local!.days[0]).toMatchObject({complete:false,bucketsSeconds:{study:0,composite:0,rest:0}});
+  expect(foreign.otherState).toBe('none');expect(foreign.other).toBeNull();
+});
+it('source details distinguish unknown and none without manufacturing a complete local result',async()=>{
+  const f=await fixture(),own={machineId:f.machine,localUserId:user,assignmentVersion:1};
+  await seedPublished(f,user,20);
+  const unknown=await readApplicationQuotaBucketsSources(env.RUNTIME_DB,f.account,f.child,bucketsQuery,own,now);
+  expect(unknown.otherState).toBe('unknown');expect(unknown.other).toBeNull();
+  expect(unknown.local!.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:20,composite:0,rest:0}});
+  await env.RUNTIME_DB.prepare('DELETE FROM runtime_user_assignments_v2 WHERE machine_id=?1 AND local_user_id=?2')
+    .bind(f.machine,peer).run();
+  const none=await readApplicationQuotaBucketsSources(env.RUNTIME_DB,f.account,f.child,bucketsQuery,own,now);
+  expect(none.otherState).toBe('none');expect(none.other).toBeNull();expect(none.local).toEqual(unknown.local);
+  const absent=await readApplicationQuotaBucketsSources(env.RUNTIME_DB,f.account,f.child,bucketsQuery,
+    {...own,assignmentVersion:3},now);
+  expect(absent.local!.days[0]).toMatchObject({complete:false,bucketsSeconds:{study:0,composite:0,rest:0}});
+  expect(absent.other!.days[0]!.bucketsSeconds.study).toBe(20);
+});
+it('quota partial mode still rejects corrupt row hashes and cross-child manifests',async()=>{
+  const f=await fixture();await seedPublished(f,user,600);
+  const corruptId=await seedPublished(f,peer,200,1,false,{usage:'missing'});
+  await env.RUNTIME_DB.prepare(`UPDATE runtime_application_account_chunks_v1
+    SET rows_json=replace(rows_json,'200','201') WHERE manifest_id=?1`).bind(corruptId).run();
+  await expect(readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now))
+    .rejects.toMatchObject({code:'APPLICATION_STATISTICS_HASH_MISMATCH'});
+  const wrong=await fixture();const id=await seedPublished(wrong,user);
+  const foreign=await fixture();const foreignId=await seedPublished(foreign,user);
+  const manifest=(await env.RUNTIME_DB.prepare('SELECT manifest_json,manifest_hash FROM runtime_application_account_manifests_v1 WHERE id=?1')
+    .bind(foreignId).first<{manifest_json:string;manifest_hash:string}>())!;
+  await env.RUNTIME_DB.prepare('UPDATE runtime_application_account_manifests_v1 SET manifest_json=?2,manifest_hash=?3 WHERE id=?1')
+    .bind(id,manifest.manifest_json,manifest.manifest_hash).run();
+  await expect(readApplicationQuotaBuckets(env.RUNTIME_DB,wrong.account,wrong.child,bucketsQuery,undefined,now))
+    .rejects.toMatchObject({code:'APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH'});
+});
 it('other availability distinguishes no source, unreported source, zero and historical assignment without changing local statistics',async()=>{
   const f=await fixture();
   const q={...bucketsQuery,scope:'other' as const},own={machineId:f.machine,localUserId:user,assignmentVersion:1};
@@ -127,6 +202,108 @@ it('quota bucket web fallback and Service Binding keep authenticated child bound
   expect(await(await routeV2(request(),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now))?.json()).toMatchObject({schemaVersion:2,source:'web'});
   rebind=true;
   await expect(routeV2(request(),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now)).rejects.toMatchObject({status:409});
+});
+it('actual Service Binding keeps legacy aggregate and opt-in source details isolated to current trusted scope',async()=>{
+  const f=await fixture({account:'rpc-account',child:'rpc-child'});
+  await seedPublished(f,user,600);await seedPublished(f,peer,200);
+  const call=(patch:Record<string,unknown>={})=>new Request('https://runtime-capability/getApplicationSourceStatistics',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:f.account,childId:f.child,query:bucketsQuery,...patch})});
+  const aggregate={schemaVersion:2,days:[{bucketsSeconds:{study:800,composite:0,rest:0}}]};
+  const legacy=await(await exports.RuntimeComputerUsageService.fetch(call())).json();
+  expect(legacy).toMatchObject(aggregate);
+  expect(legacy).not.toHaveProperty('snapshot');
+  const noSelector=await(await exports.RuntimeComputerUsageService.fetch(call({includeSources:true}))).json();
+  expect(noSelector).toMatchObject({snapshot:aggregate,applicationSources:null});
+  const applicationScope={applicationSourceKey:await applicationSharedQuotaSourceKey(f.machine,user,1),assignmentVersion:1};
+  const trusted=await(await exports.RuntimeComputerUsageService.fetch(call({includeSources:true,applicationScope}))).json();
+  expect(trusted).toMatchObject({snapshot:aggregate,applicationSources:{
+    local:{days:[{bucketsSeconds:{study:600,composite:0,rest:0}}]},
+    other:{days:[{bucketsSeconds:{study:200,composite:0,rest:0}}]},otherState:'available'}});
+  const foreignFamily=await fixture({account:crypto.randomUUID(),child:f.child});
+  const foreignChild=await fixture({account:f.account,child:crypto.randomUUID()});
+  for(const foreign of [foreignFamily,foreignChild]){
+    const response=await exports.RuntimeComputerUsageService.fetch(call({includeSources:true,applicationScope:{
+      applicationSourceKey:await applicationSharedQuotaSourceKey(foreign.machine,user,1),assignmentVersion:1}}));
+    expect(response.status).toBe(200);expect(await response.json()).toMatchObject({snapshot:aggregate,applicationSources:null});
+  }
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+    (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+    VALUES(?1,?2,2,?3,1,'override',?4,?4)`).bind(f.machine,user,f.child,now).run();
+  expect(await(await exports.RuntimeComputerUsageService.fetch(call({includeSources:true,applicationScope}))).json())
+    .toMatchObject({snapshot:aggregate,applicationSources:null});
+});
+it('actual RPC handler discards attribution after a mid-read rebind while preserving its valid aggregate',async()=>{
+  const f=await fixture({account:'empty-account',child:'empty-child'});
+  await seedPublished(f,user,600);await seedPublished(f,peer,200);
+  let scopeReads=0;
+  const database=new Proxy(env.RUNTIME_DB,{get(target,property){
+    if(property==='prepare')return(sql:string)=>{
+      const statement=target.prepare(sql);
+      if(!sql.includes('ORDER BY a.machine_id,a.local_user_id LIMIT 201'))return statement;
+      return new Proxy(statement,{get(prepared,key){
+        if(key==='bind')return(...values:unknown[])=>{
+          const bound=prepared.bind(...values);
+          return new Proxy(bound,{get(binding,operation){
+            if(operation==='all')return async<T>()=>{
+              scopeReads++;
+              if(scopeReads===2)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+                (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+                VALUES(?1,?2,2,'rebound-child',1,'override',?3,?3)`).bind(f.machine,user,now).run();
+              return binding.all<T>();
+            };
+            const value=Reflect.get(binding,operation);return typeof value==='function'?value.bind(binding):value;
+          }});
+        };
+        const value=Reflect.get(prepared,key);return typeof value==='function'?value.bind(prepared):value;
+      }});
+    };
+    const value=Reflect.get(target,property);return typeof value==='function'?value.bind(target):value;
+  }});
+  const rpc=new RuntimeComputerUsageService({} as ExecutionContext,{...env,RUNTIME_DB:database});
+  const response=await rpc.fetch(new Request('https://runtime-capability/getApplicationSourceStatistics',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:f.account,childId:f.child,query:bucketsQuery,
+      includeSources:true,applicationScope:{applicationSourceKey:await applicationSharedQuotaSourceKey(f.machine,user,1),assignmentVersion:1}})}));
+  expect(scopeReads).toBe(2);expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({snapshot:{days:[{bucketsSeconds:{study:800,composite:0,rest:0}}]},applicationSources:null});
+});
+it('actual RPC handler drops a sidecar read across publication replacement but accepts the stable lower revision',async()=>{
+  const f=await fixture({account:'persistent-account',child:'persistent-child'});
+  await seedPublished(f,user,600);await seedPublished(f,peer,200);
+  let publicationReads=0;
+  const database=new Proxy(env.RUNTIME_DB,{get(target,property){
+    if(property==='prepare')return(sql:string)=>{
+      const statement=target.prepare(sql);
+      if(!sql.includes('snapshot.manifest_json,snapshot.manifest_hash FROM runtime_application_account_publications_v1 p'))return statement;
+      return new Proxy(statement,{get(prepared,key){
+        if(key==='bind')return(...values:unknown[])=>{
+          const bound=prepared.bind(...values);
+          return new Proxy(bound,{get(binding,operation){
+            if(operation==='all')return async<T>()=>{
+              publicationReads++;
+              if(publicationReads===2)await seedPublished(f,user,100,2);
+              return binding.all<T>();
+            };
+            const value=Reflect.get(binding,operation);return typeof value==='function'?value.bind(binding):value;
+          }});
+        };
+        const value=Reflect.get(prepared,key);return typeof value==='function'?value.bind(prepared):value;
+      }});
+    };
+    const value=Reflect.get(target,property);return typeof value==='function'?value.bind(target):value;
+  }});
+  const rpc=new RuntimeComputerUsageService({} as ExecutionContext,{...env,RUNTIME_DB:database});
+  const scope={applicationSourceKey:await applicationSharedQuotaSourceKey(f.machine,user,1),assignmentVersion:1};
+  const call=()=>new Request('https://runtime-capability/getApplicationSourceStatistics',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:f.account,childId:f.child,
+      query:bucketsQuery,includeSources:true,applicationScope:scope})});
+  const raced=await rpc.fetch(call());
+  expect(raced.status).toBe(200);expect(publicationReads).toBe(3);
+  expect(await raced.json()).toMatchObject({snapshot:{days:[{bucketsSeconds:{study:800,composite:0,rest:0}}]},applicationSources:null});
+  const stable=await rpc.fetch(call());
+  expect(stable.status).toBe(200);
+  expect(await stable.json()).toMatchObject({snapshot:{days:[{bucketsSeconds:{study:300,composite:0,rest:0}}]},applicationSources:{
+    local:{days:[{bucketsSeconds:{study:100,composite:0,rest:0}}]},
+    other:{days:[{bucketsSeconds:{study:200,composite:0,rest:0}}]},otherState:'available'}});
 });
 async function seedCapturedFixedPublication(f:Awaited<ReturnType<typeof fixture>>,capture:typeof fixedNativeGenerated|typeof fixedZeroNativeGenerated){
   const {manifest,chunks}=capture,id=crypto.randomUUID(),receivedAt=manifest.generatedAtMs+1000;

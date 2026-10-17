@@ -53,10 +53,13 @@ function load(file,deps={}){
  await assert.rejects(()=>reader.readWebSourceStatistics({DB:db},'account','child',{...query,ownSourceKeys:['invented']},'self',now));
  await assert.rejects(()=>reader.readSourceStatisticsResponse(new Response('x'.repeat(65537))));
  // 实际device入口，身份/范围由既有鉴权解析，重绑期间响应拒绝。
- let identity={profileId:'child',deviceId:'self'},rebind=false,peerReads=0;
+ let identity={profileId:'child',deviceId:'self'},rebind=false,peerReads=0,verifiedScope=null,proofReads=0;
  const router=load('workers/src/routes/device.ts',{
   '../db/middleware':{json:(body,status=200)=>Response.json(body,{status})},
   '@timeonchrome/app-runtime-contracts/source-statistics':contract,
+  '../services/sharedWebSourceBinding':{readApplicationSourceForDevice:async(_env,scope,proof)=>{
+   proofReads++;assert.deepEqual(scope,{accountId:'account',childId:'child',deviceId:'self',deviceToken:'fixture'});
+   return proof?.trusted===true?verifiedScope:null;}},
   '../services/sourceStatistics':{...reader,readWebSourceStatistics:async()=>{peerReads++;if(rebind)identity={profileId:'changed',deviceId:'self'};return all;}},
   './deviceIdentity':{verifyDeviceTokenFromRequest:async request=>request.headers.get('authorization')==='Bearer fixture'?identity:null,
    deviceUnboundResponse:()=>Response.json({code:'DEVICE_UNBOUND'},{status:403})}
@@ -86,7 +89,7 @@ function load(file,deps={}){
  const period=calendar.getBeijingWeekPeriod(date);
  const accounts=[['self',600],['peer',400]].map(([deviceId,n])=>({deviceId,date,complete:true,
    quotaProjection:{activeSeconds:n,byQuotaBucket:[{quotaBucket:'study',durationSeconds:n}],byDomain:[]}}));
- const frozen=JSON.stringify(accounts);let snapshotReads=0,pageReads=0;
+ const frozen=JSON.stringify(accounts);let snapshotReads=0,pageReads=0,inventoryAvailable=true;
  const reused=load('workers/src/services/sourceStatistics.ts',{
   '@timeonchrome/app-runtime-contracts/source-statistics':contract,
   '../../../extension/core/quota-read-model-v2.js':quotaModel,
@@ -96,7 +99,7 @@ function load(file,deps={}){
     assert.equal(child,'child');assert.equal(week,period.weekStart);snapshotReads++;return{id:'existing-snapshot',page_count:2};},
    readProfileAccountSnapshotPageV2:async(_env,child,id,page)=>{
     assert.equal(child,'child');assert.equal(id,'existing-snapshot');pageReads++;
-    return{snapshotId:id,period,asOf:now,completeness:{complete:true,inventoryAvailable:true},deviceAccounts:[accounts[page]]};}
+    return{snapshotId:id,period,asOf:now,completeness:{complete:inventoryAvailable,inventoryAvailable},deviceAccounts:[accounts[page]]};}
   }
  });
  const noSql={DB:{prepare(){throw Error('quota adapter must delegate existing snapshot instead of duplicating SQL');}}};
@@ -106,13 +109,57 @@ function load(file,deps={}){
  assert.equal(bucketRead.days[0].complete,true);assert.equal(snapshotReads,1);assert.equal(pageReads,2);
  const bucketOther=await reused.readWebQuotaBuckets(noSql,'child',{...bucketQuery,scope:'other'},'self',now);
  assert.equal(bucketOther.days[0].bucketsSeconds.study,400);
+ inventoryAvailable=false;
+ const retained=await reused.readWebQuotaBuckets(noSql,'child',bucketQuery,undefined,now);
+ assert.equal(retained.days[0].bucketsSeconds.study,1000,'missing inventory does not erase already published accounts');
+ assert.equal(retained.days[0].complete,false,'coverage remains diagnostic rather than invented');
  assert.equal(JSON.stringify(accounts),frozen,'source snapshot is not modified');
  assert.equal(Object.hasOwn(bucketRead,'includedSourceKeys'),false);assert.equal(Object.hasOwn(bucketRead,'revision'),false);
  const bucketApp={...bucketRead,source:'application'};
+ const wireFixture={synthetic:true,query:{...bucketQuery,source:'application'},expected:{source:'application',childId:'child',fromDate:date,toDate:date},cases:[]};
+ const capture=async(name,response)=>{
+  const body=await response.json();wireFixture.cases.push({name,status:response.status,body});return body;
+ };
  const bucketAppEnv={...env,RUNTIME_COMPUTER_USAGE:{fetch:async request=>{
   const input=await request.json();assert.equal(input.query.schemaVersion,2);assert.equal(input.accountId,'account');
   return Response.json(bucketApp);
  }}};
- assert.deepEqual(await(await router.handle(request({...bucketQuery,source:'application'}),bucketAppEnv)).json(),bucketApp);
+ assert.deepEqual(await capture('old-direct',await router.handle(request({...bucketQuery,source:'application'}),bucketAppEnv)),bucketApp);
+ assert.equal(proofReads,0,'old clients do not request any source proof');
+ let calls=[];
+ const sources={local:{...bucketApp,days:bucketApp.days.map(d=>({...d,bucketsSeconds:{study:600,composite:0,rest:0}}))},
+  other:{...bucketApp,days:bucketApp.days.map(d=>({...d,bucketsSeconds:{study:400,composite:0,rest:0}}))},otherState:'available'};
+ let responseSources=sources,changeAfterRead=false;
+ const withSourcesEnv={...env,RUNTIME_COMPUTER_USAGE:{fetch:async req=>{
+  calls.push(await req.json());if(changeAfterRead)identity={profileId:'changed',deviceId:'self'};
+  return Response.json({snapshot:bucketApp,applicationSources:calls.at(-1).applicationScope?responseSources:null});
+ }}};
+ const optQuery={...bucketQuery,source:'application',includeSources:true};
+ for(const sourceProof of [undefined,{invalid:true},{expired:true}]){
+  const body=await capture(sourceProof?.expired?'expired-proof':sourceProof?'invalid-proof':'missing-proof',
+   await router.handle(request({...optQuery,...(sourceProof?{sourceProof}:{})}),withSourcesEnv));
+  assert.deepEqual(body,{snapshot:bucketApp,applicationSources:null},'missing/bad optional proof preserves aggregate');
+  assert.equal(Object.hasOwn(calls.at(-1),'applicationScope'),false);
+ }
+ verifiedScope={applicationSourceKey:'a'.repeat(64),assignmentVersion:7};
+ assert.deepEqual(await capture('trusted-sources',await router.handle(request({...optQuery,sourceProof:{trusted:true}}),withSourcesEnv)),
+  {snapshot:bucketApp,applicationSources:sources});
+ assert.deepEqual(calls.at(-1),{accountId:'account',childId:'child',query:{...bucketQuery,source:'application'},includeSources:true,
+  applicationScope:verifiedScope},'only verified selector is passed internally');
+ responseSources={...sources,local:{...sources.local,childId:'foreign'}};
+ assert.deepEqual(await capture('foreign-sidecar',await router.handle(request({...optQuery,sourceProof:{trusted:true}}),withSourcesEnv)),
+  {snapshot:bucketApp,applicationSources:null},'foreign optional attribution cannot poison valid all snapshot');
+ const callsBefore=calls.length;
+ assert.equal((await router.handle(request({...optQuery,applicationSourceKey:'caller'}),withSourcesEnv)).status,400);
+ assert.equal((await router.handle(request({...bucketQuery,includeSources:true}),withSourcesEnv)).status,400);
+ assert.equal(calls.length,callsBefore,'caller cannot inject source identity or enable split for web');
+ changeAfterRead=true;
+ const rebound=await router.handle(request({...optQuery,sourceProof:{trusted:true}}),withSourcesEnv);
+ assert.equal(rebound.status,409);await capture('rebound',rebound);
+ if(process.env.EMIT_CLOUD_QUOTA_WIRE==='1'){
+  const output=path.join(root,'.tmp','quota-cloud-wire-1.57.json');
+  fs.mkdirSync(path.dirname(output),{recursive:true});fs.writeFileSync(output,JSON.stringify(wireFixture,null,2)+'\n');
+  console.log('synthetic HTTP wire fixture:',output);
+ }
  console.log('source-statistics cloud PASS: actual V2 projection/correction, domain/own exclusion, decrease, unknown, bounded response, auth/rebind; original accounting untouched');
 })().catch(error=>{console.error(error);process.exitCode=1;});

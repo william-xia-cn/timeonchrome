@@ -2456,3 +2456,10 @@ OpenCode 在执行 Popup P0 UI 任务时，出现“等价替代 / 自行简化 
 # V2上传有界等待与分阶段失败汇总（2026-10-17，PO批准包A/B）
 
 cloudRequest沿用原每次请求超时和重试策略，将fetch及既有正文读取纳入同一取消/超时边界，成功收包或异常退出均清理计时器与取消监听；迟到响应不能返回ACK。正常账本、载荷、服务端接口、ACK判定、pending和水位均不变。同步结果保留V1和V2阶段子结果，V2上传/对账请求/快照下行错误进入总失败摘要，不将接收成功视为发布完成、不将审计pending视为网络失败。V1退避仍仅依据V1错误和失败数处理，V2沿用原重试入口。本包不修历史、辅助贡献恢复或独立日志调度，不修改当前加载包或发布。
+## 2026-10-17 云端备用确认账与兼容来源分项
+
+仅修改读取与传输适配。网页沿用V2已发布deviceAccounts及其原hash；分页TTL不删除终端同范围已验证确认账，未知来源增量为0，完整性只用于诊断。没有已确认来源不能据缺字段伪造权威完整零。应用沿用持久秒统计读取器；配额读取保留可读来源的非特殊分类桶，其他来源缺分类不清空这些已知桶，普通统计调用保持原行为。
+
+原`/device/source-statistics`业务query不变。schema2/application/all可附`includeSources:true`和可选`sourceProof`（既有shared-web-source:v2签名证明）；transport字段先剥离，再严格验证业务query。无flag保持直接QuotaBucketsSnapshot；有flag返回`{snapshot,applicationSources}`，其中snapshot为原严格快照，applicationSources复用QuotaBucketsSources或null。无／失效证明只丢分项，不影响合法合计；坏分项也不能让有效合计被客户端拒绝。
+
+Guardian复用现有专用签名及browser/deviceToken绑定核验，内部Service Binding只传验证后的applicationSourceKey／assignmentVersion；Runtime在当前家庭／孩子分配内解析精确machine/user/assignment，再分别委托原读取器，不从合计相减或由客户端自报key授权。云端本机分项只作核对，消费合计与分项不可叠加。三次读取之间发布头可更新；附加分项前核对逐日三个桶与已选合计的解释一致性，不一致只丢可选分项，合计照常返回，不等待版本匹配或阻断统计。旧机器端点／Host／1.56契约保持兼容；本轮集中追加1.57的可选transport解包定义，不重建1.56包，不新建DB或证明协议。
