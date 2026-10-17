@@ -18,11 +18,13 @@ vm.runInNewContext(ts.transpileModule(source, {
 })[name], crypto: { randomUUID: () => 'test-token' } });
 
 function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = false,
-  evidenceFails = false, diagnosticFails = false, dismissFails = false } = {}) {
+  evidenceFails = false, diagnosticFails = false, dismissFails = false,
+  accountingFails = false, recheckThrows = false, grantThrows = false, evidenceThrows = false } = {}) {
   const diagnostics = [];
   const values = {}, messages = [], blocks = [], grants = [], alarms = [], evidence = [], closures = [];
   let clock = 1000;
   let closeFails = false;
+  let readFails = false, writeFails = false;
   const admission = { ok: true, action: 'confirm', reasons: ['dailyComposite'],
     identityKey: JSON.stringify(['profile-a', 'device-a']), dateKey: '2026-10-15',
     ruleKey: 'wiki-rule', presentation: { kind: 'entry', quotas: [{ id: 'dailyComposite', usedSeconds: 5400, limitSeconds: 5400 }] } };
@@ -35,19 +37,35 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
     if (payload.type === 'DISMISS_REST_USAGE_REMINDER') return dismissFails ? null : { ok: true, visible: false };
     return { ok: true };
   } }, alarms: { create: async (name, value) => alarms.push([name, value]), clear: async () => true } };
-  const storage = { get: async key => ({ [key]: values[key] }), set: async next => Object.assign(values, next) };
+  const storage = { get: async key => {
+    if (readFails) throw new Error('storage unavailable');
+    return { [key]: values[key] };
+  }, set: async next => {
+    if (writeFails) throw new Error('storage unavailable');
+    return Object.assign(values, next);
+  } };
   const runtime = moduleExports.createForcedUsePromptRuntime({ api, storage, now: () => clock,
     diagnostic: (kind, details) => {
       if (diagnosticFails) throw new Error('diagnostic unavailable');
       diagnostics.push({ kind, details });
     },
-    recheck: async prompt => hardAtConfirm ? { action: 'block' } : prompt.admission,
-    onAccepted: async (prompt, state) => { grants.push([prompt, state]); return { ok: !grantFails }; },
-    persistGrant: async grant => { evidence.push(grant); return { ok: !evidenceFails }; },
+    recheck: async prompt => {
+      if (recheckThrows) throw new Error('accounting unavailable');
+      return hardAtConfirm ? { action: 'block' } : accountingFails ? { accountingUnavailable: true } : prompt.admission;
+    },
+    onAccepted: async (prompt, state) => {
+      if (grantThrows) throw new Error('grant unavailable');
+      grants.push([prompt, state]); return { ok: !grantFails };
+    },
+    persistGrant: async grant => {
+      if (evidenceThrows) throw new Error('grant unavailable');
+      evidence.push(grant); return { ok: !evidenceFails };
+    },
     closeGrants: async (host, endedAt) => { closures.push([host, endedAt]); return { ok: !closeFails }; },
     block: async (prompt, reason) => { blocks.push([prompt, reason]); return { ok: true }; } });
   return { runtime, admission, values, messages, blocks, grants, alarms, evidence, closures, diagnostics,
-    setClock: value => { clock = value; }, setCloseFailure: value => { closeFails = value; } };
+    setClock: value => { clock = value; }, setCloseFailure: value => { closeFails = value; },
+    setStorageFailure: (read, write) => { readFails = read; writeFails = write; } };
 }
 
 (async () => {
@@ -130,6 +148,14 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
     admission: failedDelivery.admission })).error, 'forced_use_delivery_failed');
   assert.equal(failedDelivery.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt, null);
   assert.equal(failedDelivery.alarms.length, 0);
+  for (const failRead of [false, true]) {
+    const startupFault = fixture();
+    startupFault.setStorageFailure(failRead, !failRead);
+    assert.equal((await startupFault.runtime.request({ tabId: 7, host: 'wiki.example',
+      admission: startupFault.admission })).accountingUnavailable, true);
+    assert.equal(startupFault.blocks.length, 0);
+    assert.equal(startupFault.alarms.length, 0);
+  }
 
   const hard = fixture({ hardAtConfirm: true });
   await hard.runtime.request({ tabId: 7, host: 'wiki.example', admission: hard.admission });
@@ -142,16 +168,54 @@ function fixture({ deliveryFails = false, hardAtConfirm = false, grantFails = fa
   const rejectedGrant = fixture({ grantFails: true });
   await rejectedGrant.runtime.request({ tabId: 7, host: 'wiki.example', admission: rejectedGrant.admission });
   assert.equal((await rejectedGrant.runtime.handleAction({ token: 'test-token', action: 'continue', confirmationText: '强行使用' },
-    { tab: { id: 7 }, frameId: 0 })).error, 'forced_use_grant_failed');
-  assert.notEqual(rejectedGrant.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt, null);
+    { tab: { id: 7 }, frameId: 0 })).accountingUnavailable, true);
+  assert.equal(rejectedGrant.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt, null);
 
   const rejectedEvidence = fixture({ evidenceFails: true });
   await rejectedEvidence.runtime.request({ tabId: 7, host: 'wiki.example', admission: rejectedEvidence.admission });
   assert.equal((await rejectedEvidence.runtime.handleAction({ token: 'test-token', action: 'continue',
-    confirmationText: '强行使用' }, { tab: { id: 7 }, frameId: 0 })).error,
-  'forced_use_grant_evidence_failed');
-  assert.notEqual(rejectedEvidence.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt, null);
-  assert.equal(rejectedEvidence.messages.some(([, payload]) => payload.type === 'RESUME_REST_USAGE_MEDIA'), false);
+    confirmationText: '强行使用' }, { tab: { id: 7 }, frameId: 0 })).accountingUnavailable, true);
+  assert.equal(rejectedEvidence.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt, null);
+  assert.equal(rejectedEvidence.values[moduleExports.FORCED_USE_PROMPT_KEY].progress.acknowledged, true,
+    'remember actual user confirmation even when durable evidence is unavailable');
+  assert.equal(rejectedEvidence.values[moduleExports.FORCED_USE_PROMPT_KEY].grants, undefined,
+    'failed durable evidence must not be represented as a successful grant');
+  assert.equal(rejectedEvidence.messages.some(([, payload]) => payload.type === 'RESUME_REST_USAGE_MEDIA'), true);
+
+  for (const options of [{ accountingFails: true }, { recheckThrows: true },
+    { grantThrows: true }, { evidenceThrows: true }, { grantFails: true }, { evidenceFails: true },
+    { storageRead: true }, { storageWrite: true }]) {
+    const fault = fixture(options);
+    await fault.runtime.request({ tabId: 7, host: 'wiki.example', admission: fault.admission });
+    fault.setStorageFailure(!!options.storageRead, !!options.storageWrite);
+    const result = await fault.runtime.handleAction({ token: 'test-token', action: 'continue',
+      confirmationText: '强行使用' }, { tab: { id: 7 }, frameId: 0 });
+    assert.equal(result.accountingUnavailable, true, JSON.stringify(options));
+    assert.equal(fault.blocks.length, 0);
+    if (options.storageRead) assert.notEqual(fault.values[moduleExports.FORCED_USE_PROMPT_KEY].prompt, null,
+      'unreadable storage must not be overwritten using a partial fallback state');
+    assert(fault.messages.some(([, row]) => row.type === 'RESUME_REST_USAGE_MEDIA'));
+    fault.setClock(61000);
+    await fault.runtime.checkDeadline();
+    assert.equal(fault.blocks.length, 0, 'fault cleanup must not become a later timeout block');
+  }
+  for (const options of [{ accountingFails: true }, { recheckThrows: true }, { closeFails: true },
+    { storageRead: true }, { storageWrite: true }]) {
+    const fault = fixture(options);
+    await fault.runtime.request({ tabId: 7, host: 'wiki.example', admission: fault.admission });
+    fault.setCloseFailure(!!options.closeFails);
+    fault.setStorageFailure(!!options.storageRead, !!options.storageWrite);
+    fault.setClock(61000);
+    assert.equal((await fault.runtime.checkDeadline()).accountingUnavailable, true);
+    assert.equal(fault.blocks.length, 0);
+    assert(fault.messages.some(([, row]) => row.type === 'RESUME_REST_USAGE_MEDIA'));
+  }
+  const independent = fixture({ hardAtConfirm: true, accountingFails: true });
+  await independent.runtime.request({ tabId: 7, host: 'wiki.example', admission: independent.admission });
+  independent.setCloseFailure(true);
+  independent.setClock(61000);
+  await independent.runtime.checkDeadline();
+  assert.equal(independent.blocks.length, 1, 'independent hard restriction survives auxiliary storage failure');
 
   const rejectedClose = fixture();
   await rejectedClose.runtime.request({ tabId: 7, host: 'wiki.example', admission: rejectedClose.admission });

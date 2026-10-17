@@ -18,7 +18,7 @@ export function prepareSharedForcedUseAdmission({ config, usage, dateKey, domain
   restrictedEntry = false, confirmed = false } = {}) {
   const policy = readForcedUsePolicy(config);
   if (!policy.enabled) return { ok: false, action: 'block', reasons: ['shared_forced_use_policy_unavailable'] };
-  const applicable = hasApplicableSharedQuota(config, quotaBucket, domain, dateKey);
+  const applicable = classification !== 'study' && hasApplicableSharedQuota(config, quotaBucket, domain, dateKey);
   const facts = applicable
     ? buildForcedUseQuotaFacts(config, usage, policy, { date: dateKey, domain, quotaBucket, allowIncomplete: true })
     : { ok: true, quotas: [] };

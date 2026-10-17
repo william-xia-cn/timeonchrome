@@ -91,12 +91,11 @@ export async function recordSyncHealth({ failed = false } = {}) {
   finally { healthBusy = false; }
 }
 
-export async function recordQuotaDenial({ auditId, reason, config, decisionUsage = null }) {
+export async function recordQuotaDenial({ auditId, evaluationId = null, reason, config, decisionUsage = null, evaluation = null }) {
   if (denialBusy) { noteClientLogLoss(); return; }
   denialBusy = true;
   try {
     const at = Date.now(), calendar = getQuotaCalendarContext(at);
-    const evaluation = lastQuotaEvaluation;
     const decisionLocks = states(config?.quotaState);
     const quota = getEffectiveQuotaForDate(config, calendar.date).todayEffectiveQuota;
     const daily = await chrome.storage.local.get('daily_usage_stats_v1').catch(() => null);
@@ -107,7 +106,9 @@ export async function recordQuotaDenial({ auditId, reason, config, decisionUsage
         dayRestLimitMinutes: quota.restMinutes, weekRestLimitMinutes: quota.weeklyRestMinutes,
         dayCompositeLimitMinutes: quota.compositeMinutes, dayStudyLimitMinutes: quota.studyMinutes, dayOnlineLimitMinutes: quota.onlineMinutes,
         decisionLocks, decisionUsage: usageFields(decisionUsage),
-        ...(evaluation || { evaluatedAt: null }),
+        evaluationId, evaluatedAt: evaluation?.evaluatedAt ?? null,
+        evaluatedUsage: usageFields(evaluation?.usage),
+        evaluationReadStatus: evaluation?.bucketReadStatus || 'not_executed',
         bucketReadAt: Date.now(), bucketReadStatus: daily ? 'ok' : 'unknown', days,
       } });
   } catch (_) { /* Diagnostics cannot affect access decisions. */ }

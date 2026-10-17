@@ -45,6 +45,12 @@ vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
   assert.equal(diagnostics.at(-1)[1].confirmationPending, true);
   assert.match(diagnostics.at(-1)[1].auditId, /^access-/);
   assert.equal(calls.length, 0);
+  const unavailablePrompt = await moduleExports.executeModeDecision({ access: 'forced_confirmation',
+    domain: 'wiki.example', forcedAdmission: admission }, { tabId: 8, event,
+    requestForcedUsePrompt: async () => ({ ok: true, accountingUnavailable: true }) });
+  assert.equal(unavailablePrompt.blocked, false);
+  assert.equal(unavailablePrompt.confirmationPending, undefined);
+  assert.equal(calls.length, 0, 'prompt storage failure must not become delivery-failure blocking');
   const missing = await moduleExports.executeModeDecision({ access: 'forced_confirmation',
     domain: 'wiki.example', forcedAdmission: admission }, { tabId: 8, event });
   assert.equal(missing.blocked, true);
@@ -62,12 +68,15 @@ vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
   const unclosed = await moduleExports.executeModeDecision({ access: 'allow', domain: 'wiki.example',
     forcedAdmission: { ok: true, action: 'allow', reasons: [] } }, { tabId: 8, event,
     retireForcedUseGrants: async () => ({ ok: false }) });
-  assert.equal(unclosed.blocked, true);
-  assert.equal(calls.at(-1)[2], 'accounting_unavailable');
+  assert.equal(unclosed.blocked, false);
+  assert.equal(unclosed.reminderSent, false);
+  assert.equal(diagnostics.at(-1)[0], 'accounting');
+  assert.equal(diagnostics.at(-1)[1].phase, 'grant_close');
   const denied = await moduleExports.executeModeDecision({ access: 'allow', domain: 'wiki.example',
     forcedAdmission: { ...admission, action: 'allow' } }, { tabId: 8, event,
     ensureForcedUseGrant: async () => ({ ok: false }) });
-  assert.equal(denied.blocked, true);
-  assert.equal(calls.at(-1)[2], 'accounting_unavailable');
+  assert.equal(denied.blocked, false);
+  assert.equal(denied.reminderSent, false);
+  assert.equal(diagnostics.at(-1)[1].phase, 'grant_open');
   console.log('forced-use-mode-effects: passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
