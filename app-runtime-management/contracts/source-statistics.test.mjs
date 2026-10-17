@@ -83,3 +83,27 @@ assert.throws(()=>bucketsContract.validateQuotaBucketsSnapshot({...qbApp,duratio
 assert.throws(()=>bucketsContract.validateQuotaBucketsQuery({schemaVersion:2,source:'application',scope:'all',fromDate:date,toDate:date,ownSourceKeys:['invented']}));
 assert.throws(()=>bucketsContract.validateQuotaBucketsSnapshot({...qbApp,days:[{...qbApp.days[0],bucketsSeconds:{study:0.5,composite:0,rest:0}}]},expected));
 console.log('quota-buckets: direct buckets/1200s/missing-as-zero/decrease/no-reborrowing/child-scope/minimal-wire PASS');
+
+// 来源说明只解释已存在读数；other未知不得污染本机完整性。
+const sources = { local: qbApp, other: null, otherState: 'unknown' };
+assert.equal(bucketsContract.validateQuotaBucketsSources(sources, expected), sources);
+assert.equal(sources.local.days[0].complete, true);
+assert.equal(bucketsContract.validateQuotaBucketsSources({ ...sources, otherState: 'none' }, expected).other, null);
+assert.equal(bucketsContract.validateQuotaBucketsSources({ ...sources, local: null }, expected).local, null);
+const otherZero = quotaBuckets('application', 0);
+otherZero.days[0].bucketsSeconds = { study: 0, composite: 0, rest: 0 };
+assert.equal(bucketsContract.validateQuotaBucketsSources({ ...sources, other: otherZero, otherState: 'available' }, expected).other, otherZero);
+const otherPartial = structuredClone(otherZero);
+otherPartial.days[0].complete = false; otherPartial.days[0].reasonCodes = ['SOURCE_PARTIAL'];
+assert.equal(bucketsContract.validateQuotaBucketsSources({ ...sources, other: otherPartial, otherState: 'available' }, expected).local.days[0].complete, true);
+for (const invalid of [
+  { ...sources, otherState: 'available' }, { ...sources, other: qbApp },
+  { ...sources, otherState: 'none', other: otherZero }, { ...sources, otherState: 'missing' },
+  { ...sources, local: { ...qbApp, childId: 'foreign-child' } },
+  { ...sources, local: { ...qbApp, source: 'web' } },
+  { ...sources, local: { ...qbApp, fromDate: '2026-10-01' } },
+  { ...sources, redundantTotal: 600 },
+]) assert.throws(() => bucketsContract.validateQuotaBucketsSources(invalid, expected));
+assert.equal(bucketsContract.QUOTA_BUCKETS_EXCHANGE_MESSAGE, 'exchangeQuotaBuckets');
+assert.equal(bucketsContract.QUOTA_BUCKETS_SOURCES_CAPABILITY, 'quota-buckets-sources-v1');
+console.log('quota-buckets sources: local independent/none vs zero/partial/child-range isolation/strict additive shape PASS');

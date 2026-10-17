@@ -3,6 +3,9 @@ export const SOURCE_STATISTICS_READ_CAPABILITY = 'source-statistics-read-v1' as 
 export const SOURCE_STATISTICS_EXCHANGE_MESSAGE = 'exchangeSourceStatistics' as const;
 export const QUOTA_BUCKETS_READ_CAPABILITY = 'quota-buckets-read-v1' as const;
 export const QUOTA_BUCKETS_EXCHANGE_MESSAGE = 'exchangeQuotaBuckets' as const;
+/** 既有交换的可选来源说明；不改变合计快照或新增请求。 */
+export const QUOTA_BUCKETS_SOURCES_CAPABILITY = 'quota-buckets-sources-v1' as const;
+export const APPLICATION_QUOTA_SOURCE_STATE_HEADER = 'X-Application-Quota-Source-State' as const;
 export type QuotaBucketsSeconds = Readonly<Record<'study' | 'composite' | 'rest', number>>;
 export interface QuotaBucketsDay {
   date: string; bucketsSeconds: QuotaBucketsSeconds; settledThroughMs: number | null;
@@ -11,6 +14,25 @@ export interface QuotaBucketsDay {
 export interface QuotaBucketsSnapshot {
   schemaVersion: 2; durationUnit: 'seconds'; source: 'web' | 'application'; childId: string;
   fromDate: string; toDate: string; readAtMs: number; days: readonly QuotaBucketsDay[];
+}
+export interface QuotaBucketsSources {
+  local: QuotaBucketsSnapshot | null;
+  other: QuotaBucketsSnapshot | null;
+  /** none仅由云端权威来源范围确认；available不代表快照一定完整。 */
+  otherState: 'none' | 'available' | 'unknown';
+}
+
+export function validateQuotaBucketsSources(value: unknown, expected: {
+  childId: string; fromDate: string; toDate: string;
+}): QuotaBucketsSources {
+  const sources = record(value); keys(sources, ['local', 'other', 'otherState']);
+  if (!['none', 'available', 'unknown'].includes(String(sources.otherState))
+    || (sources.otherState === 'available') !== (sources.other !== null)) fail();
+  sourceStatisticsDates(expected.fromDate, expected.toDate);
+  for (const snapshot of [sources.local, sources.other]) {
+    if (snapshot !== null) validateQuotaBucketsSnapshot(snapshot, { source: 'application', ...expected });
+  }
+  return value as QuotaBucketsSources;
 }
 export interface QuotaBucketsQuery {
   schemaVersion: 2; source: 'web' | 'application'; fromDate: string; toDate: string; scope: 'all' | 'other';
