@@ -78,7 +78,10 @@ export async function verifyDeviceToken(
   const device = await readDeviceWithStatus(env, token, !!options.includeDeviceName);
   if (!device) return null;
   if (device.unbound) return device;
-  if (options.updateLastSeen) await refreshLastSeen(env, token);
+  if (options.updateLastSeen) {
+    try { await refreshLastSeen(env, token); }
+    catch { console.warn('DEVICE_LAST_SEEN_UPDATE_FAILED'); }
+  }
   return device;
 }
 

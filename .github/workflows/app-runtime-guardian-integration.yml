@@ -65,3 +65,6 @@ jobs:
       - run: node tests/unit/shared-web-contributions-cloud.test.js
       - run: node tests/unit/computer-usage-cloud.test.js
       - run: node tests/unit/source-statistics-cloud.test.js
+      - run: node tests/unit/cloud-fault-tolerance.test.js
+      - run: node tests/unit/web-cloud-fault-tolerance.test.js
+      - run: node tests/unit/profile-account-v2-worker-contract.test.js

@@ -15,9 +15,19 @@ export async function readApplicationQuotaBuckets(db:D1Database,accountId:string
   ownSource?:ApplicationQuotaSource,now=Date.now(),options:ApplicationQuotaReadOptions={}):Promise<QuotaBucketsSnapshot>{
   if(query.source!=='application'||query.scope==='other'&&!ownSource)throw new HttpError(400,'SOURCE_STATISTICS_INVALID','配额读取范围无效。');
   const days:QuotaBucketsSnapshot['days'][number][]=[];
+  let failedDays=0;let firstFailure:unknown;
   for(const date of sourceStatisticsDates(query.fromDate,query.toDate)){
-    const value=await readNativeApplicationStatisticsSeconds(db,accountId,childId,date,
+    let value:Awaited<ReturnType<typeof readNativeApplicationStatisticsSeconds>>;
+    try { value=await readNativeApplicationStatisticsSeconds(db,accountId,childId,date,
       {quotaRead:true,...(query.scope==='other'?{excludeSources:[ownSource!]}:{}),...options});
+    } catch(error) {
+      if(error instanceof HttpError&&(/CHILD_SCOPE_MISMATCH$/.test(error.code)
+        ||/_(SOURCE_LIMIT|ROW_LIMIT|DURATION_OVERFLOW)$/.test(error.code)))throw error;
+      failedDays++;firstFailure??=error;
+      days.push({date,bucketsSeconds:{study:0,composite:0,rest:0},settledThroughMs:null,complete:false,
+        reasonCodes:[error instanceof HttpError?error.code:'APPLICATION_STATISTICS_SOURCE_UNAVAILABLE']});
+      continue;
+    }
     const usage=value?.applicationUsage;
     const reasons=[...new Set([...(value?.reasonCodes??[]),...(usage?.reasonCodes??[]),
       ...(!value?['APPLICATION_STATISTICS_NOT_AVAILABLE']:[]),
@@ -28,36 +38,17 @@ export async function readApplicationQuotaBuckets(db:D1Database,accountId:string
         ?Math.min(...value.references.map(ref=>ref.settledThroughMs!)):null,
       complete:reasons.length===0,reasonCodes:reasons});
   }
+  if(failedDays===days.length)throw firstFailure;
   return validateQuotaBucketsSnapshot({schemaVersion:2,durationUnit:'seconds',source:'application',childId,
     fromDate:query.fromDate,toDate:query.toDate,readAtMs:now,days},
     {source:'application',childId,fromDate:query.fromDate,toDate:query.toDate});
 }
 
-/** 来源状态只说明查询范围；不因没有已发布统计就断言没有其他设备。 */
+/** 成功读取的空统计仍可用；登记分配不是每天必须上报零账的证明要求。 */
 export async function readApplicationQuotaBucketsWithState(db:D1Database,accountId:string,childId:string,query:QuotaBucketsQuery,
   ownSource?:ApplicationQuotaSource,now=Date.now(),options:ApplicationQuotaReadOptions={}) {
   const snapshot=await readApplicationQuotaBuckets(db,accountId,childId,query,ownSource,now,options);
-  if(snapshot.days.some(day=>!day.reasonCodes.includes('APPLICATION_STATISTICS_NOT_AVAILABLE')))
-    return {snapshot,sourceState:'available' as const};
-  if(query.scope!=='other'||!ownSource)return {snapshot,sourceState:'unknown' as const};
-  const begin=Date.parse(query.fromDate+'T00:00:00+08:00'),end=Date.parse(query.toDate+'T00:00:00+08:00')+86400000;
-  // 保留所选期间适用的历史分配；仅排除范围开始前已经结束的分配。不读取原始用量。
-  const other=await db.prepare(`SELECT 1 AS present FROM runtime_user_assignments_v2 a
-      JOIN runtime_machines_v2 m ON m.id=a.machine_id
-      WHERE m.account_id=?1 AND a.child_id=?2 AND a.effective_at_ms<?8
-        AND NOT(a.machine_id=?3 AND a.local_user_id=?4 AND a.assignment_version=?5)
-        AND NOT EXISTS(SELECT 1 FROM runtime_user_assignments_v2 n WHERE n.machine_id=a.machine_id
-          AND n.local_user_id=a.local_user_id AND n.assignment_version>a.assignment_version AND n.effective_at_ms<=?9)
-    UNION ALL SELECT 1 AS present FROM runtime_application_account_publications_v1 p
-      JOIN runtime_machines_v2 m ON m.id=p.machine_id
-      WHERE p.account_id=?1 AND m.account_id=?1 AND p.child_id=?2 AND p.date>=?6 AND p.date<=?7
-        AND NOT(p.machine_id=?3 AND p.local_user_id=?4 AND p.assignment_version=?5)
-    LIMIT 1`).bind(accountId,childId,ownSource.machineId,ownSource.localUserId,ownSource.assignmentVersion,
-      query.fromDate,query.toDate,end,begin).first<{present:number}>();
-  if(other)return {snapshot,sourceState:'unknown' as const};
-  return {sourceState:'none' as const,snapshot:validateQuotaBucketsSnapshot({...snapshot,days:snapshot.days.map(day=>({
-    ...day,bucketsSeconds:{study:0,composite:0,rest:0},complete:true,reasonCodes:[],settledThroughMs:null}))},
-    {source:'application',childId,fromDate:query.fromDate,toDate:query.toDate})};
+  return {snapshot,sourceState:'available' as const};
 }
 
 /** 本机云账仅供核对；两个分项各自读取，不用合计减其他来源反拆。 */

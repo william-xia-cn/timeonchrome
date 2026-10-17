@@ -284,7 +284,13 @@ export const deviceRouter = {
         const expected={source:query.source,childId:identity.profileId,fromDate:query.fromDate,toDate:query.toDate};
         return json(transport?.includeSources?readQuotaBucketsCloudResponse(value,expected)
           :buckets?validateQuotaBucketsSnapshot(value,expected):validateSourceStatisticsSnapshot(value,expected));
-      }catch(error){const code=error instanceof Error&&error.message==='SOURCE_STATISTICS_INVALID'?'SOURCE_STATISTICS_INVALID':'SOURCE_STATISTICS_UNAVAILABLE';return json({code},code==='SOURCE_STATISTICS_INVALID'?400:503);}
+      }catch(error){
+        const failure=error as {code?:unknown;status?:number;message?:string};
+        const candidate=failure?.code??failure?.message;
+        const code=typeof candidate==='string'&&/^(APPLICATION_[A-Z0-9_]{1,80}|SOURCE_STATISTICS_[A-Z0-9_]{1,70}|CHILD_NOT_FOUND)$/.test(candidate)
+          ?candidate:'SOURCE_STATISTICS_UNAVAILABLE';
+        return json({code},code==='SOURCE_STATISTICS_INVALID'?400:[400,404,409,413,429,503].includes(failure?.status??0)?failure.status:503);
+      }
     }
 
     // POST /device/bind - 绑定设备（需要 account_token）

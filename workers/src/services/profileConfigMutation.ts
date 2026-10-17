@@ -42,7 +42,7 @@ export async function mutateProfileConfig(
     ).bind(after, nextVersion, now, options.profileId, currentVersion).run();
     if (Number((update as any)?.meta?.changes || 0) !== 1) continue;
 
-    await env.DB.prepare(
+    try { await env.DB.prepare(
       `UPDATE profile_config_history_v1
           SET updated_by_account_id = ?, source_action = ?, request_id = ?
         WHERE profile_id = ? AND version = ?`
@@ -52,7 +52,10 @@ export async function mutateProfileConfig(
       options.requestId?.slice(0, 128) || null,
       options.profileId,
       nextVersion,
-    ).run();
+    ).run(); } catch {
+      // 配置UPDATE及触发器历史已成功；辅助来源注释失败不能谎报主操作失败。
+      console.warn('PROFILE_CONFIG_HISTORY_ANNOTATION_FAILED');
+    }
     return { config, version: nextVersion, changed: true };
   }
   throw new ProfileConfigVersionConflictError();

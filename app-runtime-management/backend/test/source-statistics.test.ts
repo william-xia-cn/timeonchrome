@@ -2,7 +2,7 @@ import {env,exports} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
 import {createUsageAccount,createUsageAccountV2,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
 import {readApplicationSourceStatistics,readApplicationQuotaBuckets,readApplicationQuotaBucketsWithState,readApplicationQuotaBucketsSources} from '../src/sourceStatistics';
-import {readNativeApplicationStatisticsSeconds} from '../src/applicationStatisticsNative';
+import {readNativeApplicationStatisticsSeconds,readNativeApplicationStatisticsRangeSeconds} from '../src/applicationStatisticsNative';
 import {applicationSharedQuotaSourceKey} from '../src/applicationSharedQuota';
 import {sha256Hex} from '../src/crypto';
 import {routeV2} from '../src/v2Routes';
@@ -49,11 +49,33 @@ async function seedPublished(f:Awaited<ReturnType<typeof fixture>>,local:string,
 }
 const query={source:'application' as const,scope:'all' as const,fromDate:date,toDate:date};
 const bucketsQuery={schemaVersion:2 as const,...query};
+it('range keeps 600 confirmed seconds when the next day has no records; repeated reads and decreases replace',async()=>{
+  const f=await fixture();await seedPublished(f,user,600);
+  const read=()=>readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.account,f.child,start,start+2*86400000);
+  const first=await read();
+  expect(first).toMatchObject({complete:true,totalDuration:600,availableTotalDuration:600});
+  expect(first.applicationUsage!.nonSpecialTotal).toBe(600);
+  expect(first.days[1]).toMatchObject({complete:true,totalDuration:0,reasonCodes:[],settledThroughMs:null});
+  expect(await read()).toEqual(first);
+  await seedPublished(f,user,100,2);
+  expect((await read()).applicationUsage!.nonSpecialTotal).toBe(100);
+});
+it('a sole damaged application source still fails instead of manufacturing a complete zero',async()=>{
+  const f=await fixture();const id=await seedPublished(f,user,600);
+  await env.RUNTIME_DB.prepare('DELETE FROM runtime_application_account_chunks_v1 WHERE manifest_id=?1').bind(id).run();
+  await expect(readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now))
+    .rejects.toMatchObject({code:'APPLICATION_STATISTICS_CHUNKS_MISSING'});
+  const range=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.account,f.child,start-86400000,start+86400000);
+  expect(range.days[1]).toMatchObject({complete:false,totalDuration:null,reasonCodes:['APPLICATION_STATISTICS_CHUNKS_MISSING']});
+  const buckets=await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,{...bucketsQuery,fromDate:'2026-10-06'},undefined,now);
+  expect(buckets.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:0,composite:0,rest:0}});
+  expect(buckets.days[1]).toMatchObject({complete:false,reasonCodes:['APPLICATION_STATISTICS_CHUNKS_MISSING']});
+});
 it('quota-only partial reading retains confirmed buckets when another source lacks classification or uses legacy units',async()=>{
   for(const missing of ['missing','legacy'] as const){
     const f=await fixture();await seedPublished(f,user,600);await seedPublished(f,peer,200,1,false,{usage:missing});
     const ordinaryBefore=await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.account,f.child,date);
-    expect(ordinaryBefore!.applicationUsage).toBeNull();
+    expect(ordinaryBefore!.applicationUsage!.nonSpecialTotal).toBe(600);
     const buckets=await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now);
     expect(buckets.days[0]).toMatchObject({bucketsSeconds:{study:600,composite:0,rest:0},complete:false});
     expect(buckets.days[0]!.reasonCodes).toContain('APPLICATION_QUOTA_USAGE_INCOMPLETE');
@@ -85,31 +107,32 @@ it('source details read exact self and preserve same-machine users and assignmen
   expect(replaced.local!.days[0]!.bucketsSeconds.study).toBe(10);
   expect(replaced.other).toEqual(details.other);
   const foreign=await readApplicationQuotaBucketsSources(env.RUNTIME_DB,'foreign-account',f.child,bucketsQuery,own,now);
-  expect(foreign.local!.days[0]).toMatchObject({complete:false,bucketsSeconds:{study:0,composite:0,rest:0}});
-  expect(foreign.otherState).toBe('none');expect(foreign.other).toBeNull();
+  expect(foreign.local!.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:0,composite:0,rest:0}});
+  expect(foreign.otherState).toBe('available');expect(foreign.other!.days[0].bucketsSeconds.study).toBe(0);
 });
-it('source details distinguish unknown and none without manufacturing a complete local result',async()=>{
+it('successful empty source reads are zero without a daily upload requirement',async()=>{
   const f=await fixture(),own={machineId:f.machine,localUserId:user,assignmentVersion:1};
   await seedPublished(f,user,20);
   const unknown=await readApplicationQuotaBucketsSources(env.RUNTIME_DB,f.account,f.child,bucketsQuery,own,now);
-  expect(unknown.otherState).toBe('unknown');expect(unknown.other).toBeNull();
+  expect(unknown.otherState).toBe('available');expect(unknown.other!.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:0,composite:0,rest:0}});
   expect(unknown.local!.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:20,composite:0,rest:0}});
   await env.RUNTIME_DB.prepare('DELETE FROM runtime_user_assignments_v2 WHERE machine_id=?1 AND local_user_id=?2')
     .bind(f.machine,peer).run();
   const none=await readApplicationQuotaBucketsSources(env.RUNTIME_DB,f.account,f.child,bucketsQuery,own,now);
-  expect(none.otherState).toBe('none');expect(none.other).toBeNull();expect(none.local).toEqual(unknown.local);
+  expect(none.otherState).toBe('available');expect(none.other).toEqual(unknown.other);expect(none.local).toEqual(unknown.local);
   const absent=await readApplicationQuotaBucketsSources(env.RUNTIME_DB,f.account,f.child,bucketsQuery,
     {...own,assignmentVersion:3},now);
-  expect(absent.local!.days[0]).toMatchObject({complete:false,bucketsSeconds:{study:0,composite:0,rest:0}});
+  expect(absent.local!.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:0,composite:0,rest:0}});
   expect(absent.other!.days[0]!.bucketsSeconds.study).toBe(20);
 });
-it('quota partial mode still rejects corrupt row hashes and cross-child manifests',async()=>{
+it('corrupt sources are excluded without discarding valid buckets; cross-child manifests still reject',async()=>{
   const f=await fixture();await seedPublished(f,user,600);
   const corruptId=await seedPublished(f,peer,200,1,false,{usage:'missing'});
   await env.RUNTIME_DB.prepare(`UPDATE runtime_application_account_chunks_v1
     SET rows_json=replace(rows_json,'200','201') WHERE manifest_id=?1`).bind(corruptId).run();
-  await expect(readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now))
-    .rejects.toMatchObject({code:'APPLICATION_STATISTICS_HASH_MISMATCH'});
+  const partial=await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now);
+  expect(partial.days[0]).toMatchObject({complete:false,bucketsSeconds:{study:600,composite:0,rest:0}});
+  expect(partial.days[0].reasonCodes).toContain('APPLICATION_STATISTICS_HASH_MISMATCH');
   const wrong=await fixture();const id=await seedPublished(wrong,user);
   const foreign=await fixture();const foreignId=await seedPublished(foreign,user);
   const manifest=(await env.RUNTIME_DB.prepare('SELECT manifest_json,manifest_hash FROM runtime_application_account_manifests_v1 WHERE id=?1')
@@ -122,8 +145,8 @@ it('quota partial mode still rejects corrupt row hashes and cross-child manifest
 it('other availability distinguishes no source, unreported source, zero and historical assignment without changing local statistics',async()=>{
   const f=await fixture();
   const q={...bucketsQuery,scope:'other' as const},own={machineId:f.machine,localUserId:user,assignmentVersion:1};
-  // 已有另一个用户的分配但尚未上报，不能说无其他设备。
-  expect((await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,f.account,f.child,q,own,now)).sourceState).toBe('unknown');
+  // 有分配但无当天统计是成功空查询，不要求先上传0秒清单。
+  expect((await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,f.account,f.child,q,own,now)).sourceState).toBe('available');
   await seedPublished(f,peer,0);
   const zero=await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,f.account,f.child,q,own,now);
   expect(zero.sourceState).toBe('available');expect(zero.snapshot.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:0,composite:0,rest:0}});
@@ -135,24 +158,24 @@ it('other availability distinguishes no source, unreported source, zero and hist
   const request=()=>new Request(`https://runtime.test/v2/machines/source-statistics?localUserId=${user}&assignmentVersion=1`,{
     method:'POST',headers:{authorization:`Bearer ${empty.token}`,'content-type':'application/json'},body:JSON.stringify(q)});
   const response=await routeV2(request(),env,now);
-  expect(response?.headers.get('X-Application-Quota-Source-State')).toBe('none');
+  expect(response?.headers.get('X-Application-Quota-Source-State')).toBe('available');
   const body=await response!.json() as {days:Array<{complete:boolean;bucketsSeconds:unknown}>};
   expect(body.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:0,composite:0,rest:0}});
   // 其他家庭即使同Child ID、或本家庭其他孩子的设备，均不能污染此来源范围。
   await fixture({account:crypto.randomUUID(),child:empty.child});
   await fixture({account:empty.account,child:crypto.randomUUID()});
-  expect((await routeV2(request(),env,now))?.headers.get('X-Application-Quota-Source-State')).toBe('none');
+  expect((await routeV2(request(),env,now))?.headers.get('X-Application-Quota-Source-State')).toBe('available');
   // 历史分配后来改绑也仍是该期间的潜在来源；不按最新分配或停用过滤。
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
     (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
     VALUES(?1,?2,1,?3,1,'default',?4,?4), (?1,?2,2,NULL,0,'unprotected',?5,?5)`)
     .bind(empty.machine,peer,empty.child,start-86400000,start+1800000).run();
   expect((await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,empty.account,empty.child,q,
-    {machineId:empty.machine,localUserId:user,assignmentVersion:1},now)).sourceState).toBe('unknown');
+    {machineId:empty.machine,localUserId:user,assignmentVersion:1},now)).sourceState).toBe('available');
   await env.RUNTIME_DB.prepare('UPDATE runtime_user_assignments_v2 SET effective_at_ms=?3 WHERE machine_id=?1 AND local_user_id=?2 AND assignment_version=2')
     .bind(empty.machine,peer,start).run();
   expect((await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,empty.account,empty.child,q,
-    {machineId:empty.machine,localUserId:user,assignmentVersion:1},now)).sourceState).toBe('none');
+    {machineId:empty.machine,localUserId:user,assignmentVersion:1},now)).sourceState).toBe('available');
 });
 it('quota buckets reuse ordinary published statistics, replace decreases and exclude exactly authenticated local source',async()=>{
   const f=await fixture();await seedPublished(f,user);await seedPublished(f,peer,200);
@@ -167,8 +190,7 @@ it('quota buckets reuse ordinary published statistics, replace decreases and exc
   await seedPublished(f,user,10,2);
   expect((await readApplicationQuotaBuckets(env.RUNTIME_DB,f.account,f.child,bucketsQuery,undefined,now)).days[0].bucketsSeconds.study).toBe(210);
   const foreign=await readApplicationQuotaBuckets(env.RUNTIME_DB,'foreign-account',f.child,bucketsQuery,undefined,now);
-  expect(foreign.days[0]).toMatchObject({complete:false,bucketsSeconds:{study:0,composite:0,rest:0}});
-  expect(foreign.days[0].reasonCodes).toContain('APPLICATION_STATISTICS_NOT_AVAILABLE');
+  expect(foreign.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:0,composite:0,rest:0}});
   expect(Object.keys(first).sort()).toEqual(['schemaVersion','durationUnit','source','childId','fromDate','toDate','readAtMs','days'].sort());
 });
 it('quota bucket machine route derives exclusion without cloud self copy or caller source keys',async()=>{

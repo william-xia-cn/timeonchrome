@@ -95,9 +95,12 @@ export function projectComputerUsageStatisticsV2(input: {
   return {schemaVersion: 2, durationUnit: 'seconds', fromDate: input.fromDate, toDate: input.toDate, complete,
     sourceStatus: {web: status(web), application: status(application)},
     sourceVersions: {web: web?.revision ?? null, application: application?.revision ?? null},
-    totals: {computer: complete ? add(web!.totalDuration!, contribution!.nonSpecialTotal) : null,
+    // 完整性只描述覆盖。已知用量仍可用，不能把局部缺项变成整个电脑不可用。
+    totals: {computer: web || validContribution
+        ? add(web?.availableTotalDuration ?? 0, validContribution ? contribution!.nonSpecialTotal : 0) : null,
       web: web?.availableTotalDuration ?? null, application: application?.availableTotalDuration ?? null,
-      specialIncluded: validContribution ? application!.availableTotalDuration! - contribution!.nonSpecialTotal : null},
+      specialIncluded: validContribution && contribution!.complete
+        ? application!.availableTotalDuration! - contribution!.nonSpecialTotal : null},
     categories, sourceCategories, reasonCodes: [...new Set(reasons)].sort()};
 }
 

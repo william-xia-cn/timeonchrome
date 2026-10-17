@@ -12,15 +12,17 @@ type Filters={machineId?:string;localUserId?:string;platform?:string;fixedIdenti
 type StatisticsRow=UsageAccountRowV2&{target?:NativeApplicationManagementTarget};
 const DAY=86400000,OFFSET=8*3600000;
 function mergeApplicationUsage(values:Array<ApplicationUsageSeconds|undefined|null>):ApplicationUsageSeconds|null {
-  if(!values.length||values.some(value=>!value))return null;
+  const readable=values.filter((value):value is ApplicationUsageSeconds=>!!value);
+  if(!readable.length&&values.length)return null;
   const sum=(a:number,b:number)=>{const value=a+b;if(!Number.isSafeInteger(value))throw new HttpError(503,'APPLICATION_STATISTICS_DURATION_OVERFLOW','统计时长超出安全范围。');return value;};
   const result:ApplicationUsageSeconds={nonSpecialTotal:0,nonSpecialCategories:{},specialTotal:0,complete:true,reasonCodes:[]};
-  for(const value of values){
+  for(const value of readable){
     result.nonSpecialTotal=sum(result.nonSpecialTotal,value!.nonSpecialTotal);
     result.specialTotal=sum(result.specialTotal,value!.specialTotal);
     for(const [category,duration]of Object.entries(value!.nonSpecialCategories))result.nonSpecialCategories[category]=sum(result.nonSpecialCategories[category]??0,duration);
     result.complete=result.complete&&value!.complete;result.reasonCodes.push(...value!.reasonCodes);
   }
+  if(readable.length!==values.length){result.complete=false;result.reasonCodes.push('APPLICATION_QUOTA_USAGE_INCOMPLETE');}
   result.reasonCodes=[...new Set(result.reasonCodes)].sort();return result;
 }
 /** 持久化来源统计读取；不加载原账，不调用云端统计重算器。 */
@@ -52,6 +54,7 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
     // 排除范围由已认证调用者推导；同机器其他用户仍保留。普通统计调用不传此选项。
     if(filters.excludeSources?.some(source=>source.machineId===head.machine_id&&source.localUserId===head.local_user_id
       &&source.assignmentVersion===head.assignment_version))continue;
+    try {
     const value=JSON.parse(head.manifest_json);
     if(filters.fixedIdentityOnly&&value.algorithmVersion!==APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM){legacySourceCount++;continue;}
     if(retirement&&!isV3OnlyApplicationManifest(value,child))continue;
@@ -87,22 +90,37 @@ export async function readNativeApplicationStatisticsSeconds(db:D1Database,accou
         if(row.kind==='subject')prior.classifications=[...new Set([...(prior.classifications??[]),...row.classifications!])].sort();
       }else merged.set(key,{...row,subjectKey,...(target?{target}:{}),...(row.classifications?{classifications:[...row.classifications]}:{})});
     }
+    } catch(error) {
+      // 校验失败的来源不参加合并；孩子隔离和读取预算不是可降级的来源故障。
+      if(error instanceof HttpError&&(/CHILD_SCOPE_MISMATCH$/.test(error.code)
+        ||/_(SOURCE_LIMIT|ROW_LIMIT|DURATION_OVERFLOW)$/.test(error.code)))throw error;
+      complete=false;
+      reasonCodes.add(error instanceof HttpError?error.code:'APPLICATION_STATISTICS_SOURCE_UNAVAILABLE');
+    }
   }
-  if(references.length===0)return null;
+  if(references.length===0&&reasonCodes.size)
+    throw new HttpError(503,[...reasonCodes].sort()[0],'当前范围没有通过校验的应用来源。');
+  if(references.length===0&&legacySourceCount===0){
+    // 成功空查询是正常0秒，不要求每个登记用户每天上传一份零账。
+    merged.set('empty-total',{kind:'total',hour:null,category:null,subjectKey:null,displayName:null,duration:0});
+    for(let hour=0;hour<24;hour++)merged.set(`empty-hour-${hour}`,
+      {kind:'total',hour,category:null,subjectKey:null,displayName:null,duration:0});
+  }
   // 配额只消费已确认的分类贡献；另一来源缺分类或旧单位不清空可读来源。
-  // 普通统计保留原先的整组完整性语义，且两条路径共用上面的范围与哈希校验。
-  const quotaUsage=filters.quotaRead?mergeApplicationUsage(applicationUsage.filter((value):value is ApplicationUsageSeconds=>!!value)):null;
-  if(quotaUsage&&(legacySourceCount>0||applicationUsage.some(value=>!value))){
+  // 普通统计与配额读取共用已确认分项，缺项仅影响覆盖状态。
+  const quotaUsage=mergeApplicationUsage(applicationUsage);
+  if(quotaUsage&&(!complete||legacySourceCount>0||applicationUsage.some(value=>!value))){
     quotaUsage.complete=false;
     quotaUsage.reasonCodes=[...new Set([...quotaUsage.reasonCodes,
-      ...(legacySourceCount>0?['LEGACY_STATISTICS_UNIT']:[]),
+      ...reasonCodes,...(legacySourceCount>0?['LEGACY_STATISTICS_UNIT']:[]),
       ...(applicationUsage.some(value=>!value)?['APPLICATION_QUOTA_USAGE_INCOMPLETE']:[])])].sort();
   }
   return {durationUnit:'seconds' as const,rows:[...merged.values()],references,legacySourceCount,
-    applicationUsage:filters.quotaRead?quotaUsage:legacySourceCount?null:mergeApplicationUsage(applicationUsage),
-    complete:complete&&legacySourceCount===0,reasonCodes:[...reasonCodes].sort(),revision:await hashUsageAccountValue(references)};
+    applicationUsage:quotaUsage,
+    complete:complete&&legacySourceCount===0,reasonCodes:[...reasonCodes].sort(),
+    revision:await hashUsageAccountValue([references,[...reasonCodes].sort()])};
 }
-/** 日／周统计只归集来源秒统计；缺日期不等于零，余额由独立配额模块计算。 */
+/** 成功空日期为零；失败日期独立诊断，不丢弃其他日期的已确认秒统计。 */
 export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,account:string,child:string,
   fromMs:number,toMs:number,filters:Filters={}) {
   const retirement=await readApplicationLedgerRetirement(db,account);
@@ -112,8 +130,18 @@ export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,
   const days:Array<{date:string;snapshot:Awaited<ReturnType<typeof readNativeApplicationStatisticsSeconds>>}>=[];
   for(let cursor=fromMs;cursor<toMs;cursor+=DAY){
     const date=new Date(cursor+OFFSET).toISOString().slice(0,10);
-    days.push({date,snapshot:await readNativeApplicationStatisticsSeconds(db,account,child,date,filters)});
+    try {
+      days.push({date,snapshot:await readNativeApplicationStatisticsSeconds(db,account,child,date,filters)});
+    } catch(error) {
+      if(error instanceof HttpError&&(/CHILD_SCOPE_MISMATCH$/.test(error.code)
+        ||/_(SOURCE_LIMIT|ROW_LIMIT|DURATION_OVERFLOW)$/.test(error.code)))throw error;
+      days.push({date,snapshot:{durationUnit:'seconds',rows:[],references:[],legacySourceCount:0,
+        applicationUsage:null,complete:false,reasonCodes:[error instanceof HttpError?error.code:'APPLICATION_STATISTICS_SOURCE_UNAVAILABLE'],
+        revision:'unavailable'}});
+    }
   }
+  if(days.every(day=>day.snapshot.revision==='unavailable'))
+    throw new HttpError(503,days[0].snapshot.reasonCodes[0],'当前范围的应用统计读取失败。');
   const merged=new Map<string,StatisticsRow>();
   for(const day of days)for(const row of day.snapshot?.rows??[]){
     if(row.hour!==null)continue;
@@ -137,7 +165,7 @@ export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,
         [...new Set([...snapshot.reasonCodes,...(snapshot.legacySourceCount>0?['LEGACY_STATISTICS_UNIT']:[])])].sort(),
       totalDuration:snapshot?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration??null,
       hours:snapshot?.rows.filter(row=>row.hour!==null)??[],
-      settledThroughMs:snapshot?.references.every(ref=>ref.settledThroughMs!==null)
+      settledThroughMs:snapshot?.references.length&&snapshot.references.every(ref=>ref.settledThroughMs!==null)
         ?Math.min(...snapshot.references.map(ref=>ref.settledThroughMs!)):null})),
     revision:await hashUsageAccountValue(days.map(day=>[day.date,day.snapshot?.revision??null]))};
 }

@@ -144,7 +144,9 @@ export async function readComputerWebStatisticsSeconds(env:ComputerUsageEnv,acco
     for(const [classification,value]of Object.entries(source.categoriesMs))
       categories.set(classification,add(categories.get(classification)??0,seconds(value)));
   }
-  const complete=sources.length>0&&sources.every(source=>(source.statisticsComplete??source.complete)&&source.totalMs!==null);
+  // 展示适配中的成功空读取为0；不改变网页账户、原统计或发布路径。
+  if(sources.length===0)availableTotalDuration=0;
+  const complete=sources.every(source=>(source.statisticsComplete??source.complete)&&source.totalMs!==null);
   return {durationUnit:'seconds',revision:await sha(JSON.stringify(sources.map(source=>({key:source.key,
     revision:source.revision,correctionRevision:source.correctionRevision,statisticsComplete:source.statisticsComplete,reasons:source.reasons})))),
     complete,totalDuration:complete?availableTotalDuration:null,availableTotalDuration,

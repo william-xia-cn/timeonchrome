@@ -112,7 +112,7 @@ emptyRegistrations[0].empty=true;
 for(const webDevices of [[],emptyRegistrations]){
   const emptyFixture=fixture({webDevices}),emptyService=emptyFixture.load('workers/src/services/computerUsage.ts');
   const empty=await emptyService.readComputerWebStatisticsSeconds(emptyFixture.env,'family','child',date,date);
-  assert.equal(empty.complete,false);assert.equal(empty.totalDuration,null);assert.equal(empty.availableTotalDuration,null,'no records never becomes a fabricated complete zero');
+  assert.equal(empty.complete,true);assert.equal(empty.totalDuration,0);assert.equal(empty.availableTotalDuration,0,'successful empty reads are normal zero usage, not failed reads');
 }
 const zeroFixture=fixture({webDevices:[{id:'browser',device_name:'显式零清单',zero:true}]}),zeroService=zeroFixture.load('workers/src/services/computerUsage.ts');
 const zero=await zeroService.readComputerWebStatisticsSeconds(zeroFixture.env,'family','child',date,date);
@@ -207,7 +207,7 @@ secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async(...a
   revision:'identity-product-r2',applicationUsage:null});
 const productPending=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
 assert.equal(productPending.totals.application,15,'missing product projection preserves the valid base total');
-assert.equal(productPending.totals.web,3);assert.equal(productPending.totals.computer,null);
+assert.equal(productPending.totals.web,3);assert.equal(productPending.totals.computer,3,'unknown application deduction does not erase known web usage');
 assert.equal(productPending.totals.specialIncluded,null,'unknown deduction must not become zero');
 assert.notEqual(productPending.revision,bindingSeconds.revision,'product-only revision invalidates the summary');
 secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async(...args)=>({...(await identityReader(...args)),childId:'other-child'});
@@ -216,7 +216,7 @@ assert.equal(wrongIdentityScope.totals.application,null,'response scope must mat
 assert.equal(wrongIdentityScope.totals.web,3);
 secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async()=>{throw Error('APPLICATION_SOURCE_UNAVAILABLE');};
 const appMissing=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
-assert.equal(appMissing.totals.web,3);assert.equal(appMissing.totals.application,null);assert.equal(appMissing.totals.computer,null);
+assert.equal(appMissing.totals.web,3);assert.equal(appMissing.totals.application,null);assert.equal(appMissing.totals.computer,3);
 assert(appMissing.reasonCodes.includes('APPLICATION_SOURCE_UNAVAILABLE'));
 secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async()=>{throw Error('APPLICATION_DATABASE_MEMORY_LIMIT');};
 assert((await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date)).reasonCodes.includes('APPLICATION_DATABASE_MEMORY_LIMIT'));
@@ -224,7 +224,7 @@ const webMissingFixture=fixture({webFailure:true}),webMissingService=webMissingF
 webMissingFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async()=>({model:'program-instance-v1',childId:'child',revision:'identity-r2',durationUnit:'seconds',fromDate:date,toDate:date,complete:true,totalDuration:5,availableTotalDuration:5,
   categories:[{classification:'unclassified',duration:5}],applicationUsage:{nonSpecialTotal:5,nonSpecialCategories:{unclassified:5},specialTotal:0,complete:true,reasonCodes:[]},statistics:{revision:'r2'}});
 const webMissing=await webMissingService.readComputerUsageStatisticsSummarySeconds(webMissingFixture.env,'family','child',date,date);
-assert.equal(webMissing.totals.web,null);assert.equal(webMissing.totals.application,5);assert.equal(webMissing.totals.computer,null);
+assert.equal(webMissing.totals.web,null);assert.equal(webMissing.totals.application,5);assert.equal(webMissing.totals.computer,5);
 const legacySecondsFixture=fixture({legacy:true}),legacySecondsService=legacySecondsFixture.load('workers/src/services/computerUsage.ts');
 assert.equal((await legacySecondsService.readComputerWebStatisticsSeconds(legacySecondsFixture.env,'family','child',date,date)).totalDuration,5134);
 assert.equal(legacySecondsFixture.reads(),0,'legacy statistics also avoid raw intervals');

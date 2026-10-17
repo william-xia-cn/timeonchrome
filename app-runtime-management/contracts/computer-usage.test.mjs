@@ -21,16 +21,16 @@ const lower=projectComputerUsageStatisticsV2({...secondsInput,application:{...se
   applicationUsage:{nonSpecialTotal:5,nonSpecialCategories:{study:5},specialTotal:0,complete:true,reasonCodes:[]}}});
 assert.equal(lower.totals.computer,15,'correction may lower usage');
 const missing=projectComputerUsageStatisticsV2({...secondsInput,application:null});
-assert.equal(missing.totals.computer,null);assert.equal(missing.totals.web,10);assert.equal(missing.totals.application,null);
+assert.equal(missing.totals.computer,10);assert.equal(missing.complete,false);assert.equal(missing.totals.web,10);assert.equal(missing.totals.application,null);
 const noPublished=projectComputerUsageStatisticsV2({...secondsInput,application:{...secondsSource(0,{}),complete:false,
   totalDuration:null,availableTotalDuration:null}});
 assert(noPublished.reasonCodes.includes('APPLICATION_STATISTICS_UNAVAILABLE'));
 assert(!noPublished.reasonCodes.includes('APPLICATION_STATISTICS_INVALID'),'missing publication is not corrupt statistics');
 const unknownSpecial=projectComputerUsageStatisticsV2({...secondsInput,application:{...applicationSeconds,applicationUsage:null}});
-assert.equal(unknownSpecial.totals.application,15);assert.equal(unknownSpecial.totals.computer,null);
+assert.equal(unknownSpecial.totals.application,15);assert.equal(unknownSpecial.totals.computer,10);assert.equal(unknownSpecial.totals.specialIncluded,null);
 assert(unknownSpecial.reasonCodes.includes('APPLICATION_NON_SPECIAL_STATISTICS_UNAVAILABLE'));
 const partial=projectComputerUsageStatisticsV2({...secondsInput,web:{...secondsSource(10),complete:false,totalDuration:null}});
-assert.equal(partial.totals.web,10);assert.equal(partial.totals.computer,null);assert.equal(partial.sourceStatus.web,'partial');
+assert.equal(partial.totals.web,10);assert.equal(partial.totals.computer,20);assert.equal(partial.sourceStatus.web,'partial');
 const zero=projectComputerUsageStatisticsV2({...secondsInput,web:secondsSource(0),application:{...secondsSource(0),
   applicationUsage:{nonSpecialTotal:0,nonSpecialCategories:{},specialTotal:0,complete:true,reasonCodes:[]}}});
 assert.equal(zero.totals.computer,0);assert.equal(zero.complete,true);
@@ -44,7 +44,8 @@ assert.equal(overlappingCategories.totals.computer,20,'overlapping classificatio
 assert.deepEqual(overlappingCategories.categories,{study:20,composite:10});
 const partialContribution=projectComputerUsageStatisticsV2({...secondsInput,application:{...applicationSeconds,
   applicationUsage:{...applicationSeconds.applicationUsage,complete:false,reasonCodes:['SOURCE_PARTIAL']}}});
-assert.equal(partialContribution.totals.computer,null);assert.equal(partialContribution.totals.application,15);
+assert.equal(partialContribution.totals.computer,20);assert.equal(partialContribution.totals.application,15);
+assert.equal(partialContribution.totals.specialIncluded,null,'partial classification cannot be called a confirmed special deduction');
 assert(partialContribution.reasonCodes.includes('SOURCE_PARTIAL'));
 for(const duration of [1.5,-1,Number.MAX_SAFE_INTEGER+1])assert.equal(projectComputerUsageStatisticsV2({
   ...secondsInput,web:secondsSource(duration)}).sourceStatus.web,'unavailable');
