@@ -30,6 +30,33 @@ export async function readApplicationQuotaBuckets(db:D1Database,accountId:string
     {source:'application',childId,fromDate:query.fromDate,toDate:query.toDate});
 }
 
+/** 来源状态只说明查询范围；不因没有已发布统计就断言没有其他设备。 */
+export async function readApplicationQuotaBucketsWithState(db:D1Database,accountId:string,childId:string,query:QuotaBucketsQuery,
+  ownSource?:{machineId:string;localUserId:string;assignmentVersion:number},now=Date.now()) {
+  const snapshot=await readApplicationQuotaBuckets(db,accountId,childId,query,ownSource,now);
+  if(snapshot.days.some(day=>!day.reasonCodes.includes('APPLICATION_STATISTICS_NOT_AVAILABLE')))
+    return {snapshot,sourceState:'available' as const};
+  if(query.scope!=='other'||!ownSource)return {snapshot,sourceState:'unknown' as const};
+  const begin=Date.parse(query.fromDate+'T00:00:00+08:00'),end=Date.parse(query.toDate+'T00:00:00+08:00')+86400000;
+  // 保留所选期间适用的历史分配；仅排除范围开始前已经结束的分配。不读取原始用量。
+  const other=await db.prepare(`SELECT 1 AS present FROM runtime_user_assignments_v2 a
+      JOIN runtime_machines_v2 m ON m.id=a.machine_id
+      WHERE m.account_id=?1 AND a.child_id=?2 AND a.effective_at_ms<?8
+        AND NOT(a.machine_id=?3 AND a.local_user_id=?4 AND a.assignment_version=?5)
+        AND NOT EXISTS(SELECT 1 FROM runtime_user_assignments_v2 n WHERE n.machine_id=a.machine_id
+          AND n.local_user_id=a.local_user_id AND n.assignment_version>a.assignment_version AND n.effective_at_ms<=?9)
+    UNION ALL SELECT 1 AS present FROM runtime_application_account_publications_v1 p
+      JOIN runtime_machines_v2 m ON m.id=p.machine_id
+      WHERE p.account_id=?1 AND m.account_id=?1 AND p.child_id=?2 AND p.date>=?6 AND p.date<=?7
+        AND NOT(p.machine_id=?3 AND p.local_user_id=?4 AND p.assignment_version=?5)
+    LIMIT 1`).bind(accountId,childId,ownSource.machineId,ownSource.localUserId,ownSource.assignmentVersion,
+      query.fromDate,query.toDate,end,begin).first<{present:number}>();
+  if(other)return {snapshot,sourceState:'unknown' as const};
+  return {sourceState:'none' as const,snapshot:validateQuotaBucketsSnapshot({...snapshot,days:snapshot.days.map(day=>({
+    ...day,bucketsSeconds:{study:0,composite:0,rest:0},complete:true,reasonCodes:[],settledThroughMs:null}))},
+    {source:'application',childId,fromDate:query.fromDate,toDate:query.toDate})};
+}
+
 /** 仅旧v1调用者兼容；新共享不得调用此独立来源清单。 */
 export async function readApplicationSourceStatistics(db: D1Database, accountId: string, childId: string,
   query: SourceStatisticsQuery, now = Date.now()): Promise<SourceStatisticsSnapshot> {

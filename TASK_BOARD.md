@@ -2,6 +2,9 @@
 
 ## 2026-10-17 本机独立及other状态修复（PO批准，实施中）
 
+- 追加已证接线缺陷：Native原后台刷新位于`NewModelEnabled`条件内，该值实际取`forcedUse.enabled`，读取缓存错误依赖提醒开关。Native所属已将原刷新移至既有30秒后台循环的已鉴权binding范围，未增定时器或改执行开关；36项聚焦回归含无V2能力／影子且提醒关闭的真实Service入口均通过，正式1.56 JS与实际Host合成wire兼容通过。此为源码／隔离证据，不证明现场other一定有量。根已审最小diff Matched，唯一Native63／控件61候选准备，不安装／覆盖现运行62／60。
+- 联合职责限定architecture-integration＋standard-cloud；公共`package-lock.json`与backend锁仅同步本地契约版本1.55.0→1.56.0，依赖解析和完整性不改、不安装；`docs/DESIGN.md`为本批接口设计的精确职责例外。职责检查与Runtime边界检查沿用原工具，不修改规则。
+- 契约1.56.0已本地固定4bb107d635112e43308f92f697f0a25ccddae970，唯一内部包SHA256 a13f7ee1ef3ae6dd53a052efdbb2faf49f079595ace3de95065a12c1a98765f2；build／source-statistics／contract-compatibility均通过。两端所属会话按同一包接线，不改变已验combined。标准云端3路径最小实现原schema2机器端点响应头及权威空来源判断，typecheck／13项Worker专项／dry-run已通过，尚未部署；本机与完整性解释的实际联调仍待集中候选及运行授权，不混称完成。
 - 先固化兼容附项：保留既有exchange／合计，通过quota-buckets-sources-v1附local／other快照及none／available／unknown；不另建请求、统计或队列。Native一次读取保留本机、other及合计，控件独立显示且不反拆合计；同孩子纯读显示修复一并验收。
 - 云端仅复用既有应用持久统计与机器scopeother端点，权威确认空来源才能none；原JSON保持，用响应头附来源状态。真实other设备是否存在仍待登录恢复只读核实，不以当前缺缓存替代事实。源码／隔离／发布安装／现场分别登记，当前不部署、不安装、不启共享。
 

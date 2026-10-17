@@ -1,7 +1,7 @@
 import {env,exports} from 'cloudflare:workers';
 import {expect,it} from 'vitest';
 import {createUsageAccountV2,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
-import {readApplicationSourceStatistics,readApplicationQuotaBuckets} from '../src/sourceStatistics';
+import {readApplicationSourceStatistics,readApplicationQuotaBuckets,readApplicationQuotaBucketsWithState} from '../src/sourceStatistics';
 import {readNativeApplicationStatisticsSeconds} from '../src/applicationStatisticsNative';
 import {applicationSharedQuotaSourceKey} from '../src/applicationSharedQuota';
 import {sha256Hex} from '../src/crypto';
@@ -44,6 +44,41 @@ async function seedPublished(f:Awaited<ReturnType<typeof fixture>>,local:string,
 }
 const query={source:'application' as const,scope:'all' as const,fromDate:date,toDate:date};
 const bucketsQuery={schemaVersion:2 as const,...query};
+it('other availability distinguishes no source, unreported source, zero and historical assignment without changing local statistics',async()=>{
+  const f=await fixture();
+  const q={...bucketsQuery,scope:'other' as const},own={machineId:f.machine,localUserId:user,assignmentVersion:1};
+  // 已有另一个用户的分配但尚未上报，不能说无其他设备。
+  expect((await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,f.account,f.child,q,own,now)).sourceState).toBe('unknown');
+  await seedPublished(f,peer,0);
+  const zero=await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,f.account,f.child,q,own,now);
+  expect(zero.sourceState).toBe('available');expect(zero.snapshot.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:0,composite:0,rest:0}});
+  await seedPublished(f,peer,200,2);
+  const positive=await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,f.account,f.child,q,own,now);
+  expect(positive.sourceState).toBe('available');expect(positive.snapshot.days[0]!.bucketsSeconds.study).toBe(200);
+  const empty=await fixture();
+  await env.RUNTIME_DB.prepare('DELETE FROM runtime_user_assignments_v2 WHERE machine_id=?1 AND local_user_id=?2').bind(empty.machine,peer).run();
+  const request=()=>new Request(`https://runtime.test/v2/machines/source-statistics?localUserId=${user}&assignmentVersion=1`,{
+    method:'POST',headers:{authorization:`Bearer ${empty.token}`,'content-type':'application/json'},body:JSON.stringify(q)});
+  const response=await routeV2(request(),env,now);
+  expect(response?.headers.get('X-Application-Quota-Source-State')).toBe('none');
+  const body=await response!.json() as {days:Array<{complete:boolean;bucketsSeconds:unknown}>};
+  expect(body.days[0]).toMatchObject({complete:true,bucketsSeconds:{study:0,composite:0,rest:0}});
+  // 其他家庭即使同Child ID、或本家庭其他孩子的设备，均不能污染此来源范围。
+  await fixture({account:crypto.randomUUID(),child:empty.child});
+  await fixture({account:empty.account,child:crypto.randomUUID()});
+  expect((await routeV2(request(),env,now))?.headers.get('X-Application-Quota-Source-State')).toBe('none');
+  // 历史分配后来改绑也仍是该期间的潜在来源；不按最新分配或停用过滤。
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+    (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+    VALUES(?1,?2,1,?3,1,'default',?4,?4), (?1,?2,2,NULL,0,'unprotected',?5,?5)`)
+    .bind(empty.machine,peer,empty.child,start-86400000,start+1800000).run();
+  expect((await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,empty.account,empty.child,q,
+    {machineId:empty.machine,localUserId:user,assignmentVersion:1},now)).sourceState).toBe('unknown');
+  await env.RUNTIME_DB.prepare('UPDATE runtime_user_assignments_v2 SET effective_at_ms=?3 WHERE machine_id=?1 AND local_user_id=?2 AND assignment_version=2')
+    .bind(empty.machine,peer,start).run();
+  expect((await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,empty.account,empty.child,q,
+    {machineId:empty.machine,localUserId:user,assignmentVersion:1},now)).sourceState).toBe('none');
+});
 it('quota buckets reuse ordinary published statistics, replace decreases and exclude exactly authenticated local source',async()=>{
   const f=await fixture();await seedPublished(f,user);await seedPublished(f,peer,200);
   const ordinary=await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.account,f.child,date);
