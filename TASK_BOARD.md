@@ -1,5 +1,9 @@
 # TASK_BOARD
 
+## 本批整合回归修正（2026-10-17）
+
+PR291 Guardian CI已定位：控件获批将配额读取器`completeness.complete`改为本机可用状态后，云端纯快照适配仍把该字段误当云端覆盖状态。仅把`workers/src/services/sourceStatistics.ts`的诊断字段读取切至同一既有读取器的`cloudCoverageComplete`；数值、原账、上传和业务放行不变，不放宽现有失败断言。补跑直接云端回归、跨线原始LF夹具及typecheck，之后由原PR复验；不扩大其他历史或Native范围。
+
 ## 只读复核：当天未归类新统计计入复合（2026-10-17）
 
 按Native会话最新人类指令，旧来源4825秒本轮不处理、不用来解释新链路。根已独立读取正式SDK安全结果`new-unclassified-cloud-safe.json`：查询仅2026-10-17，schema1 included仅当前用户来源，基础20699秒、`categories.unclassified=163`；schema2为学习0／复合163／休息0，均保留partial及`NATIVE_LEGACY_SELECTION_UNAVAILABLE`。因此当天已生成的163秒未归类在现网正确进入复合桶，未混入前日旧来源。已发布基线4919227的契约`source-statistics.ts:79～83`即`composite + unclassified`，Runtime原持久读取器把`applicationUsage.nonSpecialCategories`直接委托此唯一适配；1.57未改该业务公式，既有固定用例composite200＋unclassified10→210通过证据复用。
