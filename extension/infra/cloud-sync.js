@@ -65,7 +65,10 @@ import {
 import { resolveActivationState } from '../core/activation-gate.js';
 import { runV1StorageMaintenance } from './storage-maintenance.js';
 import { drainUsageSettlementJournal, reconcileUsageLedger } from '../core/usage-segments.js';
-import { budgetedLocalSet } from './storage-budget.js';
+import { budgetedLocalSet, runStorageMutation, withoutStorageMaintenance } from './storage-budget.js';
+import { createLedgerBindingIsolation } from './ledger-binding.js';
+import { closeCurrentSession, getSession as getTimingSession, runSessionCommit, recordBindingCutover } from '../runtime/session.js';
+import { closeMediaSession, getMediaSessions, runMediaBindingChange } from '../runtime/media-session.js';
 import { isSyncRetryCandidate } from './sync-retry-policy.js';
 import {
   advanceCloudFailureIncident,
@@ -97,6 +100,33 @@ import {
 const cloudStorageSet = (items) => typeof budgetedLocalSet === 'function'
   ? budgetedLocalSet(items, { priority: 'sync', source: 'cloud_sync' })
   : chrome.storage.local.set(items);
+
+const ledgerBinding = createLedgerBindingIsolation({
+  read: keys => chrome.storage.local.get(keys),
+  mutate: task => runStorageMutation(task, { priority: 'ledger', source: 'ledger_binding' }),
+  apiBase: () => getCloudApiBase(),
+  boundary: (commit, scope) => runSessionCommit(() => runMediaBindingChange(() => withoutStorageMaintenance(async () => {
+    const session = await getTimingSession();
+    const bindingScope = scope || { profileId: null, deviceId: null };
+    if (session?.state && session?.startTime) {
+      const result = await closeCurrentSession('binding_scope_changed', { alreadySerialized: true, bindingScope });
+      if (!result.ok) throw Error('ledger_binding_settlement_failed');
+    }
+    if (Object.keys(await getMediaSessions()).length) {
+      await closeMediaSession('binding_scope_changed', { alreadySerialized: true, bindingScope });
+    }
+    const result = await commit();
+    recordBindingCutover();
+    return result;
+  })), { bindingTransition: true }),
+});
+const runBindingScopedUpload = task => ledgerBinding.upload(scope => {
+  if (scope.deviceToken !== syncState.deviceToken || scope.deviceId !== syncState.deviceId
+      || scope.profileId !== syncState.profileId || scope.apiBase !== getCloudApiBase()) {
+    throw Error('ledger_binding_changed');
+  }
+  return task(scope);
+});
 
 const CLOUD_CONFIG = {
   API_BASE: 'https://guardian-api.william-xia-cn.workers.dev',
@@ -631,13 +661,12 @@ async function tryManagedDeviceTokenBootstrap(activation, reason = 'sync') {
     hasManagedDeviceToken: true,
   });
 
-  syncState.deviceToken = managedDeviceToken;
-  await cloudStorageSet({
-    [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: managedDeviceToken,
-  });
-
   try {
-    const result = await cloudRequest('GET', '/device/config', null, 1);
+    // Validate the candidate credential without changing the live binding first.
+    const response = await readCapturedSharedDeviceJson({ apiBase: getCloudApiBase(), deviceToken: managedDeviceToken },
+      '/device/config');
+    if (!response.ok) throw Error(response.errorCode || 'managed_device_token_failed');
+    const result = response.value;
     const profileId = typeof result?.profile_id === 'string' && result.profile_id.trim() ? result.profile_id.trim() : null;
     const deviceId = typeof result?.device_id === 'string' && result.device_id.trim() ? result.device_id.trim() : null;
     if (!profileId || !deviceId) {
@@ -665,8 +694,6 @@ async function tryManagedDeviceTokenBootstrap(activation, reason = 'sync') {
     if (error?.code === 'DEVICE_UNBOUND') {
       return { ok: false, terminal: true, reason: 'device_unbound' };
     }
-    syncState.deviceToken = null;
-    await cloudStorageSet({ [CLOUD_CONFIG.KEYS.DEVICE_TOKEN]: null }).catch(() => {});
     await saveRecoveryState({
       status: 'managed_device_token_failed',
       source: 'managed_device_token',
@@ -977,10 +1004,9 @@ async function hydrateDeviceIdFromBindIfMissing() {
       return false;
     }
 
+    await ledgerBinding.change({ cloud_device_id: maybeDeviceId,
+      cloud_device_token: syncState.deviceToken, cloud_profile_id: syncState.profileId });
     syncState.deviceId = maybeDeviceId;
-    await cloudStorageSet({
-      [CLOUD_CONFIG.KEYS.DEVICE_ID]: maybeDeviceId,
-    });
     console.log('[Cloud] Hydrated cloud_device_id via bind fallback');
     return true;
   } catch (e) {
@@ -1249,11 +1275,20 @@ async function cloudRequest(method, path, body = null, retries = 3, signal = nul
   if (!syncState.deviceToken) {
     throw new Error('No device token');
   }
+  const captured = { token: syncState.deviceToken, deviceId: syncState.deviceId,
+    profileId: syncState.profileId, apiBase: getCloudApiBase() };
+  const assertBinding = () => {
+    if (captured.token !== syncState.deviceToken || captured.deviceId !== syncState.deviceId
+        || captured.profileId !== syncState.profileId || captured.apiBase !== getCloudApiBase()) {
+      throw Object.assign(new Error('ledger_binding_changed'), { nonRetryable: true });
+    }
+  };
 
   let lastError = null;
   const batchId = createCloudRequestId('batch');
   await markCloudConnectionAttempt(path);
   for (let attempt = 0; attempt < retries; attempt++) {
+    assertBinding();
     if (signal?.aborted) throw new DOMException('Optional request cancelled', 'AbortError');
     const controller = new AbortController();
     let timedOut = false;
@@ -1272,11 +1307,11 @@ async function cloudRequest(method, path, body = null, retries = 3, signal = nul
     try {
       const headers = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${syncState.deviceToken}`,
+        'Authorization': `Bearer ${captured.token}`,
       };
       const clientVersion = getCloudClientVersion();
       if (clientVersion) headers['X-TimeOnChrome-Version'] = clientVersion;
-      if (syncState.deviceId) headers['X-TimeOnChrome-Device-Id'] = syncState.deviceId;
+      if (captured.deviceId) headers['X-TimeOnChrome-Device-Id'] = captured.deviceId;
       if (requestId) headers['X-TimeOnChrome-Request-Id'] = requestId;
       const options = {
         method,
@@ -1288,13 +1323,14 @@ async function cloudRequest(method, path, body = null, retries = 3, signal = nul
         options.body = JSON.stringify(body);
       }
 
-      const resp = await Promise.race([fetch(`${getCloudApiBase()}${path}`, options), cancelled]);
+      const resp = await Promise.race([fetch(`${captured.apiBase}${path}`, options), cancelled]);
 
       if (resp.ok) {
         const contentType = resp.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
           const payload = await Promise.race([resp.json(), cancelled]);
           clearTimeout(timeoutId);
+          assertBinding();
           if (isDeviceUnboundPayload(payload)) {
             await clearCloudBindingState('cloud_response_unbound');
             throw makeDeviceUnboundError(payload?.error || 'Device unbound');
@@ -1313,12 +1349,14 @@ async function cloudRequest(method, path, body = null, retries = 3, signal = nul
           return payload;
         }
         clearTimeout(timeoutId);
+        assertBinding();
         await markCloudConnectionSuccess(path, resp.status);
         return { success: true };
       }
 
       const responseText = await Promise.race([resp.text().catch(() => ''), cancelled]);
       clearTimeout(timeoutId);
+      assertBinding();
       let err = { error: `HTTP ${resp.status}` };
       if (responseText) {
         try {
@@ -1488,7 +1526,7 @@ async function persistRecoveredBinding(payload, source = 'device_recovery') {
   if (payload.account_email || payload.accountEmail) {
     updates[CLOUD_CONFIG.KEYS.ACCOUNT_EMAIL] = String(payload.account_email || payload.accountEmail).trim().toLowerCase();
   }
-  await cloudStorageSet(updates);
+  await ledgerBinding.change(updates);
   syncState.deviceToken = updates[CLOUD_CONFIG.KEYS.DEVICE_TOKEN];
   syncState.deviceId = updates[CLOUD_CONFIG.KEYS.DEVICE_ID];
   syncState.profileId = updates[CLOUD_CONFIG.KEYS.PROFILE_ID];
@@ -1904,6 +1942,9 @@ function usesQuotaAccountingV2(config = {}) {
  * V1 替换项：`uploadDailyStatsV1()` + `uploadUsageSegmentsV1()`。
  */
 export async function uploadStats() {
+  return runBindingScopedUpload(() => uploadStatsForBinding());
+}
+async function uploadStatsForBinding() {
   try {
     const statsRange = await getStatsRange(7);
 
@@ -1986,6 +2027,7 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
     return { configPulled: false, siteRequestsSynced: false, statsUploaded: false, quotaSynced: false, hadFailure: true, errors: ['device recovery pending or unavailable'] };
   }
 
+  return runBindingScopedUpload(async () => {
   if (syncState.isSyncing) {
     const ageMs = Date.now() - Number(syncState.syncStartedAt || 0);
     if (ageMs > CLOUD_CONFIG.SYNC_STALE_LOCK_MS) {
@@ -2177,6 +2219,8 @@ export async function syncNow(getConfigFn, saveConfigFn, updateDeclarativeRulesF
       });
     }
   }
+  }).catch(error => ({ configPulled: false, siteRequestsSynced: false, statsUploaded: false,
+    quotaSynced: false, hadFailure: true, errors: [error.message] }));
 }
 
 // ── V1 Stats Foundation sync orchestration ──────────────────────────────────────
@@ -2277,7 +2321,10 @@ export async function getStatsFoundationV1SyncStatus() {
  * @param {{ enabled?: boolean }} options
  * @returns {Promise<{uploaded: number, failed: number, skipped: boolean, dryRun: boolean, pendingCount: number, payloadSample?: object, errors: string[]}>}
  */
-export async function uploadUsageSegmentsV1({ enabled = false } = {}) {
+export async function uploadUsageSegmentsV1(options = {}) {
+  return runBindingScopedUpload(() => uploadUsageSegmentsForBinding(options));
+}
+async function uploadUsageSegmentsForBinding({ enabled = false } = {}) {
   const effectiveEnabled = enabled !== undefined ? enabled : statsFoundationV1SyncEnabled;
 
   if (!syncState.deviceToken) {
@@ -2712,7 +2759,10 @@ async function clearMediaUploadBackoff() {
   }).catch(() => {});
 }
 
-async function uploadDeviceAccountV2Shadow(pkg, { enabled = false } = {}) {
+async function uploadDeviceAccountV2Shadow(pkg, options = {}) {
+  return runBindingScopedUpload(() => uploadDeviceAccountV2ForBinding(pkg, options));
+}
+async function uploadDeviceAccountV2ForBinding(pkg, { enabled = false } = {}) {
   const result = { date: pkg?.date || null, uploaded: 0, skipped: !enabled, failed: 0, error: null };
   if (!enabled || !pkg?.date) return result;
   let prepared = null;
@@ -3770,7 +3820,10 @@ async function uploadHistoricalUsageStatsByWatermarkV1({ enabled = false } = {})
   return result;
 }
 
-export async function syncUsageStatsByDateWatermarkV1({ enabled = false } = {}) {
+export async function syncUsageStatsByDateWatermarkV1(options = {}) {
+  return runBindingScopedUpload(() => syncUsageStatsForBinding(options));
+}
+async function syncUsageStatsForBinding({ enabled = false } = {}) {
   let result;
   try {
     result = await syncUsageUploadsByDateWatermarkV1({ enabled });
@@ -4362,7 +4415,10 @@ export async function uploadClientLogsV1({ enabled = true } = {}) {
  * @param {{ enabled?: boolean }} options
  * @returns {Promise<{segments: object, stats: object, hadFailure: boolean, dryRun: boolean, errors: string[]}>}
  */
-export async function syncStatsFoundationV1({ enabled = false, forceRetryExhausted = false } = {}) {
+export async function syncStatsFoundationV1(options = {}) {
+  return runBindingScopedUpload(() => syncStatsFoundationForBinding(options));
+}
+async function syncStatsFoundationForBinding({ enabled = false, forceRetryExhausted = false } = {}) {
   const errors = [];
   let hadFailure = false;
 
@@ -4509,10 +4565,23 @@ export async function initCloudSync(syncNowFn) {
 /**
  * @returns {Promise<{success: boolean, device_token?: string, syncOk?: boolean, syncErrors?: string[], error?: string}>}
  */
-export async function cloudBind(syncNowFn) {
+export async function cloudBind(syncNowFn, binding = null, accountSession = null) {
   const activation = await requireRuntimeActivation();
   if (!activation.ok) {
     return { success: false, error: activation.reason || 'runtime_activation_required', privacyConsentRequired: activation.privacyConsentRequired === true, activationRequired: true };
+  }
+  if (binding) {
+    const updates = {
+      cloud_device_token: binding.device_token,
+      cloud_device_id: binding.device_id,
+      cloud_profile_id: binding.profile_id,
+    };
+    if (accountSession) Object.assign(updates, {
+      account_token: accountSession.token, account_refresh_token: accountSession.refreshToken || null,
+      cloud_account_email: accountSession.email, cloud_credentials: null,
+    });
+    try { await ledgerBinding.change(updates); }
+    catch (error) { return { success: false, error: error.message }; }
   }
   const storage = await chrome.storage.local.get([
     CLOUD_CONFIG.KEYS.DEVICE_TOKEN,

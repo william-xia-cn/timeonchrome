@@ -33,7 +33,7 @@ function loadModule() {
   code = code.replace(/export\s+async\s+function\s+/g, 'async function ');
   code = code.replace(/export\s+function\s+/g, 'function ');
   code = code.replace(/export\s+const\s+/g, 'const ');
-  return new Function(`${code}\nreturn { budgetedLocalSet, runStorageMutation, withStorageBudgetBypass, registerStoragePressureHandler, getStorageBudgetStatus, STORAGE_PRESSURE_BYTES, STORAGE_TARGET_BYTES, STORAGE_HARD_LIMIT_BYTES, STORAGE_EMERGENCY_RESERVE_BYTES };`)();
+  return new Function(`${code}\nreturn { budgetedLocalSet, runStorageMutation, withStorageBudgetBypass, withoutStorageMaintenance, registerStoragePressureHandler, getStorageBudgetStatus, STORAGE_PRESSURE_BYTES, STORAGE_TARGET_BYTES, STORAGE_HARD_LIMIT_BYTES, STORAGE_EMERGENCY_RESERVE_BYTES };`)();
 }
 
 const budget = loadModule();
@@ -106,7 +106,22 @@ async function run() {
   await Promise.all([blocker, diagnosticTask, foregroundTask]);
   check('foreground mutation overtakes queued diagnostic work', order.join(',') === 'blocker,foreground,diagnostic', order.join(','));
 
-  console.log('[Storage Budget] 11/11 passed');
+  local.reset(); maintenanceCalls = 0;
+  budget.registerStoragePressureHandler(async () => {
+    maintenanceCalls++;
+    await local.set({ filler: 'x'.repeat(5 * 1024 * 1024) });
+  });
+  await local.set({ filler: 'x'.repeat(Math.floor(7.9 * 1024 * 1024)) });
+  rejected = false;
+  try {
+    await budget.withoutStorageMaintenance(() => budget.budgetedLocalSet(
+      { ledger: 'z'.repeat(256 * 1024) }, { priority: 'ledger' }));
+  } catch (error) { rejected = error.code === 'storage_hard_limit'; }
+  check('binding boundary failure never invokes cleanup', rejected && maintenanceCalls === 0);
+  check('binding boundary failure retains original data', local.data.ledger == null && local.data.filler.length === Math.floor(7.9 * 1024 * 1024));
+  await budget.budgetedLocalSet({ ledger: 'z'.repeat(256 * 1024) }, { priority: 'ledger' });
+  check('ordinary maintenance resumes after failed binding boundary', maintenanceCalls === 1 && local.data.ledger.length === 256 * 1024);
+  console.log('[Storage Budget] 14/14 passed');
 }
 
 run().catch((error) => {

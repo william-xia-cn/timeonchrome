@@ -1,5 +1,23 @@
 # TASK_BOARD
 
+## NOW：网页控件改绑隔离 A/B（2026-10-17，仅隔离实施，PO在Architect会话新确认）
+
+交付阶段新授权：PO在Architect会话批准集中本地提交本批修复、备份后更新原加载目录，并继续真实Chrome隔离验收；覆盖下文“不提交/不制包/不更新加载目录”的前阶段限制。不推送/PR，不改Native、云端、家庭绑定或共享。使用固定commit生成唯一内部1.7.64候选，key/ID/权限保持；先核原63及完整代码包备份，原目录逐文件替换、manifest最后。Chrome存储不写、不复制运行中数据库；原Chrome重载及真实改绑由Architect统一安排，不能冒称已验收。
+
+职责extension-local；不修改Native、云端算法、家庭配置或当前加载包，不新增API，不发布、不提交推送。已确认风险是本地日期账/发布状态未按绑定隔离，首次旧载荷无法由云端恢复原属；尚未证明生产已串账。原始已存在ID有云端冲突保护，不能描述为完全没有保护。
+
+实施清单：A使用已有孩子/设备范围保留旧活动账和状态，绑定变更在原范围结束旧会话后切换，不能把无可信范围的旧数据贴给新绑定；同范围升级/token轮换不另起账。B上传任务固定启动范围，切换与上传互斥、请求固定凭据，迟到响应不得写新范围；日期revision/published随所属范围保留。采用旧范围快照保留现有存储值，新范围恢复其自身快照或使用空账；不重算、重归属、盲补传旧账，不新增贡献账或同步队列。归档空间不足则切换失败，原数据/绑定保持，不阻止网页使用。
+
+必要专项：生产入口的同日A→B、同孩子换设备、同范围token轮换、旧pending不带B凭据、旧published不跳过B、在途请求/迟到响应、切换持久失败及重启恢复、同范围重试；旧账字段/状态逐项守恒。最小typecheck/extension-root/diff及原会话/上传固定回归；不运行真实家庭浏览器或广泛回归。本轮包C暂停，原三份文档草稿保留。
+
+集中隔离结果：主专项node tests/unit/ledger-binding-isolation.test.js最终11组通过（原生问题批准的一次最终聚焦复验，未再运行）。使用实际doBind→CLOUD_BIND→cloudBind、原session/usage存储、原raw ACK与V2 prepare/manifest/chunk/commit；合成身份、隔离storage、模拟HTTP，非家庭/真实浏览器验收。覆盖A→B→A旧原段/聚合/published/revision恢复，同child换device、同scope轮换、旧离线段不带B凭据、A已发布不跳过B、在途原段与ACK在A完成、直接旧HTTP响应换scope后拒绝、写失败/容量失败/重启、同scope重试、未知旧值不贴新scope、稀疏归档不覆盖、原会话正秒边界、活跃会话容量不足不清账、成功切换期间旧web/media事件忽略且后续新B事件可打开、服务端bind失败和非绑定页sender不改本地绑定。
+
+实现审计Matched：已有child/device/API标记活动范围，原始/统计/日期状态以原值保留；不恢复配置或复制凭据到归档。切换提交禁止维护/写后观察；仅在取得会话和媒体锁后，结算与提交短窗口临时禁止维护，finally恢复，期间并发诊断也保守不触发维护或过限拒绝，不放宽8MB预算。仅成功不同scope切换在解锁前记录内存切点，丢弃旧排队事件；失败或token轮换不设置新切点，普通计时条件/舍入不变。未知旧范围不能自动上传；归档占用仍受原容量限制，不自动清旧账。缺口：未运行家庭改绑、真实浏览器或生产故障注入，不能宣称生产问题已实测消除。
+
+最小回归通过：storage-budget14/14、storage-budget-wiring21/21、session-queue26/26、media-timing-framework35/35、foreground-checkpoint-media-compensation5/5、usage-segments300/300、device-account-v2 29/29、device-account-v2-sync8/8、profile-account-v2-sync42/42、cloud-usage-batching19/19、device-recovery39/39、cloud-upload-fault-recovery三组（含本地回环HTTP）；typecheck及extension-root2.76MB通过、diff检查通过。旧算法抽取测试适配guard包装后的原函数名，保留原断言；新主专项独立运行完整生产模块/入口而非仅工具函数。
+
+失败过程保留：主专项累计两失败（空媒体关闭无谓更新heartbeat，修正后曾通过；新增路由夹具缺Chrome Native模块加载接口，补齐范围外依赖stub），依规则暂停并经PO原生问题明确允许一次最终复验后11组通过。旧cloud-upload-fault夹具遗漏独立upload调度函数，补齐原生产helper后复验通过，未改错误断言或产品行为。无提交/推送/版本/制包/加载目录/云端/Native/家庭数据/共享变更；交Architect集中审核。
+
 ## NOW：其他设备读取修复已部署及1.7.63磁盘更新，待Chrome重载手工验收（2026-10-17）
 
 本次授权覆盖下方不提交/部署/更新加载包的阶段限制。extension-local提交本轮消费者及前序已验60–62读取接线，经PR集成；架构统筹云端/1.57契约的固定工作线提交及Guardian/Runtime部署。只读smoke，不部署Pages、不执行migration、不安装Native、不改家庭配置/原账/ACK/水位；共享保持关闭，正式托管feed不动。本机仅制作独立1.7.63开发候选，完整备份后更新原加载位置，保留key/ID/权限/metadata，不卸载/解绑/清storage。旧Admin四项基线失败继续披露；复用精确源码专项证据，不将失败改为通过。文档只提交本轮块，旧草稿原样保留。

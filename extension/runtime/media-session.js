@@ -1,6 +1,6 @@
 // runtime/media-session.js — independent multi-tab media timing ledger
 
-import { getCachedEffectiveMode, resolveSettlementIdentity } from './session.js';
+import { getCachedEffectiveMode, resolveSettlementIdentity, predatesBindingCutover } from './session.js';
 import { logFallbackEventBestEffort } from '../infra/client-logs.js';
 import { sanitizeIncognitoForPersistence } from '../core/incognito-persistence.js';
 import { normalizeUploadErrorCode } from '../core/usage-segments.js';
@@ -44,9 +44,16 @@ const recordFallbackLog = typeof logFallbackEventBestEffort === 'function'
 
 let mediaQueue = Promise.resolve();
 
-function runMediaSerialized(task) {
-  mediaQueue = mediaQueue.then(task, task);
+function runMediaSerialized(task, bindingTransition = false) {
+  const queuedAt = Date.now();
+  const run = () => !bindingTransition && typeof predatesBindingCutover === 'function' && predatesBindingCutover(queuedAt)
+    ? { ok: true, skipped: true, reason: 'binding_scope_changed' } : task();
+  mediaQueue = mediaQueue.then(run, run);
   return mediaQueue;
+}
+
+export function runMediaBindingChange(task) {
+  return runMediaSerialized(task, true);
 }
 
 function mediaHash64(input) {
@@ -922,7 +929,7 @@ async function settleMediaSession(session, endMs, reason = 'media_boundary', opt
   if (Math.floor((endMs - session.startTime) / 1000) <= 0) {
     return { appended: 0, durationSeconds: 0, segments: [], skipped: 'zero_duration_media_session' };
   }
-  const identity = await resolveSettlementIdentity(
+  const identity = reason === 'binding_scope_changed' && options.bindingScope ? options.bindingScope : await resolveSettlementIdentity(
     { domain: session.domain, state: 'MEDIA_ACTIVE', incognito: session.incognito === true },
     reason
   );
@@ -1498,13 +1505,13 @@ export async function closeMediaForTab(tabId, reason = 'tab_close', options = {}
 }
 
 export async function closeMediaSession(reason = 'close', options = {}) {
-  return runMediaSerialized(async () => {
+  const task = async () => {
     const atMs = Number.isFinite(options.now) ? options.now : Date.now();
     const sessions = await readSessions();
     let closed = 0;
     let appended = 0;
     for (const [key, session] of Object.entries(sessions)) {
-      const settlement = await settleMediaSession(session, atMs, reason);
+      const settlement = await settleMediaSession(session, atMs, reason, options);
       appended += settlement.appended || 0;
       delete sessions[key];
       closed++;
@@ -1519,7 +1526,8 @@ export async function closeMediaSession(reason = 'close', options = {}) {
       appended,
       reason,
     };
-  });
+  };
+  return options.alreadySerialized ? task() : runMediaSerialized(task);
 }
 
 export async function getMediaFact(tabId) {
