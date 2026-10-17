@@ -22,7 +22,8 @@ import { receiveNativeApplicationIdentifications, nativeApplicationIdentificatio
 import { readApplicationProductProjections, readApplicationIdentityUsage } from './applicationProductProjections';
 import { requireApplicationLegacyEnabled, readApplicationLedgerRetirement } from './applicationLedgerRetirement';
 import { SOURCE_STATISTICS_READ_CAPABILITY,QUOTA_BUCKETS_READ_CAPABILITY,validateQuotaBucketsQuery,validateQuotaBucketsSnapshot, validateSourceStatisticsQuery, validateSourceStatisticsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
-import { readApplicationSourceStatistics,readApplicationQuotaBuckets } from './sourceStatistics';
+import { readApplicationSourceStatistics,readApplicationQuotaBucketsWithState } from './sourceStatistics';
+import { APPLICATION_QUOTA_SOURCE_STATE_HEADER } from '@timeonchrome/app-runtime-contracts/source-statistics';
 import { getApplicationKnowledge, effectiveApplicationKnowledge, knowledgeEtag, listApplicationInventory, parseKnowledge,
   putApplicationKnowledge, syncApplicationInventory, knowledgeImportPreview, approveKnowledgeImport,
   applyKnowledgeOperation } from './applicationKnowledge';
@@ -673,10 +674,14 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     const ownKey=buckets?null:await applicationSharedQuotaSourceKey(machine.machineId,localUserId,assignmentVersion);
     if(query.source==='web'&&query.scope!=='all'||!buckets&&query.scope==='other'&&('ownSourceKeys' in query&&(query.ownSourceKeys?.length!==1||query.ownSourceKeys[0]!==ownKey)))
       throw new HttpError(403,'SOURCE_STATISTICS_SCOPE_MISMATCH','只能排除本机实际包含的来源。');
-    let value:unknown;
-    if(query.source==='application')value=buckets
-      ?await readApplicationQuotaBuckets(env.RUNTIME_DB,machine.accountId,assignment.child_id,validateQuotaBucketsQuery(query),{machineId:machine.machineId,localUserId,assignmentVersion},nowMs)
-      :await readApplicationSourceStatistics(env.RUNTIME_DB,machine.accountId,assignment.child_id,validateSourceStatisticsQuery(query),nowMs);
+    let value:unknown,sourceState:'none'|'available'|'unknown'|undefined;
+    if(query.source==='application'){
+      if(buckets){
+        const read=await readApplicationQuotaBucketsWithState(env.RUNTIME_DB,machine.accountId,assignment.child_id,
+          validateQuotaBucketsQuery(query),{machineId:machine.machineId,localUserId,assignmentVersion},nowMs);
+        value=read.snapshot;sourceState=read.sourceState;
+      }else value=await readApplicationSourceStatistics(env.RUNTIME_DB,machine.accountId,assignment.child_id,validateSourceStatisticsQuery(query),nowMs);
+    }
     else{
       const response=await env.GUARDIAN_COMPUTER_USAGE.fetch(new Request('https://guardian-capability/readSourceStatistics',{
         method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:machine.accountId,childId:assignment.child_id,query})}));
@@ -691,7 +696,8 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     if(current?.child_id!==assignment.child_id||currentMachine.machineId!==machine.machineId||currentMachine.accountId!==machine.accountId)
       throw new HttpError(409,'SOURCE_STATISTICS_CONTEXT_CHANGED','读取期间孩子分配已变化。');
     const expected={source:query.source,childId:assignment.child_id,fromDate:query.fromDate,toDate:query.toDate};
-    return jsonResponse(buckets?validateQuotaBucketsSnapshot(value,expected):validateSourceStatisticsSnapshot(value,expected));
+    return jsonResponse(buckets?validateQuotaBucketsSnapshot(value,expected):validateSourceStatisticsSnapshot(value,expected),
+      sourceState?{headers:{[APPLICATION_QUOTA_SOURCE_STATE_HEADER]:sourceState}}:{});
   }
   if(url.pathname==='/v2/machines/shared-web-source/challenge'||url.pathname==='/v2/machines/shared-web-source/verification-key'
     ||url.pathname==='/v2/machines/shared-web-source/scope')

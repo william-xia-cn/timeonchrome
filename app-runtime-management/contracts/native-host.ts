@@ -19,6 +19,8 @@ export const SHARED_WEB_LOCAL_LEASE_CAPABILITY = 'shared-web-local-lease-v1' as 
 export { SOURCE_STATISTICS_READ_CAPABILITY, SOURCE_STATISTICS_EXCHANGE_MESSAGE, validateSourceStatisticsExchange } from './source-statistics.js';
 export { QUOTA_BUCKETS_READ_CAPABILITY, QUOTA_BUCKETS_EXCHANGE_MESSAGE, validateQuotaBucketsExchange,validateQuotaBucketsSnapshot } from './source-statistics.js';
 export type {QuotaBucketsSnapshot,QuotaBucketsQuery,QuotaBucketsDay,QuotaBucketsSeconds} from './source-statistics.js';
+export { QUOTA_BUCKETS_SOURCES_CAPABILITY, APPLICATION_QUOTA_SOURCE_STATE_HEADER, validateQuotaBucketsSources } from './source-statistics.js';
+export type { QuotaBucketsSources } from './source-statistics.js';
 export type { SourceStatisticsExchange, SourceStatisticsSnapshot, SourceStatisticsQuery, SharedQuotaSecondsDay } from './source-statistics.js';
 export const SHARED_QUOTA_EXECUTION_PREPARATION_CAPABILITY = 'shared-quota-execution-preparation-read-v1' as const;
 export const SHARED_REMINDER_RESULT_SHADOW_CAPABILITY = 'shared-reminder-result-shadow' as const;
@@ -86,6 +88,8 @@ export interface NativeHostResponse {
   duplicate?: boolean;
   stale?: boolean;
   applicationUsage?: ApplicationUsageSnapshot | import('./source-statistics.js').QuotaBucketsSnapshot | null;
+  /** 能力协商后的来源说明；绝不能与applicationUsage合计再次相加。 */
+  applicationSources?: import('./source-statistics.js').QuotaBucketsSources;
   applicationUsageSeconds?: import('./application-usage-seconds.js').ApplicationUsageSecondsSnapshot;
   applicationIdentityUsage?: import('./application-usage-seconds.js').ApplicationIdentityUsageSnapshot;
   /** Own-domain total only; successful reading never enables shared enforcement. */
