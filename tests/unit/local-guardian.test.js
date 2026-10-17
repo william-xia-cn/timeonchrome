@@ -140,6 +140,7 @@ async function waitFor(predicate, timeoutMs = 300) {
 function installSourceBinding(host, ensure = async () => ({ ok: true,
   bindingContextId: 'c'.repeat(64), expiresAtMs: Date.now() + 300_000 })) {
   host.module.setApplicationIdentityBindingEnsurer(ensure);
+  host.module.setApplicationIdentityBindingReader(ensure);
 }
 
 async function testColdProtocolNegotiation(policy) {
@@ -1860,12 +1861,18 @@ async function run() {
       }) });
     await waitFor(() => bucketHost.module.readNativeHostDiagnosticState().capabilities?.includes('quota-buckets-read-v1'));
     installSourceBinding(bucketHost);
+    bucketHost.module.setApplicationIdentityBindingEnsurer(async () => { throw Error('hot read must not prepare identity'); });
     const bucketQuery = { fromDate: query.fromDate, toDate: query.toDate, webUsage: null };
     const bucketsRead = await bucketHost.module.requestQuotaBucketsExchange(bucketQuery);
     assert.equal(bucketsRead.ok, true);
     assert.equal(bucketsRead.snapshot.days[0].bucketsSeconds.rest, 600);
     assert.equal(bucketsRead.nativeAttempt.accepted, true);
     assert.deepEqual(quotaBucketRequests.find(row => row.messageType === 'exchangeQuotaBuckets').payload, bucketQuery);
+    const requestsAfterReady = quotaBucketRequests.length;
+    assert.equal((await bucketHost.module.requestQuotaBucketsExchange(bucketQuery)).ok, true);
+    assert.deepEqual(quotaBucketRequests.slice(requestsAfterReady).map(row => row.messageType), ['exchangeQuotaBuckets'],
+      'a ready hot read only exchanges buckets, without Scope/Bind or health re-preparation');
+    assert.deepEqual(bucketHost.module.readQuotaBucketsReadCapability(), { known: true, available: true });
     quotaFault = 'missing';
     const missingBuckets = await bucketHost.module.requestQuotaBucketsExchange(bucketQuery);
     assert.equal(missingBuckets.ok, true);
@@ -1980,7 +1987,199 @@ async function run() {
   process.exit(0);
 }
 
-run().catch((error) => {
+async function runNativeProcess() {
+  const config = JSON.parse(process.env.TOC_NATIVE_PROCESS_CONFIG);
+  assert.equal(typeof config.command, 'string');
+  assert(Array.isArray(config.args) && config.args.every(value => typeof value === 'string'));
+  const { spawn } = require('node:child_process');
+  const children = [], ports = [], requests = [], errors = [], diagnostics = [];
+  let processArgs = config.args;
+  function connectNative() {
+    const child = spawn(config.command, processArgs, { cwd: config.cwd || root,
+      windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    children.push(child);
+    let pending = Buffer.alloc(0), disconnected = false, diagnosticText = '';
+    const onMessage = createEvent(), onDisconnect = createEvent();
+    const disconnect = () => {
+      if (disconnected) return;
+      disconnected = true;
+      child.stdin.destroy(); child.kill();
+      onDisconnect.listeners.forEach(listener => listener());
+    };
+    child.stderr.on('data', bytes => {
+      const text = bytes.toString('utf8');
+      errors.push(text); if (errors.length > 8) errors.shift();
+      diagnosticText += text;
+      let newline;
+      while ((newline = diagnosticText.indexOf('\n')) >= 0) {
+        const line = diagnosticText.slice(0, newline).trim();
+        diagnosticText = diagnosticText.slice(newline + 1);
+        try {
+          const value = JSON.parse(line);
+          if (['harness_ready', 'response'].includes(value.eventName)) diagnostics.push(value);
+          if (diagnostics.length > 120) diagnostics.shift();
+        } catch (_) { /* Build output is not a Native frame or harness diagnostic. */ }
+      }
+      if (diagnosticText.length > 8192) diagnosticText = diagnosticText.slice(-8192);
+    });
+    child.on('error', error => { errors.push(error.code || 'spawn_failed'); disconnect(); });
+    child.on('exit', disconnect);
+    child.stdin.on('error', disconnect);
+    child.stdout.on('data', bytes => {
+      pending = Buffer.concat([pending, bytes]);
+      while (pending.length >= 4) {
+        const size = pending.readUInt32LE(0);
+        if (!size || size > 8 * 1024 * 1024) { errors.push('invalid_native_frame_length'); disconnect(); return; }
+        if (pending.length < size + 4) return;
+        let value;
+        try { value = JSON.parse(pending.subarray(4, size + 4).toString('utf8')); }
+        catch (_) { errors.push('invalid_native_frame_json'); disconnect(); return; }
+        pending = pending.subarray(size + 4);
+        onMessage.listeners.forEach(listener => listener(value));
+      }
+    });
+    const port = { onMessage, onDisconnect, disconnect, postMessage(value) {
+      assert.equal(disconnected, false, 'cannot send to an exited Native process');
+      requests.push({ messageType: value.messageType, protocolVersion: value.protocolVersion });
+      const body = Buffer.from(JSON.stringify(value)), length = Buffer.alloc(4);
+      length.writeUInt32LE(body.length);
+      child.stdin.write(Buffer.concat([length, body]));
+    } };
+    ports.push(port);
+    return port;
+  }
+  try {
+    const childId = config.childId || 'child', day = config.date || '2026-10-17';
+    const expectedRest = config.expectedRestSeconds ?? 600;
+    const host = await loadGuardian({ storage: { cloud_profile_id: childId,
+      cloud_device_id: 'isolated-process-device' }, policy: { enabled: true, deploymentMode: 'managed',
+      cloudEndpoint: 'https://isolated.invalid', managedDeviceToken: 'synthetic-token',
+      managedProfileEmail: 'synthetic@example.invalid' }, connectNative });
+    installSourceBinding(host);
+    host.module.setApplicationIdentityBindingEnsurer(async () => { throw Error('hot bucket read cannot prepare identity'); });
+    const contract = globalThis.__GUARDIAN_QUOTA_BUCKETS_CONTRACT;
+    const source = fs.readFileSync(path.join(root, 'extension/infra/source-statistics-shadow.js'), 'utf8')
+      .replace(/^import .*;\r?\n/gm, '');
+    globalThis.__processBucketContract = contract;
+    const consumer = await import('data:text/javascript;base64,' + Buffer.from(
+      'const sourceStatisticsContract=globalThis.__processBucketContract;\n' + source).toString('base64'));
+    const stored = {};
+    let cloudReads = 0;
+    const reader = consumer.createSourceStatisticsShadow({ isEnabled: () => true,
+      now: Date.now,
+      readContext: async () => ({ apiBase: 'https://isolated.invalid', deviceToken: 'synthetic-token', childId,
+        scopeHash: 'synthetic-process-scope' }),
+      readModel: async ({ date }) => ({ ok: true, date,
+        usage: { studySeconds: 0, compositeSeconds: 0, restSeconds: 600 }, completeness: { complete: true } }),
+      storage: { get: async key => ({ [key]: stored[key] }) },
+      write: async values => { Object.assign(stored, structuredClone(values)); return { ok: true }; },
+      nativeContext: options => host.module.readSourceStatisticsNativeContext(options),
+      nativeExchange: request => host.module.requestQuotaBucketsExchange(request),
+      cloudRead: () => { cloudReads++; return new Promise(() => {}); } });
+    async function refresh() {
+      let timer;
+      return Promise.race([reader.refresh({ force: true }), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Error('real Native read timed out; stderr=' + errors.join('').slice(-1000))), 15000);
+      })]).finally(() => clearTimeout(timer));
+    }
+    const result = await refresh();
+    assert.equal(result.ok, true, JSON.stringify(result));
+    const usage = await reader.readSources(day);
+    assert.equal(usage.sourceStatistics.web.days.find(row => row.date === day).bucketsSeconds.rest, 600);
+    assert.equal(usage.sourceStatistics.application.days.find(row => row.date === day).bucketsSeconds.rest, expectedRest);
+    assert.equal(cloudReads, 0, 'local exchange must not enter a permanently pending cloud fallback');
+    assert.equal(requests.filter(row => row.messageType === 'exchangeQuotaBuckets').length, 1);
+    await waitFor(() => diagnostics.some(row => row.eventName === 'response'
+      && row.messageType === 'exchangeQuotaBuckets'), 2000);
+    const ready = diagnostics.find(row => row.eventName === 'harness_ready');
+    assert.equal(ready?.syntheticOnly, true);
+    assert.equal(ready.sharedEnabled, false);
+    assert.equal(ready.cloudPending, true, 'actual Native background cloud request remains pending');
+    const responses = diagnostics.filter(row => row.eventName === 'response');
+    const cloudCalls = responses[0].cloudCalls;
+    assert(Number.isInteger(cloudCalls) && cloudCalls > 0);
+    assert(responses.every(row => row.cloudPending === true && row.cloudCalls === cloudCalls),
+      'actual Dispatcher exchanges do not start or wait for another cloud refresh');
+    assert(!requests.some(row => ['getSharedWebSourceScope', 'bindSharedWebSourceV2',
+      'replaceSharedWebContribution', 'replaceSharedWebContributionV2'].includes(row.messageType)));
+    const dailyMinutes = Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+      .map(key => [key, { study: null, composite: null, rest: null }]));
+    const projected = contract.projectQuotaBucketsSeconds({ dailyMinutes }, day,
+      usage.sourceStatistics.web, usage.sourceStatistics.application);
+    assert.equal(projected.usedSeconds.rest, config.expectedCombinedRestSeconds ?? 1200,
+      'production contract combines the independently read sources');
+    if (config.fullScenario === true) {
+      const observed = [expectedRest];
+      for (const expected of [100, 100]) {
+        assert.equal((await refresh()).ok, true);
+        const current = await reader.readSources(day);
+        const actual = current.sourceStatistics.application.days.find(row => row.date === day).bucketsSeconds.rest;
+        observed.push(actual);
+        assert.equal(actual, expected, 'decreased application data replaces, not accumulates');
+        assert.equal(contract.projectQuotaBucketsSeconds({ dailyMinutes }, day,
+          current.sourceStatistics.web, current.sourceStatistics.application).usedSeconds.rest, 700);
+        await waitFor(() => diagnostics.filter(row => row.eventName === 'response'
+          && row.messageType === 'exchangeQuotaBuckets' && row.ok === true).length >= observed.length, 2000);
+      }
+      const oldContext = await host.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true });
+      assert.equal(oldContext.ok, true);
+      ports.at(-1).disconnect();
+      const newContext = await host.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true });
+      assert.equal(newContext.ok, true);
+      assert.notEqual(newContext.connectionGeneration, oldContext.connectionGeneration);
+      const query = { fromDate: usage.sourceStatistics.web.fromDate, toDate: usage.sourceStatistics.web.toDate,
+        webUsage: usage.sourceStatistics.web };
+      const sentBeforeStale = requests.length;
+      const stale = await host.module.requestQuotaBucketsExchange({ ...query, expectedContextId: oldContext.contextId });
+      assert.equal(stale.ok, false);
+      assert.equal(stale.errorCode, 'source_statistics_native_context_changed');
+      assert.equal(requests.length, sentBeforeStale, 'old context never reaches the new process');
+      installSourceBinding(host);
+      const reconnected = await host.module.requestQuotaBucketsExchange({ ...query, expectedContextId: newContext.contextId });
+      assert.equal(reconnected.ok, true, JSON.stringify(reconnected));
+      assert.equal(reconnected.snapshot.days.find(row => row.date === day).bucketsSeconds.rest, expectedRest);
+      await waitFor(() => diagnostics.filter(row => row.eventName === 'response'
+        && row.messageType === 'exchangeQuotaBuckets' && row.ok === true).length >= 4, 2000);
+      const wrongChild = structuredClone(query.webUsage); wrongChild.childId = 'different-synthetic-child';
+      const sentBeforeInvalid = requests.length;
+      const invalid = await host.module.requestQuotaBucketsExchange({ ...query, webUsage: wrongChild });
+      assert.equal(invalid.errorCode, 'source_statistics_native_invalid_request');
+      assert.equal(requests.length, sentBeforeInvalid, 'production JS contract rejects wrong child before transport');
+      host.module.setApplicationIdentityBindingReader(async () => ({ ok: true,
+        bindingContextId: 'c'.repeat(64), expiresAtMs: Date.now() - 1 }));
+      const expired = await host.module.requestQuotaBucketsExchange(query);
+      assert.equal(expired.ok, false);
+      assert.equal(expired.nativeAttempt.sent, false, 'expired fixture receipt is rejected by real client');
+      processArgs = [...config.args, '--proof', 'expired'];
+      ports.at(-1).disconnect();
+      const expiredContext = await host.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true });
+      assert.equal(expiredContext.ok, true);
+      installSourceBinding(host);
+      const nativeExpired = await host.module.requestQuotaBucketsExchange({ ...query, expectedContextId: expiredContext.contextId });
+      assert.equal(nativeExpired.ok, false);
+      assert.equal(nativeExpired.nativeAttempt.sent, true);
+      assert.equal(nativeExpired.nativeAttempt.responseReceived, true);
+      assert.equal(nativeExpired.errorCode, 'QUOTA_BUCKETS_CONTEXT_CHANGED', 'actual Dispatcher rejects expired fixture context');
+      // Rejection can close the Port before the test process writes its trailing stderr line.
+      // The four successful exchanges must have metadata; rejection is proven by the actual response above.
+      await waitFor(() => diagnostics.filter(row => row.eventName === 'response'
+        && row.messageType === 'exchangeQuotaBuckets' && row.ok === true).length >= 4, 2000);
+      assert(diagnostics.filter(row => row.eventName === 'response').every(row => row.cloudPending === true
+        && row.cloudCalls === cloudCalls), 'all observed Native response metadata retain the pending cloud call');
+      assert.equal(cloudReads, 0);
+      console.log('[Native process extended] decline/repeat/reconnect/stale JS context/wrong JS child/expired JS receipt/expired Native fixture PASS',
+        JSON.stringify({ observed, oldGeneration: oldContext.connectionGeneration,
+          newGeneration: newContext.connectionGeneration, cloudReads, nativeCloudCallsPerProcess: cloudCalls }));
+    }
+    console.log('[Native process] actual Dispatcher framing, cold handshake, bucket exchange and source consumer PASS',
+      JSON.stringify({ webRest: 600, applicationRest: expectedRest, cloudReads,
+        nativeCloudCalls: cloudCalls, nativeCloudPending: true, requests }));
+  } finally {
+    for (const child of children) { child.stdin.destroy(); child.kill(); }
+  }
+}
+
+(process.env.TOC_NATIVE_PROCESS_CONFIG ? runNativeProcess() : run()).catch((error) => {
   console.error(error);
   process.exit(1);
 });

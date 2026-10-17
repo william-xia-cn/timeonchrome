@@ -75,7 +75,7 @@ initCompositePageObserver();
 initSharedReminderContentBridge();
 initSharedAccessPolicyReader();
 initSharedQuotaExecutionReader();
-initSharedWebContributionSync();
+initSharedWebContributionSync({ identityAllowed: isMonitoringEnabled });
 initForcedUseContributionObserver();
 initSharedBrowserActivity();
 

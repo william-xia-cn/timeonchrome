@@ -64,6 +64,7 @@ let queuedProbe = null;
 let queuedApplicationRead = null;
 let queuedApplicationIdentityRead = null;
 let applicationIdentityBindingEnsurer = null;
+let applicationIdentityBindingReader = null;
 let queuedSharedQuotaRead = null;
 let queuedSharedReminderReport = null;
 let queuedSharedLifecycle = null;
@@ -1659,7 +1660,7 @@ export async function requestApplicationIdentityBindingNative(method, value = {}
   if (!await readNativeHostDeploymentMarker().catch(() => false)) {
     return { ok: false, errorCode: 'managed_marker_unavailable' };
   }
-  if (!nativePort || !sharedNativeV3 || !applicationIdentityUsageSupported
+  if (!nativePort || !sharedNativeV3
     || !sharedNativeCapabilities.has('shared-web-source-reusable-v2')) {
     return { ok: false, errorCode: 'application_identity_usage_binding_unavailable' };
   }
@@ -1671,6 +1672,10 @@ export async function requestApplicationIdentityBindingNative(method, value = {}
 
 export function setApplicationIdentityBindingEnsurer(ensurer) {
   applicationIdentityBindingEnsurer = typeof ensurer === 'function' ? ensurer : null;
+}
+
+export function setApplicationIdentityBindingReader(reader) {
+  applicationIdentityBindingReader = typeof reader === 'function' ? reader : null;
 }
 
 export function readApplicationIdentityBindingConnection() {
@@ -1696,6 +1701,7 @@ export async function requestSharedWebSync(method, value = {}) {
 
 // No production caller enables this adapter in the shadow phase.
 export function configureSharedQuotaNativeBridge({ enabled = false } = {}) {
+  if (sharedBridgeConfig.enabled === (enabled === true)) return { ok: true };
   sharedBridgeConfig = { enabled: enabled === true };
   notifyBrowserActivityLease();
   return { ok: true };
@@ -1788,6 +1794,12 @@ function sourceStatisticsCapabilityAvailable(quotaBuckets = false) {
     && sharedNativeCapabilities.has(quotaBuckets ? 'quota-buckets-read-v1' : SOURCE_STATISTICS_READ_CAPABILITY);
 }
 
+export function readQuotaBucketsReadCapability() {
+  return { known: nativePort !== null && nativeHealthProtocolVersion !== null
+    && (!sharedNativeV3 || nativeHealthProtocolVersion === 3),
+  available: sourceStatisticsCapabilityAvailable(true) };
+}
+
 export async function readSourceStatisticsNativeContext({ prepare = false, quotaBuckets = false } = {}) {
   try {
     const stored = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id']);
@@ -1866,13 +1878,14 @@ async function requestStatisticsExchange({ fromDate, toDate, webStatistics, expe
     validate(payload, context.childId);
   }
   catch (_) { return failed('source_statistics_native_invalid_request'); }
-  if (typeof applicationIdentityBindingEnsurer !== 'function') {
+  const bindingReader = quotaBuckets ? applicationIdentityBindingReader : applicationIdentityBindingEnsurer;
+  if (typeof bindingReader !== 'function') {
     return failed('source_statistics_native_binding_required');
   }
   const port = nativePort;
-  // Binding uses the same Native send queue, so prepare it before enqueuing this read.
+  // New bucket reads only consume a ready binding; preparation runs independently.
   let binding;
-  try { binding = await applicationIdentityBindingEnsurer(); }
+  try { binding = await bindingReader(); }
   catch (_) { return failed('source_statistics_native_binding_unavailable'); }
   if (!binding?.ok) {
     return failed(SHARED_WEB_IDENTITY_ERRORS.has(binding?.errorCode)

@@ -10,7 +10,7 @@ import { createReusableSharedWebBinding } from './shared-web-reusable-binding.js
 import { SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
 import { requestSharedWebSync, observeSharedAccessPolicyCapability, readSharedWebLocalConnection,
   requestApplicationIdentityBindingNative, readApplicationIdentityBindingConnection,
-  setApplicationIdentityBindingEnsurer } from './native-host-client.js';
+  setApplicationIdentityBindingEnsurer, setApplicationIdentityBindingReader } from './native-host-client.js';
 import { runStorageMutation, budgetedLocalSet } from './storage-budget.js';
 import { readSharedQuotaExecutionLkg } from './shared-quota-execution-reader.js';
 import { projectLocalSharedQuotaExecution } from '../core/shared-contracts/1.28.0/shared-quota-execution.js';
@@ -114,6 +114,7 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     ? (identityNative || requestApplicationIdentityBindingNative)(method, value) : native(method, value);
   const reusableBinding = createReusableSharedWebBinding({ native: reusableNative, exchange: exchangeV2, now });
   let identityBindingPromise = null;
+  let confirmedIdentityBinding = null;
   let diagnosticStage = null, diagnosticDate = null;
   let diagnosticContext = null;
   let diagnostic = { lastAttemptAtMs: null, lastCompletedAtMs: null, lastErrorCode: null,
@@ -154,7 +155,22 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     return { ...context, scopeHash: await hash(['shared-web-v1', context.apiBase,
       context.deviceId, context.childId, context.deviceToken]) };
   }
+  async function readApplicationIdentityBinding() {
+    const cached = confirmedIdentityBinding;
+    if (!cached) return fail('application_identity_usage_binding_unavailable');
+    try {
+      const context = await captureIdentity(), current = readIdentityConnection();
+      if (cached !== confirmedIdentityBinding || context.scopeHash !== cached.scopeHash
+        || !current?.connection || current.connection !== cached.connection
+        || current.connectionGeneration !== cached.connectionGeneration
+        || current.reusableSourceSupported !== true
+        || cached.expiresAtMs <= now()) return fail('application_identity_usage_binding_unavailable');
+      return { ok: true, bindingContextId: cached.bindingContextId, expiresAtMs: cached.expiresAtMs };
+    } catch (_) { return fail('application_identity_usage_binding_unavailable'); }
+  }
   async function ensureApplicationIdentityBinding() {
+    const ready = await readApplicationIdentityBinding();
+    if (ready.ok) return ready;
     if (identityBindingPromise) return identityBindingPromise;
     const operation = (async () => {
       const generation = epoch;
@@ -164,7 +180,6 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
       const initialConnection = readIdentityConnection();
       const connection = initialConnection?.connection;
       if (!connection || initialConnection.reusableSourceSupported !== true
-        || initialConnection.applicationIdentityUsageSupported !== true
         || !Number.isSafeInteger(initialConnection.connectionGeneration)) {
         return fail('application_identity_usage_binding_unavailable');
       }
@@ -176,8 +191,7 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
         return generation === epoch && next.scopeHash === context.scopeHash
           && currentConnection?.connection === expected
           && currentConnection.connectionGeneration === initialConnection.connectionGeneration
-          && currentConnection.reusableSourceSupported === true
-          && currentConnection.applicationIdentityUsageSupported === true;
+          && currentConnection.reusableSourceSupported === true;
       };
       const bound = await reusableBinding.bind(context, connection, currentIdentity);
       if (!bound.ok || !await currentIdentity(connection)) {
@@ -190,6 +204,10 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
         childScopeHash: bound.claims.childScopeHash, assignmentVersion: bound.claims.assignmentVersion,
         webSourceKey: bound.claims.webSourceKey, bindingEpochHash: bound.claims.bindingEpochHash,
         expiresAtMs: bound.binding.expiresAtMs });
+      if (!await currentIdentity(connection)) return fail('application_identity_usage_binding_unavailable');
+      confirmedIdentityBinding = { scopeHash: context.scopeHash, connection,
+        connectionGeneration: initialConnection.connectionGeneration,
+        bindingContextId, expiresAtMs: bound.binding.expiresAtMs };
       return { ok: true, bindingContextId, expiresAtMs: bound.binding.expiresAtMs };
     })();
     identityBindingPromise = operation;
@@ -501,7 +519,7 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     }).finally(() => { running = null; if (queued && enabled) { queued = false; void refresh(); } });
     return running;
   }
-  return { refresh, ensureApplicationIdentityBinding,
+  return { refresh, ensureApplicationIdentityBinding, readApplicationIdentityBinding,
     readDiagnostics(policyHash, days = {}, scopeHash = null) {
       const connection = readConnection();
       let bindingState = !enabled ? 'disabled' : !connection.connection ? 'disconnected' : !sourceBinding ? 'unbound' : 'unknown';
@@ -518,8 +536,13 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
           [date, !item?.upload || bindingState === 'unknown' ? null : bindingState === 'valid'
             && nativeReceipts.has(date) && nativeReceipts.get(date).hash === item?.upload?.contentHash])) };
     },
-    invalidate() { epoch++; queued = false; sourceBinding = null; localLease = null; bindingConnection = null; diagnosticContext = null; nativeReceipts.clear(); reusableBinding.invalidate(); preparation = fail('shared_web_identity_changed'); },
-    configure(value) { epoch++; sourceBinding = null; localLease = null; bindingConnection = null; nativeReceipts.clear(); reusableBinding.invalidate(); preparation = fail('shared_web_not_prepared'); enabled = value === true; return refresh(); },
+    invalidate() { epoch++; queued = false; confirmedIdentityBinding = null; sourceBinding = null; localLease = null; bindingConnection = null; diagnosticContext = null; nativeReceipts.clear(); reusableBinding.invalidate(); preparation = fail('shared_web_identity_changed'); },
+    configure(value) {
+      const next = value === true;
+      if (next === enabled) return Promise.resolve(next ? { ok: true, unchanged: true } : fail('shared_web_disabled'));
+      epoch++; sourceBinding = null; localLease = null; bindingConnection = null; nativeReceipts.clear();
+      reusableBinding.invalidate(); preparation = fail('shared_web_not_prepared'); enabled = next; return refresh();
+    },
     async readBinding() {
       if (!enabled) return fail('shared_web_disabled');
       const generation = epoch, c = await capture(), binding = sourceBinding;
@@ -570,10 +593,11 @@ export function ensureApplicationIdentityBinding() {
 export function readSharedWebDiagnosticState(policyHash, days, scopeHash) {
   return sync?.readDiagnostics(policyHash, days, scopeHash) || { bindingState: 'unknown', cacheScopeCurrent: null, running: null, stage: null, currentNativeConfirmedByDate: {} };
 }
-export function initSharedWebContributionSync() {
+export function initSharedWebContributionSync({ identityAllowed = () => false } = {}) {
   if (sync) return;
   sync = createSharedWebContributionSync();
   setApplicationIdentityBindingEnsurer(() => sync.ensureApplicationIdentityBinding());
+  setApplicationIdentityBindingReader(() => sync.readApplicationIdentityBinding());
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type !== 'TIMEONCHROME_APPLICATION_IDENTITY_BINDING_ENSURE') return false;
     try {
@@ -591,7 +615,11 @@ export function initSharedWebContributionSync() {
       () => sendResponse({ ok: false, errorCode: 'application_identity_usage_binding_unavailable' }));
     return true;
   });
-  const refresh = () => { void sync.refresh().catch(() => {}); };
+  const refreshIdentity = () => {
+    void Promise.resolve().then(identityAllowed).then(allowed => allowed
+      ? sync.ensureApplicationIdentityBinding() : null).catch(() => {});
+  };
+  const refresh = () => { void sync.refresh().catch(() => {}); refreshIdentity(); };
   chrome.runtime.onStartup.addListener(refresh); chrome.runtime.onInstalled.addListener(refresh);
   chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === 'timeonchromeLocalGuardianHeartbeat') refresh(); });
   chrome.storage.onChanged.addListener((changes, area) => {
@@ -603,6 +631,7 @@ export function initSharedWebContributionSync() {
   observeSharedAccessPolicyCapability(available => {
     if (available !== previous) { sync.invalidate(); if (available) refresh(); }
     previous = available;
+    refreshIdentity();
   });
   refresh();
 }

@@ -1,5 +1,19 @@
 # TASK_BOARD
 
+## NOW：Windows共享消费者接续（2026-10-16，源码与隔离验证）
+
+新桶修复集中交付（2026-10-17，PO授权准备）：仅冻结的4产品文件、3直接测试及本任务块集中提交到现有codex/extension-local；其他PROJECT_MASTER/CHANGELOG/TASK旧草稿保持原样。唯一新unpacked开发候选1.7.58从该干净提交导出，源码正式manifest不升版，沿用旧公开key/稳定ID及native-host-development标记，不加权限/协议。复用上述精确源码测试证据；全新staging构建核验后完整备份既有1.7.57加载目录，严格只更新4JS及manifest且manifest最后。不能据磁盘更新冒称Chrome运行实例已更新或Service真实同孩子验签通过；原正常页面/既有上报与Service安全只读证据由架构集中核验，不绕过内部页工具限制。无托管/云端/R2/Native安装/共享启用/自动重启或重载。
+
+同链路集中场景（2026-10-17，PASS）：显式TOC_NATIVE_PROCESS_CONFIG启用fullScenario，真实应用桶600→100→100，生产projectQuotaBucketsSeconds合并网页600后得到1200→700→700，不累加。真实断Port后新进程V1→V3重协商、generation1→3；旧context由真实JS客户端拒绝且不发送，新fixture绑定接受。错误孩子由真实JS契约在传输前拒绝，过期receipt由真实客户端拒绝且不发送，Native过期fixture由实际Dispatcher返回QUOTA_BUCKETS_CONTEXT_CHANGED。所有成功交换逐次核对Native stderr云请求pending及每进程cloudCalls=1，JS备用0；拒绝会立即断Port，故不宣称其末尾stderr必送达。两次观察失败均在业务断言之后等待被kill进程的附属stderr，架构确认后仅调整为成功frame后先收对应stderr再断开，未延长超时或改业务断言；最终同专项exit0、1.74秒。暖缓存600+200=800由根独立同入口验证，不重复冒用本次命令。身份仍fixture注入；不代表安装环境或真实Service验签。产品源码冻结、未提交制包重载。
+
+实际跨进程最小闭环（2026-10-17，PASS）：前两次分别失败于测试Producer缺e_sqlite3依赖、夹具单段600秒违反既有180秒校验；Native仅修测试依赖及合法分段，产品未放宽。架构确认修正artifact后一次实际消费者复验exit0：真实Native framing/Dispatcher/临时SQLite/LocalApplicationStatisticsReader/QuotaBucketsReader连接真实JS客户端、1.55契约及source消费者，V1 heartbeat→V3 probe→V3 exchange，网页600秒＋应用600秒；Native真实后台cloudPending=true、cloudCalls=1从health至exchange不增，JS云端备用调用0。实际Producer.dll SHA256=5fe2d93da12381495b784e564c34219266fb65a70ca89145bab963bb1d13800d。身份由隔离夹具和receipt注入，不等同Service真实验签或用户现场验收；重复/下降/重连等同链路扩展尚未完成，不冒报通过。不制包、更新、重载或改家庭数据。
+
+隔离跨进程验证准备（2026-10-17，架构转交PO授权）：产品源码保持冻结，仅在既有local-guardian专项增加显式环境变量入口，使用子进程标准输入输出的真实Native framing连接实际Dispatcher/QuotaBucketsReader，复用真实客户端、契约和source消费者；不手写统计响应，不接家庭、用户Chrome或生产库。缺省不执行新分支，待Native所属提供可执行入口及合成数据参数后运行冷协商、桶交换和云端挂起用例；现有通过专项不重复全量运行。
+
+新桶本地交换最小接线验证（2026-10-17，源码待架构复核）：bootstrap、shared-web-contribution-sync、local-guardian（含固定旧客户端冷协商基线及C#wire）、source-statistics-shadow四项直接专项均exit0，typecheck通过。确认unknown不启动旧准备、桶能力不依赖共享执行阶段、重复reconcile/disable不撤销有效身份；无应用身份明细能力时可准备独立身份。新桶热读只读现有确认元数据，重复交换只发送exchangeQuotaBuckets，Scope/Bind/云端签发次数不增；过期、换Port和换孩子立即拒绝只读确认。旧身份明细管理仍保留ensurer及自身能力检查。本批未改提醒、原账、Native、云端或生产开关，未提交、制包、更新加载目录或重载；真实终端交换仍待集中交付后验证。三份原脏文档保持，不把其余草稿作为本批完成范围。
+
+新桶本地交换最小接线（2026-10-17，PO批准实施，先源码）：按当前Port已完成协商的quota-buckets-read-v1选择新路径，未知能力暂不启动旧贡献/混合清单，明确旧端才兼容；shadow读取与shared执行分开，周期reconcile/反复disable幂等。新桶路径停用旧policy/basis/contributions但保留同孩子身份独立准备。身份模块复用既有内存确认结果，后台健康/连接事件及到期更新负责Scope/Bind/云端；新桶热读仅检查当前同孩子/设备/Port/代次及原5分钟期限，不await准备，不创建统计缓存或新协议。准备未完成/过期明确未就绪走已有备用；旧应用身份管理入口保持兼容。最小改动为bootstrap/native-client/既有contribution身份模块/background接线及直接bootstrap/bridge/source/identity回归、typecheck/diff；不改原账/统计上传/云端/Native/配置/共享开关/Mac/历史，不新树、制包、重载或生产操作，保留旧草稿。
+
 冷协商最后审计修正（2026-10-17）：根指出排队initial probe自然采用V3时，options未显式protocolVersion=3，缺requestId严格拒绝后可能未断连。仅在strictHealth相关字段拒绝分支记录标记后失效当前实际Port，保留connected=false负例，不新增场景/协议/数据；同批追加修正后再次最小专项，不制作中间候选。
 
 
