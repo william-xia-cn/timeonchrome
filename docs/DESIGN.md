@@ -1,5 +1,13 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-17 其他设备账下行与业务消费
+
+现有V2分页/hash校验成功后的设备账仍为唯一云端网页输入；正常读取与可信备用缓存均按apiBase/deviceId/childId及北京时间周期隔离。云端snapshot.expiresAt是分页快照传输会话期限，不自动撤销已成功验证并接收的同周期账；离线继续使用该账，不能因短期刷新失败将已知贡献清零。旧无scope缓存不追认身份。
+
+设备账下行从本机上传成功前置中分离，同次同步即使上传退避/失败也必须执行；上传的ACK、重试、水位不变。终端消费服务器已发布deviceAccounts并排除本机；其他设备未取得的增量按0，inventory/missing等只作诊断，不作为本机/合并用量可读性的门槛。保留云端本机账用于核对，不进入执行总量。应用Native桥与云端fallback仍二选一，不能用跨来源总量相减猜算设备贡献；必要接口由架构统一。
+
+架构已固定兼容transport：原device/source-statistics旧请求及直接snapshot响应不变；schema2/application/all可显式includeSources:true，并可携带现有sourceProof（shared-web-source:v2云签证明），返回{snapshot,applicationSources}。业务query与可选transport分开验证，证明缺失/失效只缺分项、不使合法all失败。控件仅只读复用当前连接已有证明，不再握手、不持久化/记录证明；来源分项独立校验，坏分项不影响有效合计。云端返回的分项可随同合计缓存，同scope失败使用配套缓存，禁止继承另一次Native/云端结果的解释。
+
 ## 2026-10-17 D-115访问故障隔离与诊断
 
 准入与故障分离：quota_read/shared_day_missing/shared_admission/forced_admission/composite_remaining/grant_open/grant_close等故障产生非阻断结果，不创建新的配额事实、不将未知补零。独立黑名单/停用/时间窗仍按已知配置执行。学习网站只豁免配额，不豁免独立时间窗；同规则贯穿访问、手动模式、定时配额检查及确认复核。诊断绑定单次evaluationId/auditId与当次读取，禁止全局lastQuotaEvaluation冒充同次证据；保留有限白名单阶段、底层原因、进度/身份/策略匹配布尔值，不传原始身份/域名/URL/标题或异常正文。诊断复用现有日志队列、基础白名单、ACK及低优先级预算，不依赖usage/V2成功；详细到期不关闭基础授权，但明确关闭/到期授权仍尊重。当前V2上传卡点与恢复缺陷独立调查，不据新代码倒推历史原因，不改记账语义。

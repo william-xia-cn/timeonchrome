@@ -23,7 +23,7 @@ const runStorageMutation = async (task) => task({
   set: async (items) => Object.assign(state, items),
 });
 const shadow = load(path.join(root, 'extension', 'core', 'profile-account-shadow-v2.js'), [
-  'PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY', 'validateProfileAccountSnapshotPages', 'storeProfileAccountShadowSnapshot',
+  'PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY', 'validateProfileAccountSnapshotPages', 'storeProfileAccountShadowSnapshot', 'isProfileAccountShadowScopeCurrent',
 ], { ...device, runStorageMutation });
 
 async function pages() {
@@ -94,6 +94,11 @@ async function rejects(label, task, code) {
 
   await shadow.storeProfileAccountShadowSnapshot(snapshot);
   check('verified snapshot is stored under isolated key', state[shadow.PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY].current.snapshotId === 'snapshot-1');
+  check('legacy callers never gain retroactive scope', !state[shadow.PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY].scope);
+  const beforeGuard = JSON.stringify(state);
+  await rejects('scope cannot be written without transaction identity check', () => shadow.storeProfileAccountShadowSnapshot(snapshot,
+    { scope: { apiBase: 'https://example.invalid', childId: 'child', deviceId: 'a' } }), 'PROFILE_ACCOUNT_SNAPSHOT_SCOPE_CHANGED');
+  check('failed transaction scope check preserves old cache', JSON.stringify(state) === beforeGuard);
   const next = { ...snapshot, snapshotId: 'snapshot-2', snapshotHash: 'b'.repeat(64), asOf: 2000 };
   await shadow.storeProfileAccountShadowSnapshot(next);
   check('replacement keeps only compact previous summary', !('deviceAccounts' in state[shadow.PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY].previous));

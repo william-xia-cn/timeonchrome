@@ -8,7 +8,11 @@ const fail = errorCode => ({ ok: false, errorCode });
 // Proofs stay in this process; they never enter ledger, diagnostics or persisted queues.
 export function createReusableSharedWebBinding({ native, exchange, now = Date.now } = {}) {
   let cache = null;
-  return { invalidate() { cache = null; }, async bind(context, connection, current, expectedSourceKey = null) {
+  return { invalidate() { cache = null; }, readProof(context) {
+    if (!cache || cache.scopeHash !== context?.scopeHash || cache.proof.claims.issuedAtMs > now()
+      || cache.proof.claims.expiresAtMs <= now()) return null;
+    return clone(cache.proof);
+  }, async bind(context, connection, current, expectedSourceKey = null) {
     try {
       const scoped = await native('getSharedWebSourceScope', {});
       if (!await current(connection)) return fail('shared_web_identity_changed');

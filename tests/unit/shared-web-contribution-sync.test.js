@@ -135,13 +135,32 @@ async function run() {
   identityOnly.options.readIdentityConnection = () => ({ connection: identityPort, connectionGeneration: 1,
     reusableSourceSupported: true, applicationIdentityUsageSupported: false });
   let policyReads = 0;
+  let identityReadyNotifications = 0;
+  identityOnly.options.onIdentityReady = () => { identityReadyNotifications++; };
   identityOnly.options.readPolicy = async () => { policyReads++; throw Error('shared policy must not be required'); };
   identityOnly.sync = mod.createSharedWebContributionSync(identityOnly.options);
   const beforeIdentityOnly = clone(identityOnly.store);
+  const expectedIdentityContext = await identityOnly.options.readContext();
+  assert.equal((await identityOnly.sync.readApplicationIdentityConfirmation(expectedIdentityContext)).confirmed, null);
+  assert.equal(await identityOnly.sync.readApplicationSourceProof(expectedIdentityContext), null);
   assert.equal((await identityOnly.sync.readApplicationIdentityBinding()).ok, false);
   assert.equal(identityOnly.nativeCalls.length, 0, 'an unprepared read does not prepare identity');
   const identityBinding = await identityOnly.sync.ensureApplicationIdentityBinding();
   assert.equal(identityBinding.ok, true, 'identity binding works while shared contribution sync is disabled');
+  assert.equal(identityReadyNotifications, 1);
+  const confirmedIdentity = await identityOnly.sync.readApplicationIdentityConfirmation(expectedIdentityContext);
+  assert.equal(confirmedIdentity.confirmed, true);
+  assert.equal(confirmedIdentity.connectionGeneration, 1);
+  assert.deepEqual(Object.keys(confirmedIdentity).sort(), ['confirmed', 'connectionGeneration', 'expiresAtMs']);
+  const cachedSourceProof = await identityOnly.sync.readApplicationSourceProof(expectedIdentityContext);
+  assert.equal(cachedSourceProof.claims.audience, 'timeonchrome:shared-web-source:v2');
+  cachedSourceProof.claims.assignmentVersion++;
+  assert.notEqual((await identityOnly.sync.readApplicationSourceProof(expectedIdentityContext)).claims.assignmentVersion,
+    cachedSourceProof.claims.assignmentVersion, 'readonly source proof is a clone');
+  for (const key of ['apiBase', 'deviceId', 'childId', 'deviceToken']) {
+    assert.equal((await identityOnly.sync.readApplicationIdentityConfirmation({ ...expectedIdentityContext, [key]: 'different' })).confirmed, null);
+    assert.equal(await identityOnly.sync.readApplicationSourceProof({ ...expectedIdentityContext, [key]: 'different' }), null);
+  }
   assert.equal(policyReads, 0, 'identity binding does not read shared quota policy LKG');
   assert.deepEqual(identityOnly.store, beforeIdentityOnly, 'identity binding does not write shared queue or diagnostics');
   assert.equal(identityOnly.calls.length, 0, 'identity binding does not upload contributions');
@@ -149,6 +168,7 @@ async function run() {
   const reboundIdentity = await identityOnly.sync.ensureApplicationIdentityBinding();
   assert.equal(reboundIdentity.bindingContextId, identityBinding.bindingContextId,
     'the same proof cache yields a stable binding digest for the same connection and assignment');
+  assert.equal(identityReadyNotifications, 1, 'cached readiness must not schedule another source read');
   const identityExchanges = identityOnly.exchanges();
   await identityOnly.sync.configure(false);
   await identityOnly.sync.configure(false);
@@ -157,24 +177,59 @@ async function run() {
   assert.equal(identityOnly.exchanges(), identityExchanges, 'hot reads do not issue cloud proofs');
   identityOnly.clock(now + 300000);
   assert.equal((await identityOnly.sync.readApplicationIdentityBinding()).ok, false, 'expiry is not extended');
+  assert.equal((await identityOnly.sync.readApplicationIdentityConfirmation(expectedIdentityContext)).confirmed, null);
+  assert.equal(await identityOnly.sync.readApplicationSourceProof(expectedIdentityContext), null, 'expired proof is not returned');
   identityOnly.clock(now);
   identityPort = {};
   assert.equal((await identityOnly.sync.readApplicationIdentityBinding()).ok, false, 'a different Port rejects the receipt');
+  assert.equal((await identityOnly.sync.readApplicationIdentityConfirmation(expectedIdentityContext)).confirmed, null);
+  assert.equal(await identityOnly.sync.readApplicationSourceProof(expectedIdentityContext), null, 'disconnected proof is not returned');
   await identityOnly.sync.ensureApplicationIdentityBinding();
+  assert.equal((await identityOnly.sync.readApplicationIdentityConfirmation(expectedIdentityContext)).confirmed, true);
   identityOnly.context({ apiBase: 'https://fixture.invalid', deviceId: 'fixture-device',
     childId: 'different-child', deviceToken: 'fixture-token' });
   assert.equal((await identityOnly.sync.readApplicationIdentityBinding()).ok, false, 'child changes reject the receipt');
+  assert.equal((await identityOnly.sync.readApplicationIdentityConfirmation(expectedIdentityContext)).confirmed, null);
 
   const identityContextChanged = reusableFixture();
+  let changedIdentityReady = 0;
+  identityContextChanged.options.onIdentityReady = () => { changedIdentityReady++; };
   identityContextChanged.options.enabled = false;
-  identityContextChanged.options.exchangeV2 = async () => {
+  const issueChangedProof = identityContextChanged.options.exchangeV2;
+  identityContextChanged.options.exchangeV2 = async (...args) => {
     identityContextChanged.context({ apiBase: 'https://fixture.invalid', deviceId: 'fixture-device',
       childId: 'different-child', deviceToken: 'fixture-token' });
-    return { ok: true, value: proof('timeonchrome:shared-web-source:v2') };
+    return issueChangedProof(...args);
   };
   identityContextChanged.sync = mod.createSharedWebContributionSync(identityContextChanged.options);
   assert.equal((await identityContextChanged.sync.ensureApplicationIdentityBinding()).ok, false,
     'a child change during cloud proof exchange rejects the binding');
+  assert.equal(changedIdentityReady, 0);
+  const lateIdentity = reusableFixture();
+  lateIdentity.options.enabled = false;
+  let latePort = {}, lateGeneration = 1, lateReady = 0, proofRequested = false, releaseOldProof;
+  const oldProofPending = new Promise(resolve => { releaseOldProof = resolve; });
+  const issueProof = lateIdentity.options.exchangeV2;
+  lateIdentity.options.exchangeV2 = async (...args) => {
+    proofRequested = true; await oldProofPending; return issueProof(...args);
+  };
+  lateIdentity.options.readIdentityConnection = () => ({ connection: latePort, connectionGeneration: lateGeneration,
+    reusableSourceSupported: true, applicationIdentityUsageSupported: false });
+  lateIdentity.options.onIdentityReady = () => { lateReady++; };
+  lateIdentity.sync = mod.createSharedWebContributionSync(lateIdentity.options);
+  const oldPreparation = lateIdentity.sync.ensureApplicationIdentityBinding();
+  const proofStart = Date.now();
+  while (!proofRequested && Date.now() - proofStart < 1000) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(proofRequested, true);
+  latePort = {}; lateGeneration++;
+  lateIdentity.sync.invalidate();
+  releaseOldProof();
+  assert.equal((await oldPreparation).ok, false, 'late proof from a retired connection must not become ready');
+  assert.equal(lateReady, 0, 'retired preparation must not notify or cancel a new source read');
+  assert.equal(lateIdentity.nativeCalls.some(call => call.method === 'bindSharedWebSourceV2'), false);
+  assert.equal((await lateIdentity.sync.ensureApplicationIdentityBinding()).ok, true);
+  assert.equal(lateReady, 1, 'only the current connection may publish readiness');
+  assert.equal((await lateIdentity.sync.readApplicationIdentityBinding()).ok, true);
   for (const [kind, buckets, corrections, expected] of [
     ['borrowed_rest', { study: 546, rest: 360 }, [], []],
     ['explicit_other', { study: 546, other: 360 }, [], []],
