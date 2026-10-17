@@ -6,7 +6,7 @@ import { normalizeApplicationUsageClock } from './applicationUsageClock';
 import { verifyApplicationAccountPublication,isReadableApplicationAccountSnapshot } from './applicationAccountPublication';
 import { readApplicationLedgerRetirement, isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
 import {nativeApplicationManagementTargetKey,type NativeApplicationManagementTarget} from '@timeonchrome/app-runtime-contracts/native-application-identification';
-type Filters={machineId?:string;localUserId?:string;platform?:string;fixedIdentityOnly?:boolean;
+type Filters={machineId?:string;localUserId?:string;platform?:string;fixedIdentityOnly?:boolean;emptyAsZero?:boolean;
   quotaRead?:boolean;onlySource?:{machineId:string;localUserId:string;assignmentVersion:number};
   excludeSources?:ReadonlyArray<{machineId:string;localUserId:string;assignmentVersion:number}>};
 type StatisticsRow=UsageAccountRowV2&{target?:NativeApplicationManagementTarget};
@@ -140,8 +140,8 @@ export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,
         revision:'unavailable'}});
     }
   }
-  if(days.every(day=>day.snapshot.revision==='unavailable'))
-    throw new HttpError(503,days[0].snapshot.reasonCodes[0],'当前范围的应用统计读取失败。');
+  if(days.every(day=>day.snapshot?.revision==='unavailable'))
+    throw new HttpError(503,days[0].snapshot!.reasonCodes[0],'当前范围的应用统计读取失败。');
   const merged=new Map<string,StatisticsRow>();
   for(const day of days)for(const row of day.snapshot?.rows??[]){
     if(row.hour!==null)continue;
@@ -154,7 +154,10 @@ export async function readNativeApplicationStatisticsRangeSeconds(db:D1Database,
   }
   const complete=days.every(day=>day.snapshot?.complete===true);
   const rows=[...merged.values()];
-  const availableTotal=rows.find(row=>row.kind==='total')?.duration??null;
+  // 仅旧RPC选源保留“整段范围没有新版来源”；有已发布来源时空日仍正常补0。
+  const noNativeSource=filters.emptyAsZero===false&&days.every(day=>
+    day.snapshot?.complete&&day.snapshot.references.length===0&&day.snapshot.legacySourceCount===0);
+  const availableTotal=noNativeSource?null:rows.find(row=>row.kind==='total')?.duration??null;
   const applicationUsage=mergeApplicationUsage(days.map(day=>day.snapshot?.applicationUsage));
   return {durationUnit:'seconds' as const,complete,totalDuration:complete?availableTotal:null,
     applicationUsage,

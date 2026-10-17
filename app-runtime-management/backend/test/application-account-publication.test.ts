@@ -219,7 +219,8 @@ it('mixed-ledger child seconds publish known usage without advertising a complet
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
     .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
   const foreign=await fixture();
-  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,foreign.machine.accountId,f.child,'2026-09-27')).toBeNull();
+  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,foreign.machine.accountId,f.child,'2026-09-27'))
+    .toMatchObject({complete:true,references:[],rows:expect.arrayContaining([{kind:'total',hour:null,category:null,subjectKey:null,displayName:null,duration:0}])});
 });
 it.each([
   {seconds:true,withChild:false,reasons:['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING']},
@@ -290,10 +291,16 @@ it.each(['windows','macos'] as const)('v2 %s producer seconds and product classi
   expect(read?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration).toBe(51);
   expect(read?.rows.find(row=>row.kind==='subject'&&row.hour===null)?.classifications).toEqual(['study']);
   const foreign=await fixture(platform);
-  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,foreign.machine.accountId,f.child,'2026-09-27')).toBeNull();
-  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,foreign.child,'2026-09-27')).toBeNull();
-  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-26')).toBeNull();
-  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27',{machineId:foreign.machine.machineId})).toBeNull();
+  for(const empty of [
+    await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,foreign.machine.accountId,f.child,'2026-09-27'),
+    await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,foreign.child,'2026-09-27'),
+    await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-26'),
+    await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27',{machineId:foreign.machine.machineId}),
+  ]){
+    expect(empty).toMatchObject({complete:true,references:[]});
+    expect(empty?.rows).toHaveLength(25);
+    expect(empty?.rows.every(row=>row.kind==='total'&&row.duration===0)).toBe(true);
+  }
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
     .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
 });
@@ -489,7 +496,7 @@ it.each([
     .bind(receipt.manifestId).first<{manifest_json:string}>();
   expect(JSON.parse(stored!.manifest_json)).toEqual(begin.manifest);
   expect(await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,'synthetic-child-b',from,from+DAY))
-    .toMatchObject({totalDuration:null,availableTotalDuration:null});
+    .toMatchObject({complete:true,totalDuration:0,availableTotalDuration:0,categories:[],products:[]});
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
     .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
   expect(JSON.stringify(generated)).toBe(inputBefore);
@@ -666,6 +673,9 @@ it('Guardian application source RPC reads the same published seconds without raw
     .toMatchObject({durationUnit:'milliseconds',totalDurationMs:20000});
   expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27',true))
     .toMatchObject({durationUnit:'seconds',totalDuration:20});
+  const zero=await upload(f,3,{seconds:true,empty:true,deferCommit:true});await commitRequest(f,zero.manifestId);
+  expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27'))
+    .toMatchObject({durationUnit:'milliseconds',complete:true,totalDurationMs:0,statistics:{producer:'native'}});
   const forbidden=await exports.RuntimeComputerUsageService.fetch(new Request('https://runtime-capability/getApplicationUsage',{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'another-account',childId:f.child,fromDate:'2026-09-27',toDate:'2026-09-27'})}));
   expect(forbidden.status).toBe(404);expect(await forbidden.json()).toEqual({code:'CHILD_NOT_FOUND'});
