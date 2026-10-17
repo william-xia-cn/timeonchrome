@@ -15,7 +15,7 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
   diagnostic = () => {}, now = Date.now }) {
   const report = (prompt, phase, extra = {}) => {
     try {
-      Promise.resolve(diagnostic('prompt', { auditId: prompt?.auditId, phase,
+      Promise.resolve(diagnostic('prompt', { auditId: prompt?.auditId, evaluationId: prompt?.evaluationId, phase,
         tabId: prompt?.tabId, reasons: prompt?.admission?.reasons,
         kind: prompt?.admission?.kind, quotaBucket: prompt?.admission?.quotaBucket,
         forcedUsageSeconds: prompt?.admission?.progress?.forcedUsageSeconds,
@@ -28,6 +28,8 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
     return { ok: false, error };
   };
   let queue = Promise.resolve();
+  let currentPrompt = null;
+  let releasedToken = null;
   const serialized = task => {
     const run = async () => {
       try { return await task(); }
@@ -39,10 +41,20 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
     queue = queue.then(run, run);
     return queue;
   };
-  const read = async () => (await storage.get(FORCED_USE_PROMPT_KEY))[FORCED_USE_PROMPT_KEY]
-    || { version: 1, prompt: null, progress: null };
+  const read = async () => {
+    try {
+      const state = (await storage.get(FORCED_USE_PROMPT_KEY))[FORCED_USE_PROMPT_KEY]
+        || { version: 1, prompt: null, progress: null };
+      currentPrompt = state.prompt || null;
+      return state;
+    } catch (error) {
+      if (!currentPrompt) throw error;
+      return { version: 1, prompt: currentPrompt, accountingReadFailed: true };
+    }
+  };
   const write = async state => {
     await storage.set({ [FORCED_USE_PROMPT_KEY]: state });
+    currentPrompt = state.prompt || null;
     return state;
   };
   const message = (tabId, payload) => api.tabs.sendMessage(tabId, payload, { frameId: 0 }).catch(() => null);
@@ -54,14 +66,35 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
       : { type: 'DISMISS_REST_USAGE_REMINDER', token: prompt.token });
   }
 
-  async function end(state, reason) {
+  async function permitAfterAccountingFailure(state, causeCode) {
+    const prompt = state.prompt;
+    if (!prompt) return { ok: true, action: 'continue', accountingUnavailable: true };
+    releasedToken = prompt.token;
+    report(prompt, 'accounting_failure_allowed', { ok: false, causeCode, blocked: false });
+    try { if (!state.accountingReadFailed) await write({ ...state, prompt: null }); }
+    catch (_) { report(prompt, 'accounting_cleanup_failed', { ok: false, causeCode: 'prompt_write_failed' }); }
+    await dismiss(prompt, true);
+    return { ok: true, action: 'continue', accountingUnavailable: true };
+  }
+
+  const checked = async prompt => {
+    try { return await recheck(prompt); }
+    catch (_) { return { accountingUnavailable: true }; }
+  };
+
+  async function end(state, reason, checkedAdmission) {
     const prompt = state.prompt;
     if (!prompt) return { ok: true, skipped: 'no_prompt' };
-    const result = await block(prompt, reason);
-    if (result?.ok === false) return reject(prompt, 'forced_use_block_failed');
+    const latest = checkedAdmission || await checked(prompt);
+    if (latest?.action !== 'block' && (latest?.accountingUnavailable === true
+      || state.accountingReadFailed || releasedToken === prompt.token)) {
+      return permitAfterAccountingFailure(state, 'confirmation_read_failed');
+    }
     const endedAt = now();
-    if ((await closeGrants(prompt.host, endedAt))?.ok !== true) {
-      return reject(prompt, 'forced_use_grant_close_failed');
+    let closed;
+    try { closed = await closeGrants(prompt.host, endedAt); } catch (_) { closed = null; }
+    if (closed?.ok !== true && latest?.action !== 'block') {
+      return permitAfterAccountingFailure(state, 'forced_use_grant_close_failed');
     }
     const ruleKey = prompt.admission.ruleKey;
     const progress = state.progress?.grants && typeof state.progress.grants === 'object'
@@ -70,14 +103,26 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
       : state.progress;
     const grants = Array.isArray(state.grants) ? state.grants.map(row =>
       row.domain === prompt.host && row.endMs == null ? { ...row, endMs: endedAt } : row) : state.grants;
-    await write({ ...state, prompt: null, progress, grants });
+    try { await write({ ...state, prompt: null, progress, grants }); }
+    catch (_) {
+      if (latest?.action !== 'block') return permitAfterAccountingFailure(state, 'prompt_write_failed');
+      report(prompt, 'accounting_cleanup_failed', { ok: false, causeCode: 'prompt_write_failed' });
+    }
+    const result = await block(prompt, reason);
+    if (result?.ok === false) return reject(prompt, 'forced_use_block_failed');
     await dismiss(prompt);
     report(prompt, 'ended', { reason, blocked: true });
     return { ok: true, action: 'end', reason };
   }
 
   const request = input => serialized(async () => {
-    const state = await read();
+    let state;
+    try { state = await read(); }
+    catch (_) {
+      report(input, 'accounting_failure_allowed', { ok: false, causeCode: 'prompt_read_failed', blocked: false });
+      return { ok: true, accountingUnavailable: true };
+    }
+    if (state.accountingReadFailed) return permitAfterAccountingFailure(state, 'prompt_read_failed');
     if (state.sharedRuntimeSuspended === true) return { ok: false, error: 'independent_prompt_suspended' };
     if (!Number.isInteger(input?.tabId) || input.tabId < 0
       || !input?.admission?.ok || input.admission.action !== 'confirm'
@@ -97,10 +142,11 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
     const token = globalThis.crypto?.randomUUID?.()
       || `forced-${now()}-${Math.random().toString(16).slice(2)}`;
     const prompt = { token, auditId: input.auditId || `access-${now()}-${Math.random().toString(36).slice(2, 8)}`,
-      tabId: input.tabId, host: input.host,
+      evaluationId: input.evaluationId || null, tabId: input.tabId, host: input.host,
       admission: input.admission, deadlineAt: null };
     report(prompt, 'requested');
-    await write({ ...state, prompt });
+    try { await write({ ...state, prompt }); }
+    catch (_) { return permitAfterAccountingFailure({ ...state, prompt }, 'prompt_write_failed'); }
     const shown = await message(prompt.tabId, { type: 'SHOW_REST_USAGE_REMINDER', token,
       confirmationKind: 'forced_use', forcedUseReasons: input.admission.reasons,
       forcedUsePresentation: input.admission.presentation });
@@ -110,7 +156,8 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
       return reject(prompt, 'forced_use_delivery_failed');
     }
     const active = { ...prompt, deadlineAt: now() + TIMEOUT_MS };
-    await write({ ...state, prompt: active });
+    try { await write({ ...state, prompt: active }); }
+    catch (_) { return permitAfterAccountingFailure({ ...state, prompt: active }, 'prompt_write_failed'); }
     const activated = await message(prompt.tabId, { type: 'ACTIVATE_REST_USAGE_REMINDER',
       token, deadlineAt: active.deadlineAt, timeoutAction: 'end' });
     if (activated?.ok !== true || activated.visible !== true || activated.confirmationVersion !== 1) {
@@ -135,30 +182,42 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
     if (action.action !== 'continue' || !isAutonomyConfirmationText(action.confirmationText)) {
       return reject(prompt, 'confirmation_text_required');
     }
-    const latest = await recheck(prompt);
-    if (latest?.action === 'block') return end(state, 'hard_limit');
+    const latest = await checked(prompt);
+    if (latest?.action === 'block') return end(state, 'hard_limit', latest);
+    if (latest?.accountingUnavailable === true || state.accountingReadFailed || releasedToken === prompt.token) {
+      return permitAfterAccountingFailure(state, 'confirmation_read_failed');
+    }
     const accepted = confirmForcedUseAdmission(prompt.admission, latest, state.progress);
-    if (!accepted.ok) return end(state, 'confirmation_stale');
-    const recorded = await onAccepted(prompt, accepted.state);
-    if (recorded?.ok !== true) return reject(prompt, 'forced_use_grant_failed');
+    if (!accepted.ok) {
+      report(prompt, 'confirmation_stale', { ok: false, reason: accepted.reason, ...(accepted.matches || {}) });
+      return end(state, 'confirmation_stale');
+    }
+    let recorded;
+    try { recorded = await onAccepted(prompt, accepted.state); } catch (_) { recorded = null; }
+    if (recorded?.ok !== true) return permitAfterAccountingFailure(state, 'forced_use_grant_failed');
     let scope;
     try { scope = JSON.parse(prompt.admission.identityKey); } catch { scope = null; }
     if (!Array.isArray(scope) || !scope[0] || !scope[1]) {
-      return reject(prompt, 'forced_use_identity_unavailable');
+      return permitAfterAccountingFailure(state, 'forced_use_identity_unavailable');
     }
     const grant = { profileId: scope[0], deviceId: scope[1], date: prompt.admission.dateKey,
       ruleId: prompt.admission.ruleKey, domain: prompt.host,
       causes: prompt.admission.reasons, startMs: now(), endMs: null, durableEvidence: true };
-    if ((await closeGrants(grant.domain, grant.startMs))?.ok !== true
-      || (await persistGrant(grant))?.ok !== true) {
-      return reject(prompt, 'forced_use_grant_evidence_failed');
+    try {
+      if ((await closeGrants(grant.domain, grant.startMs))?.ok !== true
+        || (await persistGrant(grant))?.ok !== true) {
+        return permitAfterAccountingFailure({ ...state, progress: accepted.state }, 'forced_use_grant_evidence_failed');
+      }
+    } catch (_) {
+      return permitAfterAccountingFailure({ ...state, progress: accepted.state }, 'forced_use_grant_evidence_failed');
     }
     const grants = (Array.isArray(state.grants) ? state.grants : [])
       .filter(row => row.date === grant.date && row.profileId === grant.profileId
         && row.deviceId === grant.deviceId)
       .map(row => row.domain === grant.domain && row.endMs == null
         ? { ...row, endMs: grant.startMs } : row).slice(-63);
-    await write({ ...state, progress: accepted.state, grants: [...grants, grant], prompt: null });
+    try { await write({ ...state, progress: accepted.state, grants: [...grants, grant], prompt: null }); }
+    catch (_) { return permitAfterAccountingFailure(state, 'prompt_write_failed'); }
     await dismiss(prompt, true);
     report(prompt, 'continued', {
       baselineSeconds: accepted.state?.lastAcknowledgedUsageSeconds,
@@ -228,7 +287,13 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
   });
 
   const checkDeadline = () => serialized(async () => {
-    const state = await read();
+    let state;
+    try { state = await read(); }
+    catch (_) {
+      report(null, 'accounting_failure_allowed', { ok: false, causeCode: 'prompt_read_failed', blocked: false });
+      return { ok: true, accountingUnavailable: true };
+    }
+    if (state.accountingReadFailed) return end(state, 'confirmation_timeout');
     if (!state.prompt?.deadlineAt || now() < state.prompt.deadlineAt) return { ok: true, pending: !!state.prompt };
     return end(state, 'confirmation_timeout');
   });
@@ -237,6 +302,11 @@ export function createForcedUsePromptRuntime({ api, storage, recheck, onAccepted
     const state = await read(), prompt = state.prompt;
     if (state.sharedRuntimeSuspended === true) return { ok: true, skipped: 'independent_prompt_suspended' };
     if (!prompt) return { ok: true, skipped: 'no_prompt' };
+    const latest = await checked(prompt);
+    if (latest?.action === 'block') return end(state, 'hard_limit', latest);
+    if (latest?.accountingUnavailable === true || state.accountingReadFailed || releasedToken === prompt.token) {
+      return permitAfterAccountingFailure(state, 'confirmation_read_failed');
+    }
     if (prompt.deadlineAt === null) return end(state, 'delivery_interrupted');
     if (now() >= prompt.deadlineAt) return end(state, 'confirmation_timeout');
     const shown = await message(prompt.tabId, { type: 'SHOW_REST_USAGE_REMINDER',

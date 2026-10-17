@@ -1244,9 +1244,18 @@ async function cloudRequest(method, path, body = null, retries = 3, signal = nul
   for (let attempt = 0; attempt < retries; attempt++) {
     if (signal?.aborted) throw new DOMException('Optional request cancelled', 'AbortError');
     const controller = new AbortController();
-    const abort = () => controller.abort();
+    let timedOut = false;
+    let rejectCancellation;
+    const cancelled = new Promise((_, reject) => { rejectCancellation = reject; });
+    const abort = () => {
+      controller.abort();
+      const error = new Error(timedOut
+        ? `request timeout after ${CLOUD_CONFIG.REQUEST_TIMEOUT_MS}ms` : 'Optional request cancelled');
+      error.name = 'AbortError';
+      rejectCancellation(error);
+    };
     signal?.addEventListener('abort', abort, { once: true });
-    const timeoutId = setTimeout(() => controller.abort(), CLOUD_CONFIG.REQUEST_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => { timedOut = true; abort(); }, CLOUD_CONFIG.REQUEST_TIMEOUT_MS);
     const requestId = syncState.currentRequestId || createCloudRequestId('request');
     try {
       const headers = {
@@ -1267,13 +1276,13 @@ async function cloudRequest(method, path, body = null, retries = 3, signal = nul
         options.body = JSON.stringify(body);
       }
 
-      const resp = await fetch(`${getCloudApiBase()}${path}`, options);
-      clearTimeout(timeoutId);
+      const resp = await Promise.race([fetch(`${getCloudApiBase()}${path}`, options), cancelled]);
 
       if (resp.ok) {
         const contentType = resp.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
-          const payload = await resp.json();
+          const payload = await Promise.race([resp.json(), cancelled]);
+          clearTimeout(timeoutId);
           if (isDeviceUnboundPayload(payload)) {
             await clearCloudBindingState('cloud_response_unbound');
             throw makeDeviceUnboundError(payload?.error || 'Device unbound');
@@ -1291,11 +1300,13 @@ async function cloudRequest(method, path, body = null, retries = 3, signal = nul
           } catch (_) { /* Evidence must not turn a successful upload into a failure. */ }
           return payload;
         }
+        clearTimeout(timeoutId);
         await markCloudConnectionSuccess(path, resp.status);
         return { success: true };
       }
 
-      const responseText = await resp.text().catch(() => '');
+      const responseText = await Promise.race([resp.text().catch(() => ''), cancelled]);
+      clearTimeout(timeoutId);
       let err = { error: `HTTP ${resp.status}` };
       if (responseText) {
         try {
@@ -1347,6 +1358,7 @@ async function cloudRequest(method, path, body = null, retries = 3, signal = nul
         await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
       }
     } finally {
+      clearTimeout(timeoutId);
       signal?.removeEventListener('abort', abort);
     }
   }
@@ -2851,6 +2863,8 @@ function addUploadError(result, part, message) {
 }
 
 function mergeUsageDatePartResults(target, source) {
+  target.deviceAccountsV2 = [...(target.deviceAccountsV2 || []),
+    ...(source.deviceAccountV2 ? [source.deviceAccountV2] : source.deviceAccountsV2 || [])];
   for (const part of ['segments', 'stats', 'hourlyStats', 'targetStats', 'hourlyTargetStats']) {
     target[part].uploaded += source[part].uploaded;
     target[part].failed += source[part].failed;
@@ -3533,7 +3547,7 @@ async function retryPendingDeviceAccountReconciliationsV2Shadow({ enabled = fals
     return { attempted: 0, matched: 0, pending: 0, skipped: true };
   }
   const targets = (await getPendingDeviceAccountV2Reconciliations()).slice(0, 2);
-  const result = { attempted: targets.length, matched: 0, pending: 0, skipped: targets.length === 0 };
+  const result = { attempted: targets.length, matched: 0, pending: 0, failed: 0, errors: [], skipped: targets.length === 0 };
   for (const target of targets) {
     try {
       const response = await cloudRequest('POST', '/device/accounts/v2/reconcile', {
@@ -3546,8 +3560,10 @@ async function retryPendingDeviceAccountReconciliationsV2Shadow({ enabled = fals
       );
       if (response?.status === 'matched') result.matched++;
       else result.pending++;
-    } catch (_) {
+    } catch (error) {
       result.pending++;
+      result.failed++;
+      result.errors.push(normalizeUploadErrorCode(error));
     }
   }
   return result;
@@ -3772,15 +3788,35 @@ export async function syncUsageStatsByDateWatermarkV1({ enabled = false } = {}) 
   result.segments.uploaded += pendingSegments.uploaded;
   result.segments.pendingCount = Math.max(result.segments.pendingCount, pendingSegments.pendingCount);
   result.uploaded += pendingSegments.uploaded;
-  result.deviceAccountV2Pending = await retryPendingDeviceAccountsV2Shadow({ enabled });
-  result.deviceAccountV2CurrentWeek = await uploadCurrentWeekDeviceAccountsV2({ enabled });
-  result.deviceAccountV2Reconciliation = await retryPendingDeviceAccountReconciliationsV2Shadow({ enabled });
-  result.profileAccountV2Shadow = await syncProfileAccountV2ShadowSnapshot({ enabled });
+  const v1Errors = [...result.errors], v1Failed = result.failed;
+  const runV2Stage = async (stage, task) => {
+    let part;
+    try { part = await task(); }
+    catch (error) { part = { failed: 1, skipped: false, error: normalizeUploadErrorCode(error) }; }
+    result[stage] = part;
+    const errors = [...(part.errors || []), part.error,
+      ...(part.results || []).flatMap(row => [row.error,
+        row.publishError ? `publish:${normalizeUploadErrorCode(row.publishError)}` : null])]
+      .filter(value => typeof value === 'string' && value);
+    const failed = Math.max(Number(part.failed) || 0, errors.length ? 1 : 0);
+    result.failed += failed;
+    if (failed) result.errors.push(...[...new Set(errors.length ? errors : ['stage_failed'])]
+      .map(error => `${stage}:${error}`));
+    if (failed || !part.skipped && (part.attempted > 0 || part.fetched || part.stored)) result.skipped = false;
+  };
+  const dateAttempts = result.deviceAccountsV2 || [];
+  await runV2Stage('deviceAccountV2DateUploads', async () => ({ attempted: dateAttempts.length,
+    failed: dateAttempts.reduce((sum, row) => sum + (Number(row.failed) || 0), 0),
+    skipped: dateAttempts.length === 0, results: dateAttempts }));
+  await runV2Stage('deviceAccountV2Pending', () => retryPendingDeviceAccountsV2Shadow({ enabled }));
+  await runV2Stage('deviceAccountV2CurrentWeek', () => uploadCurrentWeekDeviceAccountsV2({ enabled }));
+  await runV2Stage('deviceAccountV2Reconciliation', () => retryPendingDeviceAccountReconciliationsV2Shadow({ enabled }));
+  await runV2Stage('profileAccountV2Shadow', () => syncProfileAccountV2ShadowSnapshot({ enabled }));
 
   if (enabled) {
-    const retryableError = result.errors.find((error) => isRetryableUsageErrorCode(error));
+    const retryableError = v1Errors.find((error) => isRetryableUsageErrorCode(error));
     if (retryableError) result.backoff = await recordUsageUploadBackoff(retryableError);
-    else if (result.failed === 0) await clearUsageUploadBackoff();
+    else if (v1Failed === 0) await clearUsageUploadBackoff();
   }
   return result;
 }

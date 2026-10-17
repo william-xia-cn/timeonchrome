@@ -75,7 +75,7 @@ initCompositePageObserver();
 initSharedReminderContentBridge();
 initSharedAccessPolicyReader();
 initSharedQuotaExecutionReader();
-initSharedWebContributionSync();
+initSharedWebContributionSync({ identityAllowed: isMonitoringEnabled });
 initForcedUseContributionObserver();
 initSharedBrowserActivity();
 
@@ -120,6 +120,9 @@ const forcedUsePrompt = createForcedUsePromptRuntime({
     const decision = await handleModeEvent({ type: 'ACCESS_OBSERVED', tabId: tab.id, url: tab.url,
       foreground: tab.active === true, source: 'forced_use_confirmation_recheck',
       monitoringEnabled: getSyncState().monitoringEnabled });
+    if (decision?.accountingUnavailable === true && decision.access === 'allow') {
+      return { accountingUnavailable: true };
+    }
     return decision?.access === 'forced_confirmation' ? decision.forcedAdmission : { action: 'block' };
   },
   onAccepted: async () => ({ ok: true }),
@@ -1958,7 +1961,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'FORCED_USE_REMINDER_ACTION') {
     forcedUsePrompt.handleAction(msg, sender).then((result) => {
       sendResponse(result);
-      if (result?.action === 'continue' && sender?.tab?.id != null) {
+      if (result?.action === 'continue' && result.accountingUnavailable !== true && sender?.tab?.id != null) {
         setTimeout(() => reevaluateTabById(sender.tab.id,
           { source: 'forced_use_confirmed' }).catch(() => {}), 0);
       }

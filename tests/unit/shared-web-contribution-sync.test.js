@@ -131,10 +131,15 @@ async function run() {
   const disabled = fixture(false); assert.equal((await disabled.sync.refresh()).ok, false); assert.equal(disabled.calls.length, 0);
   const identityOnly = reusableFixture();
   identityOnly.options.enabled = false;
+  let identityPort = {};
+  identityOnly.options.readIdentityConnection = () => ({ connection: identityPort, connectionGeneration: 1,
+    reusableSourceSupported: true, applicationIdentityUsageSupported: false });
   let policyReads = 0;
   identityOnly.options.readPolicy = async () => { policyReads++; throw Error('shared policy must not be required'); };
   identityOnly.sync = mod.createSharedWebContributionSync(identityOnly.options);
   const beforeIdentityOnly = clone(identityOnly.store);
+  assert.equal((await identityOnly.sync.readApplicationIdentityBinding()).ok, false);
+  assert.equal(identityOnly.nativeCalls.length, 0, 'an unprepared read does not prepare identity');
   const identityBinding = await identityOnly.sync.ensureApplicationIdentityBinding();
   assert.equal(identityBinding.ok, true, 'identity binding works while shared contribution sync is disabled');
   assert.equal(policyReads, 0, 'identity binding does not read shared quota policy LKG');
@@ -144,6 +149,21 @@ async function run() {
   const reboundIdentity = await identityOnly.sync.ensureApplicationIdentityBinding();
   assert.equal(reboundIdentity.bindingContextId, identityBinding.bindingContextId,
     'the same proof cache yields a stable binding digest for the same connection and assignment');
+  const identityExchanges = identityOnly.exchanges();
+  await identityOnly.sync.configure(false);
+  await identityOnly.sync.configure(false);
+  for (let i = 0; i < 3; i++) assert.equal((await identityOnly.sync.readApplicationIdentityBinding()).ok, true);
+  assert.equal(identityOnly.nativeCalls.length, 2, 'hot reads and repeated disable do not repeat Scope/Bind');
+  assert.equal(identityOnly.exchanges(), identityExchanges, 'hot reads do not issue cloud proofs');
+  identityOnly.clock(now + 300000);
+  assert.equal((await identityOnly.sync.readApplicationIdentityBinding()).ok, false, 'expiry is not extended');
+  identityOnly.clock(now);
+  identityPort = {};
+  assert.equal((await identityOnly.sync.readApplicationIdentityBinding()).ok, false, 'a different Port rejects the receipt');
+  await identityOnly.sync.ensureApplicationIdentityBinding();
+  identityOnly.context({ apiBase: 'https://fixture.invalid', deviceId: 'fixture-device',
+    childId: 'different-child', deviceToken: 'fixture-token' });
+  assert.equal((await identityOnly.sync.readApplicationIdentityBinding()).ok, false, 'child changes reject the receipt');
 
   const identityContextChanged = reusableFixture();
   identityContextChanged.options.enabled = false;

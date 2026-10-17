@@ -64,6 +64,7 @@ let queuedProbe = null;
 let queuedApplicationRead = null;
 let queuedApplicationIdentityRead = null;
 let applicationIdentityBindingEnsurer = null;
+let applicationIdentityBindingReader = null;
 let queuedSharedQuotaRead = null;
 let queuedSharedReminderReport = null;
 let queuedSharedLifecycle = null;
@@ -96,6 +97,7 @@ const LIFECYCLE_ERRORS = new Set(['INVALID_SHARED_REMINDER_MESSAGE', 'SHARED_REM
   'INVALID_SHARED_BROWSER_ACTIVITY', 'SHARED_BROWSER_ACTIVITY_LEASE_CHANGED', 'SHARED_BROWSER_ACTIVITY_SEQUENCE_CONFLICT',
   'INVALID_SHARED_BROWSER_EXECUTION', 'SHARED_BROWSER_EXECUTION_INSTANCE_CHANGED', 'SHARED_BROWSER_EXECUTION_RESULT_CONFLICT']);
 let sharedNativeV3 = false;
+let nativeHealthProtocolVersion = null;
 let sharedNativeCapabilities = new Set();
 const sharedPolicyObservers = new Set();
 let applicationUsageSupported = false;
@@ -413,6 +415,7 @@ function disconnectPort() {
   const port = nativePort;
   if (port) applicationConnectionGeneration++;
   nativePort = null;
+  nativeHealthProtocolVersion = null;
   v2Supported = false;
   v3Supported = false;
   applicationUsageSupported = false;
@@ -445,6 +448,7 @@ function ensureNativePort() {
   }
 
   nativePort = port;
+  nativeHealthProtocolVersion = null;
   applicationConnectionGeneration++;
   port.onMessage.addListener((response) => {
     if (nativePort !== port) return;
@@ -459,11 +463,13 @@ function ensureNativePort() {
     }
     // A delayed v3 response cannot consume the ACK slot of a different request.
     if (response?.requestId && pendingAck.requestId && response.requestId !== pendingAck.requestId) return;
-    if ((pendingAck.sharedWeb || pendingAck.sharedQuotaRead || pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity || pendingAck.applicationIdentityRead || pendingAck.sourceStatisticsRead)
+    if ((pendingAck.strictHealth || pendingAck.sharedWeb || pendingAck.sharedQuotaRead || pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity || pendingAck.applicationIdentityRead || pendingAck.sourceStatisticsRead)
       && response?.requestId !== pendingAck.requestId) {
-      rejectPendingAck(pendingAck.applicationIdentityRead ? 'application_identity_usage_invalid_response'
+      const strictHealth = pendingAck.strictHealth;
+      rejectPendingAck(pendingAck.strictHealth ? 'native_invalid_response' : pendingAck.applicationIdentityRead ? 'application_identity_usage_invalid_response'
         : pendingAck.sourceStatisticsRead ? 'source_statistics_native_invalid_response'
         : pendingAck.sharedReminderReport || pendingAck.sharedLifecycle || pendingAck.browserActivity ? 'shared_reminder_invalid_ack' : 'shared_quota_invalid_state');
+      if (strictHealth) disconnectPort();
       return;
     }
     if (pendingAck.sourceStatisticsAttempt) pendingAck.sourceStatisticsAttempt.responseReceived = true;
@@ -550,6 +556,7 @@ function ensureNativePort() {
     if (nativePort === port) {
       browserExecutionFence.invalidate();
       nativePort = null;
+      nativeHealthProtocolVersion = null;
       applicationConnectionGeneration++;
       sharedNativeV3 = false;
       sharedNativeCapabilities.clear();
@@ -571,7 +578,7 @@ function ensureNativePort() {
   return port;
 }
 
-function postToNativeHost(payload, sourceStatisticsAttempt = null) {
+function postToNativeHost(payload, sourceStatisticsAttempt = null, strictHealth = false) {
   const port = ensureNativePort();
   const applicationRead = payload.channel === 'application'
     && ['getApplicationUsage', 'getApplicationUsageSeconds'].includes(payload.messageType);
@@ -596,7 +603,7 @@ function postToNativeHost(payload, sourceStatisticsAttempt = null) {
     pendingAck = { resolve, reject, timeoutId, requestId: payload.requestId, messageType: payload.messageType || payload.type,
       channel: payload.channel || 'health',
       applicationRead, applicationReadSeconds, applicationIdentityRead, sharedQuotaRead, sharedReminderReport, sharedLifecycle, browserActivity, sharedWeb, sourceStatisticsRead,
-      sourceStatisticsAttempt };
+      sourceStatisticsAttempt, strictHealth };
     try {
       port.postMessage(payload);
       if (sourceStatisticsAttempt) sourceStatisticsAttempt.sent = true;
@@ -1189,14 +1196,29 @@ async function performSend(options) {
   const attemptedAt = safeNow();
 
   try {
+    if (options.protocolVersion === 3 && (nativePort !== options.expectedPort
+      || applicationConnectionGeneration !== options.expectedGeneration)) {
+      return { ok: false, errorCode: 'native_port_disconnected' };
+    }
+    if (options.protocolVersion === 3 && nativeHealthProtocolVersion === 3) {
+      return { ok: true, skipped: true, reason: 'protocol_already_negotiated' };
+    }
+    const healthProtocol = options.protocolVersion === 3 || nativeHealthProtocolVersion === 3 || sharedNativeV3 ? 3 : 1;
+    const healthPort = nativePort, healthGeneration = applicationConnectionGeneration;
     const ack = options.type === 'snapshotDrain'
       ? await performSnapshotDrain()
       : options.type === 'ledgerDrain'
       ? await performLedgerDrain()
       : options.type === 'legacyLedger'
         ? await postToNativeHost(await buildSettledSegmentsPayload(options.segments || []))
-        : await postToNativeHost(await buildHeartbeatPayload(options, v3Supported ? 3 : 1));
+        : await postToNativeHost(await buildHeartbeatPayload(options, healthProtocol), null,
+          options.negotiation === true && healthProtocol === 3);
     if (options.type === 'heartbeat' || options.type === 'probe') {
+      if (options.negotiation === true && healthProtocol === 3 && (nativePort !== healthPort
+        || applicationConnectionGeneration !== healthGeneration)) {
+        return { ok: false, errorCode: 'native_port_disconnected' };
+      }
+      nativeHealthProtocolVersion = healthProtocol;
       sharedNativeV3 = ack.supportedProtocols?.includes(3) === true;
       sharedNativeCapabilities = new Set(ack.capabilities || []);
       browserActivityLeaseId = sharedNativeV3 && (sharedNativeCapabilities.has('shared-browser-activity-v1')
@@ -1257,6 +1279,7 @@ async function performSend(options) {
     v3ReplayPending = true;
     lastV3LocalVersion = null;
     const code = normalizeErrorCode(error?.message);
+    if (options.protocolVersion === 3 && nativePort === options.expectedPort) disconnectPort();
     if (options.type === 'snapshotDrain' && code === 'native_snapshot_rejected') {
       snapshotRetryAtMs = safeNow() + HEARTBEAT_INTERVAL_MS;
       return { ok: false, errorCode: code };
@@ -1383,10 +1406,10 @@ export async function requestLocalGuardianHeartbeat(options = {}) {
   }
 
   if (type === 'probe') {
-    if (now - lastProbeAt < PROBE_COOLDOWN_MS) {
+    if (options.negotiation !== true && now - lastProbeAt < PROBE_COOLDOWN_MS) {
       return { ok: false, skipped: true, errorCode: 'probe_rate_limited' };
     }
-    lastProbeAt = now;
+    if (options.negotiation !== true) lastProbeAt = now;
   } else if (options.force !== true && now - lastScheduledAttemptAt < SCHEDULE_DEDUP_MS) {
     return { ok: true, skipped: true, reason: 'deduplicated' };
   } else {
@@ -1394,10 +1417,16 @@ export async function requestLocalGuardianHeartbeat(options = {}) {
   }
 
   const normalized = { type, trigger, monitoringStatus: options.monitoringStatus };
+  if (options.negotiation === true) normalized.negotiation = true;
+  if (options.protocolVersion === 3) Object.assign(normalized, { protocolVersion: 3,
+    expectedPort: nativePort, expectedGeneration: applicationConnectionGeneration });
   if (!activeSendPromise) return startSend(normalized);
 
   if (type === 'probe') {
-    if (queuedProbe) return queuedProbe.promise;
+    if (queuedProbe) {
+      if (normalized.protocolVersion === 3) Object.assign(queuedProbe.options, normalized);
+      return queuedProbe.promise;
+    }
     let resolve;
     const promise = new Promise((done) => { resolve = done; });
     queuedProbe = { options: normalized, promise, resolve };
@@ -1473,7 +1502,7 @@ async function readApplicationUsageContext() {
 }
 
 async function ensureApplicationUsageCapability({ recheck = false } = {}) {
-  if (applicationUsageSecondsSupported || applicationUsageSupported) return { ok: true };
+  if (nativeHealthProtocolVersion === 3 && (applicationUsageSecondsSupported || applicationUsageSupported)) return { ok: true };
   const initialStatus = await loadPersistedStatus();
   if (recheck && (!nativePort || safeNow() < initialStatus.nextRetryAt)) {
     const health = await requestLocalGuardianHeartbeat({ type: 'probe', trigger: 'application_manual_refresh', force: true });
@@ -1488,6 +1517,8 @@ async function ensureApplicationUsageCapability({ recheck = false } = {}) {
       return { ok: false, errorCode: status.lastErrorCode || 'native_port_disconnected' };
     }
   }
+  const ready = await ensureNativeHealthProtocol3('application_read');
+  if (!ready.ok) return ready;
   return applicationUsageSecondsSupported || applicationUsageSupported
     ? { ok: true } : { ok: false, errorCode: 'application_usage_unsupported' };
 }
@@ -1629,7 +1660,7 @@ export async function requestApplicationIdentityBindingNative(method, value = {}
   if (!await readNativeHostDeploymentMarker().catch(() => false)) {
     return { ok: false, errorCode: 'managed_marker_unavailable' };
   }
-  if (!nativePort || !sharedNativeV3 || !applicationIdentityUsageSupported
+  if (!nativePort || !sharedNativeV3
     || !sharedNativeCapabilities.has('shared-web-source-reusable-v2')) {
     return { ok: false, errorCode: 'application_identity_usage_binding_unavailable' };
   }
@@ -1641,6 +1672,10 @@ export async function requestApplicationIdentityBindingNative(method, value = {}
 
 export function setApplicationIdentityBindingEnsurer(ensurer) {
   applicationIdentityBindingEnsurer = typeof ensurer === 'function' ? ensurer : null;
+}
+
+export function setApplicationIdentityBindingReader(reader) {
+  applicationIdentityBindingReader = typeof reader === 'function' ? reader : null;
 }
 
 export function readApplicationIdentityBindingConnection() {
@@ -1666,6 +1701,7 @@ export async function requestSharedWebSync(method, value = {}) {
 
 // No production caller enables this adapter in the shadow phase.
 export function configureSharedQuotaNativeBridge({ enabled = false } = {}) {
+  if (sharedBridgeConfig.enabled === (enabled === true)) return { ok: true };
   sharedBridgeConfig = { enabled: enabled === true };
   notifyBrowserActivityLease();
   return { ok: true };
@@ -1754,8 +1790,14 @@ function sharedCapabilityAvailable(method) {
 }
 
 function sourceStatisticsCapabilityAvailable(quotaBuckets = false) {
-  return nativePort !== null && sharedNativeV3
+  return nativePort !== null && nativeHealthProtocolVersion === 3 && sharedNativeV3
     && sharedNativeCapabilities.has(quotaBuckets ? 'quota-buckets-read-v1' : SOURCE_STATISTICS_READ_CAPABILITY);
+}
+
+export function readQuotaBucketsReadCapability() {
+  return { known: nativePort !== null && nativeHealthProtocolVersion !== null
+    && (!sharedNativeV3 || nativeHealthProtocolVersion === 3),
+  available: sourceStatisticsCapabilityAvailable(true) };
 }
 
 export async function readSourceStatisticsNativeContext({ prepare = false, quotaBuckets = false } = {}) {
@@ -1779,19 +1821,29 @@ export async function readSourceStatisticsNativeContext({ prepare = false, quota
   } catch (_) { return { ok: false, errorCode: 'source_statistics_identity_unavailable' }; }
 }
 
-async function ensureSourceStatisticsCapability(quotaBuckets = false) {
-  if (sourceStatisticsCapabilityAvailable(quotaBuckets)) return { ok: true };
+async function ensureNativeHealthProtocol3(trigger) {
+  if (nativePort && nativeHealthProtocolVersion === 3) return { ok: true };
   if (activeSendPromise) {
     const pending = await activeSendPromise.catch(() => ({ ok: false, errorCode: 'source_statistics_native_unavailable' }));
-    if (!pending.ok && !sourceStatisticsCapabilityAvailable(quotaBuckets)) {
+    if (!pending.ok && nativeHealthProtocolVersion !== 3) {
       return { ok: false, errorCode: pending.errorCode || 'source_statistics_native_unavailable' };
     }
   }
-  if (sourceStatisticsCapabilityAvailable(quotaBuckets)) return { ok: true };
-  // A port can exist before its first health ACK; a queued probe has a real completion promise.
-  const health = await requestLocalGuardianHeartbeat({ type: 'probe', trigger: 'source_statistics_shadow', force: true });
-  if (!health.ok) return { ok: false, errorCode: health.errorCode || 'source_statistics_native_unavailable' };
+  if (!nativePort || nativeHealthProtocolVersion === null) {
+    const initial = await requestLocalGuardianHeartbeat({ type: 'probe', trigger, force: true, negotiation: true });
+    if (!initial.ok) return initial;
+  }
   if (!nativePort) return { ok: false, errorCode: 'native_port_disconnected' };
+  if (sharedNativeV3 && nativeHealthProtocolVersion !== 3) {
+    return requestLocalGuardianHeartbeat({ type: 'probe', trigger, force: true, negotiation: true, protocolVersion: 3 });
+  }
+  return { ok: true };
+}
+
+async function ensureSourceStatisticsCapability(quotaBuckets = false) {
+  if (sourceStatisticsCapabilityAvailable(quotaBuckets)) return { ok: true };
+  const ready = await ensureNativeHealthProtocol3('source_statistics_shadow');
+  if (!ready.ok) return ready;
   return sourceStatisticsCapabilityAvailable(quotaBuckets) ? { ok: true }
     : { ok: false, errorCode: 'source_statistics_native_unsupported' };
 }
@@ -1826,13 +1878,14 @@ async function requestStatisticsExchange({ fromDate, toDate, webStatistics, expe
     validate(payload, context.childId);
   }
   catch (_) { return failed('source_statistics_native_invalid_request'); }
-  if (typeof applicationIdentityBindingEnsurer !== 'function') {
+  const bindingReader = quotaBuckets ? applicationIdentityBindingReader : applicationIdentityBindingEnsurer;
+  if (typeof bindingReader !== 'function') {
     return failed('source_statistics_native_binding_required');
   }
   const port = nativePort;
-  // Binding uses the same Native send queue, so prepare it before enqueuing this read.
+  // New bucket reads only consume a ready binding; preparation runs independently.
   let binding;
-  try { binding = await applicationIdentityBindingEnsurer(); }
+  try { binding = await bindingReader(); }
   catch (_) { return failed('source_statistics_native_binding_unavailable'); }
   if (!binding?.ok) {
     return failed(SHARED_WEB_IDENTITY_ERRORS.has(binding?.errorCode)

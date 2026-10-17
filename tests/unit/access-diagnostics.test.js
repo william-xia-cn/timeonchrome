@@ -27,6 +27,21 @@ const fail = createAccessDiagnostics({ write: () => { throw new Error('storage f
 assert.doesNotThrow(() => fail('prompt', { phase: 'visible' }));
 const reject = createAccessDiagnostics({ write: async () => { throw new Error('storage failed'); } });
 reject('prompt', { phase: 'visible' });
+const incidents = [], accounting = createAccessDiagnostics({ write: row => incidents.push(row), now: () => clock });
+const failure = { auditId: 'failure-audit', evaluationId: 'evaluation-a', tabId: 8,
+  phase: 'forced_admission', causeCode: 'quota_usage_invalid', ok: false, blocked: false, access: 'allow', quotaRead: 'ok' };
+accounting('accounting', failure);
+accounting('accounting', { ...failure, evaluationId: 'evaluation-b' });
+assert.equal(incidents.length, 1, 'unchanged failures are coalesced');
+accounting('decision', { tabId: 8, ok: true, access: 'allow' });
+assert.equal(incidents.length, 2, 'unverified allow is logged but does not claim recovery');
+assert(!incidents.some(row => row.eventCode === 'access_accounting_recovered'));
+accounting('decision', { tabId: 8, ok: true, access: 'allow', recoveryEligible: true });
+assert.equal(incidents.filter(row => row.eventCode === 'access_accounting_recovered').length, 1);
+assert.equal(incidents.find(row => row.eventCode === 'access_accounting_recovered').details.suppressedCount, 1);
+accounting('accounting', { ...failure, causeCode: 'https://private.example/token=private' });
+assert.equal(incidents.at(-1).details.causeCode, 'evidence_unavailable');
+assert(!JSON.stringify(incidents).includes('private'));
 const bg = fs.readFileSync(path.resolve(__dirname, '../../extension/background.js'), 'utf8');
 for (const reason of ['monitoring_disabled', 'no_focused_window', 'no_active_tab', 'window_query_failed',
   'tab_query_failed', 'review_failed', 'review_completed', 'legacy_policy', 'shared_runtime_owner',
@@ -46,6 +61,7 @@ async function periodicCase(options = {}) {
     handleMessage: async () => { if (options.quotaFails) throw new Error('test'); return {}; },
     scheduleModeBoundaryDrain: () => {}, evaluateRestUsageReminder: async () => {}, recordFallbackLog: () => {},
     isSharedAccessRuntimeEnabled: () => options.shared === true,
+    isSharedAccessRuntimeV2Enabled: () => false,
     readForcedUsePolicy: () => ({ enabled: options.enabled !== false }), getConfig: async () => ({}),
     chrome: { runtime: { id: 'test' }, windows: { WINDOW_ID_NONE: -1, getLastFocused: async () => {
       if (options.windowFails) throw new Error('test'); return { id: 1, focused: options.focused !== false };

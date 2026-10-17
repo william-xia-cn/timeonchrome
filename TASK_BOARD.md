@@ -24,6 +24,98 @@ PO批准两端分别收口：Native应用修复复用ed5ab95／唯一63候选／
 - 根独立核对加载目录和备份各205文件，哈希全部匹配；仅3个已测JS和manifest改变，其他201文件不变。原账、配置、配对和共享开关未改；共享保持关闭。
 - “同孩子未知”来自诊断 `nativePeerSameChild: null` 固定值，登记为诊断完善项，不再据此否定已通过的交换。应用其他设备缓存缺失使结果partial、组合截止未知，属于来源完整性待验；已知桶仍保留，不冒充完整全设备用量。
 - 后续仅分开核对其他设备后台缓存、云端备用和独立核算；本地连接不重复安装／重载，历史、Mac和提醒不混入。Native现有候选目录的 `安装与现场验收.md`、`chrome-1.7.60-live-evidence-safe.json`、`current-conclusion-safe.json` 保存脱敏现场证据，未加入Git；源码、隔离测试、目录更新、实机结果分别记录。
+## COMPLETED：1.7.59前向止血托管（2026-10-17）
+
+PR287已合入master dd68a962ec731ac8213fc1210c438a58c60deb00；源码提交1cc3ee0、主线集成043acdd，CI39013953448职责与汇总门通过，前两次PR声明失败保留。合并后扩展子树与已验源码完全一致；typecheck在重建主线已有1.55契约生成声明后通过，extension-root及managed打包隐私边界专项通过。Plan Conformance Matched；未变产品代码复用直接专项、隔离HTTP及九场景unpacked证据。
+
+正式managed 1.7.59，稳定ID jdcancbiocacabbjdkngadmjpjmkdnih，CRX3签名独立验真；695021字节，SHA256 d4efe153ef55d003ee5e532317b8320618832bd3c01d4c5096ccc6113916d7cb。仅部署timeonchrome-update，deployment aba04c5b；稳定域名及https://aba04c5b.timeonchrome-update.pages.dev的update.xml、SHA256SUMS、CRX全部匹配，旧1.7.49包hash回读一致，23个历史CRX逐字节保留。正式包无debugger或开发标记；当前加载的1.7.58开发包、浏览器存储、绑定及家庭配置未改。不部署业务Worker/控制台/Native，不执行migration，不改历史账。
+
+结论APPROVED_WITH_KNOWN_P0_RISK / FORWARD MITIGATION RELEASE。V2统计摘要mismatch继续为P0未解决，后续只读取证定位；不以本次发布认定对账通过。托管完成不代表所有终端已更新；本机unpacked不依托管feed自动升级。三份旧文档草稿在合并后恢复，Git stash副本继续保留，不删除。
+
+## NOW：1.7.59止血发布与托管（2026-10-17，PO接受已知对账P0）
+
+PO明确批准将当前已验收的D-115故障放行、提醒确认/超时恢复和V2上传A/B发布并托管。覆盖下方这些任务此前“不发布”的阶段边界，不扩大到云端业务部署、Native安装、历史修订或家庭配置。发布结论为APPROVED_WITH_KNOWN_P0_RISK / FORWARD MITIGATION RELEASE；统计摘要mismatch仍为P0未解决，不因raw hash一致、秒数差0或上传推进而关闭。
+
+原则：内部异常、记账/授权保存/同步故障不能造成错误阻止；宁愿暂时漏放。可独立可靠判定的黑名单、停用时间和强制时间窗继续执行，故障放行不等于取消正常限制。具体实现仅发布已验修复，不借此更改账本、ACK、水位或历史。
+
+发布清单：核对固定分支及既有候选差异；更新正式manifest为1.7.59；复用精确未变代码的专项/真实浏览器证据并运行类型/根目录/差异检查；按职责审计提交推送及PR集成；原签名密钥生成managed CRX并核对稳定ID、无debugger/开发标记；保留旧托管包，仅部署timeonchrome-update；回读稳定域名与部署域名的feed、CRX和SHA256。当前加载的1.7.58开发候选及绑定/存储不操作，终端升级另行观察。旧三份文档草稿仍保留，不混入提交。
+
+## NOW：V2上传缺陷包A/B（2026-10-17，PO按D-076逐项批准，不发布）
+
+本机重载后真实云端核对（2026-10-17，北京时间，上传恢复但对账P0未解决）：PO确认已重载、绑定正常、立即同步无报错。只读D1元数据确认当时唯一上报1.7.58设备的今日revision7→8→9，rev8在15:11:57接收/15:11:59提交，rev9在15:12:27接收/15:12:28提交/15:12:29发布，查询时latest_received=latest_published=9，今日staging数0。已据此证明实际接收/发布推进，不只依据同步文案；不能推出本地pending全部为0或历史全部上传。
+
+P0：本机V2统计对账摘要不一致。rev9在15:12:39对账mismatch，expected/actual raw count均9、raw hash一致、totalSecondsDelta=0、stats hash不一致；rev8对应8/8且同样总差0、raw hash一致/stats hash不一致；更新前14:10的rev7亦为7/7和相同异常。说明已确认的是统计内容/摘要层未对齐，不能凭总量一致关闭；具体维度及算法/规范化原因待只读调查，未认定本地计时错误或A/B新回归。不自动改原账、设备账、总账或历史，不触发repair/reconcile写操作；本次查询均changes=0/rows_written=0。近30分钟云端无相关客户端错误行仅表示未见上报，不能作为本地无错误证明。只确认本机当次链路，不外推T.xia/P.xia其他终端恢复；仍不发布/托管。
+
+PO本轮已授权A/B同步到本机当前unpacked并在重载后核查真实V2，覆盖此前本包不更新加载目录的边界；仍不发布/托管。仅替换infra/cloud-sync.js；先按D-115更新证据逐项核验205文件，完整备份并核hash，替换后校验其余204文件及manifest/key/权限/部署身份不变。不卸载/重装/改绑定/操作Chrome存储，不清ACK/pending/水位。重载须取得真实操作证据，再检查实际接收revision、publishedRevision、积压和阶段错误；没有终端证据不以本机磁盘更新或同步完成文案冒称恢复。
+
+A/B本机磁盘更新已完成：205文件完整备份dist/native-host-candidate-before-v2-ab-1792221040909逐hash一致；仅infra/cloud-sync.js替换为已验源码，SHA256=5a50636c029e2a0d441f0a31c357c9029e65b93139d0b65c8bcf30440ef5c671，其余204文件逐字节不变。版本保持1.7.58，既有D-115修复及ID/key/权限/部署/metadata保留，未读写Chrome存储或家庭配置；ignored证据.tmp/v2-ab-local-update-evidence.json。Browser Use库存确认当前Chrome有目标扩展详情及本地Admin标签，但chrome://详情无法claim、chrome-extension://管理页被URL安全策略禁止（只准http/https）；未用CDP、其他表面或注入绕过。已请求PO只点击重载及立即同步，待用户操作与真实同步证据后继续判断V2恢复，当前不得标记恢复。未发布/托管或提交。
+
+实施与隔离验收PASS：包A通过请求头/成功正文/错误正文停滞、迟到正文、正常JSON/HTTP400、主动取消不重试、配置重试次数及计时器清理；真实本地HTTP+原cloudRequest/原V2上传函数验证首次服务端接收但commit正文挂起时无commit/publish确认、pending保留，第二次同manifest/revision取得完整回执后确认。服务端为合成幂等夹具，本地状态接口为隔离stub，不冒称生产D1/家庭设备闭环；测试依赖注入150ms，不改原生产超时。
+
+包B通过日期上传（仅传播内存子结果）、pending/current-week、对账请求、下行失败与异常抛出汇总；发布错误单列publish短码，received_not_published保持待发布而非假发布。上层实际syncStatsFoundationV1的hadFailure=true且不写全成功标记/日志已验证；正常pending_raw不误报传输错误。V1失败/V2成功、V1成功/V2失败和多阶段失败、正常跳过均通过，V1退避仍独立。未增加重试器、持久结构或新接口。
+
+直接专项全部通过：cloud-upload-fault-recovery、cloud-connection-resilience 14/14、cloud-usage-batching 19/19、device-account-v2-sync 8/8、profile-account-v2-sync 7/7、cloud-client-log-ack 5/5、usage-history-post-upload-integrity 9/9、accounting-recovery-investigation（固定事故SHA仍复现、当前修复由新专项验证）；typecheck通过。Plan Conformance Audit：Matched，仅cloud-sync.js四函数改变（cloudRequest、mergeUsageDatePartResults、retryPendingDeviceAccountReconciliationsV2Shadow、syncUsageStatsByDateWatermarkV1），129个原顶层函数未变，含ACK/水位/上传落状态函数；helper中的变更仅子结果元数据收集，无水位分支变化。测试及既有任务/设计文档同步；不修改账本、历史、ACK、pending存储、水位、生产配置。已逐项核实当前1.7.58加载目录205文件与D-115更新证据/备份全部一致，本包未更新控件。未提交/推送/发布/托管。生产现场停传唯一根因及辅助恢复首次失败复用仍未关闭，不以A/B通过掩盖。
+
+高风险extension-local传输/结果汇总修复，按PO明确批准连续执行。包A仅cloud-sync.js的cloudRequest：每次原超时预算覆盖fetch及正文读取，完整清理计时器/取消监听，主动取消不当超时重试，迟到正文不能返回成功；不改重试次数/退避/载荷/ACK。包B仅同步结果：V2 pending/current-week上传、对账请求与下行的失败按阶段进入总结果，保留接收/发布/待审计/下行原子结果；V1退避只按原V1结果计算，不被V2失败污染。不得变更任何原账、聚合、ACK判定/清除、pending持久化、水位、历史、配置、Native、Worker或当前加载包。
+
+实施清单：1文档登记批准与边界；2包A正文/取消有界等待；3包B阶段汇总及V1退避隔离；4专项覆盖正常/停滞/迟到/主动取消、V1/V2成功失败组合及跳过；5本地回环HTTP真实fetch隔离故障，已接收但未回ACK不确认、重传幂等；6职责diff及typecheck。最小命令：新增cloud-upload-fault-recovery专项（含本地HTTP）、既有cloud-connection-resilience/cloud-usage-batching/device-account-v2-sync/profile-account-v2-sync/accounting-recovery-investigation、typecheck/diff；必要时cloud-client-log-ack验证公共请求兼容。不跑全量、不提交/推送/制包/托管/部署/更新本机；生产现场停传唯一根因仍未确认。
+
+## NOW：D-115记账故障放行与远程诊断（2026-10-17，独立任务，不发布）
+
+PO已授权本机加载包更新供人工验收，覆盖此前不更新加载包的本轮边界；仍不提交/推送/发布/托管。只备份并替换D-115的9个产品JS，保持1.7.58 manifest/key/权限/deployment-profile及metadata逐字节不变，不卸载/重装/重绑定，不读写Chrome存储。候选与HEAD归一化核对仅9个D-115文件及开发manifest存在实质差异，其他仅换行；完整205文件备份后逐项hash验证，再覆盖9文件并核对其余文件未变。真实故障注入继续只用于独立Profile，家庭人工验收只检查正常确认/超时/媒体与独立限制。磁盘更新不等于运行中重载，需明确区分。
+
+本机磁盘更新完成：原加载路径dist/native-host-managed-candidate/package-extension，版本仍1.7.58 Native Host Development Candidate，稳定ID不变；完整205文件备份dist/native-host-candidate-before-d115-1792220188529核hash一致，仅替换上述9JS，每项与验收源码hash一致，其余manifest/公开key/部署标记/权限/metadata及196文件全部未变。ignored证据.tmp/d115-local-update-evidence.json。未读写Chrome Profile、存储、绑定、token或家庭配置；未重载Chrome，不宣称运行实例已更新。待PO原扩展点击一次重新加载并刷新测试网页，确认Popup绑定正常，进行正常确认/超时/媒体与独立阻断人工验收。不托管/发布。
+
+最终真实浏览器验收PASS（补强后第5轮，2.2分钟，前序失败保留）：进入前quota故障、确认时quota/grant故障、真实60秒quota故障、正常确认、正常60秒阻断、故障同时命中黑名单/停用/强制时间窗，九场景全部通过。对故障放行直接断言真实dialog宿主移除、原页面按钮可点击、原播放音频paused=false且currentTime继续变化、原暂停音频仍暂停；主动再次访问复核无重弹，deadline再次检查无错误阻断。正常确认及真实60秒阻断对照通过，三类独立限制均实际进入正确reason的阻断页，截图已目视核对。证据为ignored .tmp/accounting-recovery-browser-final/accounting-access-recovery-9362e-s-independent-gates-survive/acceptance-results.json及对应截图；所有Profile由helper正常关闭。注入点只在隔离副本，固定用量只加速触发，不证明生产原始根因或真实计时精度。
+
+本轮收口审计：Matched——实际确认进度与durable授权分离，授权保存失败不伪造grant；故障continue不立刻触发重弹；单独准入仍检查黑名单/停用/时间窗。修改为background、forced-use-prompt及直接prompt/联合unit与新增unpacked专项、本任务记录；未改Content、原账、统计、上传、配置或Native。prompt/联合/effects专项、typecheck、diff通过；未提交、推送、发布、更新当前加载包或家庭配置。整个D-115的V2停更根因及日志独立发送机会/完整预算仍为独立未完成项，不因本次回路验收通过宣称全部任务已关闭。
+
+PO已批准第二次失败后的定点诊断、修复与继续复验：只在隔离副本记录轮次序号（不输出原token）、prompt阶段、故障命中及动作返回，区分未关闭与重弹。确证后仅修复D-115故障回路；真实60秒及三类独立限制继续按原验收范围执行，不发布。
+
+定点诊断确证（第3轮，未改产品）：grant故障的round2依次visible→accounting_failure_allowed→action_response continue，随后round3 requested/visible；原提示确已移除并短暂恢复媒体，但新提示再次遮挡页面。修复仅两处：已通过校验的手动确认进度与授权持久化分开，保存授权失败时尽可能保留真实确认progress，不生成虚假durable grant；background故障continue不立刻调度forced_use_confirmed复核。后续正常访问/独立限制检查保留。直接prompt/mode-effects及联合专项回归，再复用同浏览器专项完成真实等待和独立限制，不改原账或用量算法。
+
+真实浏览器专项（PO明确批准执行，待结果）：复用isolated-extension，在全新Chromium Profile加载当前源码副本，仅副本中定点注入配额读取/授权保存失败与固定用量。实际SW/Content/提醒/本地音频运行，检查提醒前故障、确认时故障、真实60秒超时故障、原暂停媒体不误播放、正常确认/超时对照及黑名单/停用/独立强制时间窗。证据只保存隔离数据和截图；最小命令为npx playwright test tests/e2e/accounting-access-recovery-unpacked.test.js，排除家庭账号、现用Profile、Native安装、原账修订、发布和加载包更新。不得将注入失败描述为已复现线上原始根因。
+
+真实浏览器结果（2026-10-17，未通过，禁止发布）：已实际启动两次隔离Chromium/SW/Content/音频。第一轮进入前quota读取故障通过，随后夹具错误断言Shadow DOM宿主可见；第二轮改查实际dialog后，进入前读取故障与确认时读取故障均通过（页面可操作、提醒实际移除、原播放音频恢复、原暂停音频保持暂停、注入命中）。授权persistGrant抛错场景确认后10秒仍有提醒宿主，专项失败；尚不能区分原弹层未关或立即重弹。源码发现FORCED_USE_REMINDER_ACTION对故障continue也无条件安排forced_use_confirmed复核，可能导致重弹，仍需token/命中/状态诊断确证。两次失败后遵守10.4暂停同命令，已申请定位/修复/复验授权。真实60秒故障及正常超时、三类独立限制对照尚未执行，不得沿用单测结果报真实通过。证据位于ignored .tmp/accounting-recovery-browser-results{-2}/.../partial-results.json及截图；无家庭数据、未发布/更新加载包/修改生产配置。
+
+PO已切换手动审批并要求继续确认、超时回路修复和联合复验。本包补齐：复核传递记账故障标志、关闭故障弹层并恢复媒体、授权保存失败不转为超时阻断；独立硬限制仍优先。必要验证为prompt、accounting-access-recovery、mode-service、mode-effects直接专项及typecheck/diff；不发布、不更新加载包、不改账本或家庭配置。
+
+当前结果（源码及隔离联合复验通过，仍禁止发布/更新加载包）：mode-service 165项、forced-use-mode-effects、forced-use-admission、forced-use-policy、forced-use-prompt、access-diagnostics、client-logs 47项及typecheck通过。accounting-access-recovery已通过：五类准入故障、独立时间窗/黑名单、学习豁免、并发证据；新增实际background复核回调＋mode-service＋prompt运行时联合测试，确认/超时/recover三分支记账故障放行、关闭提示与恢复媒体消息、黑名单对照仍阻断。prompt专项覆盖授权回调/证据保存返回失败或抛错、session读写失败、重复deadline不再阻断、首次请求存储失败及正常60秒超时仍阻断。不能读取完整state时不以局部回退覆盖旧进度/授权。均为隔离单元/组件联合验证，不是真实Chrome或家庭设备验收。
+
+执行阻塞已解除：PO切换手动审批后，原apply_patch已成功应用，无替代工具绕过。确证执行缺口为background把已放行的记账故障映射为block、确认保存失败遗留提示待超时、超时先阻断再关闭授权；现已传递故障标志，先复核及关闭授权/保存提示状态，再执行合法阻断，故障则清理提示并请求恢复媒体。同次已确认独立阻断不因辅助关闭失败而放行。学习正常访问既有授权清理路径已恢复。未改原账/聚合/上传/家庭配置。client-logs首轮脱敏断言失败、原样第二轮47/47通过，保留偶发失败事实，未修改脱敏规则或用通过掩盖首轮。
+
+V2只读取证：accounting-recovery-investigation专项exit0，直接抽取事故3dc9731与当前真实函数，两版均复现请求头返回后删除timer但body持续等待、V2失败未进入外层failed/errors而V1回退可被清除；原辅助startupRecovery第一次失败Promise被永久复用也复现。均未证明15:53线上直接卡点，历史两次阻断的精确失败码仍未知。没有修改cloud-sync、原账、辅助贡献持久化、ACK/pending/水位/历史；日志独立发送机会/正文超时、完整8指纹/2KB预算和真实浏览器验收尚未完成，保持Missing，不包装为全部诊断已修复。
+
+授权来源：主目录docs/handoffs/HANDOFF-2026-10-17-ACCOUNTING-ACCESS-RECOVERY.md及PO两条原则。事故基线3dc9731（1.7.49）单独核对；当前HEAD06640b4及1.7.58候选不等于事故已修。变更等级高风险访问控制、extension-local：只改准入/执行/确认/关联诊断及直接测试；不改网页ACTIVE/原账/聚合/用量/上传ACK或水位、不改家庭配置/版本、不提交部署更新加载包。
+
+实施清单：1登记D-115并核对七故障来源/学习各入口；2统一非阻断结果及独立规则优先；3确认复核/授权错误不能换名阻断；4单次evaluationId/auditId与读取结果关联，故障原因、进度与失配布尔值脱敏有界；5复用基础日志授权、预算/ACK/发送机会；6事故SHA与当前V2 await链逐项隔离复现，记账补丁只提证据不擅改；7执行mode-service/effects、forced-use admission/policy/prompt、access-diagnostics/client-log/upload相关最小专项及typecheck/diff，真实浏览器需按交接范围独立验收，不跑全量或安装。当前无CI/发布smoke（不发布）；其余Native交付和三份旧草稿原样保留。
+
+## NOW：Windows共享消费者接续（2026-10-16，源码与隔离验证）
+
+新桶修复集中交付（2026-10-17，PO授权准备）：仅冻结的4产品文件、3直接测试及本任务块集中提交到现有codex/extension-local；其他PROJECT_MASTER/CHANGELOG/TASK旧草稿保持原样。唯一新unpacked开发候选1.7.58从该干净提交导出，源码正式manifest不升版，沿用旧公开key/稳定ID及native-host-development标记，不加权限/协议。复用上述精确源码测试证据；全新staging构建核验后完整备份既有1.7.57加载目录，严格只更新4JS及manifest且manifest最后。不能据磁盘更新冒称Chrome运行实例已更新或Service真实同孩子验签通过；原正常页面/既有上报与Service安全只读证据由架构集中核验，不绕过内部页工具限制。无托管/云端/R2/Native安装/共享启用/自动重启或重载。
+
+同链路集中场景（2026-10-17，PASS）：显式TOC_NATIVE_PROCESS_CONFIG启用fullScenario，真实应用桶600→100→100，生产projectQuotaBucketsSeconds合并网页600后得到1200→700→700，不累加。真实断Port后新进程V1→V3重协商、generation1→3；旧context由真实JS客户端拒绝且不发送，新fixture绑定接受。错误孩子由真实JS契约在传输前拒绝，过期receipt由真实客户端拒绝且不发送，Native过期fixture由实际Dispatcher返回QUOTA_BUCKETS_CONTEXT_CHANGED。所有成功交换逐次核对Native stderr云请求pending及每进程cloudCalls=1，JS备用0；拒绝会立即断Port，故不宣称其末尾stderr必送达。两次观察失败均在业务断言之后等待被kill进程的附属stderr，架构确认后仅调整为成功frame后先收对应stderr再断开，未延长超时或改业务断言；最终同专项exit0、1.74秒。暖缓存600+200=800由根独立同入口验证，不重复冒用本次命令。身份仍fixture注入；不代表安装环境或真实Service验签。产品源码冻结、未提交制包重载。
+
+实际跨进程最小闭环（2026-10-17，PASS）：前两次分别失败于测试Producer缺e_sqlite3依赖、夹具单段600秒违反既有180秒校验；Native仅修测试依赖及合法分段，产品未放宽。架构确认修正artifact后一次实际消费者复验exit0：真实Native framing/Dispatcher/临时SQLite/LocalApplicationStatisticsReader/QuotaBucketsReader连接真实JS客户端、1.55契约及source消费者，V1 heartbeat→V3 probe→V3 exchange，网页600秒＋应用600秒；Native真实后台cloudPending=true、cloudCalls=1从health至exchange不增，JS云端备用调用0。实际Producer.dll SHA256=5fe2d93da12381495b784e564c34219266fb65a70ca89145bab963bb1d13800d。身份由隔离夹具和receipt注入，不等同Service真实验签或用户现场验收；重复/下降/重连等同链路扩展尚未完成，不冒报通过。不制包、更新、重载或改家庭数据。
+
+隔离跨进程验证准备（2026-10-17，架构转交PO授权）：产品源码保持冻结，仅在既有local-guardian专项增加显式环境变量入口，使用子进程标准输入输出的真实Native framing连接实际Dispatcher/QuotaBucketsReader，复用真实客户端、契约和source消费者；不手写统计响应，不接家庭、用户Chrome或生产库。缺省不执行新分支，待Native所属提供可执行入口及合成数据参数后运行冷协商、桶交换和云端挂起用例；现有通过专项不重复全量运行。
+
+新桶本地交换最小接线验证（2026-10-17，源码待架构复核）：bootstrap、shared-web-contribution-sync、local-guardian（含固定旧客户端冷协商基线及C#wire）、source-statistics-shadow四项直接专项均exit0，typecheck通过。确认unknown不启动旧准备、桶能力不依赖共享执行阶段、重复reconcile/disable不撤销有效身份；无应用身份明细能力时可准备独立身份。新桶热读只读现有确认元数据，重复交换只发送exchangeQuotaBuckets，Scope/Bind/云端签发次数不增；过期、换Port和换孩子立即拒绝只读确认。旧身份明细管理仍保留ensurer及自身能力检查。本批未改提醒、原账、Native、云端或生产开关，未提交、制包、更新加载目录或重载；真实终端交换仍待集中交付后验证。三份原脏文档保持，不把其余草稿作为本批完成范围。
+
+新桶本地交换最小接线（2026-10-17，PO批准实施，先源码）：按当前Port已完成协商的quota-buckets-read-v1选择新路径，未知能力暂不启动旧贡献/混合清单，明确旧端才兼容；shadow读取与shared执行分开，周期reconcile/反复disable幂等。新桶路径停用旧policy/basis/contributions但保留同孩子身份独立准备。身份模块复用既有内存确认结果，后台健康/连接事件及到期更新负责Scope/Bind/云端；新桶热读仅检查当前同孩子/设备/Port/代次及原5分钟期限，不await准备，不创建统计缓存或新协议。准备未完成/过期明确未就绪走已有备用；旧应用身份管理入口保持兼容。最小改动为bootstrap/native-client/既有contribution身份模块/background接线及直接bootstrap/bridge/source/identity回归、typecheck/diff；不改原账/统计上传/云端/Native/配置/共享开关/Mac/历史，不新树、制包、重载或生产操作，保留旧草稿。
+
+冷协商最后审计修正（2026-10-17）：根指出排队initial probe自然采用V3时，options未显式protocolVersion=3，缺requestId严格拒绝后可能未断连。仅在strictHealth相关字段拒绝分支记录标记后失效当前实际Port，保留connected=false负例，不新增场景/协议/数据；同批追加修正后再次最小专项，不制作中间候选。
+
+
+## 冷连接有界协议升级修复（2026-10-17）
+
+1.7.57冷协商修复收口（2026-10-17，冻结补丁PASS）：最终local-guardian exit0，完整真实V1五cap＋固定8f97665未改客户端两缺口回放成立；新冷恢复/实际秒接口/同Port单次V3/重连首V1/真旧端/超时/断连/相关requestId/并发共用一次升级/实际C#wire通过。保留serialized手动probe原断言；内部negotiation不改手工冷却。补充严格升级相关时曾发现normalized丢negotiation标记，已确证修复；负例fault改为夹具初始参数仅确定失败时点，不替代该代码修复。旧startup精确顺序更新为V1/V3两health；旧Mac探针间歇超时未改产品，保留失败诊断，最终完整专项通过不等于Mac问题已关闭。source-statistics-shadow、最终typecheck及diff通过；方案Matched，仅native-host-client、直接测试和本任务块。本批不改计时/原账/统计/Native/云端/共享配置或手工节流阈值。集中本地提交后从固定干净提交制作唯一1.7.57开发候选，仅客户端JS与manifest版本变化，完整备份并原路径更新，不自动重载/托管/推送/启共享；保留其他三份脏文档。现场23:44超时仍未定唯一原因，重载后真实交换待根统一验收。
+
+2026-10-17冷协商验证进度：固定8f97665干净导出原客户端＋真实V1五基础cap回放已确证“Host恢复首次单V1探针缺桶”和“普通实际应用读取抢先旧毫秒”两项；修复后的同Port一次V3、证明/桶读取、实际秒接口、重连、真旧端、升级超时/断连/无相关requestId全部通过新增场景。source-statistics-shadow及typecheck/diff通过。综合local-guardian尚未通过：旧appOldService夹具补真实V3回执requestId后保留不支持断言；随后serialized手工probe被内部协商污染冷却，确认为本补丁回归，已隔离negotiation不写手工lastProbeAt，保留原断言，尚待授权复验。已按两失败限制向根报告，不改手工节流阈值、不降测试标准，不提交/出包/重载。23:44现场超时仍未证实唯一原因，未声称实际本机exchange通过。
+
+冷协商取证更正：初版冷夹具漏了真实V1基础能力authoritative-daily-snapshot，其失败不能证明“正常V1健康后source必不支持”，该结论撤回。改用真实五项基础能力，分别在固定8f97665未改源码回放“load时Host缺失、恢复后首个V1探针”和“V1健康后立刻实际应用读取”。前者单次V1协商后缺新桶，后者可能抢先发旧getApplicationUsage；正常已握手source仍可能由既有v3Supported进入V3，不能混为一谈。23:44原现场超时原因独立未确认。回归必须实际发起应用读取并断言秒接口，不用未发起动作的否定断言冒充证据。
+
+冷连接V1→V3有界协商修复（2026-10-16，PO批准、先复现）：Native的V1健康响应虽然声明支持3，却只给旧能力；现有控件把Host支持版本与当前连接V3健康协商完成混为一谈，一次V1 probe后可能误判新桶不支持或采用旧毫秒接口。先加入按实际request.protocolVersion分支的严格回归，在未改产品上取得失败，再最小修复：同一Port确认支持3后最多一次相关V3健康请求，成功后才采用新能力，失败保留实际超时/断连并拒绝旧上下文；不提前设置账本用v3Supported，不继承旧连接能力。覆盖冷启/重连/真旧端/途中断连/新桶真实wire，local-guardian和source-statistics-shadow/typecheck/diff。只本机协商infra/直接测试及本任务块，不改Native/云端/原账/统计/共享配置，不顺改中文cap映射/历史/刷新频率。先源码交根审计，不制包/托管/重载/启共享，保留三份旧脏文档。
 
 ## 2026-10-16 集中推送／合并／部署与唯一Windows候选（PO批准，执行中）
 

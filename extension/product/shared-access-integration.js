@@ -2,7 +2,7 @@ import { configureSharedAccessRuntime, isSharedAccessRuntimeEnabled, isSharedAcc
 import { pollSharedForcedUseV2 } from './shared-forced-use-v2.js';
 import { configureSharedWebContributionSync } from '../infra/shared-web-contribution-sync.js';
 import { configureSharedBrowserActivity } from './shared-browser-activity.js';
-import { configureSharedQuotaNativeBridge, hasSharedAccessExecutionCapability, observeSharedAccessPolicyCapability } from '../infra/native-host-client.js';
+import { configureSharedQuotaNativeBridge, hasSharedAccessExecutionCapability, observeSharedAccessPolicyCapability, readQuotaBucketsReadCapability } from '../infra/native-host-client.js';
 import { configureSharedAccessPolicyReader, readSharedAccessPolicyLkg } from '../infra/shared-access-policy-reader.js';
 import { configureSharedQuotaExecutionReader } from '../infra/shared-quota-execution-reader.js';
 import { configureSharedReminderContentBridge, pollSharedReminderForTab } from './shared-reminder-content-bridge.js';
@@ -45,6 +45,7 @@ export async function configureSharedAccessIntegration({ enabled = false, effect
 export function createSharedAccessBootstrap({ allowed = async () => false,
   onExecutionChanged = async () => {},
   readChannel = readNativeHostDeploymentMarker, hostAvailable = hasSharedAccessExecutionCapability,
+  bucketCapability = readQuotaBucketsReadCapability,
   policy = readSharedAccessPolicyLkg, capability = readSharedBrowserCloseCapability,
   native = configureSharedQuotaNativeBridge, policyReader = configureSharedAccessPolicyReader,
   basisReader = configureSharedQuotaExecutionReader, contributions = configureSharedWebContributionSync,
@@ -52,6 +53,7 @@ export function createSharedAccessBootstrap({ allowed = async () => false,
   reminder = configureSharedReminderContentBridge, v2 = null } = {}) {
   let preparing = false, execution = false, effects = false, inflight = null;
   let v2Execution = false, v2Effects = false;
+  let bucketPath = false;
   async function reconcile() {
     if (inflight) return inflight;
     inflight = run().catch(() => ({ ok: false, errorCode: 'shared_access_bootstrap_unavailable' }))
@@ -60,17 +62,19 @@ export function createSharedAccessBootstrap({ allowed = async () => false,
   }
   async function run() {
     const permitted = await readChannel() && await allowed();
-    if (permitted && v2) {
-      native({ enabled: true });
-      if (v2.available()) {
-        const result = await v2.policy();
-        const next = result?.ok === true && result.policy?.schemaVersion === 2
-          && result.policy.stage === 'shared' && result.policy.forcedUsePolicyV1?.enabled === true;
-        const nextEffects = next && (await capability()).available === true;
-        if (!v2Execution && next) {
+    native({ enabled: permitted });
+    const buckets = bucketCapability();
+    if (permitted && v2 && buckets.available === true) {
+        if (!bucketPath) {
           reminder({ enabled: false }); runtime({ enabled: false }); activity({ enabled: false });
           await contributions({ enabled: false }); await basisReader({ enabled: false }); await policyReader({ enabled: false });
+          if (execution) await onExecutionChanged(false);
+          bucketPath = true; execution = false; effects = false;
         }
+        const result = await v2.policy();
+        const next = result?.ok === true && result.policy?.schemaVersion === 2
+          && result.policy.stage === 'shared' && result.policy.forcedUsePolicyV1?.enabled === true && v2.available();
+        const nextEffects = next && (await capability()).available === true;
         if (next !== v2Execution || nextEffects !== v2Effects) {
           await v2.configure({ enabled: next, effectsEnabled: nextEffects });
           runtime({ enabled: next, schemaVersion: 2 });
@@ -79,21 +83,21 @@ export function createSharedAccessBootstrap({ allowed = async () => false,
         }
         preparing = true; execution = false; effects = false;
         return { ok: true, preparing, execution: v2Execution, effectsEnabled: v2Effects, schemaVersion: 2 };
-      }
     }
-    if (v2Execution) {
+    if (bucketPath) {
       await v2.configure({ enabled: false }); runtime({ enabled: false });
-      await onExecutionChanged(false); v2Execution = false; v2Effects = false; preparing = false;
+      if (v2Execution) await onExecutionChanged(false);
+      v2Execution = false; v2Effects = false; preparing = false; bucketPath = false;
     }
-    if (permitted !== preparing) {
-      preparing = permitted;
-      native({ enabled: permitted });
-      await policyReader({ enabled: permitted });
-      await basisReader({ enabled: permitted });
-      await contributions({ enabled: permitted });
+    const legacy = permitted && buckets.known === true && buckets.available !== true;
+    if (legacy !== preparing) {
+      preparing = legacy;
+      await policyReader({ enabled: legacy });
+      await basisReader({ enabled: legacy });
+      await contributions({ enabled: legacy });
     }
-    const current = permitted && await allowed() && hostAvailable() ? await policy() : null;
-    const next = current?.ok === true && current.policy?.stage === 'shared' && hostAvailable() && await allowed();
+    const current = legacy && await allowed() && hostAvailable() ? await policy() : null;
+    const next = legacy && current?.ok === true && current.policy?.stage === 'shared' && hostAvailable() && await allowed();
     const nextEffects = next && (await capability()).available === true;
     if (next !== execution || nextEffects !== effects) {
       if (next !== execution) await onExecutionChanged(next);

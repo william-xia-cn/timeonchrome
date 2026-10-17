@@ -530,6 +530,12 @@ export function evaluateModeRoute(facts = {}) {
     return { kind: 'reminder', reminderReason: 'unsafe' };
   }
 
+  if (facts.isStudyDomain && currentMode === 'locked') {
+    const scheduleBlock = scheduleBlockForMode(facts, 'study');
+    if (scheduleBlock) return scheduleBlock;
+    return { kind: 'mode_change', toMode: 'study', reason: 'study_quota_exempt', source: 'auto_mode_route' };
+  }
+
   if (currentMode === 'locked') {
     return { kind: 'reminder', reminderReason: 'quota_locked' };
   }
@@ -786,6 +792,7 @@ async function handleAccessObserved(event = {}) {
   const isRejected = siteClassification.classification === 'rejected';
   const isRestricted = siteClassification.classification === 'restricted' || isRejected;
   const isStudyDomain = siteClassification.classification === 'study';
+  event.classification = siteClassification.classification;
   const isTemporaryCompositeDomain = !isRestricted && !isUnsafe && !isStudyDomain && (
     await hasTemporaryCompositePermission(Number.isInteger(tabId) ? tabId : null, domain) ||
     siteClassification.classification === 'pending_composite'
@@ -794,6 +801,26 @@ async function handleAccessObserved(event = {}) {
     siteClassification.classification === 'composite' ||
     isTemporaryCompositeDomain
   );
+  const advisory = config?.autonomyConfig?.timeWindowAdvisoryEnabled === true;
+  const scheduleContext = scheduleConfirmationContext(config, siteClassification.classification, Number(event.tabId), url, nowMs, siteClassification);
+  const natureMode = isStudyDomain ? 'study' : isRestricted ? 'rest' : isCompositeDomain ? 'composite' : null;
+  const independentWindow = natureMode && scheduleBlockedReminderForRequestedMode(natureMode, config, new Date(nowMs));
+  if (independentWindow && !advisory) return baseDecision({ access: 'reminder',
+    reminder: { reason: independentWindow.reason, params: {} }, domain, config });
+  if (event.forceScheduleBlock === true && scheduleContext) {
+    return baseDecision({ access: 'reminder', reminder: { reason: reminderReasonForModeWindow(scheduleContext.mode),
+      params: { confirmationFailure: event.confirmationFailure || 'user_end' } }, domain, config });
+  }
+  const accountingFailure = async (stage, causeCode = 'evidence_unavailable') => {
+    event.accountingEvidence = { stage, causeCode,
+      quotaRead: event.quotaEvidence?.bucketReadStatus || 'not_executed' };
+    // An independently closed window remains a window decision, never a substitute quota denial.
+    const needsWindowConfirmation = scheduleContext && !await hasScheduleConfirmation(scheduleContext).catch(() => false);
+    return baseDecision({ access: needsWindowConfirmation ? 'confirmation' : 'allow',
+      ...(needsWindowConfirmation ? { confirmation: scheduleContext } : {}),
+      reason: 'accounting_unavailable_allowed', accountingUnavailable: true,
+      classification: siteClassification.classification, domain, config });
+  };
   const quotaResult = Number(config?.timeQuota?.accountingVersion) === 2 || isSharedAccessRuntimeEnabled()
     ? await evaluateQuotaState().catch((error) => ({
         ok: true,
@@ -807,6 +834,9 @@ async function handleAccessObserved(event = {}) {
       }))
     : null;
   if (quotaResult?.sharedRuntime) config = quotaResult.config;
+  event.quotaEvidence = { evaluatedAt: nowMs, bucketReadStatus: quotaResult === null ? 'not_executed'
+    : quotaResult?.usage?.ok === true ? 'ok' : 'unknown',
+    usage: quotaResult?.usage || null, newState: quotaResult?.newState || null };
   const quotaState = quotaResult?.newState || config.quotaState || {};
   const lockedDomains = quotaResult?.accountingVersion === 2
     ? (quotaResult.lockedDomains || [])
@@ -822,16 +852,11 @@ async function handleAccessObserved(event = {}) {
   }
 
   const sharedV2 = quotaResult?.sharedModel?.policy?.schemaVersion === 2;
-  if (quotaResult?.accountingUnavailable === true && isRestricted && !sharedV2) {
-    return baseDecision({
-      access: 'reminder',
-      reminder: { reason: 'accounting_unavailable', params: {} },
-      domain,
-      config,
-    });
+  if ((quotaResult?.accountingUnavailable === true || quotaResult?.ok === false) && !sharedV2) {
+    return accountingFailure('quota_read', 'quota_read_unavailable');
   }
 
-  if (quotaState.onlineLocked) {
+  if (quotaState.onlineLocked && !isStudyDomain) {
     return baseDecision({
       access: 'reminder',
       reminder: { reason: 'quota_online', params: {} },
@@ -840,7 +865,7 @@ async function handleAccessObserved(event = {}) {
     });
   }
 
-  if (lockedDomains.includes(domain)) {
+  if (lockedDomains.includes(domain) && !isStudyDomain) {
     return baseDecision({
       access: 'reminder',
       reminder: { reason: 'quota', params: {} },
@@ -849,32 +874,32 @@ async function handleAccessObserved(event = {}) {
     });
   }
 
-  const advisory = config?.autonomyConfig?.timeWindowAdvisoryEnabled === true;
-  const scheduleContext = scheduleConfirmationContext(config, siteClassification.classification, Number(event.tabId), url, nowMs, siteClassification);
   const forcedPolicy = (!quotaResult?.sharedRuntime || sharedV2) && quotaResult?.accountingVersion === 2
     ? readForcedUsePolicy(config) : { enabled: false };
   const scheduleConfirmed = !forcedPolicy.enabled && scheduleContext
     ? await hasScheduleConfirmation(scheduleContext) : false;
-  if (event.forceScheduleBlock === true && scheduleContext) {
-    return baseDecision({ access: 'reminder', reminder: { reason: reminderReasonForModeWindow(scheduleContext.mode),
-      params: { confirmationFailure: event.confirmationFailure || 'user_end' } }, domain, config });
-  }
-  if (quotaResult?.sharedModel && !sharedV2) {
-    const model = quotaResult.sharedModel, projection = model.preparation.projection;
+  if (quotaResult?.sharedModel && !sharedV2 && !isStudyDomain) {
+    const model = quotaResult.sharedModel, projection = model.preparation?.projection;
+    if (!Array.isArray(projection?.days) || !projection?.week) {
+      return accountingFailure('shared_admission', 'shared_projection_unavailable');
+    }
     const attribution = resolveManagedTargetAttribution(config, siteClassificationRecords, url);
     const category = attribution?.targetClassificationAtTime === 'other' ? 'other'
       : isStudyDomain ? 'study' : isRestricted ? 'restrictedEntertainment' : isCompositeDomain ? 'composite' : 'unclassified';
     const local = new Date(nowMs + 28800000), date = local.toISOString().slice(0, 10);
     const day = projection.days.find(d => d.date === date);
-    if (!day) return baseDecision({ access: 'reminder', reminder: { reason: 'accounting_unavailable', params: {} }, domain, config });
-    const admission = sharedAccessAdmissionV1(model.policy, day,
+    if (!day) return accountingFailure('shared_day_missing', 'shared_day_missing');
+    let admission;
+    try { admission = sharedAccessAdmissionV1(model.policy, day,
       { complete: projection.complete, restRemainingMs: projection.week.restRemainingMs }, category,
-      local.getUTCHours() * 60 + local.getUTCMinutes(), true);
+      local.getUTCHours() * 60 + local.getUTCMinutes(), true); }
+    catch (_) { return accountingFailure('shared_admission', 'shared_projection_unavailable'); }
     if (admission.decision !== 'allow' && !(advisory && admission.reasonCode?.startsWith('WINDOW_'))) {
       const reasons = { QUOTA_STUDY: 'quota_study', QUOTA_REST: 'daily_rest_locked', QUOTA_WEEKLY_REST: 'weekly_rest_locked',
         QUOTA_COMPOSITE_AND_REST: 'quota_composite_and_rest', WINDOW_STUDY: 'study_schedule_locked',
         WINDOW_REST: 'rest_schedule_locked', WINDOW_COMPOSITE: 'composite_schedule_locked' };
-      return baseDecision({ access: 'reminder', reminder: { reason: reasons[admission.reasonCode] || 'accounting_unavailable', params: {} },
+      if (!reasons[admission.reasonCode]) return accountingFailure('shared_admission', admission.reasonCode);
+      return baseDecision({ access: 'reminder', reminder: { reason: reasons[admission.reasonCode], params: {} },
         sharedAdmission: admission, domain, config });
     }
     if (category === 'other') return baseDecision({ access: 'allow', sharedAdmission: admission, domain, config });
@@ -883,6 +908,7 @@ async function handleAccessObserved(event = {}) {
   let forcedAdmission = null;
   let forcedCompositeRemaining = null;
   if (forcedPolicy.enabled) {
+    try {
     const dateKey = new Date(nowMs + 28800000).toISOString().slice(0, 10);
     const quotaBucket = isStudyDomain ? 'study' : isRestricted ? 'rest'
       : isCompositeDomain ? 'composite' : 'other';
@@ -908,6 +934,9 @@ async function handleAccessObserved(event = {}) {
     const derived = initialized.ok ? await readForcedUseDay({ profileId: identity.cloud_profile_id,
       deviceId: identity.cloud_device_id, date: dateKey }) : initialized;
     const progress = await readForcedUsePromptProgress();
+    event.auxiliaryEvidence = { ok: derived?.ok === true,
+      complete: derived?.complete ?? null, irrecoverable: derived?.irrecoverable ?? null,
+      progressPresent: progress !== null, forcedUsageSeconds: derived?.ok ? derived.seconds : null };
     const windowFact = scheduleContext ? { active: true, id: 'timeWindow', key: scheduleContext.key,
       usedSeconds: derived.ok ? derived.byCauseSeconds.timeWindow || 0 : null,
       maxSeconds: null } : null;
@@ -918,12 +947,14 @@ async function handleAccessObserved(event = {}) {
     }
     if (forcedAdmission.action === 'block' || forcedAdmission.ok === false) {
       const reasons = forcedAdmission.reasons || [];
+      if (forcedAdmission.ok === false) return accountingFailure('forced_admission', reasons[0]);
       const reason = reasons.includes('dailyComposite') ? 'quota_undetermined'
         : reasons.includes('dailyStudy') ? 'quota_study'
           : reasons.includes('weeklyRest') ? 'weekly_rest_locked'
             : reasons.includes('dailyRest') ? 'daily_rest_locked'
               : reasons.includes('dailyOnline') ? 'quota_online'
                 : reasons.includes('domain') ? 'quota' : 'accounting_unavailable';
+      if (reason === 'accounting_unavailable') return accountingFailure('forced_admission', reasons[0]);
       return baseDecision({ access: 'reminder', reminder: { reason, params: {} }, domain, config });
     }
     if (forcedAdmission.action === 'confirm') {
@@ -936,18 +967,12 @@ async function handleAccessObserved(event = {}) {
         : buildForcedUseQuotaFacts(config, quotaResult.usage, forcedPolicy, { date: dateKey, domain,
           ...(sharedV2 ? { quotaBucket, allowIncomplete: true } : {}) });
       const final = forcedCompositeFinalRemainingSeconds(facts);
-      if (!final.ok) return baseDecision({ access: 'reminder', reminder: { reason: 'accounting_unavailable', params: {} }, domain, config });
+      if (!final.ok) return accountingFailure('composite_remaining', final.reason);
       forcedCompositeRemaining = final.seconds;
     }
-  }
-
-  if (quotaState.studyLocked && isStudyDomain) {
-    return baseDecision({
-      access: 'reminder',
-      reminder: { reason: 'quota_study', params: {} },
-      domain,
-      config,
-    });
+    } catch (_) {
+      return accountingFailure('forced_admission', 'auxiliary_read_failed');
+    }
   }
 
   const modeSnapshot = await getCurrentModeSnapshot(config, monitoringEnabled);
@@ -1031,6 +1056,7 @@ async function handleAccessObserved(event = {}) {
 }
 
 function quotaBlockedReminderForRequestedMode(requestedMode, quotaState = {}) {
+  if (requestedMode === 'study') return null;
   if (quotaState.onlineLocked === true) {
     return { reason: 'quota_locked', code: 'ONLINE_QUOTA_LOCKED' };
   }
@@ -1113,9 +1139,9 @@ async function handleRequestedModeChange(event = {}) {
       const latestConfig = quotaResult?.config || await getConfig().catch(() => null);
       const isV2 = Number(latestConfig?.timeQuota?.accountingVersion) === 2;
       const latestQuotaState = quotaResult?.newState || (isV2 ? {} : latestConfig?.quotaState) || {};
-      const blocked = quotaBlockedReminderForRequestedMode(requested, latestQuotaState);
-      const evaluationFailedBlocks = quotaResult?.ok === false && !isV2;
-      if (blocked || evaluationFailedBlocks) {
+      const accountingUnavailable = quotaResult?.ok === false || quotaResult?.accountingUnavailable === true;
+      const blocked = accountingUnavailable ? null : quotaBlockedReminderForRequestedMode(requested, latestQuotaState);
+      if (blocked) {
         recordFallbackLog({
           level: quotaResult?.ok === false ? 'error' : 'warning',
           category: 'access',
@@ -1229,6 +1255,7 @@ async function handleRequestedModeChange(event = {}) {
 }
 
 function isModeQuotaAllowedForSchedule(mode, quotaState = {}) {
+  if (mode === 'study') return true;
   if (quotaState.onlineLocked === true) return false;
   if (mode === 'study') return quotaState.studyLocked !== true;
   if (mode === 'composite') return quotaState.undeterminedLocked !== true;
@@ -1430,17 +1457,22 @@ async function handleQuotaEvaluation(event = {}) {
 }
 
 export async function handleModeEvent(event = {}) {
+  event = { ...event, auditId: modeAuditId(event), evaluationId: modeAuditId({}),
+    quotaEvidence: null, accountingEvidence: null, auxiliaryEvidence: null };
   const type = event?.type;
-  if (type === 'ACCESS_OBSERVED') return await handleAccessObserved(event);
+  let decision;
+  if (type === 'ACCESS_OBSERVED') decision = await handleAccessObserved(event);
   if (type === 'REQUEST_MODE_CHANGE' || type === 'REMINDER_CONFIRMED') {
-    return await handleRequestedModeChange(event);
+    decision = await handleRequestedModeChange(event);
   }
-  if (type === 'EVALUATE_QUOTA_STATE') return await handleQuotaEvaluation(event);
-  return baseDecision({
+  if (type === 'EVALUATE_QUOTA_STATE') decision = await handleQuotaEvaluation(event);
+  return { ...(decision || baseDecision({
     ok: false,
     access: 'ignore',
     reason: 'unknown_mode_event',
-  });
+  })), auditId: event.auditId, evaluationId: event.evaluationId, quotaEvidence: event.quotaEvidence,
+    accountingEvidence: event.accountingEvidence, auxiliaryEvidence: event.auxiliaryEvidence,
+    classification: decision?.classification || event.classification || null };
 }
 
 export function evaluateQuotaModeTransition(facts = {}) {
@@ -1448,6 +1480,9 @@ export function evaluateQuotaModeTransition(facts = {}) {
   const quotaState = facts.quotaState || {};
 
   if (currentMode === 'paused') return { kind: 'none', reason: 'monitoring_paused' };
+  if (facts.activeUsageWindowMode === 'study' || currentMode === 'study') {
+    return { kind: 'none', reason: 'study_quota_exempt' };
+  }
 
   if (quotaState.onlineLocked === true) {
     if (currentMode === 'locked') return { kind: 'none', reason: 'already_locked' };

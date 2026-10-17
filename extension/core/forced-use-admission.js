@@ -43,7 +43,8 @@ export function prepareForcedUseAdmission({ config, usage, dateKey, domain, quot
   forcedUsageSeconds } = {}) {
   const policy = readForcedUsePolicy(config);
   if (!policy.enabled) return { ok: true, action: 'legacy', reason: policy.reason || null };
-  const facts = buildForcedUseQuotaFacts(config, usage, policy, { date: dateKey, domain });
+  const facts = classification === 'study' ? { ok: true, quotas: [] }
+    : buildForcedUseQuotaFacts(config, usage, policy, { date: dateKey, domain, quotaBucket });
   const decision = decideForcedUseAccess({ policy, quotaFacts: facts, quotaBucket,
     absoluteBlocks, advisoryWindow, reminderState, identityKey, dateKey,
     ruleKey, forcedUsageSeconds });
@@ -65,13 +66,18 @@ export function prepareForcedUseAdmission({ config, usage, dateKey, domain, quot
 }
 
 export function confirmForcedUseAdmission(shown, latest, reminderState) {
+  const matches = { identityMatches: shown?.identityKey === latest?.identityKey,
+    dateMatches: shown?.dateKey === latest?.dateKey, ruleMatches: shown?.ruleKey === latest?.ruleKey,
+    policyMatches: shown?.policySignature === latest?.policySignature,
+    reasonsMatch: JSON.stringify(shown?.reasons) === JSON.stringify(latest?.reasons),
+    progressValid: !!shown?.progress && !!latest?.progress };
   if (shown?.action !== 'confirm' || latest?.ok !== true || latest.action !== 'confirm'
     || !shown.progress || !latest.progress
     || shown.identityKey !== latest.identityKey || shown.dateKey !== latest.dateKey
     || shown.ruleKey !== latest.ruleKey || shown.quotaBucket !== latest.quotaBucket
     || shown.policySignature !== latest.policySignature
     || JSON.stringify(shown.reasons) !== JSON.stringify(latest.reasons)) {
-    return { ok: false, reason: 'forced_use_confirmation_stale' };
+    return { ok: false, reason: 'forced_use_confirmation_stale', matches };
   }
   return acknowledgeForcedUseReminderProgress(reminderState, latest.progress);
 }

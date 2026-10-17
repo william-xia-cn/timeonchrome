@@ -165,7 +165,7 @@ this.__modeService = {
     expect('unknown is not composite exception', (await access('unknown.test')).reminder?.reason, 'downtime');
     cfg.quotaState = { onlineLocked: true };
     cfg.timeQuota = {};
-    expect('study exception still checks online quota', (await access('study.test')).reminder?.reason, 'quota_online');
+    expect('study exception is not blocked by online quota', (await access('study.test')).reminder?.reason, undefined);
     expect('composite exception still checks online quota', (await access('composite.test')).reminder?.reason, 'quota_online');
     const scan = await svc.handleModeEvent({ type: 'ACCESS_OBSERVED', url: 'https://study.test', nowMs, downtimeOnly: true });
     expect('background exception does not enter routing', scan.access, 'ignore');
@@ -267,15 +267,13 @@ this.__modeService = {
       reason: 'quota_online_exhausted',
       source: 'quota_alarm',
     });
-    expect('study quota locks study mode', svc.evaluateQuotaModeTransition({
+    expect('study quota does not lock study mode', svc.evaluateQuotaModeTransition({
       currentMode: 'study',
       quotaState: { studyLocked: true },
       source: 'quota_alarm',
     }), {
-      kind: 'mode_change',
-      toMode: 'locked',
-      reason: 'quota_study_exhausted',
-      source: 'quota_alarm',
+      kind: 'none',
+      reason: 'study_quota_exempt',
     });
     expect('rest quota returns to study when study is available', svc.evaluateQuotaModeTransition({
       currentMode: 'rest',
@@ -750,10 +748,10 @@ this.__modeService = {
     const unavailable = await unavailableSvc.handleModeEvent({
       type: 'ACCESS_OBSERVED', url: 'https://video.example/watch', domain: 'video.example', foreground: true, nowMs: 1000,
     });
-    expect('V2 unreadable local account blocks restricted with explicit reason', {
+    expect('V2 unreadable local account allows restricted with explicit diagnosis', {
       access: unavailable.access,
-      reason: unavailable.reminder?.reason,
-    }, { access: 'reminder', reason: 'accounting_unavailable' });
+      reason: unavailable.reason,
+    }, { access: 'allow', reason: 'accounting_unavailable_allowed' });
   }
 
   section('MSVC-3a3 rejected exact URL follows restricted rest path');
@@ -840,16 +838,16 @@ this.__modeService = {
       source: 'reminder',
       nowMs: 1000,
     });
-    expect('study exhausted blocks study request', {
+    expect('study exhausted does not block study request', {
       ok: study.ok,
       access: study.access,
       reason: study.reminder?.reason,
-      modeChange: study.modeChange,
+      mode: study.modeChange?.toMode,
     }, {
-      ok: false,
-      access: 'reminder',
-      reason: 'quota_study',
-      modeChange: null,
+      ok: true,
+      access: 'allow',
+      reason: undefined,
+      mode: 'study',
     });
     const composite = await svc.handleModeEvent({
       type: 'REQUEST_MODE_CHANGE',
@@ -1385,7 +1383,7 @@ this.__modeService = {
       url: 'https://fixture.test/another' })).access !== 'confirmation');
     hard = true;
     expect(nature + ' hard quota still blocks after confirmation in another tab',
-      (await svc.handleModeEvent({ ...event, tabId: 9 })).reminder?.reason, 'quota_online');
+      (await svc.handleModeEvent({ ...event, tabId: 9 })).reminder?.reason, nature === 'study' ? undefined : 'quota_online');
     process.env.TZ = originalTimezone;
   }
   section('Manual advisory mode entry: no commit before confirmation');
@@ -1423,7 +1421,8 @@ this.__modeService = {
     await svc.commitModeChange(allowed.modeChange);
     expect(nature + ' identical confirmed commits enqueue only one boundary', boundaries.length, 1);
     hard = true;
-    expect(nature + ' manual hard quota remains higher priority', (await svc.handleModeEvent(event)).reminder?.reason, 'quota_locked');
+    expect(nature + ' manual quota follows study exemption', (await svc.handleModeEvent(event)).reminder?.reason,
+      nature === 'study' ? undefined : 'quota_locked');
     hard = false; unsafe = true;
     expect(nature + ' manual confirmation cannot bypass blacklist', (await svc.handleModeEvent(event)).reminder?.reason, 'unsafe');
     process.env.TZ = originalTimezone;
