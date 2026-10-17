@@ -44,6 +44,13 @@ async function run() {
   const context = { scopeHash: 'a'.repeat(64) };
   const bind = () => binding.bind(context, connection, c => c === connection);
   assert.equal((await bind()).ok, true); assert.equal(exchangeCount, 1);
+  const beforeProofRead = calls.length;
+  const readProof = binding.readProof(context);
+  assert.deepEqual(readProof, proof);
+  readProof.claims.assignmentVersion++;
+  assert.deepEqual(binding.readProof(context), proof, 'proof readers cannot mutate the live cached proof');
+  assert.equal(binding.readProof({ scopeHash: 'different-scope' }), null);
+  assert.equal(calls.length, beforeProofRead, 'proof reads never perform Native or cloud exchanges');
   connection = {}; offline = true;
   assert.equal((await bind()).ok, true); assert.equal(exchangeCount, 1, 'fresh proof rebinds locally on new Port');
   rejection = 'WEB_SOURCE_PROOF_SIGNATURE_INVALID';
@@ -53,6 +60,7 @@ async function run() {
   invalidate = true;
   assert.equal((await bind()).errorCode, 'shared_web_identity_changed'); invalidate = false;
   clock = 301000; scope.claims.issuedAtMs = clock; scope.claims.expiresAtMs = clock + 300000; offline = true;
+  assert.equal(binding.readProof(context), null, 'expired proofs cannot be reused for source selection');
   const before = calls.filter(c => c.method === 'bindSharedWebSourceV2').length;
   assert.equal((await bind()).errorCode, 'shared_web_proof_unavailable');
   assert.equal(calls.filter(c => c.method === 'bindSharedWebSourceV2').length, before, 'expired proof never rebinds');

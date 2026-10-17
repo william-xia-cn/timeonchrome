@@ -8,7 +8,7 @@ import { DEFAULT_CONFIG } from './storage.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 import { readDowntimeConfig } from '../core/downtime.js';
 import { validateSourceStatisticsQuery } from '../core/shared-contracts/1.54.0/source-statistics.js';
-import * as sourceStatisticsContract from '../core/shared-contracts/1.55.0/source-statistics.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.57.0/source-statistics.js';
 import {
   buildSiteClassificationRequestsUploadPayload,
   getPendingSiteClassificationRequestUploads,
@@ -468,16 +468,28 @@ export async function readCloudSharedWebCapabilities(options = {}) {
   return readCapturedSharedDeviceJson(options, '/device/shared-web-capabilities/v1');
 }
 export async function readCloudSourceStatistics(options = {}, query = {}) {
-  let body;
+  let body, includeSources;
   try {
-    body = { ...query };
-    if (body.schemaVersion === 2) sourceStatisticsContract.validateQuotaBucketsQuery(body);
-    else validateSourceStatisticsQuery(body);
+    if (query.schemaVersion === 2) {
+      const transport = sourceStatisticsContract.readQuotaBucketsCloudRequest(query);
+      includeSources = transport.includeSources;
+      if (includeSources && !(typeof options.childId === 'string' && options.childId)) throw Error('missing expected child');
+      body = { ...transport.query, ...(includeSources ? { includeSources: true } : {}),
+        ...(Object.hasOwn(transport, 'sourceProof') ? { sourceProof: transport.sourceProof } : {}) };
+    } else {
+      body = { ...query };
+      validateSourceStatisticsQuery(body);
+    }
   } catch (_) { return { ok: false, errorCode: 'source_statistics_invalid_query' }; }
   if (new TextEncoder().encode(JSON.stringify(body)).length > 16384) return { ok: false, errorCode: 'source_statistics_size_limit' };
   const response = await readCapturedSharedDeviceJson(options, '/device/source-statistics', body);
   if (!response.ok) return response;
-  return { ok: true, snapshot: response.value };
+  if (!includeSources) return { ok: true, snapshot: response.value };
+  try {
+    return { ok: true, ...sourceStatisticsContract.readQuotaBucketsCloudResponse(response.value, {
+      source: query.source, childId: options.childId, fromDate: query.fromDate, toDate: query.toDate,
+    }) };
+  } catch (_) { return { ok: false, errorCode: 'source_statistics_invalid_response' }; }
 }
 export async function readCloudSharedWebWatermark(options = {}, date) {
   const ms = Date.parse(`${date}T00:00:00Z`);
@@ -3573,6 +3585,19 @@ async function syncProfileAccountV2ShadowSnapshot({ enabled = false } = {}) {
   const result = { fetched: false, stored: false, skipped: !enabled, error: null };
   if (!enabled || !syncState.deviceToken || syncState.monitoringEnabled === 0) return result;
   try {
+    const captured = { apiBase: getCloudApiBase(), deviceId: syncState.deviceId,
+      childId: syncState.profileId, deviceToken: syncState.deviceToken };
+    const isCurrentScope = async (storage = chrome.storage.local) => {
+      if (!Object.values(captured).every(value => typeof value === 'string' && value.length > 0)
+        || getCloudApiBase() !== captured.apiBase || syncState.deviceId !== captured.deviceId
+        || syncState.profileId !== captured.childId || syncState.deviceToken !== captured.deviceToken) return false;
+      const binding = await storage.get(['cloud_device_id', 'cloud_profile_id', 'cloud_device_token']);
+      return getCloudApiBase() === captured.apiBase && syncState.deviceId === captured.deviceId
+        && syncState.profileId === captured.childId && syncState.deviceToken === captured.deviceToken
+        && binding.cloud_device_id === captured.deviceId && binding.cloud_profile_id === captured.childId
+        && binding.cloud_device_token === captured.deviceToken;
+    };
+    if (!await isCurrentScope()) throw new Error('PROFILE_ACCOUNT_SNAPSHOT_SCOPE_CHANGED');
     const date = getDateKey();
     const { weekStart } = getBeijingWeekPeriod(date);
     const first = await cloudRequest(
@@ -3586,6 +3611,7 @@ async function syncProfileAccountV2ShadowSnapshot({ enabled = false } = {}) {
     const pages = [first];
     const pageCount = Math.max(1, Number(first.pageCount || 1));
     for (let page = 1; page < pageCount; page++) {
+      if (!await isCurrentScope()) throw new Error('PROFILE_ACCOUNT_SNAPSHOT_SCOPE_CHANGED');
       pages.push(await cloudRequest(
         'GET',
         `/device/accounts/v2/snapshot?weekStart=${encodeURIComponent(weekStart)}&snapshotId=${encodeURIComponent(first.snapshotId)}&page=${page}`,
@@ -3594,7 +3620,10 @@ async function syncProfileAccountV2ShadowSnapshot({ enabled = false } = {}) {
       ));
     }
     const snapshot = await validateProfileAccountSnapshotPages(pages);
-    await storeProfileAccountShadowSnapshot(snapshot);
+    if (!await isCurrentScope()) throw new Error('PROFILE_ACCOUNT_SNAPSHOT_SCOPE_CHANGED');
+    await storeProfileAccountShadowSnapshot(snapshot, {
+      scope: { apiBase: captured.apiBase, deviceId: captured.deviceId, childId: captured.childId }, isCurrentScope,
+    });
     result.stored = true;
     result.skipped = false;
     result.snapshotId = snapshot.snapshotId;
@@ -3742,6 +3771,27 @@ async function uploadHistoricalUsageStatsByWatermarkV1({ enabled = false } = {})
 }
 
 export async function syncUsageStatsByDateWatermarkV1({ enabled = false } = {}) {
+  let result;
+  try {
+    result = await syncUsageUploadsByDateWatermarkV1({ enabled });
+  } catch (error) {
+    result = makeUsageDateSyncResult({ dryRun: !enabled });
+    result.failed = 1;
+    result.errors = [normalizeUploadErrorCode(error)];
+  }
+  // Reading confirmed device accounts is independent of local upload/backoff.
+  const snapshot = await syncProfileAccountV2ShadowSnapshot({ enabled });
+  result.profileAccountV2Shadow = snapshot;
+  if (snapshot.error) {
+    result.failed++;
+    result.errors.push(`profileAccountV2Shadow:${snapshot.error}`);
+    result.skipped = false;
+  }
+  if (snapshot.stored) result.skipped = false;
+  return result;
+}
+
+async function syncUsageUploadsByDateWatermarkV1({ enabled = false } = {}) {
   if (enabled) {
     const backoff = await getUsageUploadBackoff();
     if (Number(backoff.nextRetryAt || 0) > Date.now()) {
@@ -3811,7 +3861,6 @@ export async function syncUsageStatsByDateWatermarkV1({ enabled = false } = {}) 
   await runV2Stage('deviceAccountV2Pending', () => retryPendingDeviceAccountsV2Shadow({ enabled }));
   await runV2Stage('deviceAccountV2CurrentWeek', () => uploadCurrentWeekDeviceAccountsV2({ enabled }));
   await runV2Stage('deviceAccountV2Reconciliation', () => retryPendingDeviceAccountReconciliationsV2Shadow({ enabled }));
-  await runV2Stage('profileAccountV2Shadow', () => syncProfileAccountV2ShadowSnapshot({ enabled }));
 
   if (enabled) {
     const retryableError = v1Errors.find((error) => isRetryableUsageErrorCode(error));

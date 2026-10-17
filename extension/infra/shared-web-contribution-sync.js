@@ -103,7 +103,8 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
   upload = postCloudSharedWebContribution, exchange = requestCloudSharedWebSourceBinding,
   exchangeV2 = requestCloudSharedWebSourceBindingV2, native = requestSharedWebSync,
   readBasis = readSharedQuotaExecutionLkg, readConnection = readSharedWebLocalConnection,
-  identityNative = null, readIdentityConnection = readApplicationIdentityBindingConnection } = {}) {
+  identityNative = null, readIdentityConnection = readApplicationIdentityBindingConnection,
+  onIdentityReady = () => {} } = {}) {
   let running = null, queued = false, epoch = 0;
   const nativeReceipts = new Map();
   let preparation = fail('shared_web_not_prepared');
@@ -208,11 +209,35 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
       confirmedIdentityBinding = { scopeHash: context.scopeHash, connection,
         connectionGeneration: initialConnection.connectionGeneration,
         bindingContextId, expiresAtMs: bound.binding.expiresAtMs };
+      try { Promise.resolve(onIdentityReady()).catch(() => {}); } catch (_) { /* Readiness notification is best-effort. */ }
       return { ok: true, bindingContextId, expiresAtMs: bound.binding.expiresAtMs };
     })();
     identityBindingPromise = operation;
     try { return await operation; }
     finally { if (identityBindingPromise === operation) identityBindingPromise = null; }
+  }
+  async function readApplicationIdentityConfirmation(expectedContext) {
+    const unknown = { confirmed: null };
+    const cached = confirmedIdentityBinding;
+    if (!cached || !expectedContext) return unknown;
+    try {
+      const context = await captureIdentity(), current = readIdentityConnection();
+      if (!['apiBase', 'deviceId', 'childId', 'deviceToken'].every(key => context[key] === expectedContext[key])
+        || cached !== confirmedIdentityBinding || context.scopeHash !== cached.scopeHash
+        || !current?.connection || current.connection !== cached.connection
+        || current.connectionGeneration !== cached.connectionGeneration
+        || current.reusableSourceSupported !== true || cached.expiresAtMs <= now()) return unknown;
+      return { confirmed: true, connectionGeneration: cached.connectionGeneration, expiresAtMs: cached.expiresAtMs };
+    } catch (_) { return unknown; }
+  }
+  async function readApplicationSourceProof(expectedContext) {
+    const binding = confirmedIdentityBinding;
+    if ((await readApplicationIdentityConfirmation(expectedContext)).confirmed !== true) return null;
+    const context = await captureIdentity().catch(() => null);
+    if (!context || binding !== confirmedIdentityBinding) return null;
+    const proof = reusableBinding.readProof(context);
+    return (await readApplicationIdentityConfirmation(expectedContext)).confirmed === true
+      && binding === confirmedIdentityBinding ? proof : null;
   }
   async function current(c, generation) {
     if (!enabled || generation !== epoch) return false;
@@ -519,7 +544,7 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
     }).finally(() => { running = null; if (queued && enabled) { queued = false; void refresh(); } });
     return running;
   }
-  return { refresh, ensureApplicationIdentityBinding, readApplicationIdentityBinding,
+  return { refresh, ensureApplicationIdentityBinding, readApplicationIdentityBinding, readApplicationIdentityConfirmation,
     readDiagnostics(policyHash, days = {}, scopeHash = null) {
       const connection = readConnection();
       let bindingState = !enabled ? 'disabled' : !connection.connection ? 'disconnected' : !sourceBinding ? 'unbound' : 'unknown';
@@ -543,6 +568,7 @@ export function createSharedWebContributionSync({ enabled = false, now = Date.no
       epoch++; sourceBinding = null; localLease = null; bindingConnection = null; nativeReceipts.clear();
       reusableBinding.invalidate(); preparation = fail('shared_web_not_prepared'); enabled = next; return refresh();
     },
+    readApplicationSourceProof,
     async readBinding() {
       if (!enabled) return fail('shared_web_disabled');
       const generation = epoch, c = await capture(), binding = sourceBinding;
@@ -590,12 +616,18 @@ export function readSharedWebSourceBinding() { return sync?.readBinding() || Pro
 export function ensureApplicationIdentityBinding() {
   return sync?.ensureApplicationIdentityBinding() || Promise.resolve(fail('application_identity_usage_binding_unavailable'));
 }
+export function readCurrentApplicationIdentityConfirmation(expectedContext) {
+  return sync?.readApplicationIdentityConfirmation(expectedContext) || Promise.resolve({ confirmed: null });
+}
+export function readApplicationStatisticsSourceProof(expectedContext) {
+  return sync?.readApplicationSourceProof(expectedContext) || Promise.resolve(null);
+}
 export function readSharedWebDiagnosticState(policyHash, days, scopeHash) {
   return sync?.readDiagnostics(policyHash, days, scopeHash) || { bindingState: 'unknown', cacheScopeCurrent: null, running: null, stage: null, currentNativeConfirmedByDate: {} };
 }
-export function initSharedWebContributionSync({ identityAllowed = () => false } = {}) {
+export function initSharedWebContributionSync({ identityAllowed = () => false, onIdentityReady = () => {} } = {}) {
   if (sync) return;
-  sync = createSharedWebContributionSync();
+  sync = createSharedWebContributionSync({ onIdentityReady });
   setApplicationIdentityBindingEnsurer(() => sync.ensureApplicationIdentityBinding());
   setApplicationIdentityBindingReader(() => sync.readApplicationIdentityBinding());
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

@@ -15,7 +15,7 @@ import { browserExecutionFence, browserExecutionIdentityHash } from './shared-br
 import { sharedBrowserExecutionAttempts } from './shared-browser-execution-attempts.js';
 import { captureSharedWebNativeRequest, captureSharedWebNativeReceipt, captureSharedQuotaPreparation, SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
 import { SOURCE_STATISTICS_EXCHANGE_MESSAGE, SOURCE_STATISTICS_READ_CAPABILITY, validateSourceStatisticsExchange, validateSourceStatisticsSnapshot } from '../core/shared-contracts/1.54.0/source-statistics.js';
-import * as sourceStatisticsContract from '../core/shared-contracts/1.55.0/source-statistics.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.56.0/source-statistics.js';
 import { checkSharedActivityV2, checkSharedActivityAckV2, checkSharedReminderStateV2,
   checkSharedReminderMessageV2, checkSharedExecutionV2 } from '../core/shared-forced-use-runtime-v2.js';
 import { APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, validateApplicationIdentityUsageQuery, validateApplicationIdentityUsageSnapshot } from '../core/shared-contracts/1.43.0/application-usage-seconds.js';
@@ -530,6 +530,7 @@ function ensureNativePort() {
       duplicate: response.duplicate === true,
       stale: response.stale === true,
       applicationUsage: response.applicationUsage,
+      applicationSources: response.applicationSources,
       applicationUsageSeconds: response.applicationUsageSeconds,
       applicationIdentityUsage: response.applicationIdentityUsage,
       sharedQuota: response.sharedQuota,
@@ -883,7 +884,7 @@ async function performSend(options) {
     const port = nativePort;
     const generation = applicationConnectionGeneration;
     if (!['getSharedWebSourceScope', 'bindSharedWebSourceV2'].includes(options.method)
-      || !port || !sharedNativeV3 || !applicationIdentityUsageSupported
+      || !port || !sharedNativeV3
       || !sharedNativeCapabilities.has('shared-web-source-reusable-v2')) {
       return { ok: false, errorCode: 'application_identity_usage_binding_unavailable' };
     }
@@ -953,8 +954,16 @@ async function performSend(options) {
         validate(snapshot, { source: 'application', childId: options.childId,
           fromDate: options.fromDate, toDate: options.toDate });
       } catch (_) { return failed('source_statistics_native_invalid_response'); }
+      let applicationSources = null;
+      if (options.quotaBuckets && sharedNativeCapabilities.has(sourceStatisticsContract.QUOTA_BUCKETS_SOURCES_CAPABILITY)) {
+        try {
+          sourceStatisticsContract.validateQuotaBucketsSources(ack.applicationSources, {
+            childId: options.childId, fromDate: options.fromDate, toDate: options.toDate });
+          applicationSources = ack.applicationSources;
+        } catch (_) { /* Optional explanation must not reject a valid combined snapshot. */ }
+      }
       attempt.accepted = true;
-      return { ok: true, source: 'native', snapshot, contextId: after.contextId,
+      return { ok: true, source: 'native', snapshot, applicationSources, contextId: after.contextId,
         connectionGeneration: after.connectionGeneration, nativeAttempt: { ...attempt } };
     } catch (error) {
       return failed(SOURCE_STATISTICS_ERRORS.has(error?.message) ? error.message
@@ -1734,6 +1743,7 @@ export function readNativeHostDiagnosticState() {
     'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1',
     'shared-browser-activity-v1', 'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1',
     'shared-web-local-lease-v1', 'shared-web-source-reusable-v2', SOURCE_STATISTICS_READ_CAPABILITY, 'quota-buckets-read-v1',
+    'quota-buckets-sources-v1',
     APPLICATION_IDENTITY_USAGE_READ_CAPABILITY, 'shared-access-policy-v2', 'shared-forced-use-runtime-v2'];
   return { connected, protocolVersion: known ? 3 : null,
     connectionGeneration: connected ? applicationConnectionGeneration : null,

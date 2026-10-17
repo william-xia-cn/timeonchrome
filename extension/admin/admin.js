@@ -1739,7 +1739,7 @@ function renderWeeklyRestSection() {
     ? `${formatBeijingDateTime(model.computedAt)}（北京时间）`
     : (fact ? `${formatBeijingDateTime(fact.computedAt)}（北京时间）` : '当前周事实不可用');
   const detailText = model
-    ? `本机 ${formatSeconds(model.local?.weekRestSeconds || 0)} · 其他设备 ${formatSeconds(model.otherDevices?.weekRestSeconds || 0)} · 待确认 ${Number(model.pending?.segmentCount || 0)} 条 · ${model.completeness?.otherDevicesUnknown ? '其他设备数据未知或不完整' : '账目完整'}`
+    ? `本机 ${formatSeconds(model.local?.weekRestSeconds || 0)} · 云端其他设备已确认 ${formatSeconds(model.otherDevices?.weekRestSeconds || 0)} · 待确认 ${Number(model.pending?.segmentCount || 0)} 条`
     : '旧版只读云端配额事实';
 
   el.innerHTML = `

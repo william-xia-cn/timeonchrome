@@ -1,0 +1,242 @@
+{
+  "synthetic": true,
+  "query": {
+    "schemaVersion": 2,
+    "source": "application",
+    "scope": "all",
+    "fromDate": "2026-10-07",
+    "toDate": "2026-10-07"
+  },
+  "expected": {
+    "source": "application",
+    "childId": "child",
+    "fromDate": "2026-10-07",
+    "toDate": "2026-10-07"
+  },
+  "cases": [
+    {
+      "name": "old-direct",
+      "status": 200,
+      "body": {
+        "schemaVersion": 2,
+        "durationUnit": "seconds",
+        "source": "application",
+        "childId": "child",
+        "fromDate": "2026-10-07",
+        "toDate": "2026-10-07",
+        "readAtMs": 1791345600000,
+        "days": [
+          {
+            "date": "2026-10-07",
+            "bucketsSeconds": {
+              "study": 1000,
+              "composite": 0,
+              "rest": 0
+            },
+            "settledThroughMs": null,
+            "complete": true,
+            "reasonCodes": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "missing-proof",
+      "status": 200,
+      "body": {
+        "snapshot": {
+          "schemaVersion": 2,
+          "durationUnit": "seconds",
+          "source": "application",
+          "childId": "child",
+          "fromDate": "2026-10-07",
+          "toDate": "2026-10-07",
+          "readAtMs": 1791345600000,
+          "days": [
+            {
+              "date": "2026-10-07",
+              "bucketsSeconds": {
+                "study": 1000,
+                "composite": 0,
+                "rest": 0
+              },
+              "settledThroughMs": null,
+              "complete": true,
+              "reasonCodes": []
+            }
+          ]
+        },
+        "applicationSources": null
+      }
+    },
+    {
+      "name": "invalid-proof",
+      "status": 200,
+      "body": {
+        "snapshot": {
+          "schemaVersion": 2,
+          "durationUnit": "seconds",
+          "source": "application",
+          "childId": "child",
+          "fromDate": "2026-10-07",
+          "toDate": "2026-10-07",
+          "readAtMs": 1791345600000,
+          "days": [
+            {
+              "date": "2026-10-07",
+              "bucketsSeconds": {
+                "study": 1000,
+                "composite": 0,
+                "rest": 0
+              },
+              "settledThroughMs": null,
+              "complete": true,
+              "reasonCodes": []
+            }
+          ]
+        },
+        "applicationSources": null
+      }
+    },
+    {
+      "name": "expired-proof",
+      "status": 200,
+      "body": {
+        "snapshot": {
+          "schemaVersion": 2,
+          "durationUnit": "seconds",
+          "source": "application",
+          "childId": "child",
+          "fromDate": "2026-10-07",
+          "toDate": "2026-10-07",
+          "readAtMs": 1791345600000,
+          "days": [
+            {
+              "date": "2026-10-07",
+              "bucketsSeconds": {
+                "study": 1000,
+                "composite": 0,
+                "rest": 0
+              },
+              "settledThroughMs": null,
+              "complete": true,
+              "reasonCodes": []
+            }
+          ]
+        },
+        "applicationSources": null
+      }
+    },
+    {
+      "name": "trusted-sources",
+      "status": 200,
+      "body": {
+        "snapshot": {
+          "schemaVersion": 2,
+          "durationUnit": "seconds",
+          "source": "application",
+          "childId": "child",
+          "fromDate": "2026-10-07",
+          "toDate": "2026-10-07",
+          "readAtMs": 1791345600000,
+          "days": [
+            {
+              "date": "2026-10-07",
+              "bucketsSeconds": {
+                "study": 1000,
+                "composite": 0,
+                "rest": 0
+              },
+              "settledThroughMs": null,
+              "complete": true,
+              "reasonCodes": []
+            }
+          ]
+        },
+        "applicationSources": {
+          "local": {
+            "schemaVersion": 2,
+            "durationUnit": "seconds",
+            "source": "application",
+            "childId": "child",
+            "fromDate": "2026-10-07",
+            "toDate": "2026-10-07",
+            "readAtMs": 1791345600000,
+            "days": [
+              {
+                "date": "2026-10-07",
+                "bucketsSeconds": {
+                  "study": 600,
+                  "composite": 0,
+                  "rest": 0
+                },
+                "settledThroughMs": null,
+                "complete": true,
+                "reasonCodes": []
+              }
+            ]
+          },
+          "other": {
+            "schemaVersion": 2,
+            "durationUnit": "seconds",
+            "source": "application",
+            "childId": "child",
+            "fromDate": "2026-10-07",
+            "toDate": "2026-10-07",
+            "readAtMs": 1791345600000,
+            "days": [
+              {
+                "date": "2026-10-07",
+                "bucketsSeconds": {
+                  "study": 400,
+                  "composite": 0,
+                  "rest": 0
+                },
+                "settledThroughMs": null,
+                "complete": true,
+                "reasonCodes": []
+              }
+            ]
+          },
+          "otherState": "available"
+        }
+      }
+    },
+    {
+      "name": "foreign-sidecar",
+      "status": 200,
+      "body": {
+        "snapshot": {
+          "schemaVersion": 2,
+          "durationUnit": "seconds",
+          "source": "application",
+          "childId": "child",
+          "fromDate": "2026-10-07",
+          "toDate": "2026-10-07",
+          "readAtMs": 1791345600000,
+          "days": [
+            {
+              "date": "2026-10-07",
+              "bucketsSeconds": {
+                "study": 1000,
+                "composite": 0,
+                "rest": 0
+              },
+              "settledThroughMs": null,
+              "complete": true,
+              "reasonCodes": []
+            }
+          ]
+        },
+        "applicationSources": null
+      }
+    },
+    {
+      "name": "rebound",
+      "status": 409,
+      "body": {
+        "code": "SOURCE_STATISTICS_CONTEXT_CHANGED"
+      }
+    }
+  ]
+}

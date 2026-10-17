@@ -1,7 +1,9 @@
 import { readNativeHostDiagnosticState } from './native-host-client.js';
-import { readSharedWebDiagnosticState } from './shared-web-contribution-sync.js';
+import { readSharedWebDiagnosticState, readCurrentApplicationIdentityConfirmation } from './shared-web-contribution-sync.js';
 import { SHARED_WEB_IDENTITY_ERRORS } from '../core/shared-web-native.js';
 import { readSharedAccessPolicyContext, readSharedAccessPolicyV2Lkg } from './shared-access-policy-reader.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.56.0/source-statistics.js';
+import { PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY, isProfileAccountShadowScopeCurrent } from '../core/profile-account-shadow-v2.js';
 
 export const SHARED_SYNC_DIAGNOSTICS_MESSAGE = 'TIMEONCHROME_SHARED_SYNC_DIAGNOSTICS_READ';
 const integer = v => Number.isSafeInteger(v) && v >= 0 ? v : null;
@@ -29,10 +31,11 @@ const stages = ['local_context', 'local_projection', 'native_replace', 'cloud_ca
 const capabilities = ['application-usage-read', 'shared-quota-state-read', 'shared-web-contribution-sync-v1', 'shared-web-source-reusable-v2',
   'shared-access-policy-identity-read', 'shared-quota-execution-preparation-read-v1', 'shared-browser-activity-v1',
   'shared-reminder-lifecycle-v1', 'shared-reminder-continuity-v1', 'shared-web-local-lease-v1',
-  'source-statistics-read-v1', 'quota-buckets-read-v1', 'shared-forced-use-runtime-v2'];
+  'source-statistics-read-v1', 'quota-buckets-read-v1', 'quota-buckets-sources-v1', 'shared-forced-use-runtime-v2'];
 const sourceOrigins = ['native', 'cloud', 'last_known_good', 'local_plus_cloud_other', 'cloud_other',
   'fresh_with_last_known_good_days', 'unavailable'];
 const sourceErrors = new Set(['source_statistics_disabled', 'source_statistics_unavailable',
+  'source_statistics_invalid_response',
   'APPLICATION_STATISTICS_NOT_AVAILABLE', 'APPLICATION_STATISTICS_INCOMPLETE', 'APPLICATION_QUOTA_USAGE_INCOMPLETE',
   'WEB_STATISTICS_NOT_AVAILABLE', 'WEB_QUOTA_USAGE_INCOMPLETE', 'APPLICATION_LOCAL_MISSING', 'APPLICATION_OTHER_MISSING',
   'QUOTA_BUCKETS_PARTIAL', 'WEB_SOURCE_UNAVAILABLE', 'WEB_SOURCE_PARTIAL', 'APPLICATION_SOURCE_UNAVAILABLE', 'APPLICATION_SOURCE_PARTIAL',
@@ -54,8 +57,62 @@ const sourceErrors = new Set(['source_statistics_disabled', 'source_statistics_u
   'shared_access_unavailable', 'shared_access_invalid_policy', 'shared_access_cancelled']);
 const sourceError = value => value == null ? null : sourceErrors.has(value) ? value : 'unknown';
 const sourceOrigin = value => sourceOrigins.includes(value) ? value : 'unknown';
+const statisticsReasons = new Set(['WEB_LOCAL_DAY_INCOMPLETE', 'WEB_QUOTA_READ_INCOMPLETE', 'WEB_QUOTA_READ_UNAVAILABLE', 'LOCAL_STATISTICS_MISSING',
+  'LOCAL_STATISTICS_INCOMPLETE', 'SOURCE_UNAVAILABLE', 'APPLICATION_STATISTICS_NOT_AVAILABLE',
+  'APPLICATION_STATISTICS_INCOMPLETE', 'APPLICATION_QUOTA_USAGE_INCOMPLETE', 'WEB_STATISTICS_NOT_AVAILABLE',
+  'WEB_QUOTA_USAGE_INCOMPLETE', 'APPLICATION_LOCAL_MISSING', 'APPLICATION_OTHER_MISSING', 'QUOTA_BUCKETS_PARTIAL',
+  'WEB_SOURCE_UNAVAILABLE', 'WEB_SOURCE_PARTIAL', 'APPLICATION_SOURCE_UNAVAILABLE', 'APPLICATION_SOURCE_PARTIAL']);
+const statisticsReasonCodes = value => Array.isArray(value)
+  ? value.slice(0, 16).map(code => statisticsReasons.has(code) ? code : 'UNKNOWN_REASON') : null;
 
-export function projectSharedV2Observation(stored, context, policyResult, debuggerGranted, now, nativeState = {}) {
+function projectApplicationSources(value, context, fromDate, toDate, now) {
+  const unknown = { available: false, local: null, other: null, otherState: 'unknown' };
+  try {
+    sourceStatisticsContract.validateQuotaBucketsSources(value, { childId: context.childId, fromDate, toDate });
+    for (const snapshot of [value.local, value.other]) {
+      if (snapshot && (snapshot.readAtMs > now + 300000 || now - snapshot.readAtMs > 8 * 86400000)) return unknown;
+    }
+    const project = snapshot => snapshot && ({ fromDate, toDate, readAtMs: snapshot.readAtMs,
+      days: snapshot.days.map(day => ({ date: day.date, bucketsSeconds: { ...day.bucketsSeconds },
+        complete: day.complete, settledThroughMs: day.settledThroughMs, readAtMs: snapshot.readAtMs,
+        reasonCodes: statisticsReasonCodes(day.reasonCodes) })) });
+    return { available: true, local: project(value.local), other: project(value.other), otherState: value.otherState };
+  } catch (_) { return unknown; }
+}
+
+function projectWebSources(value, context, profileAccountCache, fromDate, toDate, now) {
+  const unknown = { available: false, local: null, other: null, otherState: 'unknown' };
+  try {
+    const dates = sourceStatisticsContract.sourceStatisticsDates(fromDate, toDate);
+    const project = source => {
+      if (source?.fromDate !== fromDate || source.toDate !== toDate || integer(source.readAtMs) === null
+        || source.readAtMs > now + 300000 || now - source.readAtMs > 8 * 86400000
+        || !Array.isArray(source.days) || source.days.length !== dates.length) throw Error('invalid source explanation');
+      return { fromDate, toDate, readAtMs: source.readAtMs, days: source.days.map((day, index) => {
+        if (day?.date !== dates[index]) throw Error('invalid source date');
+        return { date: day.date, bucketsSeconds: day.bucketsSeconds ? Object.fromEntries(
+          ['study', 'composite', 'rest'].map(key => [key, integer(day.bucketsSeconds[key])])) : null,
+        complete: boolean(day.complete), settledThroughMs: null, readAtMs: source.readAtMs,
+        reasonCodes: statisticsReasonCodes(day.reasonCodes) };
+      }) };
+    };
+    const safeProject = source => { try { return project(source); } catch (_) { return null; } };
+    const weekEnd = new Date(Date.parse(fromDate + 'T00:00:00Z') + 6 * 86400000).toISOString().slice(0, 10);
+    const scoped = isProfileAccountShadowScopeCurrent(profileAccountCache, context, fromDate, weekEnd, now, { allowExpired: true })
+      && value?.snapshotId === profileAccountCache.current.snapshotId;
+    const local = safeProject(value?.local), other = scoped ? safeProject(value?.other) : null;
+    const inventory = scoped ? profileAccountCache.current.completeness : null;
+    const inventoryLists = ['expectedDevices', 'missingDevices', 'incompatibleDevices', 'staleDevices', 'incompleteDevices'];
+    const noOther = inventory?.inventoryAvailable === true && inventoryLists.every(key => Array.isArray(inventory[key])
+      && inventory[key].every(id => id === context.deviceId))
+      && profileAccountCache.current.deviceAccounts.every(row => row?.deviceId === context.deviceId);
+    const otherState = scoped && value?.otherState === 'none' && noOther ? 'none'
+      : scoped && value?.otherState === 'available' && other ? 'available' : 'unknown';
+    return { available: !!(local || other), local, other: otherState === 'none' ? null : other, otherState };
+  } catch (_) { return unknown; }
+}
+
+export function projectSharedV2Observation(stored, context, policyResult, debuggerGranted, now, nativeState = {}, identityConfirmation = null) {
   const today = new Date(now + 28800000).toISOString().slice(0, 10);
   const midnight = Date.parse(today + 'T00:00:00Z');
   const monday = new Date(midnight - (new Date(midnight).getUTCDay() + 6) % 7 * 86400000).toISOString().slice(0, 10);
@@ -91,13 +148,7 @@ export function projectSharedV2Observation(stored, context, policyResult, debugg
           origin: sourceOrigin(origin?.origin || cache[name + 'Origin']), cloudOrigin: sourceOrigin(origin?.cloudOrigin),
           categoriesSeconds: Object.fromEntries(['study', 'composite', 'rest', 'restrictedEntertainment', 'other']
             .filter(key => Object.hasOwn(day.categoriesSeconds || {}, key)).map(key => [key, integer(day.categoriesSeconds[key])])),
-          reasonCodes: Array.isArray(day.reasonCodes) ? day.reasonCodes.slice(0, 16).map(code =>
-            ['WEB_LOCAL_DAY_INCOMPLETE', 'WEB_QUOTA_READ_INCOMPLETE', 'WEB_QUOTA_READ_UNAVAILABLE', 'LOCAL_STATISTICS_MISSING',
-              'LOCAL_STATISTICS_INCOMPLETE', 'SOURCE_UNAVAILABLE', 'APPLICATION_STATISTICS_NOT_AVAILABLE',
-              'APPLICATION_STATISTICS_INCOMPLETE', 'APPLICATION_QUOTA_USAGE_INCOMPLETE', 'WEB_STATISTICS_NOT_AVAILABLE',
-              'WEB_QUOTA_USAGE_INCOMPLETE', 'APPLICATION_LOCAL_MISSING', 'APPLICATION_OTHER_MISSING', 'QUOTA_BUCKETS_PARTIAL',
-              'WEB_SOURCE_UNAVAILABLE', 'WEB_SOURCE_PARTIAL', 'APPLICATION_SOURCE_UNAVAILABLE', 'APPLICATION_SOURCE_PARTIAL']
-              .includes(code) ? code : 'UNKNOWN_REASON') : null };
+          reasonCodes: statisticsReasonCodes(day.reasonCodes) };
       }) : [] };
   }
   const record = stored.shared_access_policy_lkg_v2, policy = policyResult?.ok ? policyResult.policy : null;
@@ -116,7 +167,10 @@ export function projectSharedV2Observation(stored, context, policyResult, debugg
     && ['schemaVersion', 'revision', 'effectiveAtMs', 'stage'].every(key => record.policy?.[key] === policy[key])
     && /^[a-f0-9]{64}$/.test(record.policyHash || '');
   return { debuggerGranted: boolean(debuggerGranted),
-    scopeCurrent, nativePeerSameChild: null,
+    scopeCurrent, nativePeerSameChild: identityConfirmation?.confirmed === true && nativeState.connected === true
+      && integer(nativeState.connectionGeneration) !== null
+      && identityConfirmation.connectionGeneration === nativeState.connectionGeneration
+      && integer(identityConfirmation.expiresAtMs) !== null && identityConfirmation.expiresAtMs > now ? true : null,
     nativeAttempt: { available: attemptScoped, current: attemptScoped ? sameConnection : null,
       readAtMs: attemptScoped ? attemptReport.readAtMs : null,
       sent: attemptScoped ? boolean(attempt.sent) : null,
@@ -126,15 +180,35 @@ export function projectSharedV2Observation(stored, context, policyResult, debugg
     policy: policyCurrent ? { schemaVersion: 2, revision: policy.revision, effectiveAtMs: integer(policy.effectiveAtMs),
       stage: ['legacy', 'shadow', 'shared'].includes(policy.stage) ? policy.stage : null,
       policyHash: record.policyHash, receivedAtMs: integer(record.receivedAtMs) } : null,
+    webSources: scopeCurrent ? projectWebSources(cache.webSources, context, stored[PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY], monday, today, now)
+      : { available: false, local: null, other: null, otherState: 'unknown' },
+    applicationSources: scopeCurrent && sources.application.available
+      && ['native', 'last_known_good'].includes(cache.applicationOrigin)
+      ? projectApplicationSources(cache.applicationSources, context, monday, today, now)
+      : { available: false, local: null, other: null, otherState: 'unknown' },
     sources };
 }
 
 export async function readSharedV2Observation(stored, permissions, {
-  readContext = readSharedAccessPolicyContext, readPolicy = readSharedAccessPolicyV2Lkg, now = Date.now, nativeState = {} } = {}) {
+  readContext = readSharedAccessPolicyContext, readPolicy = readSharedAccessPolicyV2Lkg,
+  readConfirmation = readCurrentApplicationIdentityConfirmation, readNative = readNativeHostDiagnosticState,
+  now = Date.now, nativeState = {} } = {}) {
   const [context, policy, granted] = await Promise.all([
     Promise.resolve().then(readContext).catch(() => null), Promise.resolve().then(readPolicy).catch(() => null),
     permissions?.contains ? Promise.resolve().then(() => permissions.contains({ permissions: ['debugger'] })).catch(() => null) : null]);
-  return projectSharedV2Observation(stored, context, policy, granted, now(), nativeState);
+  let confirmation = null, currentContext = context;
+  try { confirmation = await readConfirmation(context); } catch (_) { /* Identity read failure does not invalidate local statistics. */ }
+  try {
+    const latestContext = await readContext();
+    if (!context || !latestContext || !['apiBase', 'deviceId', 'childId', 'deviceToken', 'scopeHash']
+      .every(key => context[key] === latestContext[key])) currentContext = null;
+  } catch (_) { currentContext = null; }
+  try {
+    const latestNative = readNative();
+    if (!currentContext || latestNative?.connected !== true
+      || latestNative.connectionGeneration !== nativeState.connectionGeneration) confirmation = null;
+  } catch (_) { confirmation = null; }
+  return projectSharedV2Observation(stored, currentContext, policy, granted, now(), nativeState, confirmation);
 }
 function projectedCoverage(value) {
   const bucketNames = ['study', 'composite', 'rest', 'other', 'unknown'];
@@ -252,7 +326,7 @@ export function registerSharedSyncDiagnosticsReader({ runtime = chrome.runtime, 
       try {
       const stored = await storage.get(['shared_web_contribution_queue_v1', 'shared_access_policy_lkg_v1',
       'shared_web_sync_diagnostics_v1', 'local_guardian_status_v1', 'shared_access_policy_lkg_v2',
-      'source_statistics_shadow_cache_v1', 'source_statistics_shadow_v1']);
+      'source_statistics_shadow_cache_v1', 'source_statistics_shadow_v1', PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY]);
       const q = stored.shared_web_contribution_queue_v1, p = stored.shared_access_policy_lkg_v1;
       failure = 'diagnostics_native_read_failed';
       const nativeState = native();

@@ -947,7 +947,7 @@ async function init(snapshotPromise = getPopupLocalSnapshotSafe()) {
         color: 'var(--accent)',
         locked: qs.onlineLocked,
         sub: config?.timeQuota?.accountingVersion === 2
-          ? (snapshot?.quotaReadModel?.completeness?.otherDevicesUnknown ? '前台网页 · 其他设备数据未知' : '前台网页 · 全部设备')
+          ? (snapshot?.quotaReadModel?.completeness?.cloudSnapshotAvailable ? '前台网页 · 本机＋云端已确认' : '前台网页 · 本机用量')
           : '前台网页和 PiP'
       })
     ];

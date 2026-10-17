@@ -1,9 +1,22 @@
-// Verified, bounded client cache for Package G. No product path consumes this key yet.
+// Verified device-account cache; consumers still enforce identity and period.
 
 import { runStorageMutation } from '../infra/storage-budget.js';
 import { hashDeviceAccountValue } from './device-account-v2.js';
 
 export const PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY = 'profile_account_v2_shadow_cache';
+
+export function isProfileAccountShadowScopeCurrent(cache, context, weekStart, weekEnd, now = Date.now(), { allowExpired = false } = {}) {
+  const snapshot = cache?.current;
+  return !!context && ['apiBase', 'deviceId', 'childId'].every(key => typeof context[key] === 'string'
+    && context[key].length > 0 && cache?.scope?.[key] === context[key])
+    && snapshot?.schemaVersion === 2 && /^[a-f0-9]{64}$/.test(snapshot.snapshotHash || '')
+    && /^[a-f0-9]{64}$/.test(snapshot.totalHash || '')
+    && Number.isSafeInteger(snapshot.verifiedAt) && snapshot.verifiedAt >= 0 && snapshot.verifiedAt <= now
+    && now - snapshot.verifiedAt <= 8 * 86400000 && Number.isSafeInteger(snapshot.expiresAt)
+    && (allowExpired || snapshot.expiresAt > now)
+    && snapshot.period?.weekStart === weekStart && snapshot.period?.weekEnd === weekEnd
+    && typeof snapshot.snapshotId === 'string' && snapshot.snapshotId.length > 0 && Array.isArray(snapshot.deviceAccounts);
+}
 
 function sumBuckets(entries, keyName) {
   const map = new Map();
@@ -111,12 +124,13 @@ export async function validateProfileAccountSnapshotPages(pages) {
   };
 }
 
-export async function storeProfileAccountShadowSnapshot(snapshot) {
+export async function storeProfileAccountShadowSnapshot(snapshot, { scope = null, isCurrentScope = null } = {}) {
   return runStorageMutation(async (storage) => {
     const data = await storage.get(PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY);
     const previous = data[PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY]?.current || null;
     const cache = {
       schemaVersion: 1,
+      ...(scope ? { scope: { apiBase: scope.apiBase, deviceId: scope.deviceId, childId: scope.childId } } : {}),
       current: snapshot,
       previous: previous && previous.snapshotId !== snapshot.snapshotId ? {
         snapshotId: previous.snapshotId,
@@ -129,6 +143,9 @@ export async function storeProfileAccountShadowSnapshot(snapshot) {
         replacedAt: Date.now(),
       } : null,
     };
+    if (scope && (typeof isCurrentScope !== 'function' || !await isCurrentScope(storage))) {
+      throw new Error('PROFILE_ACCOUNT_SNAPSHOT_SCOPE_CHANGED');
+    }
     await storage.set({ [PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY]: cache }, {
       priority: 'sync', source: 'profile_account_v2_shadow_cache',
     });

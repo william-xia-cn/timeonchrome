@@ -9,7 +9,8 @@ const capabilityNames = { 'application-usage-read': '应用用量读取', 'share
   'shared-quota-execution-preparation-read-v1': '执行准备读取', 'shared-browser-activity-v1': '浏览器活动',
   'shared-reminder-lifecycle-v1': '提醒生命周期', 'shared-reminder-continuity-v1': '提醒连续性',
   'shared-web-local-lease-v1': '本地来源租约', 'shared-web-source-reusable-v2': '可复用孩子身份核验',
-  'source-statistics-read-v1': '分域统计读取', 'shared-forced-use-runtime-v2': '统一强行使用运行时' };
+  'source-statistics-read-v1': '分域统计读取', 'quota-buckets-sources-v1': '本机与其他设备来源读取',
+  'shared-forced-use-runtime-v2': '统一强行使用运行时' };
 
 const failures = {
   diagnostics_sender_rejected: '管理页身份校验未通过',
@@ -85,7 +86,30 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
       WEB_SOURCE_UNAVAILABLE: '缺少网页来源', WEB_SOURCE_PARTIAL: '网页来源不完整',
       APPLICATION_SOURCE_UNAVAILABLE: '缺少应用来源', APPLICATION_SOURCE_PARTIAL: '应用来源不完整',
       SOURCE_UNAVAILABLE: '来源不可用', UNKNOWN_REASON: '原因未知' };
-    for (const [key, label] of [['web', '网页'], ['application', '应用']]) {
+    const applicationSources = v2.applicationSources;
+    row('V2 应用来源范围', applicationSources?.available ? '本机与其他设备分别显示；合计不重复相加' : '应用合计，无法区分本机');
+    const sourceDay = (label, day) => {
+      const usage = day.bucketsSeconds
+        ? `学习${day.bucketsSeconds.study ?? '未知'}秒／复合${day.bucketsSeconds.composite ?? '未知'}秒／休息${day.bucketsSeconds.rest ?? '未知'}秒`
+        : day.totalSeconds == null ? '未知用量' : `${day.totalSeconds}秒`;
+      row(`${label} ${day.date}`, `${usage} · ${day.complete === true ? '完整' : day.complete === false ? '不完整' : '完整性未知'} · 结算截至 ${day.settledThroughMs == null ? '未提供' : time(day.settledThroughMs)} · 读取 ${time(day.readAtMs)}${day.reasonCodes?.length ? ` · ${day.reasonCodes.map(code => reasonNames[code] || '原因未知').join('、')}` : ''}`);
+    };
+    const webSources = v2.webSources;
+    row('V2 网页来源范围', webSources?.available ? '本浏览器与其他设备分别显示；合计不重复相加' : '网页合计，无法区分本浏览器');
+    if (webSources?.available) {
+      row('V2 本浏览器网页', webSources.local ? '本浏览器统计；完整性独立于其他设备' : '本浏览器用量暂不可读');
+      for (const day of webSources.local?.days || []) sourceDay('本浏览器网页', day);
+      row('V2 网页其他设备', { none: '无其他设备', available: '其他设备已知用量',
+        unknown: '其他设备来源范围未确认；已有读数仅为已知部分，不影响本浏览器显示' }[webSources.otherState] || '其他设备用量未知');
+      for (const day of webSources.other?.days || []) sourceDay('网页其他设备（已知部分）', day);
+    }
+    if (applicationSources?.available) {
+      row('V2 应用本机', applicationSources.local ? '本机统计；完整性独立于其他设备' : '本机用量暂不可读');
+      for (const day of applicationSources.local?.days || []) sourceDay('应用本机', day);
+      row('V2 应用其他设备', { none: '无其他设备', available: '其他设备已知用量', unknown: '其他设备用量未知；不影响本机显示' }[applicationSources.otherState] || '其他设备用量未知');
+      for (const day of applicationSources.other?.days || []) sourceDay('应用其他设备', day);
+    }
+    for (const [key, label] of [['web', '网页合计'], ['application', '应用合计']]) {
       const source = v2.sources?.[key];
       row(`V2 ${label}来源`, `${originNames[source?.origin] || '未知'} · ${source?.available ? '有缓存记录' : '暂不可读'}`);
       row(`V2 ${label}范围与读取`, source?.available ? `${source.fromDate} 至 ${source.toDate} · ${time(source.readAtMs)}` : '未知');
@@ -94,7 +118,7 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
         const usage = day.bucketsSeconds
           ? `学习${day.bucketsSeconds.study ?? '未知'}秒／复合${day.bucketsSeconds.composite ?? '未知'}秒／休息${day.bucketsSeconds.rest ?? '未知'}秒`
           : day.totalSeconds == null ? '未知用量' : `${day.totalSeconds}秒`;
-        row(`${label} ${day.date}`, `${usage} · ${day.complete === true ? '完整' : day.complete === false ? '不完整' : '完整性未知'} · ${originNames[day.origin] || '未知来源'} · 结算截至 ${time(day.settledThroughMs)} · 读取 ${time(day.readAtMs)}${day.reasonCodes?.length ? ` · ${day.reasonCodes.map(code => reasonNames[code] || '原因未知').join('、')}` : ''}`);
+        row(`${label} ${day.date}`, `${usage} · ${day.complete === true ? '完整' : day.complete === false ? '不完整' : '完整性未知'} · ${originNames[day.origin] || '未知来源'} · 结算截至 ${day.settledThroughMs == null ? '未提供' : time(day.settledThroughMs)} · 读取 ${time(day.readAtMs)}${day.reasonCodes?.length ? ` · ${day.reasonCodes.map(code => reasonNames[code] || '原因未知').join('、')}` : ''}`);
       }
     }
     row('V2 周合计', '缓存未保存独立周合计；仅列已有逐日结果，不在诊断中重算');

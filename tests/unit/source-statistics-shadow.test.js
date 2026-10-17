@@ -5,7 +5,7 @@ const load = source => import('data:text/javascript;base64,' + Buffer.from(sourc
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 async function contract() {
   const file = process.env.TIMEONCHROME_SOURCE_STATISTICS_CONTRACT_PATH;
-  if (!file) return load(read('extension/core/shared-contracts/1.55.0/source-statistics.js'));
+  if (!file) return load(read('extension/core/shared-contracts/1.57.0/source-statistics.js'));
   const source = fs.readFileSync(file, 'utf8');
   return load(file.endsWith('.ts') ? require('typescript').transpileModule(source, {
     compilerOptions: { module: require('typescript').ModuleKind.ESNext, target: require('typescript').ScriptTarget.ES2022 },
@@ -13,15 +13,17 @@ async function contract() {
 }
 async function run() {
   globalThis.__quotaBucketsContract = await contract();
+  globalThis.__profileShadow = await load(read('extension/core/profile-account-shadow-v2.js').replace(/^import .*;\r?\n/gm, ''));
   assert.equal(typeof globalThis.__quotaBucketsContract.validateQuotaBucketsSnapshot, 'function', 'requires the approved V2 contract');
   const mod = await load('const sourceStatisticsContract=globalThis.__quotaBucketsContract;\n'
+    + 'const {PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY,isProfileAccountShadowScopeCurrent}=globalThis.__profileShadow;\n'
     + read('extension/infra/source-statistics-shadow.js').replace(/^import .*;\r?\n/gm, ''));
   const cloudFunction = read('extension/infra/cloud-sync.js').match(/export async function readCloudSourceStatistics[\s\S]*?(?=export async function readCloudSharedWebWatermark)/)[0];
   const cloudRequests = [];
   globalThis.__quotaCloudRequests = cloudRequests;
   const cloudClient = await load('const sourceStatisticsContract=globalThis.__quotaBucketsContract;'
     + 'const validateSourceStatisticsQuery=sourceStatisticsContract.validateSourceStatisticsQuery;'
-    + 'const readCapturedSharedDeviceJson=async(_options,route,body)=>{globalThis.__quotaCloudRequests.push({route,body});return {ok:true,value:null};};\n'
+    + 'const readCapturedSharedDeviceJson=async(_options,route,body)=>{globalThis.__quotaCloudRequests.push({route,body});return {ok:true,value:globalThis.__quotaCloudValue??null};};\n'
     + cloudFunction);
   const query = { schemaVersion: 2, source: 'application', fromDate: '2026-10-12', toDate: '2026-10-12', scope: 'all' };
   assert.equal((await cloudClient.readCloudSourceStatistics({}, query)).ok, true);
@@ -29,24 +31,113 @@ async function run() {
   assert.equal((await cloudClient.readCloudSourceStatistics({}, { ...query, childId: 'forbidden' })).ok, false);
   const { schemaVersion, ...oldQuery } = query;
   assert.equal((await cloudClient.readCloudSourceStatistics({}, oldQuery)).ok, true, 'legacy query remains supported');
+  const transportSnapshot = { schemaVersion: 2, durationUnit: 'seconds', source: 'application', childId: 'synthetic-child',
+    fromDate: query.fromDate, toDate: query.toDate, readAtMs: 1, days: [{ date: query.fromDate,
+      bucketsSeconds: { study: 0, composite: 0, rest: 900 }, settledThroughMs: null, complete: true, reasonCodes: [] }] };
+  const transportOptions = { childId: 'synthetic-child' };
+  globalThis.__quotaCloudValue = { snapshot: transportSnapshot, applicationSources: { synthetic: 'invalid-sidecar' } };
+  assert.deepEqual(await cloudClient.readCloudSourceStatistics(transportOptions, { ...query, includeSources: true }), {
+    ok: true, snapshot: transportSnapshot, applicationSources: null,
+  }, 'fixed helper rejects bad sidecar independently of the valid combined result');
+  globalThis.__quotaCloudValue = transportSnapshot;
+  assert.equal((await cloudClient.readCloudSourceStatistics(transportOptions, { ...query, includeSources: true })).snapshot.days[0].bucketsSeconds.rest, 900,
+    'direct old response remains compatible with opt-in new caller');
+  globalThis.__quotaCloudValue = { ...transportSnapshot, childId: 'different-child' };
+  assert.equal((await cloudClient.readCloudSourceStatistics(transportOptions, { ...query, includeSources: true })).ok, false);
+  globalThis.__quotaCloudValue = { ...transportSnapshot, toDate: '2026-10-13' };
+  assert.equal((await cloudClient.readCloudSourceStatistics(transportOptions, { ...query, includeSources: true })).ok, false);
+  assert.equal((await cloudClient.readCloudSourceStatistics({}, { ...query, includeSources: true, source: 'web' })).ok, false);
+  assert.equal((await cloudClient.readCloudSourceStatistics({}, { ...query, sourceProof: {} })).ok, false);
+  globalThis.__quotaCloudValue = null;
   const child = 'synthetic-child', day = '2026-10-12';
   let time = Date.parse(day + 'T10:00:00+08:00'), scope = 'synthetic-scope', currentChild = child;
+  const splitModel = { ok: true, date: day, weekStart: day, weekEnd: '2026-10-18',
+    local: { complete: false, today: { complete: true, byQuotaBucket: { study: 7, composite: 11, rest: 13 } } },
+    otherDevices: { deviceIds: ['synthetic-other'], snapshotId: 'synthetic-snapshot', asOf: time,
+      today: { byQuotaBucket: { study: 0, composite: 17, rest: 0 } } },
+    completeness: { complete: false, otherDevicesUnknown: true } };
+  const scopeContext = { apiBase: 'https://example.invalid', deviceId: 'synthetic-device', childId: child };
+  const inventoryCache = { scope: { ...scopeContext }, current: { schemaVersion: 2, snapshotId: 'synthetic-snapshot',
+    snapshotHash: 'a'.repeat(64), totalHash: 'b'.repeat(64), verifiedAt: time, expiresAt: time + 1800000,
+    period: { weekStart: day, weekEnd: '2026-10-18' },
+    deviceAccounts: [{ deviceId: 'synthetic-other', date: day, complete: true, quotaProjection: {} }],
+    completeness: { inventoryAvailable: true, expectedDevices: ['synthetic-device', 'synthetic-other'],
+      missingDevices: [], incompatibleDevices: [], staleDevices: [], incompleteDevices: [] } } };
+  const split = (model, cache = inventoryCache) => mod.buildWebSourceBreakdown({ fromDate: day, toDate: day,
+    quotaModels: [model], context: scopeContext, profileAccountCache: cache, readAtMs: time });
+  const explainedWeb = split(splitModel);
+  assert.equal(explainedWeb.local.days[0].complete, true, 'today uses its own completeness, not the whole week or combined flag');
+  assert.equal(explainedWeb.otherState, 'available');
+  assert.deepEqual(explainedWeb.other.days[0].bucketsSeconds, { study: 0, composite: 17, rest: 0 });
+  assert.equal(explainedWeb.local.days[0].settledThroughMs, null);
+  assert.equal(explainedWeb.other.days[0].settledThroughMs, null, 'asOf/readAt are never settlement cutoffs');
+  const empty = structuredClone(splitModel);
+  empty.local.today = { complete: true, byQuotaBucket: {} };
+  empty.otherDevices.today.byQuotaBucket = { study: 0, composite: 0, rest: 0 };
+  assert.deepEqual(split(empty).local.days[0].bucketsSeconds, { study: 0, composite: 0, rest: 0 });
+  assert.deepEqual(split(empty).other.days[0].bucketsSeconds, { study: 0, composite: 0, rest: 0 });
+  delete empty.local.today.complete;
+  assert.equal(split(empty).local.days[0].complete, null);
+  assert.deepEqual(split(empty).local.days[0].bucketsSeconds, { study: null, composite: null, rest: null });
+  empty.otherDevices.deviceIds = [];
+  empty.completeness = { deviceInventoryAvailable: true, expectedDevices: [], otherDevicesUnknown: false };
+  const legacy = structuredClone(inventoryCache); delete legacy.scope;
+  assert.equal(split(empty, legacy).otherState, 'unknown', 'empty unscoped inventory does not prove current-child absence');
+  assert.equal(split(empty, legacy).other.days[0].bucketsSeconds, null);
+  const none = structuredClone(inventoryCache);
+  none.current.deviceAccounts = [];
+  none.current.completeness.expectedDevices = ['synthetic-device'];
+  none.current.completeness.incompleteDevices = ['synthetic-device'];
+  const localPartial = structuredClone(empty); localPartial.local.today.complete = false;
+  assert.equal(split(localPartial, none).otherState, 'none', 'local partial does not contaminate authoritative no-other inventory');
+  assert.equal(split({ ...localPartial, otherDevices: { ...localPartial.otherDevices, snapshotId: 'older-snapshot' } }, none).otherState,
+    'unknown', 'older daily model plus newly empty inventory cannot prove absence');
+  assert.equal(split(localPartial, none).local.days[0].complete, false);
+  for (const bad of ['missing_inventory', 'wrong_child', 'expired', 'wrong_period', 'missing_expected', 'unreported', 'missing_projection']) {
+    const cache = structuredClone(none);
+    if (bad === 'missing_inventory') delete cache.current.completeness.inventoryAvailable;
+    if (bad === 'wrong_child') cache.scope.childId = 'another-child';
+    if (bad === 'expired') cache.current.expiresAt = time;
+    if (bad === 'wrong_period') cache.current.period.weekStart = '2026-10-05';
+    if (bad === 'missing_expected') delete cache.current.completeness.expectedDevices;
+    if (bad === 'unreported' || bad === 'missing_projection') cache.current.completeness.expectedDevices.push('not-uploaded');
+    if (bad === 'missing_projection') cache.current.deviceAccounts.push({ deviceId: 'not-uploaded', date: day });
+    const expectedState = ['wrong_child', 'wrong_period'].includes(bad) ? 'unknown'
+      : bad === 'expired' ? 'none' : 'available';
+    assert.equal(split(empty, cache).otherState, expectedState, bad);
+    assert.equal(split(empty, cache).local.days[0].complete, null, 'other failure cannot alter local state');
+  }
+  const retained = structuredClone(inventoryCache);
+  retained.current.expiresAt = time - 1;
+  retained.current.completeness.missingDevices = ['not-uploaded'];
+  delete retained.current.completeness.inventoryAvailable;
+  const retainedSplit = split(splitModel, retained);
+  assert.deepEqual(retainedSplit.other.days[0].bucketsSeconds, { study: 0, composite: 17, rest: 0 },
+    'expired transfer and missing inventory cannot erase previously confirmed contributions');
+  assert.equal(retainedSplit.local.days[0].complete, true);
+  empty.local.today = { complete: false, byQuotaBucket: { rest: 19 } };
+  assert.deepEqual(split(empty).local.days[0].bucketsSeconds, { study: null, composite: null, rest: 19 });
+  assert.equal(split({ ...splitModel, date: '2026-10-13' }).local.days[0].bucketsSeconds, null);
   const snapshot = (rest, complete = true) => ({ schemaVersion: 2, durationUnit: 'seconds', source: 'application',
     childId: currentChild, fromDate: day, toDate: day, readAtMs: time, days: [{ date: day,
       bucketsSeconds: { study: 0, composite: 0, rest }, settledThroughMs: null, complete,
       reasonCodes: complete ? [] : ['SOURCE_PARTIAL'] }] });
   let webRest = 600, webReadable = true, bridge = snapshot(600), cloud = snapshot(900);
+  let bridgeSources = null, cloudSources = null, sourceProof = null;
   let bridgeError = null, cloudError = null, preparationError = null, cloudReads = 0, exchanges = 0, preparations = 0;
   let reboundDuringExchange = false;
   const stored = {}, order = [];
-  const context = async () => ({ apiBase: 'https://example.invalid', deviceToken: 'synthetic-secret',
+  const context = async () => ({ apiBase: 'https://example.invalid', deviceId: 'synthetic-device', deviceToken: 'synthetic-secret',
     childId: currentChild, scopeHash: scope });
   const readModel = async ({ date }) => {
     order.push('web');
     return webReadable ? { ok: true, date, usage: { studySeconds: 5, compositeSeconds: 7, restSeconds: webRest },
-      local: { today: { onlineSeconds: 1, byQuotaBucket: { rest: 1 } } }, completeness: { complete: true } } : { ok: false };
+      weekStart: date, weekEnd: '2026-10-18',
+      local: { complete: false, today: { complete: true, onlineSeconds: 1, byQuotaBucket: { rest: 1 } } },
+      otherDevices: { deviceIds: [], snapshotId: null, today: { byQuotaBucket: {} } }, completeness: { complete: true } } : { ok: false };
   };
   const dependencies = { isEnabled: () => true, now: () => time, readContext: context, readModel,
+    readSourceProof: async () => sourceProof,
     storage: { get: async key => ({ [key]: stored[key] }) },
     write: async values => { Object.assign(stored, structuredClone(values)); return { ok: true }; },
     nativeContext: async options => {
@@ -64,13 +155,14 @@ async function run() {
       Object.assign(request.attempt, { sent: true, responseReceived: true, accepted: !bridgeError && !!bridge });
       if (reboundDuringExchange) { currentChild = 'different-child'; scope = 'different-scope'; }
       return bridgeError ? { ok: false, errorCode: bridgeError }
-        : { ok: true, snapshot: structuredClone(bridge), connectionGeneration: 7 };
+        : { ok: true, snapshot: structuredClone(bridge), applicationSources: structuredClone(bridgeSources), connectionGeneration: 7 };
     },
     cloudRead: async (_credentials, query) => {
       cloudReads++; order.push('cloud');
-      assert.deepEqual(query, { schemaVersion: 2, source: 'application', fromDate: day, toDate: day, scope: 'all' });
+      assert.deepEqual(query, { schemaVersion: 2, source: 'application', fromDate: day, toDate: day, scope: 'all',
+        includeSources: true, ...(sourceProof ? { sourceProof } : {}) });
       if (cloudError === 'throw') throw Error('private-response');
-      return cloudError ? { ok: false, errorCode: cloudError } : { ok: true, snapshot: structuredClone(cloud) };
+      return cloudError ? { ok: false, errorCode: cloudError } : { ok: true, snapshot: structuredClone(cloud), applicationSources: structuredClone(cloudSources) };
     } };
   const reader = mod.createSourceStatisticsShadow(dependencies);
   const own = await mod.buildWebQuotaBucketsSnapshot({ childId: child, fromDate: day, toDate: day,
@@ -82,12 +174,53 @@ async function run() {
   assert.equal(first.ok, true);
   assert.deepEqual(order, ['web', 'prepare', 'bridge']);
   assert.equal(cloudReads, 0, 'a valid bridge response excludes cloud fallback');
+  assert.equal(stored.source_statistics_shadow_cache_v1.webSources.local.days[0].bucketsSeconds.rest, 1);
+  assert.equal(stored.source_statistics_shadow_cache_v1.webSources.local.days[0].complete, true);
+  assert.equal(stored.source_statistics_shadow_cache_v1.webSources.otherState, 'unknown');
   const readFirst = await reader.readSources(day);
   assert.equal(readFirst.sourceStatistics.web.days[0].bucketsSeconds.rest, 600);
   assert.equal(readFirst.sourceStatistics.application.days[0].bucketsSeconds.rest, 600);
   assert.deepEqual(readFirst.missingSources, []);
   assert.equal(exchanges, 1, 'cache reads never open the bridge');
   assert.equal(preparations, 1, 'cache reads never prepare Native');
+  bridgeSources = { local: snapshot(163), other: null, otherState: 'unknown' };
+  bridge = snapshot(600, false);
+  await reader.refresh({ force: true });
+  assert.equal(stored.source_statistics_shadow_cache_v1.applicationSources.local.days[0].complete, true);
+  assert.equal(stored.source_statistics_shadow_cache_v1.application.days[0].complete, false);
+  assert.equal((await reader.readSources(day)).sourceStatistics.application.days[0].bucketsSeconds.rest, 600,
+    'execution still consumes the original combined snapshot');
+  bridgeError = 'source_statistics_native_unavailable'; cloudError = 'throw';
+  await reader.refresh({ force: true });
+  assert.equal(stored.source_statistics_shadow_cache_v1.applicationSources.local.days[0].bucketsSeconds.rest, 163,
+    'same-scope last-known-good explanation remains attached to its snapshot');
+  bridgeError = null; cloudError = null;
+  bridgeSources = { local: { ...snapshot(163), childId: 'different-child' }, other: null, otherState: 'none' };
+  await reader.refresh({ force: true });
+  assert.equal(stored.source_statistics_shadow_cache_v1.applicationSources, null, 'wrong-child sources are not cached');
+  bridgeSources = { local: snapshot(163), other: null, otherState: 'none' };
+  await reader.refresh({ force: true });
+  bridgeError = 'source_statistics_native_unavailable';
+  await reader.refresh({ force: true });
+  assert.equal(stored.source_statistics_shadow_cache_v1.applicationSources, null, 'cloud all never inherits Native local explanation');
+  sourceProof = { signature: 'synthetic-proof-not-persisted' };
+  cloudSources = { local: snapshot(200), other: snapshot(700), otherState: 'available' };
+  await reader.refresh({ force: true });
+  assert.equal(stored.source_statistics_shadow_cache_v1.applicationSources.other.days[0].bucketsSeconds.rest, 700);
+  assert.equal((await reader.readSources(day)).sourceStatistics.application.days[0].bucketsSeconds.rest, 900,
+    'cloud combined is selected once, never added to Native or its own sidecar');
+  assert.equal(JSON.stringify(stored).includes('synthetic-proof-not-persisted'), false, 'proof never enters source caches or reports');
+  cloudError = 'shared_access_unavailable';
+  await reader.refresh({ force: true });
+  assert.equal(stored.source_statistics_shadow_cache_v1.applicationSources.other.days[0].bucketsSeconds.rest, 700,
+    'cloud sources stay paired with same-scope last confirmed combined cache');
+  cloudError = null;
+  cloudSources = { local: { ...snapshot(200), childId: 'different-child' }, other: snapshot(700), otherState: 'available' };
+  await reader.refresh({ force: true });
+  assert.equal(stored.source_statistics_shadow_cache_v1.applicationSources, null, 'invalid sidecar is discarded independently');
+  assert.equal((await reader.readSources(day)).sourceStatistics.application.days[0].bucketsSeconds.rest, 900);
+  cloudSources = null; sourceProof = null;
+  bridgeError = null; bridgeSources = null; bridge = snapshot(600);
   await reader.refresh({ force: true });
   assert.equal((await reader.readSources(day)).sourceStatistics.application.days[0].bucketsSeconds.rest, 600,
     'duplicate reads replace, never accumulate');
