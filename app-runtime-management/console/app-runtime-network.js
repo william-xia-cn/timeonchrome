@@ -61,7 +61,11 @@
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.error?.message || payload.error || `Runtime API ${response.status}`);
+        const error = new Error(payload.error?.message || (typeof payload.error === 'string' ? payload.error : null) || `Runtime API ${response.status}`);
+        const code = payload.error?.code || payload.code;
+        error.status = response.status;
+        error.code = typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,95}$/.test(code) ? code : null;
+        throw error;
       }
       return payload;
     }

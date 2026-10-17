@@ -10067,9 +10067,10 @@ async function api(path, method='GET', body=null, conditionalHeaders=null) {
   }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
-    const error = new Error(data.message || data.error || `HTTP ${r.status}`);
+    const error = new Error(data.message || data.error?.message || (typeof data.error==='string'?data.error:null) || `HTTP ${r.status}`);
     error.status = r.status;
-    error.code = data.code || null;
+    const code=data.code||data.error?.code;
+    error.code = typeof code==='string'&&/^[A-Z][A-Z0-9_]{1,95}$/.test(code)?code:null;
     error.currentVersion = data.currentVersion;
     error.updatedAt = data.updated_at;
     throw error;

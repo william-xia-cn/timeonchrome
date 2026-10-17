@@ -38,7 +38,7 @@
     system: ['系统管理', '查看系统日志、技术进程、主账本、辅助媒体和运行健康'],
     configuration: ['应用配置文件', '仅应用分类和单应用限制；公共时间配置由综合访问管理'],
   };
-  const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', sharedAccess: null, sharedAccessError: null, loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: initialView, appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
+  const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), machineUserErrors: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', sharedAccess: null, sharedAccessError: null, loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: initialView, appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
   let applicationImportDraft = null;
   let applicationImportGeneration = 0;
   const applicationImportContext = () => ({ childId: state.childId, view: state.view, etag: state.policyEtag });
@@ -248,7 +248,7 @@
   function renderSecondsUsage(usage) {
     const fmt=AppRuntimeTime.formatSeconds,label=category=>categoryLabels[category]||(category==='historicalUnknown'?'历史分类未知':'未知分类');
     const hasBaseUsage=[usage.totalDurationSeconds,usage.availableTotalDurationSeconds].some(value=>Number.isFinite(value)&&value>=0);
-    $('#total-time').textContent=fmt(usage.totalDurationSeconds);
+    $('#total-time').textContent=fmt(usage.totalDurationSeconds ?? usage.availableTotalDurationSeconds);
     $('#quota-state').textContent='独立统计，配额另行核算';
     $('#quota-state').classList.remove('danger-text');
     $('#policy-version').textContent='Service 权威秒统计';
@@ -496,7 +496,7 @@
     }).join('')}</div></section>`).join('') : `<p class="error">无法读取统一时间段（${escape(state.sharedAccessError || 'UNKNOWN')}）。</p>`;
   }
   function assignmentOptions(selectedId, protectedValue = true) { return `<option value="u"${!protectedValue ? ' selected' : ''}>成人／不保护</option>` + state.children.map((item, index) => `<option value="${index}"${protectedValue && item.id === selectedId ? ' selected' : ''}>${escape(item.name)}</option>`).join(''); }
-  function renderMachines() { $('#machines').innerHTML = state.machines.map((machine) => `<button type="button" class="machine-card" data-open-machine="${escape(machine.id)}"><span class="platform-icon">${machine.platform === 'macos' ? '●' : '⊞'}</span><div><strong>${escape(machine.displayName || '电脑')}</strong><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')} · 最近在线 ${time(machine.lastSeenAtMs)}</p></div><span class="policy ${escape(machine.policyState)}">${policyLabel(machine.policyState)}</span><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span><span>›</span></button>`).join('') || '<p class="empty">尚未添加 Runtime 电脑</p>'; }
+  function renderMachines() { $('#machines').innerHTML = state.machines.map((machine) => `<button type="button" class="machine-card" data-open-machine="${escape(machine.id)}"><span class="platform-icon">${machine.platform === 'macos' ? '●' : '⊞'}</span><div><strong>${escape(machine.displayName || '电脑')}</strong><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')} · 最近在线 ${time(machine.lastSeenAtMs)}${state.machineUserErrors.has(machine.id)?' · 账户列表读取失败（统计仍可用）':''}</p></div><span class="policy ${escape(machine.policyState)}">${policyLabel(machine.policyState)}</span><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span><span>›</span></button>`).join('') || '<p class="empty">尚未添加 Runtime 电脑</p>'; }
   function renderHealth() { $('#health-list').innerHTML = state.machines.map((machine) => `<article class="health-card"><strong>${escape(machine.displayName || '电脑')}</strong><p>Service ${escape(machine.serviceVersion || '未报告')} · Agent 运行状态未单独报告</p><p>策略 ${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}</p><p>${escape(AppRuntimeDevices.productBlockStatus(machine))}</p><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span></article>`).join('') || '<p>暂无设备</p>'; }
   function renderTechnicalRecords() {
     const items = state.catalog.technicalItems || [];
@@ -507,7 +507,7 @@
       return `<article class="technical-record"><div><strong>${escape(item.displayName || '未知技术进程')}</strong><p><span class="platform-chip ${escape(item.platform)}">${item.platform === 'macos' ? 'macOS' : 'Windows'}</span> · ${item.lastSeenAtMs ? `最近使用 ${time(item.lastSeenAtMs)}` : '最近 30 天无使用'}</p></div><div><strong>${duration(item.mainDurationMs || 0)}</strong><p>${escape(reason)}</p></div><span class="badge offline">只读</span></article>`;
     }).join('') : '<p>暂无技术进程记录</p>';
   }
-  function openDrawer(machineId) { const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(AppRuntimeDevices.syncAt(machine))}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>${escape(AppRuntimeDevices.productBlockStatus(machine))}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${AppRuntimeDevices.accountStatus(user)} · ${policyLabel(user.policyState)}</small><small>${escape(AppRuntimeDevices.programPolicyStatus(user))}</small>${Number.isSafeInteger(user.programInstancePolicy?.receivedAtMs) ? `<small>报告接收：${time(user.programInstancePolicy.receivedAtMs)}</small>` : ''}</label>`).join('') || '<p>已配对；等待本机服务首次上报账户。</p>'}</div><div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
+  function openDrawer(machineId) { const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(AppRuntimeDevices.syncAt(machine))}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>${escape(AppRuntimeDevices.productBlockStatus(machine))}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${AppRuntimeDevices.accountStatus(user)} · ${policyLabel(user.policyState)}</small><small>${escape(AppRuntimeDevices.programPolicyStatus(user))}</small>${Number.isSafeInteger(user.programInstancePolicy?.receivedAtMs) ? `<small>报告接收：${time(user.programInstancePolicy.receivedAtMs)}</small>` : ''}</label>`).join('') || (state.machineUserErrors.has(machine.id)?'<p>账户列表暂不可用，请刷新重试；未判定为没有账户。</p>':'<p>已配对；等待本机服务首次上报账户。</p>')}</div><div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
   function closeDrawer() { $('#device-drawer').classList.remove('open'); $('#device-drawer').setAttribute('aria-hidden', 'true'); $('#mobile-backdrop').hidden = true; }
   function openUsageDetail(kind, value) { const item = kind === 'app' ? state.usage.applications?.[Number(value)] : state.usage.categories?.find((entry) => entry.classification === value); if (!item) return; const title = kind === 'app' ? item.displayName || '未知应用' : categoryLabels[item.classification]||'历史分类未知';
     if(state.usage.durationUnit==='seconds'){
@@ -517,12 +517,21 @@
   async function loadMachineState() {
     const response = await runtime('/v2/module/machines');
     const machines = response.machines || [];
+    const failures = new Map();
     const users = await Promise.all(machines.map(async (machine) => {
-      const result = await runtime(`/v2/module/machines/${encodeURIComponent(machine.id)}/users`);
-      return [machine.id, result.users || []];
+      try {
+        const result = await runtime(`/v2/module/machines/${encodeURIComponent(machine.id)}/users`);
+        return [machine.id, result.users || []];
+      } catch(error) {
+        if(error?.code==='COMPONENT_CONTEXT_CHANGED'||error?.code==='AUTH_RECOVERY_FAILED'
+          ||error?.status===401||error?.status===403)throw error;
+        failures.set(machine.id,error?.code||'MACHINE_USERS_UNAVAILABLE');
+        return [machine.id, []];
+      }
     }));
     state.machines = machines;
     state.users = new Map(users);
+    state.machineUserErrors = failures;
   }
   async function loadIdentityDirectory(catalog) {
     state.identityDirectory=null;

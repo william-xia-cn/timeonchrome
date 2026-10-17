@@ -82,10 +82,16 @@ export async function readWebSourceStatistics(env:Env,accountId:string,childId:s
 
 /** Service Binding响应也有明确大小上界，不把未知响应整块装入内存。 */
 export async function readSourceStatisticsResponse(response:Response):Promise<unknown>{
-  if(!response.ok)throw new Error('SOURCE_STATISTICS_UNAVAILABLE');
   const reader=response.body?.getReader();if(!reader)throw new Error('SOURCE_STATISTICS_UNAVAILABLE');
   const chunks:Uint8Array[]=[];let size=0;
   while(true){const c=await reader.read();if(c.done)break;size+=c.value.byteLength;if(size>65536){await reader.cancel();throw new Error('SOURCE_STATISTICS_RESPONSE_LIMIT');}chunks.push(c.value);}
   const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.byteLength;}
-  return JSON.parse(new TextDecoder().decode(bytes));
+  const value=JSON.parse(new TextDecoder().decode(bytes));
+  if(!response.ok){
+    const candidate=value?.code??value?.error?.code;
+    const code=typeof candidate==='string'&&/^(APPLICATION_[A-Z0-9_]{1,80}|SOURCE_STATISTICS_[A-Z0-9_]{1,70}|CHILD_NOT_FOUND)$/.test(candidate)
+      ?candidate:'SOURCE_STATISTICS_UNAVAILABLE';
+    throw Object.assign(new Error(code),{code,status:[400,404,409,413,429,503].includes(response.status)?response.status:503});
+  }
+  return value;
 }

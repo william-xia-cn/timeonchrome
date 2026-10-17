@@ -219,7 +219,8 @@ it('mixed-ledger child seconds publish known usage without advertising a complet
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
     .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
   const foreign=await fixture();
-  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,foreign.machine.accountId,f.child,'2026-09-27')).toBeNull();
+  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,foreign.machine.accountId,f.child,'2026-09-27'))
+    .toMatchObject({complete:true,references:[],rows:expect.arrayContaining([{kind:'total',hour:null,category:null,subjectKey:null,displayName:null,duration:0}])});
 });
 it.each([
   {seconds:true,withChild:false,reasons:['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING']},
@@ -290,10 +291,16 @@ it.each(['windows','macos'] as const)('v2 %s producer seconds and product classi
   expect(read?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration).toBe(51);
   expect(read?.rows.find(row=>row.kind==='subject'&&row.hour===null)?.classifications).toEqual(['study']);
   const foreign=await fixture(platform);
-  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,foreign.machine.accountId,f.child,'2026-09-27')).toBeNull();
-  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,foreign.child,'2026-09-27')).toBeNull();
-  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-26')).toBeNull();
-  expect(await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27',{machineId:foreign.machine.machineId})).toBeNull();
+  for(const empty of [
+    await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,foreign.machine.accountId,f.child,'2026-09-27'),
+    await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,foreign.child,'2026-09-27'),
+    await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-26'),
+    await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27',{machineId:foreign.machine.machineId}),
+  ]){
+    expect(empty).toMatchObject({complete:true,references:[]});
+    expect(empty?.rows).toHaveLength(25);
+    expect(empty?.rows.every(row=>row.kind==='total'&&row.duration===0)).toBe(true);
+  }
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
     .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
 });
@@ -489,7 +496,7 @@ it.each([
     .bind(receipt.manifestId).first<{manifest_json:string}>();
   expect(JSON.parse(stored!.manifest_json)).toEqual(begin.manifest);
   expect(await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,'synthetic-child-b',from,from+DAY))
-    .toMatchObject({totalDuration:null,availableTotalDuration:null});
+    .toMatchObject({complete:true,totalDuration:0,availableTotalDuration:0,categories:[],products:[]});
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
     .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
   expect(JSON.stringify(generated)).toBe(inputBefore);
@@ -588,15 +595,15 @@ it('v2 seconds reject legacy algorithms and invalid projections without replacin
   expect((await env.RUNTIME_DB.prepare('SELECT revision FROM runtime_application_account_publications_v1 WHERE machine_id=?1')
     .bind(f.machine.machineId).first<{revision:number}>())?.revision).toBe(1);
 });
-it('seconds range preserves available days without presenting missing days as zero',async()=>{
+it('seconds range preserves available days and treats successfully empty days as zero',async()=>{
   const f=await fixture(),one=await upload(f,1,{seconds:true,duration:51,deferCommit:true});
   await commitRequest(f,one.manifestId);
   const daily=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,start+DAY);
   expect(daily).toMatchObject({durationUnit:'seconds',complete:true,totalDuration:51,availableTotalDuration:51});
   expect(daily.products[0]).toMatchObject({duration:51,classifications:['study']});
   const partial=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start-DAY,start+DAY);
-  expect(partial).toMatchObject({complete:false,totalDuration:null,availableTotalDuration:51});
-  expect(partial.days[0]).toMatchObject({totalDuration:null,reasonCodes:['APPLICATION_STATISTICS_NOT_AVAILABLE']});
+  expect(partial).toMatchObject({complete:true,totalDuration:51,availableTotalDuration:51});
+  expect(partial.days[0]).toMatchObject({totalDuration:0,reasonCodes:[],settledThroughMs:null});
   expect(partial.days[1].totalDuration).toBe(51);
   expect(await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start-DAY,start+DAY)).toEqual(partial);
   await expect(readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,start+8*DAY)).rejects.toMatchObject({code:'INVALID_RANGE'});
@@ -618,11 +625,12 @@ it('seconds reads preserve producer special contributions across sources without
   expect(read.totalDuration).toBe(71);
   expect(read.applicationUsage).toEqual({nonSpecialTotal:51,nonSpecialCategories:{study:51},specialTotal:20,complete:true,reasonCodes:[]});
   const partial=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,first.machine.accountId,first.child,start-DAY,start+DAY);
-  expect(partial.applicationUsage).toBeNull();expect(partial.availableTotalDuration).toBe(71);
+  expect(partial.applicationUsage).toEqual(read.applicationUsage);expect(partial.availableTotalDuration).toBe(71);
   const noProjection=await upload(second,2,{seconds:true,duration:20,deferCommit:true});
   await commitRequest(second,noProjection.manifestId);
   const missing=await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,first.machine.accountId,first.child,start,start+DAY);
-  expect(missing.totalDuration).toBe(71);expect(missing.applicationUsage).toBeNull();
+  expect(missing.totalDuration).toBe(71);expect(missing.applicationUsage).toMatchObject({nonSpecialTotal:31,specialTotal:20,
+    complete:false,reasonCodes:['APPLICATION_QUOTA_USAGE_INCOMPLETE']});
 });
 it('authenticated app-usage seconds route exposes producer statistics and retains child isolation',async()=>{
   const f=await fixture(),one=await upload(f,1,{seconds:true,duration:51,deferCommit:true});
@@ -658,27 +666,31 @@ it('Guardian application source RPC reads the same published seconds without raw
       childId:f.child,fromDate:'2026-09-27',toDate:'2026-09-27'})}));
   expect(await oldRequest.json()).toEqual(old);
   const partial=await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-26','2026-09-27');
-  expect(partial).toMatchObject({durationUnit:'milliseconds',complete:false,totalDurationMs:null,
+  expect(partial).toMatchObject({durationUnit:'milliseconds',complete:true,totalDurationMs:51000,
     availableTotalDurationMs:51000,categories:[{durationMs:51000}]});
   const next=await upload(f,2,{seconds:true,duration:20,deferCommit:true});await commitRequest(f,next.manifestId);
   expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27'))
     .toMatchObject({durationUnit:'milliseconds',totalDurationMs:20000});
   expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27',true))
     .toMatchObject({durationUnit:'seconds',totalDuration:20});
+  const zero=await upload(f,3,{seconds:true,empty:true,deferCommit:true});await commitRequest(f,zero.manifestId);
+  expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27'))
+    .toMatchObject({durationUnit:'milliseconds',complete:true,totalDurationMs:0,statistics:{producer:'native'}});
   const forbidden=await exports.RuntimeComputerUsageService.fetch(new Request('https://runtime-capability/getApplicationUsage',{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'another-account',childId:f.child,fromDate:'2026-09-27',toDate:'2026-09-27'})}));
   expect(forbidden.status).toBe(404);expect(await forbidden.json()).toEqual({code:'CHILD_NOT_FOUND'});
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
     .bind(f.machine.machineId).first<{n:number}>())?.n).toBe(0);
 });
-it('seconds-only source mode preserves unknown and never falls back to a legacy zero',async()=>{
+it('seconds-only source mode returns normal empty zero without legacy fallback',async()=>{
   const rpc=exports.RuntimeComputerUsageService;
   const request=(secondsOnly:unknown)=>new Request('https://runtime-capability/getApplicationUsage',{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'empty-account',childId:'empty-child',
       fromDate:'2026-09-27',toDate:'2026-09-27',secondsOnly})});
   const response=await rpc.fetch(request(true));expect(response.status).toBe(200);
   const value=await response.json();
-  expect(value).toMatchObject({durationUnit:'seconds',complete:false,totalDuration:null,availableTotalDuration:null,applicationUsage:null});
+  expect(value).toMatchObject({durationUnit:'seconds',complete:true,totalDuration:0,availableTotalDuration:0,
+    applicationUsage:{nonSpecialTotal:0,nonSpecialCategories:{},specialTotal:0,complete:true,reasonCodes:[]}});
   expect(value).not.toHaveProperty('totalDurationMs');expect(value).not.toHaveProperty('compatibility');
   expect((await rpc.fetch(request('true'))).status).toBe(400);
 });

@@ -26,6 +26,14 @@ const readableSnapshot=await withComputerUsageRevision(mergeComputerUsage(readab
 const partialSnapshot=await withComputerUsageRevision(mergeComputerUsage({...readableBundle,applications:[...readableBundle.applications,{...base,key:'mock-legacy-unavailable',computerKey:null,computerName:'不可读旧版来源',complete:false,statisticsComplete:false,historyQuality:'bestEffort',reasons:['LEGACY_APPLICATION_SOURCE_UNAVAILABLE'],associationVersion:'missing',totalMs:null,categoriesMs:{},intervals:[]}]}));
 const server=http.createServer(async(req,res)=>{
 const url=new URL(req.url,'http://127.0.0.1');
+if(url.pathname==='/mock-cloud-fault-tolerance'){
+const data={schemaVersion:2,durationUnit:'seconds',revision:'fixture-partial',fromDate:'2026-10-17',toDate:'2026-10-17',
+  complete:false,sourceStatus:{web:'complete',application:'partial'},sourceVersions:{web:'w1',application:'a1'},
+  totals:{computer:1200,web:600,application:700,specialIncluded:null},categories:{study:1200},
+  sourceCategories:{web:{study:600},application:{study:600}},reasonCodes:['APPLICATION_STATISTICS_CHUNKS_MISSING']};
+res.setHeader('Content-Type','text/html; charset=utf-8');
+res.end('<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app-runtime-management/console/app-runtime.css"><title>隔离云端容错</title></head><body style="padding:16px"><main id="fixture"></main><script src="/app-runtime-management/console/computer-usage-view.js"></script><script>let failed=false;const reader=ComputerUsageView.create(document.getElementById("fixture"),async()=>{if(failed)throw Object.assign(new Error("读取失败"),{status:503,code:"APPLICATION_STATISTICS_CHUNKS_MISSING"});return '+JSON.stringify(data)+';});reader.load().then(()=>{failed=true;return reader.load({refresh:true});});</script></body></html>');return;
+}
 if(url.pathname==='/mock-identity-usage'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(identityUsage(url.searchParams)));return;}
 if(url.pathname==='/v2/module/program-instance-usage'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(identityUsage(url.searchParams)));return;}
 if(url.pathname==='/v2/module/machines'){res.setHeader('Content-Type','application/json');res.end('{"machines":[]}');return;}

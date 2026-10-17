@@ -110,7 +110,7 @@ function makeDb(manifests) {
       if (sql.includes('SELECT device_id, manifest_id, revision')) return stmt('deviceHeadsDate');
       if (sql.includes('SELECT generation FROM profile_account_day_heads_v2')) return stmt('dayHeadGeneration');
       if (sql.includes('SELECT generation FROM profile_account_week_heads_v2')) return stmt('weekHeadGeneration');
-      if (sql.includes('SELECT date, generation_id FROM profile_account_day_heads_v2')) return stmt('dayHeadsWeek');
+      if (sql.includes('SELECT date, generation_id, generation FROM profile_account_day_heads_v2')) return stmt('dayHeadsWeek');
       if (sql.includes('FROM profile_account_day_generations_v2 WHERE id')) return stmt('dayGeneration');
       if (sql.includes('FROM profile_account_day_chunks_v2')) return stmt('dayChunks');
       if (sql.includes('FROM profile_account_week_generations_v2 WHERE id')) return stmt('weekGeneration');

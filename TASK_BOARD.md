@@ -1,5 +1,69 @@
 # TASK_BOARD
 
+## 云端容错集中修复（2026-10-17，PO批准实施）
+
+基线：现有云端工作线 `codex/cloud-management` / `cb51631`；保留此前所有未提交文档与未跟踪产物。本批只修云端及云端页面，不改原账、Native、扩展、配置内容或共享开关；不迁移、不安装、不逐零件交付。PO随后批准本批集中提交、推送、合并及部署Guardian/Runtime和两套已修改Pages，继续真实只读验收。
+
+本次收尾清单：先修正旧静态断言，核对现有`runV2Stage`隔离上传失败及外层独立读取快照，而非恢复上传成功前置；将两项新容错回归与该断言接入既有Guardian CI。复用已通过的精确源码证据，补跑修改后的断言/相关专项、类型/边界/diff检查，集中审计后提交。生产沿用现有workflow，所有migration/bootstrap/shadow准备输入关闭，不改共享开关；源码通过、CI、部署及真实页面证据分列。职责为`architecture-integration + standard-cloud`，不含此前Native/控件文档草稿。
+
+| 编号 | 已查实问题 | 本批处置及验收 |
+|---|---|---|
+| CF-01 | 正常空应用查询被分配记录判为未知／缺失 | 修复：成功空查询按0；查询失败保留诊断，不伪造完整结果。 |
+| CF-02 | 单日或分类附属用量缺失使整个范围合计消失 | 修复：保留有效日、分类及已知小计，完整性独立表达。 |
+| CF-03 | 单来源分块损坏使全部应用来源读取503 | 修复：完整校验后才合并；隔离损坏来源，保留其他有效来源。跨孩子／权限错误继续拒绝。 |
+| CF-04 | 电脑汇总仅因完整性标记而不显示已知合计 | 修复：已知网页＋已知非特殊应用；部分结果明确显示已知小计，不猜特殊扣除。 |
+| CF-05 | 网页新设备账发布被其他设备／本周旧日期异常牵连 | 本地修复/验证完成：只回退同范围已发布有效来源/日版本；缺项标记不完整，候选自身校验及发布事务不放松。 |
+| CF-06 | 网页读取受传输快照创建／清理写入失败影响 | 本地修复/验证完成：清理非阻断，创建失败仅复用未过期、同孩子/周/更正版本且逐页完整校验的旧快照。 |
+| CF-07 | 网页账户能力登记写失败阻断账户读写请求 | 本地修复/验证完成：仅能力登记best-effort，不吞上传/提交/ACK错误。 |
+| CF-08 | last_seen更新失败阻断配置等读取 | 本地修复/验证完成：只隔离辅助更新时间写失败，身份查询/无效token/解绑继续拒绝。 |
+| CF-09 | 单机器账户列表失败阻断全部机器及应用统计加载 | 修复：独立保留机器及成功账户，失败账户明确提示；身份变化／认证失败不使用旧结果。 |
+| CF-10 | 电脑汇总刷新失败覆盖已有有效视图 | 修复：仅同孩子同范围保留上次结果，明确更新失败，切换范围或认证失败立即撤销。 |
+| CF-11 | 具体错误码在转接和页面网络层丢失 | 修复：保留脱敏稳定code/status，不暴露数据库异常或凭据。 |
+| CF-12 | 配置已成功更新，审计注释失败却返回保存失败 | 修复：核心配置及触发器历史不变，辅助注释失败单独诊断，不谎报主操作失败。 |
+
+集中实施顺序：先本表及既有设计 → 应用读取/电脑投影 → 页面隔离/错误码/配置结果 → 聚焦故障回归、typecheck、边界/diff检查 → 一次结果汇总。必要本地验证：空日、600秒＋空日、正常来源＋损坏来源、下降更正/重复读取、孩子隔离、部分电脑小计、机器列表单项失败、同范围刷新失败、错误码和配置注释写失败。页面做隔离目视验证；不跑全平台、安装器、真实家庭E2E或网页记账全量。网页专项仅提供具体风险和验证方案，未获单项确认不得实施。
+
+状态：12项均已完成本地源码修复及对应聚焦行为验证；CF-05/06/07/08按PO明确批准完成。旧静态断言已核对修正，19/19通过；两项容错专项7/7及12/12再次通过，根typecheck、边界与diff检查通过。静态断言初次复验因测试正则误遇对象花括号失败，核对后仅修断言，未改产品代码。CI已接入这三项检查。审计`Matched`，无未批准`Deviated / Missing / Extra`；准备集中提交及发布，生产尚未更新，不启用共享。
+
+本轮执行清单：`standard-cloud / Build&Test`，高风险网页发布/下行故障处理修订，但原始事实、计秒和上传ACK成功条件不变。只改`profileAccountsV2.ts`、`profileAccountSnapshotsV2.ts`、`deviceAccountsV2.ts`、`deviceIdentity.ts`及直接隔离回归和本页/既有设计。CF-05保留已发布历史，有限回退不扫描原账；先固定周generation再读输入，继续由既有唯一约束和原子batch拒绝并发旧输入，不提前报published。CF-06不延长TTL、不混页、不绕过更正版本；所有Promise完成或捕获，不增加后台队列。
+
+CI补验发现7项直接关联失败：6项旧断言仍把成功空查询认作null；另1项证实正常空秒结果会截断尚未退出旧账家庭的既有毫秒RPC读取。补齐断言，旧RPC仅在未退休且未请求秒接口时保留原有“整个范围无新来源则读取原统计”的选择；真实新版0来源不能回退旧量，当前已退休家庭只读新账。该选项仅内部读取适配，不新增接口、字段或历史汇算。两个直接测试文件最终102/102通过，覆盖已发布0替换20秒及旧RPC1501毫秒保留；类型和Runtime dry-run通过。首轮补验暴露数组长度断言及空日范围选择问题，已一并修正，最终未跳过失败或降低CI门槛。仍在同一PR集中交付，尚未合并或部署。
+
+### CF-05至CF-08本轮结果（集中交付，尚未发布）
+
+- `Matched`：4项均完成，`Missing / Deviated / Extra`无本批新增未批准项。候选自身损坏/跨孩子仍拒绝；坏的其他来源最多读取8个已发布历史候选，旧日最多读取8个同范围已持久日generation，均校验后采用。无可靠历史保留其他已知量并标不完整，不追求无限历史恢复。
+- 发布：device/day/week及事件继续一个事务；并发陈旧输入触发现有generation唯一约束，整批回滚，原提交重试可恢复。没有把冲突提前报published，没有新增重试队列。正常输入、重复和下降更正仍沿用原聚合算法。
+- 快照：按所选周generation的现有版本向量读取精确清单，避免混入新设备头。清理另行捕获失败；创建失败最多检查8份同孩子/周/更正版本且未过期的既存快照，核对metadata及所有页hash，沿用原ID/createdAt/asOf/期限。通用更正读取旧容错可能返回[]，本入口用同范围更正COUNT/MAX只读核实，不能误把读失败当成版本0；没有修改分类或更正模块行为。
+- `node tests/unit/web-cloud-fault-tolerance.test.js`：12组通过，使用真实Worker函数/SQL和内存SQLite原子事务，覆盖正常/下降/重放、坏来源有/无历史、旧日有/无历史、跨孩子拒绝、事务中断、并发冲突及重试、清理/创建失败、完整两页、过期/损坏/跨家庭/跨周/更正失配拒绝、辅助写失败、无效token/解绑/错误hash和主提交失败仍拒绝、原账哨兵不变。仅隔离fixture重放现有schema，不执行本机或生产migration。
+- 既有聚焦回归：`profile-account-v2-publication.test.js` 9/9、`device-account-v2-worker.test.js` 25/25、`device-unbound-contract.test.js` 15/15、`source-statistics-cloud.test.js`、`system-access-classification-guard.test.js`通过。根`npm run typecheck`、`check:app-runtime-boundaries`、Guardian `wrangler deploy --dry-run`通过；Runtime源码本轮未再修改，复用上批类型/打包证据。
+- 原有检查缺口单列：`profile-account-v2-worker-contract.test.js`在“1.7.31 uploads retained current-week device accounts before reading a snapshot”静态断言失败；它要求旧`result.deviceAccountV2CurrentWeek = await ...`字符串，HEAD实际已用`runV2Stage`。已用`git show HEAD:extension/infra/cloud-sync.js`及`git diff --quiet HEAD -- extension/infra/cloud-sync.js tests/unit/profile-account-v2-worker-contract.test.js`确认相关输入本轮未变；未将该失败算通过，未改扩展或顺带修旧检查。本轮不提交，故无绕过提交闸门。
+- 失败复核：首次新专项9/10通过，错误hash用例期望409，实际按既有契约正确返回400/MANIFEST_HASH_MISMATCH；核对后仅修断言并补充两项必要场景，最终12/12。旧发布测试mock需识别查询新增generation列，已同步后9/9；未降低产品校验。
+- 边界与风险：没有改终端ACTIVE/idle/媒体/锁屏/checkpoint、原账、分类配置、上传ACK成功条件、接口、表结构或共享开关。辅助写失败会使在线/覆盖诊断滞后；备用可能少于最新用量，但保留原截止、不伪装实时。真实Cloudflare D1故障注入、生产冷/热读取和真实浏览器原账对照尚未执行；本地通过不是生产验收或发布批准。`git diff --check`通过；原有脏文件/产物保留。
+
+最小测试契约：实际SQLite隔离执行发布/分页函数，验证有效来源保留、旧版本回退/无回退、日周一致、下降/重放、哈希/孩子拒绝、事务失败及并发冲突；注入清理/创建/能力/last_seen写失败，同时验证无效身份、主写入失败仍拒绝。运行相关既有发布/账户/解绑回归、根typecheck、Guardian本地dry-run、边界和diff检查。复用上批未变代码证据，不跑Native/Mac、全量网页计时E2E、生产写入、安装、部署或migration。CI及生产smoke留到另行集中发布，不以本地结果替代。
+
+### 集中验证与方案审计
+
+- `Matched`：上述8项按同一批实现；真实入口的隔离故障测试验证正常空0、范围600秒＋空日、有效来源＋损坏来源、缺分类保留用量、下降替换/重复读取、孩子隔离拒绝、已知电脑小计、单机器账户故障、同范围刷新保留/401撤销、稳定错误码及配置注释失败。没有新增账本、队列、业务接口或独立诊断系统。
+- 第一阶段曾保留CF-05至CF-08待批准；现已按上方PO批准结果继续完成，不再列作未实施项。`Deviated / Extra`：未发现本批未批准变更。原有PROJECT_MASTER/TASK_BOARD修改及未跟踪包保留。
+- Worker：`vitest run test/source-statistics.test.ts` 22/22通过；直接消费者专项 `vitest run test/application-account-publication.test.ts test/application-ledger-retirement.test.ts -t 'fixed|persistent seconds|seconds range|seconds reads preserve|authenticated app-usage seconds|Guardian application source RPC|seconds-only|seconds source read|拒旧格式|新模型'` 13通过、82未选中。没有把未选中项记为通过，没有运行Native或Mac测试。
+- 契约：`npm run build:app-runtime-contracts`、`node app-runtime-management/contracts/computer-usage.test.mjs`通过（8向量及针对性断言）。新增 `node tests/unit/cloud-fault-tolerance.test.js` 7组通过；`node tests/unit/computer-usage-cloud.test.js`、`node tests/unit/profile-config-concurrency.test.js`、Runtime网络9项及两套同源渲染器专项通过。
+- 类型/打包：Guardian根 `npm run typecheck`、Runtime `tsc -p tsconfig.json --noEmit`、两Worker `wrangler deploy --dry-run`、`check:app-runtime-boundaries`通过。dry-run仅本地编译，未上传Worker。
+- 目视：既有本地fixture新增合成容错场景，桌面1440及移动390像素核对已知小计/缺来源/刷新失败提示；移动scrollWidth=innerWidth=390，无横向溢出。截图保存在受限本地可视化目录，不入Git；不以mock作为生产验收。
+- 第一阶段边界：当时网页发布/分页/辅助写入四文件未改；本轮已按PO专项批准修改，见上方结果。extension及migration目录仍不改；原账/正常计秒与聚合算法保持。`git diff --check`通过。
+- 失败复核：首轮Worker专项21/22，原因是旧空记录断言仍要求不完整，修正冲突断言后22/22；电脑专项首轮旧断言仍要求有有效网页时电脑数值为null，按已批准已知小计修正后通过。初次契约编译遭沙箱dist写权限失败，正常权限重试成功；未降低身份、哈希或主写入验证标准。
+
+### 网页记账相关四项：PO已逐项批准的最小方案（本地结果见上）
+
+| 项目/代码位置 | 旧行为 → 建议行为 | 少记/多记及其他风险 | 必要验证 |
+|---|---|---|---|
+| CF-05 `workers/src/services/profileAccountsV2.ts:195` | 候选发布先读取其他设备当日头及本周日头，任一坏读阻断整个发布 → 仅隔离无效来源/日期，能取得同范围最后有效确认账则保留；不能取得的范围明确缺项，不伪造完整，不降低候选自身清单/分块/哈希/身份校验；头及日周结果仍保持原子一致。 | 缺失增量暂时少计；错误回退或重复加入可能多计，不能只加catch后继续写；不改变原账。须先对照发布事务/version vector逐项审查，失败不能提前声称published。 | 普通输入、坏同日来源、坏周内旧日、重复/下降版本、并发及事务失败；逐来源/日周和头版本向量一致，无双算，旧确认账不被清零。 |
+| CF-06 `workers/src/services/profileAccountSnapshotsV2.ts:122` | 新分页快照创建与过期快照DELETE同一batch → 清理改为非阻断；创建失败仅复用仍符合既有身份/周期/更正规则且完整可校验的既存快照，无可用快照仍报读取失败，不造0或拼页。 | 清理失败增加存储；回退结果可能滞后；混入不同snapshot/generation会错账。此阶段不擅自延长服务器分页期限。 | 清理/创建失败、已有快照/无快照、跨孩子和周、更正变化、分页中版本变化；ID/hash一致，不混代际，不漏ACK或改原物化。 |
+| CF-07 `workers/src/routes/deviceAccountsV2.ts:98,392` | 账户能力登记写失败使合法账户读写均失败 → 鉴权后辅助登记best-effort，清单/分块/commit及ACK自身成功条件不变。 | 能力/覆盖诊断短期滞后；错误扩大catch可能误吞上传失败，故仅包住登记调用。 | 注入登记写失败而真实账户处理成功；清单/hash/提交失败仍拒绝，不产生假ACK；版本兼容和coverage诊断不冒充完整。 |
+| CF-08 `workers/src/routes/deviceIdentity.ts:59,81` | 身份已验证仍因last_seen写失败中止业务 → 只隔离last_seen辅助写；token/解绑/孩子范围验证保持硬拒绝。 | 在线状态可能滞后；不得把认证查询失败或解绑当成可降级，也不能将离线状态作为既有有效账失效。 | last_seen写失败、token无效/查询失败/解绑、配置读取及账户上传；无绕过身份，无假ACK，无原账变化。 |
+
+四项都不修改终端ACTIVE/idle/媒体/锁屏/checkpoint计时；这些前后语义保持一致。改动只涉及网页上传发布/下行/覆盖元数据的失败处理，已获本轮PO明确确认；本批未运行生产写入、清理或真实浏览器记账实验。共享契约仅调整云端电脑展示投影函数，不改变协议字段或Native消费接口；按源码SHA构建，不另发同版本契约包或更新终端锁。
+
 ## 本批整合回归修正（2026-10-17）
 
 PR291 Guardian CI已定位：控件获批将配额读取器`completeness.complete`改为本机可用状态后，云端纯快照适配仍把该字段误当云端覆盖状态。仅把`workers/src/services/sourceStatistics.ts`的诊断字段读取切至同一既有读取器的`cloudCoverageComplete`；数值、原账、上传和业务放行不变，不放宽现有失败断言。补跑直接云端回归、跨线原始LF夹具及typecheck，之后由原PR复验；不扩大其他历史或Native范围。

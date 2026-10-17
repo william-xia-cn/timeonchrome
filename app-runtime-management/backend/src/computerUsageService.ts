@@ -108,8 +108,10 @@ export class RuntimeComputerUsageService extends WorkerEntrypoint<Env> {
     const from=Date.parse(`${fromDate}T00:00:00+08:00`),to=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
     if(!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)||!/^\d{4}-\d{2}-\d{2}$/.test(toDate)||!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000
       ||new Date(from+8*3600000).toISOString().slice(0,10)!==fromDate||new Date(to-86400000+8*3600000).toISOString().slice(0,10)!==toDate)throw new HttpError(400,'INVALID_RANGE','日期范围最多七天。');
-    const seconds=await readNativeApplicationStatisticsRangeSeconds(this.env.RUNTIME_DB,accountId,childId,from,to);
-    if(seconds.availableTotalDuration!==null||secondsOnly||await readApplicationLedgerRetirement(this.env.RUNTIME_DB,accountId)){
+    const retired=await readApplicationLedgerRetirement(this.env.RUNTIME_DB,accountId);
+    const seconds=await readNativeApplicationStatisticsRangeSeconds(this.env.RUNTIME_DB,accountId,childId,from,to,
+      {emptyAsZero:secondsOnly||!!retired});
+    if(seconds.availableTotalDuration!==null||secondsOnly||retired){
       const snapshot={source:'application',fromDate,toDate,durationUnit:'seconds',
       complete:seconds.complete,totalDuration:seconds.totalDuration,availableTotalDuration:seconds.availableTotalDuration,
       days:seconds.days,

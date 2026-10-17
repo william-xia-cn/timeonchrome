@@ -42,7 +42,15 @@ function check(label, condition) { if (!condition) throw new Error(label); passe
   const cloudSync = read('extension', 'infra', 'cloud-sync.js');
   check('Pages and local quota now consume V2 accounts without cloud locks', pagesUi.includes('/accounts/v2/snapshot') && quota.includes('readQuotaReadModelV2') && quota.includes('async function evaluateQuotaStateV2') && quota.includes('cloudState: null'));
   check('V2 sync removes the legacy cloud quota fact instead of fetching a lock', cloudSync.includes('if (usesQuotaAccountingV2(currentConfig))') && cloudSync.includes('chrome.storage.local.remove(CLOUD_QUOTA_STATE_FACT_KEY)'));
-  check('1.7.31 uploads retained current-week device accounts before reading a snapshot', cloudSync.includes('uploadCurrentWeekDeviceAccountsV2') && cloudSync.includes('result.deviceAccountV2CurrentWeek = await uploadCurrentWeekDeviceAccountsV2'));
+  check('current-week uploads use the isolated V2 stage runner', cloudSync.includes("await runV2Stage('deviceAccountV2CurrentWeek', () => uploadCurrentWeekDeviceAccountsV2({ enabled }))")
+    && cloudSync.includes('try { part = await task(); }') && cloudSync.includes('result[stage] = part;'));
+  const syncEntry = cloudSync.slice(cloudSync.indexOf('export async function syncUsageStatsByDateWatermarkV1('),
+    cloudSync.indexOf('async function syncUsageUploadsByDateWatermarkV1('));
+  check('confirmed snapshot reading remains independent of upload failure',
+    syncEntry.includes('result = await syncUsageUploadsByDateWatermarkV1({ enabled });')
+    && syncEntry.indexOf('} catch (error) {') > syncEntry.indexOf('await syncUsageUploadsByDateWatermarkV1')
+    && syncEntry.indexOf('const snapshot = await syncProfileAccountV2ShadowSnapshot({ enabled });') > syncEntry.indexOf('} catch (error) {')
+    && !/\breturn\b|\bif\s*\(/.test(syncEntry.slice(0, syncEntry.indexOf('const snapshot ='))));
   const stats = read('workers', 'src', 'routes', 'stats.ts');
   check('V1 stats route remains isolated from V2 profile heads', !stats.includes('profile_account_day_heads_v2') && !stats.includes('device_account_heads_v2'));
 
