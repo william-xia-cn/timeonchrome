@@ -5,6 +5,8 @@
   const embedded=typeof config.request==='function';
   const ownerDocument=root.ownerDocument||document;
   let disposed=false;
+  let registrationGeneration=0;
+  const pendingRegistrations=new Set();
   const listeners=[];
   const listen=(target,type,handler)=>{target.addEventListener(type,handler);listeners.push([target,type,handler]);};
   const live=()=>!disposed&&(!config.isCurrent||config.isCurrent());
@@ -507,8 +509,8 @@
       return `<article class="technical-record"><div><strong>${escape(item.displayName || '未知技术进程')}</strong><p><span class="platform-chip ${escape(item.platform)}">${item.platform === 'macos' ? 'macOS' : 'Windows'}</span> · ${item.lastSeenAtMs ? `最近使用 ${time(item.lastSeenAtMs)}` : '最近 30 天无使用'}</p></div><div><strong>${duration(item.mainDurationMs || 0)}</strong><p>${escape(reason)}</p></div><span class="badge offline">只读</span></article>`;
     }).join('') : '<p>暂无技术进程记录</p>';
   }
-  function openDrawer(machineId) { const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(AppRuntimeDevices.syncAt(machine))}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>${escape(AppRuntimeDevices.productBlockStatus(machine))}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${AppRuntimeDevices.accountStatus(user)} · ${policyLabel(user.policyState)}</small><small>${escape(AppRuntimeDevices.programPolicyStatus(user))}</small>${Number.isSafeInteger(user.programInstancePolicy?.receivedAtMs) ? `<small>报告接收：${time(user.programInstancePolicy.receivedAtMs)}</small>` : ''}</label>`).join('') || (state.machineUserErrors.has(machine.id)?'<p>账户列表暂不可用，请刷新重试；未判定为没有账户。</p>':'<p>已配对；等待本机服务首次上报账户。</p>')}</div><div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
-  function closeDrawer() { $('#device-drawer').classList.remove('open'); $('#device-drawer').setAttribute('aria-hidden', 'true'); $('#mobile-backdrop').hidden = true; }
+  function openDrawer(machineId) { registrationGeneration++; const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(AppRuntimeDevices.syncAt(machine))}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>${escape(AppRuntimeDevices.productBlockStatus(machine))}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${AppRuntimeDevices.accountStatus(user)} · ${policyLabel(user.policyState)}</small><small>${escape(AppRuntimeDevices.programPolicyStatus(user))}</small>${Number.isSafeInteger(user.programInstancePolicy?.receivedAtMs) ? `<small>报告接收：${time(user.programInstancePolicy.receivedAtMs)}</small>` : ''}</label>`).join('') || (state.machineUserErrors.has(machine.id)?'<p>账户列表暂不可用，请刷新重试；未判定为没有账户。</p>':'<p>已配对；等待本机服务首次上报账户。</p>')}</div>${AppRuntimeDevices.userRegistrationForm(machine,state.children)}<div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
+  function closeDrawer() { registrationGeneration++; $('#device-drawer').classList.remove('open'); $('#device-drawer').setAttribute('aria-hidden', 'true'); $('#mobile-backdrop').hidden = true; }
   function openUsageDetail(kind, value) { const item = kind === 'app' ? state.usage.applications?.[Number(value)] : state.usage.categories?.find((entry) => entry.classification === value); if (!item) return; const title = kind === 'app' ? item.displayName || '未知应用' : categoryLabels[item.classification]||'历史分类未知';
     if(state.usage.durationUnit==='seconds'){
       $('#drawer-content').innerHTML=`<h2>${escape(title)}</h2><div class="drawer-section"><h3>本周期主使用</h3><p class="detail-duration">${AppRuntimeTime.formatSeconds(item.durationSeconds)}</p><p>Service 权威统计；配额由独立模块核算。</p></div><div class="notice warning"><span>明细可能重叠，不相加生成总量；${state.usage.complete?'范围完整':'当前仅部分来源可用'}。</span></div>`;
@@ -876,6 +878,37 @@
     if (button.id === 'export-config') exportConfig();
     if (button.id === 'confirm-import') await confirmApplicationImport();
   } catch (error) { showError(error); } });
+  listen(root,'submit', async (event) => {
+    const form=event.target;
+    if(form.id!=='preregister-user-form')return;
+    event.preventDefault();
+    if(!live()||pendingRegistrations.has(form.dataset.machineId))return;
+    const machineId=form.dataset.machineId,machine=state.machines.find(item=>item.id===machineId);
+    const generation=registrationGeneration,childContext=state.childId;
+    const current=()=>live()&&generation===registrationGeneration&&childContext===state.childId&&$('#preregister-user-form')===form;
+    const status=form.querySelector('.registration-status'),fieldset=form.querySelector('fieldset');
+    let submitted=false;
+    try {
+      if(mock||!machine||machine.platform!=='windows'||machine.status==='revoked')throw Error('当前电脑或预览模式不允许预登记。');
+      const payload=AppRuntimeDevices.userRegistrationPayload({localUserId:form.querySelector('[name="localUserId"]').value,displayName:form.querySelector('[name="displayName"]').value,childIndex:form.querySelector('[name="childIndex"]').value},state.children);
+      pendingRegistrations.add(machineId);fieldset.disabled=true;status.textContent='正在预登记并读回核对…';
+      const result=await runtime(`/v2/module/machines/${encodeURIComponent(machineId)}/users`,{method:'POST',body:JSON.stringify(payload)});
+      submitted=true;
+      if(!current())return;
+      if(result.localUserId!==payload.localUserId||result.childId!==payload.childId||!Number.isSafeInteger(result.assignmentVersion))throw Error('预登记响应范围不匹配。');
+      await loadMachineState();
+      if(!current())return;
+      const user=(state.users.get(machineId)||[]).find(item=>item.localUserId===payload.localUserId);
+      if(state.machineUserErrors.has(machineId)||!user||user.displayName!==payload.displayName||user.childId!==payload.childId||user.protected!==true||user.assignmentSource!=='override'||user.assignmentVersion!==result.assignmentVersion)throw Error('账户列表尚未确认指定孩子关联。');
+      renderMachines();openDrawer(machineId);
+      $('#preregister-user-form').querySelector('.registration-status').textContent=`预登记已核对：${user.displayName} → ${state.children.find(item=>item.id===user.childId).name}。首次登录及策略生效尚待确认。`;
+    } catch(error) {
+      if(current())status.textContent=`${error.message||'预登记失败'}${submitted?' 提交已返回；请先核对账户列表，不要提前登录。':' 如请求结果不明确，请先核对账户列表再重试。'}`;
+    } finally {
+      pendingRegistrations.delete(machineId);
+      if(current())fieldset.disabled=false;
+    }
+  });
   listen(root,'change', async (event) => { if(!live())return;const control = event.target; try {
     if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
     if (['directory-scope','management-platform'].includes(control.id)) { renderAppDirectory(); return; }
