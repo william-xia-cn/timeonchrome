@@ -1,5 +1,13 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-18 设备详情预登记表单（PO追加批准）
+
+补齐已发布HTTP入口的正常调用者，取代下节“仅HTTP/无页面”的实施范围。Windows未吊销机器详情，在现有账户分配下方、卸载/吊销操作上方新增“首次登录前预登记”表单：本机用户标识、账户显示名称、指定孩子（初始为空，必须主动选），说明不修改机器默认关联、不会创建Windows账户/设置密码/启用共享。字段校验沿用已发布入口的43字符HMAC/Base64Url格式及128字符名称限制，不接受SID/用户名充当用户标识。
+
+表单仅通过当前组件的runtime(path,options)及原有家长认证发送一次既有POST，防重复提交；不直接读取/导出令牌，不新增API、后台身份匹配或浏览器脚本注入。成功后复用loadMachineState读取正式账户列表，按machineId/localUserId/明确childId/override/protected核对，未确认不得提示已完成。失败保留输入并在表单内显示原因，未知提交结果提示先核对账户列表；改孩子、关闭详情、组件销毁后的迟到结果不重开旧抽屉、不覆盖新界面。mock/只读预览不发送真实登记，Mac与已吊销机器不显示入口。
+
+实施清单：①app-runtime-devices.js提供表单及纯输入校验；②app-runtime.js在现有设备详情接线及submit处理，默认关联/已有用户change处理保持；③app-runtime.css仅新增表单局部样式；④app-runtime-component.test.cjs覆盖真实组件监听/请求/读回、重复与迟到/错误隔离及原控制器回归。必要验证仅组件/设备助手/网络/会话直接测试、node语法/现有类型检查、职责/diff及本地合成桌面/390px目视；CI复用现有console路径。通过后集中提交合并，只部署独立Runtime Pages并正常UI填入专属测试账户，不改默认/日常配置、原账、Native、Worker或共享开关；不安装、不迁移。
+
 ## 2026-10-18 首次登录前精确预登记（PO批准，先隔离验证）
 
 标准云端在现有家长鉴权入口 `POST /v2/module/machines/:machineId/users` 接受且仅接受 `{localUserId, displayName, childId}`，复用机器/用户/分配/策略版本表，不新增表或migration。localUserId必须是本机Service现行HMAC-SHA256/Base64Url派生值（43字符）；不能用用户名、Windows SID、随机占位符代替，密钥不上传。displayName只作显示，不用于匹配。此入口不创建Windows账户、不设置密码、不伪造交互登录上报；真实账户创建后由受限本机核查取得其派生标识，再在首次登录前预登记。当前轮仅实现HTTP入口，无新增页面或Native改动。

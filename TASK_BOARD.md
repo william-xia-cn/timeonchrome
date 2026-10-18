@@ -1,5 +1,11 @@
 # TASK_BOARD
 
+## 2026-10-18 Runtime设备详情预登记表单（PO批准实施及独立Pages交付）
+
+实现/审计：设备详情只追加3必填字段和一个提交按钮；孩子空选、既有runtime认证、POST去重、正式用户列表读回及迟到隔离均已接线。组件控制器隔离回归、设备/网络/会话测试、语法、backend typecheck及跨模块边界检查通过。首轮组件回归查出渲染函数名误用，改为既有renderMachines后通过；不改后端或认证流程迁就测试。本地内存数据页面经正常表单提交成功，默认关联保持；桌面/390px目视Matched，窄屏宽390无横向溢出。Plan审计四项均Matched，无Deviated/Missing/Extra。待集中提交、精确CI、仅Runtime Pages部署和正式UI测试账户读回；源码通过不冒充实际登记。其他任务板草稿不随批提交。
+
+standard-cloud/Build阶段，PO批准补正常表单、先隔离/目视，再集中提交推送合并并仅部署独立Runtime Pages。允许设备助手/真实组件/CSS/直接测试及既有设计/UI/任务记录；不改Worker、Native、主站、默认关联、日常配置、原账或共享，不迁移、不安装。checklist与最小测试契约见docs/DESIGN同日段。真实测试账户已创建但禁用且未登录；只有正常UI提交和读回明确测试孩子归属后再集中安排PO设置密码/首次登录。此前CDP会话读取被拒，禁止重试/绕过，不把新增表单做成任意API执行器或令牌导出入口。
+
 ## 2026-10-18 Runtime首次登录前预登记集中交付（PO批准）
 
 PO批准集中提交/推送/合并并仅部署Runtime预登记入口，继续准备专属测试用户；不改机器默认关联/日常配置，不安装、迁移或启共享。源码只含machineUserRegistration.ts、v2Routes.ts接线、runtime-api.test.ts及本设计/任务记录，其他既有草稿和候选产物不随批提交。原子预登记直接保存同家庭明确孩子override；正常policy读取及首次上报不覆盖为default，已有其他归属拒绝覆写。12项聚焦回归（10新＋2既有）、backend typecheck、职责/引用边界和diff已通过，精确文件证据复用；审计Matched，无Deviated/Extra。发布仅选择Runtime Worker，Pages/Guardian/migration/bootstrap/shadow均关闭。生产入口、真实账户创建及派生标识、精确分配读回与首次登录分别记录；未通过前不要求提前登录，不以源码测试代替现场绑定。密码/首次登录由PO集中完成，不收集凭据。当前提交/部署尚待执行。

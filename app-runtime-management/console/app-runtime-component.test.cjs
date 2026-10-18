@@ -24,6 +24,44 @@ function fixture(){
   return{mount:context.AppRuntimeManagement.mount,root,element,elements,listeners,queries,get knowledgeDisposed(){return knowledgeDisposed;},get knowledgeOptions(){return knowledgeOptions;}};
 }
 (async()=>{
+  const registrationMachine={id:'registration-machine',displayName:'隔离电脑',platform:'windows',status:'online',defaultChildId:'daily'};
+  const registrationChildren=[{id:'daily',name:'日常孩子'},{id:'test',name:'指定孩子<&'}];
+  const validRegistration={localUserId:'A'.repeat(43),displayName:'隔离账户',childIndex:'1'};
+  assert.deepEqual(Devices.userRegistrationPayload(validRegistration,registrationChildren),{localUserId:'A'.repeat(43),displayName:'隔离账户',childId:'test'});
+  for(const invalid of [{childIndex:''},{childIndex:'99'},{localUserId:'username'},{localUserId:'A'.repeat(42)+'B'},{displayName:'\n'}])assert.throws(()=>Devices.userRegistrationPayload({...validRegistration,...invalid},registrationChildren));
+  assert.match(Devices.userRegistrationForm(registrationMachine,registrationChildren),/value="" selected/);
+  assert.match(Devices.userRegistrationForm(registrationMachine,registrationChildren),/指定孩子&lt;&amp;/);
+  assert.equal(Devices.userRegistrationForm({...registrationMachine,platform:'macos'},registrationChildren),'');
+  assert.equal(Devices.userRegistrationForm({...registrationMachine,status:'revoked'},registrationChildren),'');
+  async function registrationFixture(mode='success') {
+    const view=fixture(),writes=[],gate=deferred();let registered=false,current=true;
+    const controller=view.mount({root:view.root,view:'devices',children:registrationChildren,childId:'daily',isCurrent:()=>current,request:async(path,options={})=>{
+      if(options.method){assert.equal(options.method,'POST');assert.equal(path,'/v2/module/machines/registration-machine/users');writes.push(JSON.parse(options.body));
+        if(mode==='wait')await gate.promise;
+        if(mode==='failure')throw Error('预登记暂不可用');
+        registered=true;return{localUserId:validRegistration.localUserId,childId:'test',assignmentVersion:8};}
+      if(path==='/v2/module/machines')return{machines:[registrationMachine]};
+      if(registered&&mode==='readback-failure')throw Error('读回失败');
+      return{users:registered?[{...validRegistration,childId:'test',protected:true,assignmentSource:'override',assignmentVersion:8}]:[]};
+    }});
+    await controller.ready;
+    const click=view.listeners.find(item=>item[0]==='root'&&item[1]==='click')[2];
+    const button={dataset:{openMachine:registrationMachine.id},classList:{contains:()=>false}};
+    await click({target:{closest:selector=>selector==='button'?button:null}});
+    const form=view.element('#preregister-user-form');form.id='preregister-user-form';form.dataset.machineId=registrationMachine.id;
+    for(const [name,value]of Object.entries(validRegistration))form.querySelector(`[name="${name}"]`).value=value;
+    const submit=view.listeners.find(item=>item[0]==='root'&&item[1]==='submit')[2];
+    return{view,controller,writes,gate,form,close:()=>click({target:{closest:selector=>selector==='button'?{dataset:{},classList:{contains:name=>name==='drawer-close'}}:null}}),invalidate:()=>{current=false;},submit:()=>submit({target:form,preventDefault(){}}),status:()=>form.querySelector('.registration-status').textContent};
+  }
+  const registration=await registrationFixture();await registration.submit();
+  assert.equal(registration.writes.length,1);assert.equal(registration.writes[0].childId,'test');assert.equal(registrationMachine.defaultChildId,'daily');
+  assert.match(registration.status(),/预登记已核对/);registration.controller.dispose();
+  const registrationFailure=await registrationFixture('failure');await registrationFailure.submit();
+  assert.match(registrationFailure.status(),/预登记暂不可用/);assert.equal(registrationFailure.form.querySelector('[name="displayName"]').value,validRegistration.displayName);assert.equal(registrationFailure.form.querySelector('fieldset').disabled,false);registrationFailure.controller.dispose();
+  const readbackFailure=await registrationFixture('readback-failure');await readbackFailure.submit();assert.doesNotMatch(readbackFailure.status(),/预登记已核对/);assert.match(readbackFailure.status(),/尚未确认/);readbackFailure.controller.dispose();
+  const repeated=await registrationFixture('wait');const savingRegistration=repeated.submit();await repeated.submit();assert.equal(repeated.writes.length,1);repeated.gate.resolve();await savingRegistration;assert.match(repeated.status(),/预登记已核对/);repeated.controller.dispose();
+  const abandonedRegistration=await registrationFixture('wait');const abandonedSave=abandonedRegistration.submit();abandonedRegistration.invalidate();abandonedRegistration.gate.resolve();await abandonedSave;assert.doesNotMatch(abandonedRegistration.status(),/预登记已核对/);abandonedRegistration.controller.dispose();
+  const closedRegistration=await registrationFixture('wait');const closedSave=closedRegistration.submit();await closedRegistration.close();closedRegistration.gate.resolve();await closedSave;assert.doesNotMatch(closedRegistration.status(),/预登记已核对/);closedRegistration.controller.dispose();
   // 执行实际读取函数，不复制其请求代际判断；只替换网络和绘制边界。
   const usageFunction=source.slice(source.indexOf('  async function loadUsage('),source.indexOf('  function renderAll()'));
   assert(usageFunction.includes('program-instance-usage'));
