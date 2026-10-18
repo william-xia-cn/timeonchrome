@@ -674,6 +674,46 @@ describe('Runtime product API', () => {
     expect(modernResponse.headers.get('etag')).not.toBe(etag);
   });
 
+  it.each(['empty', 'omitted'])('shared V2 capability survives authenticated heartbeat and is withdrawn by %s capabilities', async withdrawal => {
+    const {enrolled}=await createMachineWithUser();
+    const headers=bearer(enrolled.machineToken);
+    const capability='shared-access-policy-v2';
+    const legacy=['product-block-v1','application-other-v1','program-instance-execution-policy-v1'];
+    const heartbeat=(fields:Record<string,unknown>,requestHeaders=headers)=>call('/v2/machines/heartbeat',{
+      method:'POST',headers:requestHeaders,body:JSON.stringify({serviceVersion:'fixture',osVersion:'11',architecture:'x64',
+        tamperCount:0,policyState:'applied',...fields})});
+    const stored=()=>env.RUNTIME_DB.prepare('SELECT capabilities_json FROM runtime_machines_v2 WHERE id=?')
+      .bind(enrolled.machineId).first<{capabilities_json:string}>();
+    expect((await heartbeat({capabilities:legacy})).status).toBe(200);
+    const before=await call('/v2/machines/policy',{headers});
+    const previous=await before.json<Record<string,unknown>>();
+    expect(previous.capabilities).not.toContain(capability);
+    const report={capabilities:[...legacy,capability,'unknown-future-capability']};
+    expect((await heartbeat(report,{})).status).toBe(401);
+    expect(JSON.parse((await stored())!.capabilities_json)).toEqual(legacy);
+    expect((await heartbeat(report)).status).toBe(200);
+    expect(JSON.parse((await stored())!.capabilities_json)).toEqual([...legacy,capability]);
+    const response=await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':before.headers.get('etag')!}});
+    expect(response.status).toBe(200);
+    const current=await response.json<Record<string,unknown>>();
+    // Only negotiated capabilities change: no Child policy, assignment or version write.
+    expect({...current,capabilities:previous.capabilities}).toEqual(previous);
+    expect((current.capabilities as string[]).filter(value=>value!==capability)).toEqual(previous.capabilities);
+    expect(current.capabilities).toContain(capability);
+    expect(current.capabilities).not.toContain('unknown-future-capability');
+    const etag=response.headers.get('etag')!;
+    expect(etag).not.toBe(before.headers.get('etag'));
+    expect((await heartbeat(report)).status).toBe(200);
+    expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':etag}})).status).toBe(304);
+    expect((await heartbeat(withdrawal==='empty'?{capabilities:[]}:{})).status).toBe(200);
+    expect(JSON.parse((await stored())!.capabilities_json)).toEqual([]);
+    const downgraded=await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':etag}});
+    expect(downgraded.status).toBe(200);
+    const legacyPolicy=await downgraded.json<{version:number;capabilities:string[]}>();
+    expect(legacyPolicy.version).toBe(previous.version);
+    expect(legacyPolicy.capabilities).not.toContain(capability);
+  });
+
   it('program execution capability survives heartbeat and invalidates the machine policy ETag', async () => {
     const {enrolled}=await createMachineWithUser();
     const headers=bearer(enrolled.machineToken);
