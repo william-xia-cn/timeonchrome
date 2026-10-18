@@ -1,5 +1,9 @@
 # TASK_BOARD
 
+## 2026-10-18 Runtime首次登录前预登记集中交付（PO批准）
+
+PO批准集中提交/推送/合并并仅部署Runtime预登记入口，继续准备专属测试用户；不改机器默认关联/日常配置，不安装、迁移或启共享。源码只含machineUserRegistration.ts、v2Routes.ts接线、runtime-api.test.ts及本设计/任务记录，其他既有草稿和候选产物不随批提交。原子预登记直接保存同家庭明确孩子override；正常policy读取及首次上报不覆盖为default，已有其他归属拒绝覆写。12项聚焦回归（10新＋2既有）、backend typecheck、职责/引用边界和diff已通过，精确文件证据复用；审计Matched，无Deviated/Extra。发布仅选择Runtime Worker，Pages/Guardian/migration/bootstrap/shadow均关闭。生产入口、真实账户创建及派生标识、精确分配读回与首次登录分别记录；未通过前不要求提前登录，不以源码测试代替现场绑定。密码/首次登录由PO集中完成，不收集凭据。当前提交/部署尚待执行。
+
 ## 云端容错集中修复（2026-10-17，PO批准实施）
 
 基线：现有云端工作线 `codex/cloud-management` / `cb51631`；保留此前所有未提交文档与未跟踪产物。本批只修云端及云端页面，不改原账、Native、扩展、配置内容或共享开关；不迁移、不安装、不逐零件交付。PO随后批准本批集中提交、推送、合并及部署Guardian/Runtime和两套已修改Pages，继续真实只读验收。

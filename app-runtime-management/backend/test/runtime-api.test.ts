@@ -8,6 +8,8 @@ import { validateSegment } from '../src/validation';
 import catalogRules from '../src/data/product-catalog-rules.v3.json';
 import { syncApplicationInventory } from '../src/applicationKnowledge';
 import { machinePolicyEtag } from '../src/v2Repository';
+import { registerMachineUser } from '../src/machineUserRegistration';
+import type { AccountModuleClaims } from '../src/contracts';
 import worker from '../src/index';
 import { rebuildApplicationStatistics } from '../src/applicationStatistics';
 
@@ -55,6 +57,165 @@ beforeEach(async () => {
 });
 
 describe('Runtime product API', () => {
+  describe('machine user preregistration', () => {
+    const localUserId = 'A'.repeat(43);
+    const registration = { localUserId, displayName: 'Prelogin fixture', childId: 'child-b' };
+    const register = (machineId: string, account: string, body: unknown = registration) => call(
+      `/v2/module/machines/${machineId}/users`,
+      { method: 'POST', headers: bearer(account), body: JSON.stringify(body) },
+    );
+    const assignments = (machineId: string) => env.RUNTIME_DB.prepare(
+      'SELECT * FROM runtime_user_assignments_v2 WHERE machine_id=? ORDER BY local_user_id,assignment_version',
+    ).bind(machineId).all<Record<string, unknown>>();
+
+    it('preassigns before login; normal policy and first report preserve the explicit Child and daily assignments', async () => {
+      const { account, enrolled, localUserId: dailyUser } = await createMachineWithUser();
+      const original = (await assignments(enrolled.machineId)).results;
+      const response = await register(enrolled.machineId, account);
+      expect(response.status).toBe(201);
+      await expect(response.json()).resolves.toMatchObject({ localUserId, childId: 'child-b',
+        policyVersion: 3, assignmentVersion: 3, replayed: false });
+      expect(await env.RUNTIME_DB.prepare('SELECT session_active FROM runtime_machine_users_v2 WHERE machine_id=? AND local_user_id=?')
+        .bind(enrolled.machineId, localUserId).first()).toEqual({ session_active: 0 });
+      const policy = () => call('/v2/machines/policy', { headers: bearer(enrolled.machineToken) });
+      await expect((await policy()).json()).resolves.toMatchObject({ defaultChildId: 'child-a', users: expect.arrayContaining([
+        expect.objectContaining({ localUserId, childId: 'child-b', protected: true, assignmentVersion: 3 }),
+        expect.objectContaining({ localUserId: dailyUser, childId: 'child-a', assignmentVersion: 2 }),
+      ]) });
+      const report = await call('/v2/machines/users', { method: 'PUT', headers: bearer(enrolled.machineToken),
+        body: JSON.stringify({ users: [{ localUserId, displayName: registration.displayName, sessionActive: true }] }) });
+      expect(report.status).toBe(200);
+      const rows = (await assignments(enrolled.machineId)).results;
+      expect(rows.filter(row => row.local_user_id === dailyUser)).toEqual(original);
+      expect(rows.filter(row => row.local_user_id === localUserId)).toEqual([
+        expect.objectContaining({ child_id: 'child-b', protected: 1, assignment_source: 'override', assignment_version: 3 }),
+      ]);
+      await expect((await policy()).json()).resolves.toMatchObject({ defaultChildId: 'child-a', users: expect.arrayContaining([
+        expect.objectContaining({ localUserId, childId: 'child-b', protected: true }),
+      ]) });
+      expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2').first()).toEqual({ n: 0 });
+    });
+
+    it('replays without bumping versions; different Child/name and an existing default user cannot be overwritten', async () => {
+      const { account, enrolled, localUserId: dailyUser } = await createMachineWithUser();
+      expect((await register(enrolled.machineId, account)).status).toBe(201);
+      const before = (await assignments(enrolled.machineId)).results;
+      const retry = await register(enrolled.machineId, account);
+      expect(retry.status).toBe(200);
+      await expect(retry.json()).resolves.toMatchObject({ replayed: true, policyVersion: 3, assignmentVersion: 3 });
+      for (const body of [{ ...registration, childId: 'child-a' }, { ...registration, displayName: 'Different' }]) {
+        expect((await register(enrolled.machineId, account, body)).status).toBe(409);
+      }
+      // The old fixture's non-HMAC user id is also rejected by the new endpoint.
+      expect((await register(enrolled.machineId, account, { ...registration, localUserId: dailyUser })).status).toBe(400);
+      expect((await assignments(enrolled.machineId)).results).toEqual(before);
+      expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version,default_child_id FROM runtime_machines_v2 WHERE id=?')
+        .bind(enrolled.machineId).first()).toEqual({ desired_policy_version: 3, default_child_id: 'child-a' });
+    });
+
+    it('requires owning parent auth and rejects foreign Child, foreign machine and revoked machine without writes', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      const path = `/v2/module/machines/${enrolled.machineId}/users`;
+      expect((await call(path, { method: 'POST', body: JSON.stringify(registration) })).status).toBe(401);
+      expect((await register(enrolled.machineId, enrolled.machineToken)).status).toBe(401);
+      expect((await register(enrolled.machineId, await accountToken({ account_id: 'other', sub: 'other' }))).status).toBe(404);
+      expect((await register(enrolled.machineId, account, { ...registration, childId: 'foreign' })).status).toBe(404);
+      expect((await register('missing-machine', account)).status).toBe(404);
+      await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET revoked_at_ms=1 WHERE id=?').bind(enrolled.machineId).run();
+      expect((await register(enrolled.machineId, account)).status).toBe(404);
+      expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_machine_users_v2 WHERE local_user_id=?')
+        .bind(localUserId).first()).toEqual({ n: 0 });
+    });
+
+    it('rejects names/SIDs as identity, missing Child, login flags, defaults and unexpected fields', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      for (const patch of [{ localUserId: 'TestUser' }, { localUserId: 'S-1-5-21-123456789-123456789-123456789-1001' },
+        { localUserId: 'B'.repeat(43) }, { childId: null }, { childId: '' }, { displayName: ' ' },
+        { displayName: 'a\nb' }, { sessionActive: true }, { defaultChildId: 'child-b' }, { protected: false }]) {
+        expect((await register(enrolled.machineId, account, { ...registration, ...patch })).status).toBe(400);
+      }
+      expect((await register(enrolled.machineId, account, null)).status).toBe(400);
+      expect((await call(`/v2/module/machines/${enrolled.machineId}/users`, { method: 'DELETE', headers: bearer(account) })).status).toBe(405);
+      expect((await assignments(enrolled.machineId)).results).toHaveLength(1);
+    });
+
+    it('rolls back user, assignment, policy head and version history if the batch cannot complete', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      const before = (await assignments(enrolled.machineId)).results;
+      await env.RUNTIME_DB.prepare(`CREATE TRIGGER preregistration_failure BEFORE INSERT ON runtime_user_assignments_v2
+        WHEN NEW.local_user_id='${localUserId}' BEGIN SELECT RAISE(ABORT, 'isolated registration failure'); END`).run();
+      try {
+        expect((await register(enrolled.machineId, account)).status).toBe(500);
+      } finally {
+        await env.RUNTIME_DB.prepare('DROP TRIGGER preregistration_failure').run();
+      }
+      expect((await assignments(enrolled.machineId)).results).toEqual(before);
+      expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_machine_users_v2 WHERE local_user_id=?')
+        .bind(localUserId).first()).toEqual({ n: 0 });
+      expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version,default_child_id FROM runtime_machines_v2 WHERE id=?')
+        .bind(enrolled.machineId).first()).toEqual({ desired_policy_version: 2, default_child_id: 'child-a' });
+      expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_machine_policy_versions_v2 WHERE machine_id=?')
+        .bind(enrolled.machineId).first()).toEqual({ n: 2 });
+    });
+
+    it('handles simultaneous identical preregistration without duplicate assignments or version increments', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      const responses = await Promise.all([register(enrolled.machineId, account), register(enrolled.machineId, account)]);
+      expect(responses.map(response => response.status).sort()).toEqual([200, 201]);
+      expect((await assignments(enrolled.machineId)).results.filter(row => row.local_user_id === localUserId)).toHaveLength(1);
+      expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version FROM runtime_machines_v2 WHERE id=?')
+        .bind(enrolled.machineId).first()).toEqual({ desired_policy_version: 3 });
+    });
+
+    it.each(['policy', 'revoked'])('aborts stale preregistration atomically when machine %s changes before its batch', async change => {
+      const { enrolled } = await createMachineWithUser();
+      const claims: AccountModuleClaims = { iss: 'guardian-api', aud: 'app-runtime-management:account',
+        sub: 'account-a', account_id: 'account-a', children: [{ id: 'child-b', name: 'Other' }],
+        iat: 0, exp: 1, jti: 'isolated-preregistration' };
+      const originalBatch = env.RUNTIME_DB.batch.bind(env.RUNTIME_DB);
+      const spy = vi.spyOn(env.RUNTIME_DB, 'batch').mockImplementationOnce(async statements => {
+        if (change === 'revoked') {
+          await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET revoked_at_ms=1 WHERE id=?').bind(enrolled.machineId).run();
+        } else {
+          await originalBatch([
+            env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET desired_policy_version=3 WHERE id=?').bind(enrolled.machineId),
+            env.RUNTIME_DB.prepare('INSERT INTO runtime_machine_policy_versions_v2(machine_id,version,payload_hash,created_at_ms) VALUES (?,3,?,1)')
+              .bind(enrolled.machineId, 'isolated-concurrent-policy'),
+          ]);
+        }
+        return originalBatch(statements);
+      });
+      try {
+        await expect(registerMachineUser(env.RUNTIME_DB, claims, enrolled.machineId, registration, Date.now()))
+          .rejects.toMatchObject({ status: 409, code: 'MACHINE_POLICY_CHANGED' });
+      } finally { spy.mockRestore(); }
+      expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_machine_users_v2 WHERE local_user_id=?')
+        .bind(localUserId).first()).toEqual({ n: 0 });
+      expect((await assignments(enrolled.machineId)).results).toHaveLength(1);
+    });
+
+    it('does not reassign an already reported user, even with a valid derived id', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      expect((await call('/v2/machines/users', { method: 'PUT', headers: bearer(enrolled.machineToken),
+        body: JSON.stringify({ users: [{ localUserId, displayName: registration.displayName, sessionActive: true }] }) })).status).toBe(200);
+      const before = (await assignments(enrolled.machineId)).results;
+      const response = await register(enrolled.machineId, account);
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: 'MACHINE_USER_ALREADY_REGISTERED' } });
+      expect((await assignments(enrolled.machineId)).results).toEqual(before);
+    });
+
+    it('keeps the first confirmed Child when two preregistrations race with different children', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      const responses = await Promise.all([register(enrolled.machineId, account),
+        register(enrolled.machineId, account, { ...registration, childId: 'child-a' })]);
+      expect(responses.map(response => response.status).sort()).toEqual([201, 409]);
+      expect((await assignments(enrolled.machineId)).results.filter(row => row.local_user_id === localUserId)).toHaveLength(1);
+      expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version,default_child_id FROM runtime_machines_v2 WHERE id=?')
+        .bind(enrolled.machineId).first()).toEqual({ desired_policy_version: 3, default_child_id: 'child-a' });
+    });
+  });
+
   it('limits segment diagnostics to the owning Child and fixed read-only query', async () => {
     const path = '/v2/module/segment-diagnostics?childId=child-a&kind=usage&fromMs=0&toMs=86400000';
     expect((await call(path)).status).toBe(401);

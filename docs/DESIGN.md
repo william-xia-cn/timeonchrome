@@ -1,5 +1,15 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-18 首次登录前精确预登记（PO批准，先隔离验证）
+
+标准云端在现有家长鉴权入口 `POST /v2/module/machines/:machineId/users` 接受且仅接受 `{localUserId, displayName, childId}`，复用机器/用户/分配/策略版本表，不新增表或migration。localUserId必须是本机Service现行HMAC-SHA256/Base64Url派生值（43字符）；不能用用户名、Windows SID、随机占位符代替，密钥不上传。displayName只作显示，不用于匹配。此入口不创建Windows账户、不设置密码、不伪造交互登录上报；真实账户创建后由受限本机核查取得其派生标识，再在首次登录前预登记。当前轮仅实现HTTP入口，无新增页面或Native改动。
+
+验证家长拥有未吊销的Windows机器且孩子属于同家庭后，在一个D1 batch事务内新增session_active=0用户、明确override孩子分配及新机器策略版本；机器default_child_id和其他用户分配不变。版本/吊销竞态须拒绝并整体回滚；已有用户只允许同名称、同明确孩子归属的幂等确认，不覆写已有归属。注册后正常Service首次上报复用同localUserId，现有NOT EXISTS分配逻辑保留预分配，不经历默认孩子。身份不一致、已存在其他分配及并发状态变化返回明确冲突，不按名称猜配或自动重试改绑。
+
+实施checklist：①新增machineUserRegistration.ts输入校验与原子写入；②v2Routes.ts仅为既有users集合增加POST，GET及其他接口保持；③runtime-api.test.ts以真实隔离D1和正常机器policy/users入口验证预登记→策略读取→首次上报、重复/并发、事务回滚、跨家庭/吊销拒绝、默认与日常用户不变。必要本地测试仅该文件预登记专项、原有机器分配专项及backend typecheck/diff；不跑全量、UI/E2E、安装器或Mac。CI/发布smoke待集中交付阶段确定，本轮不提交发布、不部署、不安装、不改真实配置/原账或启共享。
+
+本地结果：上述①②③Matched，10项预登记用例和2项既有Windows/macOS分配回归通过；后者只是现有跨平台HTTP行为回归，不是Mac实机验收。typecheck、职责/引用边界检查通过。未部署、没有真实预登记、未取得TOCSharedTest的实际派生标识；不会以隔离测试替代生产准备或要求先登录再改绑。现有Native的用户派生与policy读取无需为本入口重装。
+
 ## 2026-10-17 云端容错集中修复边界
 
 CF-05至CF-08已获PO逐项批准并完成本地实现/验证：只修发布/下行及辅助写入故障处理。发布回退限定同孩子/设备/日期的已发布历史清单；旧日回退限定同孩子/日期的已发布日generation，每次最多8个历史候选，均完整验证后采用，无可用结果则部分覆盖，不造用量。日周hash重建及device/day/week头同事务；周generation在读取来源前固定，既有唯一约束阻止并发陈旧输入覆盖。正常输入计秒、分类和行聚合不变，未发布清单不能成为回退来源。
