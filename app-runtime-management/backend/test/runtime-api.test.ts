@@ -756,7 +756,7 @@ describe('Runtime product API', () => {
     const machineHeaders=bearer(enrolled.machineToken);
     const legacy=await call('/v2/machines/policy',{headers:machineHeaders});
     expect((await legacy.clone().json<{appPolicies:Array<{policy:{classifications:Array<{classification:string}>}}>}>())
-      .appPolicies[0]?.policy.classifications[0]?.classification).toBe('unclassified');
+      .appPolicies[0]?.policy.classifications[0]?.classification).toBe('other');
     expect((await call('/v2/machines/heartbeat',{method:'POST',headers:machineHeaders,
       body:JSON.stringify({serviceVersion:'fixture',windowsVersion:'11',architecture:'x64',tamperCount:0,
         policyState:'applied',capabilities:['application-other-v1']})})).status).toBe(200);
@@ -764,6 +764,15 @@ describe('Runtime product API', () => {
     expect(capable.headers.get('etag')).not.toBe(legacy.headers.get('etag'));
     expect((await capable.json<{appPolicies:Array<{policy:{classifications:Array<{classification:string}>}}>}>())
       .appPolicies[0]?.policy.classifications[0]?.classification).toBe('other');
+    expect((await call('/v2/machines/heartbeat',{method:'POST',headers:machineHeaders,
+      body:JSON.stringify({serviceVersion:'fixture',osVersion:'11',architecture:'x64',tamperCount:0,
+        policyState:'applied',capabilities:[]})})).status).toBe(200);
+    const withdrawn=await call('/v2/machines/policy',{headers:machineHeaders});
+    expect((await withdrawn.json<{appPolicies:Array<{policy:{classifications:Array<{classification:string}>}}>}>())
+      .appPolicies[0]?.policy.classifications[0]?.classification).toBe('other');
+    const unchanged=await call('/v2/module/app-policy?childId=child-a',{headers:bearer(account)});
+    expect(unchanged.headers.get('etag')).toBe(saved.headers.get('etag'));
+    expect((await unchanged.json<{classifications:Array<{classification:string}>}>()).classifications[0]?.classification).toBe('other');
   });
 
   it.each(['windows', 'macos'] as const)('enrolls %s machine and applies default and per-user policy without exposing SID', async (platform) => {
