@@ -1,5 +1,97 @@
 # TASK_BOARD
 
+## 2026-10-19 四项集中交付获批，执行中
+
+PO批准集中提交/推送/合并本批四项，必要Runtime Worker部署、唯一Windows内部候选及一次升级后只读验收。范围不含Guardian/Pages、migration、R2/feed、共享启用或配置/原账改写。复用119项Native及20项Runtime精确源码证据，补必要CI、产物核验和安装保留核对；排除其他在途草稿与无关文档。当前未宣称发布或实机通过，安装UAC由PO批准。Native候选以已安装2.6.68对应66f0a81基线加本批提交构建，不将工作区识别/强化草稿带入。
+
+## 2026-10-19 四项集中修复完成源码及聚焦验证（未提交／未安装部署）
+
+按下方方案实施C01/C02/C12/C03。职责按仓分别为native-local（Native统计解释、目标、心跳及旧循环）与standard-cloud（Runtime接收端投影）；只修改对应源码、直接测试和既有文档。先做缺省/显式配置回归，再统一解释并撤掉旧依赖，补能力及旧循环隔离，最后集中验证。保留Native其他在途草稿与本仓既有文档修改；验证使用固定HEAD加本批文件的隔离源码目录，避免未批准草稿混入证据。不新建Git分支或工作树，不安装、部署、迁移、写真实账或配置、不启共享。
+
+验证为Native受影响过滤测试及项目编译、Runtime分类投影与心跳/策略隔离D1测试及typecheck、两仓diff检查；不跑真实Chrome、Mac或安装器。最终结果如下，不提交或推送。其他8类兼容与独立应用封锁不扩入本批。
+
+本批结果更新：C01/C02/C12/C03均Matched；无Deviated/Missing/Extra。Native只改9个产品文件：Infrastructure的NativeApplicationStatistics.cs、NativeApplicationManagementApi.cs、LocalApplicationStatisticsReader.cs、ApplicationChildStatisticsReader.cs、NativeApplicationControlBuilder.cs，以及Service的RuntimeServiceCoordinator.cs、.NativeSharedTarget.cs、.LocalApplicationStatistics.cs、.ApplicationObjects.cs；6个直接测试及既有WINDOWS-QUOTA-SOURCES文档配套更新。Runtime只改v2Repository.ts及runtime-api.test.ts、product-block-policy.test.ts；DECISIONS同步落实状态。原有在途草稿保留，不混入隔离产物。
+
+| 验收项 | 实施及证据 |
+|---|---|
+| C01统计缺省 | 删除InterpretLegacy及读取器的旧策略参数/注入，缺省通过NativeApplicationConfiguration.Interpret统一为unclassified/false；没有用缺省吞掉I/O、校验错误。当前周不再从旧目录产生特殊属性未知，历史分支未重定义；基础秒数与原账不变。去掉旧策略输入后，现有派生revision按真实内容重新生成，无须新schema、重置计数或伪造配置版本 |
+| C02目标缺省 | 去掉SnapshotFor旧分类回退，与统计调用同一纯解释。实际Service用冲突旧配置、显式study/other/special及撤销条目对照，统计、目标、桶一致；无正式动作派发 |
+| C12云端分类 | 删除递归other→unclassified，保留scope配置剥离与执行格式协商。Native实际HTTP心跳含既有application-other-v1；Runtime认证路由→隔离D1→下发验证能力有/无/撤回均保持other，原配置/ETag不被写改，能力变化仍影响机器ETag |
+| C03旧循环 | 正式StartAsync使用的装载入口在FixedIdentity返回已完成任务；循环入口、唤醒和旧诊断调度均隔离。直接进入循环及重复唤醒不调用旧HTTP，预置pending旧队列逐字段不变；新版桶读取/peer采用及Service新版上传恢复继续通过，不以共享开启为前提 |
+
+复现与修正：Native固定旧源码加新断言，实际Service的8个生产者场景6失败/2通过，已复现旧继承及特殊排除；云端原实现实测other返回unclassified。随后Native编译曾发现新增测试命名空间误用，已更正；108项首次可执行复验106通过、2失败，分别为被移除旧配置回调上的并发测试钩子，以及对SQLite池占用文件做字节读取的测试方式。已改为固定时钟钩子和只读队列行快照，未恢复旧依赖、删除断言或改产品计时。另11项上传复验的夹具原本混用真实日期，跨周后误落历史分支；统一为夹具既定时钟后通过，不调整机器时钟或历史产品语义。
+
+最终验证：Native隔离固定66f0a81451d3406bf8b4d8af79d2626000fd421e＋本批15个源码/测试文件，逐文件SHA核对15/15一致。`dotnet test <隔离源码>/agents/windows/tests/TimeOnChrome.AppRuntime.Core.Tests/TimeOnChrome.AppRuntime.Core.Tests.csproj --no-restore --filter <上述统计/拓扑/读取器/心跳/Service目标/旧循环/peer/固定统计专项> -m:1`为108/108；同项目Service `NewFixedUploadSurvivesDisconnectedTransportLostResponseAndServiceCancellation|NewFixedUploadKeepsNewFactsDuringOutageAndUploadsLatestSnapshotOnce`为11/11。精确用例及结果保存在本地TRX；两份TRX为four-fixes-native.trx、four-fixes-upload.trx，不入Git。编译0错误，存在隔离长路径下非致命MSB3101程序集缓存写入警告，未为消警改系统设置。
+
+Runtime：`npm exec -- vitest run test/runtime-api.test.ts -t 'stores other classification in additive history|shared V2 capability survives|program execution capability survives'`为4/4（83不相关例跳过）；`npm exec -- vitest run test/product-block-policy.test.ts test/native-application-management.test.ts`为16/16；`npm run typecheck`通过。Native职责固定用例、CI路由固定用例及两仓`git diff --check`通过。没有新增CI、全量/跨平台/真实浏览器测试、安装器、生产查询或故障注入；不将本地通过当正式Service实机已修复。
+
+状态：本批源码及隔离验收通过，未提交推送、制包、安装、部署或迁移；原账、现有配置、配对和共享开关未操作。只存在旧配置的对象在新解释下不再继承，这属于PO确认的缺省修正，不偷偷迁移成新配置。生产仍运行原版本，后续交付和正式只读验收另按授权集中安排，不逐零件交付。
+
+## 2026-10-19 四处旧语义依赖集中修复方案（审批时基线，实施结果见上方）
+
+PO范围：只处理下方C01、C02、C12及C03；缺省未归类，只有当前明确特殊设置才特殊，不继承旧配置。不改原账、现有配置或共享开关。当前为Product规划／architecture-integration文档阶段，只更新本任务板；Native实现归所属工作线，Runtime实现归standard-cloud。本轮不发送跨会话任务，不改产品或测试，不提交推送、制包、安装、部署或执行UAC。保留现有脏树，不新建分支、工作树、文档、接口、表或migration。
+
+### 一、唯一解释规则
+
+当前孩子、当前应用身份的有效配置是本批统计与共享执行目标的唯一配置依据：明确分类原样使用；无分类设置为unclassified；SpecialApplication仅明确true时为true，无设置或明确false均为false。special不由程序名、旧产品目录、旧技术身份分类或关联充分性推导；other与special独立。未归类仍按既有应用桶规则进入复合，普通other不扣三桶，明确special排除三桶；已经进入娱乐桶的量不再次借用。本批不更改这些桶算法。
+
+“没有配置”与真实读取/身份/范围错误不同：成功读到的空配置/无对象条目使用上述缺省；I/O、反序列化或身份校验失败仍走现有错误与同范围有效缓存，不吞错伪装成成功缺省，不再查旧配置救场。统计端与目标端复用当前配置的同一纯解释函数／现有合适位置，不建新配置服务、第二份状态或新的身份识别规则。孩子/机器/来源、配置生效时间和改绑隔离保持。
+
+### 二、按顺序实施的四项checklist
+
+| 项目 | 现有证据与最小修改位置 | 修复后必须成立 |
+|---|---|---|
+| 1 C01统计旧回退 | Infrastructure/NativeApplicationStatistics.cs当前周缺配置分支移除InterpretLegacy调用及仅服务该调用的依赖；LocalApplicationStatisticsReader.cs去掉向当前解释器注入旧配置的接线。NativeApplicationManagementApi.cs内ForTargetAsync及直接调用处的“null继续旧配置”注释按实际新规则更正，不扩大到其他消费者 | 当前日/周明确配置或缺省直接解释；不再因旧目录缺项生成NATIVE_SPECIAL_APPLICATION_CONTEXT_MISSING；真实新账/配置错误仍保留。原始秒数、基础日/小时总量、身份及原账哈希不变，非特殊分类桶可因纠正解释而变化。更早历史不在本批重解释 |
+| 2 C02执行目标旧回退 | Service/RuntimeServiceCoordinator.NativeSharedTarget.cs移除SnapshotFor旧分类读取及configured为空时的旧分类switch，使用与第1项同一解释 | 同孩子、同应用、同生效时点下，统计与共享目标得到相同分类及special；缺省不是旧封锁/旧娱乐/旧特殊。不改其他独立封锁模块、黑名单、时间窗、配置存储或原有管理键；不实际派发动作 |
+| 3 C12云端分类改写 | Runtime backend/src/v2Repository.ts中projectAppPolicyForMachine移除classification:other→unclassified递归改写；保留独立scope下发、身份隔离及程序执行格式的既有边界。Native实际心跳BuildExecutionCapabilities补报其确实支持的既有application-other-v1，使用原能力名和原白名单，不新增协议 | 缺少能力标记不能默默改写分类；有/无该标记的投影均不改变other。已保存孩子配置及历史不变，不下发别的孩子或擅自恢复scope专属字段；未支持other的旧客户端不在本批宣称兼容通过，不用另一套降级规则补偿 |
+| 4 C03退出旧贡献后台 | Service/RuntimeServiceCoordinator.cs当前FixedIdentity模式不启动ApplicationSharedQuotaUploadLoopAsync，旧贡献专属唤醒/调度不再进入该模式；只移除或隔离被确认属于该循环的启动与唤醒，不整批删共享模块 | 冷启动、周期到期、正常上传后唤醒及重连均不调用旧能力/旧策略、不enqueue/retry/upload旧贡献；已有旧队列原样保留且不重放。新版原账/持久统计上传、本机桶读取、双向交换和其他来源缓存仍运行，且不依赖共享启用 |
+
+第4项安全依据：旧循环调用的ApplicationAccountUploader.RecoverSupersededRoundAsync在store.V3Only或FixedIdentity时直接返回0（ApplicationAccountUploader.cs:62起），其Once入口也拒绝FixedIdentity；停止当前模式旧循环不会移走该模式的有效新账恢复。但必须在Service装载级回归中证明新上传仍有独立实际入口，不能只据此删除公共上传器或队列。旧协议/旧模式的其他7类兼容不顺手清理。
+
+派生缓存仅处理本批必要部分：沿现有当前日/周计算、版本递增和替换路径产出新解释，验证旧派生结果不因配置版本未变化而继续命中；只在实际存在此缓存复用断点时最小修正其现有计算版本/缓存失效依据，不新增摘要账或手改统计值。新版统计正常上传不改接收协议或计时语义；更早历史、旧原账与旧贡献队列不改写、不删除。不把“配置不变”等同“派生结果必须不变”。
+
+### 三、集中聚焦验证契约
+
+中风险：统计分类、目标解释、机器能力下发及Service后台生命周期；非原账改动。先补可复现旧行为的隔离用例，再实施四项最小补丁，最后一次汇总；测试数量不代替端到端断言。
+
+| 验证组 | 必要案例及通过依据 |
+|---|---|
+| 配置缺省/冲突 | 无新配置且旧配置分别为study、restrictedEntertainment、blocked或special，结果始终unclassified/false；明确新分类优先；special=true/false与分类独立；撤销条目恢复缺省；旧目录缺失/冲突不改变结果、不漏有效普通秒数 |
+| 统计与目标同口径 | 同一固定Child/应用/时点同时经过真实统计读取入口及ReadNativeSharedAccessTargetAsync，分类/special一致；未归类进复合、other不扣、明确special排除。网页600秒+普通应用600秒的既有独立核算不变，不运行正式提醒或关闭 |
+| 失败与隔离 | 已有有效当前配置缓存的读取失败不转旧配置；无有效结果保留明确错误及其他有效用量；孩子/来源/配置生效范围变化不复用旧响应或跨孩子缺省。保留现有授权、精确ACK与哈希负例，不增加强一致门槛 |
+| Runtime真实下发 | 认证心跳→隔离D1能力保存→机器策略响应；有/无application-other-v1时other原样保留；心跳重复稳定、能力改变的ETag按既有机制变化；投影不修改数据库配置/历史，不意外下发scope配置或未协商程序执行格式。Native心跳构造确含既有标记 |
+| 旧循环退出 | 真实Service启动装载中FixedIdentity模式冷启动、定时/上传唤醒、重连时旧能力/策略/贡献HTTP及旧入队调用均为0；预置旧队列不变。相同宿主内新版正常统计上传及桶交换实际被调用成功，排除“把所有后台停掉所以零调用”的假通过 |
+| 无原账/配置改写 | 隔离前后原账每条内容/条数/整数秒/哈希、配置内容及版本、绑定不变；同截止基础总量及小时不变，变化仅在可解释的分类及非特殊桶。重复读取不累计、修正下降按版本替换；旧派生缓存不复活，历史不重算 |
+
+必要Native测试：在既有NativeApplicationLegacyConfigurationTests、ServiceQuotaBucketsTests及相关Service目标/启动测试位置添加上述直接案例，按实际修改选择最小过滤集合；验证运行的是Service接线而非只测纯函数。必要Runtime测试：既有backend/test/runtime-api.test.ts相关心跳/策略与分类投影案例；使用既有隔离D1，不写生产。Native相关项目编译，Runtime npm run typecheck，git diff --check；实施阶段核对实际测试名字后记录精确命令，不预报通过。后续若进入推送，复用精确SHA的相关Native/Runtime CI；不跑网页账本、Mac、全平台、真实Chrome破坏测试或无关全量回归。Wrangler dry-run仅作为后续Runtime交付检查，当前不运行。
+
+### 四、交付与结束边界
+
+集中汇报四项各自Matched/Deviated/Missing/Extra、修改文件、精确测试/编译结果和原账/配置保留证据；有失败只修本批断点，不补旧目录或扩其他兼容。源码修复、集中候选、部署安装和正式只读验收分别登记；本次只制定方案，不把此前安装/部署批准自动用于本批。后续另获交付授权才安排一个最终候选及必要Runtime部署，不逐零件交付。
+
+正式验收目标（后续授权范围，不在本轮执行）：固定当前孩子/当天/截止，Native基础总量保持，统计与目标缺省一致，三桶每项可解释，Runtime下发other不变，旧贡献循环无新活动，双向新桶仍可读；原账/现有配置不变、共享持续关闭。无需为本方案重装、取长诊断或UAC。当前状态：方案已登记，4项实现均未启动，其他8类兼容不纳入本批。
+
+## 2026-10-19 过渡兼容盘点补充：限定范围12类，不是12个已证实故障
+
+只读范围：当前已安装Native 2.6.68冻结源码66f0a81451d3406bf8b4d8af79d2626000fd421e，以及Runtime策略下发直接边界（本地来源f2d76b5，对应已合并84430e1）。不拿当前Native main替代已安装源码，不把关键词命中或文件数当问题数；未完成控件全量、Mac、Task/Santa盘点，不能报告全项目兼容总数。仅补现有任务板，不改产品/测试、原账、配置、开关，不UAC、测试、安装或部署。
+
+| 编号／独立机制 | 实际入口及条件（Native路径相对agents/windows/src） | 判断及证据边界 |
+|---|---|---|
+| C01 统计缺省继承旧分类／旧产品特殊属性 | Infrastructure/LocalApplicationStatisticsReader.cs:150→NativeApplicationStatistics.cs:40—46、69—99；Service本机桶真实消费 | Deviated：违反最新“缺省未归类、非明确特殊即普通”。现场有特殊上下文缺失原因，逐对象影响秒数未取得；与下方原3项清点的第1项相同，不重复计数 |
+| C02 执行目标缺省继承旧分类 | Service/RuntimeServiceCoordinator.NativeSharedTarget.cs:31、47、52→Infrastructure/MachinePolicy.cs:345—368 | Deviated：缺新配置仍继承旧分类，而特殊属性缺省false；与统计端解释不同。共享关闭，未证明已造成误关；同原清点第2项 |
+| C03 旧共享贡献后台仍启动 | Service/RuntimeServiceCoordinator.cs:302、2915起→Infrastructure/ApplicationSharedQuotaEnqueuer.cs:21—29；旧V1能力成功后才查旧策略/准备队列 | 已接线，是否本次真正上传未验证；不等于新桶重复累计。新桶读取不消费此贡献，同原清点第3项 |
+| C04 旧共享执行／提醒与V2并存 | Service/RuntimeServiceCoordinator.cs:86、1846—1900，SharedEnabledFor及机器能力/阶段选择 | 条件兼容：保留旧策略缓存、旧提醒及V2执行通路；当前shadow不证明任一正式共享动作已运行 |
+| C05 旧程序策略与程序实例执行格式并存 | Service/RuntimeServiceCoordinator.cs:1779—1825→Infrastructure/ProgramInstancePolicyBuilder.cs，按会话ExecutionCatalogVersion及Agent能力分派 | 条件兼容：属于应用对象执行，不等同共享桶算法；本轮未重新采集当前会话实际选择 |
+| C06 新实例关联可导入旧名称关联头 | Infrastructure/ProgramApplicationNamingStore.cs:114—129及ProgramApplicationNamingStore.Fallback.cs:37—51；Service ApplicationLedgerAttribution.cs:43实际调用EnsureRuntimeAsync | 当前入口可达：无新映射且旧头满足条件时生成新关联；未证明现场发生。正常动态身份兜底不是旧兼容，不计为另一项 |
+| C07 新映射接口404才退旧映射接口 | Infrastructure/ProgramInstanceMappingCache.cs:179—198，projection-context/read仅NOT_FOUND退mappings/read；Service注册循环调用 | 条件兼容：不是任意鉴权/范围错误都回退；未取得当前实际回退实证 |
+| C08 桥协议v1/v2/v3与旧Host别名 | Service/RuntimeServiceCoordinator.cs:291—293；TimeOnChrome.NativeHost/NativeHostProgram.cs:52—87；Infrastructure/NativeMessagingManifestWriter.cs:14 | 条件兼容：多协议服务器及相同EXE别名保留，不能由此推断业务重复执行；合计为一个传输兼容机制 |
+| C09 旧连接挑战与可复用V2证明并存 | Infrastructure/SharedWebSourceBridge.cs:104—108及旧challenge分支，按消息名分派 | 条件兼容：身份凭据两种流程仍有入口，不能把旧连接随机值证明当新可复用证明；未削弱鉴权 |
+| C10 本地窗口多代视图及读取回退 | Setup/UsageStatisticsWindow.xaml及.xaml.cs，默认第3索引读新Local；非默认身份视图可读seconds，旧构造无seconds委托才读ms | 条件兼容：产品未就绪可带说明显示基础实例；当前默认窗口并不直接回退旧毫秒读数，不能误报默认已混账 |
+| C11 旧应用原账／派生统计仍留代码但当前固定身份分支隔离 | Service/RuntimeServiceCoordinator.cs:144 fixedIdentity:true、1044、2838—2840；ApplicationObjects.cs:33/104；Infrastructure/ApplicationChildStatisticsStore.cs固定身份选择 | 已隔离（仅上述路径）：不纳入当前新统计；不为了删代码重新处理旧账，也不推断所有旧入口已退出 |
+| C12 Runtime将other降为unclassified的旧接收端投影 | backend/src/v2Repository.ts:439、443、464—477，缺application-other-v1时递归改classification；Native RuntimeServiceCoordinator.cs:3244—3267的实际心跳能力构造未包含该能力，MachineRuntimeApiClient.cs:189—190原样发送 | Deviated：发送／接收能力未对齐，当前生产者会满足旧投影选择条件；不能称为纯字段兼容。保存的孩子配置不改，但下发分类语义可变；未新采样证明某个具体对象已被改类。新nativeApplications由独立scope读取，不把控制载荷删字段误报成配置被删 |
+
+集中结论：12类中，C01/C02/C12为3类业务语义偏离；C03为1条仍启动的旧后台路径，实际贡献副作用待核；C04—C10为7类条件通路，其中C06并非只能由旧客户端触发；C11为1类已隔离路径。不得把12类都报为现网故障、都判无害，或承诺一键删除。此前“整体已对齐”的结论失效／证据不足；仅保留各已采证链路的具体通过结果。当前未实施修复，无新增CI或运行验收；接下来若实施，应先按最新缺省规则给出集中最小改动，而不是补旧目录或继续让PO逐项取数据。
+
 ## 2026-10-19 Runtime心跳保留共享V2能力（PO批准集中修复与仅Worker发布）
 
 - 范围：仅修复`recordMachineHeartbeat`已确认的能力白名单遗漏。Native已上报`shared-access-policy-v2`，Runtime路由已转交，但持久化时被丢弃，导致现有机器策略无法回传；不修改Native、控件、Guardian、Pages、算法、原账、配置或共享开关，不执行migration或安装。
