@@ -514,7 +514,7 @@ export async function recordMachineHeartbeat(
       policy_state=?6, capabilities_json=?8, last_seen_at_ms=?5, updated_at_ms=?5 WHERE id=?7
   `).bind(input.serviceVersion, input.osVersion, input.architecture, input.tamperCount,
     nowMs, input.policyState, machine.machineId,
-    JSON.stringify(['product-block-v1','application-other-v1',PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY]
+    JSON.stringify(['product-block-v1','application-other-v1',PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY,SHARED_ACCESS_POLICY_V2_CAPABILITY]
       .filter(value=>input.capabilities?.includes(value)))).run();
 }
 
