@@ -1,5 +1,15 @@
 # TASK_BOARD
 
+## 2026-10-18 统一时间配置提前返回最小修复（PO批准，仅源码与隔离验证）
+
+本轮交付授权：PO批准集中提交、推送、合并并仅部署独立Runtime Pages，随后只读核对真实页面统一时间配置与应用目录。发布checklist：①仅本段、控制器与直接测试入提交，保留其他草稿；②相关CI通过后合并固定SHA；③生产清单仅runtimePages，Worker/主Pages/R2不变、无migration；④正常页面apps→access→apps核对配置可读及目录保留，不点保存。源码验证证据按精确文件哈希复用；部署与真实页面结果分别记录。不改原账、日常配置，不启共享、不切用户、不重复安装。
+
+结果：源码及隔离验证PASS，尚未提交/部署，生产页面缺陷未因此宣称已消失。app-runtime.js仅将原GET/错误处理移为loadSharedAccessState供旧分支及新目录access分支复用；新目录apps仍原两请求，进入access即读配置，解决已有managementLoaded跳过。component直接回归覆盖新/旧目录只读展示、先apps再access、失败后目录仍可见且不额外请求、重读恢复、视图/组件范围失效及销毁后迟到拒绝；所有请求断言GET且无桶查询。首轮新增断言误用了不存在的schedule-grid，核对真实schedule-editor修正后通过，未改渲染或放宽内容断言。
+
+命令与证据：node app-runtime-management/console/app-runtime-component.test.cjs、app-runtime-policy.test.js、app-runtime-usage.test.js、computer-usage-view.test.cjs全部PASS；node --check及diff/scope通过。对比HEAD逐字确认loadUsage、renderAppDirectory、renderQuotaForm/renderSchedule代码完全相同，policy/usage/computer-usage-view及桶读取模块无差异。内置浏览器仅本地静态＋内存合成数据，经真实导航apps→access显示完整7日额度/版本，不再UNKNOWN；合成配置错误展示稳定原因后回apps，编辑器仍可见。既有HTML/CSS、布局/层级/文案未改，正常页面目视Matched；受限本地截图保留，临时页面/服务器已收尾。没有接触真实家庭、配置、原账或共享，无用户操作、切换、UAC/安装/发布。审计三个checklist均Matched，无Deviated/Missing/Extra。仅本任务板、控制器及直接测试属于本批；原PROJECT_MASTER/其他任务板草稿和未跟踪产物均保留，不随批提交。
+
+standard-cloud/Build，低风险页面读取接线，不改产品语义。已证实新版applications非空时loadManagementState提前return，访问管理未请求shared-access-policy；另需覆盖先apps后access被managementLoaded跳过的同一入口问题。Checklist：①仅app-runtime.js提取原配置GET/错误处理供新旧分支复用，新目录只在access返回前补读；apps页面保持原两请求、不因配置失败阻塞目录，access进入时正常重读；②app-runtime-component.test.cjs覆盖新目录/旧目录配置只读展示、apps→access、错误及重试、迟到/销毁拒绝与无写请求；③核对桶/统计读取源码不变，运行component、policy、usage、computer-usage-view直接回归、语法/职责/diff，以及仅本地合成正常页面目视（不接真实账户）；④集中记录Matched及未部署边界。只改本任务板、页面控制器和直接测试；不新建接口、缓存或数据源，不改原账/桶算法/配置/Native/控件，不切用户、不启共享、不安装或部署，不跑全量/平台/真实家庭E2E，不主动提交推送。
+
 ## 2026-10-18 Runtime设备详情预登记表单（PO批准实施及独立Pages交付）
 
 实现/审计：设备详情只追加3必填字段和一个提交按钮；孩子空选、既有runtime认证、POST去重、正式用户列表读回及迟到隔离均已接线。组件控制器隔离回归、设备/网络/会话测试、语法、backend typecheck及跨模块边界检查通过。首轮组件回归查出渲染函数名误用，改为既有renderMachines后通过；不改后端或认证流程迁就测试。本地内存数据页面经正常表单提交成功，默认关联保持；桌面/390px目视Matched，窄屏宽390无横向溢出。Plan审计四项均Matched，无Deviated/Missing/Extra。待集中提交、精确CI、仅Runtime Pages部署和正式UI测试账户读回；源码通过不冒充实际登记。其他任务板草稿不随批提交。
