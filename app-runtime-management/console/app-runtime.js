@@ -548,6 +548,17 @@
       state.identityDirectory=value;
     }catch(error){if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;}
   }
+  async function loadSharedAccessState(childId) {
+    try {
+      const result = await runtime(`/v2/module/shared-access-policy?childId=${childId}`);
+      state.sharedAccess = result.policy || null;
+      state.sharedAccessError = null;
+    } catch (error) {
+      if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;
+      state.sharedAccess = null;
+      state.sharedAccessError = error?.code || 'SHARED_ACCESS_POLICY_UNAVAILABLE';
+    }
+  }
   async function loadManagementState() {
     const selectedChild=state.childId,childId = encodeURIComponent(selectedChild);
     state.nativeDirectory=null;
@@ -567,19 +578,13 @@
       }
       if(nativePage.childId!==state.childId||nativePage.policyVersion!==nativePolicy.version)throw new Error('APPLICATION_DIRECTORY_CHANGED');
       state.nativeDirectory=[...new Map(items.map(item=>[JSON.stringify([item.target.machineId,item.target.nativeId]),item])).values()];state.policy=AppRuntimePolicy.normalize(nativePolicy);state.policyEtag=`"app-policy-v${state.policy.version}"`;
+      if(state.view==='access')await loadSharedAccessState(childId);
       state.managementError=null;state.managementLoaded=true;return;
     }
     state.identityCatalog=null;state.identityDirectory=null;
     const policyPromise = policyResult.error?Promise.reject(policyResult.error):Promise.resolve(nativePolicy);
     const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`);
-    const sharedAccessPromise = runtime(`/v2/module/shared-access-policy?childId=${childId}`).then((result) => {
-      state.sharedAccess = result.policy || null;
-      state.sharedAccessError = null;
-    }).catch((error) => {
-      if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;
-      state.sharedAccess = null;
-      state.sharedAccessError = error?.code || 'SHARED_ACCESS_POLICY_UNAVAILABLE';
-    });
+    const sharedAccessPromise = loadSharedAccessState(childId);
     const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`)));
     let results;
     try{results=await Promise.all([policyPromise, catalogPromise, recordsPromise, sharedAccessPromise]);}
@@ -795,7 +800,7 @@
     state.runtimeLogs.nextCursor = result.nextCursor || null; state.runtimeLogs.summary = result.summary || null;
     renderRuntimeLogs();
   }
-  function switchView(view) { state.view = view; $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view)); $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view)); [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[view]; renderAll(); clearError(); if (!mock && ['access', 'apps', 'system'].includes(view) && !state.managementLoaded) void load(); $('#sidebar').classList.remove('open'); $('#mobile-backdrop').hidden = true; }
+  function switchView(view) { state.view = view; $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view)); $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view)); [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[view]; renderAll(); clearError(); if (!mock && (view === 'access' || ['apps', 'system'].includes(view) && !state.managementLoaded)) void load(); $('#sidebar').classList.remove('open'); $('#mobile-backdrop').hidden = true; }
   function switchTab(type, name) { $$(`[data-${type}-tab]`).forEach((button) => button.classList.toggle('active', button.dataset[`${type}Tab`] === name)); $$(`[data-${type}-panel]`).forEach((panel) => { panel.hidden = panel.dataset[`${type}Panel`] !== name; }); }
   async function loadLedger(kind) { const period = range(); const result = mock ? { items: kind === 'usage' ? [{ startAtMs: Date.now() - 60000, displayName: 'Visual Studio Code', durationMs: 60000, applicationClassification: 'study', estimated: false }] : [{ startAtMs: Date.now() - 120000, displayName: 'Microsoft Edge', durationMs: 120000, mediaKind: 'video', presentation: 'background', estimated: false }] } : await runtime(`/v2/module/segment-diagnostics?kind=${kind}&childId=${encodeURIComponent(state.childId)}&fromMs=${period.from}&toMs=${period.to}&limit=50`); const target = kind === 'usage' ? $('#ledger-list') : $('#media-list'); target.className = 'table-list'; target.innerHTML = result.items.length ? result.items.map((item) => `<div class="table-row"><time>${time(item.startAtMs)}</time><strong>${escape(item.displayName || '未知应用')}</strong><span>${duration(item.durationMs)}</span><span>${kind === 'usage' ? categoryLabels[item.applicationClassification] || '未归类' : `${item.mediaKind}/${item.presentation}`}</span></div>`).join('') : '<p>暂无明细</p>'; if(result.hasMore)target.insertAdjacentHTML('beforeend','<p>仅显示最近50条诊断记录；该明细不代表范围总用量。</p>'); }
   function exportConfig() { const blob = new Blob([JSON.stringify(AppRuntimePolicy.exportPayload(state.policy), null, 2)], { type: 'application/json' }); const link = ownerDocument.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'timeonchrome-app-runtime-config.json'; link.click(); URL.revokeObjectURL(link.href); }

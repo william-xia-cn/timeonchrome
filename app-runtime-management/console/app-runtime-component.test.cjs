@@ -137,6 +137,76 @@ function fixture(){
   assert.match(native.element('#managed-app-list').innerHTML,/data-native-save="0"/);
   assert.match(native.element('#app-directory-subtitle').textContent,/相同身份/);
   assert.equal(native.element('#load-empty-state').hidden,true);nativeController.dispose();
+  // 使用实际控制器的加载/导航/错误处理；仅替换网络，任何写入或桶查询均拒绝。
+  const unifiedPolicy=revision=>({revision,stage:'shadow',
+    dailyMinutes:Object.fromEntries(Policy.weekdays.map(day=>[day,{study:null,composite:42,rest:30}])),weeklyRestMinutes:180,
+    timeWindows:Object.fromEntries(Policy.weekdays.map(day=>[day,{study:[{start:'08:00',end:'20:00'}],composite:null,rest:[]}])),
+    autonomy:{restrictedEntryConfirmationRequired:true,dailyFirstReminderMinutes:20,repeatReminderMinutes:10}});
+  async function settle(check){for(let attempt=0;attempt<30;attempt++){if(check())return;await new Promise(resolve=>setImmediate(resolve));}assert.fail('组件未完成预期的隔离加载');}
+  function accessFixture({view='access',legacy=false,gate=null}={}) {
+    const page=fixture(),calls=[],appPolicy=Policy.defaultPolicy(),before=JSON.stringify(appPolicy);
+    let error=null,revision='profile-config:7',current=true;
+    const controller=page.mount({root:page.root,view,children:[{id:'a',name:'隔离孩子'}],childId:'a',isCurrent:()=>current,request:async(path,options={})=>{
+      assert.equal(options.method||'GET','GET','本次读取不能写配置');calls.push(path);
+      if(path==='/v2/module/app-policy?childId=a')return appPolicy;
+      if(path==='/v2/module/applications?childId=a')return{schemaVersion:1,state:'available',childId:'a',policyVersion:0,nextOffset:null,
+        items:legacy?[]:[{target:{machineId:'isolated-machine',nativeId:'isolated-editor'},presentations:[{name:'隔离编辑器',origin:'runtime',status:'dynamic-process'}]}]};
+      if(path==='/v2/module/shared-access-policy?childId=a'){if(gate)await gate.promise;if(error)throw error;return{policy:unifiedPolicy(revision)};}
+      if(legacy&&path==='/v2/module/app-catalog?childId=a')return{items:[],technicalItems:[],inventoryCoverage:[]};
+      throw Error('不能新增读取依赖 '+path);
+    }});
+    const click=page.listeners.find(item=>item[0]==='root'&&item[1]==='click')[2];
+    return{page,calls,controller,setError:value=>{error=value;},setRevision:value=>{revision=value;},invalidate:()=>{current=false;},
+      open:next=>click({target:{closest:selector=>selector==='button'?{dataset:{view:next},classList:{contains:()=>false}}:null}}),
+      assertReadOnly:()=>{assert.equal(JSON.stringify(appPolicy),before);assert(!calls.some(path=>/source-statistics|quota-buckets|app-usage/.test(path)));}};
+  }
+  const access=accessFixture();await access.controller.ready;
+  assert.equal(access.calls.filter(path=>path.includes('/shared-access-policy?')).length,1);
+  assert(!access.calls.some(path=>path.includes('/app-catalog?')),'新目录不能回退旧目录');
+  assert.match(access.page.element('#quota-form').innerHTML,/profile-config:7/);assert.match(access.page.element('#quota-form').innerHTML,/复合 42 分钟/);
+  assert.match(access.page.element('#schedule-editor').innerHTML,/08:00–20:00/);
+  assert.doesNotMatch(access.page.element('#quota-form').innerHTML,/UNKNOWN/);
+  await access.open('apps');assert.match(access.page.element('#managed-app-list').innerHTML,/隔离编辑器/);
+  assert.equal(access.calls.length,3,'目录在配置读取后不新增依赖');access.assertReadOnly();access.controller.dispose();
+
+  const fromDirectory=accessFixture({view:'apps'});await fromDirectory.controller.ready;
+  assert.equal(fromDirectory.calls.length,2,'应用目录仍只有两个既有请求');
+  fromDirectory.setRevision('profile-config:8');await fromDirectory.open('access');
+  await settle(()=>fromDirectory.page.element('#quota-form').innerHTML.includes('profile-config:8'));
+  assert.equal(fromDirectory.calls.filter(path=>path.includes('/shared-access-policy?')).length,1,'已加载目录后进入访问管理仍必须读配置');
+  fromDirectory.setError(Object.assign(Error('isolated unavailable'),{code:'SHARED_ACCESS_POLICY_UNAVAILABLE'}));
+  await fromDirectory.controller.refresh();
+  assert.match(fromDirectory.page.element('#quota-form').innerHTML,/SHARED_ACCESS_POLICY_UNAVAILABLE/);
+  assert.equal(fromDirectory.page.element('#load-empty-state').hidden,true,'配置失败不变成整个目录失败');
+  const callsBefore=fromDirectory.calls.length;
+  await fromDirectory.open('apps');assert.match(fromDirectory.page.element('#managed-app-list').innerHTML,/隔离编辑器/);
+  assert.equal(fromDirectory.calls.length,callsBefore,'配置失败后查看目录不新增请求');
+  fromDirectory.setError(null);fromDirectory.setRevision('profile-config:9');await fromDirectory.open('access');
+  await settle(()=>fromDirectory.page.element('#quota-form').innerHTML.includes('profile-config:9'));
+  fromDirectory.assertReadOnly();fromDirectory.controller.dispose();
+
+  const legacyAccess=accessFixture({legacy:true});await legacyAccess.controller.ready;
+  assert.equal(legacyAccess.calls.filter(path=>path.includes('/shared-access-policy?')).length,1,'旧目录也只读一次统一配置');
+  assert.match(legacyAccess.page.element('#quota-form').innerHTML,/profile-config:7/);legacyAccess.assertReadOnly();legacyAccess.controller.dispose();
+
+  const switchedGate=deferred(),switchedAccess=accessFixture({gate:switchedGate});
+  await settle(()=>switchedAccess.calls.some(path=>path.includes('/shared-access-policy?')));
+  await switchedAccess.open('apps');switchedGate.resolve();await switchedAccess.controller.ready;
+  assert.match(switchedAccess.page.element('#managed-app-list').innerHTML,/隔离编辑器/);
+  assert.doesNotMatch(switchedAccess.page.element('#quota-form').innerHTML,/profile-config:7/,'旧视图迟到配置不应被接受');
+  switchedAccess.assertReadOnly();switchedAccess.controller.dispose();
+
+  const abandonedGate=deferred(),abandonedAccess=accessFixture({gate:abandonedGate});
+  await settle(()=>abandonedAccess.calls.some(path=>path.includes('/shared-access-policy?')));
+  const abandonedMarkup=abandonedAccess.page.element('#quota-form').innerHTML;
+  abandonedAccess.invalidate();abandonedGate.resolve();await abandonedAccess.controller.ready;
+  assert.equal(abandonedAccess.page.element('#quota-form').innerHTML,abandonedMarkup,'旧孩子组件的迟到响应不绘制');abandonedAccess.controller.dispose();
+  const disposedGate=deferred(),disposedAccess=accessFixture({gate:disposedGate});
+  await settle(()=>disposedAccess.calls.some(path=>path.includes('/shared-access-policy?')));
+  const disposedMarkup=disposedAccess.page.element('#quota-form').innerHTML;
+  disposedAccess.controller.dispose();disposedGate.resolve();await disposedAccess.controller.ready;
+  assert.equal(disposedAccess.page.element('#quota-form').innerHTML,disposedMarkup,'已销毁组件的迟到响应不绘制');
+  console.log('PASS: unified time policy with native/legacy directory, apps-to-access, read-only failure/recovery, late view/child/disposal; no bucket query');
   const invalid=fixture();assert.throws(()=>invalid.mount({root:invalid.root,view:'usage',request:async()=>{}}),/INVALID_RUNTIME_MANAGEMENT_VIEW/);
   const isolated=fixture();let catalogFails=true;
   const isolatedController=isolated.mount({root:isolated.root,view:'apps',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{
