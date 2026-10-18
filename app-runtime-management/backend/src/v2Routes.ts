@@ -1,4 +1,5 @@
 import { requireAccountModule, requireMachine } from './auth';
+import { parseMachineUserRegistration, registerMachineUser } from './machineUserRegistration';
 import {receiveNativeApplicationObjects,readNativeApplicationObjects,readNativeApplicationConfiguration,
  nativeApplicationObjectStorageReady,NATIVE_APPLICATION_MANAGEMENT_CAPABILITY} from './nativeApplicationObjects';
 import {receiveProgramInstallationLinks,programInstallationStorageReady} from './programInstallationLinks';
@@ -586,7 +587,12 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
     }
     const usersMatch = url.pathname.match(/^\/v2\/module\/machines\/([^/]+)\/users$/u);
     if (usersMatch) {
-      if (request.method !== 'GET') return methodNotAllowed('GET');
+      if (request.method === 'POST') {
+        const input = parseMachineUserRegistration(await readJsonBody(request, 2048));
+        const result = await registerMachineUser(env.RUNTIME_DB, claims, decodeURIComponent(usersMatch[1]!), input, nowMs);
+        return jsonResponse(result, { status: result.replayed ? 200 : 201 });
+      }
+      if (request.method !== 'GET') return methodNotAllowed('GET, POST');
       const result = await listMachineUsers(env.RUNTIME_DB, claims.account_id, decodeURIComponent(usersMatch[1]!));
       if(result){
         const reports=await readProgramPolicyStatus(env.RUNTIME_DB,claims.account_id,decodeURIComponent(usersMatch[1]!),nowMs)
