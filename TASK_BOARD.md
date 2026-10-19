@@ -25,6 +25,8 @@
 
 协调已发送：本轮已向现有“TimeWhere Native Host 02”发送完整统一计划，要求经原Issue #12接续Mac，先回报现场及原任务归并，再落实最小差异。消息工具已确认送达Native协调会话；Mac领取/回报尚未取得，不称已分配完成或已启动开发。正式托管继续等待Mac开发验证及各自签名资格，不提前推送渠道。
 
+转交完成（2026-10-20）：PO明确批准本次Native文档提交推送后，main已更新为e61ac7c06dfc3149dcc873ab55f637e12648c504，仅agents/windows/NATIVE-HANDOFF.md增加30行；根通过ls-remote和show独立核对一致。原Issue #12已送达评论6275680678，事件windows-mac-current-chain-baseline-20261020，task仍NATIVE-APPLICATION-INSTANCE-STATISTICS；独立GET确认marker/固定SHA/正文一致。本地发送队列已清空（Native回报pending_send=0）。原授权阻塞已解除；Mac领取及实际现场回报尚未取得，不能宣称已开始开发。无产品测试重跑、制包、安装、部署或托管，无其他草稿随批提交。
+
 ## NOW：正式渠道制包与集中发布（2026-10-20，PO补充授权）
 
 **最新限制：控件托管DEFERRED，必须等待Mac版开发验证完成。** 本轮不上传CRX、不部署timeonchrome-update、不改正式feed；仅本地渠道准备/核验。已通知控件及发布工作线，本次尚未发生任何托管写入。不能将本地包就绪标为已发布，也不自动开展Mac开发。Native发布准备不因该限制扩大或取消。
