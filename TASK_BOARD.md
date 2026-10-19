@@ -1,5 +1,27 @@
 # TASK_BOARD
 
+## NOW：当前版本范围与剩余验收（2026-10-20 PO确认）
+
+职责为release/架构集成收尾，允许修改现有决策、项目真值及任务板；本批无产品变更，不新增报告。仅复核固定源码/产物对应证据，未变通过项不重跑；若发现确实缺失的范围内隔离测试，再明确最小命令及边界。文档仅diff检查，无新增CI或部署smoke。禁止改原账/配置、生产故障注入、切用户、重复安装/重载、启共享或转入Native自主执行测试。
+
+| 本版项目 | 已有通过证据 | 本轮剩余工作 |
+|---|---|---|
+| 应用新账→本机统计→上传→云端→页面 | 既有固定日期/截止端云页面一致；当前最终TRX包含固定身份/旧账排除/上传恢复；2.6.70升级数据保留及当前应用桶完整 | 已补发布后正常页面样本：截止02:37:16、已发布1595秒；不冒称本次重新取得同截止本机原账或上传revision |
+| 网页独立落账/统计/上传/配额管理 | 既有网页基线、改绑隔离及本次精确SHA CI；1.7.65真实状态云同步成功、网页本机与合计一致 | 当前同源quota-read-model-v2、账户同步及共享消费测试证据已核对并复用；不更改网页记账语义 |
+| 两端共享正常读取与来源归集 | Service实际采用peer网页5/0/0；控件当前连接接受应用本机0/1165/0＋其他0/0/0＝合计0/1165/0（人工证据）；同孩子及周期匹配 | 此项已通过，不再要求用户重取诊断 |
+| 桥失联/云端失败/缓存恢复/重复与下降/孩子及周期隔离 | 当前Native最终TRX、控件同源source-statistics-shadow及云端最终SHA CI均通过对应隔离用例 | 隔离证据核对完成；生产断网/桥失联/重启未故障注入，不能标实机PASS，不为本版重复安装或制造故障 |
+| 独立配额核算 | 正式Service影子样本5/0/0＋0/985/0＝5/985/0；当前两端600+600=1200、特殊/other排除、不重复借用用例通过 | 核算证据核对完成；共享开启后的动作不在本次通过结论内 |
+
+明确移出本版：Native自主时间段/时间配额提醒、正常关闭/取消、超时强制、正式Service执行闭环及执行侧对象限额边界。状态为PO延期/不开放，不写PASS、不再阻塞；控件原有独立网页控制不受此延期影响。旧应用账不处理且不参与统计/配额；Mac、历史P2、托管/CWS不在本次工作范围。没有生产断网/重启/改绑授权，不以隔离通过冒称生产异常实测。
+
+本轮自动完成的证据收口（未新增产品改动或测试运行）：
+- Native固定`07752a4`/2.6.70的`verification/contracts-158-approved-final.trx`独立解析为411通过、0失败/跳过，SHA256 `b55f618c70564a121d491d3fc40b0c62b49ce364c28a7391e81f7f9cc8f6fc56`。逐项找到`ApplicationLatestPlusOtherIsIdenticalForOwnReadAndExchangeWithoutWeb`、`OppositeDomainChoosesPeerThenCloudThenCacheWithoutAdditionAndReplacesDownward`、`CacheAndPeerNeverCrossChildAssignmentOrDateAndRevokedConnectionCannotExchange`、`ApplicationMappingUsesNonSpecialCategoriesOnceAndDoesNotBorrowOrIncludeOther`、`ExcludedOldRecordsDoNotCreateSubjectsHoursOrSettlementAndRemainStored`及当前上传故障恢复为Passed；不是仅用测试总数作结论。
+- 控件固定`d6a1752`/1.7.65当前源、候选及测试哈希与既有证据匹配：quota-read-model-v2（43项）、profile-account-v2-sync（42项）、profile-account-shadow-v2（11项）、source-statistics-shadow、shared-access-runtime及cloud-wire的通过结果可复用。根独立校验quota读取器`535208ba…c128`、共享消费器`8f796b23…8a5a`与3个直接测试哈希，并读到600+600=1200、下降700、缺源保留另一侧、本地桥成功不查云、云失败取同范围缓存及改绑拒绝断言。无须重复运行或重载。
+- 云端最终生产`535e6b0`的既有Runtime/Guardian发布门覆盖当前source-statistics测试：成功空读取为0、坏来源不清有效600秒、无本机云副本可读、同机器其他用户不误排除、重复及下降替换、同孩子鉴权/改绑保护；网页及应用桶直接复用当前读取器。生产smoke证明健康/鉴权/同源资源，不当作生产桥故障注入。
+- 新增正常页面只读验收：独立Runtime页当前未登录，未提取令牌或要求用户重新登录；现有主控制台正常登录可用，按正常UI选定当前核对孩子并进入“应用使用”。02:40:39读取10/20数据，来源明确为“Service已发布持久化统计”，截止02:37:16，总量26分35秒=1595；小时4分48秒+21分47秒=1595；两个应用23分53秒+2分42秒=1595，未归类1595。该新截止在安装之后，证明发布后云端采用与页面仍可读；页面未显示生产者版本/上传revision，不编造这两个字段，也不要求与02:30:41不同截止的1165秒相等。仅导航/读取，无保存、同步、配置或原账写入。
+- 仍未实测并沿既有边界登记：生产环境真正断网/Service及Windows重启、锁屏休眠、真实多用户/改绑及多来源非零并发；相关隔离机制证据与正常实机证据分别有效，不扩大为这些场景已验收。Native自主执行现明确移出本版。当前范围的可独立完成只读核对已做完，未发现需要新增产品补丁的实质失败；不自动开启共享或扩展发布操作。
+- Plan审计：Matched＝三份现有文档范围对齐、旧账排除证据、当前两独立通道与共享读取/核算证据核验、发布后云端页面样本；Deviated/Extra＝无；实机证据缺口如上一条明确保留。文档diff检查，不启动新的全量/平台/浏览器行为测试。
+
 ## 2026-10-20 控件消费端独立核对（PASS_WITH_MANUAL_EVIDENCE）
 
 - 范围：只读核对1.7.65消费端，集中提交本批已有交付记录；不修改产品/测试代码，不重跑已有精确产物测试，不安装、重载、部署或启用共享，不修改原账、配置、配对或缓存。
@@ -16,7 +38,7 @@
 - 控件固定源码`d6a1752`的既有1.7.65最终ZIP SHA256 `373ff3e273933053b2709eb8367f6d5f244e3c658de8b5be5c82c401a520a64a`未重制。原加载目录已按精确清单更新，183产品文件与候选逐字节一致，Chrome元数据、扩展ID、key、权限及marker不变；原208文件备份保持可恢复。仅删除已批准退役代码文件，没有访问或修改浏览器存储、绑定、原账与配置。
 - 用户已确认原Chrome重载后正常状态页显示运行1.7.65，记为`PASS_WITH_MANUAL_EVIDENCE`，不伪装工具自动读取。随后单次只读诊断UAC完成，两次样本/实际5.106秒，Service2.6.70.0 online，同孩子/周期2026-10-19至10-20匹配；`webOrigin=peer`且`webReadAtMs=1792434039160`与网页缓存读取时间一致。10/20网页桶学习/复合/休息=5/0/0秒，应用本机=0/985/0、云端其他应用=0/0/0，实际影子核算=5/985/0秒，complete=true、reasonCodes=[]。Stage=shadow、ExecutionGateSatisfiedByStoredInputs=false；工具记录productWrites=false/networkRequests=0，已自动退出。
 - 本次工具`--preflight`不更新顶层`peerObserved`，其初始化false不能覆盖两条真实shadow样本的peer来源；顶层旧`lastStableErrorCode`仍保留历史shared_policy_unavailable，当前策略有效且影子核算已成功，不误报当前失败，不在本轮扩改诊断工具。证据位于受限本地`native-upgrade-2.6.70/post-reload-readonly.json`，不提交真实采样文件。
-- 审计：Matched＝本批推送合并、指定三资源部署、固定候选单次安装、固定控件目录更新、用户确认运行版本、数据保留、正式Service采用当前peer网页桶及本机/其他应用核算输入、控件消费端独立页面读数（见上方人工证据）；Missing＝精确跨日对象限额及正式共享执行证据；Deviated/Extra＝无。**未启用共享，不代表正式共享提醒或限制执行验收通过。**
+- 审计：Matched＝本批推送合并、指定三资源部署、固定候选单次安装、固定控件目录更新、用户确认运行版本、数据保留、正式Service采用当前peer网页桶及本机/其他应用核算输入、控件消费端独立页面读数（见上方人工证据）；精确跨日对象限额执行及Native正式共享执行按10/20最新PO范围延期，不再阻塞本版；Deviated/Extra＝无。**未启用共享，不代表正式共享提醒或限制执行验收通过。**
 
 
 ## 2026-10-20 最终合并CI静态断言适配（无产品改动）
