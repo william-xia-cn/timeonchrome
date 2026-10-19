@@ -1,5 +1,23 @@
 # TASK_BOARD
 
+## 2026-10-20 控件消费端独立核对（只读收尾，实机证据待补）
+
+- 范围：只读核对1.7.65消费端，集中提交本批已有交付记录；不修改产品/测试代码，不重跑已有精确产物测试，不安装、重载、部署或启用共享，不修改原账、配置、配对或缓存。
+- 源码接线已独立核对：`extension/infra/source-statistics-shadow.js:154-194`仅在Native响应契约、孩子、范围及当前连接上下文校验通过后设置`nativeAttempt.accepted=true`并返回`origin=native`；`:209-233`再次检查绑定与连接后保存应用结果及本机/其他来源。`extension/admin/shared-sync-diagnostics-view.js:62-103`分别呈现当次接收结果和来源读数。此项是源码证据，不是实机通过。
+- 实机读取入口：本次受支持的浏览器清单只有一个Chrome扩展管理标签，没有可读取的控件状态页；另一个Chrome连接无可见标签。既有扩展内部页访问限制未绕过，未改用CDP、浏览器配置文件或扩展存储提取。没有取得当前消费端`accepted`、`applicationOrigin`及桶/截止的独立运行记录，结果为`BLOCKED（观测入口不可用）`，不是产品功能失败，也不是PASS。
+- 已有Service样本仅证明反向网页采用及应用供给侧输入，不能证明控件接受了同次返回；1.7.65运行版本的用户确认也不能代替读数核对。缺口最小证据仍为同次交换成功/当前连接、应用来源、本机与其他来源桶及截止；本次不再要求用户重复重载或取长诊断，不另增诊断接口。
+- 收尾审计：Matched＝只读源码与正常读取通道核对、现有证据分级及数据保护边界；Missing＝控件消费端当前读数独立实机证据；Deviated/Extra＝无。仅检查文档差异；本条不关闭正式共享执行或跨日对象限额的既有缺口。
+
+## 2026-10-20 集中发布与安装结果（当前状态）
+
+- 已集中推送并合并云端PR299、控件PR298及最终静态检查修正PR300，最终生产SHA `535e6b0062e282482c298c9b256600f9cc4ef75c`。最终SHA三项发布门通过；生产工作流 `39301227412` 成功。Runtime版本`427627f4-80ea-4f96-a816-321513aac104`、Guardian版本`2721dba8-0929-41de-8aa0-1d691f70cff0`、主Pages部署`bc97d54a-bf0f-4c90-9076-b611ee8ed84b`。契约1.58.0；两端migration列表为空，未做shared preparation，独立Runtime Pages与R2 latest逐清单核对不变。
+- Native固定源码`07752a4`已推送；复用已核验2.6.70 MSI，单次UAC升级退出0，Service Running/online，11组件哈希及版本2.6.70.0匹配。受保护备份及18表保留核验通过，原始事实、冻结版本、配对、分配、应用配置及outbox保留；未重制包。安装后实测Stage=shadow、执行门false。此时控件尚未更新且云端未部署，样本`shared_policy_unavailable`不能作为最终两端联调结论。
+- 控件固定源码`d6a1752`的既有1.7.65最终ZIP SHA256 `373ff3e273933053b2709eb8367f6d5f244e3c658de8b5be5c82c401a520a64a`未重制。原加载目录已按精确清单更新，183产品文件与候选逐字节一致，Chrome元数据、扩展ID、key、权限及marker不变；原208文件备份保持可恢复。仅删除已批准退役代码文件，没有访问或修改浏览器存储、绑定、原账与配置。
+- 用户已确认原Chrome重载后正常状态页显示运行1.7.65，记为`PASS_WITH_MANUAL_EVIDENCE`，不伪装工具自动读取。随后单次只读诊断UAC完成，两次样本/实际5.106秒，Service2.6.70.0 online，同孩子/周期2026-10-19至10-20匹配；`webOrigin=peer`且`webReadAtMs=1792434039160`与网页缓存读取时间一致。10/20网页桶学习/复合/休息=5/0/0秒，应用本机=0/985/0、云端其他应用=0/0/0，实际影子核算=5/985/0秒，complete=true、reasonCodes=[]。Stage=shadow、ExecutionGateSatisfiedByStoredInputs=false；工具记录productWrites=false/networkRequests=0，已自动退出。
+- 本次工具`--preflight`不更新顶层`peerObserved`，其初始化false不能覆盖两条真实shadow样本的peer来源；顶层旧`lastStableErrorCode`仍保留历史shared_policy_unavailable，当前策略有效且影子核算已成功，不误报当前失败，不在本轮扩改诊断工具。证据位于受限本地`native-upgrade-2.6.70/post-reload-readonly.json`，不提交真实采样文件。
+- 审计：Matched＝本批推送合并、指定三资源部署、固定候选单次安装、固定控件目录更新、用户确认运行版本、数据保留、正式Service采用当前peer网页桶及本机/其他应用核算输入；Missing＝控件消费端本次应用桶读数的独立页面核对、精确跨日对象限额及正式共享执行证据；Deviated/Extra＝无。**未启用共享，不代表正式共享提醒或限制执行验收通过。**
+
+
 ## 2026-10-20 最终合并CI静态断言适配（无产品改动）
 
 - 最终主线`0d32fbe`的Guardian CI在`profile-account-v2-worker-contract.test.js`失败：旧静态检查从公开入口起截取，误将已经验收的`runBindingScopedUpload`包装器`return`当成上传失败后跳过快照。实际`syncUsageStatsForBinding`仍在上传try/catch后独立读取已确认账户快照，未发现此项容错丢失。
