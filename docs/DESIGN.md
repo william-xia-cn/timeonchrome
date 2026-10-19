@@ -1,5 +1,29 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-19 家长共享摘要复用当前桶（源码与隔离验证完成，未发布）
+
+保留访问管理现有“刷新共享用量”按钮、四张日／周卡及配置编辑。现有家长`/profiles/:id/shared-access-state/v1`地址仅保留鉴权适配（URL命名兼容），不再返回旧贡献／执行清单：读取唯一V2孩子配置，委托现有`readWebQuotaBuckets`和Runtime现有`getApplicationSourceStatistics`的schema2全应用桶，再调用现行`projectQuotaBucketsSeconds`核算逐日已用／剩余；周娱乐归集该周逐日rest桶，用同一配置的weeklyRestMinutes计算剩余。只整理结果，不扫描原账、重做分类／借用、引入统计表、队列、版本匹配或第二套查询。
+
+响应使用schema2整数秒和来源可用／完整性、读取时间与结算截止。缺失侧临时0参与核算并明确标缺失，保留另一侧有效量；不把读取失败当真实零。读取前后校验V2配置身份及孩子归属，变化丢弃在途结果。页面不再因为单侧不完整隐藏全部已知数字；同孩子／周期／配置刷新失败保留上次成功结果并标记，切换使缓存失效。当前配置phase仍可legacy，不改变配置或实际执行开关。
+
+实施顺序：先迁现有页面／路由及直接鉴权、桶、部分失败、迟到隔离测试，合成桌面／移动目视；通知所属端后，依据无生产调用证据删除旧state／execution-basis／贡献／旧挑战业务闭包，保留当前V2证明、来源键算法、统计发布及原账。显式projection端点等Native物理退役证据，不抢先删除。仅最小相关Node／Worker测试和typecheck；不部署、安装、迁移、启共享或操作真实家庭。
+
+实际闭环：主页面仍请求上述原URL，但只返回当前桶核算；旧HTTP共享state／basis／贡献／挑战与V1策略路径退出，当前V2证明、公钥和来源键保留。Native发送方法物理退出并编译后，云端同步退出schema3实例接收／发布和两种旧投影；`program-instance-usage?view=display`继续读取固定身份秒统计，旧非display模型明确拒绝。目录30日实例级观察返回unavailable；扫描／安装／登记和当前管理对象不变，界面按usage状态明确不能判定“已安装未使用”。没有把NativeId用量伪装为程序实例观察。
+
+最终消费者复核：当前应用桶、getApplicationUsage、module/app-usage、applicationEvidenceRevision、电脑应用来源及display六处均显式指定`fixedIdentityOnly:true`。整数秒或传输校验通过并不代表旧schema2产品模型可进入当前结果；普通底层诊断保留不能成为当前fallback。必要旧毫秒响应只换算同一当前秒结果，不选择旧统计模型。此前仅排除毫秒账的结论已由本条纠正。
+
+## 2026-10-19 应用与共享旧业务退出（PO批准实施）
+
+当前集中集成契约开发源码版本为1.58.0（未发布），旧1.57.0产物不覆盖；版本统一不代表尚有调用的旧执行／贡献闭包已删除。
+
+现有网页配额读取器、当前固定应用身份整数秒统计与应用配额读取器是唯一来源；共享桥仅传现有桶。Runtime/Guardian继续现有source-statistics地址及schemaVersion=2桶格式和Service Binding，退出schemaVersion=1来源清单、分类快照、excludedSourceKeys前置、重复汇总/借用与派生摘要。来源说明保持可选，坏侧车不能损坏有效合计；当前孩子/周期校验不放宽。
+
+目标调用链：Native应用读取复用getApplicationUsageSeconds与当前LocalApplicationStatisticsReader，不再通过旧实例/产品投影生成另一套统计。当前可复用同孩子证明从旧贡献同步解耦；断线/改绑/过期撤销不变。删除旧贡献后台、混合清单、旧策略/执行降级的装载。缺省未归类、仅当前显式配置为特殊；缓存和无使用零用量保持现行容错，失败不翻旧账。旧应用／共享客户端明确不支持，不新建替代URL或业务读取器。网页settledUsageSegments仍实际使用的显式版本消息保留，不把协议编号当作删除依据。
+
+本轮契约已迁移的当前入口：source-statistics只保留schema2桶结果；现有exchangeQuotaBuckets使用quota-buckets-v2.schema.json。V2提醒直接验证与执行当前生命周期，使用shared-reminder-lifecycle-v2.schema.json，不转换成schema1；现有能力名称即使带v1，只要仍用于当前功能即保留。Pages现有program-instance-usage?view=display接口保持作为当前统计的展示形状适配，禁止缺当前结果后回退旧投影。其余旧策略／贡献／执行契约只在实际调用退出后删除，最终打包闭包单独验证。
+
+实现、删除及当前消费者逐项见TASK_BOARD本批12组。当前仍在清理，不代表已部署或实机通过；原账/计时/上传/配置/数据表及共享开关不变。
+
 ## 2026-10-18 设备详情预登记表单（PO追加批准）
 
 补齐已发布HTTP入口的正常调用者，取代下节“仅HTTP/无页面”的实施范围。Windows未吊销机器详情，在现有账户分配下方、卸载/吊销操作上方新增“首次登录前预登记”表单：本机用户标识、账户显示名称、指定孩子（初始为空，必须主动选），说明不修改机器默认关联、不会创建Windows账户/设置密码/启用共享。字段校验沿用已发布入口的43字符HMAC/Base64Url格式及128字符名称限制，不接受SID/用户名充当用户标识。

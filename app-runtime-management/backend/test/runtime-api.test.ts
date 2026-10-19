@@ -11,7 +11,6 @@ import { machinePolicyEtag } from '../src/v2Repository';
 import { registerMachineUser } from '../src/machineUserRegistration';
 import type { AccountModuleClaims } from '../src/contracts';
 import worker from '../src/index';
-import { rebuildApplicationStatistics } from '../src/applicationStatistics';
 
 const origin = 'http://runtime.test';
 const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE', y: '5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA', crv: 'P-256', d: '2Ja3Py77LNt6aspenNTttELbGzm2-u9WcF4x8BQql8w' };
@@ -266,64 +265,18 @@ describe('Runtime product API', () => {
       quotas: { perApplicationDailyMinutes: [{ runtimeIdentity: 'app:editor', minutes: 30 }] } });
   });
 
-  it('receives versioned application shared contribution without publishing it or trusting a Child from the caller', async () => {
-    const {enrolled,localUserId}=await createMachineWithUser();
-    const contribution={schemaVersion:1,source:'application',date:'2026-10-02',revision:'app-r1',
-      statisticsRevision:'stats-r1',correctionRevision:'correction-r1',productAssociationVersion:'association-r1',
-      policyRevision:'profile-config:1',settledAtMs:1790880000000,complete:true,reasonCodes:[],
-      bucketsMs:{study:1000,composite:2000,rest:3000},applicationClassesMs:{study:1000,composite:2000,
-        restrictedEntertainment:3000,unclassified:0,other:500},chromeExcludedMs:500,
-      chromeIncludedInApplicationMs:500};
-    const upload={schemaVersion:1,localUserId,assignmentVersion:2,revisionOrdinal:1,contribution};
-    const headers=bearer(enrolled.machineToken);
-    const send=(body:unknown)=>call('/v2/machines/shared-quota/application-contributions',{method:'POST',headers,
-      body:JSON.stringify(body)});
-    const first=await send(upload);
-    expect(first.status).toBe(200);
-    const receipt=await first.json<{published:boolean;received:boolean;sourceKey:string;revisionOrdinal:number}>();
-    expect(receipt).toMatchObject({published:false,received:true,revisionOrdinal:1});
-    expect(receipt.sourceKey).toMatch(/^[a-f0-9]{64}$/);
-    expect((await send({...upload,contribution:{...contribution,bucketsMs:{rest:3000,composite:2000,study:1000}}})).status).toBe(200);
-    expect((await send({...upload,contribution:{...contribution,revision:'different'}})).status).toBe(409);
-    expect((await send({...upload,revisionOrdinal:2,contribution:{...contribution,revision:'app-r2'}})).status).toBe(200);
-    expect((await send(upload)).status).toBe(409);
-    expect((await send({...upload,childId:'child-b'})).status).toBe(400);
-    expect((await send({...upload,contribution:{...contribution,source:'web'}})).status).toBe(400);
-    expect((await send({...upload,localUserId:`user_${'x'.repeat(32)}`})).status).toBe(403);
-    expect((await call('/v2/machines/shared-quota/application-contributions',{method:'POST',
-      body:JSON.stringify(upload)})).status).toBe(401);
-    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_application_shared_quota_receipts_v1')
-      .first<{count:number}>())?.count).toBe(1);
+  it('retired shared state and contribution URLs reject authenticated callers without restoring old data',async()=>{
+    const {enrolled}=await createMachineWithUser();
+    for(const path of ['state','execution-basis','application-contributions','capabilities']){
+      const url='/v2/machines/shared-quota/'+path;
+      expect((await call(url,{headers:bearer(enrolled.machineToken)})).status).toBe(404);
+      expect((await call(url,{method:'POST',headers:bearer(enrolled.machineToken),body:'{}'})).status).toBe(404);
+      expect((await call(url)).status).toBe(401);
+    }
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_application_shared_quota_receipts_v1').first<{count:number}>())?.count).toBe(0);
   });
 
-  it('returns the shared quota shadow only for the machine protected assignment, never a caller Child ID', async () => {
-    const {enrolled,localUserId}=await createMachineWithUser();
-    const headers=bearer(enrolled.machineToken);
-    const path=`/v2/machines/shared-quota/state?localUserId=${encodeURIComponent(localUserId)}&assignmentVersion=2&date=2026-10-02&childId=attacker-child`;
-    const response=await call(path,{headers});
-    expect(response.status).toBe(200);
-    const result=await response.json<{sharedQuota:Record<string,unknown>}>();
-    expect(result.sharedQuota).toMatchObject({schemaVersion:1,policyRevision:'profile-config:1',revision:'shadow-r1',
-      complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],offline:false,
-      day:{date:'2026-10-02',usedMs:{study:1000,composite:2000,rest:3000}},
-      week:{fromDate:'2026-09-28',toDate:'2026-10-02',complete:false}});
-    expect(result.sharedQuota).not.toHaveProperty('profileId');
-    expect((await call(path.replace('assignmentVersion=2','assignmentVersion=1'),{headers})).status).toBe(403);
-    expect((await call(path.replace('date=2026-10-02','date=2026-02-30'),{headers})).status).toBe(400);
-    expect((await call(path.replace('date=2026-10-02','date=2026-10-03'),{headers})).status).toBe(503);
-    for (const invalidReplyDate of ['2026-10-04','2026-10-05','2026-10-06','2026-10-07','2026-10-08']) {
-      const invalid = await call(path.replace('date=2026-10-02',`date=${invalidReplyDate}`),{headers});
-      expect(invalid.status).toBe(503);
-      await expect(invalid.json()).resolves.toMatchObject({error:{code:'SHARED_QUOTA_STATE_UNAVAILABLE'}});
-    }
-    const nextWeek=await call(path.replace('date=2026-10-02','date=2026-10-09'),{headers});
-    expect(nextWeek.status).toBe(200);
-    await expect(nextWeek.json()).resolves.toMatchObject({sharedQuota:{day:{date:'2026-10-09'},
-      week:{fromDate:'2026-10-05',toDate:'2026-10-09'}}});
-    expect((await call(path,{headers:bearer(enrolled.machineToken+'x')})).status).toBe(401);
-    expect((await call(path,{method:'POST',headers})).status).toBe(405);
-  });
-  it('corrects current-week application attribution end-to-end without rewriting ledger or prior weeks', async () => {
+  it('delivers current-week application correction instructions without rewriting ledger or prior weeks', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const day = 86_400_000, now = Date.now(), shifted = new Date(now + 8 * 3_600_000);
     const monday = Math.floor((now + 8 * 3_600_000) / day) * day - 8 * 3_600_000 - ((shifted.getUTCDay() + 6) % 7) * day;
@@ -347,13 +300,6 @@ describe('Runtime product API', () => {
     const policy = await saved.json<{ weekReclassification: { fromMs: number; applications: unknown[] } }>();
     expect(policy.weekReclassification.fromMs).toBe(monday);
     expect(policy.weekReclassification.applications).not.toContainEqual({ platform: 'windows', runtimeIdentity: 'app:other', classification: 'blocked' });
-    const usagePath = `/v2/module/app-usage?childId=child-a&fromMs=${monday}&toMs=${monday + 7 * day}`;
-    const read = () => call(usagePath, { headers: bearer(account) });
-    await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 2501,
-      categories: expect.arrayContaining([expect.objectContaining({ classification: 'study', durationMs: 1501 })]),
-      applications: expect.arrayContaining([expect.objectContaining({ runtimeIdentity: 'app:editor', classification: 'study', durationMs: 1501 })]) });
-    await expect((await call(`/v2/module/app-usage?childId=child-a&fromMs=${monday - 7 * day}&toMs=${monday}`, { headers: bearer(account) })).json())
-      .resolves.toMatchObject({ totalDurationMs: 1501, categories: [expect.objectContaining({ classification: 'unclassified', durationMs: 1501 })] });
     expect((await readRows()).results).toEqual(original);
     const correction = await (await call('/v2/machines/app-usage-corrections', { headers })).json<{ cursor: string; hasMore: boolean; items: unknown[] }>();
     expect(correction.hasMore).toBe(false);
@@ -376,21 +322,15 @@ describe('Runtime product API', () => {
       .json<{ hasMore: boolean; items: Array<{ policyVersion: number }> }>();
     expect(secondFeed.items[0]?.policyVersion).toBe(2); expect(secondFeed.hasMore).toBe(false);
     const otherAccount = await accountToken({ sub: 'account-b', account_id: 'account-b', children: [{ id: 'child-b', name: 'Other' }] });
-    expect((await call(usagePath, { headers: bearer(otherAccount) })).status).toBe(404);
-    await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 2501,
-      weeklyRestrictedEntertainment: expect.objectContaining({ durationMs: 1501, quota: expect.objectContaining({ exceeded: false, limitMs: null }) }),
-      categories: expect.arrayContaining([expect.objectContaining({ classification: 'restrictedEntertainment', durationMs: 1501 })]) });
+    expect((await call(`/v2/module/app-usage?childId=child-a&fromMs=${monday}&toMs=${monday + 7 * day}`,
+      { headers: bearer(otherAccount) })).status).toBe(404);
     const late = await accountingUsage({ runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: monday + 4501, end: monday + 6002 });
     await expect((await upload([a, late])).json()).resolves.toMatchObject({ acceptedIds: [a.id, late.id], rejected: [] });
-    await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 4002,
-      categories: expect.arrayContaining([expect.objectContaining({ classification: 'restrictedEntertainment', durationMs: 3002 })]) });
     const details = await call(`/v2/module/usage-segments?childId=child-a&fromMs=${monday}&toMs=${monday + 7 * day}&limit=100`, { headers: bearer(account) });
     await expect(details.json()).resolves.toMatchObject({ items: expect.arrayContaining([expect.objectContaining({ id: a.id,
       applicationClassification: 'unclassified', effectiveClassificationSlices: [expect.objectContaining({ classification: 'restrictedEntertainment', correctionVersion: 2 })] })]) });
     body.classifications = [];
     expect((await call('/v2/module/app-policy?childId=child-a', { method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v2"' }, body: JSON.stringify(body) })).status).toBe(200);
-    await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 4002,
-      categories: [expect.objectContaining({ classification: 'unclassified', durationMs: 4002 })] });
     expect((await readRows()).results!.filter(row => row.id !== late.id)).toEqual(original);
   });
 
@@ -1018,13 +958,6 @@ describe('Runtime product API', () => {
         { runtimeIdentity: 'app:video', activeMs: 0, pipActiveMs: 60_000, unionMs: 60_000 },
       ],
     });
-    const appUsage = await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=80000', {
-      headers: bearer(account),
-    });
-    await expect(appUsage.json()).resolves.toMatchObject({
-      totalDurationMs: 70_000,
-      mediaPlaybackTotalMs: 120_000,
-    });
     await expect(env.RUNTIME_DB.prepare(`
       SELECT policy_snapshot_json,application_classification,app_policy_version,quota_bucket
       FROM runtime_usage_segments_v2 WHERE id=?1
@@ -1143,13 +1076,6 @@ describe('Runtime product API', () => {
       application_classification: 'study', quota_bucket: 'study', app_policy_version: 1,
     });
 
-    const usage = await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=86400000', { headers: bearer(account) });
-    await expect(usage.json()).resolves.toMatchObject({
-      totalDurationMs: 600_000,
-      buckets: [{ categories: [{ classification: 'study', durationMs: 600_000 }] }],
-      categories: [{ classification: 'study', durationMs: 600_000, quota: { exceeded: false } }],
-      applications: [{ runtimeIdentity: 'app:editor', classification: 'study', quota: { limitMs: 600_000, remainingMs: 0, exceeded: false } }],
-    });
     const records = await call('/v2/module/app-classification-records?childId=child-a', { headers: bearer(account) });
     await expect(records.json()).resolves.toMatchObject({ pending: [], processed: [] });
     const ledger = await call('/v2/module/usage-segments?childId=child-a&fromMs=0&toMs=86400000&limit=1', { headers: bearer(account) });
@@ -1197,13 +1123,6 @@ describe('Runtime product API', () => {
           'Legacy App',?1,?2,60000,'applicationSwitch','legacy-recent-hash',?2)
       `).bind(recentStart, recentEnd),
     ]);
-    const usage = await (await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=86400000', {
-      headers: bearer(account),
-    })).json<{ totalDurationMs: number; categories: Array<{ classification: string; durationMs: number }> }>();
-    expect(usage).toMatchObject({
-      totalDurationMs: 60_000,
-      categories: [{ classification: 'unclassified', durationMs: 60_000 }],
-    });
     const records = await (await call('/v2/module/app-classification-records?childId=child-a', {
       headers: bearer(account),
     })).json<{ pending: unknown[]; technical: Array<{ runtimeIdentity: string; mainDurationMs: number; projectionReasonCode: string }> }>();
@@ -2513,18 +2432,7 @@ describe('Application knowledge and installed inventory', () => {
 async function call(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body !== undefined) headers.set('content-type', 'application/json');
-  const fetch=()=>exports.default.fetch(new Request(`${origin}${path}`, { ...init, headers }));
-  let response=await fetch();
-  // Existing business assertions exercise settled authority. Cold/pending behavior
-  // is independently covered by application-statistics.test.ts, not hidden by product fallback.
-  if(path.startsWith('/v2/module/app-usage?')) {
-    const data=await response.clone().json<{error?:{code?:string};statistics?:{stale:boolean}}>();
-    if(data.error?.code==='APPLICATION_STATISTICS_PENDING'||data.error?.code==='APPLICATION_STATISTICS_MANAGEMENT_PENDING'||data.statistics?.stale) {
-      for(let i=0;i<20;i++)if(!(await rebuildApplicationStatistics(env.RUNTIME_DB)).processed)break;
-      response=await fetch();
-    }
-  }
-  return response;
+  return exports.default.fetch(new Request(`${origin}${path}`, { ...init, headers }));
 }
 function bearer(value: string): HeadersInit { return { authorization: `Bearer ${value}` }; }
 function closedTimeWindows(): Record<string, Record<string, Array<{ start: string; end: string }>>> {
