@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {parseNativeApplicationObjectBatch,parseNativeApplicationConfigurations,verifyNativeApplicationObjectReceipt,
- verifyNativeApplicationStatisticsProjection} from './dist/native-application-identification.js';
+import {parseNativeApplicationObjectBatch,parseNativeApplicationConfigurations,verifyNativeApplicationObjectReceipt} from './dist/native-application-identification.js';
 import {canonicalUsageAccountJson,hashUsageAccountValue} from './dist/usage-account.js';
 const vector=JSON.parse(fs.readFileSync(new URL('./native-application-management.vectors.json',import.meta.url)));
 const batch={schemaVersion:1,childId:'child',localUserId:'user',assignmentVersion:1,items:[vector.item]};
@@ -22,11 +21,8 @@ assert.throws(()=>parseNativeApplicationObjectBatch({...batch,items:[{...vector.
 const cfg={target:{machineId:'machine',nativeId:'scan-app'},classification:'other',specialApplication:false,dailyQuotaMinutes:null};
 assert.deepEqual(parseNativeApplicationConfigurations([cfg]),[cfg]);
 assert.throws(()=>parseNativeApplicationConfigurations([cfg,cfg]));
-const body={schemaVersion:1,baseManifestHash:'a'.repeat(64),revision:1,configurationVersion:0,generatedAtMs:1,
- complete:true,reasonCodes:[],rows:[{kind:'application',hour:null,nativeId:'scan-app',category:null,duration:120,classifications:['unclassified']}],
- applicationUsage:{nonSpecialTotal:120,specialTotal:0,nonSpecialCategories:{unclassified:120},complete:true,reasonCodes:[]}};
-const p={...body,projectionHash:await hashUsageAccountValue(body)};
-assert.deepEqual(await verifyNativeApplicationStatisticsProjection(p),p);
-await assert.rejects(verifyNativeApplicationStatisticsProjection({...p,rows:[{...body.rows[0],duration:120000}]}));
-await assert.rejects(verifyNativeApplicationStatisticsProjection({...p,projectionHash:'b'.repeat(64)}));
-console.log('Native应用对象/配置/身份统计契约及跨端hash向量 PASS');
+await assert.rejects(verifyNativeApplicationObjectReceipt({...ack,items:[{...ack.items[0],payloadHash:'b'.repeat(64)}]},batch));
+const current = await import('./dist/native-application-identification.js');
+for (const retired of ['parseNativeApplicationStatisticsProjection','verifyNativeApplicationStatisticsProjection'])
+ assert.equal(Object.hasOwn(current,retired),false,'旧身份投影不能继续导出');
+console.log('Native应用对象/配置/ACK及跨端hash向量 PASS；旧统计投影已退出');

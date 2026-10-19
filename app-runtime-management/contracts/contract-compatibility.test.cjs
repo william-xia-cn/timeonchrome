@@ -10,21 +10,17 @@ const legacy = [
   'runtime-machine-api-v2.schema.json',
   'runtime-accounting-v2.schema.json',
 ];
-assert.equal(pkg.version, '1.57.0');
+assert.equal(pkg.version, '1.58.0');
 assert.equal(JSON.parse(fs.readFileSync(path.join(root,'usage-account.schema.json'),'utf8')).$defs.fixedIdentityRowV2.properties.displayName.maxLength,512);
 assert(pkg.exports['./native-application-identification']);
 const instanceLedger = JSON.parse(fs.readFileSync(path.join(root,'application-ledger-v4.schema.json'),'utf8'));
 assert.equal(instanceLedger.properties.schemaVersion.const,4);
 assert(instanceLedger.required.includes('childId'));
 const instanceStatistics=JSON.parse(fs.readFileSync(path.join(root,'usage-account.schema.json'),'utf8')).$defs;
-assert.equal(instanceStatistics.manifestV3.properties.schemaVersion.const,3);
-assert(instanceStatistics.manifestV3.required.includes('childId'));
-assert(!instanceStatistics.rowV3.properties.displayName);
-assert.equal(instanceStatistics.productProjection.properties.schemaVersion.const,1);
-assert(!instanceStatistics.productProjectionRow.properties.displayName);
-assert(instanceStatistics.productProjection.required.includes('baseManifestHash'));
-assert.deepEqual(instanceStatistics.productProjectionReceipt.required,['manifestId','revision','projectionHash','received']);
-assert.equal(instanceStatistics.productProjectionReceipt.properties.received.const,true);
+for (const retired of ['manifestV3','rowV3','productProjection','productProjectionRow','productProjectionReceipt'])
+  assert.equal(Object.hasOwn(instanceStatistics,retired),false,`旧实例／产品投影schema必须退出：${retired}`);
+assert.equal(instanceStatistics.manifestV2.properties.durationUnit.const,'seconds');
+assert(instanceStatistics.fixedIdentityRowV2.required.includes('subjectKey'));
 assert(pkg.exports['./source-statistics']);
 assert(pkg.exports['./application-ledger'], '固定孩子原账契约必须独立导出');
 const applicationLedger = JSON.parse(fs.readFileSync(path.join(root, 'application-ledger-v3.schema.json'), 'utf8'));
@@ -36,44 +32,15 @@ const productSchema=JSON.parse(fs.readFileSync(path.join(root,'application-knowl
 assert.equal(productSchema.properties.catalogGroup.const,'specialApplication');
 assert(!productSchema.required.includes('catalogGroup'),'旧产品定义无需补字段');
 assert(pkg.exports['./shared-web-sync']);
-const webSync=JSON.parse(fs.readFileSync(path.join(root,'shared-web-sync-v1.schema.json'),'utf8'));
-assert.equal(webSync.$defs.upload.additionalProperties,false);
-assert.equal(webSync.$defs.proof.additionalProperties,false);
-assert(!webSync.$defs.upload.properties.sourceKey&&!webSync.$defs.upload.properties.childId);
-assert(pkg.exports['./shared-quota-execution']);
-const executionSchema = JSON.parse(fs.readFileSync(path.join(root, 'shared-quota-execution-v1.schema.json'), 'utf8'));
-assert.equal(executionSchema.$defs.basis.additionalProperties, false);
-assert.equal(executionSchema.$defs.basis.properties.days.maxItems, 7);
-assert.equal(executionSchema.$defs.day.properties.sources.maxItems, 200);
-assert.equal(executionSchema.$defs.source.properties.contribution.$ref, 'shared-access-v1.schema.json#/$defs/contribution');
-assert.equal(executionSchema.$defs.transportPage.additionalProperties, false);
-assert.equal(executionSchema.$defs.transportPage.properties.page.properties.items.maxItems, 100);
 assert(pkg.exports['./shared-reminder-lifecycle']);
-assert(pkg.exports['./shared-access'], 'shared access contract must be exported');
-const sharedAccess = JSON.parse(fs.readFileSync(path.join(root, 'shared-access-v1.schema.json'), 'utf8'));
-assert.equal(sharedAccess.$defs.policy.properties.stage.enum[0], 'legacy');
-assert.equal(sharedAccess.$defs.policyIdentity.additionalProperties, false);
-assert.deepEqual(sharedAccess.$defs.policyIdentity.required, Object.keys(sharedAccess.$defs.policyIdentity.properties));
-assert.equal(sharedAccess.$defs.policyIdentity.properties.policyHash.pattern, '^[a-f0-9]{64}$');
-assert.equal(sharedAccess.$defs.policy.properties.autonomy.properties.visibleResponseDeadlineSeconds.const, 60);
-const quotaWeek=sharedAccess.$defs.state.properties.week;
-assert.equal(quotaWeek.additionalProperties,false);
-assert.deepEqual(quotaWeek.required,['fromDate','toDate','complete','reasonCodes','restUsedMs','restRemainingMs']);
-assert.equal(quotaWeek.properties.toDate.$ref,'#/$defs/date');
-assert.equal(quotaWeek.properties.complete.type,'boolean');
-assert.equal(quotaWeek.properties.reasonCodes.type,'array');
-for(const week of [
-  {fromDate:'2026-09-28',toDate:'2026-10-02',complete:true,reasonCodes:[],restUsedMs:10,restRemainingMs:20},
-  {fromDate:'2026-09-28',toDate:'2026-10-02',complete:false,reasonCodes:['APPLICATION_SOURCE_UNAVAILABLE'],restUsedMs:10,restRemainingMs:null},
-]) {
-  assert(Object.keys(week).every(key=>Object.hasOwn(quotaWeek.properties,key)),'real weekly fields must not be rejected');
-  assert(quotaWeek.required.every(key=>Object.hasOwn(week,key)),'weekly completeness must be explicit');
-}
-assert(sharedAccess.$defs.contribution.allOf[0].then.required.includes('chromeExcludedMs'));
-assert(sharedAccess.$defs.contribution.properties.chromeIncludedInApplicationMs,
-  'Chrome marginal display deduction is distinct from quota exclusion');
-assert(!sharedAccess.$defs.applicationUpload.properties.childId && !sharedAccess.$defs.applicationUpload.properties.sourceKey,
-  'machine-authenticated upload cannot select a Child or server-derived source key');
+assert(pkg.exports['./shared-access']);
+assert.equal(Object.hasOwn(pkg.exports,'./shared-quota-execution'),false);
+assert.equal(pkg.files.includes('shared-quota-execution.ts'),false);
+assert.equal(pkg.scripts.test.includes('shared-quota-execution.test.mjs'),false);
+for(const retired of ['shared-access-v1.schema.json','shared-web-sync-v1.schema.json',
+  'shared-quota-execution-v1.schema.json','shared-quota-execution.ts','shared-quota-execution.test.mjs',
+  'shared-quota-execution.vectors.json','shared-web-sync.vectors.json','shared-reminder.vectors.json'])
+  assert.equal(fs.existsSync(path.join(root,retired)),false,`旧业务专属契约必须退出：${retired}`);
 const computerUsage = JSON.parse(fs.readFileSync(path.join(root, 'computer-usage-v1.schema.json'), 'utf8'));
 assert.equal(computerUsage.$defs.response.properties.schemaVersion.const, 1);
 assert.equal(computerUsage.$defs.request.properties.limit.maximum, 100);
@@ -148,56 +115,74 @@ const nativeHostV3 = JSON.parse(fs.readFileSync(path.join(root, 'native-host-v3.
 assert.equal(nativeHostV3.properties.protocolVersion.const, 3);
 assert.deepEqual(nativeHostV3.properties.channel.enum, ['health', 'statistics', 'application', 'sharedQuota']);
 assert.deepEqual(nativeHostV3.properties.messageType.enum,
-  ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsage', 'getApplicationUsageSeconds', 'getApplicationIdentityUsage', 'getSharedQuotaState', 'reportReminderResult',
+  ['heartbeat', 'probe', 'dailyUsageSnapshot', 'getApplicationUsageSeconds',
     'getSharedReminderState', 'acknowledgeSharedReminderDelivery', 'resolveSharedReminder', 'reportBrowserActivity', 'acknowledgeBrowserExecution',
-    'getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution',
-    'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'replaceSharedWebContributionV2', 'exchangeSourceStatistics']);
+    'getSharedWebSourceScope', 'bindSharedWebSourceV2', 'exchangeQuotaBuckets']);
+const retiredBridgeMessages = ['getApplicationUsage', 'getApplicationIdentityUsage', 'getSharedQuotaState', 'reportReminderResult',
+  'getSharedWebSourceChallenge', 'bindSharedWebSource', 'replaceSharedWebContribution', 'replaceSharedWebContributionV2'];
+const bridgeSource = fs.readFileSync(path.join(root, 'native-host.ts'), 'utf8');
+const currentEnvelope = bridgeSource.split('export interface BrowserBridgeV3Envelope')[1].split('export interface BrowserDailyUsageSnapshotResponse')[0];
+for (const message of retiredBridgeMessages) {
+  assert(!nativeHostV3.properties.messageType.enum.includes(message), `旧本地消息不得被schema接受：${message}`);
+  assert(!currentEnvelope.includes(`'${message}'`), `旧本地消息不得被TypeScript消息类型接受：${message}`);
+  assert(!nativeHostV3.allOf.some(rule => rule.then?.properties?.messageType?.enum?.includes(message)), `旧本地消息不得保留通道分派：${message}`);
+}
+for (const rule of nativeHostV3.allOf) {
+  for (const payloadRule of rule.then?.allOf || []) {
+    assert(nativeHostV3.properties.messageType.enum.includes(payloadRule.if.properties.messageType.const));
+  }
+}
 assert(nativeHostV3.allOf.find(rule => rule.if?.properties?.channel?.const === 'sharedQuota').then.allOf.some(
-  rule => rule.if?.properties?.messageType?.const === 'exchangeSourceStatistics'
-    && rule.then.properties.payload.$ref === 'source-statistics-v1.schema.json#/$defs/exchange'));
+  rule => rule.if?.properties?.messageType?.const === 'exchangeQuotaBuckets'
+    && rule.then.properties.payload.$ref === 'quota-buckets-v2.schema.json#/$defs/exchange'));
 const reusableSchema=JSON.parse(fs.readFileSync(path.join(root,'shared-web-sync-v2.schema.json'),'utf8'));
+assert.equal(Object.hasOwn(reusableSchema.$defs,'replaceQuery'),false,'可复用身份契约不得夹带旧贡献替换');
+const quotaBucketsSchema=JSON.parse(fs.readFileSync(path.join(root,'quota-buckets-v2.schema.json'),'utf8'));
+assert.equal(fs.existsSync(path.join(root,'source-statistics-v1.schema.json')),false);
+assert.equal(quotaBucketsSchema.$defs.snapshot.properties.schemaVersion.const,2);
+assert.equal(quotaBucketsSchema.$defs.snapshot.properties.durationUnit.const,'seconds');
+assert.deepEqual(quotaBucketsSchema.$defs.buckets.required,['study','composite','rest']);
+assert.equal(quotaBucketsSchema.$defs.snapshot.additionalProperties,false);
+assert.equal(Object.hasOwn(quotaBucketsSchema.$defs.snapshot.properties,'includedSourceKeys'),false);
+assert.equal(Object.hasOwn(quotaBucketsSchema.$defs.day.properties,'categoriesSeconds'),false);
 assert.equal(reusableSchema.$defs.webClaims.additionalProperties,false);
 assert(!reusableSchema.$defs.webClaims.properties.connectionHash);
 assert(!reusableSchema.$defs.webClaims.properties.challengeId);
 assert.equal(reusableSchema.$defs.webClaims.properties.schemaVersion.const,2);
-assert.equal(nativeHostV3.$defs.applicationQuery.additionalProperties, false);
+assert.equal(Object.hasOwn(nativeHostV3.$defs, 'applicationQuery'), false);
+assert.equal(Object.hasOwn(nativeHostV3.$defs, 'sharedQuotaQuery'), false);
 assert(pkg.exports['./application-usage-seconds']);
 assert(pkg.files.includes('application-usage-seconds.ts'));
 const applicationSecondsSchema=JSON.parse(fs.readFileSync(path.join(root,'application-usage-seconds-v2.schema.json'),'utf8'));
 assert.equal(applicationSecondsSchema.$defs.snapshot.properties.durationUnit.const,'seconds');
 assert.equal(applicationSecondsSchema.$defs.query.additionalProperties,false);
 assert.equal(applicationSecondsSchema.$defs.snapshot.properties.applications.maxItems,100);
-assert.equal(nativeHostV3.allOf[0].then.allOf[1].then.properties.payload.$ref,
+const payloadRef = (channel, message) => nativeHostV3.allOf.find(rule => rule.if.properties.channel.const === channel)
+  .then.allOf.find(rule => rule.if.properties.messageType.const === message).then.properties.payload.$ref;
+assert.equal(payloadRef('application', 'getApplicationUsageSeconds'),
   'application-usage-seconds-v2.schema.json#/$defs/query');
-assert.equal(nativeHostV3.allOf[0].then.allOf[2].then.properties.payload.$ref,
-  'application-usage-seconds-v2.schema.json#/$defs/identityQuery');
 assert.equal(applicationSecondsSchema.$defs.identitySnapshot.properties.schemaVersion.const,3);
 assert.equal(applicationSecondsSchema.$defs.identityQuery.additionalProperties,false);
-assert.deepEqual(nativeHostV3.$defs.sharedQuotaQuery.required, ['date']);
-assert.deepEqual(Object.keys(nativeHostV3.$defs.sharedQuotaQuery.properties), ['date']);
-assert.equal(nativeHostV3.$defs.sharedQuotaQuery.additionalProperties, false);
-assert.equal(nativeHostV3.allOf[3].then.allOf[1].then.properties.payload.$ref,
-  'shared-access-v1.schema.json#/$defs/reminderResult');
-assert.equal(nativeHostV3.allOf[3].then.allOf[2].then.properties.payload.$ref,'#/$defs/sharedQuotaQuery');
-assert.equal(nativeHostV3.allOf[3].then.allOf[3].then.properties.payload.$ref,
-  'shared-reminder-lifecycle-v1.schema.json#/$defs/deliveryAck');
-assert.equal(nativeHostV3.allOf[3].then.allOf[4].then.properties.payload.$ref,
-  'shared-reminder-lifecycle-v1.schema.json#/$defs/resolution');
-assert.equal(nativeHostV3.allOf[3].then.allOf[5].then.properties.payload.$ref,
-  'shared-reminder-lifecycle-v1.schema.json#/$defs/browserActivity');
-const lifecycle=JSON.parse(fs.readFileSync(path.join(root,'shared-reminder-lifecycle-v1.schema.json'),'utf8'));
-assert.equal(nativeHostV3.allOf[3].then.allOf[6].then.properties.payload.$ref,
-  'shared-reminder-lifecycle-v1.schema.json#/$defs/browserExecutionAck');
+assert.equal(payloadRef('sharedQuota', 'getSharedReminderState'),'shared-reminder-lifecycle-v2.schema.json#/$defs/stateQuery');
+assert.equal(payloadRef('sharedQuota', 'acknowledgeSharedReminderDelivery'),
+  'shared-reminder-lifecycle-v2.schema.json#/$defs/deliveryAck');
+assert.equal(payloadRef('sharedQuota', 'resolveSharedReminder'),
+  'shared-reminder-lifecycle-v2.schema.json#/$defs/resolution');
+assert.equal(payloadRef('sharedQuota', 'reportBrowserActivity'),
+  'shared-reminder-lifecycle-v2.schema.json#/$defs/browserActivity');
+const lifecycle=JSON.parse(fs.readFileSync(path.join(root,'shared-reminder-lifecycle-v2.schema.json'),'utf8'));
+assert.equal(payloadRef('sharedQuota', 'acknowledgeBrowserExecution'),
+  'shared-reminder-lifecycle-v2.schema.json#/$defs/browserExecutionAck');
 for(const type of ['browserExecution','browserExecutionAck']) {
   assert.equal(lifecycle.$defs[type].additionalProperties,false);
-  assert.deepEqual(lifecycle.$defs[type].required,Object.keys(lifecycle.$defs[type].properties)
-    .filter(field=>field!=='triggerStateRevision'));
-  assert.equal(lifecycle.$defs[type].properties.triggerStateRevision.$ref,'#/$defs/key');
+  assert.deepEqual(lifecycle.$defs[type].required,Object.keys(lifecycle.$defs[type].properties));
+  assert.equal(Object.hasOwn(lifecycle.$defs[type].properties,'triggerStateRevision'),false);
+  assert.equal(lifecycle.$defs[type].properties.schemaVersion.const,2);
 }
 assert.equal(lifecycle.$defs.state.additionalProperties,false);
 assert.deepEqual(lifecycle.$defs.state.required,Object.keys(lifecycle.$defs.state.properties));
-assert.deepEqual(nativeHostV3.$defs.applicationQuery.required, ['fromDate', 'toDate', 'offset']);
-assert.equal(nativeHostV3.$defs.applicationQuery.properties.offset.maximum, 20000);
+assert.deepEqual(applicationSecondsSchema.$defs.query.required, ['fromDate', 'toDate', 'offset']);
+assert.equal(applicationSecondsSchema.$defs.query.properties.offset.maximum, 20000);
 assert.equal(nativeHostV3.$defs.dailySnapshot.properties.activeSeconds.type, 'integer');
 assert(nativeHostV3.$defs.dailySnapshot.required.includes('correctionRevision'));
 assert(nativeHostV3.$defs.dailySnapshot.required.includes('snapshotRevision'));
