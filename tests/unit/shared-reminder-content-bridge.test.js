@@ -5,19 +5,24 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const root = path.resolve(__dirname, '../..');
 async function run() {
+  const fixtureContract = await import(pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.58.0/shared-access.js')));
+  const fixturePolicy = { ...fixtureContract.projectSharedAccessPolicyV2({}, 1, 0), stage: 'shadow' };
+  const fixtureIdentity = await fixtureContract.createSharedAccessPolicyIdentityV2(fixturePolicy);
+  globalThis.__reminderModel = { ok: true, policy: fixturePolicy, ruleScopeKey: 'b'.repeat(64) };
   let source = fs.readFileSync(path.join(root, 'extension/product/shared-reminder-content-bridge.js'), 'utf8')
-    .replace(/import \{ readSharedAccessRuntime \}[^;]+;/, 'const readSharedAccessRuntime=async()=>({ok:true,executionRevision:globalThis.__reminderExecutionRevision||"state-1",policy:{revision:"policy-1"}});')
+    .replace(/import \{ readSharedAccessRuntime \}[^;]+;/, 'const readSharedAccessRuntime=async()=>globalThis.__reminderModel;')
     .replace(/import \{ createSharedBrowserExecutor \}[^;]+;/, 'const createSharedBrowserExecutor=()=>({execute:async()=>({ok:true,effectsEnabled:false})});')
-    .replace(/import \{ requestSharedReminderLifecycle, getSharedBrowserActivityLease, hasSharedReminderContinuityCapability \} from '[^']+';/,
+    .replace(/import \{ requestSharedReminderLifecycle, getSharedBrowserActivityLease \} from '[^']+';/,
       'const requestSharedReminderLifecycle = () => { throw Error("not configured"); }; const getSharedBrowserActivityLease = () => "lease-1",hasSharedReminderContinuityCapability=()=>false;')
     .replace(/from '\.\.\/infra\/shared-reminder-lifecycle.js'/, `from '${pathToFileURL(path.join(root, 'extension/infra/shared-reminder-lifecycle.js')).href}'`)
     .replace(/from '\.\.\/core\/shared-reminder-lifecycle.js'/, `from '${pathToFileURL(path.join(root, 'extension/core/shared-reminder-lifecycle.js')).href}'`);
   source = source.replace(/from '\.\.\/core\/autonomy-confirmation.js'/, `from '${pathToFileURL(path.join(root, 'extension/core/autonomy-confirmation.js')).href}'`);
-  source = source.replace(/from '\.\.\/core\/shared-contracts\/1\.54\.0\/shared-access.js'/, `from '${pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/shared-access.js')).href}'`);
+  source = source.replace(/from '\.\.\/core\/shared-contracts\/1\.58\.0\/shared-access.js'/, `from '${pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.58.0/shared-access.js')).href}'`);
   const { createSharedReminderContentBridge, initSharedReminderContentBridge,
     configureSharedReminderContentBridge, pollSharedReminderForTab } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-  const state = { schemaVersion: 1, roundId: 'round-1', reminderId: 'reminder-1', deliveryId: 'delivery-1',
-    policyRevision: 'policy-1', stateRevision: 'state-1', date: '2026-10-02', kinds: ['daily', 'weekly'],
+  const state = { schemaVersion: 2, roundId: 'round-1', reminderId: 'reminder-1', deliveryId: 'delivery-1',
+    policyRevision: fixturePolicy.revision, stateRevision: 'state-1', date: '2026-10-02', kinds: ['repeat'],
+    policyIdentity: fixtureIdentity, ruleScopeKey: 'b'.repeat(64), reasonCodes: ['dailyRest'], forcedUsageSeconds: 2100, confirmedAtUsageSeconds: 300,
     presenter: 'browser', stage: 'shadow', issuedAtMs: 1000, offerExpiresAtMs: 300000,
     visibleAtMs: null, responseDeadlineSeconds: 60, timeoutAction: 'end', status: 'offered', resolution: null };
   const identityKeys = ['schemaVersion', 'roundId', 'reminderId', 'deliveryId', 'policyRevision', 'stateRevision'];
@@ -69,12 +74,12 @@ async function run() {
   assert.equal(messages.at(-1).type, 'DISMISS_SHARED_REMINDER');
 
   backend = { ...state };
-  const growing = createSharedReminderContentBridge({ ...options, readContinuity: () => true });
+  const growing = createSharedReminderContentBridge(options);
   await growing.poll(1, state.date);
   const displayedAt = growing.inspect().state.visibleAtMs;
   const shows = messages.filter(x => x.type === 'SHOW_SHARED_REMINDER').length;
   globalThis.__reminderExecutionRevision = 'state-2';
-  assert.equal((await growing.poll(1, state.date)).ok, true, 'Service keeps trigger identity across negotiated growth');
+  assert.equal((await growing.poll(1, state.date)).ok, true, 'V2 keeps the current reminder while usage grows without changing policy scope');
   assert.equal(growing.inspect().state.stateRevision, 'state-1');
   assert.equal(growing.inspect().state.visibleAtMs, displayedAt);
   assert.equal(messages.filter(x => x.type === 'SHOW_SHARED_REMINDER').length, shows, 'no redisplay/deadline restart');
@@ -207,7 +212,7 @@ async function run() {
     assert.equal(configureSharedReminderContentBridge({ ...options, enabled: false }).ok, true);
     assert.equal((await pollSharedReminderForTab(1, state.date)).skipped, true);
   } finally { global.chrome = oldChrome; }
-  const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/shared-access.js')));
+  const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.58.0/shared-access.js')));
   const v2Policy = { ...v2Contract.projectSharedAccessPolicyV2({}, 5, 1000), stage: 'shared' };
   const v2PolicyIdentity = await v2Contract.createSharedAccessPolicyIdentityV2(v2Policy);
   const v2Scope = 'c'.repeat(64);

@@ -6,7 +6,7 @@ const cache = new Map();
 const inFlight = new Map();
 export const APPLICATION_CATEGORY_LABELS = {
   study: '学习', composite: '复合', restrictedEntertainment: '受限娱乐',
-  unclassified: '未归类', other: '其他', blocked: '黑名单', unknown: '历史分类未知', historicalUnknown: '历史分类未知',
+  unclassified: '未归类', other: '其他', blocked: '黑名单', historicalUnknown: '历史分类未知',
 };
 const uiKey = key => `app_${key}`;
 export function applicationUsageErrorMessage(code) {
@@ -44,60 +44,6 @@ function weekDates(key) {
   const weekday = new Date(value + 8 * 3_600_000).getUTCDay();
   const monday = value - ((weekday + 6) % 7) * DAY;
   return Array.from({ length: 7 }, (_, index) => dateKey(monday + index * DAY));
-}
-function categories(values, maximum) {
-  if (!values || typeof values !== 'object' || Array.isArray(values)) invalid();
-  for (const [key, value] of Object.entries(values)) {
-    if (!(key in APPLICATION_CATEGORY_LABELS) || !ms(value) || value > maximum) invalid();
-  }
-}
-export function validateApplicationUsagePage(page, from, to) {
-  const dates = Array.from({ length: (dateMs(to) - dateMs(from)) / DAY + 1 }, (_, i) => dateKey(dateMs(from) + i * DAY));
-  if (!page || page.fromDate !== from || page.toDate !== to || !/^[a-f0-9]{64}$/.test(page.revision)
-    || !ms(page.computedAtMs) || (page.lastSettledAtMs != null && !ms(page.lastSettledAtMs))
-    || typeof page.complete !== 'boolean' || !Array.isArray(page.reasonCodes) || page.reasonCodes.length > 16
-    || page.reasonCodes.some(c => typeof c !== 'string' || !/^[A-Z_]{1,64}$/.test(c))
-    || !ms(page.totalMs) || page.totalMs > dates.length * DAY
-    || !Array.isArray(page.days) || page.days.length !== dates.length
-    || !Array.isArray(page.applications) || page.applications.length > 100
-    || (page.nextOffset != null && (!Number.isInteger(page.nextOffset) || page.nextOffset < 1 || page.nextOffset > 20000))) invalid();
-  if (page.attribution != null) {
-    const value = page.attribution;
-    if (typeof value.complete !== 'boolean'
-      || (value.productAssociationVersion != null && !/^[a-f0-9]{64}$/.test(value.productAssociationVersion))
-      || (value.classificationCorrectionVersion != null && !ms(value.classificationCorrectionVersion))
-      || !Array.isArray(value.reasonCodes) || value.reasonCodes.length > 16
-      || value.reasonCodes.some(code => typeof code !== 'string' || !/^[A-Z_]{1,64}$/.test(code))
-      || (value.complete && value.reasonCodes.length)) invalid();
-  }
-  let sum = 0;
-  page.days.forEach((day, i) => {
-    if (day.date !== dates[i] || !ms(day.totalMs) || day.totalMs > DAY
-      || typeof day.complete !== 'boolean' || !Array.isArray(day.reasonCodes)
-      || day.reasonCodes.some(c => typeof c !== 'string' || !/^[A-Z_]{1,64}$/.test(c))
-      || !Array.isArray(day.hours) || day.hours.length !== 24) invalid();
-    categories(day.categoriesMs, DAY);
-    day.hours.forEach((hour, index) => {
-      if (hour.hour !== index || !ms(hour.totalMs) || hour.totalMs > 3_600_000) invalid();
-      categories(hour.categoriesMs, 3_600_000);
-    });
-    if (day.hours.reduce((n, h) => n + h.totalMs, 0) !== day.totalMs) invalid();
-    for (const [key, value] of Object.entries(day.categoriesMs)) {
-      if (day.hours.reduce((n, h) => n + (h.categoriesMs[key] || 0), 0) !== value) invalid();
-    }
-    sum += day.totalMs;
-  });
-  if (sum !== page.totalMs || (page.complete && (page.reasonCodes.length || page.days.some(d => !d.complete)))) invalid();
-  for (const row of page.applications) {
-    if (!/^[a-f0-9]{64}$/.test(row.key) || typeof row.name !== 'string' || row.name.length > 160
-      || /[\u0000-\u001f]/.test(row.name) || !ms(row.totalMs) || row.totalMs > dates.length * DAY
-      || !Array.isArray(row.classifications) || row.classifications.length > 6
-      || row.classifications.some(c => !(c in APPLICATION_CATEGORY_LABELS)) || !row.dailyMs
-      || Object.keys(row.dailyMs).length !== dates.length) invalid();
-    for (const date of dates) if (!ms(row.dailyMs[date]) || row.dailyMs[date] > DAY) invalid();
-    if (dates.reduce((n, date) => n + row.dailyMs[date], 0) !== row.totalMs) invalid();
-  }
-  return page;
 }
 const SECOND_CATEGORIES = new Set(['study', 'composite', 'restrictedEntertainment', 'unclassified', 'other', 'blocked', 'historicalUnknown']);
 function exactObject(value, keys) {
@@ -219,7 +165,7 @@ async function sendContext(recheck = false) {
   try { response = await chrome.runtime.sendMessage({ type: CONTEXT_MESSAGE, contextOnly: true, recheck }); }
   catch (_) { throw new Error('native_host_unavailable'); }
   if (!response?.ok) throw new Error(response?.errorCode || 'application_usage_unavailable');
-  if (!['seconds', 'milliseconds'].includes(response.readUnit) || typeof response.contextId !== 'string'
+  if (response.readUnit !== 'seconds' || typeof response.contextId !== 'string'
     || !response.contextId || typeof response.available !== 'boolean') invalid();
   return { readUnit: response.readUnit, contextId: response.contextId, available: response.available };
 }
@@ -230,7 +176,7 @@ async function send(query, context, recheck = false) {
   catch (_) { throw new Error('native_host_unavailable'); }
   if (!response?.ok) throw new Error(response?.errorCode || 'application_usage_unavailable');
   if (response.readUnit !== context.readUnit || response.contextId !== context.contextId) invalid();
-  const page = context.readUnit === 'seconds' ? response.applicationUsageSeconds : response.applicationUsage;
+  const page = response.applicationUsageSeconds;
   return { page, readUnit: response.readUnit };
 }
 async function readWeek(dates, context, force, recheck) {
@@ -247,16 +193,13 @@ async function readWeek(dates, context, force, recheck) {
           const query = { fromDate: from, toDate: to, offset,
             ...(snapshot ? { expectedRevision: snapshot.revision } : {}) };
           const received = await send(query, context, recheck && offset === 0);
-          const page = received.readUnit === 'seconds' ? validateApplicationUsageSecondsPage(received.page, query)
-            : validateApplicationUsagePage(received.page, from, to);
+          const page = validateApplicationUsageSecondsPage(received.page, query);
           if (snapshot && (page.revision !== snapshot.revision || JSON.stringify(page.days) !== JSON.stringify(snapshot.days)
-            || (context.readUnit === 'seconds'
-              ? page.totalSeconds !== snapshot.totalSeconds || page.knownTotalSeconds !== snapshot.knownTotalSeconds
-                || JSON.stringify(page.knownCategoriesSeconds) !== JSON.stringify(snapshot.knownCategoriesSeconds)
-              : page.totalMs !== snapshot.totalMs)
+            || page.totalSeconds !== snapshot.totalSeconds || page.knownTotalSeconds !== snapshot.knownTotalSeconds
+            || JSON.stringify(page.knownCategoriesSeconds) !== JSON.stringify(snapshot.knownCategoriesSeconds)
             || page.complete !== snapshot.complete || page.computedAtMs !== snapshot.computedAtMs
             || page.lastSettledAtMs !== snapshot.lastSettledAtMs)) {
-            throw new Error(context.readUnit === 'seconds' ? 'application_usage_seconds_revision_changed' : 'application_usage_revision_changed');
+            throw new Error('application_usage_seconds_revision_changed');
           }
           snapshot ||= page;
           for (const row of page.applications) {
@@ -281,28 +224,14 @@ async function readWeek(dates, context, force, recheck) {
   try { return await promise; } finally { inFlight.delete(key); }
 }
 const uiCategories = values => Object.fromEntries(Object.entries(values).map(([key, value]) => [uiKey(key), value]));
-function dayCategories(day, unit) { return unit === 'seconds' ? day.categoriesSeconds : Object.fromEntries(
-  Object.entries(day.categoriesMs).map(([key, value]) => [key, value / 1000])); }
-function dayTotal(day, unit) { return unit === 'seconds' ? day.totalSeconds : day.totalMs / 1000; }
-function productDaily(row, date, unit, snapshot) {
-  if (!row) return snapshot.complete ? 0 : null;
-  const value = unit === 'seconds' ? row.dailySeconds[date] : row.dailyMs[date] / 1000;
-  return value == null ? null : value;
-}
-function productKnown(row, unit) {
-  if (!row) return 0;
-  return unit === 'seconds' ? row.knownTotalSeconds : row.totalMs / 1000;
-}
-function productTotal(row, unit, snapshot) {
-  if (!snapshot || !row) return snapshot?.complete ? 0 : null;
-  if (unit === 'seconds') return row.totalSeconds;
-  return snapshot.complete ? row.totalMs / 1000 : null;
-}
+function dayCategories(day) { return day.categoriesSeconds; }
+function dayTotal(day) { return day.totalSeconds; }
+function productDaily(row, date, unit, snapshot) { return row ? row.dailySeconds[date] : snapshot.complete ? 0 : null; }
+function productKnown(row) { return row?.knownTotalSeconds ?? 0; }
+function productTotal(row, unit, snapshot) { return row ? row.totalSeconds : snapshot?.complete ? 0 : null; }
 function summarySeries(snapshot) {
-  if (!snapshot) return [];
-  return snapshot.days.map(day => ({ label: day.date.slice(5), categories: snapshot.readUnit === 'seconds' || day.complete
-    ? uiCategories(dayCategories(day, snapshot.readUnit)) : {},
-    totalSeconds: day.complete ? dayTotal(day, snapshot.readUnit) : null }));
+  return snapshot?.days.map(day => ({ label: day.date.slice(5), categories: uiCategories(dayCategories(day)),
+    totalSeconds: day.complete ? dayTotal(day) : null })) || [];
 }
 function rangeCacheKey(context, dates) { return `${context.readUnit}/${context.contextId}/${dates[0]}/${dates.at(-1)}`; }
 export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date, force = false, recheck = false } = {}) {
@@ -346,11 +275,11 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
     const selectedTotal = productTotal(chosen, unit, snapshot);
     const selectedKnown = productKnown(chosen, unit);
     const todayDay = todaySnapshot?.days.find(day => day.date === today);
-    const todayValue = todayDay && (unit === 'seconds' || todayDay.complete)
+    const todayValue = todayDay && true
       ? productDaily(todayRow, today, unit, todaySnapshot) : null;
     const weekValue = productTotal(thisWeek, current?.readUnit || unit, current);
     const labels = row.classifications.map(key => APPLICATION_CATEGORY_LABELS[key]);
-    const partialLabel = unit === 'seconds' && !snapshot.complete ? `已知部分 ${selectedKnown} 秒；范围不完整` : '独立应用统计，不计网页配额';
+    const partialLabel = !snapshot.complete ? `已知部分 ${selectedKnown} 秒；范围不完整` : '独立应用统计，不计网页配额';
     return { key: row.key, label: row.name, category: uiKey(row.classifications[0] || 'unknown'),
       categoryLabel: labels.join('／'), categoryKeys: row.classifications.map(uiKey), managedTargetType: '应用',
       rangeSeconds: selectedTotal, rangeKnownSeconds: selectedKnown,
@@ -358,9 +287,8 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
   }).filter(row => (row.rangeSeconds || row.rangeKnownSeconds || row.todaySeconds || row.weekSeconds))
     .sort((a, b) => (b.rangeKnownSeconds || 0) - (a.rangeKnownSeconds || 0));
   const incomplete = snapshot.days.filter(day => !day.complete).map(day => day.date).join('、');
-  const knownTotalSeconds = unit === 'seconds' ? snapshot.knownTotalSeconds : snapshot.days.reduce((sum, day) => sum + day.totalMs / 1000, 0);
-  const totalSeconds = unit === 'seconds' ? snapshot.totalSeconds
-    : unavailable ? null : selectedDays.reduce((sum, day) => sum + day.totalMs, 0) / 1000;
+  const knownTotalSeconds = snapshot.knownTotalSeconds;
+  const totalSeconds = snapshot.totalSeconds;
   const categoryRows = Object.entries(APPLICATION_CATEGORY_LABELS).map(([key, label]) => {
     const categoryKey = uiKey(key);
     const known = Object.hasOwn(categoryTotals, categoryKey);
@@ -372,16 +300,13 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
   });
   const series = summarySeries(snapshot);
   const chartSeries = mode === 'week' ? series : selectedDays[0].hours.map(hour => ({ label: `${hour.hour}`,
-    categories: unit === 'seconds' ? uiCategories(hour.categoriesSeconds) : unavailable ? {} : uiCategories(Object.fromEntries(
-      Object.entries(hour.categoriesMs).map(([key, value]) => [key, value / 1000]))),
-    totalSeconds: unit === 'seconds' ? (selectedDays[0].complete ? hour.totalSeconds : null)
-      : (unavailable ? null : hour.totalMs / 1000) }));
-  const lastSettledAtMs = unit === 'seconds' ? snapshot.lastSettledAtMs : snapshot.lastSettledAtMs;
+    categories: uiCategories(hour.categoriesSeconds),
+    totalSeconds: selectedDays[0].complete ? hour.totalSeconds : null }));
+  const lastSettledAtMs = snapshot.lastSettledAtMs;
   const settled = lastSettledAtMs ? new Date(lastSettledAtMs).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '尚无已结算记录';
   const attribution = snapshot.attribution;
-  const attributionLabel = unit === 'seconds' ? '整数秒统计来源' : !attribution ? '归属同步状态：旧版服务未提供'
-    : attribution.complete ? '产品关联／分类已同步' : '产品关联／分类尚未同步完成（用量仍按已结算原账显示）';
-  const associationLabel = attribution?.productAssociationVersion ? ` · 关联版本 ${attribution.productAssociationVersion.slice(0, 12)}` : '';
+  const attributionLabel = '整数秒统计来源';
+  const associationLabel = '';
   const completenessLabel = unit === 'seconds' && !snapshot.complete
     ? ` · 已知用量 ${knownTotalSeconds} 秒；总量暂不完整` : '';
   return { kind: 'application', range: { mode, from: mode === 'week' ? selectedDates[0] : selected,
@@ -391,5 +316,5 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
     targetRows, chartSeries, weekSummarySeries: selectedWeek ? summarySeries(selectedWeek) : selectedDates.map(day => ({ label: day.slice(5), categories: {}, totalSeconds: null })),
     targetColumnLabel: '应用', categoryColumnLabel: '历史管理分类', limitColumnLabel: '网页配额', searchTargetPlaceholder: '搜索应用名称',
     warning, weekUnavailable: !selectedWeek, incompleteDates: incomplete, attribution, readUnit: unit,
-    meta: { syncLabel: `${warning ? '缓存／连接中断 · ' : ''}本机当前 Windows 用户 · 最近读取 ${new Date(snapshot.readAtMs).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} · 已结算至 ${settled}${incomplete ? ' · 不完整日期：' + incomplete : ''}${completenessLabel} · ${attributionLabel}${associationLabel}` } };
+    meta: { syncLabel: `${warning ? '缓存／连接中断 · ' : ''}本机当前孩子 · 最近读取 ${new Date(snapshot.readAtMs).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} · 已结算至 ${settled}${incomplete ? ' · 不完整日期：' + incomplete : ''}${completenessLabel} · ${attributionLabel}${associationLabel}` } };
 }

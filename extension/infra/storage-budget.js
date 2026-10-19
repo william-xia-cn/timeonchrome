@@ -21,6 +21,12 @@ let pendingTasks = [];
 let draining = false;
 let taskSequence = 0;
 let activeMaintenanceToken = null;
+let maintenanceDisabled = 0;
+
+export async function withoutStorageMaintenance(task) {
+  maintenanceDisabled++;
+  try { return await task(); } finally { maintenanceDisabled--; }
+}
 
 function encodedBytes(value) {
   try {
@@ -130,6 +136,14 @@ async function commitBudgetedWrite(items, options = {}) {
 
   const priority = normalizedPriority(options.priority);
   let usage = await projectedBytes(items);
+  if (options.allowMaintenance === false || maintenanceDisabled > 0) {
+    if (usage.projected + STORAGE_EMERGENCY_RESERVE_BYTES > STORAGE_HARD_LIMIT_BYTES) {
+      throw Object.assign(new Error('storage_hard_limit'), { code: 'storage_hard_limit' });
+    }
+    // Binding snapshots must not delete facts to make room, or fail after committing.
+    await chrome.storage.local.set(items);
+    return { ok: true };
+  }
   if (usage.projected + STORAGE_EMERGENCY_RESERVE_BYTES >= STORAGE_PRESSURE_BYTES) {
     await requestMaintenance({
       reason: options.source || 'storage_prewrite_pressure',

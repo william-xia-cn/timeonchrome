@@ -8,7 +8,7 @@ const load = s => import('data:text/javascript;base64,' + Buffer.from(s).toStrin
 async function run() {
   const { SHARED_WEB_IDENTITY_ERRORS } = await import(pathToFileURL(path.join(root, 'extension/core/shared-web-native.js')).href);
   globalThis.__sharedIdentityErrors = SHARED_WEB_IDENTITY_ERRORS;
-  globalThis.__sourceStatisticsContract = await load(read('extension/core/shared-contracts/1.56.0/source-statistics.js'));
+  globalThis.__sourceStatisticsContract = await load(read('extension/core/shared-contracts/1.58.0/source-statistics.js'));
   globalThis.__profileShadow = await load(read('extension/core/profile-account-shadow-v2.js').replace(/^import .*;\r?\n/gm, ''));
   const mod = await load('const SHARED_WEB_IDENTITY_ERRORS=globalThis.__sharedIdentityErrors;\n'
     + 'const sourceStatisticsContract=globalThis.__sourceStatisticsContract;\n'
@@ -16,48 +16,12 @@ async function run() {
     + 'const readCurrentApplicationIdentityConfirmation=async()=>({confirmed:null}),readNativeHostDiagnosticState=()=>({});\n'
     + read('extension/infra/shared-sync-diagnostics.js').replace(/^import .*;\r?\n/gm, ''));
   const now = Date.parse('2026-10-03T04:00:00Z');
-  const identity = { schemaVersion: 1, revision: 'profile-config:34', stage: 'shadow', effectiveAtMs: 0, policyHash: 'a'.repeat(64) };
-  const upload = { revisionOrdinal: 1, contentHash: 'b'.repeat(64), complete: false,
-    reasonCodes: ['LOCAL_BUCKETS_INCOMPLETE', 'PRIVATE_ACCOUNT_IDENTIFIER'], policyIdentity: identity,
-    activeMs: 906000, bucketsMs: { study: 1000, composite: 2000, rest: 603000 }, otherMs: 0 };
-  const stored = { shared_web_contribution_queue_v1: { scopeHash: 'private_scope', days: { '2026-09-30': {
-    upload, cloudConfirmed: true, nativeAccepted: true, failures: 2, nextRetryAtMs: now + 1000,
-    lastErrorCode: 'shared_web_private_account_identifier' } } },
-    shared_access_policy_lkg_v1: { policyHash: identity.policyHash, policy: identity, receivedAtMs: now },
-    shared_web_sync_diagnostics_v1: { scopeHash: 'private_scope', policyIdentity: identity,
-      cloudAckAtMsByDate: { '2026-09-30': now }, cloudAckVersionsByDate: { '2026-09-30': { revisionOrdinal: 1, contentHash: upload.contentHash } },
-      coverageByDate: { '2026-09-30': { revisionOrdinal: 1, contentHash: upload.contentHash, allBucketMs: 906000, knownBucketMs: 606000, unknownBucketKeyCount: 1 } },
-      failedStage: 'cloud_watermark', failedDate: '2026-10-01', lastErrorCode: 'shared_web_watermark_unavailable' },
-    local_guardian_status_v1: { privateToken: 'private_token', lastSuccessAt: now, lastErrorCode: 'private_identifier' } };
-  const model = mod.buildSharedSyncDiagnostics(stored, {}, { cacheScopeCurrent: true }, now, '1.7.40');
-  assert.equal(model.days.length, 6);
+  const stored = { local_guardian_status_v1: { lastSuccessAt: now, lastErrorCode: 'private_identifier' } };
+  const model = mod.buildSharedSyncDiagnostics(stored, {}, {}, now, '1.7.40');
   assert.equal(model.connection.connectedCurrent, null);
   assert.equal(model.connection.capabilities, null);
   assert.equal(model.connection.applicationUsageSupported, null);
-  assert.equal(model.historyCurrent, true);
-  assert.equal(model.days[2].cloudAckAtMs, now);
-  assert.equal(model.days[3].activeMs, null);
-  assert.equal(model.days[3].nativeConfirmedCurrent, null);
-  assert.equal(model.days[2].nativeAcceptedHistorical, true);
-  assert.equal(model.days[2].nativeConfirmedCurrent, null);
-  assert.deepEqual(model.days[2].storedBucketCoverageBeforeCorrections,
-    { allBucketMs: 906000, knownBucketMs: 606000, unknownBucketKeyCount: 1 });
-  assert.deepEqual(model.days[2].reasonCodes, ['LOCAL_BUCKETS_INCOMPLETE', 'UNKNOWN_REASON']);
-  assert.equal(model.days[2].lastErrorCode, 'unknown');
-  const serialized = JSON.stringify(model);
-  for (const value of ['private', identity.policyHash, upload.contentHash, 'PRIVATE_ACCOUNT_IDENTIFIER']) assert(!serialized.includes(value));
-  const rebound = structuredClone(stored); rebound.shared_web_contribution_queue_v1.scopeHash = 'new_scope';
-  assert.equal(mod.buildSharedSyncDiagnostics(rebound, {}, {}, now).days[2].cloudAckAtMs, null);
-  const changed = structuredClone(stored); changed.shared_access_policy_lkg_v1.policy = { ...changed.shared_access_policy_lkg_v1.policy, stage: 'shared' };
-  assert.equal(mod.buildSharedSyncDiagnostics(changed, {}, {}, now).historyCurrent, false);
-  const advanced = structuredClone(stored); advanced.shared_web_contribution_queue_v1.days['2026-09-30'].upload.revisionOrdinal++;
-  assert.equal(mod.buildSharedSyncDiagnostics(advanced, {}, {}, now).days[2].cloudAckAtMs, null);
-  assert.equal(mod.buildSharedSyncDiagnostics({}, {}, {}, now).historyCurrent, false);
-  assert.equal(mod.buildSharedSyncDiagnostics(stored, {}, {}, now).days[2].cloudAckAtMs, null);
-  assert.equal(mod.buildSharedSyncDiagnostics(stored, {}, {}, now).days[2].cloudConfirmedHistorical, null);
-  const partial = structuredClone(stored); partial.shared_access_policy_lkg_v1.policy = { revision: identity.revision };
-  assert.equal(mod.buildSharedSyncDiagnostics(partial, {}, { cacheScopeCurrent: true }, now).days[2].policyMatchesCurrentCache, null);
-  assert.equal(mod.buildSharedSyncDiagnostics({}, {}, {}, Date.parse('2026-10-04T16:00:00Z')).days.length, 1);
+  assert(!JSON.stringify(model).includes('private'));
   const policyV2 = { schemaVersion: 2, revision: 'profile-config:35', stage: 'shadow', effectiveAtMs: 0 };
   const sourceCache = { childId: 'private_child', scopeHash: 'private_scope', fromDate: '2026-09-28', toDate: '2026-10-03',
     applicationOrigin: 'native', webDayOrigins: { '2026-10-03': { origin: 'cloud_other', readAtMs: now } },
@@ -280,7 +244,6 @@ async function run() {
   for (const [stage, options] of [
     ['storage', { storage: { get: async () => { throw Error('private_token'); } } }],
     ['native', { native: () => { throw Error('private_token'); } }],
-    ['shared', { live: () => { throw Error('private_token'); } }],
   ]) {
     mod.registerSharedSyncDiagnosticsReader({ runtime, storage: { get: async () => stored }, native: () => ({}), live: () => ({}), ...options });
     listener({ type: mod.SHARED_SYNC_DIAGNOSTICS_MESSAGE }, { id: 'self', url: runtime.getURL('admin/admin.html') }, v => reply = v);
@@ -296,7 +259,7 @@ async function run() {
   assert.equal(record({ messageType: 'private_token', channel: 'private_id' }, 'negative_response').messageType, 'unknown');
   const rejectionModel = mod.buildSharedSyncDiagnostics({}, { lastResponseRejection: { atMs: 123, reason: 'private_token', messageType: 'private_id', channel: 'private_channel' } }, {}, now);
   assert(!JSON.stringify(rejectionModel).includes('private_'));
-  for (const messageType of ['getApplicationIdentityUsage', 'getApplicationUsageSeconds', 'exchangeSourceStatistics', 'exchangeQuotaBuckets']) {
+  for (const messageType of ['getApplicationUsageSeconds', 'exchangeQuotaBuckets']) {
     const readable = mod.buildSharedSyncDiagnostics({}, { lastResponseRejection: {
       atMs: now, reason: 'negative_response', messageType, channel: messageType === 'exchangeSourceStatistics' ? 'sharedQuota' : 'application' } }, {}, now);
     assert.equal(readable.connection.responseRejection.messageType, messageType);
@@ -307,7 +270,7 @@ async function run() {
     assert.equal(diagnostic.connection.connectedCurrent, true);
     assert.equal(diagnostic.connection.responseRejection.serviceErrorCode, code);
     assert.equal(diagnostic.connection.responseRejection.messageType, 'bindSharedWebSourceV2');
-    assert.equal(diagnostic.bindingState, 'expired_or_changed');
+    assert.equal(Object.hasOwn(diagnostic, 'bindingState'), false, 'current identity is reported only by V2 confirmation');
   }
   const callbackBody = nativeSource.slice(nativeSource.indexOf('  port.onMessage.addListener((response) => {') + '  port.onMessage.addListener((response) => {'.length,
     nativeSource.indexOf('\n  port.onDisconnect.addListener'));
@@ -330,113 +293,13 @@ async function run() {
     assert.equal(disconnected, !isolated); assert.equal(rejected, isolated ? 'native_snapshot_rejected' : 'native_invalid_response');
   }
   const body = nativeSource.match(/export function readNativeHostDiagnosticState\(\) \{([\s\S]*?)\n\}/)[1];
-  const inspect = new Function('nativePort', 'sharedNativeV3', 'sharedNativeCapabilities', 'applicationUsageSupported', 'lastResponseRejection',
-    "const SOURCE_STATISTICS_READ_CAPABILITY='source-statistics-read-v1', APPLICATION_IDENTITY_USAGE_READ_CAPABILITY='application-identity-usage-read-v1'; const applicationUsageSecondsSupported=false,applicationIdentityUsageSupported=false,applicationConnectionGeneration=7,lastSourceStatisticsAttempt=null;\n" + body);
+  const inspect = new Function('nativePort', 'sharedNativeV3', 'sharedNativeCapabilities', 'applicationUsageSecondsSupported', 'lastResponseRejection',
+    "const applicationConnectionGeneration=7,lastSourceStatisticsAttempt=null;\n" + body);
   assert.equal(inspect({}, false, new Set(), false).applicationUsageSupported, null);
   assert.equal(inspect(null, true, new Set(), true).applicationUsageSupported, null);
-  assert.equal(inspect({}, true, new Set(['private_capability', 'shared-web-local-lease-v1']), false).capabilities.length, 1);
-  const url = f => pathToFileURL(path.join(root, f)).href;
-  const syncSource = read('extension/infra/shared-web-contribution-sync.js')
-    .replace(/from '(\.\.\/core\/shared-contracts\/[^']+|\.\.\/core\/shared-access-policy.js)'/g,
-      (_, p) => `from '${url('extension/' + path.posix.normalize('infra/' + p))}'`)
-    .replace(/import \{ buildLocalQuotaProjectionV2 \}[^;]+;/, 'const buildLocalQuotaProjectionV2=()=>{};')
-    .replace(/import \{ getBeijingWeekPeriod \}[^;]+;/, 'const getBeijingWeekPeriod=()=>({weekStart:"2026-09-28"});')
-    .replace(/import \{ readSharedAccessPolicyContext[^;]+;/, 'const readSharedAccessPolicyContext=()=>null,readSharedAccessPolicyLkg=()=>null,SHARED_ACCESS_POLICY_LKG_KEY="policy";')
-    .replace(/import \{ readCloudSharedWebCapabilities[^;]+;/, 'const readCloudSharedWebCapabilities=()=>null,readCloudSharedWebWatermark=()=>null,postCloudSharedWebContribution=()=>null,requestCloudSharedWebSourceBinding=()=>null,requestCloudSharedWebSourceBindingV2=()=>null;')
-    .replace(/from '(\.\/shared-web-reusable-binding.js|\.\.\/core\/shared-web-native.js)'/g,
-      (_, p) => `from '${url('extension/' + path.posix.normalize('infra/' + p))}'`)
-    .replace(/import \{ requestSharedWebSync[^;]+;/, 'const requestSharedWebSync=()=>null,observeSharedAccessPolicyCapability=()=>null,readSharedWebLocalConnection=()=>({connection:null}),requestApplicationIdentityBindingNative=()=>null,readApplicationIdentityBindingConnection=()=>({connection:null}),setApplicationIdentityBindingEnsurer=()=>{};')
-    .replace(/import \{ runStorageMutation[^;]+;/, 'const runStorageMutation=()=>null,budgetedLocalSet=async(value,options)=>globalThis.__diagnosticWrites.push({value,options});')
-    .replace(/import \{ readSharedQuotaExecutionLkg[^;]+;/, 'const readSharedQuotaExecutionLkg=()=>null;');
-  globalThis.__diagnosticWrites = [];
-  const syncModule = await load(syncSource);
-  const projectionModule = await load(read('extension/core/quota-read-model-v2.js').replace(/^import .*;\r?\n/gm, ''));
-  const stats = { domains: { private_domain: { activeSeconds: 906 } },
-    targets: { private_target: { activeByQuotaBucket: { study: 906 } } } };
-  const corrections = [
-    { id: 'private_id', date: '2026-09-30', channel: 'active', durationSeconds: 360, originalQuotaBucket: 'study', effectiveQuotaBucket: 'private_bucket' },
-    { id: 'private_rejected', date: '2026-09-30', channel: 'active', durationSeconds: 900, originalQuotaBucket: 'rest', effectiveQuotaBucket: 'other' },
-    { date: '2026-09-30', channel: 'backgroundMedia', durationSeconds: 500, originalQuotaBucket: 'study', effectiveQuotaBucket: 'rest' },
-  ];
-  const frozen = JSON.stringify({stats, corrections});
-  const projected = projectionModule.buildLocalQuotaProjectionV2({ '2026-09-30': stats },
-    { date: '2026-09-30', weekStart: '2026-09-30', weekEnd: '2026-09-30', corrections });
-  const after = syncModule.summarizeProjectedBucketDiagnostics(projected, corrections);
-  assert.deepEqual(after, { allBucketMs: 906000, knownBucketMs: 546000, unknownBucketMs: 360000, unknownBucketKeyCount: 1,
-    corrections: { requestedCount: 2, appliedCount: 1, rejectedCount: 1,
-      flows: [{from: 'rest', to: 'other', count: 1, requestedSeconds: 900}, {from: 'study', to: 'unknown', count: 1, requestedSeconds: 360}],
-      failures: {local_day_missing: 0, original_bucket_too_small: 1, unknown: 0} } });
-  assert.equal(JSON.stringify({stats, corrections}), frozen);
-  assert(!JSON.stringify(after).includes('private'));
-  stored.shared_web_sync_diagnostics_v1.coverageByDate['2026-09-30'].afterCorrections = { ...after, privateToken: 'private_token' };
-  const sampled = mod.buildSharedSyncDiagnostics(stored, {}, { cacheScopeCurrent: true }, now);
-  assert.deepEqual(sampled.days[2].bucketCoverageAfterCorrections, after);
-  assert(!JSON.stringify(sampled).includes('private'));
-  assert.equal(mod.buildSharedSyncDiagnostics(advanced, {}, {cacheScopeCurrent: true}, now).days[2].bucketCoverageAfterCorrections, null);
-  const invalidCoverage = structuredClone(stored);
-  invalidCoverage.shared_web_sync_diagnostics_v1.coverageByDate['2026-09-30'].afterCorrections.corrections.flows[0].from = 'private_bucket';
-  assert.equal(mod.buildSharedSyncDiagnostics(invalidCoverage, {}, {cacheScopeCurrent: true}, now).days[2].bucketCoverageAfterCorrections, null);
-  assert.equal(syncModule.summarizeProjectedBucketDiagnostics({}, corrections), null);
-  assert.deepEqual(syncModule.summarizeStoredBucketCoverage({ targets: { private_target: { activeByQuotaBucket: { rest: 606, private_bucket: 300 } } } }),
-    { allBucketMs: 906000, knownBucketMs: 606000, unknownBucketKeyCount: 1 });
-  assert.equal(syncModule.summarizeStoredBucketCoverage({}).allBucketMs, null);
-  assert.equal(mod.buildSharedSyncDiagnostics(advanced, {}, {}, now).days[2].storedBucketCoverageBeforeCorrections.allBucketMs, null);
-  const failureSync = syncModule.createSharedWebContributionSync({ enabled: true,
-    readContext: async () => { throw Error('private_raw_exception'); }, now: () => now });
-  assert.equal((await failureSync.refresh()).errorCode, 'shared_web_sync_unavailable');
-  const event = globalThis.__diagnosticWrites[0];
-  assert.equal(event.options.priority, 'diagnostic');
-  assert.deepEqual(Object.keys(event.value), ['shared_web_sync_diagnostics_v1']);
-  assert.equal(event.value.shared_web_sync_diagnostics_v1.failedStage, 'local_context');
-  assert(!JSON.stringify(event).includes('private_raw_exception'));
-  const beforeReads = globalThis.__diagnosticWrites.length;
-  assert.equal(failureSync.readDiagnostics(null, {}).bindingState, 'disconnected');
-  assert.equal(globalThis.__diagnosticWrites.length, beforeReads);
-  const contract = await import(url('extension/core/shared-contracts/1.30.0/shared-access.js'));
-  const policy = { ...contract.projectLegacySharedAccessPolicy({}, 34, 0), stage: 'shadow' };
-  const loopSource = syncSource.replace('const buildLocalQuotaProjectionV2=()=>{};',
-    'const buildLocalQuotaProjectionV2=()=>({today:{byQuotaBucket:{},onlineSeconds:0,complete:true},complete:true,correctionIssues:[]});');
-  const loopModule = await load(loopSource);
-  const loopStore = { daily_usage_stats_v1: Object.fromEntries(model.days.map(d => [d.date, { domains: {}, targets: {} }])), guardian_config: {} };
-  const sourceKey = 'web:' + 'f'.repeat(64);
-  let higherWatermark = false;
-  const loop = loopModule.createSharedWebContributionSync({ enabled: true, now: () => now,
-    readContext: async () => ({ apiBase: 'https://fixture.invalid', deviceId: 'private_device', childId: 'private_child', deviceToken: 'private_token' }),
-    readPolicy: async () => ({ ok: true, policy }), readStorage: async () => loopStore,
-    mutate: async fn => fn({ get: async () => loopStore, set: async v => Object.assign(loopStore, v) }),
-    capabilities: async () => ({ ok: true, value: { schemaVersion: 1, protocol: 'shared-web-sync-v1', enabled: true } }),
-    readWatermark: async (_, date) => date === '2026-10-01' ? { ok: false, errorCode: 'private_identifier' }
-      : { ok: true, value: { schemaVersion: 1, sourceKey, date, revisionOrdinal: higherWatermark ? 5 : 0,
-        contentHash: higherWatermark ? 'a'.repeat(64) : null, publicationRevision: higherWatermark ? '5:' + 'a'.repeat(64) : null } },
-    native: async () => ({ ok: false }),
-    upload: async (_, u) => ({ ok: true, value: { schemaVersion: 1, sourceKey, date: u.date, revisionOrdinal: u.revisionOrdinal,
-      contentHash: u.contentHash, publicationRevision: `${u.revisionOrdinal}:${u.contentHash}`, status: 'accepted', submittedRevisionOrdinal: u.revisionOrdinal } }) });
-  assert.equal((await loop.refresh()).errorCode, 'private_identifier');
-  const loopEvent = globalThis.__diagnosticWrites.at(-1).value.shared_web_sync_diagnostics_v1;
-  assert.equal(loopEvent.failedStage, 'cloud_watermark'); assert.equal(loopEvent.failedDate, '2026-10-01');
-  assert.equal(loopEvent.lastErrorCode, 'unknown');
-  assert.equal(Object.keys(loopEvent.cloudAckAtMsByDate).length, 3);
-  assert.equal(Object.keys(loopEvent.coverageByDate).length, 6);
-  assert.equal(loopStore.shared_web_contribution_queue_v1.days['2026-10-03'].cloudConfirmed, undefined);
-  assert(!JSON.stringify(loopEvent).includes('private_identifier'));
-  higherWatermark = true;
-  await loop.refresh();
-  const rebasedEvent = globalThis.__diagnosticWrites.at(-1).value.shared_web_sync_diagnostics_v1;
-  for (const date of ['2026-09-28', '2026-09-29', '2026-09-30']) {
-    const upload = loopStore.shared_web_contribution_queue_v1.days[date].upload;
-    assert.equal(upload.revisionOrdinal, 6);
-    assert.equal(rebasedEvent.coverageByDate[date].revisionOrdinal, upload.revisionOrdinal);
-    assert.equal(rebasedEvent.coverageByDate[date].contentHash, upload.contentHash);
-    assert.equal(rebasedEvent.coverageByDate[date].afterCorrections.allBucketMs, 0);
-  }
-  const receiptBlock = read('extension/infra/shared-web-contribution-sync.js').match(/          if \(nativeAccepted\) \{([\s\S]*?)\n          if \(nativeAccepted\) \{/)[0];
-  const applyReceipt = new Function('nativeAccepted', 'nativeReceipts', 'd', 'submitted', 'now', 'diagnostic',
-    'const r={};const reusableBinding={invalidate(){}};const identityError=(_,fallback)=>fallback;const SHARED_WEB_IDENTITY_ERRORS=new Set();const clearBinding=()=>nativeReceipts.clear();const fail=errorCode=>({errorCode});let preparation;\n' + receiptBlock.slice(0, receiptBlock.lastIndexOf('          if (nativeAccepted) {')));
-  const receipts = new Map([['day', { hash: 'hash', atMs: 5 }]]);
-  applyReceipt(true, receipts, 'day', { contentHash: 'hash' }, () => 10, {});
-  assert.equal(receipts.get('day').atMs, 5, 'existing confirmed receipt must not be deleted or re-timestamped');
-  applyReceipt(false, receipts, 'day', { contentHash: 'hash' }, () => 10, {});
-  assert.equal(receipts.has('day'), false);
+  assert.equal(inspect({}, true, new Set(['private_capability', 'quota-buckets-read-v1']), false).capabilities.length, 1);
+  assert.equal(inspect({}, true, new Set(['application-usage-seconds-read-v1']), true).applicationUsageSupported, true);
+  assert.deepEqual(inspect({}, true, new Set(['shared-quota-state-read', 'shared-web-contribution-sync-v1']), false).capabilities, []);
   const ui = await load(read('extension/admin/shared-sync-diagnostics-view.js'));
   class Element {
     constructor(doc) { this.ownerDocument = doc; this.children = []; this.textContent = ''; }
@@ -447,29 +310,13 @@ async function run() {
   const contents = element => [element.textContent, ...element.children.map(contents)].join(' ');
   ui.renderSharedSyncDiagnostics(container, { ...model, connection: { lastSuccessAtMsHistorical: now, lastErrorCodeHistorical: 'native_port_disconnected', connectedCurrent: false } });
   assert(contents(container).includes('历史连接成功时间')); assert(contents(container).includes('native_port_disconnected'));
-  for (const [bindingState, expectedText] of [
-    ['valid', '已确认（同一孩子／当前连接）'], ['unbound', '未确认'],
-    ['disconnected', '已失效（连接已断开）'], ['expired_or_changed', '已失效（已过期或身份／连接已变化）'],
-  ]) {
-    ui.renderSharedSyncDiagnostics(container, { ...model, bindingState,
-      connection: { connectedCurrent: bindingState !== 'disconnected', capabilities: ['shared-web-source-reusable-v2'] } });
-    const rendered = contents(container);
-    assert(rendered.includes('孩子身份确认')); assert(rendered.includes(expectedText));
-    assert(rendered.includes('可复用孩子身份核验')); assert(rendered.includes('当前贡献接收：未知'));
-    assert(!rendered.includes('当前签名绑定')); assert(!rendered.includes('当前 Native：'));
-    assert(!rendered.includes('shared-web-source-reusable-v2'));
-  }
-  ui.renderSharedSyncDiagnostics(container, sampled);
-  assert(contents(container).includes('未识别 360000 毫秒'));
-  assert(contents(container).includes('学习 → 未知'));
-  assert(contents(container).includes('已应用 1 条 · 失败 1 条'));
-  assert(!contents(container).includes('private'));
   ui.renderSharedSyncDiagnostics(container, { ...model, v2, days: [] });
   assert(contents(container).includes('V2 当前只读观测'));
   assert(contents(container).includes('已授予'));
   assert(contents(container).includes('本地组件'));
   assert(contents(container).includes('未知；不能由缓存来源推断'));
-  assert(contents(container).includes('以下为旧版历史贡献'));
+  assert(!contents(container).includes('以下为旧版历史贡献'));
+  assert(!Object.hasOwn(model, 'days'), 'current diagnostics has no legacy contribution projection');
   assert(!contents(container).match(/private|PRIVATE|指纹/));
   ui.renderSharedSyncDiagnostics(container, { ...model, v2: confirmedPeer, days: [] });
   assert(contents(container).includes('V2 当前本地连接同孩子核验'));

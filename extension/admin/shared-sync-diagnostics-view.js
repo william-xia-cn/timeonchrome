@@ -1,15 +1,8 @@
 const text = v => v == null ? '未知' : String(v);
-const confirmation = v => v === true ? '已确认' : v === false ? '待确认' : '未知';
 const time = v => v == null ? '未知' : new Date(v).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
-const stageNames = { local_context: '读取本地上下文', local_projection: '准备派生贡献', native_replace: 'Native 确认',
-  cloud_capabilities: '读取云端能力', cloud_watermark: '读取云端水位', source_binding: '来源签名绑定',
-  cloud_upload: '上传派生贡献', cloud_ack: '校验云端 ACK', local_preparation: '准备共享读模型' };
-const capabilityNames = { 'application-usage-read': '应用用量读取', 'shared-quota-state-read': '共享用量读取',
-  'shared-web-contribution-sync-v1': '网页贡献同步', 'shared-access-policy-identity-read': '策略身份读取',
-  'shared-quota-execution-preparation-read-v1': '执行准备读取', 'shared-browser-activity-v1': '浏览器活动',
-  'shared-reminder-lifecycle-v1': '提醒生命周期', 'shared-reminder-continuity-v1': '提醒连续性',
-  'shared-web-local-lease-v1': '本地来源租约', 'shared-web-source-reusable-v2': '可复用孩子身份核验',
-  'source-statistics-read-v1': '分域统计读取', 'quota-buckets-sources-v1': '本机与其他设备来源读取',
+const capabilityNames = { 'application-usage-seconds-read-v1': '应用秒用量读取',
+  'shared-web-source-reusable-v2': '可复用孩子身份核验', 'quota-buckets-read-v1': '配额桶读取',
+  'quota-buckets-sources-v1': '本机与其他设备来源读取', 'shared-access-policy-v2': '统一时间配置',
   'shared-forced-use-runtime-v2': '统一强行使用运行时' };
 
 const failures = {
@@ -122,46 +115,8 @@ export function renderSharedSyncDiagnostics(container, model, failure = null, pa
       }
     }
     row('V2 周合计', '缓存未保存独立周合计；仅列已有逐日结果，不在诊断中重算');
-    row('以下为旧版历史贡献', '不代表上方 V2 来源读取或当前连接已确认');
   }
-  const stage = { legacy: '旧链路', shadow: '影子核对', shared: '共享执行' }[model.policy?.stage] || '未知';
-  row('缓存配置', `${text(model.policy?.revision)} · ${stage}`);
-  row('配置读取时间', time(model.policy?.receivedAtMs));
-  row('孩子身份确认', { valid: '已确认（同一孩子／当前连接）', disabled: '未确认（功能未启用）', disconnected: '已失效（连接已断开）', unbound: '未确认',
-    expired_or_changed: '已失效（已过期或身份／连接已变化）' }[model.bindingState] || '尚无法确认');
-  row('同步进度', model.running === true ? stageNames[model.stage] || '进行中' : model.running === false ? '当前无在途同步' : '未知');
-  row('最近实际云端 ACK', time(Math.max(...(model.days || []).map(v => v.cloudAckAtMs || 0)) || null));
-  row('诊断历史缓存', model.historyCurrent ? '对应当前来源与配置' : '无可信当前缓存（旧缓存不采用）');
-  row('贡献缓存来源', model.cacheScopeCurrent === true ? '已核实当前来源' : model.cacheScopeCurrent === false ? '不是当前来源' : '尚无法核实；缓存不作当前确认');
-  row('最近同步诊断', `${time(model.lastCompletedAtMs)} · ${model.lastErrorCode == null ? '无错误记录或尚未采样' : model.lastErrorCode}`);
-  row('最近失败阶段', model.failedStage ? `${stageNames[model.failedStage] || '未知'}${model.failedDate ? ` · ${model.failedDate}` : ''}` : '未知／无失败记录');
-  row('最近本地确认失败', model.nativeFailure ? `${stageNames[model.nativeFailure.stage] || '未知'} · ${text(model.nativeFailure.date)} · ${text(model.nativeFailure.errorCode)} · ${time(model.nativeFailure.atMs)}` : '未知／无失败记录');
-  append(container, 'p', '以下为本周派生贡献；云端历史 ACK 和历史 Native 确认不代表当前连接已确认。时间为北京时间。', 'shared-sync-note');
-  for (const day of model.days || []) {
-    const section = append(container, 'section', '', 'shared-sync-day');
-    append(section, 'h4', `${day.date} · ${day.present ? `修订 ${text(day.revision)}` : '本地尚无贡献记录'}`);
-    append(section, 'p', `完整性：${day.complete === true ? '完整' : day.complete === false ? '不完整' : '未知'} · 云端历史 ACK：${confirmation(day.cloudConfirmedHistorical)} · 当前贡献接收：${confirmation(day.nativeConfirmedCurrent)}`);
-    append(section, 'p', `原因：${day.reasonCodes == null ? '未知' : day.reasonCodes.join('、') || '无'} · 网页 ${text(day.activeMs)} 毫秒 · 三桶 ${text(day.bucketTotalMs)} 毫秒 · 其他 ${text(day.otherMs)} 毫秒`);
-    append(section, 'p', `贡献对应当前缓存配置：${day.policyMatchesCurrentCache === true ? '是' : day.policyMatchesCurrentCache === false ? '否' : '未知'}`);
-    const coverage = day.storedBucketCoverageBeforeCorrections || {};
-    append(section, 'p', `原统计桶覆盖（调账前）：全部 ${text(coverage.allBucketMs)} 毫秒 · 已知 ${text(coverage.knownBucketMs)} 毫秒 · 未识别桶 ${text(coverage.unknownBucketKeyCount)} 种`);
-    const after = day.bucketCoverageAfterCorrections;
-    append(section, 'p', after
-      ? `调账后桶覆盖：全部 ${text(after.allBucketMs)} 毫秒 · 已知 ${text(after.knownBucketMs)} 毫秒 · 未识别 ${text(after.unknownBucketMs)} 毫秒（${text(after.unknownBucketKeyCount)} 种）`
-      : '调账后桶覆盖及更正摘要：未知（未采样或版本不匹配）');
-    if (after) {
-      const correction = after.corrections;
-      append(section, 'p', `更正：请求 ${correction.requestedCount} 条 · 已应用 ${correction.appliedCount} 条 · 失败 ${correction.rejectedCount} 条`);
-      const bucketNames = { study: '学习', composite: '复合', rest: '休息', other: '其他', unknown: '未知' };
-      for (const flow of correction.flows) append(section, 'p', `更正请求流向：${bucketNames[flow.from]} → ${bucketNames[flow.to]} · ${flow.count} 条 · ${flow.requestedSeconds} 秒（不代表全部成功应用）`);
-      const failureNames = { local_day_missing: '本地日期缺失', original_bucket_too_small: '原桶用量不足', unknown: '未知原因' };
-      for (const [code, count] of Object.entries(correction.failures)) if (count > 0) append(section, 'p', `更正失败：${failureNames[code]} · ${count} 条`);
-    }
-    append(section, 'p', `最近实际 ACK：${time(day.cloudAckAtMs)} · 历史 Native：${confirmation(day.nativeAcceptedHistorical)}`);
-    append(section, 'p', `当前连接 Native ACK：${time(day.nativeAckAtMsCurrent)}`);
-    const retry = day.nextRetryAtMs == null ? '未知' : day.nextRetryAtMs === 0 ? '无冷却' : time(day.nextRetryAtMs);
-    append(section, 'p', `失败 ${text(day.failures)} 次 · ${day.lastErrorCode || '无错误记录或尚未采样'} · 重试时间：${retry}`);
-  }
+
 }
 
 export function attachSharedSyncDiagnostics(details, container, { runtime = chrome.runtime, storage = chrome.storage,
@@ -178,7 +133,7 @@ export function attachSharedSyncDiagnostics(details, container, { runtime = chro
     reading = true;
     try {
       const result = await runtime.sendMessage({ type: 'TIMEONCHROME_SHARED_SYNC_DIAGNOSTICS_READ' });
-      const valid = result?.ok === true && result.diagnostics && Array.isArray(result.diagnostics.days);
+      const valid = result?.ok === true && result.diagnostics && result.diagnostics.connection && typeof result.diagnostics.connection === 'object';
       const failure = result?.error === 'Unknown message type' ? 'diagnostics_background_unsupported'
         : result?.errorCode || 'diagnostics_response_invalid';
       if (!disposed && ticket === generation && details.open) renderSharedSyncDiagnostics(container, valid ? result.diagnostics : null, failure, pageVersion);
@@ -201,8 +156,7 @@ export function attachSharedSyncDiagnostics(details, container, { runtime = chro
   };
   details.addEventListener('toggle', toggle);
   const changed = (changes, area) => {
-    if (area === 'local' && ['shared_web_contribution_queue_v1', 'shared_access_policy_lkg_v1',
-      'shared_web_sync_diagnostics_v1', 'local_guardian_status_v1', 'shared_access_policy_lkg_v2',
+    if (area === 'local' && ['local_guardian_status_v1', 'shared_access_policy_lkg_v2',
       'source_statistics_shadow_cache_v1', 'source_statistics_shadow_v1'].some(k => Object.hasOwn(changes, k))) void read();
   };
   storage.onChanged.addListener(changed);

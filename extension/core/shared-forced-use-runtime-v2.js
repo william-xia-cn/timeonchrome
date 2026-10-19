@@ -1,7 +1,7 @@
 import { validateSharedBrowserActivityV2, validateSharedBrowserActivityAckV2,
   validateSharedReminderStateQueryV2,
   validateSharedReminderStateV2, validateSharedReminderDeliveryAckV2, validateSharedReminderResolutionV2,
-  validateSharedBrowserExecutionV2, validateSharedBrowserExecutionAckV2 } from './shared-contracts/1.54.0/shared-reminder-lifecycle.js';
+  validateSharedBrowserExecutionV2, validateSharedBrowserExecutionAckV2 } from './shared-contracts/1.58.0/shared-reminder-lifecycle.js';
 
 export function checkSharedActivityV2(value) {
   try { return { ok: true, payload: validateSharedBrowserActivityV2(value) }; }

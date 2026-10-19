@@ -11,6 +11,7 @@ const { spawnSync } = require('child_process');
 
 const root = path.join(__dirname, '..', '..');
 const tool = path.join(root, 'tools', 'self-hosted-crx-dry-run.js');
+const { stageExtensionPackage, validateExtensionPackageRoot } = require(tool);
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'timeonchrome-managed-package-'));
 const extensionId = 'jdcancbiocacabbjdkngadmjpjmkdnih';
 const developmentKeyPair = crypto.generateKeyPairSync('rsa', { modulusLength: 1024 });
@@ -38,6 +39,43 @@ function stage(name, mode, candidateVersion, closeDevelopment = false) {
 }
 
 try {
+  // Only temporary staging fixtures: never launch Chrome or create/sign a CRX.
+  const fixture = path.join(tempRoot, 'contract-fixture');
+  const fixtureContracts = path.join(fixture, 'core', 'shared-contracts');
+  for (const version of ['2.0.0', '1.0.0']) fs.mkdirSync(path.join(fixtureContracts, version), { recursive: true });
+  for (const name of ['manifest.json', 'managed-storage-schema.json']) {
+    fs.copyFileSync(path.join(root, 'extension', name), path.join(fixture, name));
+  }
+  fs.writeFileSync(path.join(fixture, 'background.js'), "import { value } from './core/shared-contracts/2.0.0/current.js';\n");
+  fs.writeFileSync(path.join(fixtureContracts, '2.0.0', 'current.js'), "export { value } from './dependency.js';\n");
+  fs.writeFileSync(path.join(fixtureContracts, '2.0.0', 'dependency.js'), 'export const value = 1;\n');
+  fs.writeFileSync(path.join(fixtureContracts, '2.0.0', 'example.vectors.json'), '{}');
+  fs.writeFileSync(path.join(fixtureContracts, '1.0.0', 'old.js'), 'export const retired = true;\n');
+  const fixtureStage = path.join(tempRoot, 'contract-staging');
+  stageExtensionPackage(fixture, fixtureStage);
+  assert.deepStrictEqual(fs.readdirSync(path.join(fixtureStage, 'core', 'shared-contracts')), ['2.0.0']);
+  for (const name of ['current.js', 'dependency.js']) {
+    assert.deepStrictEqual(fs.readFileSync(path.join(fixtureStage, 'core', 'shared-contracts', '2.0.0', name)),
+      fs.readFileSync(path.join(fixtureContracts, '2.0.0', name)));
+  }
+  assert.strictEqual(fs.existsSync(path.join(fixtureContracts, '1.0.0', 'old.js')), true, 'historical source must remain');
+  assert.strictEqual(fs.existsSync(path.join(fixtureStage, 'core', 'shared-contracts', '2.0.0', 'example.vectors.json')), false);
+  assert.strictEqual(fs.existsSync(path.join(fixtureContracts, '2.0.0', 'example.vectors.json')), true, 'source test vector must remain');
+  fs.writeFileSync(path.join(fixtureStage, 'core', 'shared-contracts', '2.0.0', 'example.vectors.json'), '{}');
+  assert.throws(() => validateExtensionPackageRoot(fixtureStage), /test-only contract vectors/);
+  fs.unlinkSync(path.join(fixtureStage, 'core', 'shared-contracts', '2.0.0', 'example.vectors.json'));
+  fs.writeFileSync(path.join(fixtureStage, 'core', 'shared-web-contribution.js'), 'export const old = true;');
+  assert.throws(() => validateExtensionPackageRoot(fixtureStage), /retired business module/);
+  fs.unlinkSync(path.join(fixtureStage, 'core', 'shared-web-contribution.js'));
+  fs.mkdirSync(path.join(fixtureStage, 'core', 'shared-contracts', '1.0.0'));
+  assert.throws(() => validateExtensionPackageRoot(fixtureStage), /non-current contract entries/);
+  fs.writeFileSync(path.join(fixture, 'ambiguous.js'), "import './core/shared-contracts/1.0.0/old.js';\n");
+  assert.throws(() => stageExtensionPackage(fixture, path.join(tempRoot, 'ambiguous-stage')), /exactly one current contract version/);
+  assert.strictEqual(fs.existsSync(path.join(tempRoot, 'ambiguous-stage')), false);
+  fs.writeFileSync(path.join(fixture, 'ambiguous.js'), "import './core/shared-contracts/2.0.0/missing.js';\n");
+  assert.throws(() => stageExtensionPackage(fixture, path.join(tempRoot, 'missing-stage')), /dependency missing or invalid/);
+  assert.strictEqual(fs.existsSync(path.join(tempRoot, 'missing-stage')), false);
+
   const managedStage = stage('managed', 'managed');
   const managed = managedStage.packageDir;
   for (const entry of ['privacy-consent.html', 'privacy-consent.js', 'privacy.html']) {
@@ -124,6 +162,21 @@ try {
   assert.strictEqual(regularManifest.permissions.includes('nativeMessaging'), false);
   assert.strictEqual(regularManifest.permissions.includes('debugger'), false);
   assert.strictEqual(regularManifest.web_accessible_resources.some((entry) => entry.resources.includes('health-probe.html')), false);
+  const currentVersion = fs.readFileSync(path.join(root, 'extension', 'core', 'shared-access-policy.js'), 'utf8')
+    .match(/shared-contracts\/([^/]+)\//)[1];
+  const currentSource = path.join(root, 'extension', 'core', 'shared-contracts', currentVersion);
+  for (const staged of [managed, development, regular, fixedStage.packageDir, closeStage.packageDir]) {
+    const stagedContracts = path.join(staged, 'core', 'shared-contracts');
+    assert.deepStrictEqual(fs.readdirSync(stagedContracts), [currentVersion]);
+    for (const name of fs.readdirSync(currentSource)) {
+      if (name.endsWith('.vectors.json')) {
+        assert.strictEqual(fs.existsSync(path.join(stagedContracts, currentVersion, name)), false);
+        continue;
+      }
+      assert.deepStrictEqual(fs.readFileSync(path.join(stagedContracts, currentVersion, name)),
+        fs.readFileSync(path.join(currentSource, name)), `current contract ${name} changed in staging`);
+    }
+  }
   console.log('[Managed Package Privacy Boundary] managed/development/regular matrix passed');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });

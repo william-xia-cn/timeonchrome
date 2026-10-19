@@ -65,13 +65,25 @@ const FOREGROUND_DIAGNOSTIC_ASSIGN_KEYS = new Set([
   'lastCheckpointFailureAt',
 ]);
 let commitQueue = Promise.resolve();
+let bindingCutoverAtMs = null;
+
+export function recordBindingCutover(atMs = Date.now()) {
+  bindingCutoverAtMs = atMs;
+}
+
+export function predatesBindingCutover(atMs) {
+  return bindingCutoverAtMs !== null && Number.isFinite(atMs) && atMs <= bindingCutoverAtMs;
+}
 
 // 缓存的模式上下文 — 在 segment 打开时读取，避免在 segment 关闭后读取到已切换的模式。
 // 由 transitionState 在每次打开新 segment 时更新。
 let cachedEffectiveMode = 'unknown';
 
-function runSerialized(task) {
-  commitQueue = commitQueue.then(task, task);
+function runSerialized(task, bindingTransition = false) {
+  const queuedAt = Date.now();
+  const run = () => !bindingTransition && predatesBindingCutover(queuedAt)
+    ? { ok: true, skipped: true, reason: 'binding_scope_changed' } : task();
+  commitQueue = commitQueue.then(run, run);
   return commitQueue;
 }
 
@@ -137,6 +149,7 @@ function isForegroundSettlementReasonAllowed(reason) {
     reason === 'checkpoint_estimated_close' ||
     reason === 'transition_complete' ||
     reason === 'classification_effective_boundary' ||
+    reason === 'binding_scope_changed' ||
     reason === 'idle_inactive_close' ||
     reason === 'mode_effective_boundary' ||
     reason === 'tab_close' ||
@@ -470,6 +483,7 @@ function emptySession(now = Date.now()) {
 
 function settlementResolverOptions(options = {}) {
   return {
+    bindingScope: options.bindingScope,
     resolveUnknownDomainForSettlement: options.resolveUnknownDomainForSettlement,
     url: options.url || null,
     observedUrl: options.observedUrl || null,
@@ -662,6 +676,7 @@ async function resolveUnknownSessionForSettlement(timingSession, reason, options
 
 export async function transitionStateAt(newState, newDomain, timestamp = Date.now(), reason = 'transition', options = {}) {
   return runSerialized(async () => {
+    if (predatesBindingCutover(timestamp)) return { ok: true, skipped: true, reason: 'binding_scope_changed' };
     const session = await getSession();
     if (!session) return;
 
@@ -862,8 +877,8 @@ export async function heartbeat() {
   return { ok: true, skipped: true, reason: 'heartbeat_timing_deprecated' };
 }
 
-export async function runSessionCommit(task) {
-  return runSerialized(task);
+export async function runSessionCommit(task, { bindingTransition = false } = {}) {
+  return runSerialized(task, bindingTransition);
 }
 
 // ── Mode context cache ──────────────────────────────────────────────────────────
@@ -1152,7 +1167,8 @@ export async function settleCurrentSessionSegment(timingSession, closeTimeMs, re
 
     // 使用 segment 打开时缓存的模式（而不是当前 guardian_session 中的模式）
     const mode = options.modeOverride || cachedEffectiveMode || 'unknown';
-    const identity = await resolveSettlementIdentity(effectiveSession, reason);
+    const identity = reason === 'binding_scope_changed' && options.bindingScope
+      ? options.bindingScope : await resolveSettlementIdentity(effectiveSession, reason);
     const managedTargetFields = hasManagedTargetSnapshot(effectiveSession)
       ? managedTargetFieldsFrom(effectiveSession, mode)
       : await resolveManagedTargetForOpen(effectiveSession.domain || null, options, mode);

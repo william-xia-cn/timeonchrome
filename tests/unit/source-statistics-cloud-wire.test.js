@@ -14,7 +14,7 @@ async function run() {
   assert.equal(createHash('sha256').update(bytes).digest('hex'), '5d52e38874c2526c7b80bffbba42d9cc9d6def58aa7588120e08ffa780825b1c');
   const wire = JSON.parse(bytes);
   assert.equal(wire.synthetic, true);
-  const contractSource = fs.readFileSync(path.join(root, 'extension/core/shared-contracts/1.57.0/source-statistics.js'), 'utf8');
+  const contractSource = fs.readFileSync(path.join(root, 'extension/core/shared-contracts/1.58.0/source-statistics.js'), 'utf8');
   const contract = await import('data:text/javascript;base64,' + Buffer.from(contractSource).toString('base64'));
   const source = fs.readFileSync(path.join(root, 'extension/infra/cloud-sync.js'), 'utf8');
   const base = 'https://fixture.invalid', requests = [];

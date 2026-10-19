@@ -1,54 +1,28 @@
-import { requestSharedReminderLifecycle, getSharedBrowserActivityLease, hasSharedReminderContinuityCapability } from '../infra/native-host-client.js';
+import { requestSharedReminderLifecycle } from '../infra/native-host-client.js';
 import { sharedReminderIdentity } from '../core/shared-reminder-lifecycle.js';
-import { sharedBrowserExecutionEligibility, validateSharedBrowserExecution } from '../core/shared-browser-execution.js';
-import { inspectSharedBrowserActivity, readBrowserRestActivity } from './shared-browser-activity.js';
 import { sharedBrowserExecutionAttempts } from '../infra/shared-browser-execution-attempts.js';
 import { browserExecutionFence } from '../infra/shared-browser-execution-fence.js';
-import { readSharedAccessRuntime } from './shared-access-runtime.js';
 import { checkSharedExecutionV2, sharedExecutionEligibilityV2 } from '../core/shared-forced-use-runtime-v2.js';
 
-const validatePermit = value => value?.schemaVersion === 2 ? checkSharedExecutionV2(value) : validateSharedBrowserExecution(value);
-const eligiblePermit = (value, context) => value?.schemaVersion === 2
-  ? sharedExecutionEligibilityV2(value, context) : sharedBrowserExecutionEligibility(value, context);
-
-export async function readBrowserExecutionContext(state) {
-  const before = inspectSharedBrowserActivity();
-  const model = await readSharedAccessRuntime(state.date);
-  if (!model?.ok) throw Error('shared_execution_balance_unavailable');
-  const executionRevision = model.executionRevision;
-  const fact = await readBrowserRestActivity();
-  const latest = await readSharedAccessRuntime(state.date);
-  if (!latest?.ok) throw Error('shared_execution_balance_unavailable');
-  const latestRevision = latest.executionRevision;
-  const after = inspectSharedBrowserActivity();
-  return { connectionCurrent: !!before?.leaseId && getSharedBrowserActivityLease() === before.leaseId,
-    leaseId: after?.leaseId, activityId: after?.activityId,
-    restEligible: before?.active === true && after?.active === true && fact.active === true
-      && fact.key === before.key && before.key === after.key && before.activityId === after.activityId
-      && before.leaseId === after.leaseId && executionRevision === latestRevision,
-    policyRevision: model.policy.revision, stateRevision: latestRevision,
-    continuitySupported: hasSharedReminderContinuityCapability() };
-}
-
 // No execution callback: even an eligible explicit permit cannot close a page here.
-export function createSharedBrowserExecutionPreparation({ enabled = false, schemaVersion = 1, request = requestSharedReminderLifecycle,
-  readContext = readBrowserExecutionContext, readAttemptedIds = sharedBrowserExecutionAttempts.readAttemptedIds,
+export function createSharedBrowserExecutionPreparation({ enabled = false, schemaVersion = 2, request = requestSharedReminderLifecycle,
+  readContext, readAttemptedIds = sharedBrowserExecutionAttempts.readAttemptedIds,
   claimAttempt = sharedBrowserExecutionAttempts.claimAttempt,
   fence = browserExecutionFence,
   now = () => Math.floor(performance.now()) } = {}) {
   let busy = false;
   let candidate = null;
   async function inspect(date) {
-    if (!enabled) return { ok: true, skipped: true, reason: 'browser_execution_preparation_disabled' };
+    if (!enabled || schemaVersion !== 2) return { ok: true, skipped: true, reason: 'browser_execution_preparation_disabled' };
     if (busy) return { ok: false, errorCode: 'browser_execution_preparation_busy' };
     busy = true;
     candidate = null;
     const generation = fence.capture();
     try {
-      const response = await request('getSharedReminderState', schemaVersion === 2 ? { schemaVersion: 2, date } : { date });
+      const response = await request('getSharedReminderState', { schemaVersion: 2, date });
       if (!response?.ok) return response || { ok: false, errorCode: 'shared_reminder_unavailable' };
       if (!response.browserExecution) return { ok: true, eligible: false, reasonCode: 'browser_execution_not_issued' };
-      const checked = validatePermit(response.browserExecution);
+      const checked = checkSharedExecutionV2(response.browserExecution);
       if (checked.ok && checked.payload.schemaVersion !== schemaVersion) return { ok: false, errorCode: 'shared_execution_version_mismatch' };
       if (!checked.ok) return checked;
       if (!response.state || typeof readContext !== 'function') return { ok: false, errorCode: 'browser_execution_context_unavailable' };
@@ -58,7 +32,7 @@ export function createSharedBrowserExecutionPreparation({ enabled = false, schem
       if (!(attemptedIds instanceof Set)) return { ok: false, errorCode: 'browser_execution_attempts_unavailable' };
       const context = { ...current, reminder: sharedReminderIdentity(response.state), attemptedIds,
         requestStartedMonotonicMs: response.requestStartedMonotonicMs, monotonicNowMs: now() };
-      const eligibility = eligiblePermit(checked.payload, context);
+      const eligibility = sharedExecutionEligibilityV2(checked.payload, context);
       if (eligibility.eligible) candidate = { permit: checked.payload, state: response.state,
         requestStartedMonotonicMs: response.requestStartedMonotonicMs, generation };
       return { ok: true, ...eligibility, effectsEnabled: false,
@@ -71,7 +45,7 @@ export function createSharedBrowserExecutionPreparation({ enabled = false, schem
     // Durable preparation only. Never executed by inspect, and never invokes effects.
     async claim(permit) {
       if (!enabled || typeof claimAttempt !== 'function') return { ok: false, errorCode: 'browser_execution_claim_disabled' };
-      const checked = validatePermit(permit);
+      const checked = checkSharedExecutionV2(permit);
       if (!checked.ok) return checked;
       if (!candidate || JSON.stringify(candidate.permit) !== JSON.stringify(checked.payload)) {
         return { ok: false, errorCode: 'browser_execution_not_prepared' };
@@ -82,12 +56,12 @@ export function createSharedBrowserExecutionPreparation({ enabled = false, schem
         const context = { ...await readContext(prepared.state), reminder: sharedReminderIdentity(prepared.state),
           attemptedIds: await readAttemptedIds(), requestStartedMonotonicMs: prepared.requestStartedMonotonicMs,
           monotonicNowMs: now() };
-        const eligibility = eligiblePermit(checked.payload, context);
+        const eligibility = sharedExecutionEligibilityV2(checked.payload, context);
         if (!fence.current(prepared.generation)) return { ok: false, errorCode: 'browser_execution_generation_changed' };
         if (!eligibility.eligible) return { ok: false, errorCode: eligibility.reasonCode };
         const claimed = await claimAttempt(checked.payload.executionId, checked.payload.leaseId, checked.payload, prepared.generation);
         if (!claimed?.ok) return claimed;
-        const rechecked = eligiblePermit(checked.payload, {
+        const rechecked = sharedExecutionEligibilityV2(checked.payload, {
           ...await readContext(prepared.state), reminder: sharedReminderIdentity(prepared.state), attemptedIds: new Set(),
           requestStartedMonotonicMs: prepared.requestStartedMonotonicMs, monotonicNowMs: now(),
         });
@@ -99,9 +73,4 @@ export function createSharedBrowserExecutionPreparation({ enabled = false, schem
       catch (_) { return { ok: false, errorCode: 'browser_execution_claim_failed' }; }
     },
   };
-}
-
-// Explicit read-only caller; never enabled by bootstrap or a reminder button.
-export async function inspectSharedBrowserExecution(date, { enabled = false } = {}) {
-  return createSharedBrowserExecutionPreparation({ enabled }).inspect(date);
 }

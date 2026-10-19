@@ -475,9 +475,13 @@ export async function handleMessage(msg, sender) {
     }
 
     case 'CLOUD_BIND': {
+      if (msg.binding && (sender?.id !== chrome.runtime.id || sender?.url !== chrome.runtime.getURL('bind.html')
+          && !sender?.url?.startsWith(chrome.runtime.getURL('bind.html') + '?'))) {
+        return { success: false, error: 'binding_sender_rejected' };
+      }
       const bindResult = await cloudBind(() => syncNow(getConfig, saveConfig, updateDeclarativeRules, {
         afterClassificationSync: () => runRouterClassificationSyncEffects('cloud_bind_sync'),
-      }));
+      }), msg.binding || null, msg.accountSession || null);
       return bindResult;
     }
 

@@ -1,20 +1,20 @@
-import { requestSharedReminderLifecycle, getSharedBrowserActivityLease, hasSharedReminderContinuityCapability } from '../infra/native-host-client.js';
+import { requestSharedReminderLifecycle, getSharedBrowserActivityLease } from '../infra/native-host-client.js';
 import { createSharedReminderLifecycle } from '../infra/shared-reminder-lifecycle.js';
 import { sharedReminderIdentity, validateSharedReminderMessage, validateSharedReminderState } from '../core/shared-reminder-lifecycle.js';
 import { readSharedAccessRuntime } from './shared-access-runtime.js';
 import { createSharedBrowserExecutor } from './shared-browser-executor.js';
 import { isAutonomyConfirmationText } from '../core/autonomy-confirmation.js';
-import { createSharedAccessPolicyIdentityV2 } from '../core/shared-contracts/1.54.0/shared-access.js';
+import { createSharedAccessPolicyIdentityV2 } from '../core/shared-contracts/1.58.0/shared-access.js';
 
 const ACTION = 'SHARED_REMINDER_ACTION';
 const DISMISSED = 'SHARED_REMINDER_DISMISSED';
 let current = null;
 let registered = false;
 
-export function createSharedReminderContentBridge({ enabled = false, schemaVersion = 1, request = requestSharedReminderLifecycle,
+export function createSharedReminderContentBridge({ enabled = false, schemaVersion = 2, request = requestSharedReminderLifecycle,
   tabs = chrome.tabs, windows = chrome.windows, runtimeId = chrome.runtime.id,
   readLease = getSharedBrowserActivityLease, deliveryTimeoutMs = 3000,
-  readExecution = readSharedAccessRuntime, readContinuity = hasSharedReminderContinuityCapability, effectsEnabled = false,
+  readExecution = readSharedAccessRuntime, effectsEnabled = false,
   readPresentation = async () => null,
   onResolved = async () => {},
   onExecuted = async () => {}, readCloseCapability,
@@ -51,7 +51,7 @@ export function createSharedReminderContentBridge({ enabled = false, schemaVersi
     if (!await sameTab(target, cleanup)) return { ok: false, visible: false };
     return await bounded(() => tabs.sendMessage(target.id,
       { type, state, presentationId: target.presentationId,
-        ...(schemaVersion === 2 ? { forcedUsePresentation: target.presentation } : {}) }, { frameId: 0 })) || { ok: false, visible: false };
+        forcedUsePresentation: target.presentation }, { frameId: 0 })) || { ok: false, visible: false };
   }
   async function revokeDisplay(target, previousIdentity) {
     if (target && previousIdentity) await send('DISMISS_SHARED_REMINDER', previousIdentity, target, true);
@@ -61,8 +61,7 @@ export function createSharedReminderContentBridge({ enabled = false, schemaVersi
       const captured = generation;
       const target = binding;
       const before = await bounded(() => readExecution(method === 'getSharedReminderState' ? payload.date : lifecycle.inspect().state?.date));
-      const continuity = readContinuity() === true;
-      if (!before?.ok || schemaVersion === 1 && target?.executionRevision && target.executionRevision !== before.executionRevision && !continuity) {
+      if (!before?.ok || schemaVersion !== 2) {
         await invalidate(); return { ok: false, errorCode: 'shared_reminder_balance_changed' };
       }
       if (!await sameTab(target) || captured !== generation || target?.lease !== readLease()) {
@@ -74,19 +73,16 @@ export function createSharedReminderContentBridge({ enabled = false, schemaVersi
       const checked = response?.ok ? validateSharedReminderState(response.state,
         method === 'getSharedReminderState' ? { date: payload.date } : sharedReminderIdentity(payload)) : null;
       const after = await bounded(() => readExecution(method === 'getSharedReminderState' ? payload.date : lifecycle.inspect().state?.date));
-      const v2ScopeCurrent = schemaVersion !== 2 || !response?.state
+      const v2ScopeCurrent = !response?.state
         || await matchesV2(response.state, before) && await matchesV2(response.state, after);
       if (!response || !await sameTab(target) || target.lease !== readLease()
-        || !after?.ok || !v2ScopeCurrent || schemaVersion === 1 && before.executionRevision !== after.executionRevision
-        || schemaVersion === 1 && response.state && (response.state.policyRevision !== after.policy.revision
-          || response.state.stateRevision !== after.executionRevision && (!continuity || readContinuity() !== true
-            || !identity || Object.keys(identity).some(key => response.state[key] !== identity[key])))
+        || !after?.ok || !v2ScopeCurrent
         || (response.ok && !checked?.ok) || (!response.ok && response.errorCode !== 'shared_reminder_busy')) {
         await invalidate();
         return { ok: false, errorCode: 'shared_reminder_context_changed' };
       }
       target.executionRevision = after.executionRevision;
-      if (schemaVersion === 2 && response.state) target.presentation = await readPresentation(response.state, after);
+      if (response.state) target.presentation = await readPresentation(response.state, after);
       return response;
     },
     present: async state => {
@@ -129,7 +125,7 @@ export function createSharedReminderContentBridge({ enabled = false, schemaVersi
   }
   return {
     async poll(tabId, date) {
-      if (enabled !== true) return { ok: true, skipped: true, reason: 'shared_reminder_disabled' };
+      if (enabled !== true || schemaVersion !== 2) return { ok: true, skipped: true, reason: 'shared_reminder_disabled' };
       if (lifecycle.inspect().busy) return { ok: false, errorCode: 'shared_reminder_busy' };
       const tab = await bounded(() => tabs.get(tabId));
       if (!tab?.active || !/^https?:\/\//.test(tab.url || '')) return { ok: false, errorCode: 'shared_reminder_tab_unavailable' };
@@ -148,7 +144,7 @@ export function createSharedReminderContentBridge({ enabled = false, schemaVersi
       return result;
     },
     async handleAction(message, sender) {
-      if (enabled !== true) return { ok: false, errorCode: 'shared_reminder_disabled' };
+      if (enabled !== true || schemaVersion !== 2) return { ok: false, errorCode: 'shared_reminder_disabled' };
       if (sender?.id !== runtimeId || sender.frameId !== 0 || sender.tab?.id !== binding?.id
         || sender.tab?.windowId !== binding?.windowId || sender.url !== binding?.url
         || message.presentationId !== binding?.presentationId || !await sameTab()) {
