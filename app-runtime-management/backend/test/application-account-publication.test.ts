@@ -4,7 +4,6 @@ import {createUsageAccount,createUsageAccountV2,hashUsageAccountValue,canonicalU
   APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,type ApplicationUsageSeconds,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
 // @ts-expect-error Browser UMD intentionally has no TypeScript declaration; exercise the production adapter.
 import AppRuntimeTime from '../../console/app-runtime-time.js';
-import {readApplicationSharedQuotaContributions,readCoveredChromeDeduction} from '../src/applicationSharedQuota';
 import {beginApplicationAccount,putApplicationAccountChunk,commitApplicationAccount,readApplicationAccountStatus,routeApplicationAccounts} from '../src/applicationAccounts';
 import {publishApplicationAccounts,verifyApplicationAccountPublication} from '../src/applicationAccountPublication';
 import {getAppPolicy,queryAppUsage,refreshHistoricalProductIdentityProjection} from '../src/appPolicy';
@@ -14,10 +13,11 @@ import {effectiveApplicationKnowledge} from '../src/applicationKnowledge';
 import {productIdentityProjectionVersion} from '../src/applicationIdentityProjection';
 import type {ProductIdentityProjection} from '@timeonchrome/app-runtime-contracts/classification';
 import type {MachineSelfResponse} from '../src/contracts';
-import {readPersistentApplicationUsage,rebuildApplicationStatistics,type StatisticsValue} from '../src/applicationStatistics';
 import {readNativeApplicationStatisticsSeconds,readNativeApplicationStatisticsRangeSeconds} from '../src/applicationStatisticsNative';
 import {readApplicationIdentityUsage} from '../src/applicationProductProjections';
 import {routeV2} from '../src/v2Routes';
+import runtimeWorker from '../src/index';
+import {RuntimeComputerUsageService} from '../src/computerUsageService';
 // 从隔离Native原账→物化测试导出，不复制C#生成算法或真实家庭数据。
 import nativeGenerated from './application-seconds-native-generated.json';
 // 原始请求由真实v3 Session/SQLite→孩子统计→现有发送器捕获，不能在此重造统计或哈希。
@@ -61,13 +61,6 @@ async function fact(f:Awaited<ReturnType<typeof fixture>>,id='one',session='sess
     VALUES(?1,?2,?3,1,?4,?5,?9,'leaf','测试产品',1000,2501,1501,'fixture',?1,?6,2,'active','epoch',?7,?7+1501,1000,2501,1501,0,1,?8)`)
     .bind(id,f.machine.machineId,user,f.child,session,start+1501,start,category,f.machine.platform).run();
 }
-async function drainFixtureStatistics(f:Awaited<ReturnType<typeof fixture>>) {
-  // Parallel test files share the fixture DB: drain only this account/child's
-  // scopes instead of spending its six batches on unrelated fixture queues.
-  const scopes=await env.RUNTIME_DB.prepare('SELECT DISTINCT scope_key FROM runtime_application_statistics_queue_v1 WHERE account_id=?1 AND child_id=?2')
-    .bind(f.machine.accountId,f.child).all<{scope_key:string}>();
-  for(const scope of scopes.results)for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now,scope.scope_key);
-}
 async function upload(f:Awaited<ReturnType<typeof fixture>>,revision=1,options:{empty?:boolean;classification?:string;duration?:number;
   associationVersion?:string|null;correctionVersion?:number;complete?:boolean;count?:number;algorithm?:string;
   associationKey?:string;reasonCodes?:string[];cutoff?:number;date?:string;hour?:number;policyVersions?:number[];applicationUsage?:ApplicationUsageProjection;extraSubjectKey?:string;deferCommit?:boolean;
@@ -103,6 +96,60 @@ async function commitRequest(f:Awaited<ReturnType<typeof fixture>>,id:string){
   return routeApplicationAccounts(new Request(`http://runtime.test/v2/machines/application-accounts/manifests/${id}/commit`,
     {method:'POST'}),env.RUNTIME_DB,f.machine,now);
 }
+it('current page display and RPC preserve fixed statistics without old identity projection queries',async()=>{
+  const f=await fixture('windows',{accountId:'rpc-account',child:'rpc-child'});
+  const forbidden=/runtime_(application_product_projections|native_application_projections|program_instances|program_observations)/;
+  const database=new Proxy(env.RUNTIME_DB,{get(target,property){
+    if(property==='prepare')return(sql:string)=>{if(forbidden.test(sql))throw Error('OLD_PROJECTION_FORBIDDEN');return target.prepare(sql);};
+    const value=Reflect.get(target,property);return typeof value==='function'?value.bind(target):value;
+  }});
+  expect(await readApplicationIdentityUsage(database,f.machine.accountId,f.child,start,start+DAY))
+    .toMatchObject({complete:true,totalDuration:0,applications:[],instances:[]});
+  const one=await upload(f,1,{seconds:true,childId:f.child,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,
+    duration:51,nativeId:'current-app',nativeName:'当前名称'});
+  await publishApplicationAccounts(env.RUNTIME_DB,now,one.manifestId);
+  const rpc=new RuntimeComputerUsageService({} as ExecutionContext,{...env,RUNTIME_DB:database});
+  const snapshot=await rpc.getApplicationIdentityUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27');
+  expect(snapshot).toMatchObject({totalDuration:51,applications:[{displayName:'当前名称',duration:51}],instances:[]});
+  const token='test-browser-session-'+crypto.randomUUID().replaceAll('-','');
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
+    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms) VALUES(?1,?2,?3,?4,?5,?4)`)
+    .bind(await sha256Hex(token),f.machine.accountId,JSON.stringify([{id:f.child,name:'测试孩子'}]),now,now+60000).run();
+  const request=new Request(`https://runtime.test/v2/module/program-instance-usage?childId=${f.child}&fromMs=${start}&toMs=${start+DAY}&view=display`,
+    {headers:{authorization:`RuntimeSession ${token}`}});
+  expect(await(await routeV2(request,{...env,RUNTIME_DB:database},now))?.json()).toEqual(snapshot);
+  for(const suffix of ['','&includeProducts=true','&includeIdentity=true'])
+    await expect(routeV2(new Request(request.url.replace('&view=display','')+suffix,{headers:request.headers}),{...env,RUNTIME_DB:database},now))
+      .rejects.toMatchObject({status:400,code:'INVALID_IDENTITY_VIEW'});
+});
+it('current scheduler publishes received fixed seconds without old materialization or contribution tasks',async()=>{
+  const f=await fixture();
+  const received=await upload(f,1,{seconds:true,childId:f.child,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,duration:51});
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,received.manifestId)).toMatchObject({received:true,published:false});
+  const frozenBefore=await env.RUNTIME_DB.prepare('SELECT manifest_json,manifest_hash FROM runtime_application_account_manifests_v1 WHERE id=?1')
+    .bind(received.manifestId).first();
+  const statements:string[]=[];
+  const database=new Proxy(env.RUNTIME_DB,{get(target,property){
+    if(property==='prepare')return(sql:string)=>{
+      statements.push(sql);
+      if(/runtime_application_statistics_(days|queue)_v1|runtime_application_shared_quota_/.test(sql))throw Error('RETIRED_BACKGROUND_TABLE_FORBIDDEN');
+      return target.prepare(sql);
+    };
+    const value=Reflect.get(target,property);return typeof value==='function'?value.bind(target):value;
+  }});
+  const pending:Promise<unknown>[]=[];
+  await runtimeWorker.scheduled({} as ScheduledController,{...env,RUNTIME_DB:database},
+    {waitUntil(work:Promise<unknown>){pending.push(work);}} as ExecutionContext);
+  await Promise.all(pending);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,received.manifestId)).toMatchObject({received:true,published:true});
+  expect((await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27'))
+    ?.rows.find(row=>row.kind==='total'&&row.hour===null)?.duration).toBe(51);
+  expect(statements.some(sql=>sql.includes('JOIN runtime_application_account_receipts_v1 r'))).toBe(true);
+  expect(statements.some(sql=>sql.includes('runtime_application_statistics_queue_v1'))).toBe(false);
+  expect(statements.some(sql=>sql.includes('runtime_application_shared_quota_receipts_v1'))).toBe(false);
+  expect(await env.RUNTIME_DB.prepare('SELECT manifest_json,manifest_hash FROM runtime_application_account_manifests_v1 WHERE id=?1')
+    .bind(received.manifestId).first()).toEqual(frozenBefore);
+});
 it('fixed identity seconds upload publishes known partial usage without raw facts or a second projection',async()=>{
   const f=await fixture(),nativeId='app.'+'n'.repeat(252),nativeName='应用/@'+'名'.repeat(507);
   const reasons=['LOCAL_IDENTITYLESS_RECORD_EXCLUDED'];
@@ -267,10 +314,10 @@ it('real Native mixed-ledger producer uploads 15 new segments / 1457 known secon
     {headers:{authorization:`RuntimeSession ${browserToken}`}}),env,readAt);
   expect(response?.status).toBe(200);
   const page=await response!.json();
-  expect(page).toMatchObject({complete:false,totalDuration:null,availableTotalDuration:1457,
-    days:[{reasonCodes:['APPLICATION_MIXED_LEDGER_COMPATIBILITY_MISSING']}]});
+  expect(page).toMatchObject({complete:false,totalDuration:null,availableTotalDuration:null,
+    days:[{reasonCodes:['LEGACY_STATISTICS_UNIT']}]});
   expect(AppRuntimeTime.applicationSecondsView(page,'day')).toMatchObject({complete:false,
-    totalDurationSeconds:null,availableTotalDurationSeconds:1457});
+    totalDurationSeconds:null,availableTotalDurationSeconds:null});
   expect(JSON.stringify(childMixedGenerated)).toBe(original);
 });
 it.each(['windows','macos'] as const)('v2 %s producer seconds and product classification rows publish without facts',async(platform)=>{
@@ -363,7 +410,7 @@ it.each(['windows','macos'] as const)('authenticated %s seconds transport publis
       {kind:'subject',hour:null,category:null,subjectKey,displayName:'测试产品',duration,classifications:['study']},
       {kind:'subject',hour:0,category:null,subjectKey,displayName:'测试产品',duration,classifications:['study']}];
     const account=await createUsageAccountV2({schemaVersion:2,sourceKind:'application',durationUnit:'seconds',timezone:'Asia/Shanghai',
-      date:'2026-09-27',revision,generatedAtMs:now,settledThroughMs:now,algorithmVersion:`${platform}-application-seconds-v2`,
+      date:'2026-09-27',revision,generatedAtMs:now,settledThroughMs:now,algorithmVersion:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,childId:f.child,
       policyVersions:[],associationVersion:f.projection,correctionVersion:0,rawFactCount:1,rawFactHash:'c'.repeat(64),complete:true,reasonCodes:[],
       applicationUsage:{nonSpecialTotal:duration,nonSpecialCategories:{study:duration},specialTotal:0,complete:true,reasonCodes:[]}},rows);
     const receipt=await call('manifests','POST',{localUserId:user,assignmentVersion:1,manifest:account.manifest});
@@ -401,7 +448,7 @@ it.each([
   {generated:childNativeGenerated,total:190,durations:[180,10],category:'unclassified',usageComplete:false,productDurations:[190]},
   {generated:childWallDriftGenerated,total:360,durations:[180,180],category:'study',usageComplete:true,productDurations:[180,180]},
   {generated:childServiceGenerated,total:180,durations:[180],category:'study',usageComplete:true,productDurations:[180]},
-])('real v3 SQLite producer requests publish $total frozen child seconds and reach the cloud page adapter unchanged',async({generated,total,durations,category,usageComplete,productDurations})=>{
+])('legacy v3 frozen $total seconds remain unchanged in independent reception but cannot enter current public reads',async({generated,total,durations,category,usageComplete,productDurations})=>{
   const {begin,chunks,rawSegments}=generated;
   expect(generated).toMatchObject({synthetic:true,contractsVersion:'1.37.0'});
   expect(rawSegments).toHaveLength(durations.length);
@@ -432,9 +479,11 @@ it.each([
   };
   const capability=await call('capabilities','GET');
   expect(capability.capabilities).toContain('application-statistics-child-scope-v1');
-  expect(capability.acceptedAlgorithms).toContain('application-instance-seconds-v1');
+  expect(capability.acceptedAlgorithms).not.toContain('application-instance-seconds-v1');
+  expect(capability.capabilities).not.toContain('application-instance-statistics-v1');
+  expect(capability.capabilities).not.toContain('application-product-projection-upload-v1');
   expect(capability.capabilities).toEqual(expect.arrayContaining([
-    'application-instance-statistics-v1', 'application-product-projection-upload-v1',
+    'application-fixed-identity-statistics-v1',
     'native-application-management-v1',
   ]));
   const receipt=await call('manifests','POST',begin);
@@ -472,8 +521,8 @@ it.each([
   expect(cloud.products.map(row=>row.duration).sort((a,b)=>a-b)).toEqual(productDurations);
   expect(cloud.products.every(row=>row.classifications?.length===1&&row.classifications[0]===category)).toBe(true);
   expect(await exports.RuntimeComputerUsageService.getApplicationUsage(f.machine.accountId,f.child,date,date,true))
-    .toMatchObject({durationUnit:'seconds',totalDuration:total});
-  // 正式页面使用的鉴权HTTP入口也必须读取同一冻结孩子统计，而非只测试内部函数。
+    .toMatchObject({durationUnit:'seconds',complete:false,totalDuration:null,availableTotalDuration:null});
+  // 旧冻结请求继续证明独立接收不改写，但当前公开读取不能采用旧生产模型。
   const browserToken='test-browser-session-'+crypto.randomUUID().replaceAll('-','');
   const readAt=begin.manifest.generatedAtMs;
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
@@ -484,9 +533,9 @@ it.each([
   const pageResponse=await routeV2(pageRequest(),env,readAt);
   expect(pageResponse?.status).toBe(200);
   const pageSource=await pageResponse!.json();
-  expect(pageSource).toEqual(cloud);
+  expect(pageSource).toMatchObject({complete:false,totalDuration:null,availableTotalDuration:null,categories:[],products:[]});
   await expect(routeV2(pageRequest('synthetic-child-b'),env,readAt)).rejects.toMatchObject({code:'CHILD_NOT_FOUND'});
-  const view=AppRuntimeTime.applicationSecondsView(pageSource,'day');
+  const view=AppRuntimeTime.applicationSecondsView(cloud,'day');
   expect(view).toMatchObject({durationUnit:'seconds',complete:true,totalDurationSeconds:total,
     availableTotalDurationSeconds:total,settledThroughMs:lastSegment.endWallTimeMs,missingDates:[]});
   expect(view.categories).toEqual([{classification:category,durationSeconds:total}]);
@@ -633,7 +682,7 @@ it('seconds reads preserve producer special contributions across sources without
     complete:false,reasonCodes:['APPLICATION_QUOTA_USAGE_INCOMPLETE']});
 });
 it('authenticated app-usage seconds route exposes producer statistics and retains child isolation',async()=>{
-  const f=await fixture(),one=await upload(f,1,{seconds:true,duration:51,deferCommit:true});
+  const f=await fixture(),one=await upload(f,1,{seconds:true,duration:51,deferCommit:true,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,childId:f.child});
   await commitRequest(f,one.manifestId);
   const token='test-browser-session-'+crypto.randomUUID().replaceAll('-','');
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
@@ -648,7 +697,7 @@ it('authenticated app-usage seconds route exposes producer statistics and retain
   await expect(routeV2(request(f.child,'minutes'),env,now)).rejects.toMatchObject({code:'INVALID_DURATION_UNIT'});
 });
 it('Guardian application source RPC reads the same published seconds without raw reconstruction',async()=>{
-  const f=await fixture('windows',{accountId:'seconds-source-account',child:'seconds-source-child'}),one=await upload(f,1,{seconds:true,duration:51,deferCommit:true});
+  const f=await fixture('windows',{accountId:'seconds-source-account',child:'seconds-source-child'}),one=await upload(f,1,{seconds:true,duration:51,deferCommit:true,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,childId:f.child});
   await commitRequest(f,one.manifestId);
   const rpc=exports.RuntimeComputerUsageService;
   const source=await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27',true);
@@ -668,12 +717,12 @@ it('Guardian application source RPC reads the same published seconds without raw
   const partial=await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-26','2026-09-27');
   expect(partial).toMatchObject({durationUnit:'milliseconds',complete:true,totalDurationMs:51000,
     availableTotalDurationMs:51000,categories:[{durationMs:51000}]});
-  const next=await upload(f,2,{seconds:true,duration:20,deferCommit:true});await commitRequest(f,next.manifestId);
+  const next=await upload(f,2,{seconds:true,duration:20,deferCommit:true,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,childId:f.child});await commitRequest(f,next.manifestId);
   expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27'))
     .toMatchObject({durationUnit:'milliseconds',totalDurationMs:20000});
   expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27',true))
     .toMatchObject({durationUnit:'seconds',totalDuration:20});
-  const zero=await upload(f,3,{seconds:true,empty:true,deferCommit:true});await commitRequest(f,zero.manifestId);
+  const zero=await upload(f,3,{seconds:true,empty:true,deferCommit:true,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,childId:f.child});await commitRequest(f,zero.manifestId);
   expect(await rpc.getApplicationUsage(f.machine.accountId,f.child,'2026-09-27','2026-09-27'))
     .toMatchObject({durationUnit:'milliseconds',complete:true,totalDurationMs:0,statistics:{producer:'native'}});
   const forbidden=await exports.RuntimeComputerUsageService.fetch(new Request('https://runtime-capability/getApplicationUsage',{
@@ -717,13 +766,13 @@ it('computer cache revision follows published seconds replacement, not uncommitt
   const args=[f.machine.accountId,f.child,'2026-09-27','2026-09-27'] as const;
   const rpc=exports.RuntimeComputerUsageService;
   const initial=await rpc.applicationEvidenceRevision(...args);
-  const first=await upload(f,1,{seconds:true,duration:51,deferCommit:true});
+  const first=await upload(f,1,{seconds:true,duration:51,deferCommit:true,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,childId:f.child});
   expect(await rpc.applicationEvidenceRevision(...args)).toBe(initial);
   await commitRequest(f,first.manifestId);
   const published=await rpc.applicationEvidenceRevision(...args);
   expect(published).not.toBe(initial);
   expect(await rpc.applicationEvidenceRevision(...args)).toBe(published);
-  const corrected=await upload(f,2,{seconds:true,duration:20,deferCommit:true});
+  const corrected=await upload(f,2,{seconds:true,duration:20,deferCommit:true,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,childId:f.child});
   expect(await rpc.applicationEvidenceRevision(...args)).toBe(published);
   await commitRequest(f,corrected.manifestId);
   const latest=await rpc.applicationEvidenceRevision(...args);
@@ -731,7 +780,7 @@ it('computer cache revision follows published seconds replacement, not uncommitt
   const foreign=await fixture(),unrelated=await upload(foreign,1,{seconds:true,duration:90,deferCommit:true});
   await commitRequest(foreign,unrelated.manifestId);
   expect(await rpc.applicationEvidenceRevision(...args)).toBe(latest);
-  const otherDate=await upload(f,3,{seconds:true,duration:30,date:'2026-09-26',deferCommit:true});
+  const otherDate=await upload(f,3,{seconds:true,duration:30,date:'2026-09-26',deferCommit:true,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,childId:f.child});
   await commitRequest(f,otherDate.manifestId);
   expect(await rpc.applicationEvidenceRevision(...args)).toBe(latest);
   expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?1')
@@ -776,14 +825,13 @@ async function diagnose(f:Awaited<ReturnType<typeof fixture>>,id:string){
 it('published statistics supply actual application usage without a second contribution receipt',async()=>{
   const f=await fixture();await fact(f,crypto.randomUUID());
   const original=(await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results;
-  const r=await upload(f,8,{applicationUsage:{nonSpecialTotalMs:1501,nonSpecialCategoryMs:{study:1501},specialTotalMs:0,complete:true,reasonCodes:[]}});
+  const r=await upload(f,8,{seconds:true,duration:51,childId:f.child,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,
+    secondsProjection:{nonSpecialTotal:51,nonSpecialCategories:{study:51},specialTotal:0,complete:true,reasonCodes:[]}});
   await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
-  const shared=await readApplicationSharedQuotaContributions(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27');
-  expect(shared).toMatchObject({complete:true,verifiedScopeCount:1});
-  expect(shared.contributions[0]).toMatchObject({statisticsBacked:true,contribution:{applicationClassesMs:{study:1501},chromeIncludedInApplicationMs:0}});
-  expect(shared.contributions[0].revision).toMatch(/^application-statistics:8:[a-f0-9]{64}$/);
-  expect((await readApplicationSharedQuotaContributions(env.RUNTIME_DB,crypto.randomUUID(),f.child,'2026-09-27')).contributions).toEqual([]);
+  const current=await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27');
+  expect(current.applicationUsage).toMatchObject({nonSpecialTotal:51,nonSpecialCategories:{study:51},specialTotal:0});
+  expect((await readNativeApplicationStatisticsSeconds(env.RUNTIME_DB,crypto.randomUUID(),f.child,'2026-09-27')).rows.every(row=>row.duration===0)).toBe(true);
   expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(original);
 });
 it('raw projection disagreement is diagnosed independently and does not block a structurally valid snapshot',async()=>{
@@ -812,9 +860,8 @@ it.each([false,true])('special product exclusion preserves the total and uses in
     applicationUsage:{nonSpecialTotalMs:overlap?1501:0,nonSpecialCategoryMs:overlap?{study:1501}:{},specialTotalMs:1501,complete:true,reasonCodes:[]}});
   await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
-  const shared=await readApplicationSharedQuotaContributions(env.RUNTIME_DB,f.machine.accountId,f.child,'2026-09-27');
-  expect(shared.contributions[0].contribution).toMatchObject({applicationClassesMs:{study:overlap?1501:0},chromeIncludedInApplicationMs:overlap?0:1501});
-  expect(await readCoveredChromeDeduction(env.RUNTIME_DB,f.machine.accountId,f.child,f.machine.machineId,'2026-09-27','2026-09-27',1501)).toBe(overlap?0:1501);
+  const stored=await env.RUNTIME_DB.prepare('SELECT manifest_json FROM runtime_application_account_manifests_v1 WHERE id=?').bind(r.manifestId).first<{manifest_json:string}>();
+  expect(JSON.parse(stored!.manifest_json).applicationUsage).toMatchObject({nonSpecialTotalMs:overlap?1501:0,specialTotalMs:1501});
   const chunk=await env.RUNTIME_DB.prepare('SELECT rows_json FROM runtime_application_account_chunks_v1 WHERE manifest_id=?1').bind(r.manifestId).first<{rows_json:string}>();
   expect(JSON.parse(chunk!.rows_json)).toContainEqual(expect.objectContaining({kind:'total',hour:null,duration:1501}));
   expect(JSON.parse(chunk!.rows_json)).toContainEqual(expect.objectContaining({kind:'category',hour:null,category:'study',duration:1501}));
@@ -889,24 +936,6 @@ async function setIdentity(f:Awaited<ReturnType<typeof fixture>>,status:'unresol
     WHERE account_id=?1 AND child_id=?2 AND version=1`)
     .bind(f.machine.accountId,f.child,JSON.stringify({...policy,productIdentityProjection:{version:f.projection,...content}})).run();
 }
-it('complete standalone usage publishes without pretending product identity is confirmed or changing source facts',async()=>{
-  const f=await fixture();await fact(f);await setIdentity(f,'unresolved');
-  const before=await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all();
-  const r=await upload(f,1,{associationKey:'windows\nleaf'});await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
-  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:true});
-  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});
-  const scope=await hashUsageAccountValue([f.machine.accountId,f.child,{machineId:null,localUserId:null,platform:null},0,DAY]);
-  for(let i=0;i<6;i++)await rebuildApplicationStatistics(env.RUNTIME_DB,now,scope);
-  expect((await env.RUNTIME_DB.prepare('SELECT date,error_code FROM runtime_application_statistics_queue_v1 WHERE account_id=?1 AND error_code IS NOT NULL').bind(f.machine.accountId).all()).results).toEqual([]);
-  const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
-  expect(result.statistics.productApplications).toEqual([{key:await sha256Hex('windows\nleaf'),displayName:'测试产品',durationMs:1501}]);
-  expect(result.statistics.productClassifications).toEqual({[await sha256Hex('windows\nleaf')]:['study']});
-  expect((await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.child)).productIdentityProjection?.items[0])
-    .toMatchObject({status:'unresolved',productId:null,associationKey:'windows\nleaf'});
-  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results)
-    .toEqual(before.results);
-});
 it.each([
   ['unresolved','windows\nother',null],['unresolved','windows\nleaf','unapproved-product'],['conflict','windows\nleaf',null],
 ] as const)('does not authorize ambiguous or cross-identity association: %s %s %s',async(status,associationKey,productId)=>{
@@ -980,32 +1009,6 @@ it('special/non-special projections cannot exceed the authoritative uploaded tot
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId))
     .toMatchObject({published:false,publicationErrorCode:'APPLICATION_ACCOUNT_INVALID_USAGE_PROJECTION'});
 });
-it('new usage after a frozen cutoff does not prevent publication of the exact earlier snapshot',async()=>{
-  const f=await fixture();await fact(f);
-  const r=await upload(f,1,{cutoff:start+10000});
-  await fact(f,'after-cutoff');
-  await env.RUNTIME_DB.prepare(`UPDATE runtime_usage_segments_v2
-    SET start_wall_time_ms=?2,end_wall_time_ms=?2+1501,
-      start_monotonic_time_ms=21000,end_monotonic_time_ms=22501
-    WHERE machine_id=?1 AND id='after-cutoff'`).bind(f.machine.machineId,start+20000).run();
-  const before=(await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1')
-    .bind(f.machine.machineId).all()).results;
-  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
-  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId))
-    .toMatchObject({published:true,publicationErrorCode:null});
-  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1')
-    .bind(f.machine.machineId).all()).results).toEqual(before);
-  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});await drainFixtureStatistics(f);
-  const latest=await read();expect(latest.value.totalDurationMs).toBe(1501);
-  expect(latest.statistics.producer).toBe('native');
-  expect(latest.statistics.stale).toBe(true);
-  expect(latest.statistics.settledThroughByDate).toEqual([{date:'2026-09-27',settledThroughMs:start+10000}]);
-  expect(latest.value.categories.find(c=>c.classification==='study')?.durationMs).toBe(1501);
-  // Use the exact verified prefix, never claim that it covers the later fact.
-  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1')
-    .bind(f.machine.machineId).all()).results).toEqual(before);
-});
 it('late facts within the cutoff do not block the producer snapshot and remain diagnosable',async()=>{
   const f=await fixture();await fact(f);const r=await upload(f,1,{cutoff:start+10000});
   await fact(f,'late-within-cutoff','other-session');
@@ -1025,14 +1028,6 @@ it('an exact mapped cutoff includes the settled fact despite later wall-clock sa
     .bind(f.machine.machineId).run();
   const r=await upload(f,1,{cutoff:start+1501});await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
-});
-it('an exact empty frozen snapshot does not claim later nonzero usage was zero',async()=>{
-  const f=await fixture();const r=await upload(f,1,{cutoff:start,empty:true});await fact(f);
-  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
-  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
-  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});await drainFixtureStatistics(f);
-  expect((await read()).value.totalDurationMs).toBe(1501);
 });
 it('raw classification and duration disagreements do not become publication gates',async()=>{
   const f=await fixture();await fact(f);const forged=await upload(f,1,{classification:'blocked'});await publishApplicationAccounts(env.RUNTIME_DB,now);
@@ -1057,22 +1052,6 @@ it('source classification revisions publish without requiring the cloud to repro
   const correction=await upload(f,3,{correctionVersion:2});await publishApplicationAccounts(env.RUNTIME_DB,now+2);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,correction.manifestId)).toMatchObject({published:true});
   await expect(diagnose(f,correction.manifestId)).rejects.toMatchObject({code:'APPLICATION_ACCOUNT_CORRECTIONS_PENDING'});
-});
-it('Service user-level union is authoritative across sessions; legacy quota remains unchanged',async()=>{
-  // A finite quota proves remaining milliseconds still use the old quota usage.
-  const f=await fixture();await fact(f);await fact(f,'parallel','other-session');const r=await upload(f,1,{count:2});await publishApplicationAccounts(env.RUNTIME_DB,now);
-  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
-  await env.RUNTIME_DB.prepare(`UPDATE runtime_child_app_policy_versions_v1 SET payload_json=
-    json_set(payload_json,'$.quotas.dailyCategoryMinutes.study',1) WHERE account_id=?1 AND child_id=?2`)
-    .bind(f.machine.accountId,f.child).run();
-  const original=await queryAppUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{}) as StatisticsValue;
-  expect(original.totalDurationMs).toBe(3002);
-  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});await drainFixtureStatistics(f);
-  const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
-  expect(result.value.categories[0]?.quota).toEqual(original.categories[0]?.quota);
-  expect(result.value.categories[0]?.quota.remainingMs).toBe(60000-3002);
-  expect(result.value.weeklyRestrictedEntertainment).toEqual(original.weeklyRestrictedEntertainment);
 });
 it('millisecond differences remain raw diagnostics, not a second cloud statistics authority',async()=>{
   const f=await fixture();await fact(f);
@@ -1160,89 +1139,57 @@ it('publication transaction failure keeps receipt and previous head intact',asyn
   finally{await env.RUNTIME_DB.prepare('DROP TRIGGER test_publication_failure').run();}
   await publishApplicationAccounts(env.RUNTIME_DB,now+300001,r.manifestId);expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
 });
-it('Native publication replaces one producer for a Child day and is never added to legacy totals',async()=>{
-  const f=await fixture();await fact(f);const r=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
-  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});await drainFixtureStatistics(f);
-  const value=await read();expect(value.value.totalDurationMs).toBe(1501);expect(value.statistics.producer).toBe('native');
-  expect(value.statistics.productApplications).toEqual([{key:await sha256Hex('product:windows:test'),displayName:'测试产品',durationMs:1501}]);
-  await fact(f,'late','other-session');await read();await drainFixtureStatistics(f);
-  const late=await read();expect(late.value.totalDurationMs).toBe(1501);expect(late.statistics.producer).toBe('native');
-  expect(late.statistics.stale).toBe(true);
-  expect(late.statistics.productApplications).toEqual(value.statistics.productApplications);
-  // A newly discovered fact inside the frozen range fails exact revalidation.
-  // Keep the previously verified cache as updating, never promote the new range.
-  expect((await env.RUNTIME_DB.prepare(`SELECT DISTINCT error_code FROM runtime_application_statistics_queue_v1
-    WHERE account_id=?1 AND child_id=?2`).bind(f.machine.accountId,f.child).all()).results)
-    .toEqual([{error_code:'APPLICATION_ACCOUNT_FACTS_PENDING'}]);
-});
-it('a live page rebuild prioritizes its requested Native day over incidental weekly history',async()=>{
-  const f=await fixture();await fact(f,crypto.randomUUID());const r=await upload(f);
-  await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
-  const work:Promise<unknown>[]=[];
-  await readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},job=>work.push(job),now).catch(()=>{});
-  await Promise.all(work);
-  const days=await env.RUNTIME_DB.prepare(`SELECT date,producer,value_json FROM runtime_application_statistics_days_v1
-    WHERE account_id=?1 AND child_id=?2`).bind(f.machine.accountId,f.child).all<{date:string;producer:string;value_json:string}>();
-  expect(days.results).toHaveLength(2); // Same bounded work budget, not a full-week rebuild.
-  const current=days.results.find(d=>d.date==='2026-09-27');
-  expect(current?.producer).toBe('native');
-  expect(JSON.parse(current!.value_json).totalDurationMs).toBe(1501);
-  expect((await env.RUNTIME_DB.prepare(`SELECT COUNT(*) AS n FROM runtime_application_statistics_queue_v1
-    WHERE account_id=?1 AND child_id=?2 AND date<'2026-09-27'`).bind(f.machine.accountId,f.child).first<{n:number}>())?.n)
-    .toBeGreaterThan(0);
-});
-it('child aggregation adds devices; identical wall times on two machines are not globally unioned',async()=>{
-  const f=await fixture();await fact(f);const one=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,one.manifestId);
-  const second=crypto.randomUUID();await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machines_v2(id,account_id,platform,token_hash,last_seen_at_ms,created_at_ms,updated_at_ms)
-    VALUES(?1,?2,'windows',?1,0,0,0)`).bind(second,f.machine.accountId).run();
-  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
-    (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
-    VALUES(?1,?2,1,?3,1,'default',?4,?4)`).bind(second,user,f.child,start).run();
-  const other={...f,machine:{...f.machine,machineId:second}};await fact(other);const two=await upload(other);await publishApplicationAccounts(env.RUNTIME_DB,now,two.manifestId);
-  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});await drainFixtureStatistics(f);
-  const result=await read();expect(result.value.totalDurationMs).toBe(3002);expect(result.statistics.producer).toBe('native');
-  expect(result.statistics.productApplications?.[0]?.durationMs).toBe(3002);
-});
-it('publication transaction queues Child day and existing filtered scopes without another page request',async()=>{
-  const f=await fixture();await fact(f);
-  const filters={machineId:f.machine.machineId};
-  await readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,filters,undefined,now).catch(()=>{});
-  await drainFixtureStatistics(f);
-  const r=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
-  const dirty=await env.RUNTIME_DB.prepare(`SELECT source_revision,filters_json FROM runtime_application_statistics_queue_v1
-    WHERE account_id=?1 AND child_id=?2 AND date='2026-09-27' ORDER BY filters_json`).bind(f.machine.accountId,f.child).all();
-  expect(dirty.results).toHaveLength(2);
-  expect(dirty.results.every(d=>d.source_revision==='publication:'+r.manifestId)).toBe(true);
-  await drainFixtureStatistics(f);
-  const persisted=await env.RUNTIME_DB.prepare(`SELECT producer FROM runtime_application_statistics_days_v1
-    WHERE account_id=?1 AND child_id=?2 AND date='2026-09-27'`).bind(f.machine.accountId,f.child).all();
-  expect(persisted.results).toHaveLength(2);expect(persisted.results.every(d=>d.producer==='native')).toBe(true);
-});
-it('dirty queue interruption rolls back publication while preserving received snapshot for retry',async()=>{
+it('retired dirty queue failure cannot roll back current publication',async()=>{
   const f=await fixture();await fact(f);const r=await upload(f);
   await env.RUNTIME_DB.prepare(`CREATE TRIGGER test_dirty_failure BEFORE INSERT ON runtime_application_statistics_queue_v1
     BEGIN SELECT RAISE(ABORT,'TEST_DIRTY_FAILURE');END`).run();
   try{await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
-    expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:false});
+    expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:true});
     expect(await env.RUNTIME_DB.prepare('SELECT count(*) AS n FROM runtime_application_account_publications_v1 WHERE manifest_id=?1')
-      .bind(r.manifestId).first()).toEqual({n:0});
+      .bind(r.manifestId).first()).toEqual({n:1});
   }finally{await env.RUNTIME_DB.prepare('DROP TRIGGER test_dirty_failure').run();}
   await publishApplicationAccounts(env.RUNTIME_DB,now+300001,r.manifestId);
   expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
 });
-it('Mac nonzero milliseconds publish and persist through the ordinary statistics reader without changing facts',async()=>{
-  const f=await fixture('macos');await fact(f,crypto.randomUUID());
-  const before=await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all();
-  const r=await upload(f);await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
-  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({published:true});
-  const read=()=>readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,now,{},undefined,now);
-  await read().catch(()=>{});await drainFixtureStatistics(f);
-  const result=await read();expect(result.value.totalDurationMs).toBe(1501);expect(result.statistics.producer).toBe('native');
-  expect(result.statistics.productApplications).toEqual([{key:await sha256Hex('product:macos:test'),displayName:'测试产品',durationMs:1501}]);
-  expect(result.statistics.settledThroughByDate).toEqual([{date:'2026-09-27',settledThroughMs:now}]);
-  expect((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?1').bind(f.machine.machineId).all()).results).toEqual(before.results);
+it('current head failure rolls back success check and preserves received snapshot for retry',async()=>{
+  const f=await fixture();const r=await upload(f,1,{seconds:true,childId:f.child,algorithm:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,duration:51});
+  await env.RUNTIME_DB.prepare(`CREATE TRIGGER test_head_failure BEFORE INSERT ON runtime_application_account_publications_v1
+    BEGIN SELECT RAISE(ABORT,'TEST_HEAD_FAILURE');END`).run();
+  try{
+    await publishApplicationAccounts(env.RUNTIME_DB,now,r.manifestId);
+    expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:false});
+    expect(await env.RUNTIME_DB.prepare('SELECT count(*) AS n FROM runtime_application_account_publications_v1 WHERE manifest_id=?1')
+      .bind(r.manifestId).first()).toEqual({n:0});
+    expect(await env.RUNTIME_DB.prepare('SELECT error_code FROM runtime_application_account_publication_checks_v1 WHERE manifest_id=?1')
+      .bind(r.manifestId).first()).toEqual({error_code:'APPLICATION_ACCOUNT_PUBLICATION_FAILED'});
+  }finally{await env.RUNTIME_DB.prepare('DROP TRIGGER test_head_failure').run();}
+  await publishApplicationAccounts(env.RUNTIME_DB,now+300001,r.manifestId);
+  expect(await readApplicationAccountStatus(env.RUNTIME_DB,f.machine,r.manifestId)).toMatchObject({received:true,published:true});
+});
+it('current upload capability does not require retired statistics tables',async()=>{
+  const f=await fixture();
+  const database=new Proxy(env.RUNTIME_DB,{get(target,property){
+    if(property==='prepare')return(sql:string)=>{
+      const statement=target.prepare(sql);
+      if(!sql.includes('sqlite_master'))return statement;
+      return new Proxy(statement,{get(prepared,key){
+        if(key==='bind')return(...args:unknown[])=>{
+          const bound=prepared.bind(...args);
+          return new Proxy(bound,{get(binding,operation){
+            if(operation==='all')return async()=>{
+              const result=await binding.all<{name:string}>();
+              return {...result,results:result.results.filter(row=>!/^runtime_application_statistics_(days|queue)_v1$/.test(row.name))};
+            };
+            const value=Reflect.get(binding,operation);return typeof value==='function'?value.bind(binding):value;
+          }});
+        };
+        const value=Reflect.get(prepared,key);return typeof value==='function'?value.bind(prepared):value;
+      }});
+    };
+    const value=Reflect.get(target,property);return typeof value==='function'?value.bind(target):value;
+  }});
+  const response=await routeApplicationAccounts(new Request('https://runtime.test/v2/machines/application-accounts/capabilities'),database,f.machine,now);
+  expect(await response.json()).toMatchObject({enabled:true,acceptedAlgorithms:expect.arrayContaining([APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM])});
 });
 it('Mac overlapping settled intervals use the common exact millisecond union rather than summed segments',async()=>{
   const f=await fixture('macos');await fact(f,crypto.randomUUID());const second=crypto.randomUUID();await fact(f,second);

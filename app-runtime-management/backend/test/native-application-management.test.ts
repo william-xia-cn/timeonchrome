@@ -5,9 +5,8 @@ import {routeV2} from '../src/v2Routes';
 import {projectAppPolicyForMachine} from '../src/v2Repository';
 import {receiveNativeApplicationObjects,readNativeApplicationObjects,readNativeApplicationConfiguration} from '../src/nativeApplicationObjects';
 import {getAppPolicy,putAppPolicy,parseAppPolicyUpdate,appPolicyEtag} from '../src/appPolicy';
-import {receiveNativeApplicationProjection} from '../src/nativeApplicationProjections';
 import {readApplicationIdentityUsage} from '../src/applicationProductProjections';
-import {createApplicationInstanceAccount,hashUsageAccountValue,usageAccountDayStart} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {usageAccountDayStart} from '@timeonchrome/app-runtime-contracts/usage-account';
 import type {MachineSelfResponse} from '../src/contracts';
 const start=usageAccountDayStart('2026-10-15'),now=start+86400000;
 async function fixture(){
@@ -95,43 +94,12 @@ it('仅新身份配置不重建旧目录/Firefox投影；公共时间段变化�
   classifications:current.classifications,quotas:current.quotas,timeWindows:changed,nativeApplications}),now+1))
  .rejects.toMatchObject({code:'SHARED_ACCESS_CONFIG_OWNED_BY_GUARDIAN'});
 });
-it('基础统计上传→身份投影→读取名称与管理配置同对象，不依赖旧目录或原始事实重算',async()=>{
+it('旧投影接收退出但当前扫描身份和配置仍独立可用',async()=>{
  const f=await fixture();await f.send();
- const snapshot=await createApplicationInstanceAccount({schemaVersion:3,sourceKind:'application',durationUnit:'seconds',timezone:'Asia/Shanghai',
-  date:'2026-10-15',childId:f.childId,revision:1,generatedAtMs:now,settledThroughMs:now,algorithmVersion:'application-instance-seconds-v1',
-  rawFactCount:1,rawFactHash:'a'.repeat(64),observationResolutionHash:'b'.repeat(64),complete:true,reasonCodes:[]},[
-  {kind:'total',hour:null,subjectKey:null,duration:60},...Array.from({length:24},(_,hour)=>({kind:'total' as const,hour,subjectKey:null,duration:hour===3?60:0})),
-  {kind:'subject',hour:null,subjectKey:'observation:'+'c'.repeat(64),duration:60},{kind:'subject',hour:3,subjectKey:'observation:'+'c'.repeat(64),duration:60}]);
- const response=await f.api('/v2/machines/application-accounts/manifests','POST',{localUserId:f.localUserId,assignmentVersion:1,manifest:snapshot.manifest});
- const begun=await response!.json() as {manifestId:string};expect(response!.status).toBe(200);
- for(const c of snapshot.chunks)expect((await f.api(`/v2/machines/application-accounts/manifests/${begun.manifestId}/chunks/${c.chunkIndex}`,'PUT',{rows:c.rows,chunkHash:c.chunkHash}))!.status).toBe(200);
- expect((await f.api(`/v2/machines/application-accounts/manifests/${begun.manifestId}/commit`,'POST'))!.status).toBe(200);
- const body={schemaVersion:1,baseManifestHash:snapshot.manifest.manifestHash,revision:1,configurationVersion:0,generatedAtMs:now,complete:true,reasonCodes:[],
-  rows:[{kind:'application',hour:null,nativeId:'scan-app',category:null,duration:60,classifications:['unclassified']},
-   {kind:'application',hour:3,nativeId:'scan-app',category:null,duration:60,classifications:['unclassified']},
-   {kind:'category',hour:null,nativeId:null,category:'unclassified',duration:60}],
-  applicationUsage:{nonSpecialTotal:60,specialTotal:0,nonSpecialCategories:{unclassified:60},complete:true,reasonCodes:[]}};
- const projection={...body,projectionHash:await hashUsageAccountValue(body)};
- expect((await f.api(`/v2/machines/application-accounts/manifests/${begun.manifestId}/native-projection`,'PUT',projection))!.status).toBe(200);
- const usage=await readApplicationIdentityUsage(env.RUNTIME_DB,f.machine.accountId,f.childId,start,now);
- expect(usage.totalDuration).toBe(60);expect(usage.applications).toMatchObject([{target:{machineId:f.machine.machineId,nativeId:'scan-app'},displayName:'安装扫描名称',duration:60}]);
- expect(usage.productStatus.complete).toBe(true);
- expect(await receiveNativeApplicationProjection(env.RUNTIME_DB,f.machine,begun.manifestId,projection,now)).toMatchObject({received:true,revision:1});
- const conflicting={...body,generatedAtMs:now-1};
- await expect(receiveNativeApplicationProjection(env.RUNTIME_DB,f.machine,begun.manifestId,{...conflicting,projectionHash:await hashUsageAccountValue(conflicting)},now))
- .rejects.toMatchObject({code:'NATIVE_APPLICATION_PROJECTION_CONFLICT'});
- await expect(receiveNativeApplicationProjection(env.RUNTIME_DB,{...f.machine,accountId:'other'},begun.manifestId,projection,now))
- .rejects.toMatchObject({code:'APPLICATION_ACCOUNT_NOT_FOUND'});
- const original=await env.RUNTIME_DB.prepare('SELECT manifest_json FROM runtime_application_account_manifests_v1 WHERE id=?').bind(begun.manifestId).first('manifest_json');
- const partial={...body,revision:2,complete:false,reasonCodes:['NATIVE_IDENTITY_METADATA_MISSING'],
-  rows:body.rows.map(row=>({...row,duration:40})),
-  applicationUsage:{nonSpecialTotal:40,specialTotal:0,nonSpecialCategories:{unclassified:40},complete:false,reasonCodes:['NATIVE_IDENTITY_METADATA_MISSING']}};
- await receiveNativeApplicationProjection(env.RUNTIME_DB,f.machine,begun.manifestId,{...partial,projectionHash:await hashUsageAccountValue(partial)},now);
- const partialUsage=await readApplicationIdentityUsage(env.RUNTIME_DB,f.machine.accountId,f.childId,start,now);
- expect(partialUsage.totalDuration).toBe(60);expect(partialUsage.applications[0].duration).toBe(40);
- expect(partialUsage.productStatus.complete).toBe(false);expect(partialUsage.applicationUsage).toBeNull();
- const independent={...body,revision:3,configurationVersion:999};
- await receiveNativeApplicationProjection(env.RUNTIME_DB,f.machine,begun.manifestId,{...independent,projectionHash:await hashUsageAccountValue(independent)},now);
- expect((await readApplicationIdentityUsage(env.RUNTIME_DB,f.machine.accountId,f.childId,start,now)).totalDuration).toBe(60);
- expect(await env.RUNTIME_DB.prepare('SELECT manifest_json FROM runtime_application_account_manifests_v1 WHERE id=?').bind(begun.manifestId).first('manifest_json')).toBe(original);
+ for(const action of ['native-projection','product-projection'])
+  await expect(f.api('/v2/machines/application-accounts/manifests/aa1_'+'a'.repeat(64)+'/'+action,'PUT',{})).rejects.toMatchObject({status:404,code:'APPLICATION_ACCOUNT_NOT_FOUND'});
+ expect((await readNativeApplicationObjects(env.RUNTIME_DB,f.machine.accountId,f.childId)).items).toMatchObject([
+  {target:{machineId:f.machine.machineId,nativeId:'scan-app'},presentations:[{origin:'scan'}]}]);
+ const empty=await readApplicationIdentityUsage(env.RUNTIME_DB,f.machine.accountId,f.childId,start,now);
+ expect(empty.applications).toEqual([]);expect(empty.instances).toEqual([]);
 });

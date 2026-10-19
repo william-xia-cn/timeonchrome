@@ -5,7 +5,6 @@ import type {MachineSelfResponse} from '../src/contracts';
 import {beginApplicationAccount,putApplicationAccountChunk,commitApplicationAccount,readApplicationAccountStatus} from '../src/applicationAccounts';
 import {publishApplicationAccounts} from '../src/applicationAccountPublication';
 import {readNativeApplicationStatisticsRangeSeconds} from '../src/applicationStatisticsNative';
-import {readPersistentApplicationUsage} from '../src/applicationStatistics';
 import {requireApplicationLegacyEnabled,retireApplicationLedger,readApplicationLedgerRetirement,
   inspectApplicationLedgerRetirement,readApplicationLedgerBackupPage} from '../src/applicationLedgerRetirement';
 
@@ -60,7 +59,6 @@ it('拒旧格式/旧版本重放/旧统计回退；新更高版本重放幂等�
   await expect(upload(f,13)).rejects.toMatchObject({code:'APPLICATION_LEGACY_LEDGER_RETIRED'});
   await expect(upload(f,12,true)).rejects.toMatchObject({code:'APPLICATION_ACCOUNT_STALE_REVISION'});
   await expect(requireApplicationLegacyEnabled(env.RUNTIME_DB,f.machine.accountId)).rejects.toMatchObject({code:'APPLICATION_LEGACY_LEDGER_RETIRED'});
-  await expect(readPersistentApplicationUsage(env.RUNTIME_DB,f.machine.accountId,f.child,start,start+86400000,{})).rejects.toMatchObject({code:'APPLICATION_V3_RECORDS_NOT_AVAILABLE'});
   expect(await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,start+86400000)).toMatchObject({complete:true,totalDuration:0,availableTotalDuration:0,days:[{reasonCodes:[],settledThroughMs:null}]});
   const fresh=await upload(f,13,true);expect((await upload(f,13,true)).manifestId).toBe(fresh.manifestId);
   expect(await readNativeApplicationStatisticsRangeSeconds(env.RUNTIME_DB,f.machine.accountId,f.child,start,start+86400000)).toMatchObject({totalDuration:51});

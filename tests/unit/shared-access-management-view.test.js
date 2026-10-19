@@ -15,27 +15,25 @@ function harness() {
   };
   const context = {currentProfileId: 'child', remoteConfigVersion: 34, remoteConfig: {sharedAccess: {stage: 'shadow'}},
     date: '2026-10-03', visible: true, cloudRulesManagementActiveTab: 'quota',
-    shanghaiWeekDateRange: () => ({to: context.date}), document: {getElementById: get},
+    shanghaiWeekDateRange: () => ({from:'2026-09-28',to: context.date}), document: {getElementById: get},
     setTimeout: callback => {timers.push(callback); return timers.length;}, clearTimeout: () => {},
     api: url => new Promise((resolve, reject) => requests.push({url, resolve, reject}))};
   vm.createContext(context); vm.runInContext(code, context);
   return {context, get, requests, timers};
 }
-const snapshot = overrides => ({schemaVersion: 1, profileId: 'child', policyRevision: 'profile-config:34', revision: 'r',
-  date: '2026-10-03', stage: 'shadow', complete: true, usableForEnforcement: false,
-  day: {complete: true, usedMs: {study: 1200000, composite: 1500, rest: 0}, remainingMs: {study: 60000, composite: null, rest: 600000}},
-  week: {complete: true, restUsedMs: 600000, restRemainingMs: 1200000, reasonCodes: []},
-  web: {complete: true, availableScopeCount: 1, expectedScopeCount: 1},
-  application: {complete: true, availableScopeCount: 2, expectedScopeCount: 2},
-  settledAtMs: Date.parse('2026-10-03T00:00:00+08:00'), reasonCodes: [],
-  sources: [{sourceKey: 'PRIVATE-ID'}], ...overrides});
+const snapshot = overrides => ({schemaVersion:2,durationUnit:'seconds',profileId:'child',policyRevision:'profile-config:34',
+  date:'2026-10-03',fromDate:'2026-09-28',toDate:'2026-10-03',stage:'shadow',complete:true,readAtMs:Date.parse('2026-10-03T00:00:00+08:00'),
+  day:{date:'2026-10-03',complete:true,usedSeconds:{study:1200,composite:1,rest:0},remainingSeconds:{study:60,composite:null,rest:600}},
+  week:{fromDate:'2026-09-28',toDate:'2026-10-03',complete:true,restUsedSeconds:600,restRemainingSeconds:1200,reasonCodes:[]},
+  web:{available:true,complete:true,settledThroughMs:null},application:{available:true,complete:true,settledThroughMs:null},
+  reasonCodes:[],...overrides});
 const content = h => [...harnessIds.map(id => h.get(id).textContent), h.get('shared-access-summary-values').innerHTML].join(' ');
 const harnessIds = ['shared-access-summary-status', 'shared-access-summary-coverage', 'shared-access-summary-reasons'];
 (async () => {
   const h = harness(), pending = h.context.refreshSharedAccessManagementState();
   assert.match(h.requests[0].url, /^\/profiles\/child\/shared-access-state\/v1\?date=2026-10-03$/);
   h.requests[0].resolve(snapshot()); await pending;
-  assert.match(content(h), /20分0秒/); assert.match(content(h), /500毫秒/);
+  assert.match(content(h), /20分0秒/); assert.match(content(h), /0分1秒/); assert.doesNotMatch(content(h), /毫秒/);
   assert.match(content(h), /无限制/); assert.match(content(h), /尚未启用共享限制/);
   assert.doesNotMatch(content(h), /PRIVATE-ID/);
   assert.equal(h.get('shared-access-summary-refresh').disabled, false);
@@ -43,15 +41,19 @@ const harnessIds = ['shared-access-summary-status', 'shared-access-summary-cover
   shared.requests[0].resolve(snapshot({stage: 'shared', usableForEnforcement: false})); await sharedRead;
   assert.match(content(shared), /已配置共享阶段/); assert.doesNotMatch(content(shared), /尚未启用共享限制/);
   const missing = h.context.refreshSharedAccessManagementState();
-  h.requests[1].resolve(snapshot({complete: false, week: {complete: false, restUsedMs: 0, restRemainingMs: 0,
+  h.requests[1].resolve(snapshot({complete: false,
+    day:{date:'2026-10-03',complete:false,usedSeconds:{study:1200,composite:1,rest:0},remainingSeconds:{study:60,composite:null,rest:600}},
+    application:{available:false,complete:false,settledThroughMs:null},
+    week: {fromDate:'2026-09-28',toDate:'2026-10-03',complete: false, restUsedSeconds: 0, restRemainingSeconds: 0,
     reasonCodes: ['WEB_COVERAGE_MISSING', '<script>private</script>']}, reasonCodes: ['APPLICATION_COVERAGE_MISSING']}));
   await missing;
   assert.match(content(h), /来源不完整/); assert.match(content(h), /APPLICATION_COVERAGE_MISSING/);
-  assert.doesNotMatch(h.get('shared-access-summary-values').innerHTML, /0分0秒|无限制/);
+  assert.match(h.get('shared-access-summary-values').innerHTML, /20分0秒/);
   assert.doesNotMatch(content(h), /<script>|private/);
   const failed = h.context.refreshSharedAccessManagementState(); h.requests[2].reject(Error('SECRET-ERROR')); await failed;
   assert.match(content(h), /SHARED_ACCESS_STATE_UNAVAILABLE/); assert.doesNotMatch(content(h), /SECRET/);
-  assert.equal(h.get('shared-access-summary-values').innerHTML, '');
+  assert.match(h.get('shared-access-summary-values').innerHTML, /20分0秒/);
+  assert.match(content(h), /保留同孩子/);
   // Same-child refresh must not allow an older response or finally to overwrite the new read.
   const race = harness(), old = race.context.refreshSharedAccessManagementState(), latest = race.context.refreshSharedAccessManagementState();
   race.requests[1].resolve(snapshot()); await latest;
@@ -75,9 +77,13 @@ const harnessIds = ['shared-access-summary-status', 'shared-access-summary-cover
   const hidden = harness(); hidden.context.visible = false; await hidden.context.refreshSharedAccessManagementState();
   assert.equal(hidden.requests.length, 0);
   const zero = harness(), zeroRead = zero.context.refreshSharedAccessManagementState();
-  zero.requests[0].resolve(snapshot({day: {complete: true, usedMs: {study: 0, composite: 0, rest: 0}, remainingMs: {study: 0, composite: 0, rest: 0}}}));
+  zero.requests[0].resolve(snapshot({day: {date:'2026-10-03',complete: true, usedSeconds: {study: 0, composite: 0, rest: 0}, remainingSeconds: {study: 0, composite: 0, rest: 0}}}));
   await zeroRead; assert.match(zero.get('shared-access-summary-values').innerHTML, /0分0秒/);
-  assert.ok(html.includes('void refreshSharedAccessManagementState();'));
+  const changed=h.context.refreshSharedAccessManagementState();h.context.currentProfileId='other';
+  h.requests.at(-1).reject(Error('failed'));await changed;
+  const nextScope=h.context.refreshSharedAccessManagementState();h.requests.at(-1).reject(Error('failed'));await nextScope;
+  assert.equal(h.get('shared-access-summary-values').innerHTML,'','cache cannot cross children');
+    assert.ok(html.includes('void refreshSharedAccessManagementState();'));
   for (const inline of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)) {
     if (!inline[1].includes('import ')) new vm.Script(inline[1]);
   }

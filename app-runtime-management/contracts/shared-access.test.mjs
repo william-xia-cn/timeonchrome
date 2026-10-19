@@ -1,19 +1,24 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {projectSharedAccessPolicyV2, canonicalSharedAccessPolicyV2, createSharedAccessPolicyIdentityV2, SHARED_ACCESS_POLICY_V2_CAPABILITY} from './dist/shared-access.js';
-import {validateSharedQuotaStateQuery, SHARED_QUOTA_STATE_READ_CAPABILITY, SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY,
-  SHARED_REMINDER_RESULT_SHADOW_CAPABILITY} from './dist/native-host.js';
-import { projectSharedQuotaDay, projectLegacySharedAccessPolicy, SHARED_ACCESS_SCHEMA_VERSION,
-  validateSharedReminderResult, canonicalSharedAccessPolicyV1, createSharedAccessPolicyIdentityV1,
-  validateSharedAccessPolicyIdentityV1, matchesSharedAccessPolicyIdentityV1 } from './dist/shared-access.js';
-
-const date = '2026-10-02';
+import * as currentAccess from './dist/shared-access.js';
 assert.equal(SHARED_ACCESS_POLICY_V2_CAPABILITY,'shared-access-policy-v2');
 const modernConfig={forcedUsePolicyV1:{schemaVersion:1,enabled:true,reminderIntervalMinutes:20,
   quotaOverrunMinutes:{dailyStudy:0,dailyComposite:0,dailyRest:10,dailyOnline:0,weeklyRest:null,domain:0},
   advisoryWindowDailyMaxMinutes:null},autonomyConfig:{quotaOverrunConfirmationRequired:false,
   timeWindowAdvisoryEnabled:true,softReminderTimeoutAction:'continue'}};
 const modern=projectSharedAccessPolicyV2(modernConfig,9,100);
+// 当前策略从统一配置直接读取，不借旧策略生成器或旧策略验证器接管。
+const currentPolicySource=fs.readFileSync(new URL('./shared-access.ts',import.meta.url),'utf8');
+const currentPolicyFunctions=currentPolicySource.slice(currentPolicySource.indexOf('export function projectSharedAccessPolicyV2'),
+  currentPolicySource.indexOf('function projectChildAccessPolicyFields'));
+assert.doesNotMatch(currentPolicyFunctions,/projectLegacySharedAccessPolicy\(|canonicalSharedAccessPolicyV1\(|validateSharedAccessPolicyIdentityV1\(/);
+const currentLimits=projectSharedAccessPolicyV2({timeQuota:{daily:{monday:{studyMinutes:10,compositeMinutes:0,restMinutes:5}},
+  weekly:{restMinutes:null}},timeWindows:{daily:{monday:{studyWindows:[{start:'08:00',end:'24:00'}]}}}},52,1234);
+assert.deepEqual(currentLimits.dailyMinutes.monday,{study:10,composite:0,rest:5});
+assert.equal(currentLimits.weeklyRestMinutes,null);
+assert.deepEqual(currentLimits.timeWindows.monday.study,[{start:'08:00',end:'24:00'}]);
+assert.equal(currentLimits.stage,'legacy','独立工作阶段名称保留，不是旧业务回退');
 assert.equal(modern.schemaVersion,2);assert.equal(modern.stage,'legacy');
 assert.deepEqual(modern.forcedUsePolicyV1,modernConfig.forcedUsePolicyV1);
 assert.equal(modern.autonomy.quotaOverrunConfirmationRequired,false);
@@ -36,113 +41,31 @@ for (const change of [p=>{p.stage='shadow';}, p=>{p.autonomy.quotaOverrunConfirm
   const updated=structuredClone(modern);change(updated);
   assert.notEqual((await createSharedAccessPolicyIdentityV2(updated)).policyHash,modernIdentity.policyHash);
 }
-assert.equal(SHARED_QUOTA_STATE_READ_CAPABILITY, 'shared-quota-state-read');
-assert.equal(SHARED_REMINDER_RESULT_SHADOW_CAPABILITY, 'shared-reminder-result-shadow');
-assert.deepEqual(validateSharedQuotaStateQuery({date}), {date});
-assert.deepEqual(validateSharedQuotaStateQuery({date:'2028-02-29'}), {date:'2028-02-29'});
-for (const value of [null, [], {}, {date:'2026-02-29'}, {date:'2026-04-31'}, {date:'2026-13-01'},
-  {date,childId:'other'}, {date,localUserId:'other'}, {date,assignmentVersion:1}, {date,expectedRevision:'old'}])
-  assert.throws(()=>validateSharedQuotaStateQuery(value), /INVALID_SHARED_QUOTA_QUERY/);
-const allDay = [{ start: '00:00', end: '24:00' }];
-const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-const policy = {
-  schemaVersion: SHARED_ACCESS_SCHEMA_VERSION, revision: 'policy-1', effectiveAtMs: 1, stage: 'shadow',
-  dailyMinutes: Object.fromEntries(days.map(day => [day, { study: 60, composite: 30, rest: 60 }])),
-  weeklyRestMinutes: 240,
-  timeWindows: Object.fromEntries(days.map(day => [day, { study: allDay, composite: allDay, rest: allDay }])),
-  autonomy: { restrictedEntryConfirmationRequired: true, dailyFirstReminderMinutes: 5,
-    weeklyFirstReminderMinutes: 10, repeatReminderMinutes: 5, softReminderTimeoutAction: 'continue', visibleResponseDeadlineSeconds: 60 },
-};
-const projected = projectLegacySharedAccessPolicy({timeQuota:{daily:{friday:{studyMinutes:0,compositeMinutes:30,restMinutes:60}},
-  weekly:{restMinutes:240}},timeWindows:{daily:{friday:{studyWindows:null,compositeWindows:[{start:'12:00',end:'13:00'}],restWindows:null}}},
-  restConfig:{firstReminderMinutes:5,repeatReminderMinutes:10,weeklyFirstReminderMinutes:60},
-  autonomyConfig:{restrictedEntryConfirmationRequired:false,softReminderTimeoutAction:'continue'}}, 9, 100);
-assert.equal(projected.stage, 'legacy', 'projection cannot activate shared enforcement');
-assert.equal(projected.revision, 'profile-config:9');
-assert.equal(projected.dailyMinutes.friday.study, 0, 'explicit zero is not rewritten as unlimited');
-assert.deepEqual(projected.timeWindows.friday.composite, [{start:'12:00',end:'13:00'}]);
-assert.equal(projected.timeWindows.friday.study, null);
-assert.equal(projected.autonomy.softReminderTimeoutAction, 'continue');
-assert.equal(projectLegacySharedAccessPolicy({timeQuota:{weekly:{restMinutes:null}},weeklyRestQuota:120}, 1, 1).weeklyRestMinutes,
-  null, 'explicit unlimited weekly Rest cannot revive a legacy limit');
-const web = { schemaVersion: 1, source: 'web', sourceKey: 'browser-1', date, revision: 'web-1',
-  statisticsRevision: 'web-stat-1', correctionRevision: 'web-correction-1', policyRevision: 'policy-1',
-  settledAtMs: 1, complete: true, reasonCodes: [], bucketsMs: { study: 600000, composite: 600000, rest: 0 } };
-const app = { schemaVersion: 1, source: 'application', sourceKey: 'machine-user-1', date, revision: 'app-1',
-  statisticsRevision: 'app-stat-1', correctionRevision: 'app-correction-1', productAssociationVersion: 'products-1',
-  policyRevision: 'policy-1', settledAtMs: 1, complete: true, reasonCodes: [],
-  bucketsMs: { study: 0, composite: 0, rest: 0 },
-  applicationClassesMs: { study: 600000, composite: 1200000, restrictedEntertainment: 0, unclassified: 600000, other: 300000 },
-  chromeExcludedMs: 600000 };
-const result = projectSharedQuotaDay(policy, date, [web, app]);
-assert.equal(result.complete, true);
-assert.deepEqual(result.usedMs, { study: 1200000, composite: 1800000, rest: 600000 });
-assert.equal(result.borrowedRestMs, 600000);
-assert.deepEqual(result.remainingMs, { study: 2400000, composite: 0, rest: 3000000 });
-assert.deepEqual(projectSharedQuotaDay(policy, date, [app, web]), result, 'arrival order cannot alter quota');
-assert.equal(projectSharedQuotaDay(policy, date, [web, app, app]).complete, false, 'duplicate scope is not added');
-assert.deepEqual(projectSharedQuotaDay(policy, date, [web, app, app]).usedMs, result.usedMs);
-assert.equal(projectSharedQuotaDay(policy, date, [web, { ...app, policyRevision: 'old' }]).complete, false);
-assert.equal(projectSharedQuotaDay(policy, date, [web]).complete, false, 'missing application coverage is not zero');
-assert.equal(projectSharedQuotaDay(policy, date, [app]).complete, false, 'missing web coverage is not zero');
-assert.equal(projectSharedQuotaDay(policy, date, [web, { ...app, chromeExcludedMs: undefined }]).complete, false);
-const registration={reminderId:'r1',policyRevision:'p1',stateRevision:'s1',kind:'daily',issuedAtMs:1000,visibleAtMs:2000};
-const receipt={schemaVersion:1,reminderId:'r1',policyRevision:'p1',stateRevision:'s1',kind:'daily',
-  delivery:'visible',visibleAtMs:2000,action:'end_rest',resolvedAtMs:3000};
-assert.deepEqual(validateSharedReminderResult(receipt,registration),receipt);
-assert.deepEqual(validateSharedReminderResult({...receipt,action:'timeout_end',resolvedAtMs:62000},registration),
-  {...receipt,action:'timeout_end',resolvedAtMs:62000});
-assert.throws(()=>validateSharedReminderResult(receipt,null),/SHARED_REMINDER_NOT_ISSUED/);
-assert.throws(()=>validateSharedReminderResult({...receipt,policyRevision:'old'},registration),/VERSION_CHANGED/);
-assert.throws(()=>validateSharedReminderResult({...receipt,stateRevision:'old'},registration),/VERSION_CHANGED/);
-assert.throws(()=>validateSharedReminderResult(receipt,{...registration,visibleAtMs:null}),/DELIVERY/);
-assert.throws(()=>validateSharedReminderResult({...receipt,action:'timeout_end',resolvedAtMs:61999},registration),/TIMEOUT_EARLY/);
-assert.throws(()=>validateSharedReminderResult({...receipt,delivery:'failed',visibleAtMs:null,action:'timeout_end'},
-  {...registration,visibleAtMs:null}),/DELIVERY/);
-assert.throws(()=>validateSharedReminderResult({...receipt,childId:'other'},registration),/INVALID_SHARED_REMINDER_RESULT/);
-assert.throws(()=>validateSharedReminderResult({...receipt,resolvedAtMs:999},registration),/TIME/);
-assert.deepEqual(validateSharedReminderResult({...receipt,delivery:'failed',visibleAtMs:null,action:'delivery_failed_continue'},
-  {...registration,visibleAtMs:null}),{...receipt,delivery:'failed',visibleAtMs:null,action:'delivery_failed_continue'});
-console.log('shared access contract: PASS (quota projection, Bridge query, registered shadow receipt)');
-const vectors=JSON.parse(fs.readFileSync(new URL('./shared-reminder.vectors.json',import.meta.url),'utf8'));
-for (const vector of vectors.cases) {
-  const result={...vectors.result,...vector.resultPatch};
-  const context=vector.registration===null ? null : {...vectors.registration,...vector.registrationPatch};
-  if (vector.error) assert.throws(()=>validateSharedReminderResult(result,context),
-    error=>error.message===vector.error,vector.name);
-  else assert.deepEqual(validateSharedReminderResult(result,context),result,vector.name);
-}
-console.log(`shared reminder golden vectors: PASS (${vectors.cases.length})`);
 
-assert.equal(SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY, 'shared-access-policy-identity-read');
-const identityPolicy = {...structuredClone(policy), revision: 'profile-config:4'};
-const beforeIdentity = structuredClone(identityPolicy);
-const identity = await createSharedAccessPolicyIdentityV1(identityPolicy);
-validateSharedAccessPolicyIdentityV1(identity);
-assert.equal(await matchesSharedAccessPolicyIdentityV1(identityPolicy, identity), true);
-const reorder = value => Array.isArray(value) ? value.map(reorder) : value && typeof value === 'object'
-  ? Object.fromEntries(Object.keys(value).reverse().map(key => [key, reorder(value[key])])) : value;
-assert.deepEqual(await createSharedAccessPolicyIdentityV1(reorder(identityPolicy)), identity);
-const deviceValidator = await import(new URL('../../extension/core/shared-access-policy.js', import.meta.url).href);
-assert.equal(canonicalSharedAccessPolicyV1(identityPolicy), deviceValidator.validateSharedAccessPolicyV1(identityPolicy).canonical);
-for (const change of [p => { p.stage = 'shared'; }, p => { p.effectiveAtMs += 1; },
-  p => { p.dailyMinutes.monday.study += 1; }, p => { p.autonomy.repeatReminderMinutes += 1; },
-  p => { p.timeWindows.monday.study = [{start:'01:00', end:'24:00'}]; }]) {
-  const changed = structuredClone(identityPolicy); change(changed);
-  assert.equal(await matchesSharedAccessPolicyIdentityV1(changed, identity), false);
+for (const retired of ['projectLegacySharedAccessPolicy','projectSharedQuotaDay','canonicalSharedAccessPolicyV1',
+  'createSharedAccessPolicyIdentityV1','validateSharedAccessPolicyIdentityV1','matchesSharedAccessPolicyIdentityV1',
+  'sharedAccessAdmissionV1','validateSharedReminderResult','SHARED_ACCESS_SCHEMA_VERSION'])
+  assert.equal(Object.hasOwn(currentAccess,retired),false,`旧业务导出必须退出：${retired}`);
+// 仍有效的原策略安全案例迁到V2，不随旧实现删除。
+const beforeIdentity=structuredClone(modern);
+const reorder=value=>Array.isArray(value)?value.map(reorder):value&&typeof value==='object'
+  ?Object.fromEntries(Object.keys(value).reverse().map(key=>[key,reorder(value[key])])):value;
+assert.deepEqual(await createSharedAccessPolicyIdentityV2(reorder(modern)),modernIdentity);
+currentAccess.validateSharedAccessPolicyIdentityV2(modernIdentity);
+for(const change of [p=>{p.effectiveAtMs+=1;},p=>{p.dailyMinutes.monday.study=1;},
+  p=>{p.timeWindows.monday.study=[{start:'01:00',end:'24:00'}];}]) {
+  const changed=structuredClone(modern);change(changed);
+  assert.notEqual((await createSharedAccessPolicyIdentityV2(changed)).policyHash,modernIdentity.policyHash);
 }
-for (const bad of [{...identityPolicy, token:'private'}, {...identityPolicy, revision:'profile-config:9007199254740992'},
-  {...identityPolicy, stage:{toString:() => 'legacy'}},
-  {...identityPolicy, autonomy:{...identityPolicy.autonomy, extra:true}},
-  {...identityPolicy, timeWindows:{...identityPolicy.timeWindows, monday:{study:[{start:'24:00',end:'24:00'}], composite:null,rest:null}}}])
-  assert.throws(() => canonicalSharedAccessPolicyV1(bad), /INVALID_SHARED_ACCESS_POLICY/);
-for (const bad of [{...identity, policyHash:'A'.repeat(64)}, {...identity, token:'private'}, {...identity, stage:'unknown'}])
-  assert.throws(() => validateSharedAccessPolicyIdentityV1(bad), /INVALID_SHARED_ACCESS_POLICY_IDENTITY/);
-const duringDigest = structuredClone(identityPolicy), pendingIdentity = createSharedAccessPolicyIdentityV1(duringDigest);
-duringDigest.stage = 'shared'; duringDigest.effectiveAtMs += 1;
-assert.deepEqual(await pendingIdentity, identity, 'capture policy before asynchronous digest');
-const mutableIdentity = {...identity, policyHash:'0'.repeat(64)}, pendingMatch = matchesSharedAccessPolicyIdentityV1(identityPolicy, mutableIdentity);
-mutableIdentity.policyHash = identity.policyHash;
-assert.equal(await pendingMatch, false, 'capture received identity before asynchronous digest');
-assert.deepEqual(identityPolicy, beforeIdentity, 'identity generation never mutates the authoritative policy');
-console.log('shared policy identity: PASS (actual device canonical bytes, complete content, invalid fields, digest race)');
+for(const bad of [{...modern,token:'private'},{...modern,revision:'profile-config:9007199254740992'},
+  {...modern,stage:{toString:()=>'legacy'}},{...modern,autonomy:{...modern.autonomy,extra:true}},
+  {...modern,timeWindows:{...modern.timeWindows,monday:{study:[{start:'24:00',end:'24:00'}],composite:null,rest:null}}}])
+  assert.throws(()=>canonicalSharedAccessPolicyV2(bad),/INVALID_SHARED_ACCESS_POLICY_V2/);
+for(const bad of [{...modernIdentity,policyHash:'A'.repeat(64)},{...modernIdentity,token:'private'},
+  {...modernIdentity,stage:'unknown'},{...modernIdentity,schemaVersion:1}])
+  assert.throws(()=>currentAccess.validateSharedAccessPolicyIdentityV2(bad),/INVALID_SHARED_ACCESS_POLICY_IDENTITY_V2/);
+const duringDigest=structuredClone(modern),pending=createSharedAccessPolicyIdentityV2(duringDigest);
+duringDigest.stage='shared';duringDigest.effectiveAtMs+=1;
+assert.deepEqual(await pending,modernIdentity,'摘要等待期间捕获的当前策略不受调用者修改影响');
+assert.deepEqual(modern,beforeIdentity,'身份计算不修改统一配置');
+console.log('shared access V2: direct configuration/strict fields/content identity/digest race/retired exports PASS');

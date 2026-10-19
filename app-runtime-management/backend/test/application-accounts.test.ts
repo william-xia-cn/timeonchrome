@@ -4,16 +4,11 @@ import { createUsageAccount, hashUsageAccountValue, canonicalUsageAccountJson, u
 import { sha256Hex, randomToken } from '../src/crypto';
 import { beginApplicationAccount, putApplicationAccountChunk, commitApplicationAccount, readApplicationAccountStatus,routeApplicationAccounts } from '../src/applicationAccounts';
 import { routeV2 } from '../src/v2Routes';
-import { readProgramInstanceStatistics,readRecentProgramInstanceUsage } from '../src/programInstanceStatistics';
-import { readApplicationProductProjections } from '../src/applicationProductProjections';
-import { checkApplicationSharedQuotaSource, receiveApplicationSharedQuota,
-  reconcileApplicationSharedQuotaEvidence, readVerifiedChromeMarginals,
-  readCoveredChromeDeduction, applicationSharedQuotaUploadReady,
-  readApplicationSharedQuotaContributions, applicationSharedQuotaSourceKey } from '../src/applicationSharedQuota';
+import { readRecentProgramInstanceUsage } from '../src/programInstanceStatistics';
+import { applicationSharedQuotaSourceKey } from '../src/applicationSharedQuota';
 import type { MachineSelfResponse } from '../src/contracts';
 import { signSharedWebReusableProofV2 } from '@timeonchrome/app-runtime-contracts/shared-web-sync';
-import { createApplicationInstanceAccount, verifyApplicationInstanceAccountManifest,
-  verifyApplicationProductProjectionReceipt } from '@timeonchrome/app-runtime-contracts/usage-account';
+import { projectSharedAccessPolicyV2 } from '@timeonchrome/app-runtime-contracts/shared-access';
 
 const start = usageAccountDayStart('2026-09-27');
 const now = start + 86400000;
@@ -66,262 +61,47 @@ it('authenticated machine commit returns the newly readable statistics without r
   const other=await fixture();
   expect((await api(other,`/${pending.manifestId}/commit`)).status).toBe(404);
 });
-it('目录30日观察只采用当前已发布实例统计，零量更正退出观察且不跨孩子家庭',async()=>{
-  const f=await fixture(),subjectKey='instance:'+'e'.repeat(64);
-  const snapshot=(revision:number,duration:number)=>createApplicationInstanceAccount({schemaVersion:3,
-    sourceKind:'application',durationUnit:'seconds',timezone:'Asia/Shanghai',date:'2026-09-27',childId:f.childId,
-    revision,generatedAtMs:now,settledThroughMs:now,algorithmVersion:'application-instance-seconds-v1',
-    rawFactCount:1,rawFactHash:'a'.repeat(64),observationResolutionHash:'b'.repeat(64),complete:true,reasonCodes:[]},[
-      {kind:'total',hour:null,subjectKey:null,duration},
-      ...Array.from({length:24},(_,hour)=>({kind:'total' as const,hour,subjectKey:null,duration:hour===3?duration:0})),
-      {kind:'subject',hour:null,subjectKey,duration},{kind:'subject',hour:3,subjectKey,duration}]);
-  const send=async(revision:number,duration:number)=>{
-    const value=await snapshot(revision,duration);
-    const receipt=await beginApplicationAccount(env.RUNTIME_DB,f.machine,{localUserId,assignmentVersion:1,manifest:value.manifest},now);
-    for(const chunk of value.chunks)await putApplicationAccountChunk(env.RUNTIME_DB,f.machine,receipt.manifestId,
-      chunk.chunkIndex,{rows:chunk.rows,chunkHash:chunk.chunkHash});
-    return receipt.manifestId;
-  };
-  const read=(time=now)=>readRecentProgramInstanceUsage(env.RUNTIME_DB,f.machine.accountId,f.childId,time);
-  const first=await send(1,60);
-  expect(await read()).toMatchObject({state:'unavailable',sourceCount:0,subjects:[]});
-  expect(await (await api(f,`/${first}/commit`)).json()).toMatchObject({published:true});
-  expect(await read()).toMatchObject({state:'available',sourceCount:1,
-    subjects:[{subjectKey,lastUsedDate:'2026-09-27'}]});
-  expect((await read(start+29*86400000)).subjects).toHaveLength(1);
-  expect(await read(start+30*86400000)).toMatchObject({state:'unavailable',subjects:[]});
-  expect(await readRecentProgramInstanceUsage(env.RUNTIME_DB,'another-family',f.childId,now))
-    .toMatchObject({state:'unavailable',subjects:[]});
-  expect(await readRecentProgramInstanceUsage(env.RUNTIME_DB,f.machine.accountId,'another-child',now))
-    .toMatchObject({state:'unavailable',subjects:[]});
-  const zero=await send(2,0);
-  expect((await read()).subjects).toHaveLength(1);
-  expect(await (await api(f,`/${zero}/commit`)).json()).toMatchObject({published:true});
-  expect(await read()).toMatchObject({state:'available',sourceCount:1,subjects:[]});
+it('目录实例观察明确不可用，不读取旧schema3或冒充未使用',async()=>{
+  const noRead={prepare(){throw Error('retired instance statistics must not be queried');}} as unknown as D1Database;
+  expect(await readRecentProgramInstanceUsage(noRead,'account','child',now)).toMatchObject({
+    state:'unavailable',reasonCode:'APPLICATION_DIRECTORY_USAGE_UNAVAILABLE',subjects:[]});
+  await expect(readRecentProgramInstanceUsage(noRead,'account','child',1)).rejects.toMatchObject({code:'INVALID_RANGE'});
 });
-
-it('instance schema3 uses authenticated existing upload and publishes unknown subjects without catalog or raw uploads',async()=>{
-  const f=await fixture();
-  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_ledger_retirements_v1 VALUES(?1,?2,?3,'[]')`)
-    .bind(f.machine.accountId,now,'a'.repeat(64)).run();
-  const make=(revision:number,duration:number,overlap=false)=>createApplicationInstanceAccount({schemaVersion:3,sourceKind:'application',durationUnit:'seconds',
-    timezone:'Asia/Shanghai',date:'2026-09-27',childId:f.childId,revision,generatedAtMs:now,settledThroughMs:now,
-    algorithmVersion:'application-instance-seconds-v1',rawFactCount:1,rawFactHash:'a'.repeat(64),observationResolutionHash:'b'.repeat(64),
-    complete:true,reasonCodes:[]},[
-      {kind:'total',hour:null,subjectKey:null,duration},...Array.from({length:24},(_,hour)=>({kind:'total' as const,hour,subjectKey:null,duration:hour===3?duration:0})),
-      {kind:'subject',hour:null,subjectKey:'observation:'+'c'.repeat(64),duration},{kind:'subject',hour:3,subjectKey:'observation:'+'c'.repeat(64),duration},
-      ...(overlap?[{kind:'subject' as const,hour:null,subjectKey:'instance:'+'d'.repeat(64),duration},
-        {kind:'subject' as const,hour:3,subjectKey:'instance:'+'d'.repeat(64),duration}]:[])]);
-  const snapshot=await make(1,60);
-  const uploadInstance=async(value:Awaited<ReturnType<typeof make>>,producer=f)=>{
-    const begun=await api(producer,'','POST',{localUserId,assignmentVersion:1,manifest:value.manifest});
-    expect(begun.status).toBe(200);
-    const receipt=await begun.json() as {manifestId:string};
-    for(const chunk of value.chunks) expect((await api(producer,`/${receipt.manifestId}/chunks/${chunk.chunkIndex}`,'PUT',
-      {rows:chunk.rows,chunkHash:chunk.chunkHash})).status).toBe(200);
-    const committed=await api(producer,`/${receipt.manifestId}/commit`);
-    expect(committed.status).toBe(200);
-    expect(await committed.json()).toMatchObject({received:true,published:true,publicationErrorCode:null});
-    return receipt.manifestId;
-  };
-  const first=await uploadInstance(snapshot);
-  const project=async(revision:number,classification='unclassified')=>{
-    const body={schemaVersion:1,baseManifestHash:snapshot.manifest.manifestHash,revision,catalogVersion:0,
-      generatedAtMs:now,complete:true,reasonCodes:[],rows:snapshot.rows.filter(row=>row.kind==='subject')
-        .map(row=>({...row,category:null,classifications:[classification]})),
-      applicationUsage:{nonSpecialTotal:60,nonSpecialCategories:{[classification]:60},specialTotal:0,complete:true,reasonCodes:[]}};
-    // 线上wire使用共同canonical顺序，不依赖对象构造顺序。
-    body.rows.sort((a,b)=>canonicalUsageAccountJson(a)<canonicalUsageAccountJson(b)?-1:1);
-    return {...body,projectionHash:await hashUsageAccountValue(body)};
-  };
-  const projection=await project(1),projectionPath=`/${first}/product-projection`;
-  const acknowledged=await (await api(f,projectionPath,'PUT',projection)).json();
-  expect(verifyApplicationProductProjectionReceipt(acknowledged,first,projection))
-    .toEqual({manifestId:first,received:true,revision:1,projectionHash:projection.projectionHash});
-  expect(await (await api(f,projectionPath,'PUT',projection)).json()).toMatchObject({received:true,revision:1});
-  expect((await api(f,projectionPath,'PUT',await project(1,'other'))).status).toBe(409);
-  expect((await api(f,projectionPath,'PUT',await project(3,'other'))).status).toBe(200);
-  expect((await api(f,projectionPath,'PUT',await project(2))).status).toBe(409);
-  expect((await api(await fixture(),projectionPath,'PUT',projection)).status).toBe(404);
-  expect(await env.RUNTIME_DB.prepare('SELECT MAX(revision) AS n FROM runtime_application_product_projections_v1 WHERE manifest_id=?').bind(first).first('n')).toBe(3);
-  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_application_product_projections_v1 WHERE manifest_id=?').bind(first).first('n')).toBe(2);
-  const read=(to=start+86400000,filters={})=>readProgramInstanceStatistics(env.RUNTIME_DB,f.machine.accountId,f.childId,start,to,filters);
-  expect(await read()).toMatchObject({complete:true,totalDuration:60,subjects:[{subjectKey:'observation:'+'c'.repeat(64),duration:60}],
-    days:[{references:[{manifestId:first,revision:1}]}]});
-  const projected=await readApplicationProductProjections(env.RUNTIME_DB,f.machine.accountId,f.childId,await read());
-  expect(projected).toMatchObject({complete:true,sources:[{state:'available',base:{manifestId:first},
-    projection:{revision:3,applicationUsage:{nonSpecialTotal:60,nonSpecialCategories:{other:60}}}}]});
-  expect(await readApplicationProductProjections(env.RUNTIME_DB,'other-family',f.childId,await read()))
-    .toMatchObject({complete:false,sources:[{state:'missing',projection:null}]});
-  expect((await (await api(f,`/${first}/commit`)).json())).toMatchObject({published:true,revision:1});
-  const latest=await uploadInstance(await make(2,30));
-  const head=await env.RUNTIME_DB.prepare(`SELECT m.manifest_json FROM runtime_application_account_publications_v1 p
-    JOIN runtime_application_account_manifests_v1 m ON m.id=p.manifest_id WHERE p.machine_id=?`)
-    .bind(f.machine.machineId).first<{manifest_json:string}>();
-  expect((await verifyApplicationInstanceAccountManifest(JSON.parse(head!.manifest_json))).revision).toBe(2);
-  expect(await read()).toMatchObject({complete:true,totalDuration:30,days:[{references:[{manifestId:latest,revision:2}]}]});
-  expect(await read(start+2*86400000)).toMatchObject({complete:false,totalDuration:null,availableTotalDuration:30,
-    days:[{totalDuration:30},{totalDuration:null,reasonCodes:['APPLICATION_INSTANCE_STATISTICS_NOT_AVAILABLE']}]});
-  expect(await read(start+86400000,{machineId:'missing'})).toMatchObject({complete:false,totalDuration:null,availableTotalDuration:null,subjects:[]});
-  const token='instance-reader-'+crypto.randomUUID();
-  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
-    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms) VALUES(?1,?2,?3,?4,?5,?4)`)
-    .bind(await sha256Hex(token),f.machine.accountId,JSON.stringify([{id:f.childId,name:'测试孩子'}]),now,now+60000).run();
-  const request=(child:string=f.childId)=>new Request(`http://runtime.test/v2/module/program-instance-usage?childId=${child}&fromMs=${start}&toMs=${start+86400000}`,
-    {headers:{authorization:`RuntimeSession ${token}`}});
-  const response=await routeV2(request(),env,now);
-  expect(response?.status).toBe(200);
-  const payload=await response!.json();
-  expect(payload).toMatchObject({childId:f.childId,durationUnit:'seconds',totalDuration:30});
-  expect(payload).not.toHaveProperty('products');expect(payload).not.toHaveProperty('categories');
-  expect(payload).not.toHaveProperty('productStatistics');
-  const withProducts=()=>routeV2(new Request(request().url+'&includeProducts=true',{headers:request().headers}),env,now);
-  // 新基础清单不能借用旧清单产品时长；基础30秒不因产品缺失而消失。
-  expect(await (await withProducts())!.json()).toMatchObject({...payload as object,
-    productStatistics:{complete:false,sources:[{state:'missing',base:{manifestId:latest},projection:null}]}});
-  const nextBase=await make(2,30), nextProjection=await project(4);
-  const {projectionHash:oldProjectionHash,...nextBody}=nextProjection;
-  nextBody.baseManifestHash=nextBase.manifest.manifestHash;
-  nextBody.rows=nextBody.rows.map(row=>({...row,duration:30}));
-  nextBody.applicationUsage.nonSpecialTotal=30;nextBody.applicationUsage.nonSpecialCategories={unclassified:30};
-  expect((await api(f,`/${latest}/product-projection`,'PUT',
-    {...nextBody,projectionHash:await hashUsageAccountValue(nextBody)})).status).toBe(200);
-  expect(await (await withProducts())!.json()).toMatchObject({...payload as object,
-    productStatistics:{complete:true,sources:[{state:'available',projection:{revision:4,applicationUsage:{nonSpecialTotal:30}}}]}});
-  const withIdentity=()=>routeV2(new Request(request().url+'&includeIdentity=true',{headers:request().headers}),env,now);
-  const withDisplay=()=>routeV2(new Request(request().url+'&view=display',{headers:request().headers}),env,now);
-  expect(await (await withDisplay())!.json()).toMatchObject({model:'program-instance-v1',durationUnit:'seconds',
-    totalDuration:30,instances:[{subjectKey:'observation:'+'c'.repeat(64),duration:30}],
-    applications:[{duration:30,identified:false}],productStatus:{complete:true},
-    applicationUsage:{nonSpecialTotal:30,nonSpecialCategories:{unclassified:30},specialTotal:0,complete:true}});
-  const stableBase=await read();
-  const stableDisplay=await (await withDisplay())!.json() as {revision:string};
-  const unknownReason='APPLICATION_CLASSIFICATION_EVIDENCE_UNAVAILABLE';
-  const unknownBody={...nextBody,revision:5,complete:false,reasonCodes:[unknownReason],
-    rows:nextBody.rows.map(row=>({...row,classifications:['historicalUnknown']})),
-    applicationUsage:{nonSpecialTotal:30,nonSpecialCategories:{historicalUnknown:30},specialTotal:0,
-      complete:false,reasonCodes:[unknownReason]}};
-  const unknownHash=await hashUsageAccountValue(unknownBody);
-  expect(await (await api(f,`/${latest}/product-projection`,'PUT',
-    {...unknownBody,projectionHash:unknownHash})).json()).toEqual({manifestId:latest,revision:5,projectionHash:unknownHash,received:true});
-  const unknownDisplay=await (await withDisplay())!.json() as {revision:string};
-  expect(unknownDisplay).toMatchObject({complete:true,totalDuration:30,instances:[{duration:30}],
-    applications:[{duration:30,classifications:['historicalUnknown']}],applicationUsage:null,
-    productStatus:{complete:false,reasonCodes:[unknownReason]}});
-  expect(unknownDisplay.revision).not.toBe(stableDisplay.revision);
-  expect(await read()).toEqual(stableBase);
-  const correctedBody={...nextBody,revision:6};
-  expect((await api(f,`/${latest}/product-projection`,'PUT',
-    {...correctedBody,projectionHash:await hashUsageAccountValue(correctedBody)})).status).toBe(200);
-  const correctedDisplay=await (await withDisplay())!.json() as {revision:string};
-  expect(correctedDisplay).toMatchObject({totalDuration:30,applicationUsage:{nonSpecialTotal:30},productStatus:{complete:true,reasonCodes:[]}});
-  expect(correctedDisplay.revision).not.toBe(unknownDisplay.revision);
-  expect(await read()).toEqual(stableBase);
-  expect(await (await withIdentity())!.json()).toMatchObject({...payload as object,
-    identityProjection:{state:'available',products:[],items:[{subjectKey:'observation:'+'c'.repeat(64),status:'unresolved',productId:null}]}});
-  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_knowledge_versions_v1 VALUES(?1,1,?2,?3,?4)`)
-    .bind(f.machine.accountId,JSON.stringify({schemaVersion:4,version:1}),'invalid-test-catalog',now).run();
-  expect(await (await withIdentity())!.json()).toMatchObject({...payload as object,
-    identityProjection:{state:'unavailable',reasonCodes:['PROGRAM_IDENTITY_READ_UNAVAILABLE']}});
-  expect(await (await withProducts())!.json()).toMatchObject({...payload as object,
-    productStatistics:{complete:false,sources:[{state:'stale',reasonCodes:['APPLICATION_PRODUCT_CATALOG_CHANGED'],
-      projection:{revision:6}}]}});
-  expect(await (await withDisplay())!.json()).toMatchObject({totalDuration:30,
-    instances:[{duration:30}],applications:[],productStatus:{complete:false},applicationUsage:null});
-  // 损坏的最新派生载荷单独报错，不回退旧版、更不能拖垮基础读取。
-  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_product_projections_v1 VALUES(?1,7,?2,'{}',?3)`)
-    .bind(latest,'f'.repeat(64),now).run();
-  expect(await (await withProducts())!.json()).toMatchObject({...payload as object,
-    productStatistics:{complete:false,sources:[{state:'unavailable',projection:null,
-      reasonCodes:['APPLICATION_PRODUCT_PROJECTION_INVALID']}]}});
-  expect(await (await routeV2(new Request(request().url+'&includeIdentity=true&includeProducts=true',
-    {headers:request().headers}),env,now))!.json()).toMatchObject({...payload as object,
-    identityProjection:{state:'unavailable'},productStatistics:{complete:false,sources:[{state:'unavailable'}]}});
-  await expect(routeV2(new Request(request().url+'&includeProducts=yes',{headers:request().headers}),env,now))
-    .rejects.toMatchObject({code:'INVALID_PRODUCT_VIEW'});
-  await expect(routeV2(request('another-child'),env,now)).rejects.toMatchObject({code:'CHILD_NOT_FOUND'});
-  const second=await fixture();
-  await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET account_id=? WHERE id=?').bind(f.machine.accountId,second.machine.machineId).run();
-  await env.RUNTIME_DB.prepare('UPDATE runtime_user_assignments_v2 SET child_id=? WHERE machine_id=?').bind(f.childId,second.machine.machineId).run();
-  await uploadInstance(await make(1,20),second);
-  expect(await read()).toMatchObject({totalDuration:50,days:[{references:expect.arrayContaining([{manifestId:latest,revision:2,hash:expect.any(String),settledThroughMs:now}])}]});
-  expect(await read(start+86400000,{machineId:f.machine.machineId})).toMatchObject({totalDuration:30});
-  await uploadInstance(await make(3,10,true));
-  const overlapping=await read(start+86400000,{machineId:f.machine.machineId});
-  expect(overlapping.totalDuration).toBe(10);
-  expect(overlapping.subjects.reduce((sum,row)=>sum+row.duration,0)).toBe(20);
-  expect((await read(start+86400000,{machineId:f.machine.machineId})).revision).toBe(overlapping.revision);
-  expect(await readProgramInstanceStatistics(env.RUNTIME_DB,'different-family',f.childId,start,start+86400000))
-    .toMatchObject({totalDuration:null,availableTotalDuration:null,subjects:[]});
-  await expect(read(start+8*86400000)).rejects.toMatchObject({code:'INVALID_RANGE'});
-  expect((await api(f,`/${latest}/status`,'GET')).status).toBe(200);
-  const other=await fixture();expect((await api(other,`/${latest}/status`,'GET')).status).toBe(404);
-  const bad={...snapshot.manifest,childId:'other-child'};
-  const {manifestHash:_,...badBody}=bad;bad.manifestHash=await hashUsageAccountValue(badBody);
-  expect((await api(f,'','POST',{localUserId,assignmentVersion:1,manifest:bad})).status).toBe(403);
-  expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2 WHERE machine_id=?')
-    .bind(f.machine.machineId).first('n')).toBe(0);
+it('旧schema3和两个投影入口退出，当前公共上传URL与鉴权保留',async()=>{
+ const f=await fixture();
+ expect((await api(f,'','POST',{localUserId,assignmentVersion:1,manifest:{schemaVersion:3}})).status).toBe(400);
+ for(const action of ['product-projection','native-projection'])
+  expect((await api(f,'/aa1_'+'a'.repeat(64)+'/'+action,'PUT',{})).status).toBe(404);
+ expect((await api(f,'','POST',{localUserId,assignmentVersion:1,manifest:(await account()).manifest})).status).toBe(200);
 });
-it('advertises shared contribution upload only to an authenticated machine with both storage tables', async () => {
-  const f=await fixture();
-  const url='http://runtime.test/v2/machines/shared-quota/capabilities';
-  const unauthenticated=await exports.default.fetch(new Request(url));
-  expect(unauthenticated.status).toBe(401);
-  const response=await exports.default.fetch(new Request(url,{headers:{authorization:`Bearer ${f.token}`}}));
-  expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({protocol:'application-shared-quota-v1',schemaVersion:1,enabled:true,
-    capabilities:['source-statistics-read-v1','quota-buckets-read-v1']});
-  const oldSchema={prepare(){return {bind(){return {all:async()=>({results:[]})};}};}} as unknown as D1Database;
-  expect(await applicationSharedQuotaUploadReady(oldSchema)).toBe(false);
+it('已认证旧共享入口明确404，不再查询旧贡献状态',async()=>{
+ const f=await fixture();
+ for(const path of ['capabilities','state','execution-basis','application-contributions']){
+  const response=await exports.default.fetch(new Request('http://runtime.test/v2/machines/shared-quota/'+path,{headers:{authorization:'Bearer '+f.token}}));
+  expect(response.status).toBe(404);
+ }
+ expect((await exports.default.fetch(new Request('http://runtime.test/v2/machines/shared-web-source/challenge',{method:'POST',headers:{authorization:'Bearer '+f.token}}))).status).toBe(404);
 });
 it('reads only the current protected assignment shared policy from the bound Guardian source', async () => {
   const f=await fixture();
-  const policy={schemaVersion:1,revision:'profile-config:7',stage:'legacy',effectiveAtMs:0,
-    dailyMinutes:{study:null,composite:null,restrictedEntertainment:null},timeWindows:{},autonomy:{}};
+  const policy=projectSharedAccessPolicyV2({},7,0);
   let guardianCalls=0;
   const guardian={fetch:async(request:Request)=>{guardianCalls++;
     expect(new URL(request.url).pathname).toBe('/readSharedAccessPolicy');
-    expect(await request.json()).toEqual({accountId:f.machine.accountId,childId:f.childId});
+    expect(await request.json()).toEqual({accountId:f.machine.accountId,childId:f.childId,schemaVersion:2});
     return Response.json({policy});}} as unknown as typeof env.GUARDIAN_COMPUTER_USAGE;
-  const read=async(version:number)=>routeV2(new Request(`http://runtime.test/v2/machines/shared-access-policy?localUserId=${localUserId}&assignmentVersion=${version}`,
+  const read=async(version:number)=>routeV2(new Request(`http://runtime.test/v2/machines/shared-access-policy?schemaVersion=2&localUserId=${localUserId}&assignmentVersion=${version}`,
     {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now);
   const current=await read(1);
   expect(current?.status).toBe(200);expect(await current?.json()).toEqual({policy});
   await expect(read(2)).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});
   expect(guardianCalls).toBe(1);
   const malformed={fetch:async()=>new Response('invalid JSON',{status:200})} as unknown as typeof env.GUARDIAN_COMPUTER_USAGE;
-  await expect(routeV2(new Request(`http://runtime.test/v2/machines/shared-access-policy?localUserId=${localUserId}&assignmentVersion=1`,
+  await expect(routeV2(new Request(`http://runtime.test/v2/machines/shared-access-policy?schemaVersion=2&localUserId=${localUserId}&assignmentVersion=1`,
     {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:malformed},now))
     .rejects.toMatchObject({status:503,code:'SHARED_ACCESS_POLICY_UNAVAILABLE'});
 });
-it('shared web source challenge authenticates machine context without caller Child or activity writes', async()=>{
-  const f=await fixture(), own=await applicationSharedQuotaSourceKey(f.machine.machineId,localUserId,1);
-  let calls=0, rebind=false;
-  const guardian={fetch:async(request:Request)=>{
-    calls++;expect(new URL(request.url).pathname).toBe('/createSharedWebSourceChallenge');
-    expect(await request.json()).toEqual({accountId:f.machine.accountId,childId:f.childId,machineId:f.machine.machineId,
-      localUserId,assignmentVersion:1,connectionHash:'d'.repeat(64),applicationSourceKey:own});
-    if(rebind)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
-      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
-      VALUES (?1,?2,2,?3,1,'override',?4,?4)`).bind(f.machine.machineId,localUserId,f.childId,now).run();
-    return Response.json({schemaVersion:1,challengeId:'c'.repeat(64),connectionHash:'d'.repeat(64),expiresAtMs:Date.now()+90000});
-  }} as typeof env.GUARDIAN_COMPUTER_USAGE;
-  const read=(patch:Record<string,unknown>={},token=f.token)=>routeV2(new Request('http://runtime.test/v2/machines/shared-web-source/challenge',{
-    method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},
-    body:JSON.stringify({localUserId,assignmentVersion:1,connectionHash:'d'.repeat(64),...patch})}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now);
-  await expect(read({},randomToken(''))).rejects.toMatchObject({status:401});
-  await expect(read({childId:'caller-child'})).rejects.toMatchObject({status:400,code:'INVALID_WEB_SOURCE_CHALLENGE'});
-  expect(calls).toBe(0);
-  const response=await read();expect(response?.status).toBe(200);
-  const body=await response?.json() as Record<string,unknown>;
-  expect(Object.keys(body)).toHaveLength(6);expect(body.applicationSourceKey).toBe(own);
-  expect(body.childScopeHash).toBe(await sha256Hex(`shared-web-child\n${f.machine.accountId}\n${f.childId}`));
-  expect(body.connectionHash).toBe('d'.repeat(64));
-  const activity=await env.RUNTIME_DB.prepare('SELECT last_seen_at_ms FROM runtime_machines_v2 WHERE id=?1')
-    .bind(f.machine.machineId).first<{last_seen_at_ms:number}>();expect(activity?.last_seen_at_ms).toBe(start);
-  rebind=true;await expect(read()).rejects.toMatchObject({status:409,code:'SHARED_ACCESS_BINDING_CHANGED'});
-  await expect(read()).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});
-});
+
 it('shared web source scope derives v2 reusable identity from machine auth and rechecks current assignment without writes',async()=>{
   const f=await fixture(),own=await applicationSharedQuotaSourceKey(f.machine.machineId,localUserId,1);
   const keys=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},false,['sign','verify']);
@@ -359,66 +139,8 @@ it('shared web source scope derives v2 reusable identity from machine auth and r
   rebind=true;await expect(read()).rejects.toMatchObject({status:409,code:'SHARED_ACCESS_BINDING_CHANGED'});
   await expect(read()).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});
 });
-it('execution basis authenticates machine scope and rejects untrusted page or concurrent assignment changes', async () => {
-  const f=await fixture(), ownSourceKey=await applicationSharedQuotaSourceKey(f.machine.machineId,localUserId,1);
-  expect(ownSourceKey).toBe(await sha256Hex(`application\n${f.machine.machineId}\n${localUserId}\n1`));
-  let calls=0, mode='valid', cancelled=false;
-  const page=()=>({schemaVersion:1,profileId:String(f.childId),basisRevision:'a'.repeat(64),policyRevision:'profile-config:7',
-    fromDate:'2026-09-21',toDate:'2026-09-27',days:Array.from({length:7},(_,index)=>({date:`2026-09-${21+index}`,
-      reasonCodes:['APPLICATION_COVERAGE_MISSING'],sourceCount:index===6?1:0})),
-    authorizedScopes:[{source:'application',sourceKey:ownSourceKey,date:'2026-09-27'}],
-    page:{offset:0,limit:50,total:1,nextOffset:null,items:[{publicationRevision:'1:2026-09-27',revisionOrdinal:1,
-      contribution:{schemaVersion:1,source:'application',sourceKey:ownSourceKey,date:'2026-09-27',revision:'app-1',
-        statisticsRevision:'stats-1',correctionRevision:'correction-0',productAssociationVersion:'association-1',
-        policyRevision:'profile-config:7',settledAtMs:now,complete:true,reasonCodes:[],bucketsMs:{study:1501,composite:0,rest:0},
-        applicationClassesMs:{study:1501,composite:0,restrictedEntertainment:0,unclassified:0,other:0},chromeExcludedMs:0}}]}});
-  const guardian={fetch:async(request:Request)=>{
-    calls++;expect(new URL(request.url).pathname).toBe('/readSharedQuotaExecutionBasis');
-    expect(await request.json()).toEqual({accountId:f.machine.accountId,childId:f.childId,date:'2026-09-27',
-      ownSourceKey,offset:0,limit:50,expectedRevision:null});
-    if(mode==='version')return Response.json({privateDetail:'not forwarded'},{status:409});
-    if(mode==='failure')throw Error('private database detail');
-    if(mode==='oversize')return new Response(new ReadableStream({
-      start(controller){controller.enqueue(new Uint8Array(262145));},cancel(){cancelled=true;}}));
-    if(mode==='json')return new Response('not JSON');
-    if(mode==='rebind')await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
-      (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
-      VALUES (?1,?2,2,?3,1,'override',?4,?4)`).bind(f.machine.machineId,localUserId,f.childId,now).run();
-    const result=page();
-    if(mode==='child')result.profileId='other-child';
-    if(mode==='scope')return Response.json({...result,authorizedScopes:[{source:'web',sourceKey:ownSourceKey,date:'2026-09-27'}]});
-    if(mode==='foreign-scope')return Response.json({...result,authorizedScopes:[{source:'application',sourceKey:'b'.repeat(64),date:'2026-09-27'}]});
-    return Response.json(result);
-  }} as typeof env.GUARDIAN_COMPUTER_USAGE;
-  const read=(suffix='',token=f.token,method='GET')=>routeV2(new Request(
-    `http://runtime.test/v2/machines/shared-quota/execution-basis?localUserId=${localUserId}&assignmentVersion=1&date=2026-09-27${suffix}`,
-    {method,headers:{authorization:`Bearer ${token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now);
-  const response=await read();expect(response?.status).toBe(200);expect(await response?.json()).toEqual(page());
-  expect(response?.headers.get('cache-control')).toBe('no-store');
-  const activity=await env.RUNTIME_DB.prepare('SELECT last_seen_at_ms FROM runtime_machines_v2 WHERE id=?1').bind(f.machine.machineId).first<{last_seen_at_ms:number}>();
-  expect(activity?.last_seen_at_ms).toBe(start);
-  for(const suffix of ['&childId=other','&sourceKey=other','&date=2026-09-26','&offset=1','&limit=101','&revision=bad'])
-    await expect(read(suffix)).rejects.toMatchObject({status:400,code:'INVALID_REQUEST'});
-  await expect(read('',randomToken(''))).rejects.toMatchObject({status:401});
-  expect((await read('',f.token,'POST'))?.status).toBe(405);expect(calls).toBe(1);
-  for(const invalid of ['child','scope','foreign-scope','oversize','json','failure']){
-    mode=invalid;await expect(read()).rejects.toMatchObject({status:503,code:'SHARED_EXECUTION_BASIS_UNAVAILABLE'});
-  }
-  expect(cancelled).toBe(true);
-  mode='version';await expect(read()).rejects.toMatchObject({status:409,code:'EXECUTION_BASIS_VERSION_CHANGED'});
-  mode='rebind';await expect(read()).rejects.toMatchObject({status:409,code:'SHARED_ACCESS_BINDING_CHANGED'});
-  const before=calls;await expect(read()).rejects.toMatchObject({status:403,code:'SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'});expect(calls).toBe(before);
-});
-it('execution basis rejects a revoked machine after the internal read', async()=>{
-  const f=await fixture();
-  const guardian={fetch:async()=>{
-    await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET revoked_at_ms=?1 WHERE id=?2').bind(now,f.machine.machineId).run();
-    return Response.json({schemaVersion:1,profileId:f.childId,basisRevision:'a'.repeat(64),policyRevision:'profile-config:7',
-      fromDate:'2026-09-21',toDate:'2026-09-27',days:[],authorizedScopes:[],page:{offset:0,limit:50,total:0,nextOffset:null,items:[]}});
-  },connect:env.GUARDIAN_COMPUTER_USAGE.connect} satisfies typeof env.GUARDIAN_COMPUTER_USAGE;
-  await expect(routeV2(new Request(`http://runtime.test/v2/machines/shared-quota/execution-basis?localUserId=${localUserId}&assignmentVersion=1&date=2026-09-27`,
-    {headers:{authorization:`Bearer ${f.token}`}}),{...env,GUARDIAN_COMPUTER_USAGE:guardian},now)).rejects.toMatchObject({status:401});
-});
+
+
 it('immutable staged manifest, chunks and receipt are idempotent but never published', async () => {
   const f = await fixture(), a = await account(), pending = await upload(f, a);
   expect(pending).toMatchObject({ received: false, published: false, publishStatus: 'pending' });
@@ -430,70 +152,8 @@ it('immutable staged manifest, chunks and receipt are idempotent but never publi
     .toMatchObject({ received: true, published: false });
   expect(await readApplicationAccountStatus(env.RUNTIME_DB, f.machine, pending.manifestId)).toMatchObject({ receivedChunkIndexes: [0] });
 });
-it('checks shared contribution against the published immutable account before any policy publication', async () => {
-  const f=await fixture(),old=await account();
-  const {manifestHash:ignored,rowCount:oldRows,chunkCount:oldChunks,rowsHash:oldRowsHash,...header}=old.manifest;
-  const snapshot=await createUsageAccount({...header,associationVersion:'association-v1'},
-    old.chunks.flatMap(chunk=>chunk.rows));
-  const pending=await upload(f,snapshot);
-  await commitApplicationAccount(env.RUNTIME_DB,f.machine,pending.manifestId,now);
-  const contribution={schemaVersion:1,source:'application',date:snapshot.manifest.date,
-    revision:'contribution-v1',statisticsRevision:snapshot.manifest.manifestHash,
-    correctionRevision:'0',productAssociationVersion:'association-v1',policyRevision:'profile-config:1',
-    settledAtMs:now,complete:true,reasonCodes:[],bucketsMs:{study:1000,composite:0,rest:0},
-    applicationClassesMs:{study:1000,composite:0,restrictedEntertainment:0,unclassified:0,other:0},
-    chromeExcludedMs:0,chromeIncludedInApplicationMs:0};
-  const send=(revisionOrdinal:number,change:Record<string,unknown>={})=>receiveApplicationSharedQuota(env.RUNTIME_DB,
-    f.machine,{schemaVersion:1,localUserId,assignmentVersion:1,revisionOrdinal,
-      contribution:{...contribution,...change}},now);
-  expect(await send(1)).toMatchObject({received:true,published:false});
-  expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
-    snapshot.manifest.date)).reasonCode).toBe('APPLICATION_ACCOUNT_NOT_PUBLISHED');
-  expect(await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB,now,f.machine.machineId))
-    .toEqual({processed:1,verified:0});
-  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_publications_v1
-    (machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_id,source_revision,published_at_ms)
-    SELECT machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,id,'source-v1',?2
-    FROM runtime_application_account_manifests_v1 WHERE id=?1`).bind(pending.manifestId,now).run();
-  expect(await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
-    snapshot.manifest.date)).toMatchObject({sourceVerified:true,policyVerified:false,
-      reasonCode:'SHARED_POLICY_NOT_VERIFIED'});
-  expect(await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB,now+301_000,f.machine.machineId))
-    .toEqual({processed:1,verified:1});
-  const shared=await readApplicationSharedQuotaContributions(env.RUNTIME_DB,f.machine.accountId,f.childId,snapshot.manifest.date);
-  expect(shared).toMatchObject({complete:true,expectedScopeCount:1,verifiedScopeCount:1,reasonCodes:[]});
-  expect(shared.contributions).toHaveLength(1);
-  expect(shared.contributions[0].contribution).toMatchObject({source:'application',sourceKey:expect.any(String),
-    policyRevision:'profile-config:1',complete:true});
-  expect(JSON.stringify(shared)).not.toContain(localUserId);
-  expect(JSON.stringify(shared)).not.toContain(f.machine.machineId);
-  expect(await env.RUNTIME_DB.prepare(`SELECT source_verified,chrome_included_ms,statistics_manifest_hash
-    FROM runtime_application_shared_quota_verified_v1 WHERE machine_id=?1`).bind(f.machine.machineId).first())
-    .toEqual({source_verified:1,chrome_included_ms:0,statistics_manifest_hash:snapshot.manifest.manifestHash});
-  expect(await readVerifiedChromeMarginals(env.RUNTIME_DB,f.machine.accountId,f.childId,
-    snapshot.manifest.date,snapshot.manifest.date)).toHaveLength(1);
-  expect(await readCoveredChromeDeduction(env.RUNTIME_DB,f.machine.accountId,f.childId,f.machine.machineId,
-    snapshot.manifest.date,snapshot.manifest.date,1501)).toBe(0);
-  await send(2,{statisticsRevision:'wrong-statistics'});
-  expect(await readApplicationSharedQuotaContributions(env.RUNTIME_DB,f.machine.accountId,f.childId,snapshot.manifest.date))
-    .toMatchObject({complete:false,expectedScopeCount:1,verifiedScopeCount:0});
-  expect(await readVerifiedChromeMarginals(env.RUNTIME_DB,f.machine.accountId,f.childId,
-    snapshot.manifest.date,snapshot.manifest.date)).toEqual([]);
-  expect(await readCoveredChromeDeduction(env.RUNTIME_DB,f.machine.accountId,f.childId,f.machine.machineId,
-    snapshot.manifest.date,snapshot.manifest.date,1501)).toBeNull();
-  expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
-    snapshot.manifest.date)).reasonCode).toBe('SHARED_QUOTA_SOURCE_VERSION_MISMATCH');
-  expect(await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB,now+302_000,f.machine.machineId))
-    .toEqual({processed:1,verified:0});
-  await send(3,{applicationClassesMs:{...contribution.applicationClassesMs,study:1502}});
-  expect((await checkApplicationSharedQuotaSource(env.RUNTIME_DB,f.machine.machineId,localUserId,1,
-    snapshot.manifest.date)).reasonCode).toBe('SHARED_QUOTA_CONTRIBUTION_OUT_OF_RANGE');
-});
-it('keeps Chrome display deduction unknown when its optional evidence table is unavailable', async () => {
-  const unavailable={prepare(){throw new Error('no such table: runtime_application_shared_quota_verified_v1');}} as unknown as D1Database;
-  expect(await readCoveredChromeDeduction(unavailable,'account','child','machine','2026-09-27','2026-09-27',1501))
-    .toBeNull();
-});
+
+
 it('partial delivery can resume; cannot commit missing chunks', async () => {
   const f = await fixture(), a = await account(1, 1501, true);
   const r = await beginApplicationAccount(env.RUNTIME_DB, f.machine, input(a), now);
@@ -644,13 +304,13 @@ it.each(['windows','macos'] as const)('capabilities require %s machine authentic
   const response=await exports.default.fetch(new Request(url,{headers:{authorization:`Bearer ${f.token}`}}));
   expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toBe('no-store');
   expect(await response.json()).toEqual({protocol:'usage-account-v1',schemaVersion:1,enabled:true,
-    chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1','macos-application-v1','windows-application-seconds-v2','macos-application-seconds-v2','windows-application-v3-only-seconds-v1','macos-application-v3-only-seconds-v1','application-instance-seconds-v1','application-fixed-identity-seconds-v1'],capabilities:['application-usage-projection-v1','application-statistics-seconds-v2','application-statistics-child-scope-v1','application-instance-statistics-v1','application-fixed-identity-statistics-v1','application-product-projection-upload-v1','native-application-management-v1']});
+    chunkRows:100,maxRows:10000,acceptedAlgorithms:['windows-application-v1','macos-application-v1','windows-application-seconds-v2','macos-application-seconds-v2','windows-application-v3-only-seconds-v1','macos-application-v3-only-seconds-v1','application-fixed-identity-seconds-v1'],capabilities:['application-usage-projection-v1','application-statistics-seconds-v2','application-statistics-child-scope-v1','application-fixed-identity-statistics-v1','native-application-management-v1']});
   const unavailable={prepare(){return {async first(){return null;},bind(){return {async all(){return {results:[]};}};}};}} as unknown as D1Database;
   const disabled=await routeApplicationAccounts(new Request(url),unavailable,f.machine,now);
   expect(await disabled.json()).toMatchObject({enabled:false,
     capabilities:['application-usage-projection-v1','application-statistics-seconds-v2','application-statistics-child-scope-v1']});
   await expect(routeApplicationAccounts(new Request(`http://runtime.test/v2/machines/application-accounts/manifests/aa1_${'a'.repeat(64)}/product-projection`,
-    {method:'PUT',body:'{}'}),unavailable,f.machine,now)).rejects.toMatchObject({status:503,code:'APPLICATION_PRODUCT_STORAGE_UNAVAILABLE'});
+    {method:'PUT',body:'{}'}),unavailable,f.machine,now)).rejects.toMatchObject({status:404,code:'APPLICATION_ACCOUNT_NOT_FOUND'});
   expect(await env.RUNTIME_DB.prepare('SELECT last_seen_at_ms FROM runtime_machines_v2 WHERE id=?1').bind(f.machine.machineId).first())
     .toEqual({last_seen_at_ms:start});
 });
@@ -668,7 +328,7 @@ it('missing product storage or old retirement triggers do not advertise new uplo
     const result=await (await routeApplicationAccounts(new Request(url),schemaOnly,f.machine,now)).json() as {enabled:boolean;capabilities:string[];acceptedAlgorithms:string[]};
     expect(result.enabled).toBe(true);
     expect(result.capabilities).not.toContain('application-product-projection-upload-v1');
-    expect(result.capabilities.includes('application-instance-statistics-v1')).toBe(!missing.startsWith('runtime_retired_'));
-    expect(result.acceptedAlgorithms.includes('application-instance-seconds-v1')).toBe(!missing.startsWith('runtime_retired_'));
+    expect(result.capabilities).not.toContain('application-instance-statistics-v1');
+    expect(result.acceptedAlgorithms).not.toContain('application-instance-seconds-v1');
   }
 });

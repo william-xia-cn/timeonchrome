@@ -21,9 +21,7 @@ export function isV3OnlyApplicationManifest(value:{schemaVersion:number;duration
 export async function requireCurrentApplicationManifest(db:D1Database,accountId:string,child:string,
   manifest:{schemaVersion:number;durationUnit:string;childId?:string;algorithmVersion:string}) {
   const retirement=await readApplicationLedgerRetirement(db,accountId);
-  const currentInstance=manifest.schemaVersion===3&&manifest.durationUnit==='seconds'&&manifest.childId===child
-    &&manifest.algorithmVersion==='application-instance-seconds-v1';
-  if(retirement&&!isV3OnlyApplicationManifest(manifest,child)&&!currentInstance)
+  if(retirement&&!isV3OnlyApplicationManifest(manifest,child))
     throw new HttpError(409,'APPLICATION_LEGACY_LEDGER_RETIRED','旧应用账已退出，仅接收新版孩子秒统计。');
   return retirement;
 }

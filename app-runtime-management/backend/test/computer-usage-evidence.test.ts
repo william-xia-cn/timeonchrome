@@ -3,35 +3,91 @@ import { env, exports } from 'cloudflare:workers';
 import { routeV2 } from '../src/v2Routes';
 import { sha256Hex } from '../src/crypto';
 import { readComputerApplicationEvidence as readEvidence } from '../src/computerUsageEvidence';
-import { readPersistentApplicationUsage,rebuildApplicationStatistics } from '../src/applicationStatistics';
-import { queryAppUsage } from '../src/appPolicy';
 import { isConfirmedSpecialApplication } from '../src/specialApplications';
 import { putApplicationKnowledge, effectiveApplicationKnowledge } from '../src/applicationKnowledge';
 import { buildProductIdentityProjection } from '../src/applicationIdentityProjection';
 import { CHROME_DISPLAY_RULES } from '../src/specialApplications';
 import { RuntimeComputerUsageService } from '../src/computerUsageService';
 import type { AppEvidence } from '@timeonchrome/app-runtime-contracts/classification';
+import {createUsageAccountV2,APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,type UsageAccountRowV2} from '@timeonchrome/app-runtime-contracts/usage-account';
 const day=Date.parse('2026-10-01T00:00:00+08:00');
-async function prime(account:string,child:string,fromDate:string,toDate:string,filters:{machineId?:string}={}) {
-  const start=Date.parse(`${fromDate}T00:00:00+08:00`),end=Date.parse(`${toDate}T00:00:00+08:00`)+86400000;
-  await readPersistentApplicationUsage(env.RUNTIME_DB,account,child,start,end,filters).catch(()=>{});
-  for(let i=0;i<8;i++)await rebuildApplicationStatistics(env.RUNTIME_DB);
-}
-// Exercise actual D1 background materialization before the independent evidence read.
-async function readComputerApplicationEvidence(db:D1Database,account:string,child:string,fromDate:string,toDate:string){
-  const machines=await db.prepare(`SELECT id FROM runtime_machines_v2 WHERE account_id=?1`).bind(account).all<{id:string}>();
-  for(const machine of machines.results)await prime(account,child,fromDate,toDate,{machineId:machine.id});
-  return readEvidence(db,account,child,fromDate,toDate);
-}
 async function seed(account:string,machine:string,child:string){
 await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machines_v2(id,account_id,platform,token_hash,display_name,default_child_id,last_seen_at_ms,created_at_ms,updated_at_ms)
 VALUES (?1,?2,'windows',?1,'测试电脑',?3,0,0,0)`).bind(machine,account,child).run();
 }
-async function usage(machine:string,child:string,id:string,start:number,end:number,classification:string|null='study',estimated=0){
-await env.RUNTIME_DB.prepare(`INSERT INTO runtime_usage_segments_v2(id,machine_id,local_user_id,assignment_version,child_id,runtime_session_id,platform,runtime_identity,display_name,start_at_ms,end_at_ms,duration_ms,end_reason,content_hash,uploaded_at_ms,accounting_schema_version,channel,clock_epoch_id,start_wall_time_ms,end_wall_time_ms,estimated,application_classification)
-VALUES (?1,?2,'opaque-user',1,?3,'session','windows','leaf','已确认应用',?4,?5,?5-?4,'fixture',?1,?5,2,'active','epoch',?4,?5,?6,?7)`).bind(id,machine,child,start,end,estimated,classification).run();
-}
 describe('computer application evidence real D1 read adapter',()=>{
+it('current persistent seconds cleanup preserves published totals and browser deduction without old tables',async()=>{
+  const account='rpc-account',child='rpc-child',machine=crypto.randomUUID(),localUser='c'.repeat(64),date='2026-10-01';
+  await seed(account,machine,child);
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2
+    (machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
+    VALUES(?1,?2,1,?3,1,'default',?4,?4)`).bind(machine,localUser,child,day).run();
+  const total=(hour:number|null,duration:number):UsageAccountRowV2=>({kind:'total',hour,duration,category:null,subjectKey:null,displayName:null});
+  const rows=[total(null,900),...Array.from({length:24},(_,hour)=>total(hour,hour===0?900:0))];
+  const snapshot=await createUsageAccountV2({schemaVersion:2,sourceKind:'application',durationUnit:'seconds',childId:child,
+    timezone:'Asia/Shanghai',date,revision:1,generatedAtMs:day+1000000,settledThroughMs:day+900000,
+    algorithmVersion:APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,policyVersions:[],associationVersion:null,correctionVersion:0,
+    rawFactCount:1,rawFactHash:'a'.repeat(64),complete:true,reasonCodes:[],applicationUsage:{nonSpecialTotal:600,
+      nonSpecialCategories:{study:600},specialTotal:300,complete:true,reasonCodes:[]}},rows);
+  const id=crypto.randomUUID();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_manifests_v1
+    (id,machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_hash,manifest_json,state,created_at_ms,received_at_ms)
+    VALUES(?1,?2,?3,1,?4,?5,?6,1,?7,?8,'received',?9,?9)`)
+    .bind(id,machine,localUser,account,child,date,snapshot.manifest.manifestHash,JSON.stringify(snapshot.manifest),day+1000000).run();
+  for(const chunk of snapshot.chunks)await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_chunks_v1
+    (manifest_id,chunk_index,chunk_hash,rows_json) VALUES(?1,?2,?3,?4)`)
+    .bind(id,chunk.chunkIndex,chunk.chunkHash,JSON.stringify(chunk.rows)).run();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_account_publications_v1
+    (machine_id,local_user_id,assignment_version,account_id,child_id,date,revision,manifest_id,source_revision,published_at_ms)
+    VALUES(?1,?2,1,?3,?4,?5,1,?6,?7,?8)`)
+    .bind(machine,localUser,account,child,date,id,snapshot.manifest.manifestHash,day+1000000).run();
+  const forbidden=/runtime_usage_segments|runtime_application_statistics_(days|queue)|runtime_application_shared_quota/;
+  const database=new Proxy(env.RUNTIME_DB,{get(target,property){
+    if(property==='prepare')return(sql:string)=>{if(forbidden.test(sql))throw Error('OLD_READER_FORBIDDEN');return target.prepare(sql);};
+    const value=Reflect.get(target,property);return typeof value==='function'?value.bind(target):value;
+  }});
+  const sources=await readEvidence(database,account,child,date,date);
+  expect(sources).toHaveLength(1);expect(sources[0]).toMatchObject({totalMs:900000,
+    chromeIncludedInApplicationMs:300000,statisticsComplete:true,intervals:[]});
+  const rpc=new RuntimeComputerUsageService({} as ExecutionContext,{...env,RUNTIME_DB:database});
+  const current=await rpc.getApplicationUsage(account,child,date,date,true);
+  expect(current).toMatchObject({durationUnit:'seconds',totalDuration:900,complete:true,
+    applicationUsage:{nonSpecialTotal:600,specialTotal:300}});
+  // Remaining millisecond field compatibility is a projection of these same seconds, not an old read.
+  expect(await rpc.getApplicationUsage(account,child,date,date)).toMatchObject({totalDurationMs:900000});
+  expect(await rpc.applicationEvidenceRevision(account,child,date,date)).toMatch(/^[a-f0-9]{64}$/);
+  expect(await readEvidence(database,'foreign-account',child,date,date)).toEqual([]);
+  const token=crypto.randomUUID().replace(/-/g,'')+'x'.repeat(11),now=Date.now();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
+    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms)
+    VALUES(?1,?2,?3,?4,?5,?4)`).bind(await sha256Hex(token),account,JSON.stringify([{id:child,name:'合成孩子'}]),now,now+60000).run();
+  const request=(unit?:string,selectedChild=child)=>new Request('https://runtime.test/v2/module/app-usage?'+new URLSearchParams({
+    childId:selectedChild,fromMs:String(day),toMs:String(day+86400000),...(unit?{durationUnit:unit}:{})}),
+    {headers:{authorization:`RuntimeSession ${token}`}});
+  const scopedEnv={...env,RUNTIME_DB:database};
+  expect(await(await routeV2(request('seconds'),scopedEnv,now))!.json()).toMatchObject({durationUnit:'seconds',totalDuration:900});
+  expect(await(await routeV2(request(),scopedEnv,now))!.json()).toMatchObject({durationUnit:'milliseconds',totalDurationMs:900000});
+  expect(await(await routeV2(request('milliseconds'),scopedEnv,now))!.json()).toMatchObject({totalDurationMs:900000});
+  await expect(routeV2(request('seconds','foreign-child'),scopedEnv,now)).rejects.toMatchObject({code:'CHILD_NOT_FOUND'});
+  await expect(routeV2(request('minutes'),scopedEnv,now)).rejects.toMatchObject({code:'INVALID_DURATION_UNIT'});
+});
+it('current persistent seconds cleanup keeps empty zero and exact date guards instead of a raw fallback',async()=>{
+  const rpc=new RuntimeComputerUsageService({} as ExecutionContext,env);
+  expect(await rpc.getApplicationUsage('empty-account','empty-child','2026-10-01','2026-10-01',true))
+    .toMatchObject({durationUnit:'seconds',totalDuration:0,complete:true});
+  expect(await readEvidence(env.RUNTIME_DB,'empty-account','empty-child','2026-10-01','2026-10-01')).toEqual([]);
+  const token=crypto.randomUUID().replace(/-/g,'')+'x'.repeat(11),now=Date.now();
+  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
+    (token_hash,account_id,children_json,created_at_ms,expires_at_ms,last_used_at_ms)
+    VALUES(?1,'empty-account',?2,?3,?4,?3)`)
+    .bind(await sha256Hex(token),JSON.stringify([{id:'empty-child',name:'合成孩子'}]),now,now+60000).run();
+  const emptyRequest=new Request(`https://runtime.test/v2/module/app-usage?childId=empty-child&fromMs=${day}&toMs=${day+86400000}`,
+    {headers:{authorization:`RuntimeSession ${token}`}});
+  expect(await(await routeV2(emptyRequest,env,now))!.json()).toMatchObject({totalDurationMs:0,complete:true});
+  for(const [from,to] of [['2026-02-30','2026-03-02'],['invalid','2026-10-01'],['2026-10-02','2026-10-01'],['2026-10-01','2026-10-08']]){
+    await expect(rpc.applicationEvidenceRevision('empty-account','empty-child',from!,to!)).rejects.toMatchObject({code:'INVALID_RANGE'});
+  }
+});
 it('existing Runtime browser route forwards seconds without recomputing or crossing Child scope',async()=>{
   const token='s'.repeat(43),now=Date.now(),revision='computer-v2:'+ 'a'.repeat(64);
   await env.RUNTIME_DB.prepare(`INSERT INTO runtime_browser_sessions_v1
@@ -51,39 +107,6 @@ it('existing Runtime browser route forwards seconds without recomputing or cross
   await expect(routeV2(request({revision:'computer-v2:'+ 'b'.repeat(64)}),scopedEnv,now)).rejects.toMatchObject({status:409,code:'COMPUTER_USAGE_VERSION_CHANGED'});
   await expect(routeV2(request({detail:'products',revision}),scopedEnv,now)).rejects.toMatchObject({status:503,code:'COMPUTER_USAGE_DETAIL_NOT_READY'});
 });
-it('pending evidence changes revision after materialization without changing raw facts',async()=>{
-  await seed('persistent-account','persistent-machine','persistent-child');await usage('persistent-machine','persistent-child','persistent-pending',day,day+1501);
-  const args=['persistent-account','persistent-child','2026-10-01','2026-10-01'] as const,rpc=exports.RuntimeComputerUsageService;
-  const before=await rpc.applicationEvidenceRevision(...args);
-  const pending=await readEvidence(env.RUNTIME_DB,...args);
-  expect(pending[0]).toMatchObject({statisticsComplete:false,totalMs:null});
-  expect(pending[0]?.reasons).toContain('APPLICATION_STATISTICS_PENDING');
-  await prime(...args,{machineId:'persistent-machine'});
-  expect(await rpc.applicationEvidenceRevision(...args)).not.toBe(before);
-  const ready=await readEvidence(env.RUNTIME_DB,...args);expect(ready[0]).toMatchObject({statisticsComplete:true,totalMs:1501});
-  await usage('persistent-machine','persistent-child','persistent-late',day+3000,day+4501);
-  const stale=await readEvidence(env.RUNTIME_DB,...args);
-  expect(stale[0]).toMatchObject({statisticsComplete:false,totalMs:1501});
-  expect(stale[0]?.reasons).toContain('APPLICATION_STATISTICS_STALE');
-});
-it('actual Worker RPC returns revision, evidence and unchanged stripped authority without hanging',async()=>{
-await seed('rpc-boundary-account','rpc-boundary-machine','rpc-boundary-child');
-await usage('rpc-boundary-machine','rpc-boundary-child','rpc-boundary-row',day,day+1501);
-expect(await env.RUNTIME_DB.prepare("SELECT child_id FROM runtime_children_v1 WHERE child_id='rpc-boundary-child'").first()).toBeNull();
-const rpc=exports.RuntimeComputerUsageService;
-const args=['rpc-boundary-account','rpc-boundary-child','2026-10-01','2026-10-01'] as const;
-await prime(args[0],args[1],args[2],args[3],{machineId:'rpc-boundary-machine'});
-await prime(args[0],args[1],args[2],args[3]);
-expect(await rpc.applicationEvidenceRevision(...args)).toMatch(/^[a-f0-9]{64}$/);
-const sources=await rpc.readApplicationEvidence(...args);expect(sources[0]?.totalMs).toBe(1501);
-const internal=await rpc.fetch(new Request('https://capability/readApplicationEvidence',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:args[0],childId:args[1],fromDate:args[2],toDate:args[3]})}));
-expect(internal.status).toBe(200);expect((await internal.json() as Array<{totalMs:number}>)[0]?.totalMs).toBe(1501);
-expect((await rpc.fetch(new Request('https://capability/deleteEverything',{method:'POST'}))).status).toBe(405);
-const authority=await queryAppUsage(env.RUNTIME_DB,args[0],args[1],day,day+86400000,{}) as {totalDurationMs:number};
-const independent=await rpc.getApplicationUsage(...args);expect(independent).toMatchObject({durationUnit:'milliseconds',totalDurationMs:authority.totalDurationMs});
-expect(JSON.stringify(independent)).not.toMatch(/runtimeIdentity|localUserId|machineId|token|opaque-user/);
-const denied=await rpc.fetch(new Request('https://capability/getApplicationUsage',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId:'foreign-account',childId:args[1],fromDate:args[2],toDate:args[3]})}));expect(denied.status).toBe(404);
-});
 it('current Guardian scope supports a child without devices and fails closed without ownership evidence',async()=>{
 const rpc=exports.RuntimeComputerUsageService;
 expect(await rpc.readApplicationEvidence('empty-account','empty-child','2026-10-01','2026-10-01')).toEqual([]);
@@ -93,127 +116,6 @@ const request=(accountId:string,childId:string)=>new Request(`https://capability
 expect((await rpc.fetch(request('foreign-account','stale-child'))).status).toBe(404);
 const failed=await rpc.fetch(request('scope-unavailable','rpc-boundary-child'));expect(failed.status).toBe(503);expect(await failed.json()).toEqual({code:'APPLICATION_SCOPE_UNAVAILABLE'});
 }
-});
-it('reads owned legacy zero as best-effort without borrowing another family legacy data',async()=>{
-await env.RUNTIME_DB.prepare(`INSERT INTO runtime_devices(id,subject_id,platform,token_hash,display_name,created_at_ms,last_seen_at_ms,account_id,child_id)
-VALUES ('legacy-fixture','legacy-subject','windows','legacy-token-hash','旧版电脑',0,0,'legacy-account','legacy-child')`).run();
-const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'legacy-account','legacy-child','2026-10-01','2026-10-01');
-expect(sources).toHaveLength(1);expect(sources[0]?.complete).toBe(false);expect(sources[0]?.statisticsComplete).toBe(true);expect(sources[0]?.historyQuality).toBe('bestEffort');expect(sources[0]?.totalMs).toBe(0);expect(sources[0]?.computerKey).toBeNull();expect(sources[0]?.reasons).toEqual(['LEGACY_APPLICATION_BEST_EFFORT']);
-expect(await readComputerApplicationEvidence(env.RUNTIME_DB,'foreign-family','legacy-child','2026-10-01','2026-10-01')).toEqual([]);
-});
-it('legacy lane union and current-week correction match original authority while records and quota remain unchanged',async()=>{
-await env.RUNTIME_DB.prepare(`INSERT INTO runtime_devices(id,subject_id,platform,token_hash,display_name,created_at_ms,last_seen_at_ms,account_id,child_id)
-VALUES ('old-stat-device','subject','windows','old-stat-hash','历史电脑',0,0,'old-stat-account','old-stat-child')`).run();
-for(const [id,session,left,right] of [['old-a','a',500,2000],['old-b','a',1000,2500],['old-c','b',1000,2500]] as const)
-await env.RUNTIME_DB.prepare(`INSERT INTO runtime_usage_segments(id,device_id,runtime_session_id,platform,runtime_identity,display_name,start_at_ms,end_at_ms,duration_ms,end_reason,content_hash,uploaded_at_ms)
-VALUES (?1,'old-stat-device',?2,'windows','old-leaf','历史产品',?3,?4,?4-?3,'fixture',?1,?4)`).bind(id,session,day+left,day+right).run();
-const payload={classifications:[],quotas:{dailyCategoryMinutes:{study:null,composite:30,restrictedEntertainment:null,unclassified:null},weeklyRestrictedEntertainmentMinutes:null,perApplicationDailyMinutes:[]},
-weekReclassification:{fromMs:Date.parse('2026-09-28T00:00:00+08:00'),toMs:Date.parse('2026-10-05T00:00:00+08:00'),applications:[{platform:'windows',runtimeIdentity:'old-leaf',classification:'composite'}]}};
-await env.RUNTIME_DB.prepare(`INSERT INTO runtime_child_app_policy_versions_v1(account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms) VALUES ('old-stat-account','old-stat-child',1,?1,'fixture',0,0)`).bind(JSON.stringify(payload)).run();
-const raw=JSON.stringify((await env.RUNTIME_DB.prepare("SELECT * FROM runtime_usage_segments WHERE device_id='old-stat-device'").all()).results);
-const original=await queryAppUsage(env.RUNTIME_DB,'old-stat-account','old-stat-child',day,day+86400000,{}) as {totalDurationMs:number;categories:Array<{classification:string;durationMs:number}>};
-const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'old-stat-account','old-stat-child','2026-10-01','2026-10-01');
-expect(original.totalDurationMs).toBe(3500);expect(sources[0]?.totalMs).toBe(original.totalDurationMs);
-expect(sources[0]?.categoriesMs).toEqual(Object.fromEntries(original.categories.map(item=>[item.classification,item.durationMs])));
-expect(sources[0]?.intervals).toHaveLength(3);expect(sources[0]?.intervals.every(item=>item.classification==='composite')).toBe(true);
-expect(sources[0]?.statisticsComplete).toBe(true);expect(sources[0]?.complete).toBe(false);
-expect(await queryAppUsage(env.RUNTIME_DB,'old-stat-account','old-stat-child',day,day+86400000,{})).toEqual(original);
-expect(JSON.stringify((await env.RUNTIME_DB.prepare("SELECT * FROM runtime_usage_segments WHERE device_id='old-stat-device'").all()).results)).toBe(raw);
-});
-it('legacy discovery failure preserves valid v2 statistics',async()=>{
-await seed('isolated-account','isolated-machine','isolated-child');await usage('isolated-machine','isolated-child','isolated-row',day,day+1501);
-const database={batch:env.RUNTIME_DB.batch.bind(env.RUNTIME_DB),prepare(sql:string){
-  if(sql.includes('FROM runtime_devices d LEFT JOIN'))return {bind(){return {all(){throw new Error('fixture legacy unavailable');}};}};
-  return env.RUNTIME_DB.prepare(sql);
-}} as unknown as D1Database;
-const sources=await readComputerApplicationEvidence(database,'isolated-account','isolated-child','2026-10-01','2026-10-01');
-expect(sources.find(item=>item.key.startsWith('app:'))?.totalMs).toBe(1501);
-expect(sources.find(item=>item.key.startsWith('legacy-app:'))?.reasons).toContain('LEGACY_APPLICATION_SOURCE_UNAVAILABLE');
-});
-it('RPC revision failure isolation preserves valid current sources when legacy discovery fails',async()=>{
-await seed('rpc-account','rpc-machine','rpc-child');await usage('rpc-machine','rpc-child','rpc-row',day,day+1501);
-const database={batch:env.RUNTIME_DB.batch.bind(env.RUNTIME_DB),prepare(sql:string){
-  if(sql.includes('FROM runtime_devices d LEFT JOIN'))return {bind(){return {all(){throw new Error('fixture legacy unavailable');}};}};
-  return env.RUNTIME_DB.prepare(sql);
-}} as unknown as D1Database;
-const rpc=new RuntimeComputerUsageService({} as ExecutionContext,{...env,RUNTIME_DB:database});
-const first=await rpc.applicationEvidenceRevision('rpc-account','rpc-child','2026-10-01','2026-10-01');
-expect(first).toMatch(/^[a-f0-9]{64}$/);expect(await rpc.applicationEvidenceRevision('rpc-account','rpc-child','2026-10-01','2026-10-01')).toBe(first);
-await prime('rpc-account','rpc-child','2026-10-01','2026-10-01',{machineId:'rpc-machine'});
-const sources=await rpc.readApplicationEvidence('rpc-account','rpc-child','2026-10-01','2026-10-01');expect(sources.find(item=>item.key.startsWith('app:'))?.totalMs).toBe(1501);
-expect(sources.find(item=>item.key.startsWith('legacy-app:'))?.totalMs).toBeNull();
-});
-it('corroborates the exact old Chrome leaf using retained owned strong evidence, never a legacy display name',async()=>{
-await seed('legacy-chrome-account','legacy-chrome-machine','legacy-chrome-child');
-await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2(machine_id,local_user_id,assignment_version,child_id,protected,assignment_source,effective_at_ms,created_at_ms)
-VALUES ('legacy-chrome-machine','user',1,'legacy-chrome-child',1,'default',0,0)`).run();
-await env.RUNTIME_DB.prepare(`INSERT INTO runtime_devices(id,subject_id,platform,token_hash,display_name,created_at_ms,last_seen_at_ms,account_id,child_id)
-VALUES ('legacy-chrome-device','subject','windows','legacy-chrome-hash','旧版电脑',0,0,'legacy-chrome-account','legacy-chrome-child')`).run();
-for(const identity of ['strong-leaf','name-only'])await env.RUNTIME_DB.prepare(`INSERT INTO runtime_usage_segments(id,device_id,runtime_session_id,platform,runtime_identity,display_name,start_at_ms,end_at_ms,duration_ms,end_reason,content_hash,uploaded_at_ms)
-VALUES (?1,'legacy-chrome-device','session','windows',?1,'Chrome',?2,?2+1501,1501,'fixture',?1,?2+1501)`).bind(identity,day).run();
-await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_v1 VALUES ('legacy-chrome-machine','user','windows','strong-leaf','名称不同',?1,'installed',0,1)`)
-.bind(JSON.stringify({platform:'windows',runtimeIdentity:'strong-leaf',displayName:'名称不同',values:CHROME_DISPLAY_RULES.windows,verifiedFields:['fileSeriesKey','signerKey']})).run();
-await putApplicationKnowledge(env.RUNTIME_DB,'legacy-chrome-account',['legacy-chrome-child'],'"application-knowledge-v0"',
-  {schemaVersion:2,version:0,products:[],rules:[],bindings:[]},day);
-const before=await queryAppUsage(env.RUNTIME_DB,'legacy-chrome-account','legacy-chrome-child',day,day+86400000,{});
-const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'legacy-chrome-account','legacy-chrome-child','2026-10-01','2026-10-01');
-const history=sources.find(source=>source.historyQuality==='bestEffort');expect(history?.intervals.filter(row=>row.special)).toHaveLength(1);expect(history?.totalMs).toBe(1501);
-expect(await queryAppUsage(env.RUNTIME_DB,'legacy-chrome-account','legacy-chrome-child',day,day+86400000,{})).toEqual(before);
-});
-it('groups reviewed Chrome versions only in additive display, preserving original identity statistics',async()=>{
-await seed('chrome-account','chrome-machine','chrome-child');
-await usage('chrome-machine','chrome-child','chrome-v1',day,day+1000);await usage('chrome-machine','chrome-child','chrome-v2',day+1000,day+2501);
-await env.RUNTIME_DB.prepare("UPDATE runtime_usage_segments_v2 SET runtime_identity='second-leaf',display_name='旧产品标签' WHERE id='chrome-v2'").run();
-for(const identity of ['leaf','second-leaf'])await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_v1 VALUES ('chrome-machine','opaque-user','windows',?1,'不同版本名称',?2,'installed',0,1)`)
-.bind(identity,JSON.stringify({platform:'windows',runtimeIdentity:identity,displayName:'不同版本名称',values:CHROME_DISPLAY_RULES.windows,verifiedFields:['fileSeriesKey','signerKey']})).run();
-await putApplicationKnowledge(env.RUNTIME_DB,'chrome-account',['chrome-child'],'"application-knowledge-v0"',
-  {schemaVersion:2,version:0,products:[],rules:[],bindings:[]},day);
-const before=await queryAppUsage(env.RUNTIME_DB,'chrome-account','chrome-child',day,day+86400000,{machineId:'chrome-machine'});
-const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'chrome-account','chrome-child','2026-10-01','2026-10-01');
-expect(sources[0]?.intervals.every(item=>item.special&&item.label==='Chrome')).toBe(true);
-expect(new Set(sources[0]?.intervals.map(item=>item.subjectKey)).size).toBe(1);
-expect(await queryAppUsage(env.RUNTIME_DB,'chrome-account','chrome-child',day,day+86400000,{machineId:'chrome-machine'})).toEqual(before);
-});
-it('uses unchanged authority, interval union and existing corrections; preserves raw records and milliseconds',async()=>{
-const account='computer-account',machine='computer-machine',child='computer-child';
-await seed(account,machine,child);await usage(machine,child,'first',day+500,day+2000);await usage(machine,child,'second',day+1000,day+2500);
-await env.RUNTIME_DB.prepare(`INSERT INTO runtime_application_inventory_v1 VALUES (?1,'opaque-user','windows','leaf','Chrome',?2,'installed',0,1)`)
-.bind(machine,JSON.stringify({platform:'windows',runtimeIdentity:'leaf',displayName:'Chrome',values:{productName:'Chrome'},verifiedFields:[]})).run();
-const before=JSON.stringify((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?').bind(machine).all()).results);
-const original=await queryAppUsage(env.RUNTIME_DB,account,child,day,day+86400000,{machineId:machine}) as {totalDurationMs:number;categories:unknown[]};
-const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,account,child,'2026-10-01','2026-10-01');
-expect(original.totalDurationMs).toBe(2000);expect(sources[0]?.totalMs).toBe(2000);expect(sources[0]?.categoriesMs).toEqual({study:2000});
-expect(sources[0]?.intervals.map(item=>[item.startMs,item.endMs])).toEqual([[day+500,day+2000],[day+1000,day+2500]]);
-expect(sources[0]?.intervals.every(item=>!item.special)).toBe(true);
-expect(await queryAppUsage(env.RUNTIME_DB,account,child,day,day+86400000,{machineId:machine})).toEqual(original);
-expect(JSON.stringify((await env.RUNTIME_DB.prepare('SELECT * FROM runtime_usage_segments_v2 WHERE machine_id=?').bind(machine).all()).results)).toBe(before);
-expect(await readComputerApplicationEvidence(env.RUNTIME_DB,'foreign',child,'2026-10-01','2026-10-01')).toEqual([]);
-});
-it('reads approved current-week reclassification without changing raw records, quota or authority',async()=>{
-await seed('correction-account','correction-machine','correction-child');await usage('correction-machine','correction-child','corrected-row',day+50,day+1551,'study');
-const payload={classifications:[],quotas:{dailyCategoryMinutes:{study:null,composite:30,restrictedEntertainment:null,unclassified:null},weeklyRestrictedEntertainmentMinutes:null,perApplicationDailyMinutes:[]},
-weekReclassification:{fromMs:Date.parse('2026-09-28T00:00:00+08:00'),toMs:Date.parse('2026-10-05T00:00:00+08:00'),applications:[{platform:'windows',runtimeIdentity:'leaf',classification:'composite'}]}};
-await env.RUNTIME_DB.prepare(`INSERT INTO runtime_child_app_policy_versions_v1(account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms) VALUES ('correction-account','correction-child',1,?1,'fixture',0,0)`).bind(JSON.stringify(payload)).run();
-const raw=JSON.stringify((await env.RUNTIME_DB.prepare("SELECT * FROM runtime_usage_segments_v2 WHERE machine_id='correction-machine'").all()).results);
-const original=await queryAppUsage(env.RUNTIME_DB,'correction-account','correction-child',day,day+86400000,{machineId:'correction-machine'});
-const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'correction-account','correction-child','2026-10-01','2026-10-01');
-expect(sources[0]?.totalMs).toBe(1501);expect(sources[0]?.categoriesMs).toEqual({composite:1501});expect(sources[0]?.intervals[0]?.classification).toBe('composite');
-expect(await queryAppUsage(env.RUNTIME_DB,'correction-account','correction-child',day,day+86400000,{machineId:'correction-machine'})).toEqual(original);
-expect(JSON.stringify((await env.RUNTIME_DB.prepare("SELECT * FROM runtime_usage_segments_v2 WHERE machine_id='correction-machine'").all()).results)).toBe(raw);
-});
-it('keeps unknown historical classification in evidence and marks estimated clock evidence incomplete',async()=>{
-await seed('clock-account','clock-machine','clock-child');await usage('clock-machine','clock-child','clock-row',day+50,day+1551,null,1);
-const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'clock-account','clock-child','2026-10-01','2026-10-01');
-expect(sources[0]?.totalMs).toBe(1501);expect(sources[0]?.categoriesMs).toEqual({unclassified:1501});
-expect(sources[0]?.intervals[0]?.classification).toBe('historicalUnknown');expect(sources[0]?.complete).toBe(false);expect(sources[0]?.reasons).toContain('APPLICATION_CLOCK_EVIDENCE_INCOMPLETE');
-});
-it('enforces one bounded query budget and does not call the unbounded authority after evidence overflow',async()=>{
-await seed('budget-account','budget-machine','budget-child');
-await env.RUNTIME_DB.prepare(`WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<10001)
-INSERT INTO runtime_usage_segments_v2(id,machine_id,local_user_id,assignment_version,child_id,runtime_session_id,platform,runtime_identity,start_at_ms,end_at_ms,duration_ms,end_reason,content_hash,uploaded_at_ms,accounting_schema_version,channel,clock_epoch_id,start_wall_time_ms,end_wall_time_ms)
-SELECT 'budget-'||i,'budget-machine','user',1,'budget-child','session','windows','leaf',?1,?1+1,1,'fixture','fixture',?1+1,2,'active','epoch',?1,?1+1 FROM n`).bind(day).run();
-const sources=await readComputerApplicationEvidence(env.RUNTIME_DB,'budget-account','budget-child','2026-10-01','2026-10-01');
-expect(sources[0]?.totalMs).toBeNull();expect(sources[0]?.reasons).toContain('APPLICATION_EVIDENCE_LIMIT');expect(sources[0]?.intervals).toHaveLength(10000);
 });
 it('uses only the approved product association, never a name or separate display matcher',async()=>{
 const reviewed:AppEvidence={platform:'windows',runtimeIdentity:'different-version',displayName:'Unrelated label',values:CHROME_DISPLAY_RULES.windows,verifiedFields:['fileSeriesKey','signerKey']};

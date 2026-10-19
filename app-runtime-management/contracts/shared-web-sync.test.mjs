@@ -1,116 +1,54 @@
 import assert from 'node:assert/strict';
-import { webcrypto } from 'node:crypto';
+import {webcrypto} from 'node:crypto';
 import fs from 'node:fs';
-import { sharedWebContributionHashV1, verifySharedWebContributionV1, sharedWebExecutionSourceV1,
-  signSharedWebSourceBindingV1, verifySharedWebSourceBindingV1, sharedQuotaExecutionIdentityV1,
-  sharedWebLocalLeaseCurrentV1, signSharedWebReusableProofV2, verifySharedWebReusableProofV2 } from './dist/shared-web-sync.js';
+import * as currentProof from './dist/shared-web-sync.js';
+const {signSharedWebReusableProofV2,verifySharedWebReusableProofV2}=currentProof;
 globalThis.crypto ??= webcrypto;
-const policyIdentity={schemaVersion:1,revision:'profile-config:8',effectiveAtMs:0,stage:'shadow',policyHash:'a'.repeat(64)};
-const base={schemaVersion:1,date:'2026-10-03',revisionOrdinal:1,statisticsRevision:'statistics-hash',correctionRevision:'correction-1',
-  policyIdentity,computedAtMs:1000,settledAtMs:null,activeMs:1200000,bucketsMs:{study:600000,composite:0,rest:0},otherMs:600000,complete:true,reasonCodes:[]};
-const upload={...base,contentHash:await sharedWebContributionHashV1(base)};
-assert.deepEqual(await verifySharedWebContributionV1(upload),upload);
-const vectors=JSON.parse(fs.readFileSync(new URL('./shared-web-sync.vectors.json',import.meta.url)));
-assert.deepEqual(upload,vectors.upload,'cross-platform canonical contribution golden hash');
-const goldenKey=await crypto.subtle.importKey('jwk',vectors.publicJwk,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
-const goldenExpected=Object.fromEntries(['challengeId','connectionHash','applicationSourceKey','childScopeHash','assignmentVersion']
-  .map(field=>[field,vectors.proof.claims[field]]));
-assert.deepEqual(await verifySharedWebSourceBindingV1(vectors.proof,vectors.proof.keyId,goldenKey,goldenExpected,vectors.verificationTimeMs),
-  vectors.proof.claims,'public-only P1363 cross-platform signature golden vector');
-const reordered=Object.fromEntries(Object.entries(base).reverse());
-assert.equal(await sharedWebContributionHashV1(reordered),upload.contentHash);
-assert.equal(sharedWebExecutionSourceV1(upload,'web:'+'b'.repeat(64)).revisionOrdinal,1);
-assert.equal(sharedWebExecutionSourceV1(upload,'web:'+'b'.repeat(64)).contribution.bucketsMs.study,600000);
-for(const change of [{childId:'private'},{sourceKey:'caller-selected'},{deviceToken:'private'},{activeMs:1200001},
-  {revisionOrdinal:0},{date:'2026-02-30'},{bucketsMs:{study:600001,composite:0,rest:0}},
-  {settledAtMs:1001},{reasonCodes:['URL=https://private']},{otherMs:0}]) {
-  await assert.rejects(()=>verifySharedWebContributionV1({...upload,...change}));
-}
-await assert.rejects(()=>verifySharedWebContributionV1({...upload,statisticsRevision:'other'}),/HASH_MISMATCH/);
-const correction={...base,revisionOrdinal:2,activeMs:600000,otherMs:0,correctionRevision:'correction-2'};
-assert.equal((await verifySharedWebContributionV1({...correction,contentHash:await sharedWebContributionHashV1(correction)})).activeMs,600000,
-  'new contribution revision may decrease after an approved correction');
-const key=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
-const claims={schemaVersion:1,audience:'timeonchrome:shared-web-source:v1',challengeId:'c'.repeat(64),connectionHash:'d'.repeat(64),
-  applicationSourceKey:'e'.repeat(64),childScopeHash:'f'.repeat(64),assignmentVersion:3,webSourceKey:'web:'+'b'.repeat(64),issuedAtMs:1000,expiresAtMs:301000};
-const expected={challengeId:claims.challengeId,connectionHash:claims.connectionHash,applicationSourceKey:claims.applicationSourceKey,
-  childScopeHash:claims.childScopeHash,assignmentVersion:3};
-const proof=await signSharedWebSourceBindingV1(claims,'a'.repeat(64),key.privateKey);
-const lease={schemaVersion:1,scopeRevision:'9'.repeat(64),policyIdentity,claims,verifiedAtMs:1000};
-const live={scopeRevision:lease.scopeRevision,policyIdentity,connectionLive:true,capabilityNegotiated:true,nowMs:86401000};
-for(const vector of vectors.localLeaseCases) assert.equal(sharedWebLocalLeaseCurrentV1({...lease,...vector.lease},
-  {...live,...vector.current,policyIdentity:{...policyIdentity,...vector.currentPolicy}}),vector.expected,vector.name);
-assert.equal(sharedWebLocalLeaseCurrentV1(lease,live),true,'verified same live connection accepts offline growth after proof expiry');
-for(const change of [{connectionLive:false},{capabilityNegotiated:false},{scopeRevision:'8'.repeat(64)},
-  {policyIdentity:{...policyIdentity,stage:'shared'}},{policyIdentity:{...policyIdentity,policyHash:'f'.repeat(64)}},
-  {nowMs:999},{callerAuthority:true}]) assert.equal(sharedWebLocalLeaseCurrentV1(lease,{...live,...change}),false);
-assert.equal(sharedWebLocalLeaseCurrentV1({...lease,verifiedAtMs:301000},live),false,'expired proof cannot create lease');
-assert.equal(sharedWebLocalLeaseCurrentV1({...lease,persisted:true},live),false,'lease has no persisted authorization field');
-assert.deepEqual(await verifySharedWebSourceBindingV1(proof,proof.keyId,key.publicKey,expected,1000),claims);
-for(const change of [{challengeId:'0'.repeat(64)},{connectionHash:'0'.repeat(64)},{applicationSourceKey:'0'.repeat(64)},
-  {childScopeHash:'0'.repeat(64)},{assignmentVersion:4}]) {
-  await assert.rejects(()=>verifySharedWebSourceBindingV1(proof,proof.keyId,key.publicKey,{...expected,...change},1000),/CONTEXT_CHANGED/);
-}
-await assert.rejects(()=>verifySharedWebSourceBindingV1(proof,proof.keyId,key.publicKey,{},1000),/CONTEXT_CHANGED/);
-await assert.rejects(()=>verifySharedWebSourceBindingV1(proof,proof.keyId,key.publicKey,expected,301000),/CONTEXT_CHANGED/);
-await assert.rejects(()=>verifySharedWebSourceBindingV1(proof,'0'.repeat(64),key.publicKey,expected,1000),/CONTEXT_CHANGED/);
-await assert.rejects(()=>verifySharedWebSourceBindingV1({...proof,claims:{...claims,webSourceKey:'web:'+'0'.repeat(64)}},proof.keyId,key.publicKey,expected,1000),/SIGNATURE_INVALID/);
-await assert.rejects(()=>signSharedWebSourceBindingV1({...claims,deviceToken:'private'},proof.keyId,key.privateKey));
-const preparation={schemaVersion:1,basisRevision:'b'.repeat(64),policyIdentity,
-  projection:{basisRevision:'b'.repeat(64),policyRevision:policyIdentity.revision,complete:true,reasonCodes:[],
-    days:[{date:'2026-09-28',complete:true,reasonCodes:[],usedMs:{study:1200000,composite:0,rest:0},
-      remainingMs:{study:null,composite:null,rest:null},borrowedRestMs:0}],
-    week:{fromDate:'2026-09-28',toDate:'2026-09-28',restUsedMs:0,restRemainingMs:null}},
-  transportStatus:'online',replacementVersions:[
-    {source:'web',sourceKey:'web:'+'b'.repeat(64),date:'2026-09-28',revisionOrdinal:2,contentRevision:'c'.repeat(64)},
-    {source:'application',sourceKey:'e'.repeat(64),date:'2026-09-28',revisionOrdinal:3,contentRevision:'d'.repeat(64)}],
-  reasonCodes:[],executionEnabled:false};
-const executionIdentity=await sharedQuotaExecutionIdentityV1(preparation);
-assert.deepEqual(preparation,vectors.executionPreparation,'cross-platform fixture contains all identity inputs');
-assert.equal(await sharedQuotaExecutionIdentityV1({...preparation,transportStatus:'offline',
-  replacementVersions:[...preparation.replacementVersions].reverse()}),executionIdentity,'transport and input order do not reset a reminder');
-for(const changed of [
-  {...preparation,policyIdentity:{...policyIdentity,policyHash:'f'.repeat(64)}},
-  {...preparation,replacementVersions:preparation.replacementVersions.map((v,i)=>i? v:{...v,revisionOrdinal:3})},
-  {...preparation,projection:{...preparation.projection,days:preparation.projection.days.map(d=>({...d,usedMs:{...d.usedMs,study:600000}}))}},
-]) assert.notEqual(await sharedQuotaExecutionIdentityV1(changed),executionIdentity,'local revision/content changes retire old permits');
-for(const changed of [
-  {...preparation,executionEnabled:true},{...preparation,transportStatus:'unavailable'},
-  {...preparation,reasonCodes:['SOURCE_MISSING']},
-  {...preparation,projection:{...preparation.projection,complete:false}},
-  {...preparation,projection:{...preparation.projection,week:{...preparation.projection.week,restUsedMs:1}}},
-  {...preparation,replacementVersions:[preparation.replacementVersions[0],preparation.replacementVersions[0]]},
-  {...preparation,childId:'private'},
-]) await assert.rejects(()=>sharedQuotaExecutionIdentityV1(changed));
-const captured=structuredClone(preparation), pendingIdentity=sharedQuotaExecutionIdentityV1(captured);
-captured.projection.days[0].usedMs.study=1;
-assert.equal(await pendingIdentity,executionIdentity,'hash captures input before awaiting');
-assert.equal(executionIdentity,vectors.executionIdentityHash,'shared cross-platform local execution identity');
-console.log('shared-web-sync: authority/precision/hash/version/privacy/source-proof/execution identity tests PASS');
+for(const retired of ['sharedWebContributionHashV1','verifySharedWebContributionV1','sharedWebExecutionSourceV1',
+  'signSharedWebSourceBindingV1','verifySharedWebSourceBindingV1','sharedQuotaExecutionIdentityV1',
+  'sharedWebLocalLeaseCurrentV1','validateSharedWebContributionUploadV1','validateSharedWebSourceBindingProofV1'])
+  assert.equal(Object.hasOwn(currentProof,retired),false,`旧业务导出必须退出：${retired}`);
 
 const machineV2={schemaVersion:2,audience:'timeonchrome:shared-web-machine-scope:v2',
   applicationSourceKey:'b'.repeat(64),childScopeHash:'c'.repeat(64),assignmentVersion:7,issuedAtMs:1000,expiresAtMs:301000};
 const webV2={...machineV2,audience:'timeonchrome:shared-web-source:v2',webSourceKey:'web:'+'d'.repeat(64),bindingEpochHash:'e'.repeat(64)};
 const expectedV2={applicationSourceKey:machineV2.applicationSourceKey,childScopeHash:machineV2.childScopeHash,assignmentVersion:7};
+// 当前可复用证明用例不依赖旧挑战的签发结果。
+const currentKeyId='a'.repeat(64);
+const currentKey=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
 for(const candidate of [machineV2,webV2]) {
-  const signed=await signSharedWebReusableProofV2(candidate,proof.keyId,key.privateKey);
+  const signed=await signSharedWebReusableProofV2(candidate,currentKeyId,currentKey.privateKey);
   for(const time of [1000,2000,300999]) assert.deepEqual(
-    await verifySharedWebReusableProofV2(signed,proof.keyId,key.publicKey,expectedV2,candidate.audience,time),candidate);
-  await assert.rejects(()=>verifySharedWebReusableProofV2(signed,proof.keyId,key.publicKey,expectedV2,candidate.audience,301000),/EXPIRED/);
+    await verifySharedWebReusableProofV2(signed,currentKeyId,currentKey.publicKey,expectedV2,candidate.audience,time),candidate);
+  await assert.rejects(()=>verifySharedWebReusableProofV2(signed,currentKeyId,currentKey.publicKey,expectedV2,candidate.audience,301000),/EXPIRED/);
   for(const change of [{childScopeHash:'f'.repeat(64)},{applicationSourceKey:'f'.repeat(64)},{assignmentVersion:8}])
-    await assert.rejects(()=>verifySharedWebReusableProofV2(signed,proof.keyId,key.publicKey,{...expectedV2,...change},candidate.audience,2000),/SCOPE_MISMATCH/);
+    await assert.rejects(()=>verifySharedWebReusableProofV2(signed,currentKeyId,currentKey.publicKey,{...expectedV2,...change},candidate.audience,2000),/SCOPE_MISMATCH/);
   const other=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},false,['sign','verify']);
-  await assert.rejects(()=>verifySharedWebReusableProofV2(signed,proof.keyId,other.publicKey,expectedV2,candidate.audience,2000),/SIGNATURE_INVALID/);
+  await assert.rejects(()=>verifySharedWebReusableProofV2(signed,currentKeyId,other.publicKey,expectedV2,candidate.audience,2000),/SIGNATURE_INVALID/);
+  await assert.rejects(()=>verifySharedWebReusableProofV2(signed,'0'.repeat(64),currentKey.publicKey,expectedV2,candidate.audience,2000),/INVALID_WEB_SOURCE_KEY/);
+  await assert.rejects(()=>verifySharedWebReusableProofV2(signed,currentKeyId,currentKey.publicKey,expectedV2,candidate.audience,999),/EXPIRED/);
   for(const change of [{expiresAtMs:301001},{connectionHash:'a'.repeat(64)},{childId:'private'},{deviceToken:'private'}])
-    await assert.rejects(()=>signSharedWebReusableProofV2({...candidate,...change},proof.keyId,key.privateKey));
+    await assert.rejects(()=>signSharedWebReusableProofV2({...candidate,...change},currentKeyId,currentKey.privateKey));
 }
-const signedWebV2=await signSharedWebReusableProofV2(webV2,proof.keyId,key.privateKey);
-await assert.rejects(()=>verifySharedWebReusableProofV2(signedWebV2,proof.keyId,key.publicKey,expectedV2,machineV2.audience,2000));
+const signedWebV2=await signSharedWebReusableProofV2(webV2,currentKeyId,currentKey.privateKey);
+await assert.rejects(()=>verifySharedWebReusableProofV2(signedWebV2,currentKeyId,currentKey.publicKey,expectedV2,machineV2.audience,2000));
 await assert.rejects(()=>verifySharedWebReusableProofV2({...signedWebV2,claims:{...webV2,bindingEpochHash:'f'.repeat(64)}},
-  proof.keyId,key.publicKey,expectedV2,webV2.audience,2000),/SIGNATURE_INVALID/);
+  currentKeyId,currentKey.publicKey,expectedV2,webV2.audience,2000),/SIGNATURE_INVALID/);
 console.log('shared-web-sync v2: reusable scope/signature/isolation/expiry/audience tests PASS');
 const goldenV2=JSON.parse(fs.readFileSync(new URL('./shared-web-sync-v2.vectors.json',import.meta.url)));
 const publicV2=await crypto.subtle.importKey('jwk',goldenV2.publicJwk,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
 for(const signed of [goldenV2.machineProof,goldenV2.webProof]) assert.deepEqual(
   await verifySharedWebReusableProofV2(signed,signed.keyId,publicV2,expectedV2,signed.claims.audience,goldenV2.verificationTimeMs),
   signed.claims,'public-only reusable cross-platform signature vector');
+
+
+const mutable=structuredClone(webV2),pendingProof=signSharedWebReusableProofV2(mutable,currentKeyId,currentKey.privateKey);
+mutable.bindingEpochHash='f'.repeat(64);
+const capturedProof=await pendingProof;
+assert.deepEqual(capturedProof.claims,webV2,'签发前捕获声明，等待期间不可篡改');
+const mutableProof=structuredClone(capturedProof),pendingVerification=verifySharedWebReusableProofV2(
+  mutableProof,currentKeyId,currentKey.publicKey,expectedV2,webV2.audience,2000);
+mutableProof.claims.bindingEpochHash='f'.repeat(64);
+assert.deepEqual(await pendingVerification,webV2,'验签前捕获声明');
+assert.equal(Object.hasOwn(capturedProof.claims,'connectionHash'),false);
+console.log('current reusable proof: mutation isolation and retired export absence PASS');

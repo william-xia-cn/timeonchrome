@@ -1,4 +1,4 @@
-import {hashUsageAccountValue,type ApplicationUsageSeconds} from './usage-account.js';
+import {hashUsageAccountValue} from './usage-account.js';
 /** 旧本机命名元数据保持兼容；新增独立管理对象不改原账。 */
 export const NATIVE_APPLICATION_IDENTIFICATION_CAPABILITY = 'native-application-identification-v1';
 export interface NativeApplicationIdentification {
@@ -108,58 +108,6 @@ export function parseNativeApplicationObjectBatch(value:unknown):NativeApplicati
     return {nativeId:item.nativeId,revision:item.revision,observedAtMs:Number(item.observedAtMs),presentations:normalized};
   });
   return {schemaVersion:1,childId:value.childId,localUserId:value.localUserId,assignmentVersion:value.assignmentVersion,items};
-}
-/** 已结算基础秒统计的身份维度；不是另一套原账，不包含名称或余额。 */
-export interface NativeApplicationStatisticsProjection {
- schemaVersion:1;baseManifestHash:string;revision:number;configurationVersion:number;generatedAtMs:number;
- complete:boolean;reasonCodes:string[];
- rows:Array<{kind:'application'|'category';hour:number|null;nativeId:string|null;category:string|null;duration:number;
-  classifications?:string[]}>;
- applicationUsage:ApplicationUsageSeconds;projectionHash:string;
-}
-export function parseNativeApplicationStatisticsProjection(value:unknown):NativeApplicationStatisticsProjection {
- if(!record(value)||!keys(value,['schemaVersion','baseManifestHash','revision','configurationVersion','generatedAtMs',
-  'complete','reasonCodes','rows','applicationUsage','projectionHash'])||value.schemaVersion!==1
-  ||!hash(value.baseManifestHash)||!hash(value.projectionHash)||!revision(value.revision)
-  ||!Number.isSafeInteger(value.configurationVersion)||Number(value.configurationVersion)<0
-  ||!Number.isSafeInteger(value.generatedAtMs)||Number(value.generatedAtMs)<0||typeof value.complete!=='boolean'
-  ||!Array.isArray(value.reasonCodes)||value.reasonCodes.length>16||value.reasonCodes.some(c=>typeof c!=='string'||!/^[A-Z][A-Z0-9_]{0,95}$/.test(c))
-  ||new Set(value.reasonCodes).size!==value.reasonCodes.length
-  ||(value.complete?value.reasonCodes.length!==0:value.reasonCodes.length===0)
-  ||!Array.isArray(value.rows)||value.rows.length>10000||!record(value.applicationUsage))return fail();
- const categories=new Set(['study','composite','restrictedEntertainment','unclassified','other','blocked','historicalUnknown']);
- const seen=new Set<string>();
- const rows:NativeApplicationStatisticsProjection['rows']=value.rows.map(row=>{
-  if(!record(row)||!keys(row,row.kind==='application'?['kind','hour','nativeId','category','duration','classifications']:
-   ['kind','hour','nativeId','category','duration'])||!['application','category'].includes(String(row.kind))
-   ||!(row.hour===null||Number.isSafeInteger(row.hour)&&Number(row.hour)>=0&&Number(row.hour)<24)
-   ||!Number.isSafeInteger(row.duration)||Number(row.duration)<0||Number(row.duration)>(row.hour===null?86400:3600))return fail();
-  if(row.kind==='application') {
-   if(!text(row.nativeId,256)||row.category!==null||!Array.isArray(row.classifications)||!row.classifications.length
-    ||row.classifications.some(c=>!categories.has(String(c)))||new Set(row.classifications).size!==row.classifications.length)return fail();
-   nativeApplicationManagementTargetKey({machineId:'validation',nativeId:row.nativeId});
-  }else if(row.nativeId!==null||!categories.has(String(row.category)))return fail();
-  const key=JSON.stringify([row.kind,row.hour,row.nativeId,row.category]);if(seen.has(key))return fail();seen.add(key);
-  return {kind:row.kind as 'application'|'category',hour:row.hour as number|null,nativeId:row.nativeId as string|null,
-   category:row.category as string|null,duration:Number(row.duration),
-   ...(Array.isArray(row.classifications)?{classifications:row.classifications.map(String)}:{})};
- });
- const u=value.applicationUsage;
- if(!keys(u,['nonSpecialTotal','specialTotal','nonSpecialCategories','complete','reasonCodes'])
-  ||!Number.isSafeInteger(u.nonSpecialTotal)||Number(u.nonSpecialTotal)<0||Number(u.nonSpecialTotal)>86400
-  ||!Number.isSafeInteger(u.specialTotal)||Number(u.specialTotal)<0||Number(u.specialTotal)>86400
-  ||!record(u.nonSpecialCategories)||Object.entries(u.nonSpecialCategories).some(([c,d])=>!categories.has(c)||!Number.isSafeInteger(d)||Number(d)<0||Number(d)>86400)
-  ||typeof u.complete!=='boolean'||!Array.isArray(u.reasonCodes)||u.reasonCodes.some(c=>typeof c!=='string'||!/^[A-Z][A-Z0-9_]{0,95}$/.test(c))
-  ||(u.complete?u.reasonCodes.length!==0:u.reasonCodes.length===0)||value.complete&&!u.complete)return fail();
- return {schemaVersion:1,baseManifestHash:value.baseManifestHash,revision:value.revision,
-  configurationVersion:Number(value.configurationVersion),generatedAtMs:Number(value.generatedAtMs),complete:value.complete,
-  reasonCodes:value.reasonCodes.map(String),rows,applicationUsage:{nonSpecialTotal:Number(u.nonSpecialTotal),specialTotal:Number(u.specialTotal),
-   nonSpecialCategories:Object.fromEntries(Object.entries(u.nonSpecialCategories).map(([c,d])=>[c,Number(d)])),complete:u.complete,reasonCodes:u.reasonCodes.map(String)},
-  projectionHash:value.projectionHash};
-}
-export async function verifyNativeApplicationStatisticsProjection(value:unknown) {
- const result=parseNativeApplicationStatisticsProjection(value),{projectionHash,...body}=result;
- if(await hashUsageAccountValue(body)!==projectionHash)return fail();return result;
 }
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const keys = (v: Record<string, unknown>, names: string[]) => Object.keys(v).length === names.length && Object.keys(v).every(k => names.includes(k));
