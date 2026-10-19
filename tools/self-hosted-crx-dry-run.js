@@ -25,6 +25,19 @@ const MANAGED_PACKAGE_EXCLUDED_ENTRIES = new Set([
 ]);
 const LOCAL_GUARDIAN_PERMISSION = 'nativeMessaging';
 const LOCAL_GUARDIAN_PROBE_RESOURCE = 'health-probe.html';
+const RETIRED_EXTENSION_MODULES = [
+  'core/shared-web-contribution.js',
+  'core/shared-browser-activity.js',
+  'core/shared-browser-execution.js',
+  'core/shared-quota-state.js',
+  'core/shared-reminder-result.js',
+  'infra/shared-policy-identity-reader.js',
+  'infra/shared-quota-execution-reader.js',
+  'infra/shared-quota-shadow.js',
+  'infra/shared-reminder-reporter.js',
+  'infra/shared-web-contribution-sync.js',
+  'stats/application-identity-usage-read-model.js',
+];
 const DEPLOYMENT_MODE_MANAGED = 'managed';
 const DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT = 'native-host-development';
 
@@ -139,6 +152,11 @@ function readCurrentContractVersion(extensionDir) {
 }
 
 function validateExtensionPackageRoot(extensionDir) {
+  for (const retired of RETIRED_EXTENSION_MODULES) {
+    if (fs.existsSync(path.join(extensionDir, retired))) {
+      throw new Error(`staged extension package contains retired business module: ${retired}`);
+    }
+  }
   const currentContractVersion = readCurrentContractVersion(extensionDir);
   const contractEntries = fs.readdirSync(path.join(extensionDir, 'core', 'shared-contracts'));
   if (contractEntries.length !== 1 || contractEntries[0] !== currentContractVersion) {

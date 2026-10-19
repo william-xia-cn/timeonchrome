@@ -64,6 +64,9 @@ try {
   fs.writeFileSync(path.join(fixtureStage, 'core', 'shared-contracts', '2.0.0', 'example.vectors.json'), '{}');
   assert.throws(() => validateExtensionPackageRoot(fixtureStage), /test-only contract vectors/);
   fs.unlinkSync(path.join(fixtureStage, 'core', 'shared-contracts', '2.0.0', 'example.vectors.json'));
+  fs.writeFileSync(path.join(fixtureStage, 'core', 'shared-web-contribution.js'), 'export const old = true;');
+  assert.throws(() => validateExtensionPackageRoot(fixtureStage), /retired business module/);
+  fs.unlinkSync(path.join(fixtureStage, 'core', 'shared-web-contribution.js'));
   fs.mkdirSync(path.join(fixtureStage, 'core', 'shared-contracts', '1.0.0'));
   assert.throws(() => validateExtensionPackageRoot(fixtureStage), /non-current contract entries/);
   fs.writeFileSync(path.join(fixture, 'ambiguous.js'), "import './core/shared-contracts/1.0.0/old.js';\n");

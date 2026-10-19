@@ -2,6 +2,10 @@
 
 ## NOW：跨仓契约一致与唯一控件候选核验（2026-10-19）
 
+**终检纠正／当前待重新核验**：架构独立检查发现`core/shared-web-contribution.js`仍被打入候选，导出已退役schema1/毫秒贡献转换。反查唯一消费者是其专属unit，无当前产品入口；先前仅核对已删除清单漏掉该独立文件，不能据此宣称旧模块清完。下方ZIP hash `fb979213…`和PASS_ARTIFACT_ONLY已失效，禁止交付。按原批准清理范围删除实现及旧专属测试，并在现有包validator拒绝已退役模块混入，补同文件夹具；补跑打包专项及当前桶shadow直接回归。保持同一1.7.65版本，集中修正后重新解压/静态link/同源/隐私核验；不安装部署、重载、启共享或改原账配置。
+
+上述修正源码已通过：实际删除旧贡献生成器及其schema1专属测试，而不是只在打包隐藏；现有包校验明确拒绝11个退役业务模块（含本项）。`node tests/unit/managed-package-privacy-boundary.test.js`与`node tests/unit/source-statistics-shadow.test.js`本轮均首跑退出0，当前V2桶/桥/云/缓存/身份用例保持；语法和diff通过。当前产品及tools测试中旧生成器符号检索为零，云端专属旧测试位于其他工作线，未跨职责修改。待同版本候选重建终检。
+
 PO批准本轮统一跨仓契约锁及最终发布包核验。extension-local仅固定此前已批准且已通过验证的旧业务清理源码，核对当前1.58.0 vendor与架构最终契约包逐文件一致，再生成唯一1.7.65内部unpacked/ZIP候选；不使用私钥、不生成CRX/feed、不推送、不更新原加载目录、不安装部署、不操作浏览器、原账、绑定或家庭配置，不启共享。保留所有既有未提交草稿。
 
 实施清单：①核对HEAD、已加载交付源码和本批差异；②复用未变专项证据并核对唯一当前vendor、imports及删除模块不可达；③固定本批源码及契约指纹；④用现有staging生成唯一候选，核对版本/公开key推导ID/权限/marker不变；⑤ZIP解压逐文件核对、包内旧模块和隐私检查，集中报告源码与包证据，不冒充实机验收。变更等级为交付核验，最小必要本地检查为managed-package-privacy-boundary（若精确同源则复用）、typecheck（同源复用）、node语法、包imports/解压/hash及diff；不运行全量或真实浏览器测试，不执行CI或远程发布。
@@ -13,6 +17,10 @@ PO批准本轮统一跨仓契约锁及最终发布包核验。extension-local仅
 该最小修正已通过：`node tests/unit/managed-package-privacy-boundary.test.js`首跑退出0，覆盖测试向量排除/源向量保留/混入拒绝、managed/development/regular及候选模式；脚本语法和diff通过。打包脚本SHA256=`2497ae60eb6509a30ebda9db3c3b74c523bc0d86a702a0e5ac8c13867af5d767`，对应测试SHA256=`231aef4bf429564c62ce3e211f6f0481d1fb92753533242d97dc1ec033552594`。本轮独立重算下节19份既有关键源码/测试证据SHA，无差异，复用已通过产品专项和目视证据。提交前范围审计：Matched为已批准旧业务清理、当前功能保留与包排除；本轮无业务语义、权限或配置新增，无Deviated/Extra；实际安装/运行验收仍Missing，当前不执行。
 
 最终跨仓契约固定为1.58.0，源码`7e1f81d1d000caab8005c64ea7d96ceb21124ff8`，tgz SHA256=`9843caa557ab0812dcc900c6e48633f576365fee49a879b9a1cc30e61b651991`。从该真实tgz逐条读取核对，控件四个当前运行JS及单元测试V2向量全部逐字节一致，无需换行归一；运行包仅携带四个JS，测试向量只留源码。该固定包取代未提交dist作为同源依据，具体四JS哈希见下节。
+
+**本轮交付核验完成（PASS_ARTIFACT_ONLY，非安装或实机通过）**：本批65文件集中本地提交`1adad01c6f8e1979fddf8b0e526179eb36611580`，范围检查通过；原三份文档草稿原样保留，未推送。唯一内部候选位于`dist/final-cleanup-1.7.65-20261019/`，ZIP=`timeonchrome-1.7.65-internal.zip`，613878字节，SHA256=`fb97921352664b6c5cd08cea77adce55741e967db805935f25ac4c0066937dc1`；unpacked/解压共184文件逐SHA一致，treeHash=`fc114e6ae3e48a66fe968efabc8dc859eebd3105a5cda3b51a83703fa29a9859`。现有staging由固定提交导出；除候选manifest和部署marker，全部字节与固定源对应，四契约JS与最终tgz完全一致。
+
+本地终检：129个JS仅语法解析和静态link（390条依赖边，未执行），9项manifest入口、39处HTML资源均存在；10个已删除旧产品模块、历史vendor、测试向量、仓库/测试/私钥/账本/浏览器私有数据不在候选。公开key推导稳定ID、权限和开发marker与原1.7.64相同，原加载目录208文件再次逐SHA不变。机器可读`artifact-verification.json`保存固定源码/契约SHA和全部文件摘要，属于本地产物证据、不进入Git。没有CRX签名/feed、私钥读取、浏览器运行、重载、安装、部署、配置或原账改动，不启共享。Matched为契约同源、唯一内部包及包闭包；Missing为正式安装后的实机验收，本轮明确不执行。
 
 ## NOW：控件旧业务链路清理（2026-10-19，PO集中方案）
 
