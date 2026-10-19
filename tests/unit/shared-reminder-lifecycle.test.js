@@ -8,8 +8,10 @@ async function run() {
   const root = path.resolve(__dirname, '../..');
   const core = await import(pathToFileURL(path.join(root, 'extension/core/shared-reminder-lifecycle.js')));
   const { createSharedReminderLifecycle } = await import(pathToFileURL(path.join(root, 'extension/infra/shared-reminder-lifecycle.js')));
-  const offered = { schemaVersion: 1, roundId: 'round-1', reminderId: 'reminder-1', deliveryId: 'delivery-1',
-    policyRevision: 'policy-1', stateRevision: 'state-1', date: '2026-10-02', kinds: ['daily', 'weekly'],
+  const offered = { schemaVersion: 2, roundId: 'round-1', reminderId: 'reminder-1', deliveryId: 'delivery-1',
+    policyRevision: 'profile-config:1', stateRevision: 'state-1', date: '2026-10-02', kinds: ['repeat'],
+    policyIdentity: { schemaVersion: 2, revision: 'profile-config:1', effectiveAtMs: 0, stage: 'shadow', policyHash: 'a'.repeat(64) },
+    ruleScopeKey: 'b'.repeat(64), reasonCodes: ['dailyRest', 'weeklyRest'], forcedUsageSeconds: 2100, confirmedAtUsageSeconds: 300,
     presenter: 'browser', stage: 'shadow', issuedAtMs: 1000, offerExpiresAtMs: 300000,
     visibleAtMs: null, responseDeadlineSeconds: 60, timeoutAction: 'end', status: 'offered', resolution: null };
   const identity = core.sharedReminderIdentity(offered);
@@ -28,7 +30,7 @@ async function run() {
   let dismissed = 0;
   const messages = [];
   const client = createSharedReminderLifecycle({ enabled: true,
-    present: async state => { shown++; assert.deepEqual(state.kinds, ['daily', 'weekly']); return { visible: true }; },
+    present: async state => { shown++; assert.deepEqual(state.kinds, ['repeat']); return { visible: true }; },
     dismiss: async () => { dismissed++; },
     request: async (method, payload) => {
       messages.push({ method, payload });
@@ -76,33 +78,8 @@ async function run() {
   release({ ok: true, state: null });
   await first;
 
-  // Optional fixed-package evidence. Never import another repository's source tree.
-  if (process.argv[2]) {
-    const pkg = path.resolve(process.argv[2]);
-    const module = await import(pathToFileURL(path.join(pkg, 'dist/shared-reminder-lifecycle.js')));
-    const vectors = JSON.parse(fs.readFileSync(path.join(pkg, 'shared-reminder-lifecycle.vectors.json'), 'utf8'));
-    assert.equal(vectors.cases.length, 28);
-    for (const test of vectors.cases) {
-      const state = { ...vectors.state, ...test.statePatch };
-      assert.equal(core.validateSharedReminderState(state).ok, true, test.name);
-      const context = { ...vectors.context, ...test.contextPatch, state };
-      const input = { ...core.sharedReminderIdentity(state), ...test.message };
-      const invoke = () => test.operation === 'ack' ? module.acknowledgeSharedReminderDelivery(context, input)
-        : test.operation === 'resolve' ? module.resolveSharedReminder(context, input) : module.expireSharedReminder(context);
-      if (test.operation !== 'timeout') assert.equal(core.validateSharedReminderMessage(input,
-        test.operation === 'ack' ? 'acknowledgeSharedReminderDelivery' : 'resolveSharedReminder').ok,
-      test.error !== 'INVALID_SHARED_REMINDER_MESSAGE', test.name);
-      if (test.error) assert.throws(invoke, error => error.message === test.error, test.name);
-      else {
-        const result = invoke();
-        for (const [key, value] of Object.entries(test.expect)) {
-          assert.deepEqual(['status', 'resolution', 'visibleAtMs'].includes(key) ? result.state[key] : result[key], value, test.name);
-        }
-      }
-    }
-    console.log('[Fixed contract] 28 lifecycle vectors passed');
-  }
-  const serviceV2 = await import(pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/shared-reminder-lifecycle.js')));
+  assert.equal(core.validateSharedReminderState({ ...offered, schemaVersion: 1 }).ok, false);
+  const serviceV2 = await import(pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.58.0/shared-reminder-lifecycle.js')));
   let stateV2 = { ...offered, schemaVersion: 2, kinds: ['repeat'], policyRevision: 'profile-config:1',
     policyIdentity: { schemaVersion: 2, revision: 'profile-config:1', effectiveAtMs: 0, stage: 'shadow', policyHash: 'a'.repeat(64) },
     ruleScopeKey: 'b'.repeat(64), reasonCodes: ['timeWindow', 'dailyRest'],

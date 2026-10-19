@@ -1,7 +1,7 @@
 import { sharedReminderIdentity, validateSharedReminderState } from '../core/shared-reminder-lifecycle.js';
 
 // Explicit candidate caller. No bootstrap hook, wall-clock timeout action or Rest mutation.
-export function createSharedReminderLifecycle({ enabled = false, request, present, dismiss, update, schemaVersion = 1 } = {}) {
+export function createSharedReminderLifecycle({ enabled = false, request, present, dismiss, update, schemaVersion = 2 } = {}) {
   let state = null;
   let displayedId = null;
   let displayedDelivery = null;
@@ -33,7 +33,7 @@ export function createSharedReminderLifecycle({ enabled = false, request, presen
   }
 
   async function run(operation) {
-    if (enabled !== true) return { ok: true, skipped: true, reason: 'shared_reminder_disabled' };
+    if (enabled !== true || schemaVersion !== 2) return { ok: true, skipped: true, reason: 'shared_reminder_disabled' };
     if (busy) return { ok: false, errorCode: 'shared_reminder_busy' };
     if (typeof request !== 'function') return { ok: false, errorCode: 'shared_reminder_unavailable' };
     busy = true;
@@ -45,7 +45,7 @@ export function createSharedReminderLifecycle({ enabled = false, request, presen
 
   function poll(date) {
     return run(async isCurrent => {
-      const query = schemaVersion === 2 ? { schemaVersion: 2, date } : { date };
+      const query = { schemaVersion: 2, date };
       const read = await accept(await request('getSharedReminderState', query), { date, schemaVersion }, isCurrent);
       if (!read.ok || !state || state.presenter !== 'browser'
         || !['offered', 'visible'].includes(state.status)) return read;

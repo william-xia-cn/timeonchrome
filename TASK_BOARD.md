@@ -1,5 +1,105 @@
 # TASK_BOARD
 
+## NOW：跨仓契约一致与唯一控件候选核验（2026-10-19）
+
+PO批准本轮统一跨仓契约锁及最终发布包核验。extension-local仅固定此前已批准且已通过验证的旧业务清理源码，核对当前1.58.0 vendor与架构最终契约包逐文件一致，再生成唯一1.7.65内部unpacked/ZIP候选；不使用私钥、不生成CRX/feed、不推送、不更新原加载目录、不安装部署、不操作浏览器、原账、绑定或家庭配置，不启共享。保留所有既有未提交草稿。
+
+实施清单：①核对HEAD、已加载交付源码和本批差异；②复用未变专项证据并核对唯一当前vendor、imports及删除模块不可达；③固定本批源码及契约指纹；④用现有staging生成唯一候选，核对版本/公开key推导ID/权限/marker不变；⑤ZIP解压逐文件核对、包内旧模块和隐私检查，集中报告源码与包证据，不冒充实机验收。变更等级为交付核验，最小必要本地检查为managed-package-privacy-boundary（若精确同源则复用）、typecheck（同源复用）、node语法、包imports/解压/hash及diff；不运行全量或真实浏览器测试，不执行CI或远程发布。
+
+基线独立复核完成：HEAD `e94d273b48e027f8a4c2b8af096d864ab2e9a45d`；原加载磁盘1.7.64共208文件，与既有交付证据逐SHA一致，除manifest/开发marker/Chrome metadata外与HEAD产品源码比较无差异（文本只归一CRLF）。源manifest1.7.59与原包1.7.64是既有候选覆写，不是丢失修复。当前候选继承原公开key、nativeMessaging/debugger权限及native-host-development/close-development标记；不新增权限。最终结果待补。
+
+包检查发现并限定修正：当前vendor的`shared-web-sync-v2.vectors.json`只有单元测试引用，现有staging却带入发布包。它是公开合成向量而非私钥/真实身份，但属于测试专属数据；仅在既有打包filter排除`.vectors.json`、validator拒绝混入，源向量保留，补同文件隔离fixture和三模式核对。只重跑该打包专项及语法/diff，不扩大产品回归。
+
+该最小修正已通过：`node tests/unit/managed-package-privacy-boundary.test.js`首跑退出0，覆盖测试向量排除/源向量保留/混入拒绝、managed/development/regular及候选模式；脚本语法和diff通过。打包脚本SHA256=`2497ae60eb6509a30ebda9db3c3b74c523bc0d86a702a0e5ac8c13867af5d767`，对应测试SHA256=`231aef4bf429564c62ce3e211f6f0481d1fb92753533242d97dc1ec033552594`。本轮独立重算下节19份既有关键源码/测试证据SHA，无差异，复用已通过产品专项和目视证据。提交前范围审计：Matched为已批准旧业务清理、当前功能保留与包排除；本轮无业务语义、权限或配置新增，无Deviated/Extra；实际安装/运行验收仍Missing，当前不执行。
+
+最终跨仓契约固定为1.58.0，源码`7e1f81d1d000caab8005c64ea7d96ceb21124ff8`，tgz SHA256=`9843caa557ab0812dcc900c6e48633f576365fee49a879b9a1cc30e61b651991`。从该真实tgz逐条读取核对，控件四个当前运行JS及单元测试V2向量全部逐字节一致，无需换行归一；运行包仅携带四个JS，测试向量只留源码。该固定包取代未提交dist作为同源依据，具体四JS哈希见下节。
+
+## NOW：控件旧业务链路清理（2026-10-19，PO集中方案）
+
+发布staging残留子项（实施前）：已查实self-hosted-crx-dry-run递归复制历史vendor。按已批准第12项，只在发布staging从非vendor产品import确定唯一契约版本，排除其他历史版本，并在包检查拒绝混入历史版本或缺失当前直接依赖；不新增版本配置、不删除历史源码。修改范围仅该打包脚本、现有managed-package-privacy-boundary隔离测试及任务板。必要验证为该测试的临时fixture/现有三种staging模式、node语法和diff检查；不运行Chrome/CRX签名、安装、真实加载目录或无关产品测试。歧义版本明确失败，不猜选最新版本。
+
+该子项已完成，Matched：`tools/self-hosted-crx-dry-run.js:114`从非vendor JS导入读取唯一版本，缺失/歧义拒绝；`:244`在复制前确定版本并用copy filter排除历史目录；`:142`独立验证staging版本目录仅有当前值。无新版本配置，源历史目录不删。`node tests/unit/managed-package-privacy-boundary.test.js`本轮首跑退出0：临时fixture验证历史排除、当前直接及同目录间接依赖保留、历史源文件不变、混入历史包拒绝、多版本及缺失直接依赖在写staging前拒绝；现有managed/development/regular及candidate/close-development staging均仅含当前1.58.0且其文件逐字节不变。`node --check tools/self-hosted-crx-dry-run.js`及`git diff --check`退出0。未启动Chrome/打CRX/签名，未生成实际发布候选；真实包与部署仍Missing，不冒充发布验收。脚本SHA256=`307e62d37801ff731f0dd10752e99cc3d97429a0b0a305b4d01e698e8463284a`；测试SHA256=`b97971888b55e8c556a60c5f1a36f8f8a0388c78a455c4c915b7c2adea4c6e2f`。仅本子项三文件增量，保留其他脏树，无提交推送。
+
+当前1.58契约后续收缩同步：根已完成V1策略、贡献、混合execution、挑战及四个旧提醒/活动能力常量删除，并编译/直接专项通过。控件仅同步当前1.58.0的shared-access.js、shared-web-sync.js、shared-reminder-lifecycle.js，核对source-statistics未改算法且哈希一致；同时替换相互依赖的静态import，避免只删单文件导出造成装载失败。当前产品无上述V1符号调用。必要回归限定V2绑定、策略读取、提醒/活动/执行直接消费者及当前桶/runtime；复用已通过的页面和无关完整测试。不更新真实加载目录、不提交安装部署、不启共享。
+
+上述同步已完成并通过：以下9个直接命令均`node tests/unit/<名称>.test.js`退出0：shared-web-reusable-binding、shared-access-policy-reader、shared-reminder-lifecycle、shared-reminder-content-bridge、shared-browser-activity、shared-browser-execution、shared-browser-executor、shared-access-runtime、source-statistics-shadow。`node tests/unit/local-guardian.test.js --current-binding-only`退出0，包含现行冷v3、真实init/注册reader/桶、重连及迟到云端保护；该子集只证明本次vendor装载影响，未变整文件其他用例复用上一轮完整通过，未用子集冒充全文件。本次`npm run typecheck`和`git diff --check`通过；当前1.58上述V1业务导出及四旧cap常量检索为零（rg退出1表示无命中，不是测试失败）。
+
+最终vendor与根产物SHA256逐个相同：source-statistics.js=`609ccbefae4a70fb0eb4977588fb654fc7067660ca8ee0c50f0a4be5c1ba0fab`；shared-access.js=`5a8b96aff9c1214b616818097c162b17741468395f550b26bfccea191a162d97`；shared-web-sync.js=`02dd0d163b1bce9460d45d897637269dd46db39a897968b339bb8bfb790f5621`；shared-reminder-lifecycle.js=`dfd3b6abd7552719b6490af9ef045fbb6f95544b198864c6610658cf0d2c1513`；V2签名向量=`05cb4993b76b2bfe497bf11c6d08ee5e57e2bb3f158668c1f596d84528233b7d`。当前vendor同步与直接验证Matched；历史vendor目录未覆盖，真实安装和最终发布包仍未验收，不扩大结论。
+
+**最新结论（本轮复验完成，取代下方历史未复验状态）：四项剩余必要专项均首跑通过，当前控件清理范围的源码验证为Matched。** 本轮只更新任务板和执行已授权测试，没有再修改产品/测试代码，没有提交推送、安装、部署、更新加载目录或启用共享。实机及跨仓整体清理仍由主会话分别判断，不能以本结果宣称整个产品已发布或全面完成。
+
+本轮命令与结果：`node tests/unit/shared-web-reusable-binding.test.js`退出0（含失效代请求拒绝、本代一次串行恢复、最多一个并发证明请求）；`node tests/unit/local-guardian.test.js`整文件退出0（当前v3冷连接、秒读取、两种自动绑定/桶交换、迟到云端保护、C#合成wire回放）；`node tests/unit/mode-service.test.js`退出0、165项；`node tests/unit/source-statistics-shadow.test.js`退出0（当前V2桶、桥/云备用、缓存与身份隔离）。`npm run typecheck`及`git diff --check`退出0。复用此前未变化的12项通过和两处隔离目视证据，未重复无关测试。
+
+精确基线仍为HEAD `e94d273b48e027f8a4c2b8af096d864ab2e9a45d` 加未提交差异；本轮通过的当前文件SHA256：
+
+| 文件 | SHA256 |
+|---|---|
+| extension/infra/shared-web-reusable-binding.js | 5682ec96ecb0e5bb8f9034ece5b6172b06ca48cc81a98b63f408d4fca10507fb |
+| tests/unit/shared-web-reusable-binding.test.js | 7e6b6a53ed67d5623c8016100cd9ac82639d46d57cd6922afef1ba27b9c47826 |
+| tests/unit/local-guardian.test.js | 9f9c7248d6444de10dc5449533303837fe39a6a540d27814906f4d33ad3860a2 |
+| extension/product/mode-service.js | de17133153004396bf9d0f00f1c5184bdb1c87f1406330f1aa20db38673f854c |
+| tests/unit/mode-service.test.js | e9fe1a27f39396519c7dba1993709acfdbaebdf7c5e04f779f2ae4d2f585219a |
+| extension/infra/source-statistics-shadow.js | 8e7c8352d071150419ae5c80b5f85238ff9f35d6b69531200bdbbb0f8568e8c0 |
+| tests/unit/source-statistics-shadow.test.js | b9744dcf94347aebb93e1c71520927371072975f473b50b505c8f47925c76421 |
+
+本轮再次核对1.58.0 vendor的source-statistics/shared-access/shared-web-sync/shared-reminder-lifecycle及V2签名向量，全部与根契约产物SHA256一致。Matched：本控件已批准旧入口/消费者清理、当前能力保留、绑定代际修复、直接隔离验证；Missing：本轮未执行最终发布包及实机验收，不以源码通过替代；Deviated/Extra：本轮无新增偏离或额外业务。原有脏树和历史证据保留，以下旧失败描述仅为过程记录。
+
+剩余复验授权（2026-10-19）：PO明确批准集中完成四项必要复验，包含绑定竞态，允许重新运行此前停止命令，不重复请求相同授权。本轮按shared-web-reusable-binding → local-guardian整文件 → mode-service → source-statistics-shadow顺序验证已修改源码；仅修本范围实际问题及必要夹具，不放松断言、不改原账/配置、不连接真实Chrome、不安装部署或启共享、不提交推送。每个失败命令本轮最多两次，失败先分析；未变且已通过专项复用。最终运行typecheck/diff并固定契约版本与源码哈希，更新Matched/Missing。
+
+本轮后续状态（取代下方历史缺口记录）：完整local-guardian已迁到当前秒/桶/V2并通过；V1提醒/活动/执行专属分支和旧贡献模块已删除，当前安全用例保留。policy-reader的外层缓存schema1/内层策略schema2已以现行V2缓存恢复回归证明，审核后删除V1读取器及专属云端导出；该全文件复验通过。旧贡献诊断删除经当前V2独立字段、身份和UI回归证据审核后已落地，专项通过，不再是工具阻塞。继续清除Native客户端已无消费者的旧响应字段、旧能力显示和旧Host常量；只保留当前秒/桶/证明/生命周期能力。随后集中vendor根会话已构建当前契约、直接回归及诊断隔离目视。mode-service两次失败的旧断言已集中修正但最终未复验，明确Missing，不以子集替代；不第三跑、不重复询问授权。不提交、不更新真实加载目录。
+
+1.58同源复验新缺口：local-guardian最终第二轮暴露当前证明初始化竞态：能力由false→true使旧generation失效，refresh却复用在途identityBindingPromise，旧操作被正确拒绝后没有本代准备。最小处理限定当前binding生命周期：等待失效代操作结束，再允许本代最多一次重新准备；旧响应仍拒绝、不同代不并发认证，不恢复旧能力判断。补确定性隔离用例，但按停止规则不第三跑完整local-guardian或绕行；最终明确回归尚未执行。source-statistics-shadow装载器旧函数锚点修正后第二轮发现旧“缺schema允许”断言；1.58实际要求显式schema2，已对齐断言但停止第三跑。mode-service也保持最终未复验。
+
+本轮集中收尾（未提交）：当前产品契约导入统一1.58.0，source-statistics/shared-access/shared-web-sync/shared-reminder-lifecycle四个JS及既有V2签名向量与根dist/向量逐文件SHA256完全一致；未覆盖历史vendor目录、历史包或真实加载目录。旧getApplicationUsage/getApplicationIdentityUsage/exchangeSourceStatistics/getSharedQuotaState/reportReminderResult、旧贡献发送/模块依赖在非vendor产品代码中检索为零。仍保留根契约为其他当前消费者暂存的公共旧导出，不宣称全发布包无任何旧定义。
+
+同源直接通过（均node tests/unit/<name>.test.js，退出0）：shared-access-policy-reader、shared-sync-diagnostics、shared-access-runtime、shared-access-integration、source-statistics-cloud-wire、shared-reminder-lifecycle、shared-reminder-content-bridge、shared-browser-activity、shared-browser-execution、shared-browser-executor、application-usage-read-model、admin-application-usage-rendering。shared-web-reusable-binding在最后竞态补丁前通过；不能用它冒充该补丁回归。mode-service、local-guardian整文件、source-statistics-shadow最终未通过/未复验；新binding确定性回归未运行。最小竞态修正和回归文件node --check、npm run typecheck、git diff --check通过。上述未验证项为Missing，整体不可提交。
+
+当前诊断隔离目视Matched：agent-browser专属无登录会话仅打开由当前源码渲染的本地合成页面，截图C:/Users/William/.agent-browser/tmp/screenshots/screenshot-1792352379258.png已查看；当前V2身份、应用秒能力、桶交换状态、网页/应用本机及其他来源、合计/范围/截止与缺失提示均保留，旧贡献区域已移除。当前应用秒页面继续复用同源渲染回归及先前截图1792350188535。独立浏览器已关闭；未启动真实Chrome、未安装/重载、未改原账/配置/绑定或启用共享。工具拒绝的旧诊断删除在补证后已解除，不再作为本批剩余阻塞。Plan audit：旧入口/导出/模块/当前展示保留为Matched；最终回归四项为Missing；无额外业务功能，未改变网页落账语义。
+
+证据固定：HEAD=e94d273b48e027f8a4c2b8af096d864ab2e9a45d加本批未提交差异，并非该HEAD本身已含清理。以下命令均为`node tests/unit/<名称>.test.js`；前12行是在统一1.58 vendor后实际退出0且未再修改的测试文件SHA256。第13行通过发生于最后代际竞态修正之前，表内哈希为新增确定性回归后的当前文件，明确**未执行，不能沿用之前通过**。mode/local-guardian/source-shadow停止组同样不作通过依据。
+
+| 名称 | 当前测试文件SHA256 | 最终证据 |
+|---|---|---|
+| shared-access-policy-reader | 5fbfc963befdb5d526418f17c5eb63fe8b2acc9a80c3f390cfa5957423869157 | 退出0 |
+| shared-sync-diagnostics | 14131e55f9b812beb89397b0efb4a28fff06f60fe19aebfb8f9593a9234d49f0 | 退出0 |
+| shared-access-runtime | b6c12a1ca0e443750968b1067875c45cf4e6aa2a6fc1d8fdf2c5f4a21e0ecaea | 退出0 |
+| shared-access-integration | 64808cd5988cdb1549410af8350bcd0853417572c8d9270688ceaac3c9e0ffd7 | 退出0 |
+| source-statistics-cloud-wire | ce6e36b63b4854a65980051eeacba53a8bcedfc0f188cab8b786eb55dc0ad187 | 退出0 |
+| shared-reminder-lifecycle | 1fff3d42b27999c5cf40b6b6fc0d0e752ba45fbb08957aee87f9fa8e21016176 | 退出0 |
+| shared-reminder-content-bridge | f7d7ddb0faa8f3e33167c96ce7f6beadf7131c1beeca41922da90a1b7b20c0b4 | 退出0 |
+| shared-browser-activity | 240c0417f8ed2b16a580b3c9605a9a337d0cd725c7d18c6e3725c9bea5ecbca3 | 退出0 |
+| shared-browser-execution | 7068f6930d6f7ff53a97a7c45d6a419b8d98e37121598013e7432eed5de98870 | 退出0 |
+| shared-browser-executor | b7de00cf854d6bf0d2b9283e24168db25b50ddedb692c4f2451ea509a849fc60 | 退出0 |
+| application-usage-read-model | af5286f9a1e713767f0830633ad6923f1a4b881d0db5f339bb30684db49ec7e0 | 退出0 |
+| admin-application-usage-rendering | 13317702d3aeae7cf59c63b8a5f448c4963aa1c7c6e769b78d35bd75c0208466 | 退出0 |
+| shared-web-reusable-binding | 7e6b6a53ed67d5623c8016100cd9ac82639d46d57cd6922afef1ba27b9c47826 | 新增代际回归未执行 |
+
+本批 extension-local 仅清理旧共享贡献/执行降级、身份核验耦合、旧应用双投影视图及旧协议探测；保留当前桶、同孩子可复用证明、秒统计及正常缓存容错。不改原账、计时、ACK、配置、绑定、Mac专用通道；不安装、重载、启共享或部署。
+
+基线 e94d273；源码manifest1.7.59与原加载1.7.64为打包版本覆写。只读逐文件比较确认除manifest及CRLF外，产品源码一致；原加载目录未写入。既有PROJECT_MASTER/TASK_BOARD/CHANGELOG草稿及local-guardian测试夹具两行修正保留。
+
+实施顺序：断开旧业务选择→身份生命周期移入已有reusable-binding→删除旧贡献/专属调度与无引用导出→当前应用页复用整数秒读取器→聚焦回归。必要测试：shared-web-reusable-binding、shared-access-integration/runtime、source-statistics-shadow、local-guardian、application-usage-read-model及渲染；node语法、typecheck、diff检查；不跑无关全量。UI接线已改，隔离目视尚未完成。
+
+2026-10-19源码进度（未提交、未发布）：background不再初始化旧policy/basis/contribution；当前身份证明生命周期迁入已有reusable-binding，source-shadow读取该模块；shared-access-integration/runtime仅选择当前V2。当前应用页改接现有整数秒read-model并删除毫秒回退。Native客户端直接v3冷连接；只发送getApplicationUsageSeconds；已删除requestSharedQuotaState/reportSharedReminderResult/requestSourceStatisticsExchange导出、对应发送分支及专属队列，exchangeQuotaBuckets只校验当前桶。无调用的shared-quota-shadow/shared-policy-identity-reader已删除。
+
+已通过命令：node tests/unit/shared-access-integration.test.js；node tests/unit/shared-access-runtime.test.js；node tests/unit/source-statistics-shadow.test.js；node tests/unit/source-statistics-cloud.test.js；node tests/unit/source-statistics-cloud-wire.test.js；相关node --check；npm run typecheck；git diff --check。上述仅对应各自代码时点，不代替整批完成或实机证据。
+
+未通过/未完成：local-guardian本轮完整命令仍失败，冷启动故障夹具修正后其现行v3冷连接/恢复/秒接口/重连/拒绝旧能力/超时/相关性段已通过，下一处451行仍要求旧健康信封不含channel。该文件其他旧毫秒、旧贡献和旧来源查询夹具需集中迁移，禁止保活旧代码换通过。应用read-model与reusable-binding专项及目视尚未完成。当前V2提醒生命周期仍有旧schema1分支、旧应用双投影专属导出和页面死分支尚待删除，不宣称只剩一套实现。
+
+安全审核阻塞：旧诊断根days来自shared_web_contribution_queue_v1、根policy来自shared_access_policy_lkg_v1，当前V2明细独立保存在v2；旧区域有“以下为旧版历史贡献”标题。即使用户补充明确批准删除，诊断删除仍被工具审核拒绝（认为损及当前字段），补丁未落地，未换工具绕过。因此shared-sync-diagnostics仍装载shared-web-contribution-sync，旧模块/专属云端帮助函数/诊断未清除，列Missing；需集中解决审核阻塞后继续。本次保留所有现有账本及配置，未操作真实Chrome。
+
+后续已完成的独立验证：application-usage-read-model.test.js迁为当前schema2整数秒夹具，分页、版本变化、缓存恢复、孩子切换、日周隔离及部分已知值均保留，旧毫秒上下文拒绝；该专项及admin-application-usage-rendering.test.js通过。shared-web-reusable-binding.test.js使用固定1.31.0归档签名向量并补当前生命周期改绑/重连撤销，通过；当前V2诊断的身份确认import已单独切到reusable模块，旧诊断未删除。local-guardian.test.js --current-binding-only子集通过：现行v3冷连接与实际init/reader/shadow/桶、重连、迟到云端结果保护；能力集合不含旧shared-quota-state-read，仅health、quota-buckets-read-v1、shared-web-source-reusable-v2、application-usage-seconds-read-v1。子集不代替全文件仍失败的旧夹具迁移。
+
+隔离目视：按agent-browser技能，用独立无登录会话与既有application-usage-preview.cjs回环mock页面，未附着真实Chrome。当前完整6秒和部分已知4秒/总量未知均可见；日、小时、应用/分类、搜索结构保留。移除旧unknown分类别名后不再重复“历史分类未知”，最终截图C:/Users/William/.agent-browser/tmp/screenshots/screenshot-1792350188535.png已查看，目视Matched。独立浏览器与预览服务均关闭；未截图或读取真实家庭。最终node语法、秒模型专项、diff检查通过。整体清理仍Missing，不可提交或声称完成。
+
+后续集中清理顺序（2026-10-19）：先删除已无生产调用的旧应用双投影读取模块、Native Host专属出口/能力及页面identityModel死分支，当前整数秒应用/分类/日周小时展示不变；直接渲染专项删除旧模型专属断言并保留当前部分已知、未知、零值、分类和分页安全案例。随后把共用提醒组件的schema1分支迁为仅当前V2，再一次集中迁移local-guardian旧夹具，保留相关性、改绑、迟到、超时、执行栅栏等安全案例；当前bucket案例不应依赖可选C#文件才运行。旧诊断删除的审核拒绝不再重试，不影响上述独立清理。不改原账、配置或真实环境，不提交/发布；只运行直接相关专项、语法/typecheck/diff和隔离目视。
+
+旧双投影独立清理结果：已删除application-identity-usage-read-model.js及仅服务它的Native查询/ACK/能力/队列/页面消息出口；admin中identityModel两套投影死渲染已删除，当前秒页面输出不变。旧专属read-model测试随删除，分页/修订/缓存/范围安全由当前秒模型专项承担，补迁错误孩子响应、周补读改绑拒绝、完整当前周无该应用为零三项；proof代际/改绑安全仍由实际binding专项覆盖。当前秒模型、渲染、local-guardian --current-binding-only、typecheck、相关语法和diff通过；当前页面目视复用已核验截图1792350188535，渲染回归证明当前输出保留。未启动浏览器或真实环境。
+
+集中收尾缺口：local-guardian全文件仍有旧毫秒、旧query/report、旧来源和旧投影夹具，尚未完成迁移，完整命令未通过；仅明确current-binding子集通过不能替代全文件。schema1提醒仍跨core/infra生命周期、content bridge、execution preparation/executor/activity与当前V2共用，须逐支清理并保留安全用例，本轮不贸然大重构；mode-service仍有不可达V1 admission分支，列Missing。诊断专属旧模块删除持续被工具审核拒绝，未绕过。整体仍未完成，不提交/发布。
+
+继续收口（PO再次明确执行，不重复请求授权）：当前V2调用为shared-access-integration→shared-forced-use-v2→createSharedBrowserActivityV2及content bridge→lifecycle/executor→Native V2入口。保留表：活动保留前台独立观察、独立提醒轮次退休ACK、lease/sequence/改绑撤销；提醒保留真实显示ACK、发送者和tab核验、中文输入法与防粘贴；执行保留policyIdentity、当前轮次、lease、单调有效期、尝试登记、fence和结果ACK重试。删除表：后台旧activity初始化、旧schema1校验/发送/执行分支、旧默认执行上下文、mode-service的V1 admission/窗口计算；独立网页提醒和计时不动。local-guardian全文件旧夹具集中转当前秒与桶/V2，用例保留范围/相关性/恢复/超时/安全校验，不再只报子集。旧诊断先补V2字段独立与显示回归证据，再凭新证据请求原工具删除，不改用其他工具绕过。最小测试按实际影响逐个运行；两次失败集中审查原因，不逐断言试跑。不提交、安装、部署、改配置或启共享。
+
 ## NOW：网页控件改绑隔离 A/B（2026-10-17，仅隔离实施，PO在Architect会话新确认）
 
 交付阶段新授权：PO在Architect会话批准集中本地提交本批修复、备份后更新原加载目录，并继续真实Chrome隔离验收；覆盖下文“不提交/不制包/不更新加载目录”的前阶段限制。不推送/PR，不改Native、云端、家庭绑定或共享。使用固定commit生成唯一内部1.7.64候选，key/ID/权限保持；先核原63及完整代码包备份，原目录逐文件替换、manifest最后。Chrome存储不写、不复制运行中数据库；原Chrome重载及真实改绑由Architect统一安排，不能冒称已验收。

@@ -7,8 +7,7 @@ import { recordSyncHealth } from './diagnostic-evidence.js';
 import { DEFAULT_CONFIG } from './storage.js';
 import { normalizeRuntimeSiteAccessConfig } from '../core/site-access-config-normalizer.js';
 import { readDowntimeConfig } from '../core/downtime.js';
-import { validateSourceStatisticsQuery } from '../core/shared-contracts/1.54.0/source-statistics.js';
-import * as sourceStatisticsContract from '../core/shared-contracts/1.57.0/source-statistics.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.58.0/source-statistics.js';
 import {
   buildSiteClassificationRequestsUploadPayload,
   getPendingSiteClassificationRequestUploads,
@@ -494,22 +493,14 @@ async function readCapturedSharedDeviceJson({ deviceToken, apiBase, signal } = {
 }
 
 // Dedicated derived protocol: never calls original ledger or aggregate upload ACKs.
-export async function readCloudSharedWebCapabilities(options = {}) {
-  return readCapturedSharedDeviceJson(options, '/device/shared-web-capabilities/v1');
-}
 export async function readCloudSourceStatistics(options = {}, query = {}) {
   let body, includeSources;
   try {
-    if (query.schemaVersion === 2) {
-      const transport = sourceStatisticsContract.readQuotaBucketsCloudRequest(query);
-      includeSources = transport.includeSources;
-      if (includeSources && !(typeof options.childId === 'string' && options.childId)) throw Error('missing expected child');
-      body = { ...transport.query, ...(includeSources ? { includeSources: true } : {}),
-        ...(Object.hasOwn(transport, 'sourceProof') ? { sourceProof: transport.sourceProof } : {}) };
-    } else {
-      body = { ...query };
-      validateSourceStatisticsQuery(body);
-    }
+    const transport = sourceStatisticsContract.readQuotaBucketsCloudRequest(query);
+    includeSources = transport.includeSources;
+    if (includeSources && !(typeof options.childId === 'string' && options.childId)) throw Error('missing expected child');
+    body = { ...transport.query, ...(includeSources ? { includeSources: true } : {}),
+      ...(Object.hasOwn(transport, 'sourceProof') ? { sourceProof: transport.sourceProof } : {}) };
   } catch (_) { return { ok: false, errorCode: 'source_statistics_invalid_query' }; }
   if (new TextEncoder().encode(JSON.stringify(body)).length > 16384) return { ok: false, errorCode: 'source_statistics_size_limit' };
   const response = await readCapturedSharedDeviceJson(options, '/device/source-statistics', body);
@@ -520,19 +511,6 @@ export async function readCloudSourceStatistics(options = {}, query = {}) {
       source: query.source, childId: options.childId, fromDate: query.fromDate, toDate: query.toDate,
     }) };
   } catch (_) { return { ok: false, errorCode: 'source_statistics_invalid_response' }; }
-}
-export async function readCloudSharedWebWatermark(options = {}, date) {
-  const ms = Date.parse(`${date}T00:00:00Z`);
-  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== date) return { ok: false, errorCode: 'shared_web_invalid_date' };
-  return readCapturedSharedDeviceJson(options, `/device/shared-web-watermark/v1?date=${date}`);
-}
-export async function postCloudSharedWebContribution(options = {}, upload) {
-  if (new TextEncoder().encode(JSON.stringify(upload)).length > 16384) return { ok: false, errorCode: 'shared_web_size_limit' };
-  return readCapturedSharedDeviceJson(options, '/device/shared-web-contributions/v1', upload);
-}
-export async function requestCloudSharedWebSourceBinding(options = {}, challengeId) {
-  if (!/^[a-f0-9]{64}$/.test(challengeId)) return { ok: false, errorCode: 'shared_web_invalid_challenge' };
-  return readCapturedSharedDeviceJson(options, '/device/shared-web-source-binding/v1', { challengeId });
 }
 export async function requestCloudSharedWebSourceBindingV2(options = {}, scopeProof) {
   if (!scopeProof || new TextEncoder().encode(JSON.stringify(scopeProof)).length > 1800)
@@ -545,14 +523,6 @@ export async function requestCloudSharedWebSourceBindingV2(options = {}, scopePr
   return readCapturedSharedDeviceJson(options, '/device/shared-web-source-binding/v2', { scopeProof }, errors);
 }
 
-export async function readCloudSharedAccessPolicy(options = {}) {
-  const response = await readCapturedSharedDeviceJson(options, '/device/shared-access/v1');
-  if (!response.ok) return response;
-  const result = response.value;
-  if (!result || result.schemaVersion !== 1 || Object.keys(result).length !== 3 || !Object.hasOwn(result, 'policy')
-    || typeof result.profileId !== 'string' || !result.profileId) return { ok: false, errorCode: 'shared_access_invalid_policy' };
-  return { ok: true, profileId: result.profileId, policy: result.policy };
-}
 
 export async function readCloudSharedAccessPolicyV2(options = {}) {
   const response = await readCapturedSharedDeviceJson(options, '/device/shared-access/v2');
@@ -563,19 +533,6 @@ export async function readCloudSharedAccessPolicyV2(options = {}) {
   return { ok: true, profileId: result.profileId, policy: result.policy };
 }
 
-export async function readCloudSharedQuotaExecutionPage(options = {}) {
-  const { date, offset = 0, revision } = options;
-  const time = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T00:00:00Z`) : NaN;
-  if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== date
-    || !Number.isSafeInteger(offset) || offset < 0 || offset > 1400
-    || (revision !== undefined && !/^[a-f0-9]{64}$/.test(revision)) || (offset > 0 && revision === undefined)) {
-    return { ok: false, errorCode: 'shared_execution_invalid_cursor' };
-  }
-  const path = `/device/shared-quota-execution/v1?date=${date}&offset=${offset}&limit=50`
-    + (revision === undefined ? '' : `&revision=${revision}`);
-  const response = await readCapturedSharedDeviceJson(options, path);
-  return response.ok ? { ok: true, page: response.value } : response;
-}
 
 async function requireRuntimeActivation() {
   const activation = await getRuntimeActivationStateSafe();

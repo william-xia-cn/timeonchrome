@@ -111,7 +111,43 @@ function validateExternalKey(repoRoot, keyPath) {
   return resolved;
 }
 
+function readCurrentContractVersion(extensionDir) {
+  const contractRoot = path.join(extensionDir, 'core', 'shared-contracts');
+  const versions = new Set();
+  function inspect(directory) {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (file === contractRoot || BANNED_PACKAGE_ENTRIES.has(entry.name)) continue;
+      if (entry.isDirectory()) inspect(file);
+      else if (/\.(?:m?js)$/.test(entry.name)) {
+        const source = fs.readFileSync(file, 'utf8');
+        const imports = /(?:from\s*|import\s*(?:\(\s*)?)['"]([^'"]*shared-contracts\/([^/'"]+)\/[^'"]+)['"]/g;
+        for (const match of source.matchAll(imports)) {
+          const imported = path.resolve(path.dirname(file), match[1]);
+          const expectedRoot = path.join(contractRoot, match[2]) + path.sep;
+          if (!imported.startsWith(expectedRoot) || !fs.existsSync(imported)) {
+            throw new Error(`current contract dependency missing or invalid: ${match[1]}`);
+          }
+          versions.add(match[2]);
+        }
+      }
+    }
+  }
+  inspect(extensionDir);
+  if (versions.size !== 1) throw new Error('extension must import exactly one current contract version');
+  return [...versions][0];
+}
+
 function validateExtensionPackageRoot(extensionDir) {
+  const currentContractVersion = readCurrentContractVersion(extensionDir);
+  const contractEntries = fs.readdirSync(path.join(extensionDir, 'core', 'shared-contracts'));
+  if (contractEntries.length !== 1 || contractEntries[0] !== currentContractVersion) {
+    throw new Error('staged extension package contains non-current contract entries');
+  }
+  if (fs.readdirSync(path.join(extensionDir, 'core', 'shared-contracts', currentContractVersion))
+    .some((name) => name.endsWith('.vectors.json'))) {
+    throw new Error('staged extension package contains test-only contract vectors');
+  }
   const entries = fs.readdirSync(extensionDir, { withFileTypes: true }).map((entry) => entry.name);
   const banned = entries.filter((entry) => BANNED_PACKAGE_ENTRIES.has(entry));
   if (banned.length > 0) {
@@ -209,6 +245,8 @@ function applyLocalGuardianChannelBoundary(stagingDir, nativeHostEnabled, shared
 }
 
 function stageExtensionPackage(extensionDir, stagingDir, deploymentMode = null, manifestPublicKey = null, candidateVersion = null, sharedBrowserCloseDevelopment = false) {
+  const currentContractVersion = readCurrentContractVersion(extensionDir);
+  const contractRoot = path.join(extensionDir, 'core', 'shared-contracts');
   const managedDeployment = deploymentMode === DEPLOYMENT_MODE_MANAGED;
   const nativeHostEnabled = managedDeployment
     || deploymentMode === DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT;
@@ -219,7 +257,11 @@ function stageExtensionPackage(extensionDir, stagingDir, deploymentMode = null, 
     if (managedDeployment && MANAGED_PACKAGE_EXCLUDED_ENTRIES.has(entry.name)) continue;
     const source = path.join(extensionDir, entry.name);
     const target = path.join(stagingDir, entry.name);
-    fs.cpSync(source, target, { recursive: true, force: true });
+    fs.cpSync(source, target, { recursive: true, force: true, filter: (file) => {
+      const relative = path.relative(contractRoot, file);
+      if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`)) return true;
+      return relative.split(path.sep)[0] === currentContractVersion && !file.endsWith('.vectors.json');
+    } });
   }
   applyLocalGuardianChannelBoundary(stagingDir, nativeHostEnabled, sharedBrowserCloseDevelopment);
   if (deploymentMode === DEPLOYMENT_MODE_NATIVE_HOST_DEVELOPMENT) {
@@ -420,9 +462,13 @@ function main() {
   }, null, 2));
 }
 
-try {
-  main();
-} catch (err) {
-  console.error(err?.message || String(err));
-  process.exit(1);
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    console.error(err?.message || String(err));
+    process.exit(1);
+  }
 }
+
+module.exports = { stageExtensionPackage, validateExtensionPackageRoot };
