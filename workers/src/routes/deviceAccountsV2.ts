@@ -389,7 +389,8 @@ export const deviceAccountsV2Router = {
     const auth = await authenticate(request, env);
     if (auth.response || !auth.device) return auth.response!;
     try {
-      await recordDeviceAccountCapability(request, env, auth.device);
+      try { await recordDeviceAccountCapability(request, env, auth.device); }
+      catch { console.warn('DEVICE_ACCOUNT_CAPABILITY_UPDATE_FAILED'); }
       if (request.method === 'POST' && path === MANIFEST_ROUTE) return await handleManifest(request, env, auth.device);
       if (request.method === 'GET' && path === STATUS_ROUTE) return await handleStatus(request, env, auth.device);
       if (request.method === 'POST' && path === RECONCILE_ROUTE) return await handleReconcile(request, env, auth.device);

@@ -6693,56 +6693,58 @@ async function disconnectAccountTelegram() {
 
 // D-114 read-only management projection. Never computes or writes quota facts.
 let sharedAccessSummaryEpoch = 0;
-function sharedAccessSummaryDuration(value) {
-  if (!Number.isSafeInteger(value) || value < 0) return '不可用';
-  const seconds = Math.floor(value / 1000), ms = value % 1000;
-  return `${Math.floor(seconds / 60)}分${seconds % 60}秒${ms ? ` ${ms}毫秒` : ''}`;
+let sharedAccessSummaryCache = null;
+function sharedAccessSummaryDuration(seconds) {
+  if (!Number.isSafeInteger(seconds) || seconds < 0) return '不可用';
+  return `${Math.floor(seconds / 60)}分${seconds % 60}秒`;
 }
 function renderSharedAccessManagementState(state) {
-  const dayComplete = state.complete === true && state.day?.complete === true;
+  const dayComplete = state.day?.complete === true;
   const phases = { legacy: '兼容阶段', shadow: '影子核对', shared: '共享阶段' };
   const phase = phases[state.stage] || '阶段未知';
-  // The parent read model is not a device execution authorization.
   const execution = state.stage === 'shared' ? '已配置共享阶段；实际执行以设备能力和实机状态为准' : '尚未启用共享限制';
   document.getElementById('shared-access-summary-status').textContent =
-    `${phase} · ${execution} · ${state.date} · ${dayComplete ? '今日来源完整' : '今日来源不完整，不能提供完整余额'}`;
+    `${phase} · ${execution} · ${state.date} · ${dayComplete ? '今日来源完整' : '今日来源不完整；缺失侧暂按0，以下为已知用量和估算余额'}`;
   const values = document.getElementById('shared-access-summary-values');
   values.innerHTML = [['study', '学习'], ['composite', '复合'], ['rest', '娱乐']].map(([key, label]) => {
-    const used = dayComplete ? sharedAccessSummaryDuration(state.day?.usedMs?.[key]) : '不可用';
-    const remaining = !dayComplete ? '不可用' : state.day?.remainingMs?.[key] === null ? '无限制' : sharedAccessSummaryDuration(state.day?.remainingMs?.[key]);
+    const used = sharedAccessSummaryDuration(state.day?.usedSeconds?.[key]);
+    const remaining = state.day?.remainingSeconds?.[key] === null ? '无限制' : sharedAccessSummaryDuration(state.day?.remainingSeconds?.[key]);
     return `<div><strong>${label} · 今日</strong><div class="weekly-rest-meta">已用 ${used}<br>剩余 ${remaining}</div></div>`;
   }).join('');
   const week = state.week;
-  const weekUsed = week?.complete === true ? sharedAccessSummaryDuration(week.restUsedMs) : '不可用';
-  const weekRemaining = week?.complete !== true ? '不可用' : week.restRemainingMs === null ? '无限制' : sharedAccessSummaryDuration(week.restRemainingMs);
+  const weekUsed = sharedAccessSummaryDuration(week?.restUsedSeconds);
+  const weekRemaining = week?.restRemainingSeconds === null ? '无限制' : sharedAccessSummaryDuration(week?.restRemainingSeconds);
   values.innerHTML += `<div><strong>娱乐 · 本周</strong><div class="weekly-rest-meta">已用 ${weekUsed}<br>剩余 ${weekRemaining}</div></div>`;
-  const coverage = source => {
-    const available = Number.isSafeInteger(source?.availableScopeCount) ? source.availableScopeCount : '—';
-    const expected = Number.isSafeInteger(source?.expectedScopeCount) ? source.expectedScopeCount : '—';
-    return `${source?.complete === true ? '完整' : '未完整'}（${available}/${expected} 个来源）`;
-  };
-  const cutoff = Number.isSafeInteger(state.settledAtMs) && state.settledAtMs > 0
-    ? new Date(state.settledAtMs).toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'}) : '未能确认统一截止时间';
+  const coverage = source => source?.available === true ? source.complete === true ? '可读／完整' : '可读／部分' : '暂不可读（暂按0）';
+  const cutoffs = [state.web?.settledThroughMs, state.application?.settledThroughMs];
+  const cutoff = cutoffs.every(value => Number.isSafeInteger(value) && value > 0)
+    ? new Date(Math.min(...cutoffs)).toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'}) : '来源未提供统一截止时间';
+  const readAt = Number.isSafeInteger(state.readAtMs) ? new Date(state.readAtMs).toLocaleString('zh-CN', {timeZone:'Asia/Shanghai'}) : '未知';
   document.getElementById('shared-access-summary-coverage').textContent =
-    `网页：${coverage(state.web)}；应用：${coverage(state.application)}。已结算：${cutoff}。Chrome／其他不扣三类额度；本机未上传增量不在此摘要内。`;
+    `网页：${coverage(state.web)}；应用：${coverage(state.application)}。已结算：${cutoff}；读取：${readAt}。特殊应用／其他不扣三类额度；本机未上传增量不在此摘要内。`;
   const reasons = [...new Set([...(Array.isArray(state.reasonCodes) ? state.reasonCodes : []), ...(Array.isArray(week?.reasonCodes) ? week.reasonCodes : [])])]
     .filter(code => typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,80}$/.test(code)).slice(0, 12);
   document.getElementById('shared-access-summary-reasons').textContent = reasons.join(' · ') || '无已报告错误';
 }
 async function refreshSharedAccessManagementState() {
-  const child = currentProfileId, version = remoteConfigVersion, date = shanghaiWeekDateRange().to;
+  const child = currentProfileId, version = remoteConfigVersion, period = shanghaiWeekDateRange(), date = period.to;
   const configIdentity = JSON.stringify(remoteConfig), epoch = ++sharedAccessSummaryEpoch;
+  const cacheKey = JSON.stringify([child,version,configIdentity,period.from,date]);
   const isCurrent = () => epoch === sharedAccessSummaryEpoch && child === currentProfileId
     && version === remoteConfigVersion && configIdentity === JSON.stringify(remoteConfig)
-    && date === shanghaiWeekDateRange().to && cloudRulesManagementActiveTab === 'quota'
+    && date === shanghaiWeekDateRange().to && period.from === shanghaiWeekDateRange().from && cloudRulesManagementActiveTab === 'quota'
     && document.getElementById('page-rules')?.classList.contains('active');
   if (!child || !isCurrent()) return;
   const status = document.getElementById('shared-access-summary-status');
   const button = document.getElementById('shared-access-summary-refresh');
-  document.getElementById('shared-access-summary-values').replaceChildren();
-  document.getElementById('shared-access-summary-coverage').textContent = '';
-  document.getElementById('shared-access-summary-reasons').textContent = '';
-  status.textContent = '正在读取云端共享贡献；不影响配置编辑';
+  const previous = sharedAccessSummaryCache?.key === cacheKey ? sharedAccessSummaryCache.state : null;
+  if (!previous) {
+    sharedAccessSummaryCache = null;
+    document.getElementById('shared-access-summary-values').replaceChildren();
+    document.getElementById('shared-access-summary-coverage').textContent = '';
+    document.getElementById('shared-access-summary-reasons').textContent = '';
+  }
+  status.textContent = previous ? '正在刷新当前配额桶；保留上次读取结果' : '正在读取当前配额桶；不影响配置编辑';
   button.disabled = true;
   let timer;
   try {
@@ -6751,14 +6753,23 @@ async function refreshSharedAccessManagementState() {
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('SHARED_ACCESS_READ_TIMEOUT')), 12000); }),
     ]);
     if (!isCurrent()) return;
-    if (state?.schemaVersion !== 1 || state.date !== date || state.profileId !== child || state.policyRevision !== `profile-config:${version}`
-      || typeof state.revision !== 'string' || !state.day || !state.week) throw new Error('SHARED_ACCESS_VERSION_MISMATCH');
+    const seconds = value => Number.isSafeInteger(value) && value >= 0;
+    if (state?.schemaVersion !== 2 || state.durationUnit !== 'seconds' || state.date !== date || state.profileId !== child
+      || state.fromDate !== period.from || state.toDate !== date || state.policyRevision !== `profile-config:${version}`
+      || !seconds(state.readAtMs) || !state.day || state.day.date !== date || !state.week
+      || state.week.fromDate !== period.from || state.week.toDate !== date
+      || !['study','composite','rest'].every(key => seconds(state.day.usedSeconds?.[key])
+        && (state.day.remainingSeconds?.[key] === null || seconds(state.day.remainingSeconds?.[key])))
+      || !seconds(state.week.restUsedSeconds) || !(state.week.restRemainingSeconds === null || seconds(state.week.restRemainingSeconds)))
+      throw new Error('SHARED_ACCESS_VERSION_MISMATCH');
+    sharedAccessSummaryCache = {key:cacheKey,state};
     renderSharedAccessManagementState(state);
   } catch (error) {
     if (!isCurrent()) return;
     const code = ['SHARED_ACCESS_READ_TIMEOUT', 'SHARED_ACCESS_VERSION_MISMATCH'].includes(error?.message)
       ? error.message : 'SHARED_ACCESS_STATE_UNAVAILABLE';
-    status.textContent = '共享用量暂不可用，请刷新重试；其他统计和配置编辑不受影响';
+    if (previous) renderSharedAccessManagementState(previous);
+    status.textContent = previous ? '刷新失败；保留同孩子、同周期及配置的上次读取结果' : '共享用量暂不可用，请刷新重试；其他统计和配置编辑不受影响';
     document.getElementById('shared-access-summary-reasons').textContent = code;
   } finally {
     clearTimeout(timer);
@@ -10067,9 +10078,10 @@ async function api(path, method='GET', body=null, conditionalHeaders=null) {
   }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) {
-    const error = new Error(data.message || data.error || `HTTP ${r.status}`);
+    const error = new Error(data.message || data.error?.message || (typeof data.error==='string'?data.error:null) || `HTTP ${r.status}`);
     error.status = r.status;
-    error.code = data.code || null;
+    const code=data.code||data.error?.code;
+    error.code = typeof code==='string'&&/^[A-Z][A-Z0-9_]{1,95}$/.test(code)?code:null;
     error.currentVersion = data.currentVersion;
     error.updatedAt = data.updated_at;
     throw error;

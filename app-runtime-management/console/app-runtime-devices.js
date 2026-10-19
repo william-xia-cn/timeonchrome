@@ -1,5 +1,18 @@
 (function (root) {
   const api = {
+    userRegistrationPayload(values, children) {
+      const localUserId=String(values.localUserId||'').trim(),displayName=String(values.displayName||'').trim();
+      const selected=String(values.childIndex??'');
+      if(!/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/.test(localUserId))throw Error('请填写有效的43字符本机用户标识，不能填写用户名或SID。');
+      if(!displayName||displayName.length>128||/[\u0000-\u001f\u007f]/.test(displayName))throw Error('请填写1至128字符的账户显示名称，不含控制字符。');
+      if(!/^(0|[1-9]\d*)$/.test(selected)||!children[Number(selected)])throw Error('请主动选择指定孩子。');
+      return {localUserId,displayName,childId:children[Number(selected)].id};
+    },
+    userRegistrationForm(machine, children) {
+      if(machine.platform!=='windows'||machine.status==='revoked')return '';
+      const safe=value=>String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+      return `<form id="preregister-user-form" class="drawer-section user-registration" data-machine-id="${safe(machine.id)}"><h3>首次登录前预登记</h3><p>仅为指定本机用户登记明确的孩子关联；不修改电脑默认关联，不创建Windows账户、设置密码或启用共享。</p><fieldset><label>本机用户标识<input name="localUserId" required maxlength="43" autocomplete="off" spellcheck="false" aria-describedby="preregister-user-hint"></label><small id="preregister-user-hint">填写本机准备工具生成的43字符标识，不是用户名或SID。</small><label>账户显示名称<input name="displayName" required maxlength="128" autocomplete="off"></label><label>指定孩子<select name="childIndex" required><option value="" selected>请选择孩子</option>${children.map((child,index)=>`<option value="${index}">${safe(child.name)}</option>`).join('')}</select></label><button type="submit">预登记并核对</button></fieldset><p class="registration-status" role="status" aria-live="polite"></p></form>`;
+    },
     platformLabel: (platform) => platform === 'macos' ? 'macOS' : platform === 'windows' ? 'Windows' : '未知平台',
     osLabel: (machine) => machine.osVersion || machine.windowsVersion || api.platformLabel(machine.platform),
     syncAt: (machine) => machine.lastSyncAtMs ?? machine.lastUploadAtMs,

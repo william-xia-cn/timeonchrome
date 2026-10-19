@@ -5,6 +5,8 @@
   const embedded=typeof config.request==='function';
   const ownerDocument=root.ownerDocument||document;
   let disposed=false;
+  let registrationGeneration=0;
+  const pendingRegistrations=new Set();
   const listeners=[];
   const listen=(target,type,handler)=>{target.addEventListener(type,handler);listeners.push([target,type,handler]);};
   const live=()=>!disposed&&(!config.isCurrent||config.isCurrent());
@@ -38,7 +40,7 @@
     system: ['系统管理', '查看系统日志、技术进程、主账本、辅助媒体和运行健康'],
     configuration: ['应用配置文件', '仅应用分类和单应用限制；公共时间配置由综合访问管理'],
   };
-  const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', sharedAccess: null, sharedAccessError: null, loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: initialView, appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
+  const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), machineUserErrors: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', sharedAccess: null, sharedAccessError: null, loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: initialView, appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
   let applicationImportDraft = null;
   let applicationImportGeneration = 0;
   const applicationImportContext = () => ({ childId: state.childId, view: state.view, etag: state.policyEtag });
@@ -248,7 +250,7 @@
   function renderSecondsUsage(usage) {
     const fmt=AppRuntimeTime.formatSeconds,label=category=>categoryLabels[category]||(category==='historicalUnknown'?'历史分类未知':'未知分类');
     const hasBaseUsage=[usage.totalDurationSeconds,usage.availableTotalDurationSeconds].some(value=>Number.isFinite(value)&&value>=0);
-    $('#total-time').textContent=fmt(usage.totalDurationSeconds);
+    $('#total-time').textContent=fmt(usage.totalDurationSeconds ?? usage.availableTotalDurationSeconds);
     $('#quota-state').textContent='独立统计，配额另行核算';
     $('#quota-state').classList.remove('danger-text');
     $('#policy-version').textContent='Service 权威秒统计';
@@ -496,7 +498,7 @@
     }).join('')}</div></section>`).join('') : `<p class="error">无法读取统一时间段（${escape(state.sharedAccessError || 'UNKNOWN')}）。</p>`;
   }
   function assignmentOptions(selectedId, protectedValue = true) { return `<option value="u"${!protectedValue ? ' selected' : ''}>成人／不保护</option>` + state.children.map((item, index) => `<option value="${index}"${protectedValue && item.id === selectedId ? ' selected' : ''}>${escape(item.name)}</option>`).join(''); }
-  function renderMachines() { $('#machines').innerHTML = state.machines.map((machine) => `<button type="button" class="machine-card" data-open-machine="${escape(machine.id)}"><span class="platform-icon">${machine.platform === 'macos' ? '●' : '⊞'}</span><div><strong>${escape(machine.displayName || '电脑')}</strong><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')} · 最近在线 ${time(machine.lastSeenAtMs)}</p></div><span class="policy ${escape(machine.policyState)}">${policyLabel(machine.policyState)}</span><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span><span>›</span></button>`).join('') || '<p class="empty">尚未添加 Runtime 电脑</p>'; }
+  function renderMachines() { $('#machines').innerHTML = state.machines.map((machine) => `<button type="button" class="machine-card" data-open-machine="${escape(machine.id)}"><span class="platform-icon">${machine.platform === 'macos' ? '●' : '⊞'}</span><div><strong>${escape(machine.displayName || '电脑')}</strong><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')} · 最近在线 ${time(machine.lastSeenAtMs)}${state.machineUserErrors.has(machine.id)?' · 账户列表读取失败（统计仍可用）':''}</p></div><span class="policy ${escape(machine.policyState)}">${policyLabel(machine.policyState)}</span><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span><span>›</span></button>`).join('') || '<p class="empty">尚未添加 Runtime 电脑</p>'; }
   function renderHealth() { $('#health-list').innerHTML = state.machines.map((machine) => `<article class="health-card"><strong>${escape(machine.displayName || '电脑')}</strong><p>Service ${escape(machine.serviceVersion || '未报告')} · Agent 运行状态未单独报告</p><p>策略 ${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}</p><p>${escape(AppRuntimeDevices.productBlockStatus(machine))}</p><span class="badge ${escape(machine.status)}">${statusLabel(machine.status)}</span></article>`).join('') || '<p>暂无设备</p>'; }
   function renderTechnicalRecords() {
     const items = state.catalog.technicalItems || [];
@@ -507,8 +509,8 @@
       return `<article class="technical-record"><div><strong>${escape(item.displayName || '未知技术进程')}</strong><p><span class="platform-chip ${escape(item.platform)}">${item.platform === 'macos' ? 'macOS' : 'Windows'}</span> · ${item.lastSeenAtMs ? `最近使用 ${time(item.lastSeenAtMs)}` : '最近 30 天无使用'}</p></div><div><strong>${duration(item.mainDurationMs || 0)}</strong><p>${escape(reason)}</p></div><span class="badge offline">只读</span></article>`;
     }).join('') : '<p>暂无技术进程记录</p>';
   }
-  function openDrawer(machineId) { const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(AppRuntimeDevices.syncAt(machine))}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>${escape(AppRuntimeDevices.productBlockStatus(machine))}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${AppRuntimeDevices.accountStatus(user)} · ${policyLabel(user.policyState)}</small><small>${escape(AppRuntimeDevices.programPolicyStatus(user))}</small>${Number.isSafeInteger(user.programInstancePolicy?.receivedAtMs) ? `<small>报告接收：${time(user.programInstancePolicy.receivedAtMs)}</small>` : ''}</label>`).join('') || '<p>已配对；等待本机服务首次上报账户。</p>'}</div><div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
-  function closeDrawer() { $('#device-drawer').classList.remove('open'); $('#device-drawer').setAttribute('aria-hidden', 'true'); $('#mobile-backdrop').hidden = true; }
+  function openDrawer(machineId) { registrationGeneration++; const machine = state.machines.find((item) => item.id === machineId); if (!machine) return; const users = state.users.get(machine.id) || []; $('#drawer-content').innerHTML = `<h2>${escape(machine.displayName || '电脑')}</h2><p>${escape(AppRuntimeDevices.osLabel(machine))} · ${escape(machine.architecture || '—')}</p><div class="drawer-section"><h3>运行状态</h3><p>Service ${escape(machine.serviceVersion || '未报告')}</p><p>最近在线：${time(machine.lastSeenAtMs)}<br>最近同步：${time(AppRuntimeDevices.syncAt(machine))}<br>策略：${machine.appliedPolicyVersion || 0}/${machine.desiredPolicyVersion || 0} · ${policyLabel(machine.policyState)}<br>${escape(AppRuntimeDevices.productBlockStatus(machine))}<br>Tamper：${machine.tamperCount || 0} 次</p></div><div class="drawer-section"><h3>账户分配</h3><label>新用户默认关联<select data-default="${escape(machine.id)}">${state.children.map((item,index) => `<option value="${index}"${item.id === machine.defaultChildId ? ' selected' : ''}>${escape(item.name)}</option>`).join('')}</select></label>${users.map((user) => `<label>${escape(user.displayName)}<select data-machine="${escape(machine.id)}" data-user="${escape(user.localUserId)}">${assignmentOptions(user.childId, user.protected)}</select><small>${AppRuntimeDevices.accountStatus(user)} · ${policyLabel(user.policyState)}</small><small>${escape(AppRuntimeDevices.programPolicyStatus(user))}</small>${Number.isSafeInteger(user.programInstancePolicy?.receivedAtMs) ? `<small>报告接收：${time(user.programInstancePolicy.receivedAtMs)}</small>` : ''}</label>`).join('') || (state.machineUserErrors.has(machine.id)?'<p>账户列表暂不可用，请刷新重试；未判定为没有账户。</p>':'<p>已配对；等待本机服务首次上报账户。</p>')}</div>${AppRuntimeDevices.userRegistrationForm(machine,state.children)}<div class="drawer-section drawer-actions"><button data-uninstall="${escape(machine.id)}">生成卸载码</button>${machine.status !== 'revoked' ? `<button class="danger" data-revoke="${escape(machine.id)}">吊销机器</button>` : ''}</div>`; $('#device-drawer').classList.add('open'); $('#device-drawer').setAttribute('aria-hidden', 'false'); $('#mobile-backdrop').hidden = false; }
+  function closeDrawer() { registrationGeneration++; $('#device-drawer').classList.remove('open'); $('#device-drawer').setAttribute('aria-hidden', 'true'); $('#mobile-backdrop').hidden = true; }
   function openUsageDetail(kind, value) { const item = kind === 'app' ? state.usage.applications?.[Number(value)] : state.usage.categories?.find((entry) => entry.classification === value); if (!item) return; const title = kind === 'app' ? item.displayName || '未知应用' : categoryLabels[item.classification]||'历史分类未知';
     if(state.usage.durationUnit==='seconds'){
       $('#drawer-content').innerHTML=`<h2>${escape(title)}</h2><div class="drawer-section"><h3>本周期主使用</h3><p class="detail-duration">${AppRuntimeTime.formatSeconds(item.durationSeconds)}</p><p>Service 权威统计；配额由独立模块核算。</p></div><div class="notice warning"><span>明细可能重叠，不相加生成总量；${state.usage.complete?'范围完整':'当前仅部分来源可用'}。</span></div>`;
@@ -517,12 +519,21 @@
   async function loadMachineState() {
     const response = await runtime('/v2/module/machines');
     const machines = response.machines || [];
+    const failures = new Map();
     const users = await Promise.all(machines.map(async (machine) => {
-      const result = await runtime(`/v2/module/machines/${encodeURIComponent(machine.id)}/users`);
-      return [machine.id, result.users || []];
+      try {
+        const result = await runtime(`/v2/module/machines/${encodeURIComponent(machine.id)}/users`);
+        return [machine.id, result.users || []];
+      } catch(error) {
+        if(error?.code==='COMPONENT_CONTEXT_CHANGED'||error?.code==='AUTH_RECOVERY_FAILED'
+          ||error?.status===401||error?.status===403)throw error;
+        failures.set(machine.id,error?.code||'MACHINE_USERS_UNAVAILABLE');
+        return [machine.id, []];
+      }
     }));
     state.machines = machines;
     state.users = new Map(users);
+    state.machineUserErrors = failures;
   }
   async function loadIdentityDirectory(catalog) {
     state.identityDirectory=null;
@@ -536,6 +547,17 @@
           ||!(item.lastUsedDate===null||/^\d{4}-\d{2}-\d{2}$/.test(item.lastUsedDate))))return;
       state.identityDirectory=value;
     }catch(error){if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;}
+  }
+  async function loadSharedAccessState(childId) {
+    try {
+      const result = await runtime(`/v2/module/shared-access-policy?childId=${childId}`);
+      state.sharedAccess = result.policy || null;
+      state.sharedAccessError = null;
+    } catch (error) {
+      if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;
+      state.sharedAccess = null;
+      state.sharedAccessError = error?.code || 'SHARED_ACCESS_POLICY_UNAVAILABLE';
+    }
   }
   async function loadManagementState() {
     const selectedChild=state.childId,childId = encodeURIComponent(selectedChild);
@@ -556,19 +578,13 @@
       }
       if(nativePage.childId!==state.childId||nativePage.policyVersion!==nativePolicy.version)throw new Error('APPLICATION_DIRECTORY_CHANGED');
       state.nativeDirectory=[...new Map(items.map(item=>[JSON.stringify([item.target.machineId,item.target.nativeId]),item])).values()];state.policy=AppRuntimePolicy.normalize(nativePolicy);state.policyEtag=`"app-policy-v${state.policy.version}"`;
+      if(state.view==='access')await loadSharedAccessState(childId);
       state.managementError=null;state.managementLoaded=true;return;
     }
     state.identityCatalog=null;state.identityDirectory=null;
     const policyPromise = policyResult.error?Promise.reject(policyResult.error):Promise.resolve(nativePolicy);
     const catalogPromise = runtime(`/v2/module/app-catalog?childId=${childId}`);
-    const sharedAccessPromise = runtime(`/v2/module/shared-access-policy?childId=${childId}`).then((result) => {
-      state.sharedAccess = result.policy || null;
-      state.sharedAccessError = null;
-    }).catch((error) => {
-      if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;
-      state.sharedAccess = null;
-      state.sharedAccessError = error?.code || 'SHARED_ACCESS_POLICY_UNAVAILABLE';
-    });
+    const sharedAccessPromise = loadSharedAccessState(childId);
     const recordsPromise = catalogPromise.then((catalog) => AppRuntimeNetwork.catalogClassificationRecords(catalog, () => runtime(`/v2/module/app-classification-records?childId=${childId}`)));
     let results;
     try{results=await Promise.all([policyPromise, catalogPromise, recordsPromise, sharedAccessPromise]);}
@@ -784,7 +800,7 @@
     state.runtimeLogs.nextCursor = result.nextCursor || null; state.runtimeLogs.summary = result.summary || null;
     renderRuntimeLogs();
   }
-  function switchView(view) { state.view = view; $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view)); $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view)); [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[view]; renderAll(); clearError(); if (!mock && ['access', 'apps', 'system'].includes(view) && !state.managementLoaded) void load(); $('#sidebar').classList.remove('open'); $('#mobile-backdrop').hidden = true; }
+  function switchView(view) { state.view = view; $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view)); $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === view)); [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[view]; renderAll(); clearError(); if (!mock && (view === 'access' || ['apps', 'system'].includes(view) && !state.managementLoaded)) void load(); $('#sidebar').classList.remove('open'); $('#mobile-backdrop').hidden = true; }
   function switchTab(type, name) { $$(`[data-${type}-tab]`).forEach((button) => button.classList.toggle('active', button.dataset[`${type}Tab`] === name)); $$(`[data-${type}-panel]`).forEach((panel) => { panel.hidden = panel.dataset[`${type}Panel`] !== name; }); }
   async function loadLedger(kind) { const period = range(); const result = mock ? { items: kind === 'usage' ? [{ startAtMs: Date.now() - 60000, displayName: 'Visual Studio Code', durationMs: 60000, applicationClassification: 'study', estimated: false }] : [{ startAtMs: Date.now() - 120000, displayName: 'Microsoft Edge', durationMs: 120000, mediaKind: 'video', presentation: 'background', estimated: false }] } : await runtime(`/v2/module/segment-diagnostics?kind=${kind}&childId=${encodeURIComponent(state.childId)}&fromMs=${period.from}&toMs=${period.to}&limit=50`); const target = kind === 'usage' ? $('#ledger-list') : $('#media-list'); target.className = 'table-list'; target.innerHTML = result.items.length ? result.items.map((item) => `<div class="table-row"><time>${time(item.startAtMs)}</time><strong>${escape(item.displayName || '未知应用')}</strong><span>${duration(item.durationMs)}</span><span>${kind === 'usage' ? categoryLabels[item.applicationClassification] || '未归类' : `${item.mediaKind}/${item.presentation}`}</span></div>`).join('') : '<p>暂无明细</p>'; if(result.hasMore)target.insertAdjacentHTML('beforeend','<p>仅显示最近50条诊断记录；该明细不代表范围总用量。</p>'); }
   function exportConfig() { const blob = new Blob([JSON.stringify(AppRuntimePolicy.exportPayload(state.policy), null, 2)], { type: 'application/json' }); const link = ownerDocument.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'timeonchrome-app-runtime-config.json'; link.click(); URL.revokeObjectURL(link.href); }
@@ -867,6 +883,37 @@
     if (button.id === 'export-config') exportConfig();
     if (button.id === 'confirm-import') await confirmApplicationImport();
   } catch (error) { showError(error); } });
+  listen(root,'submit', async (event) => {
+    const form=event.target;
+    if(form.id!=='preregister-user-form')return;
+    event.preventDefault();
+    if(!live()||pendingRegistrations.has(form.dataset.machineId))return;
+    const machineId=form.dataset.machineId,machine=state.machines.find(item=>item.id===machineId);
+    const generation=registrationGeneration,childContext=state.childId;
+    const current=()=>live()&&generation===registrationGeneration&&childContext===state.childId&&$('#preregister-user-form')===form;
+    const status=form.querySelector('.registration-status'),fieldset=form.querySelector('fieldset');
+    let submitted=false;
+    try {
+      if(mock||!machine||machine.platform!=='windows'||machine.status==='revoked')throw Error('当前电脑或预览模式不允许预登记。');
+      const payload=AppRuntimeDevices.userRegistrationPayload({localUserId:form.querySelector('[name="localUserId"]').value,displayName:form.querySelector('[name="displayName"]').value,childIndex:form.querySelector('[name="childIndex"]').value},state.children);
+      pendingRegistrations.add(machineId);fieldset.disabled=true;status.textContent='正在预登记并读回核对…';
+      const result=await runtime(`/v2/module/machines/${encodeURIComponent(machineId)}/users`,{method:'POST',body:JSON.stringify(payload)});
+      submitted=true;
+      if(!current())return;
+      if(result.localUserId!==payload.localUserId||result.childId!==payload.childId||!Number.isSafeInteger(result.assignmentVersion))throw Error('预登记响应范围不匹配。');
+      await loadMachineState();
+      if(!current())return;
+      const user=(state.users.get(machineId)||[]).find(item=>item.localUserId===payload.localUserId);
+      if(state.machineUserErrors.has(machineId)||!user||user.displayName!==payload.displayName||user.childId!==payload.childId||user.protected!==true||user.assignmentSource!=='override'||user.assignmentVersion!==result.assignmentVersion)throw Error('账户列表尚未确认指定孩子关联。');
+      renderMachines();openDrawer(machineId);
+      $('#preregister-user-form').querySelector('.registration-status').textContent=`预登记已核对：${user.displayName} → ${state.children.find(item=>item.id===user.childId).name}。首次登录及策略生效尚待确认。`;
+    } catch(error) {
+      if(current())status.textContent=`${error.message||'预登记失败'}${submitted?' 提交已返回；请先核对账户列表，不要提前登录。':' 如请求结果不明确，请先核对账户列表再重试。'}`;
+    } finally {
+      pendingRegistrations.delete(machineId);
+      if(current())fieldset.disabled=false;
+    }
+  });
   listen(root,'change', async (event) => { if(!live())return;const control = event.target; try {
     if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
     if (['directory-scope','management-platform'].includes(control.id)) { renderAppDirectory(); return; }

@@ -114,9 +114,32 @@ async function readDeviceCompleteness(env: Env, profileId: string, weekStart: st
 async function readSnapshotRow(env: Env, snapshotId: string, profileId: string): Promise<any | null> {
   return env.DB.prepare(
     `SELECT id, profile_id, week_start, week_end, source_generation_id, source_generation,
-            as_of, page_count, total_hash, snapshot_hash, metadata_json, created_at, expires_at
+            as_of, page_count, total_hash, snapshot_hash, metadata_json, created_at, expires_at, correction_version
        FROM profile_account_read_snapshots_v2 WHERE id = ? AND profile_id = ?`
   ).bind(snapshotId, profileId).first<any>();
+}
+
+/** 回退的是整份已存快照，不修改元数据/hash/期限，也不从不同快照拼页。 */
+async function readVerifiedSnapshot(env: Env, id: string, profileId: string, weekStart: string, correctionVersion: number) {
+  const row = await readSnapshotRow(env, id, profileId);
+  if (!row || row.week_start !== weekStart || Number(row.correction_version) !== correctionVersion
+    || Number(row.expires_at) <= Date.now() || !Number.isSafeInteger(Number(row.page_count)) || Number(row.page_count) < 1) return null;
+  const metadata = JSON.parse(row.metadata_json);
+  if (metadata.period?.weekStart !== weekStart || metadata.period?.weekEnd !== row.week_end
+    || metadata.pageCount !== Number(row.page_count) || metadata.sourceGeneration !== Number(row.source_generation)
+    || metadata.totalHash !== row.total_hash || !Array.isArray(metadata.pageHashes)
+    || metadata.pageHashes.length !== metadata.pageCount || await hashDeviceAccountValue(metadata) !== row.snapshot_hash) return null;
+  const pages = await env.DB.prepare(`SELECT page_index, item_count, page_hash, payload_json
+    FROM profile_account_read_snapshot_pages_v2 WHERE snapshot_id = ? ORDER BY page_index ASC`).bind(id)
+    .all<{ page_index: number; item_count: number; page_hash: string; payload_json: string }>();
+  if (pages.results.length !== metadata.pageCount) return null;
+  for (const [index, page] of pages.results.entries()) {
+    const payload = JSON.parse(page.payload_json);
+    if (Number(page.page_index) !== index || payload.page !== index || !Array.isArray(payload.deviceAccounts)
+      || payload.deviceAccounts.length !== Number(page.item_count) || page.page_hash !== metadata.pageHashes[index]
+      || await hashDeviceAccountValue(payload) !== page.page_hash) return null;
+  }
+  return row;
 }
 
 export async function createOrReuseProfileAccountSnapshotV2(env: Env, profileId: string, weekStart: string): Promise<any | null> {
@@ -133,17 +156,33 @@ export async function createOrReuseProfileAccountSnapshotV2(env: Env, profileId:
     to: period.weekEnd,
   });
   const correctionVersion = corrections.reduce((latest, row) => Math.max(latest, row.createdAt), 0);
+  // 通用更正读取器的旧容错可能返回[]；快照回退不能据此误认更正版本为0。
+  const correctionHead = await env.DB.prepare(`SELECT COUNT(*) AS count, COALESCE(MAX(created_at), 0) AS version
+    FROM usage_segment_corrections_v1 WHERE profile_id = ? AND date >= ? AND date <= ?`)
+    .bind(profileId, period.weekStart, period.weekEnd).first<{count: number; version: number}>();
+  if (!correctionHead || Number(correctionHead.count) !== corrections.length || Number(correctionHead.version) !== correctionVersion)
+    throw new Error('PROFILE_ACCOUNT_CORRECTIONS_UNAVAILABLE');
   const reusable = await env.DB.prepare(
     `SELECT id FROM profile_account_read_snapshots_v2
       WHERE profile_id = ? AND week_start = ? AND source_generation_id = ?
         AND correction_version = ? AND expires_at > ?
       ORDER BY created_at DESC LIMIT 1`
   ).bind(profileId, weekStart, head.generation_id, correctionVersion, now).first<any>();
-  if (reusable) return readSnapshotRow(env, reusable.id, profileId);
+  if (reusable) {
+    try { const valid = await readVerifiedSnapshot(env, reusable.id, profileId, weekStart, correctionVersion); if (valid) return valid; }
+    catch { console.warn('PROFILE_ACCOUNT_SNAPSHOT_REUSE_FAILED'); }
+  }
 
+  try {
   const week = await readProfileWeekAccountV2(env, head.generation_id);
   if (!week) throw new Error('PROFILE_ACCOUNT_WEEK_HEAD_MISSING');
-  const baseAccounts = (await listPublishedDeviceAccountsForWeek(env, profileId, weekStart)).map(compactDeviceAccount);
+  if (week.profileId !== profileId || week.weekStart !== weekStart) throw new Error('PROFILE_ACCOUNT_SOURCE_SCOPE_MISMATCH');
+  if (await hashDeviceAccountValue({schemaVersion: 2, profileId: week.profileId, weekStart: week.weekStart,
+    weekEnd: week.weekEnd, generation: week.generation, asOf: week.asOf, dayVersionVector: week.dayVersionVector,
+    deviceVersionVector: week.deviceVersionVector, profileTotal: week.profileTotal, complete: week.complete,
+    incompleteDevices: week.incompleteDevices}) !== week.totalHash) throw new Error('PROFILE_ACCOUNT_WEEK_HASH_MISMATCH');
+  const baseAccounts = (await listPublishedDeviceAccountsForWeek(env, profileId, weekStart,
+    week.deviceVersionVector)).map(compactDeviceAccount);
   const accounts = applyCorrectionsToCompactDeviceAccounts(baseAccounts, corrections);
   const profileTotal = summarizeCompactDeviceAccounts(accounts);
   const totalHash = corrections.length > 0
@@ -197,15 +236,32 @@ export async function createOrReuseProfileAccountSnapshotV2(env: Env, profileId:
         (snapshot_id, page_index, item_count, page_hash, payload_json, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).bind(snapshotId, index, page.payload.deviceAccounts.length, page.pageHash, canonicalDeviceAccountJson(page.payload), now)),
+  ];
+  await env.DB.batch(statements);
+  try { await env.DB.batch([
     env.DB.prepare(
       `DELETE FROM profile_account_read_snapshot_pages_v2 WHERE snapshot_id IN (
          SELECT id FROM profile_account_read_snapshots_v2 WHERE expires_at <= ?
        )`
     ).bind(now),
     env.DB.prepare(`DELETE FROM profile_account_read_snapshots_v2 WHERE expires_at <= ?`).bind(now),
-  ];
-  await env.DB.batch(statements);
+  ]); } catch { console.warn('PROFILE_ACCOUNT_SNAPSHOT_CLEANUP_FAILED'); }
   return readSnapshotRow(env, snapshotId, profileId);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'PROFILE_ACCOUNT_SOURCE_SCOPE_MISMATCH') throw error;
+    // 更正版本已经成功读取；无法确定更正版本时不会进入这个回退分支。
+    const previous = await env.DB.prepare(`SELECT id FROM profile_account_read_snapshots_v2
+      WHERE profile_id = ? AND week_start = ? AND correction_version = ? AND expires_at > ?
+      ORDER BY source_generation DESC, created_at DESC LIMIT 8`)
+      .bind(profileId, weekStart, correctionVersion, Date.now()).all<{ id: string }>();
+    for (const row of previous.results) {
+      try {
+        const valid = await readVerifiedSnapshot(env, row.id, profileId, weekStart, correctionVersion);
+        if (valid) { console.warn('PROFILE_ACCOUNT_SNAPSHOT_FALLBACK'); return valid; }
+      } catch { /* 无法完整核验的快照不能备用。 */ }
+    }
+    throw error;
+  }
 }
 
 export async function readProfileAccountSnapshotPageV2(

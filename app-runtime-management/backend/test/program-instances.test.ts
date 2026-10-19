@@ -58,7 +58,7 @@ it('产品目录正式读取按孩子映射聚合安装，使用来源不可读�
   const request=(child:string=f.value.childId,method='GET',auth=token)=>new Request(
     `https://runtime.test/v2/module/program-instance-directory?childId=${child}`,
     {method,headers:{authorization:`RuntimeSession ${auth}`}});
-  const expected={childId:f.value.childId,catalogVersion:1,installationState:'available',usage:{state:'unavailable'},
+  const expected={childId:f.value.childId,catalogVersion:1,installationState:'available',usage:{state:'unavailable',reasonCode:'APPLICATION_DIRECTORY_USAGE_UNAVAILABLE'},
     facts:[{productId:'p',platform:'windows',instanceCount:1,installationObserved:true,usageObserved:false,lastUsedDate:null}]};
   expect(await (await routeV2(request(),env,now))!.json()).toMatchObject(expected);
   await expect(routeV2(request('another-child'),env,now)).rejects.toMatchObject({code:'CHILD_NOT_FOUND'});

@@ -24,6 +24,44 @@ function fixture(){
   return{mount:context.AppRuntimeManagement.mount,root,element,elements,listeners,queries,get knowledgeDisposed(){return knowledgeDisposed;},get knowledgeOptions(){return knowledgeOptions;}};
 }
 (async()=>{
+  const registrationMachine={id:'registration-machine',displayName:'隔离电脑',platform:'windows',status:'online',defaultChildId:'daily'};
+  const registrationChildren=[{id:'daily',name:'日常孩子'},{id:'test',name:'指定孩子<&'}];
+  const validRegistration={localUserId:'A'.repeat(43),displayName:'隔离账户',childIndex:'1'};
+  assert.deepEqual(Devices.userRegistrationPayload(validRegistration,registrationChildren),{localUserId:'A'.repeat(43),displayName:'隔离账户',childId:'test'});
+  for(const invalid of [{childIndex:''},{childIndex:'99'},{localUserId:'username'},{localUserId:'A'.repeat(42)+'B'},{displayName:'\n'}])assert.throws(()=>Devices.userRegistrationPayload({...validRegistration,...invalid},registrationChildren));
+  assert.match(Devices.userRegistrationForm(registrationMachine,registrationChildren),/value="" selected/);
+  assert.match(Devices.userRegistrationForm(registrationMachine,registrationChildren),/指定孩子&lt;&amp;/);
+  assert.equal(Devices.userRegistrationForm({...registrationMachine,platform:'macos'},registrationChildren),'');
+  assert.equal(Devices.userRegistrationForm({...registrationMachine,status:'revoked'},registrationChildren),'');
+  async function registrationFixture(mode='success') {
+    const view=fixture(),writes=[],gate=deferred();let registered=false,current=true;
+    const controller=view.mount({root:view.root,view:'devices',children:registrationChildren,childId:'daily',isCurrent:()=>current,request:async(path,options={})=>{
+      if(options.method){assert.equal(options.method,'POST');assert.equal(path,'/v2/module/machines/registration-machine/users');writes.push(JSON.parse(options.body));
+        if(mode==='wait')await gate.promise;
+        if(mode==='failure')throw Error('预登记暂不可用');
+        registered=true;return{localUserId:validRegistration.localUserId,childId:'test',assignmentVersion:8};}
+      if(path==='/v2/module/machines')return{machines:[registrationMachine]};
+      if(registered&&mode==='readback-failure')throw Error('读回失败');
+      return{users:registered?[{...validRegistration,childId:'test',protected:true,assignmentSource:'override',assignmentVersion:8}]:[]};
+    }});
+    await controller.ready;
+    const click=view.listeners.find(item=>item[0]==='root'&&item[1]==='click')[2];
+    const button={dataset:{openMachine:registrationMachine.id},classList:{contains:()=>false}};
+    await click({target:{closest:selector=>selector==='button'?button:null}});
+    const form=view.element('#preregister-user-form');form.id='preregister-user-form';form.dataset.machineId=registrationMachine.id;
+    for(const [name,value]of Object.entries(validRegistration))form.querySelector(`[name="${name}"]`).value=value;
+    const submit=view.listeners.find(item=>item[0]==='root'&&item[1]==='submit')[2];
+    return{view,controller,writes,gate,form,close:()=>click({target:{closest:selector=>selector==='button'?{dataset:{},classList:{contains:name=>name==='drawer-close'}}:null}}),invalidate:()=>{current=false;},submit:()=>submit({target:form,preventDefault(){}}),status:()=>form.querySelector('.registration-status').textContent};
+  }
+  const registration=await registrationFixture();await registration.submit();
+  assert.equal(registration.writes.length,1);assert.equal(registration.writes[0].childId,'test');assert.equal(registrationMachine.defaultChildId,'daily');
+  assert.match(registration.status(),/预登记已核对/);registration.controller.dispose();
+  const registrationFailure=await registrationFixture('failure');await registrationFailure.submit();
+  assert.match(registrationFailure.status(),/预登记暂不可用/);assert.equal(registrationFailure.form.querySelector('[name="displayName"]').value,validRegistration.displayName);assert.equal(registrationFailure.form.querySelector('fieldset').disabled,false);registrationFailure.controller.dispose();
+  const readbackFailure=await registrationFixture('readback-failure');await readbackFailure.submit();assert.doesNotMatch(readbackFailure.status(),/预登记已核对/);assert.match(readbackFailure.status(),/尚未确认/);readbackFailure.controller.dispose();
+  const repeated=await registrationFixture('wait');const savingRegistration=repeated.submit();await repeated.submit();assert.equal(repeated.writes.length,1);repeated.gate.resolve();await savingRegistration;assert.match(repeated.status(),/预登记已核对/);repeated.controller.dispose();
+  const abandonedRegistration=await registrationFixture('wait');const abandonedSave=abandonedRegistration.submit();abandonedRegistration.invalidate();abandonedRegistration.gate.resolve();await abandonedSave;assert.doesNotMatch(abandonedRegistration.status(),/预登记已核对/);abandonedRegistration.controller.dispose();
+  const closedRegistration=await registrationFixture('wait');const closedSave=closedRegistration.submit();await closedRegistration.close();closedRegistration.gate.resolve();await closedSave;assert.doesNotMatch(closedRegistration.status(),/预登记已核对/);closedRegistration.controller.dispose();
   // 执行实际读取函数，不复制其请求代际判断；只替换网络和绘制边界。
   const usageFunction=source.slice(source.indexOf('  async function loadUsage('),source.indexOf('  function renderAll()'));
   assert(usageFunction.includes('program-instance-usage'));
@@ -99,6 +137,76 @@ function fixture(){
   assert.match(native.element('#managed-app-list').innerHTML,/data-native-save="0"/);
   assert.match(native.element('#app-directory-subtitle').textContent,/相同身份/);
   assert.equal(native.element('#load-empty-state').hidden,true);nativeController.dispose();
+  // 使用实际控制器的加载/导航/错误处理；仅替换网络，任何写入或桶查询均拒绝。
+  const unifiedPolicy=revision=>({revision,stage:'shadow',
+    dailyMinutes:Object.fromEntries(Policy.weekdays.map(day=>[day,{study:null,composite:42,rest:30}])),weeklyRestMinutes:180,
+    timeWindows:Object.fromEntries(Policy.weekdays.map(day=>[day,{study:[{start:'08:00',end:'20:00'}],composite:null,rest:[]}])),
+    autonomy:{restrictedEntryConfirmationRequired:true,dailyFirstReminderMinutes:20,repeatReminderMinutes:10}});
+  async function settle(check){for(let attempt=0;attempt<30;attempt++){if(check())return;await new Promise(resolve=>setImmediate(resolve));}assert.fail('组件未完成预期的隔离加载');}
+  function accessFixture({view='access',legacy=false,gate=null}={}) {
+    const page=fixture(),calls=[],appPolicy=Policy.defaultPolicy(),before=JSON.stringify(appPolicy);
+    let error=null,revision='profile-config:7',current=true;
+    const controller=page.mount({root:page.root,view,children:[{id:'a',name:'隔离孩子'}],childId:'a',isCurrent:()=>current,request:async(path,options={})=>{
+      assert.equal(options.method||'GET','GET','本次读取不能写配置');calls.push(path);
+      if(path==='/v2/module/app-policy?childId=a')return appPolicy;
+      if(path==='/v2/module/applications?childId=a')return{schemaVersion:1,state:'available',childId:'a',policyVersion:0,nextOffset:null,
+        items:legacy?[]:[{target:{machineId:'isolated-machine',nativeId:'isolated-editor'},presentations:[{name:'隔离编辑器',origin:'runtime',status:'dynamic-process'}]}]};
+      if(path==='/v2/module/shared-access-policy?childId=a'){if(gate)await gate.promise;if(error)throw error;return{policy:unifiedPolicy(revision)};}
+      if(legacy&&path==='/v2/module/app-catalog?childId=a')return{items:[],technicalItems:[],inventoryCoverage:[]};
+      throw Error('不能新增读取依赖 '+path);
+    }});
+    const click=page.listeners.find(item=>item[0]==='root'&&item[1]==='click')[2];
+    return{page,calls,controller,setError:value=>{error=value;},setRevision:value=>{revision=value;},invalidate:()=>{current=false;},
+      open:next=>click({target:{closest:selector=>selector==='button'?{dataset:{view:next},classList:{contains:()=>false}}:null}}),
+      assertReadOnly:()=>{assert.equal(JSON.stringify(appPolicy),before);assert(!calls.some(path=>/source-statistics|quota-buckets|app-usage/.test(path)));}};
+  }
+  const access=accessFixture();await access.controller.ready;
+  assert.equal(access.calls.filter(path=>path.includes('/shared-access-policy?')).length,1);
+  assert(!access.calls.some(path=>path.includes('/app-catalog?')),'新目录不能回退旧目录');
+  assert.match(access.page.element('#quota-form').innerHTML,/profile-config:7/);assert.match(access.page.element('#quota-form').innerHTML,/复合 42 分钟/);
+  assert.match(access.page.element('#schedule-editor').innerHTML,/08:00–20:00/);
+  assert.doesNotMatch(access.page.element('#quota-form').innerHTML,/UNKNOWN/);
+  await access.open('apps');assert.match(access.page.element('#managed-app-list').innerHTML,/隔离编辑器/);
+  assert.equal(access.calls.length,3,'目录在配置读取后不新增依赖');access.assertReadOnly();access.controller.dispose();
+
+  const fromDirectory=accessFixture({view:'apps'});await fromDirectory.controller.ready;
+  assert.equal(fromDirectory.calls.length,2,'应用目录仍只有两个既有请求');
+  fromDirectory.setRevision('profile-config:8');await fromDirectory.open('access');
+  await settle(()=>fromDirectory.page.element('#quota-form').innerHTML.includes('profile-config:8'));
+  assert.equal(fromDirectory.calls.filter(path=>path.includes('/shared-access-policy?')).length,1,'已加载目录后进入访问管理仍必须读配置');
+  fromDirectory.setError(Object.assign(Error('isolated unavailable'),{code:'SHARED_ACCESS_POLICY_UNAVAILABLE'}));
+  await fromDirectory.controller.refresh();
+  assert.match(fromDirectory.page.element('#quota-form').innerHTML,/SHARED_ACCESS_POLICY_UNAVAILABLE/);
+  assert.equal(fromDirectory.page.element('#load-empty-state').hidden,true,'配置失败不变成整个目录失败');
+  const callsBefore=fromDirectory.calls.length;
+  await fromDirectory.open('apps');assert.match(fromDirectory.page.element('#managed-app-list').innerHTML,/隔离编辑器/);
+  assert.equal(fromDirectory.calls.length,callsBefore,'配置失败后查看目录不新增请求');
+  fromDirectory.setError(null);fromDirectory.setRevision('profile-config:9');await fromDirectory.open('access');
+  await settle(()=>fromDirectory.page.element('#quota-form').innerHTML.includes('profile-config:9'));
+  fromDirectory.assertReadOnly();fromDirectory.controller.dispose();
+
+  const legacyAccess=accessFixture({legacy:true});await legacyAccess.controller.ready;
+  assert.equal(legacyAccess.calls.filter(path=>path.includes('/shared-access-policy?')).length,1,'旧目录也只读一次统一配置');
+  assert.match(legacyAccess.page.element('#quota-form').innerHTML,/profile-config:7/);legacyAccess.assertReadOnly();legacyAccess.controller.dispose();
+
+  const switchedGate=deferred(),switchedAccess=accessFixture({gate:switchedGate});
+  await settle(()=>switchedAccess.calls.some(path=>path.includes('/shared-access-policy?')));
+  await switchedAccess.open('apps');switchedGate.resolve();await switchedAccess.controller.ready;
+  assert.match(switchedAccess.page.element('#managed-app-list').innerHTML,/隔离编辑器/);
+  assert.doesNotMatch(switchedAccess.page.element('#quota-form').innerHTML,/profile-config:7/,'旧视图迟到配置不应被接受');
+  switchedAccess.assertReadOnly();switchedAccess.controller.dispose();
+
+  const abandonedGate=deferred(),abandonedAccess=accessFixture({gate:abandonedGate});
+  await settle(()=>abandonedAccess.calls.some(path=>path.includes('/shared-access-policy?')));
+  const abandonedMarkup=abandonedAccess.page.element('#quota-form').innerHTML;
+  abandonedAccess.invalidate();abandonedGate.resolve();await abandonedAccess.controller.ready;
+  assert.equal(abandonedAccess.page.element('#quota-form').innerHTML,abandonedMarkup,'旧孩子组件的迟到响应不绘制');abandonedAccess.controller.dispose();
+  const disposedGate=deferred(),disposedAccess=accessFixture({gate:disposedGate});
+  await settle(()=>disposedAccess.calls.some(path=>path.includes('/shared-access-policy?')));
+  const disposedMarkup=disposedAccess.page.element('#quota-form').innerHTML;
+  disposedAccess.controller.dispose();disposedGate.resolve();await disposedAccess.controller.ready;
+  assert.equal(disposedAccess.page.element('#quota-form').innerHTML,disposedMarkup,'已销毁组件的迟到响应不绘制');
+  console.log('PASS: unified time policy with native/legacy directory, apps-to-access, read-only failure/recovery, late view/child/disposal; no bucket query');
   const invalid=fixture();assert.throws(()=>invalid.mount({root:invalid.root,view:'usage',request:async()=>{}}),/INVALID_RUNTIME_MANAGEMENT_VIEW/);
   const isolated=fixture();let catalogFails=true;
   const isolatedController=isolated.mount({root:isolated.root,view:'apps',children:[{id:'a',name:'A'}],childId:'a',request:async path=>{

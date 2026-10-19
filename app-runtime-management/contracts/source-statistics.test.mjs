@@ -1,80 +1,62 @@
 import assert from 'node:assert/strict';
-import { validateSourceStatisticsQuery, validateSourceStatisticsSnapshot, combineOwnAndOtherStatistics, sourceStatisticsDates,projectSharedQuotaSeconds,validateSourceStatisticsExchange } from './dist/source-statistics.js';
-import {projectLegacySharedAccessPolicy} from './dist/shared-access.js';
-import {projectIndependentSharedQuotaSeconds} from './dist/source-statistics.js';
+import {sourceStatisticsDates} from './dist/source-statistics.js';
+import {projectSharedAccessPolicyV2} from './dist/shared-access.js';
 const date='2026-10-07';
-function snapshot(source,key,total=600,excluded=[]) { return {schemaVersion:1,durationUnit:'seconds',source,childId:'child-a',fromDate:date,toDate:date,
-  revision:`${key}:${total}`,readAtMs:1791320000000,includedSourceKeys:key?[key]:[],excludedSourceKeys:excluded,
-  days:[{date,totalSeconds:total,categoriesSeconds:{study:total},...(source==='application'?{nonSpecialTotalSeconds:total}:{}),settledThroughMs:1791310000000,complete:true,reasonCodes:[]}]}; }
 const expected={source:'application',childId:'child-a',fromDate:date,toDate:date};
 assert.deepEqual(sourceStatisticsDates('2026-10-05',date),['2026-10-05','2026-10-06',date]);
 assert.throws(()=>sourceStatisticsDates('2026-02-30',date));
 assert.throws(()=>sourceStatisticsDates('2026-09-01',date));
-assert.throws(()=>validateSourceStatisticsQuery({source:'application',scope:'all',fromDate:date,toDate:date,childId:'foreign'}));
-assert.throws(()=>validateSourceStatisticsQuery({source:'application',scope:'other',fromDate:date,toDate:date}));
-assert.equal(validateSourceStatisticsSnapshot(snapshot('application','local'),expected).days[0].totalSeconds,600);
-assert.throws(()=>validateSourceStatisticsSnapshot(snapshot('application','local'),{...expected,childId:'other-child'}));
-const other=snapshot('application','other',600,['local']);
-assert.equal((await combineOwnAndOtherStatistics(snapshot('application','local'),other)).days[0].totalSeconds,1200);
-// 云端无需本机旧副本；排除范围仅表达请求者实际包含的来源。
-assert.equal((await combineOwnAndOtherStatistics(snapshot('application','local'),snapshot('application','',0,['local']))).days[0].totalSeconds,600);
-await assert.rejects(()=>combineOwnAndOtherStatistics(snapshot('application','local'),snapshot('application','local')));
-const changed=snapshot('application','other',10,['local']);
-assert.equal((await combineOwnAndOtherStatistics(snapshot('application','local'),changed)).days[0].totalSeconds,610);
-const unknown=snapshot('application','',null,['local']); Object.assign(unknown.days[0],{categoriesSeconds:{},nonSpecialTotalSeconds:null,settledThroughMs:null,complete:false,reasonCodes:['SOURCE_UNAVAILABLE']});
-const partial=await combineOwnAndOtherStatistics(snapshot('application','local'),unknown);
-assert.equal(partial.days[0].totalSeconds,600);assert.equal(partial.days[0].complete,false);
-const special=snapshot('application','special',600);Object.assign(special.days[0],{nonSpecialTotalSeconds:0,categoriesSeconds:{}});
-assert.equal(validateSourceStatisticsSnapshot(special,expected).days[0].nonSpecialTotalSeconds,0);
-const malformed=snapshot('application','bad');malformed.days[0].totalSeconds=0.5;
-assert.throws(()=>validateSourceStatisticsSnapshot(malformed,expected));
-assert.throws(()=>validateSourceStatisticsSnapshot({...snapshot('application','local'),durationUnit:'milliseconds'},expected));
-const web=snapshot('web','browser');
-assert.equal(validateSourceStatisticsSnapshot(web,{...expected,source:'web'}).days[0].categoriesSeconds.study,600);
-assert.equal(web.days[0].categoriesSeconds.study+special.days[0].nonSpecialTotalSeconds,600);
-const policy=projectLegacySharedAccessPolicy({},34,1791310000000);
-assert.equal(projectSharedQuotaSeconds(policy,date,web,snapshot('application','local')).usedSeconds.study,1200);
-assert.equal(projectSharedQuotaSeconds(policy,date,web,special).usedSeconds.study,600);
-const ordinaryOther=snapshot('application','other-app');ordinaryOther.days[0].categoriesSeconds={other:600};
-assert.equal(projectSharedQuotaSeconds(policy,date,web,ordinaryOther).usedSeconds.study,600);
-const limited=structuredClone(policy);limited.dailyMinutes.wednesday.composite=5;
-const wb=snapshot('web','browser');wb.days[0].categoriesSeconds={composite:200,rest:100};
-const ab=snapshot('application','local');ab.days[0].categoriesSeconds={composite:200,unclassified:100};
-const quota=projectSharedQuotaSeconds(limited,date,wb,ab);
-assert.deepEqual(quota.usedSeconds,{study:0,composite:300,rest:300});assert.equal(quota.borrowedRestSeconds,200);
-const independent=projectIndependentSharedQuotaSeconds(limited,date,wb,ab);
-assert.deepEqual(independent.usedSeconds,{study:0,composite:500,rest:100});
-assert.equal(independent.borrowedRestSeconds,0);
-assert.equal(independent.remainingSeconds.composite,0);
-assert.equal(projectIndependentSharedQuotaSeconds(policy,date,web,snapshot('application','local')).usedSeconds.study,1200);
-assert.equal(projectIndependentSharedQuotaSeconds(policy,date,web,special).usedSeconds.study,600);
-assert.equal(projectIndependentSharedQuotaSeconds(policy,date,web,ordinaryOther).usedSeconds.study,600);
-assert.equal(projectIndependentSharedQuotaSeconds(policy,date,web,null).remainingSeconds.study,null);
-assert.throws(()=>projectIndependentSharedQuotaSeconds(policy,date,web,{...snapshot('application','local'),childId:'other-child'}));
-assert.deepEqual(projectIndependentSharedQuotaSeconds(limited,date,wb,ab),independent);
-const corrected=structuredClone(ab);corrected.days[0].categoriesSeconds={composite:20,unclassified:10};
-assert.equal(projectIndependentSharedQuotaSeconds(limited,date,wb,corrected).usedSeconds.composite,230);
-assert.equal(projectSharedQuotaSeconds(policy,date,web,null).remainingSeconds.study,null);
-assert.throws(()=>projectSharedQuotaSeconds(policy,date,web,{...snapshot('application','local'),childId:'other-child'}));
-assert.equal(validateSourceStatisticsExchange({fromDate:date,toDate:date,webStatistics:web},'child-a').webStatistics.source,'web');
-assert.throws(()=>validateSourceStatisticsExchange({fromDate:date,toDate:date,webStatistics:web},'other-child'));
-console.log('source-statistics: focused validation/1200s/other/special/borrowing/partial/child-isolation assertions passed');
-
-// 新共享只消费已有桶；旧v1用例保留兼容，不通过改名把分类冒充桶。
+// 当前共享只消费已有桶，不保留来源清单、重复汇总或旧分类借用算法。
 const bucketsContract=await import('./dist/source-statistics.js');
+for(const obsolete of ['SOURCE_STATISTICS_READ_CAPABILITY','SOURCE_STATISTICS_EXCHANGE_MESSAGE',
+  'validateSourceStatisticsQuery','validateSourceStatisticsSnapshot','validateSourceStatisticsExchange',
+  'combineOwnAndOtherStatistics','projectSharedQuotaSeconds','projectIndependentSharedQuotaSeconds'])
+  assert.equal(Object.hasOwn(bucketsContract,obsolete),false,`${obsolete}不得继续导出旧业务模型`);
+const currentPolicy=projectSharedAccessPolicyV2({},34,1791310000000);
+const currentLimited=structuredClone(currentPolicy);currentLimited.dailyMinutes.wednesday.composite=5;
 function quotaBuckets(source,study=600){return {schemaVersion:2,durationUnit:'seconds',source,childId:'child-a',
   fromDate:date,toDate:date,readAtMs:1791320000000,days:[{date,bucketsSeconds:{study,composite:200,rest:100},
     settledThroughMs:null,complete:true,reasonCodes:[]}]};}
 const qbWeb=quotaBuckets('web'),qbApp=quotaBuckets('application');
+const cloudQuery={schemaVersion:2,source:'application',scope:'all',fromDate:date,toDate:date};
+assert.deepEqual(bucketsContract.readQuotaBucketsCloudRequest(cloudQuery),{query:cloudQuery,includeSources:false});
+const sideRequest=bucketsContract.readQuotaBucketsCloudRequest({...cloudQuery,includeSources:true,sourceProof:{malformed:true}});
+assert.equal(sideRequest.includeSources,true,'坏证明仅用于可选侧车，不改变原合法查询');
+assert.deepEqual(sideRequest.query,cloudQuery);
+assert.throws(()=>bucketsContract.readQuotaBucketsCloudRequest({...cloudQuery,includeSources:true,childId:'foreign'}));
+assert.throws(()=>bucketsContract.readQuotaBucketsCloudRequest({...cloudQuery,source:'web',includeSources:true}));
+assert.throws(()=>bucketsContract.readQuotaBucketsCloudRequest({...cloudQuery,sourceProof:{}}));
+assert.deepEqual(bucketsContract.readQuotaBucketsCloudResponse(qbApp,expected),{snapshot:qbApp,applicationSources:null});
+const cloudSources={local:qbApp,other:null,otherState:'none'};
+assert.deepEqual(bucketsContract.readQuotaBucketsCloudResponse({snapshot:qbApp,applicationSources:cloudSources},expected),
+  {snapshot:qbApp,applicationSources:cloudSources});
+for(const invalid of [{...cloudSources,otherState:'available'}, {...cloudSources,local:{...qbApp,childId:'foreign'}},
+  {...cloudSources,local:{...qbApp,fromDate:'2026-10-06'}}]) {
+  assert.deepEqual(bucketsContract.readQuotaBucketsCloudResponse({snapshot:qbApp,applicationSources:invalid},expected),
+    {snapshot:qbApp,applicationSources:null},'坏侧车不损坏有效合计');
+}
+assert.throws(()=>bucketsContract.readQuotaBucketsCloudResponse({snapshot:{...qbApp,childId:'foreign'},applicationSources:cloudSources},expected));
+assert.throws(()=>bucketsContract.validateQuotaBucketsSnapshot({...qbApp,applicationSources:cloudSources},expected),
+  '新侧车不可塞入旧严格快照');
 assert.equal(bucketsContract.validateQuotaBucketsSnapshot(qbApp,expected),qbApp);
 assert.deepEqual(bucketsContract.applicationQuotaBucketsSeconds({study:600,composite:200,unclassified:10,restrictedEntertainment:100,other:900}),
   {study:600,composite:210,rest:100});
-assert.deepEqual(bucketsContract.projectQuotaBucketsSeconds(limited,date,qbWeb,qbApp).usedSeconds,{study:1200,composite:400,rest:200});
-assert.equal(bucketsContract.projectQuotaBucketsSeconds(limited,date,qbWeb,qbApp).borrowedRestSeconds,0,'已解释的桶不二次借用');
-const missingQuota=bucketsContract.projectQuotaBucketsSeconds(limited,date,qbWeb,null);
+assert.deepEqual(bucketsContract.projectQuotaBucketsSeconds(currentLimited,date,qbWeb,qbApp).usedSeconds,{study:1200,composite:400,rest:200});
+assert.equal(bucketsContract.projectQuotaBucketsSeconds(currentLimited,date,qbWeb,qbApp).borrowedRestSeconds,0,'已解释的桶不二次借用');
+const missingQuota=bucketsContract.projectQuotaBucketsSeconds(currentLimited,date,qbWeb,null);
 assert.equal(missingQuota.usedSeconds.study,600);assert.equal(missingQuota.complete,false);
 assert.ok(missingQuota.reasonCodes.includes('APPLICATION_SOURCE_UNAVAILABLE'));
-assert.equal(bucketsContract.projectQuotaBucketsSeconds(policy,date,qbWeb,quotaBuckets('application',10)).usedSeconds.study,610);
+assert.equal(bucketsContract.projectQuotaBucketsSeconds(currentPolicy,date,qbWeb,quotaBuckets('application',10)).usedSeconds.study,610);
+const currentInputs=JSON.stringify([currentLimited,qbWeb,qbApp]);
+const currentQuota=bucketsContract.projectQuotaBucketsSeconds(currentLimited,date,qbWeb,qbApp);
+assert.deepEqual(bucketsContract.projectQuotaBucketsSeconds(currentLimited,date,qbWeb,qbApp),currentQuota,'重复读取不累计');
+assert.equal(JSON.stringify([currentLimited,qbWeb,qbApp]),currentInputs,'核算不得修改策略或来源桶');
+assert.equal(currentQuota.remainingSeconds.composite,0);
+assert.throws(()=>bucketsContract.projectQuotaBucketsSeconds(currentPolicy,date,qbWeb,{...qbApp,childId:'foreign'}),'跨孩子拒绝');
+const anotherDay={...qbApp,fromDate:'2026-10-08',toDate:'2026-10-08',days:[{...qbApp.days[0],date:'2026-10-08'}]};
+const absentDay=bucketsContract.projectQuotaBucketsSeconds(currentPolicy,date,qbWeb,anotherDay);
+assert.deepEqual(absentDay.usedSeconds,qbWeb.days[0].bucketsSeconds,'另一日数据不得计入当天');
+assert.ok(absentDay.reasonCodes.includes('APPLICATION_SOURCE_UNAVAILABLE'));
 assert.equal(bucketsContract.validateQuotaBucketsExchange({fromDate:date,toDate:date,webUsage:qbWeb},'child-a').webUsage,qbWeb);
 assert.throws(()=>bucketsContract.validateQuotaBucketsExchange({fromDate:date,toDate:date,webUsage:qbWeb},'other-child'));
 assert.throws(()=>bucketsContract.validateQuotaBucketsSnapshot({...qbApp,revision:'redundant'},expected));

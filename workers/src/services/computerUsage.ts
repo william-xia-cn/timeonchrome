@@ -9,12 +9,10 @@ import { projectCompositeDailyRows, readCompositeCorrections } from './composite
 import { applyCorrectionsToV1StatsRows, listUsageAccountingCorrections } from './usageAccountingCorrections';
 import { generateToken } from '../db/middleware';
 import { statsRouter } from '../routes/stats';
-import { readSharedAccessPolicyForChild, readSharedAccessPolicyV2ForChild } from '../routes/profiles';
-import { readSharedAccessDayState, readSharedQuotaExecutionBasis, pageSharedQuotaExecutionBasis, type SharedAccessStateEnv } from './sharedAccessState';
-import { createSharedAccessPolicyIdentityV1, type SharedQuotaStateV1 } from '@timeonchrome/app-runtime-contracts/shared-access';
-import { createSharedWebSourceChallenge, createSharedWebMachineScope, readSharedWebVerificationKey, verifyCurrentSharedWebSource } from './sharedWebSourceBinding';
-import { validateSourceStatisticsQuery, validateSourceStatisticsSnapshot,validateQuotaBucketsQuery,validateQuotaBucketsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
-import { readWebSourceStatistics,readWebQuotaBuckets,readSourceStatisticsResponse } from './sourceStatistics';
+import { readSharedAccessPolicyV2ForChild } from '../routes/profiles';
+import { createSharedWebMachineScope, readSharedWebVerificationKey } from './sharedWebSourceBinding';
+import { validateQuotaBucketsQuery,validateQuotaBucketsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
+import { readWebQuotaBuckets,readSourceStatisticsResponse } from './sourceStatistics';
 
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
@@ -144,7 +142,9 @@ export async function readComputerWebStatisticsSeconds(env:ComputerUsageEnv,acco
     for(const [classification,value]of Object.entries(source.categoriesMs))
       categories.set(classification,add(categories.get(classification)??0,seconds(value)));
   }
-  const complete=sources.length>0&&sources.every(source=>(source.statisticsComplete??source.complete)&&source.totalMs!==null);
+  // 展示适配中的成功空读取为0；不改变网页账户、原统计或发布路径。
+  if(sources.length===0)availableTotalDuration=0;
+  const complete=sources.every(source=>(source.statisticsComplete??source.complete)&&source.totalMs!==null);
   return {durationUnit:'seconds',revision:await sha(JSON.stringify(sources.map(source=>({key:source.key,
     revision:source.revision,correctionRevision:source.correctionRevision,statisticsComplete:source.statisticsComplete,reasons:source.reasons})))),
     complete,totalDuration:complete?availableTotalDuration:null,availableTotalDuration,
@@ -240,8 +240,8 @@ export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,ch
 export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
   async fetch(request:Request):Promise<Response> {
     const operation=new URL(request.url).pathname;
-    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy','/readSharedQuotaState','/readSharedQuotaExecutionBasis',
-      '/createSharedWebSourceChallenge','/createSharedWebMachineScope','/readSharedWebVerificationKey','/readSourceStatistics'].includes(operation))
+    if(request.method!=='POST'||!['/verifyChildAccess','/readSharedAccessPolicy',
+      '/createSharedWebMachineScope','/readSharedWebVerificationKey','/readSourceStatistics'].includes(operation))
       return Response.json({code:'METHOD_NOT_ALLOWED'},{status:405});
     const reader=request.body?.getReader();
     if(!reader)return Response.json({code:'INVALID_SCOPE'},{status:400});
@@ -260,75 +260,27 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
     if(!input||['accountId','childId'].some(key=>typeof input[key]!=='string'||!String(input[key]).length||String(input[key]).length>200))return Response.json({code:'INVALID_SCOPE'},{status:400});
     try {
       if(operation==='/readSourceStatistics') {
-        const buckets=(input.query as {schemaVersion?:unknown})?.schemaVersion===2;
-        const accountId=String(input.accountId),childId=String(input.childId),query=buckets?validateQuotaBucketsQuery(input.query):validateSourceStatisticsQuery(input.query);
+        const accountId=String(input.accountId),childId=String(input.childId),query=validateQuotaBucketsQuery(input.query);
         const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(childId,accountId).first();
         if(!owned)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
         if(query.scope!=='all')return Response.json({code:'SOURCE_STATISTICS_INVALID'},{status:400});
-        const value=query.source==='web'?(buckets?await readWebQuotaBuckets(this.env,childId,validateQuotaBucketsQuery(input.query))
-          :await readWebSourceStatistics(this.env,accountId,childId,validateSourceStatisticsQuery(input.query)))
+        const value=query.source==='web'?await readWebQuotaBuckets(this.env,childId,query)
           :this.env.RUNTIME_COMPUTER_USAGE?.fetch?await readSourceStatisticsResponse(await this.env.RUNTIME_COMPUTER_USAGE.fetch(
             new Request('https://runtime-capability/getApplicationSourceStatistics',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountId,childId,query})})))
           :null;
         if(!value)throw new Error('SOURCE_STATISTICS_UNAVAILABLE');
         const expected={source:query.source,childId,fromDate:query.fromDate,toDate:query.toDate};
-        return Response.json(buckets?validateQuotaBucketsSnapshot(value,expected):validateSourceStatisticsSnapshot(value,expected),{headers:{'cache-control':'no-store'}});
-      }
-      if(operation==='/createSharedWebSourceChallenge'){
-        return Response.json(await createSharedWebSourceChallenge(this.env,input),{headers:{'cache-control':'no-store'}});
+        return Response.json(validateQuotaBucketsSnapshot(value,expected),{headers:{'cache-control':'no-store'}});
       }
       if(operation==='/createSharedWebMachineScope'){
         return Response.json(await createSharedWebMachineScope(this.env,input),{headers:{'cache-control':'no-store'}});
       }
-      if(operation==='/readSharedQuotaExecutionBasis'){
-        const allowed=['accountId','childId','date','ownSourceKey','offset','limit','expectedRevision'];
-        const date=String(input.date??''),start=Date.parse(date+'T00:00:00Z');
-        if(Object.keys(input).length!==allowed.length+(Object.hasOwn(input,'webSourceProof')?1:0)
-          ||Object.keys(input).some(key=>!allowed.includes(key)&&key!=='webSourceProof')
-          ||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||!Number.isFinite(start)||new Date(start).toISOString().slice(0,10)!==date
-          ||typeof input.ownSourceKey!=='string'||!/^[a-f0-9]{64}$/.test(input.ownSourceKey)
-          ||!Number.isSafeInteger(input.offset)||Number(input.offset)<0||Number(input.offset)>1400
-          ||!Number.isSafeInteger(input.limit)||Number(input.limit)<1||Number(input.limit)>100
-          ||!(input.expectedRevision===null||(typeof input.expectedRevision==='string'&&/^[a-f0-9]{64}$/.test(input.expectedRevision)))
-          ||(Number(input.offset)>0&&input.expectedRevision===null))return Response.json({code:'INVALID_EXECUTION_CURSOR'},{status:400});
-        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId),this.env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
-        if(!policy)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
-        const policyIdentity=await createSharedAccessPolicyIdentityV1(policy);
-        const basis=await readSharedQuotaExecutionBasis(this.env,String(input.accountId),String(input.childId),date,policy);
-        const page=pageSharedQuotaExecutionBasis(basis,input.ownSourceKey,Number(input.offset),Number(input.limit),input.expectedRevision as string|null,'application');
-        if(Object.hasOwn(input,'webSourceProof')){
-          const web=await verifyCurrentSharedWebSource(this.env,input.webSourceProof,String(input.accountId),String(input.childId),input.ownSourceKey);
-          page.authorizedScopes.push(...basis.days.flatMap(day=>day.sources.filter(source=>source.contribution.source==='web'
-            &&source.contribution.sourceKey===web.webSourceKey).map(()=>({source:'web' as const,sourceKey:web.webSourceKey,date:day.date}))));
-        }
-        const current=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId),this.env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
-        if(!current||JSON.stringify(await createSharedAccessPolicyIdentityV1(current))!==JSON.stringify(policyIdentity))
-          return Response.json({code:'EXECUTION_BASIS_VERSION_CHANGED'},{status:409});
-        return Response.json({profileId:input.childId,...page},{headers:{'cache-control':'no-store'}});
-      }
       if(operation==='/readSharedAccessPolicy'){
-        if(input.schemaVersion!==undefined&&input.schemaVersion!==1&&input.schemaVersion!==2)
+        if(input.schemaVersion!==2)
           return Response.json({code:'INVALID_SHARED_ACCESS_QUERY'},{status:400});
-        const read=input.schemaVersion===2?readSharedAccessPolicyV2ForChild:readSharedAccessPolicyForChild;
+        const read=readSharedAccessPolicyV2ForChild;
         const policy=await read(this.env.DB,String(input.accountId),String(input.childId),this.env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
         return policy?Response.json({policy}):Response.json({code:'CHILD_NOT_FOUND'},{status:404});
-      }
-      if(operation==='/readSharedQuotaState'){
-        const date=String(input.date??'');
-        const dayStart=Date.parse(`${date}T00:00:00+08:00`);
-        if(!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(date)||!Number.isFinite(dayStart)
-          ||new Date(dayStart+28_800_000).toISOString().slice(0,10)!==date)
-          return Response.json({code:'INVALID_DATE'},{status:400});
-        const policy=await readSharedAccessPolicyForChild(this.env.DB,String(input.accountId),String(input.childId),this.env.SHARED_ACCESS_EXECUTION_ENABLED === 'true');
-        if(!policy)return Response.json({code:'CHILD_NOT_FOUND'},{status:404});
-        const projected=await readSharedAccessDayState(this.env as SharedAccessStateEnv,String(input.accountId),
-          String(input.childId),date,policy);
-        const state:SharedQuotaStateV1={schemaVersion:1,policyRevision:projected.policyRevision,revision:projected.revision,
-          computedAtMs:projected.computedAtMs,settledAtMs:projected.settledAtMs,complete:projected.complete,
-          reasonCodes:projected.reasonCodes,sources:projected.sources,
-          day:{date:projected.day.date,usedMs:projected.day.usedMs,remainingMs:projected.day.remainingMs,
-            borrowedRestMs:projected.day.borrowedRestMs},week:projected.week,offline:false};
-        return Response.json({state});
       }
       const owned=await this.env.DB.prepare('SELECT id FROM profiles WHERE id=? AND account_id=?').bind(input.childId,input.accountId).first();
       return Response.json({owned:!!owned});
@@ -336,20 +288,15 @@ export class ComputerUsageService extends WorkerEntrypoint<ComputerUsageEnv> {
       if(operation==='/readSourceStatistics')return Response.json({code:error instanceof Error&&error.message==='SOURCE_STATISTICS_INVALID'?'SOURCE_STATISTICS_INVALID':'SOURCE_STATISTICS_UNAVAILABLE'},
         {status:error instanceof Error&&error.message==='SOURCE_STATISTICS_INVALID'?400:503});
       const bindingCode=error instanceof Error?error.message:'';
-      if((operation==='/createSharedWebMachineScope'||operation==='/readSharedQuotaExecutionBasis'&&Object.hasOwn(input,'webSourceProof'))
+      if(operation==='/createSharedWebMachineScope'
         &&/^(WEB_SOURCE_(SCOPE_MISMATCH|PROOF_EXPIRED|PROOF_SIGNATURE_INVALID|BINDING_UNAVAILABLE)|SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE|SOURCE_SCOPE_LIMIT|INVALID_WEB_SOURCE_(SCOPE|PROOF|BINDING|KEY))$/.test(bindingCode)){
         const status=bindingCode.startsWith('INVALID_')?400:bindingCode==='WEB_SOURCE_PROOF_SIGNATURE_INVALID'?403
           :['WEB_SOURCE_SCOPE_MISMATCH','WEB_SOURCE_PROOF_EXPIRED','SHARED_ACCESS_ASSIGNMENT_UNAVAILABLE'].includes(bindingCode)?409:503;
         return Response.json({code:bindingCode},{status});
       }
-      if(operation==='/readSharedQuotaExecutionBasis'){
-        const message=error instanceof Error?error.message:'';
-        const status=message==='INVALID_EXECUTION_CURSOR'?400:message==='EXECUTION_BASIS_VERSION_CHANGED'?409:503;
-        return Response.json({code:status===503?'SHARED_EXECUTION_BASIS_UNAVAILABLE':message},{status});
-      }
       const code=error instanceof Error&&error.message==='INVALID_DATE'?'INVALID_DATE'
         :operation==='/readSharedAccessPolicy'?'SHARED_ACCESS_POLICY_UNAVAILABLE'
-          :operation==='/readSharedQuotaState'?'SHARED_QUOTA_STATE_UNAVAILABLE':'APPLICATION_SCOPE_UNAVAILABLE';
+          :'APPLICATION_SCOPE_UNAVAILABLE';
       return Response.json({code},{status:code==='INVALID_DATE'?400:503});
     }
   }

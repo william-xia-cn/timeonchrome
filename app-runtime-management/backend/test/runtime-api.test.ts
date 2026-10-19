@@ -8,8 +8,9 @@ import { validateSegment } from '../src/validation';
 import catalogRules from '../src/data/product-catalog-rules.v3.json';
 import { syncApplicationInventory } from '../src/applicationKnowledge';
 import { machinePolicyEtag } from '../src/v2Repository';
+import { registerMachineUser } from '../src/machineUserRegistration';
+import type { AccountModuleClaims } from '../src/contracts';
 import worker from '../src/index';
-import { rebuildApplicationStatistics } from '../src/applicationStatistics';
 
 const origin = 'http://runtime.test';
 const privateJwk = { kty: 'EC', x: 'BOtK86WkXpgT2fjHLsDh-Xa-K2BkdyhPzRq_OPyINqE', y: '5EbyiSiB1mvklK2VrO_MdOf9IhPlQ-A3dw1vnJvHbOA', crv: 'P-256', d: '2Ja3Py77LNt6aspenNTttELbGzm2-u9WcF4x8BQql8w' };
@@ -55,6 +56,165 @@ beforeEach(async () => {
 });
 
 describe('Runtime product API', () => {
+  describe('machine user preregistration', () => {
+    const localUserId = 'A'.repeat(43);
+    const registration = { localUserId, displayName: 'Prelogin fixture', childId: 'child-b' };
+    const register = (machineId: string, account: string, body: unknown = registration) => call(
+      `/v2/module/machines/${machineId}/users`,
+      { method: 'POST', headers: bearer(account), body: JSON.stringify(body) },
+    );
+    const assignments = (machineId: string) => env.RUNTIME_DB.prepare(
+      'SELECT * FROM runtime_user_assignments_v2 WHERE machine_id=? ORDER BY local_user_id,assignment_version',
+    ).bind(machineId).all<Record<string, unknown>>();
+
+    it('preassigns before login; normal policy and first report preserve the explicit Child and daily assignments', async () => {
+      const { account, enrolled, localUserId: dailyUser } = await createMachineWithUser();
+      const original = (await assignments(enrolled.machineId)).results;
+      const response = await register(enrolled.machineId, account);
+      expect(response.status).toBe(201);
+      await expect(response.json()).resolves.toMatchObject({ localUserId, childId: 'child-b',
+        policyVersion: 3, assignmentVersion: 3, replayed: false });
+      expect(await env.RUNTIME_DB.prepare('SELECT session_active FROM runtime_machine_users_v2 WHERE machine_id=? AND local_user_id=?')
+        .bind(enrolled.machineId, localUserId).first()).toEqual({ session_active: 0 });
+      const policy = () => call('/v2/machines/policy', { headers: bearer(enrolled.machineToken) });
+      await expect((await policy()).json()).resolves.toMatchObject({ defaultChildId: 'child-a', users: expect.arrayContaining([
+        expect.objectContaining({ localUserId, childId: 'child-b', protected: true, assignmentVersion: 3 }),
+        expect.objectContaining({ localUserId: dailyUser, childId: 'child-a', assignmentVersion: 2 }),
+      ]) });
+      const report = await call('/v2/machines/users', { method: 'PUT', headers: bearer(enrolled.machineToken),
+        body: JSON.stringify({ users: [{ localUserId, displayName: registration.displayName, sessionActive: true }] }) });
+      expect(report.status).toBe(200);
+      const rows = (await assignments(enrolled.machineId)).results;
+      expect(rows.filter(row => row.local_user_id === dailyUser)).toEqual(original);
+      expect(rows.filter(row => row.local_user_id === localUserId)).toEqual([
+        expect.objectContaining({ child_id: 'child-b', protected: 1, assignment_source: 'override', assignment_version: 3 }),
+      ]);
+      await expect((await policy()).json()).resolves.toMatchObject({ defaultChildId: 'child-a', users: expect.arrayContaining([
+        expect.objectContaining({ localUserId, childId: 'child-b', protected: true }),
+      ]) });
+      expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_usage_segments_v2').first()).toEqual({ n: 0 });
+    });
+
+    it('replays without bumping versions; different Child/name and an existing default user cannot be overwritten', async () => {
+      const { account, enrolled, localUserId: dailyUser } = await createMachineWithUser();
+      expect((await register(enrolled.machineId, account)).status).toBe(201);
+      const before = (await assignments(enrolled.machineId)).results;
+      const retry = await register(enrolled.machineId, account);
+      expect(retry.status).toBe(200);
+      await expect(retry.json()).resolves.toMatchObject({ replayed: true, policyVersion: 3, assignmentVersion: 3 });
+      for (const body of [{ ...registration, childId: 'child-a' }, { ...registration, displayName: 'Different' }]) {
+        expect((await register(enrolled.machineId, account, body)).status).toBe(409);
+      }
+      // The old fixture's non-HMAC user id is also rejected by the new endpoint.
+      expect((await register(enrolled.machineId, account, { ...registration, localUserId: dailyUser })).status).toBe(400);
+      expect((await assignments(enrolled.machineId)).results).toEqual(before);
+      expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version,default_child_id FROM runtime_machines_v2 WHERE id=?')
+        .bind(enrolled.machineId).first()).toEqual({ desired_policy_version: 3, default_child_id: 'child-a' });
+    });
+
+    it('requires owning parent auth and rejects foreign Child, foreign machine and revoked machine without writes', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      const path = `/v2/module/machines/${enrolled.machineId}/users`;
+      expect((await call(path, { method: 'POST', body: JSON.stringify(registration) })).status).toBe(401);
+      expect((await register(enrolled.machineId, enrolled.machineToken)).status).toBe(401);
+      expect((await register(enrolled.machineId, await accountToken({ account_id: 'other', sub: 'other' }))).status).toBe(404);
+      expect((await register(enrolled.machineId, account, { ...registration, childId: 'foreign' })).status).toBe(404);
+      expect((await register('missing-machine', account)).status).toBe(404);
+      await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET revoked_at_ms=1 WHERE id=?').bind(enrolled.machineId).run();
+      expect((await register(enrolled.machineId, account)).status).toBe(404);
+      expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_machine_users_v2 WHERE local_user_id=?')
+        .bind(localUserId).first()).toEqual({ n: 0 });
+    });
+
+    it('rejects names/SIDs as identity, missing Child, login flags, defaults and unexpected fields', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      for (const patch of [{ localUserId: 'TestUser' }, { localUserId: 'S-1-5-21-123456789-123456789-123456789-1001' },
+        { localUserId: 'B'.repeat(43) }, { childId: null }, { childId: '' }, { displayName: ' ' },
+        { displayName: 'a\nb' }, { sessionActive: true }, { defaultChildId: 'child-b' }, { protected: false }]) {
+        expect((await register(enrolled.machineId, account, { ...registration, ...patch })).status).toBe(400);
+      }
+      expect((await register(enrolled.machineId, account, null)).status).toBe(400);
+      expect((await call(`/v2/module/machines/${enrolled.machineId}/users`, { method: 'DELETE', headers: bearer(account) })).status).toBe(405);
+      expect((await assignments(enrolled.machineId)).results).toHaveLength(1);
+    });
+
+    it('rolls back user, assignment, policy head and version history if the batch cannot complete', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      const before = (await assignments(enrolled.machineId)).results;
+      await env.RUNTIME_DB.prepare(`CREATE TRIGGER preregistration_failure BEFORE INSERT ON runtime_user_assignments_v2
+        WHEN NEW.local_user_id='${localUserId}' BEGIN SELECT RAISE(ABORT, 'isolated registration failure'); END`).run();
+      try {
+        expect((await register(enrolled.machineId, account)).status).toBe(500);
+      } finally {
+        await env.RUNTIME_DB.prepare('DROP TRIGGER preregistration_failure').run();
+      }
+      expect((await assignments(enrolled.machineId)).results).toEqual(before);
+      expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_machine_users_v2 WHERE local_user_id=?')
+        .bind(localUserId).first()).toEqual({ n: 0 });
+      expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version,default_child_id FROM runtime_machines_v2 WHERE id=?')
+        .bind(enrolled.machineId).first()).toEqual({ desired_policy_version: 2, default_child_id: 'child-a' });
+      expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_machine_policy_versions_v2 WHERE machine_id=?')
+        .bind(enrolled.machineId).first()).toEqual({ n: 2 });
+    });
+
+    it('handles simultaneous identical preregistration without duplicate assignments or version increments', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      const responses = await Promise.all([register(enrolled.machineId, account), register(enrolled.machineId, account)]);
+      expect(responses.map(response => response.status).sort()).toEqual([200, 201]);
+      expect((await assignments(enrolled.machineId)).results.filter(row => row.local_user_id === localUserId)).toHaveLength(1);
+      expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version FROM runtime_machines_v2 WHERE id=?')
+        .bind(enrolled.machineId).first()).toEqual({ desired_policy_version: 3 });
+    });
+
+    it.each(['policy', 'revoked'])('aborts stale preregistration atomically when machine %s changes before its batch', async change => {
+      const { enrolled } = await createMachineWithUser();
+      const claims: AccountModuleClaims = { iss: 'guardian-api', aud: 'app-runtime-management:account',
+        sub: 'account-a', account_id: 'account-a', children: [{ id: 'child-b', name: 'Other' }],
+        iat: 0, exp: 1, jti: 'isolated-preregistration' };
+      const originalBatch = env.RUNTIME_DB.batch.bind(env.RUNTIME_DB);
+      const spy = vi.spyOn(env.RUNTIME_DB, 'batch').mockImplementationOnce(async statements => {
+        if (change === 'revoked') {
+          await env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET revoked_at_ms=1 WHERE id=?').bind(enrolled.machineId).run();
+        } else {
+          await originalBatch([
+            env.RUNTIME_DB.prepare('UPDATE runtime_machines_v2 SET desired_policy_version=3 WHERE id=?').bind(enrolled.machineId),
+            env.RUNTIME_DB.prepare('INSERT INTO runtime_machine_policy_versions_v2(machine_id,version,payload_hash,created_at_ms) VALUES (?,3,?,1)')
+              .bind(enrolled.machineId, 'isolated-concurrent-policy'),
+          ]);
+        }
+        return originalBatch(statements);
+      });
+      try {
+        await expect(registerMachineUser(env.RUNTIME_DB, claims, enrolled.machineId, registration, Date.now()))
+          .rejects.toMatchObject({ status: 409, code: 'MACHINE_POLICY_CHANGED' });
+      } finally { spy.mockRestore(); }
+      expect(await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS n FROM runtime_machine_users_v2 WHERE local_user_id=?')
+        .bind(localUserId).first()).toEqual({ n: 0 });
+      expect((await assignments(enrolled.machineId)).results).toHaveLength(1);
+    });
+
+    it('does not reassign an already reported user, even with a valid derived id', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      expect((await call('/v2/machines/users', { method: 'PUT', headers: bearer(enrolled.machineToken),
+        body: JSON.stringify({ users: [{ localUserId, displayName: registration.displayName, sessionActive: true }] }) })).status).toBe(200);
+      const before = (await assignments(enrolled.machineId)).results;
+      const response = await register(enrolled.machineId, account);
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toMatchObject({ error: { code: 'MACHINE_USER_ALREADY_REGISTERED' } });
+      expect((await assignments(enrolled.machineId)).results).toEqual(before);
+    });
+
+    it('keeps the first confirmed Child when two preregistrations race with different children', async () => {
+      const { account, enrolled } = await createMachineWithUser();
+      const responses = await Promise.all([register(enrolled.machineId, account),
+        register(enrolled.machineId, account, { ...registration, childId: 'child-a' })]);
+      expect(responses.map(response => response.status).sort()).toEqual([201, 409]);
+      expect((await assignments(enrolled.machineId)).results.filter(row => row.local_user_id === localUserId)).toHaveLength(1);
+      expect(await env.RUNTIME_DB.prepare('SELECT desired_policy_version,default_child_id FROM runtime_machines_v2 WHERE id=?')
+        .bind(enrolled.machineId).first()).toEqual({ desired_policy_version: 3, default_child_id: 'child-a' });
+    });
+  });
+
   it('limits segment diagnostics to the owning Child and fixed read-only query', async () => {
     const path = '/v2/module/segment-diagnostics?childId=child-a&kind=usage&fromMs=0&toMs=86400000';
     expect((await call(path)).status).toBe(401);
@@ -105,64 +265,18 @@ describe('Runtime product API', () => {
       quotas: { perApplicationDailyMinutes: [{ runtimeIdentity: 'app:editor', minutes: 30 }] } });
   });
 
-  it('receives versioned application shared contribution without publishing it or trusting a Child from the caller', async () => {
-    const {enrolled,localUserId}=await createMachineWithUser();
-    const contribution={schemaVersion:1,source:'application',date:'2026-10-02',revision:'app-r1',
-      statisticsRevision:'stats-r1',correctionRevision:'correction-r1',productAssociationVersion:'association-r1',
-      policyRevision:'profile-config:1',settledAtMs:1790880000000,complete:true,reasonCodes:[],
-      bucketsMs:{study:1000,composite:2000,rest:3000},applicationClassesMs:{study:1000,composite:2000,
-        restrictedEntertainment:3000,unclassified:0,other:500},chromeExcludedMs:500,
-      chromeIncludedInApplicationMs:500};
-    const upload={schemaVersion:1,localUserId,assignmentVersion:2,revisionOrdinal:1,contribution};
-    const headers=bearer(enrolled.machineToken);
-    const send=(body:unknown)=>call('/v2/machines/shared-quota/application-contributions',{method:'POST',headers,
-      body:JSON.stringify(body)});
-    const first=await send(upload);
-    expect(first.status).toBe(200);
-    const receipt=await first.json<{published:boolean;received:boolean;sourceKey:string;revisionOrdinal:number}>();
-    expect(receipt).toMatchObject({published:false,received:true,revisionOrdinal:1});
-    expect(receipt.sourceKey).toMatch(/^[a-f0-9]{64}$/);
-    expect((await send({...upload,contribution:{...contribution,bucketsMs:{rest:3000,composite:2000,study:1000}}})).status).toBe(200);
-    expect((await send({...upload,contribution:{...contribution,revision:'different'}})).status).toBe(409);
-    expect((await send({...upload,revisionOrdinal:2,contribution:{...contribution,revision:'app-r2'}})).status).toBe(200);
-    expect((await send(upload)).status).toBe(409);
-    expect((await send({...upload,childId:'child-b'})).status).toBe(400);
-    expect((await send({...upload,contribution:{...contribution,source:'web'}})).status).toBe(400);
-    expect((await send({...upload,localUserId:`user_${'x'.repeat(32)}`})).status).toBe(403);
-    expect((await call('/v2/machines/shared-quota/application-contributions',{method:'POST',
-      body:JSON.stringify(upload)})).status).toBe(401);
-    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_application_shared_quota_receipts_v1')
-      .first<{count:number}>())?.count).toBe(1);
+  it('retired shared state and contribution URLs reject authenticated callers without restoring old data',async()=>{
+    const {enrolled}=await createMachineWithUser();
+    for(const path of ['state','execution-basis','application-contributions','capabilities']){
+      const url='/v2/machines/shared-quota/'+path;
+      expect((await call(url,{headers:bearer(enrolled.machineToken)})).status).toBe(404);
+      expect((await call(url,{method:'POST',headers:bearer(enrolled.machineToken),body:'{}'})).status).toBe(404);
+      expect((await call(url)).status).toBe(401);
+    }
+    expect((await env.RUNTIME_DB.prepare('SELECT COUNT(*) AS count FROM runtime_application_shared_quota_receipts_v1').first<{count:number}>())?.count).toBe(0);
   });
 
-  it('returns the shared quota shadow only for the machine protected assignment, never a caller Child ID', async () => {
-    const {enrolled,localUserId}=await createMachineWithUser();
-    const headers=bearer(enrolled.machineToken);
-    const path=`/v2/machines/shared-quota/state?localUserId=${encodeURIComponent(localUserId)}&assignmentVersion=2&date=2026-10-02&childId=attacker-child`;
-    const response=await call(path,{headers});
-    expect(response.status).toBe(200);
-    const result=await response.json<{sharedQuota:Record<string,unknown>}>();
-    expect(result.sharedQuota).toMatchObject({schemaVersion:1,policyRevision:'profile-config:1',revision:'shadow-r1',
-      complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],offline:false,
-      day:{date:'2026-10-02',usedMs:{study:1000,composite:2000,rest:3000}},
-      week:{fromDate:'2026-09-28',toDate:'2026-10-02',complete:false}});
-    expect(result.sharedQuota).not.toHaveProperty('profileId');
-    expect((await call(path.replace('assignmentVersion=2','assignmentVersion=1'),{headers})).status).toBe(403);
-    expect((await call(path.replace('date=2026-10-02','date=2026-02-30'),{headers})).status).toBe(400);
-    expect((await call(path.replace('date=2026-10-02','date=2026-10-03'),{headers})).status).toBe(503);
-    for (const invalidReplyDate of ['2026-10-04','2026-10-05','2026-10-06','2026-10-07','2026-10-08']) {
-      const invalid = await call(path.replace('date=2026-10-02',`date=${invalidReplyDate}`),{headers});
-      expect(invalid.status).toBe(503);
-      await expect(invalid.json()).resolves.toMatchObject({error:{code:'SHARED_QUOTA_STATE_UNAVAILABLE'}});
-    }
-    const nextWeek=await call(path.replace('date=2026-10-02','date=2026-10-09'),{headers});
-    expect(nextWeek.status).toBe(200);
-    await expect(nextWeek.json()).resolves.toMatchObject({sharedQuota:{day:{date:'2026-10-09'},
-      week:{fromDate:'2026-10-05',toDate:'2026-10-09'}}});
-    expect((await call(path,{headers:bearer(enrolled.machineToken+'x')})).status).toBe(401);
-    expect((await call(path,{method:'POST',headers})).status).toBe(405);
-  });
-  it('corrects current-week application attribution end-to-end without rewriting ledger or prior weeks', async () => {
+  it('delivers current-week application correction instructions without rewriting ledger or prior weeks', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const day = 86_400_000, now = Date.now(), shifted = new Date(now + 8 * 3_600_000);
     const monday = Math.floor((now + 8 * 3_600_000) / day) * day - 8 * 3_600_000 - ((shifted.getUTCDay() + 6) % 7) * day;
@@ -186,13 +300,6 @@ describe('Runtime product API', () => {
     const policy = await saved.json<{ weekReclassification: { fromMs: number; applications: unknown[] } }>();
     expect(policy.weekReclassification.fromMs).toBe(monday);
     expect(policy.weekReclassification.applications).not.toContainEqual({ platform: 'windows', runtimeIdentity: 'app:other', classification: 'blocked' });
-    const usagePath = `/v2/module/app-usage?childId=child-a&fromMs=${monday}&toMs=${monday + 7 * day}`;
-    const read = () => call(usagePath, { headers: bearer(account) });
-    await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 2501,
-      categories: expect.arrayContaining([expect.objectContaining({ classification: 'study', durationMs: 1501 })]),
-      applications: expect.arrayContaining([expect.objectContaining({ runtimeIdentity: 'app:editor', classification: 'study', durationMs: 1501 })]) });
-    await expect((await call(`/v2/module/app-usage?childId=child-a&fromMs=${monday - 7 * day}&toMs=${monday}`, { headers: bearer(account) })).json())
-      .resolves.toMatchObject({ totalDurationMs: 1501, categories: [expect.objectContaining({ classification: 'unclassified', durationMs: 1501 })] });
     expect((await readRows()).results).toEqual(original);
     const correction = await (await call('/v2/machines/app-usage-corrections', { headers })).json<{ cursor: string; hasMore: boolean; items: unknown[] }>();
     expect(correction.hasMore).toBe(false);
@@ -215,21 +322,15 @@ describe('Runtime product API', () => {
       .json<{ hasMore: boolean; items: Array<{ policyVersion: number }> }>();
     expect(secondFeed.items[0]?.policyVersion).toBe(2); expect(secondFeed.hasMore).toBe(false);
     const otherAccount = await accountToken({ sub: 'account-b', account_id: 'account-b', children: [{ id: 'child-b', name: 'Other' }] });
-    expect((await call(usagePath, { headers: bearer(otherAccount) })).status).toBe(404);
-    await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 2501,
-      weeklyRestrictedEntertainment: expect.objectContaining({ durationMs: 1501, quota: expect.objectContaining({ exceeded: false, limitMs: null }) }),
-      categories: expect.arrayContaining([expect.objectContaining({ classification: 'restrictedEntertainment', durationMs: 1501 })]) });
+    expect((await call(`/v2/module/app-usage?childId=child-a&fromMs=${monday}&toMs=${monday + 7 * day}`,
+      { headers: bearer(otherAccount) })).status).toBe(404);
     const late = await accountingUsage({ runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: monday + 4501, end: monday + 6002 });
     await expect((await upload([a, late])).json()).resolves.toMatchObject({ acceptedIds: [a.id, late.id], rejected: [] });
-    await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 4002,
-      categories: expect.arrayContaining([expect.objectContaining({ classification: 'restrictedEntertainment', durationMs: 3002 })]) });
     const details = await call(`/v2/module/usage-segments?childId=child-a&fromMs=${monday}&toMs=${monday + 7 * day}&limit=100`, { headers: bearer(account) });
     await expect(details.json()).resolves.toMatchObject({ items: expect.arrayContaining([expect.objectContaining({ id: a.id,
       applicationClassification: 'unclassified', effectiveClassificationSlices: [expect.objectContaining({ classification: 'restrictedEntertainment', correctionVersion: 2 })] })]) });
     body.classifications = [];
     expect((await call('/v2/module/app-policy?childId=child-a', { method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v2"' }, body: JSON.stringify(body) })).status).toBe(200);
-    await expect((await read()).json()).resolves.toMatchObject({ totalDurationMs: 4002,
-      categories: [expect.objectContaining({ classification: 'unclassified', durationMs: 4002 })] });
     expect((await readRows()).results!.filter(row => row.id !== late.id)).toEqual(original);
   });
 
@@ -513,6 +614,46 @@ describe('Runtime product API', () => {
     expect(modernResponse.headers.get('etag')).not.toBe(etag);
   });
 
+  it.each(['empty', 'omitted'])('shared V2 capability survives authenticated heartbeat and is withdrawn by %s capabilities', async withdrawal => {
+    const {enrolled}=await createMachineWithUser();
+    const headers=bearer(enrolled.machineToken);
+    const capability='shared-access-policy-v2';
+    const legacy=['product-block-v1','application-other-v1','program-instance-execution-policy-v1'];
+    const heartbeat=(fields:Record<string,unknown>,requestHeaders=headers)=>call('/v2/machines/heartbeat',{
+      method:'POST',headers:requestHeaders,body:JSON.stringify({serviceVersion:'fixture',osVersion:'11',architecture:'x64',
+        tamperCount:0,policyState:'applied',...fields})});
+    const stored=()=>env.RUNTIME_DB.prepare('SELECT capabilities_json FROM runtime_machines_v2 WHERE id=?')
+      .bind(enrolled.machineId).first<{capabilities_json:string}>();
+    expect((await heartbeat({capabilities:legacy})).status).toBe(200);
+    const before=await call('/v2/machines/policy',{headers});
+    const previous=await before.json<Record<string,unknown>>();
+    expect(previous.capabilities).not.toContain(capability);
+    const report={capabilities:[...legacy,capability,'unknown-future-capability']};
+    expect((await heartbeat(report,{})).status).toBe(401);
+    expect(JSON.parse((await stored())!.capabilities_json)).toEqual(legacy);
+    expect((await heartbeat(report)).status).toBe(200);
+    expect(JSON.parse((await stored())!.capabilities_json)).toEqual([...legacy,capability]);
+    const response=await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':before.headers.get('etag')!}});
+    expect(response.status).toBe(200);
+    const current=await response.json<Record<string,unknown>>();
+    // Only negotiated capabilities change: no Child policy, assignment or version write.
+    expect({...current,capabilities:previous.capabilities}).toEqual(previous);
+    expect((current.capabilities as string[]).filter(value=>value!==capability)).toEqual(previous.capabilities);
+    expect(current.capabilities).toContain(capability);
+    expect(current.capabilities).not.toContain('unknown-future-capability');
+    const etag=response.headers.get('etag')!;
+    expect(etag).not.toBe(before.headers.get('etag'));
+    expect((await heartbeat(report)).status).toBe(200);
+    expect((await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':etag}})).status).toBe(304);
+    expect((await heartbeat(withdrawal==='empty'?{capabilities:[]}:{})).status).toBe(200);
+    expect(JSON.parse((await stored())!.capabilities_json)).toEqual([]);
+    const downgraded=await call('/v2/machines/policy',{headers:{...headers,'If-None-Match':etag}});
+    expect(downgraded.status).toBe(200);
+    const legacyPolicy=await downgraded.json<{version:number;capabilities:string[]}>();
+    expect(legacyPolicy.version).toBe(previous.version);
+    expect(legacyPolicy.capabilities).not.toContain(capability);
+  });
+
   it('program execution capability survives heartbeat and invalidates the machine policy ETag', async () => {
     const {enrolled}=await createMachineWithUser();
     const headers=bearer(enrolled.machineToken);
@@ -555,7 +696,7 @@ describe('Runtime product API', () => {
     const machineHeaders=bearer(enrolled.machineToken);
     const legacy=await call('/v2/machines/policy',{headers:machineHeaders});
     expect((await legacy.clone().json<{appPolicies:Array<{policy:{classifications:Array<{classification:string}>}}>}>())
-      .appPolicies[0]?.policy.classifications[0]?.classification).toBe('unclassified');
+      .appPolicies[0]?.policy.classifications[0]?.classification).toBe('other');
     expect((await call('/v2/machines/heartbeat',{method:'POST',headers:machineHeaders,
       body:JSON.stringify({serviceVersion:'fixture',windowsVersion:'11',architecture:'x64',tamperCount:0,
         policyState:'applied',capabilities:['application-other-v1']})})).status).toBe(200);
@@ -563,6 +704,15 @@ describe('Runtime product API', () => {
     expect(capable.headers.get('etag')).not.toBe(legacy.headers.get('etag'));
     expect((await capable.json<{appPolicies:Array<{policy:{classifications:Array<{classification:string}>}}>}>())
       .appPolicies[0]?.policy.classifications[0]?.classification).toBe('other');
+    expect((await call('/v2/machines/heartbeat',{method:'POST',headers:machineHeaders,
+      body:JSON.stringify({serviceVersion:'fixture',osVersion:'11',architecture:'x64',tamperCount:0,
+        policyState:'applied',capabilities:[]})})).status).toBe(200);
+    const withdrawn=await call('/v2/machines/policy',{headers:machineHeaders});
+    expect((await withdrawn.json<{appPolicies:Array<{policy:{classifications:Array<{classification:string}>}}>}>())
+      .appPolicies[0]?.policy.classifications[0]?.classification).toBe('other');
+    const unchanged=await call('/v2/module/app-policy?childId=child-a',{headers:bearer(account)});
+    expect(unchanged.headers.get('etag')).toBe(saved.headers.get('etag'));
+    expect((await unchanged.json<{classifications:Array<{classification:string}>}>()).classifications[0]?.classification).toBe('other');
   });
 
   it.each(['windows', 'macos'] as const)('enrolls %s machine and applies default and per-user policy without exposing SID', async (platform) => {
@@ -808,13 +958,6 @@ describe('Runtime product API', () => {
         { runtimeIdentity: 'app:video', activeMs: 0, pipActiveMs: 60_000, unionMs: 60_000 },
       ],
     });
-    const appUsage = await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=80000', {
-      headers: bearer(account),
-    });
-    await expect(appUsage.json()).resolves.toMatchObject({
-      totalDurationMs: 70_000,
-      mediaPlaybackTotalMs: 120_000,
-    });
     await expect(env.RUNTIME_DB.prepare(`
       SELECT policy_snapshot_json,application_classification,app_policy_version,quota_bucket
       FROM runtime_usage_segments_v2 WHERE id=?1
@@ -933,13 +1076,6 @@ describe('Runtime product API', () => {
       application_classification: 'study', quota_bucket: 'study', app_policy_version: 1,
     });
 
-    const usage = await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=86400000', { headers: bearer(account) });
-    await expect(usage.json()).resolves.toMatchObject({
-      totalDurationMs: 600_000,
-      buckets: [{ categories: [{ classification: 'study', durationMs: 600_000 }] }],
-      categories: [{ classification: 'study', durationMs: 600_000, quota: { exceeded: false } }],
-      applications: [{ runtimeIdentity: 'app:editor', classification: 'study', quota: { limitMs: 600_000, remainingMs: 0, exceeded: false } }],
-    });
     const records = await call('/v2/module/app-classification-records?childId=child-a', { headers: bearer(account) });
     await expect(records.json()).resolves.toMatchObject({ pending: [], processed: [] });
     const ledger = await call('/v2/module/usage-segments?childId=child-a&fromMs=0&toMs=86400000&limit=1', { headers: bearer(account) });
@@ -987,13 +1123,6 @@ describe('Runtime product API', () => {
           'Legacy App',?1,?2,60000,'applicationSwitch','legacy-recent-hash',?2)
       `).bind(recentStart, recentEnd),
     ]);
-    const usage = await (await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=86400000', {
-      headers: bearer(account),
-    })).json<{ totalDurationMs: number; categories: Array<{ classification: string; durationMs: number }> }>();
-    expect(usage).toMatchObject({
-      totalDurationMs: 60_000,
-      categories: [{ classification: 'unclassified', durationMs: 60_000 }],
-    });
     const records = await (await call('/v2/module/app-classification-records?childId=child-a', {
       headers: bearer(account),
     })).json<{ pending: unknown[]; technical: Array<{ runtimeIdentity: string; mainDurationMs: number; projectionReasonCode: string }> }>();
@@ -1147,7 +1276,7 @@ describe('Runtime product API', () => {
     });
   });
 
-  it('keeps shared category quotas Guardian-owned and evaluates per-application limits per Beijing day', async () => {
+  it('keeps quota configuration Guardian-owned, delivers app limits and never restores ledger-derived quota in statistics', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const policyBody = {
       classifications: [{ platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study' }],
@@ -1166,6 +1295,10 @@ describe('Runtime product API', () => {
     expect((await call('/v2/module/app-policy?childId=child-a', {
       method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' }, body: JSON.stringify(policyBody),
     })).status).toBe(200);
+    const delivered = await (await call('/v2/machines/policy', { headers: bearer(enrolled.machineToken) }))
+      .json<{ appPolicies: Array<{ childId: string; policy: { quotas: unknown } }> }>();
+    expect(delivered.appPolicies.find(item => item.childId === 'child-a')?.policy.quotas)
+      .toEqual(policyBody.quotas);
     const first = await accountingUsage({ runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: 0, end: 600_000 });
     first.policySnapshot = { assignmentVersion: 2, appPolicyVersion: 1, quotaBucket: 'study' };
     first.id = await accountingUsageId(first);
@@ -1177,11 +1310,20 @@ describe('Runtime product API', () => {
       body: JSON.stringify({ schemaVersion: 2, segments: [first, second].map((segment) => ({ ...segment, localUserId, assignmentVersion: 2 })) }),
     });
     expect((await response.json<{ acceptedIds: string[] }>()).acceptedIds).toHaveLength(2);
-    const usage = await (await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=172800000', {
+    // 当前读取器按北京时间完整日读取持久秒统计；旧原账不再用于查询时重算或计算配额。
+    const fromMs = Date.parse('1970-01-02T00:00:00+08:00'), toMs = fromMs + 2 * 86_400_000;
+    const current = await call(`/v2/module/app-usage?childId=child-a&durationUnit=seconds&fromMs=${fromMs}&toMs=${toMs}`, {
       headers: bearer(account),
-    })).json<{ categories: Array<{ quota: { exceeded: boolean; exceededDays: number } }>; applications: Array<{ quota: { exceeded: boolean; exceededDays: number } }> }>();
-    expect(usage.categories[0]?.quota).toMatchObject({ exceeded: false, exceededDays: 0 });
-    expect(usage.applications[0]?.quota).toMatchObject({ exceeded: false, exceededDays: 0 });
+    });
+    expect(current.status).toBe(200);
+    const usage = await current.json<{ durationUnit: string; totalDuration: number; categories: unknown[]; products: unknown[];
+      days: Array<{ date: string; totalDuration: number }> }>();
+    expect(usage.durationUnit).toBe('seconds');
+    expect(usage.days.map(day => ({date:day.date,totalDuration:day.totalDuration})))
+      .toEqual([{date:'1970-01-02',totalDuration:0},{date:'1970-01-03',totalDuration:0}]);
+    expect(usage.totalDuration).toBe(0);
+    expect(usage.categories).toEqual([]);expect(usage.products).toEqual([]);
+    expect(JSON.stringify(usage)).not.toMatch(/"(?:quota|exceeded|exceededDays|remainingSeconds)"/);
   });
 
   it('controls machine terminal logging with ETag, policy delivery, item ACK, and no upload while disabled', async () => {
@@ -2303,18 +2445,7 @@ describe('Application knowledge and installed inventory', () => {
 async function call(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body !== undefined) headers.set('content-type', 'application/json');
-  const fetch=()=>exports.default.fetch(new Request(`${origin}${path}`, { ...init, headers }));
-  let response=await fetch();
-  // Existing business assertions exercise settled authority. Cold/pending behavior
-  // is independently covered by application-statistics.test.ts, not hidden by product fallback.
-  if(path.startsWith('/v2/module/app-usage?')) {
-    const data=await response.clone().json<{error?:{code?:string};statistics?:{stale:boolean}}>();
-    if(data.error?.code==='APPLICATION_STATISTICS_PENDING'||data.error?.code==='APPLICATION_STATISTICS_MANAGEMENT_PENDING'||data.statistics?.stale) {
-      for(let i=0;i<20;i++)if(!(await rebuildApplicationStatistics(env.RUNTIME_DB)).processed)break;
-      response=await fetch();
-    }
-  }
-  return response;
+  return exports.default.fetch(new Request(`${origin}${path}`, { ...init, headers }));
 }
 function bearer(value: string): HeadersInit { return { authorization: `Bearer ${value}` }; }
 function closedTimeWindows(): Record<string, Record<string, Array<{ start: string; end: string }>>> {

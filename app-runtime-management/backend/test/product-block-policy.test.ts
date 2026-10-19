@@ -24,6 +24,21 @@ const knowledge = (): ApplicationKnowledge => ({
 });
 
 describe('product block policy', () => {
+  it('接收端能力不能改写other分类，且仍隔离独立scope配置和执行格式', () => {
+    const policy: AppPolicyDocument = {version: 3, effectiveAtMs: 100,
+      classifications: [{platform:'windows',runtimeIdentity:'fixture',displayName:'Fixture',classification:'other'}],
+      quotas: {dailyCategoryMinutes:{study:null,composite:null,restrictedEntertainment:null,unclassified:null},
+        weeklyRestrictedEntertainmentMinutes:null,perApplicationDailyMinutes:[]},timeWindows:allOpenTimeWindows()};
+    const before=JSON.stringify(policy);
+    for(const supportsOther of [false,true]) {
+      const projected=projectAppPolicyForMachine(policy,supportsOther);
+      expect(projected.classifications).toEqual(policy.classifications);
+      expect(projected.version).toBe(policy.version);
+      expect(projected).not.toHaveProperty('nativeApplications');
+      expect(projected).not.toHaveProperty('programInstanceExecutionPolicy');
+    }
+    expect(JSON.stringify(policy)).toBe(before);
+  });
   it('新执行上下文只下发给协商客户端，不修改存储或将缺能力伪装为空解除', () => {
     const policy: AppPolicyDocument = {version: 3, effectiveAtMs: 100, classifications: [],
       quotas: {dailyCategoryMinutes: {study:null,composite:null,restrictedEntertainment:null,unclassified:null},

@@ -460,7 +460,7 @@ export async function getMachinePolicy(
   return { etag: await machinePolicyEtag(machine.machineId,machine.desiredPolicyVersion,policy.capabilities), policy };
 }
 
-/** Wire-only compatibility projection; the saved Child policy and history stay unchanged. */
+/** Receiver shape projection only; classifications and saved Child policy remain unchanged. */
 export function projectAppPolicyForMachine(policy:AppPolicyDocument,supportsOther:boolean,supportsProgramExecution=false):AppPolicyDocument {
   // Receiver projection must not mutate the persisted Child policy or imply an
   // empty execution list when the client has not negotiated this format.
@@ -468,13 +468,8 @@ export function projectAppPolicyForMachine(policy:AppPolicyDocument,supportsOthe
   // 新身份配置由独立、已协商的scope读取接口提供，旧控制载荷保持原schema。
   delete projected.nativeApplications;
   if(!supportsProgramExecution)delete projected.programInstanceExecutionPolicy;
-  if(supportsOther)return projected;
-  const walk=(value:unknown):unknown=>Array.isArray(value)?value.map(walk)
-    :value!==null&&typeof value==='object'
-      ?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,
-        key==='classification'&&item==='other'?'unclassified':walk(item)]))
-      :value;
-  return walk(projected) as AppPolicyDocument;
+  // 能力用于协商，不允许将other静默改成会扣复合额度的unclassified。
+  return projected;
 }
 
 export async function machinePolicyEtag(machineId:string,version:number,capabilities:readonly string[]):Promise<string> {
@@ -514,7 +509,7 @@ export async function recordMachineHeartbeat(
       policy_state=?6, capabilities_json=?8, last_seen_at_ms=?5, updated_at_ms=?5 WHERE id=?7
   `).bind(input.serviceVersion, input.osVersion, input.architecture, input.tamperCount,
     nowMs, input.policyState, machine.machineId,
-    JSON.stringify(['product-block-v1','application-other-v1',PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY]
+    JSON.stringify(['product-block-v1','application-other-v1',PROGRAM_INSTANCE_EXECUTION_POLICY_CAPABILITY,SHARED_ACCESS_POLICY_V2_CAPABILITY]
       .filter(value=>input.capabilities?.includes(value)))).run();
 }
 

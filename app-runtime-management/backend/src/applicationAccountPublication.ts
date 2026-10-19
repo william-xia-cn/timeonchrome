@@ -1,12 +1,10 @@
 import { hashUsageAccountValue, canonicalUsageAccountJson, verifyUsageAccountManifest,usageAccountDayStart,
   parseUsageAccountRows,parseApplicationAccountRows,verifyApplicationAccountManifest,validateUsageAccountDimensions,validateUsageAccountDimensionsV2,UsageAccountError,
   APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM,type UsageAccountManifest,type UsageAccountRow } from '@timeonchrome/app-runtime-contracts/usage-account';
-import {verifyApplicationInstanceAccountManifest,parseApplicationInstanceAccountRows,
-  validateApplicationInstanceAccountDimensions} from '@timeonchrome/app-runtime-contracts/usage-account';
 import {isRecord} from './validation';
 import { getAppPolicy } from './appPolicy';
 import { applyCurrentWeekClassification,correctUsageRows,loadUsageCorrections } from './applicationUsageCorrections';
-import { applicationStatisticsSource,applicationPublicationDirtyStatements } from './applicationStatistics';
+import { applicationStatisticsSource } from './applicationStatistics';
 import { sha256Hex } from './crypto';
 import { HttpError } from './http';
 import { mapApplicationUsageClock, APPLICATION_CLOCK_MARGIN_MS } from './applicationUsageClock';
@@ -153,7 +151,6 @@ export async function validateApplicationAccountSnapshot(db:D1Database,candidate
   if(isRecord(input)&&typeof input.algorithmVersion==='string')
     await requireApplicationStatisticsProducer(db,{accountId:candidate.account_id,childId:candidate.child_id,
       machineId:candidate.machine_id,localUserId:candidate.local_user_id,assignmentVersion:candidate.assignment_version},input.algorithmVersion);
-  if(isRecord(input)&&input.schemaVersion===3) return validateInstanceSnapshot(db,candidate,input);
   const manifest=await verifyApplicationAccountManifest(input);
   const retirement=await requireCurrentApplicationManifest(db,candidate.account_id,candidate.child_id,manifest);
   const fixedIdentity=manifest.schemaVersion===2&&manifest.algorithmVersion===APPLICATION_FIXED_IDENTITY_SECONDS_ALGORITHM;
@@ -207,34 +204,6 @@ export async function validateApplicationAccountSnapshot(db:D1Database,candidate
   }
   return {manifest,rows,sourceRevision:`application-statistics:${manifest.revision}:${manifest.manifestHash}`};
 }
-/** 实例基础行只校验授权及传输/数值完整性；产品目录、原账到齐均不是采用前提。 */
-async function validateInstanceSnapshot(db:D1Database,candidate:Candidate,input:unknown) {
-  const manifest=await verifyApplicationInstanceAccountManifest(input);
-  await requireCurrentApplicationManifest(db,candidate.account_id,candidate.child_id,manifest);
-  if(!manifest.complete) fail('APPLICATION_ACCOUNT_INCOMPLETE');
-  if(manifest.childId!==candidate.child_id) fail('APPLICATION_ACCOUNT_CHILD_SCOPE_MISMATCH');
-  if(manifest.algorithmVersion!=='application-instance-seconds-v1') fail('APPLICATION_ACCOUNT_ALGORITHM_UNSUPPORTED');
-  if(manifest.date!==candidate.date||manifest.revision!==candidate.revision) fail('APPLICATION_ACCOUNT_INVALID_SOURCE');
-  const assignment=await db.prepare(`SELECT 1 AS found FROM runtime_user_assignments_v2 a JOIN runtime_machines_v2 m ON m.id=a.machine_id
-    WHERE a.machine_id=?1 AND a.local_user_id=?2 AND a.assignment_version=?3 AND a.child_id=?4 AND a.protected=1
-      AND m.account_id=?5 AND m.revoked_at_ms IS NULL AND m.platform IN ('windows','macos')`)
-    .bind(candidate.machine_id,candidate.local_user_id,candidate.assignment_version,candidate.child_id,candidate.account_id).first();
-  if(!assignment) fail('APPLICATION_ACCOUNT_ASSIGNMENT_UNAVAILABLE');
-  const chunks=await db.prepare(`SELECT chunk_index,chunk_hash,rows_json FROM runtime_application_account_chunks_v1
-    WHERE manifest_id=? ORDER BY chunk_index LIMIT 100`).bind(candidate.id)
-    .all<{chunk_index:number;chunk_hash:string;rows_json:string}>();
-  if(chunks.results.length!==manifest.chunkCount||chunks.results.some((c,i)=>c.chunk_index!==i)) fail('APPLICATION_ACCOUNT_CHUNKS_MISSING');
-  const rows=[];
-  for(const chunk of chunks.results) {
-    const parsed=parseApplicationInstanceAccountRows(JSON.parse(chunk.rows_json),100);
-    if(parsed.length!==Math.min(100,manifest.rowCount-chunk.chunk_index*100)||await hashUsageAccountValue(parsed)!==chunk.chunk_hash)
-      fail('APPLICATION_ACCOUNT_CHUNK_HASH_MISMATCH');
-    rows.push(...parsed);
-  }
-  if(rows.length!==manifest.rowCount||await hashUsageAccountValue(rows)!==manifest.rowsHash) fail('APPLICATION_ACCOUNT_ROWS_HASH_MISMATCH');
-  validateApplicationInstanceAccountDimensions(rows);
-  return {manifest,rows,sourceRevision:`application-statistics:${manifest.revision}:${manifest.manifestHash}`};
-}
 /** Receipt is immutable; valid producer snapshots replace a monotonic readable head without hiding coverage gaps. */
 export async function publishApplicationAccounts(db:D1Database,now=Date.now(),manifestId?:string) {
   const candidates=await db.prepare(`SELECT m.* FROM runtime_application_account_manifests_v1 m
@@ -270,7 +239,6 @@ export async function publishApplicationAccounts(db:D1Database,now=Date.now(),ma
         db.prepare(`INSERT INTO runtime_application_account_publication_checks_v1(manifest_id,checked_at_ms,error_code,source_revision)
           VALUES(?1,?2,NULL,?3) ON CONFLICT(manifest_id) DO UPDATE SET checked_at_ms=excluded.checked_at_ms,
             error_code=NULL,source_revision=excluded.source_revision`).bind(candidate.id,now,revision),
-        ...await applicationPublicationDirtyStatements(db,candidate,now),
       ]);
       if(Number(result[0]?.meta.changes??0)>0)published++;
       else {

@@ -36,7 +36,6 @@
       "properties":{"schemaVersion":{"const":2},"keyId":{"$ref":"#/$defs/hash"},
         "claims":{"$ref":"#/$defs/webClaims"},"signature":{"type":"string","pattern":"^[A-Za-z0-9_-]{86}$"}}
     },
-    "bindQuery":{"type":"object","additionalProperties":false,"required":["proof"],"properties":{"proof":{"$ref":"#/$defs/webProof"}}},
-    "replaceQuery":{"type":"object","additionalProperties":false,"required":["upload"],"properties":{"upload":{"$ref":"shared-web-sync-v1.schema.json#/$defs/upload"}}}
+    "bindQuery":{"type":"object","additionalProperties":false,"required":["proof"],"properties":{"proof":{"$ref":"#/$defs/webProof"}}}
   }
 }

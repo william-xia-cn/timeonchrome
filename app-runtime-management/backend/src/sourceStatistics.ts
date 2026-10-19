@@ -1,20 +1,29 @@
-import { sourceStatisticsDates, validateSourceStatisticsSnapshot, type SourceStatisticsQuery, type SourceStatisticsSnapshot, type SourceStatisticsDay } from '@timeonchrome/app-runtime-contracts/source-statistics';
-import { verifyUsageAccountManifestV2 } from '@timeonchrome/app-runtime-contracts/usage-account';
-import { applicationSharedQuotaSourceKey } from './applicationSharedQuota';
-import { isV3OnlyApplicationManifest } from './applicationLedgerRetirement';
-import { sha256Hex } from './crypto';
+import { sourceStatisticsDates } from '@timeonchrome/app-runtime-contracts/source-statistics';
 import { HttpError } from './http';
 import {readNativeApplicationStatisticsSeconds} from './applicationStatisticsNative';
-import {applicationQuotaBucketsSeconds,validateQuotaBucketsSnapshot,type QuotaBucketsQuery,type QuotaBucketsSnapshot} from '@timeonchrome/app-runtime-contracts/source-statistics';
+import {applicationQuotaBucketsSeconds,validateQuotaBucketsSnapshot,validateQuotaBucketsSources,type QuotaBucketsQuery,type QuotaBucketsSnapshot,type QuotaBucketsSources} from '@timeonchrome/app-runtime-contracts/source-statistics';
+
+type ApplicationQuotaSource={machineId:string;localUserId:string;assignmentVersion:number};
+type ApplicationQuotaReadOptions={onlySource?:ApplicationQuotaSource};
 
 /** 新共享只委托已验收的统计读取器；不复制publication/manifest/chunks查询。 */
 export async function readApplicationQuotaBuckets(db:D1Database,accountId:string,childId:string,query:QuotaBucketsQuery,
-  ownSource?:{machineId:string;localUserId:string;assignmentVersion:number},now=Date.now()):Promise<QuotaBucketsSnapshot>{
+  ownSource?:ApplicationQuotaSource,now=Date.now(),options:ApplicationQuotaReadOptions={}):Promise<QuotaBucketsSnapshot>{
   if(query.source!=='application'||query.scope==='other'&&!ownSource)throw new HttpError(400,'SOURCE_STATISTICS_INVALID','配额读取范围无效。');
   const days:QuotaBucketsSnapshot['days'][number][]=[];
+  let failedDays=0;let firstFailure:unknown;
   for(const date of sourceStatisticsDates(query.fromDate,query.toDate)){
-    const value=await readNativeApplicationStatisticsSeconds(db,accountId,childId,date,
-      query.scope==='other'?{excludeSources:[ownSource!]}:{});
+    let value:Awaited<ReturnType<typeof readNativeApplicationStatisticsSeconds>>;
+    try { value=await readNativeApplicationStatisticsSeconds(db,accountId,childId,date,
+      {quotaRead:true,fixedIdentityOnly:true,...(query.scope==='other'?{excludeSources:[ownSource!]}:{}),...options});
+    } catch(error) {
+      if(error instanceof HttpError&&(/CHILD_SCOPE_MISMATCH$/.test(error.code)
+        ||/_(SOURCE_LIMIT|ROW_LIMIT|DURATION_OVERFLOW)$/.test(error.code)))throw error;
+      failedDays++;firstFailure??=error;
+      days.push({date,bucketsSeconds:{study:0,composite:0,rest:0},settledThroughMs:null,complete:false,
+        reasonCodes:[error instanceof HttpError?error.code:'APPLICATION_STATISTICS_SOURCE_UNAVAILABLE']});
+      continue;
+    }
     const usage=value?.applicationUsage;
     const reasons=[...new Set([...(value?.reasonCodes??[]),...(usage?.reasonCodes??[]),
       ...(!value?['APPLICATION_STATISTICS_NOT_AVAILABLE']:[]),
@@ -25,99 +34,24 @@ export async function readApplicationQuotaBuckets(db:D1Database,accountId:string
         ?Math.min(...value.references.map(ref=>ref.settledThroughMs!)):null,
       complete:reasons.length===0,reasonCodes:reasons});
   }
+  if(failedDays===days.length)throw firstFailure;
   return validateQuotaBucketsSnapshot({schemaVersion:2,durationUnit:'seconds',source:'application',childId,
     fromDate:query.fromDate,toDate:query.toDate,readAtMs:now,days},
     {source:'application',childId,fromDate:query.fromDate,toDate:query.toDate});
 }
 
-/** 来源状态只说明查询范围；不因没有已发布统计就断言没有其他设备。 */
+/** 成功读取的空统计仍可用；登记分配不是每天必须上报零账的证明要求。 */
 export async function readApplicationQuotaBucketsWithState(db:D1Database,accountId:string,childId:string,query:QuotaBucketsQuery,
-  ownSource?:{machineId:string;localUserId:string;assignmentVersion:number},now=Date.now()) {
-  const snapshot=await readApplicationQuotaBuckets(db,accountId,childId,query,ownSource,now);
-  if(snapshot.days.some(day=>!day.reasonCodes.includes('APPLICATION_STATISTICS_NOT_AVAILABLE')))
-    return {snapshot,sourceState:'available' as const};
-  if(query.scope!=='other'||!ownSource)return {snapshot,sourceState:'unknown' as const};
-  const begin=Date.parse(query.fromDate+'T00:00:00+08:00'),end=Date.parse(query.toDate+'T00:00:00+08:00')+86400000;
-  // 保留所选期间适用的历史分配；仅排除范围开始前已经结束的分配。不读取原始用量。
-  const other=await db.prepare(`SELECT 1 AS present FROM runtime_user_assignments_v2 a
-      JOIN runtime_machines_v2 m ON m.id=a.machine_id
-      WHERE m.account_id=?1 AND a.child_id=?2 AND a.effective_at_ms<?8
-        AND NOT(a.machine_id=?3 AND a.local_user_id=?4 AND a.assignment_version=?5)
-        AND NOT EXISTS(SELECT 1 FROM runtime_user_assignments_v2 n WHERE n.machine_id=a.machine_id
-          AND n.local_user_id=a.local_user_id AND n.assignment_version>a.assignment_version AND n.effective_at_ms<=?9)
-    UNION ALL SELECT 1 AS present FROM runtime_application_account_publications_v1 p
-      JOIN runtime_machines_v2 m ON m.id=p.machine_id
-      WHERE p.account_id=?1 AND m.account_id=?1 AND p.child_id=?2 AND p.date>=?6 AND p.date<=?7
-        AND NOT(p.machine_id=?3 AND p.local_user_id=?4 AND p.assignment_version=?5)
-    LIMIT 1`).bind(accountId,childId,ownSource.machineId,ownSource.localUserId,ownSource.assignmentVersion,
-      query.fromDate,query.toDate,end,begin).first<{present:number}>();
-  if(other)return {snapshot,sourceState:'unknown' as const};
-  return {sourceState:'none' as const,snapshot:validateQuotaBucketsSnapshot({...snapshot,days:snapshot.days.map(day=>({
-    ...day,bucketsSeconds:{study:0,composite:0,rest:0},complete:true,reasonCodes:[],settledThroughMs:null}))},
-    {source:'application',childId,fromDate:query.fromDate,toDate:query.toDate})};
+  ownSource?:ApplicationQuotaSource,now=Date.now(),options:ApplicationQuotaReadOptions={}) {
+  const snapshot=await readApplicationQuotaBuckets(db,accountId,childId,query,ownSource,now,options);
+  return {snapshot,sourceState:'available' as const};
 }
 
-/** 仅旧v1调用者兼容；新共享不得调用此独立来源清单。 */
-export async function readApplicationSourceStatistics(db: D1Database, accountId: string, childId: string,
-  query: SourceStatisticsQuery, now = Date.now()): Promise<SourceStatisticsSnapshot> {
-  if (query.source !== 'application') throw new HttpError(400, 'INVALID_SOURCE', '应用读取器只返回应用统计。');
-  const excluded = query.scope === 'other' ? [...(query.ownSourceKeys ?? [])].sort() : [];
-  const heads = await db.prepare(`SELECT p.date,p.machine_id,p.local_user_id,p.assignment_version,p.manifest_id,p.revision,
-      s.manifest_json,s.manifest_hash FROM runtime_application_account_publications_v1 p
-    JOIN runtime_application_account_manifests_v1 s ON s.id=p.manifest_id
-    JOIN runtime_machines_v2 m ON m.id=p.machine_id
-    WHERE p.account_id=?1 AND p.child_id=?2 AND m.account_id=?1 AND s.account_id=?1 AND s.child_id=?2
-      AND s.machine_id=p.machine_id AND s.local_user_id=p.local_user_id AND s.assignment_version=p.assignment_version
-      AND s.date=p.date AND s.revision=p.revision AND p.date>=?3 AND p.date<=?4
-    ORDER BY p.date,p.machine_id,p.local_user_id,p.assignment_version LIMIT 701`)
-    .bind(accountId, childId, query.fromDate, query.toDate).all<{date:string;machine_id:string;local_user_id:string;assignment_version:number;manifest_id:string;revision:number;manifest_json:string;manifest_hash:string}>();
-  if (heads.results.length > 700) throw new HttpError(503, 'SOURCE_STATISTICS_SOURCE_LIMIT', '统计来源超出读取限制。');
-  const assignments = await db.prepare(`SELECT a.machine_id,a.local_user_id,a.assignment_version FROM runtime_user_assignments_v2 a
-    JOIN runtime_machines_v2 m ON m.id=a.machine_id WHERE m.account_id=?1 AND a.child_id=?2 AND a.protected=1
-      AND NOT EXISTS(SELECT 1 FROM runtime_user_assignments_v2 n WHERE n.machine_id=a.machine_id AND n.local_user_id=a.local_user_id AND n.assignment_version>a.assignment_version)
-    ORDER BY a.machine_id,a.local_user_id,a.assignment_version LIMIT 201`).bind(accountId,childId)
-    .all<{machine_id:string;local_user_id:string;assignment_version:number}>();
-  if (assignments.results.length > 200) throw new HttpError(503,'SOURCE_STATISTICS_SOURCE_LIMIT','统计来源超出读取限制。');
-  const expected = new Set<string>();
-  for (const a of assignments.results) { const key=await applicationSharedQuotaSourceKey(a.machine_id,a.local_user_id,a.assignment_version); if(!excluded.includes(key))expected.add(key); }
-  const included = new Set<string>(), versions: unknown[] = [], days: SourceStatisticsDay[]=[];
-  const add = (a:number,b:number) => { const n=a+b; if(!Number.isSafeInteger(n)||n<0)throw new HttpError(503,'SOURCE_STATISTICS_INVALID','统计时长无效。');return n; };
-  for (const date of sourceStatisticsDates(query.fromDate,query.toDate)) {
-    let total=0, nonSpecial=0, count=0; const cutoffs:Array<number|null>=[],categories:Record<string,number>={}, reasons=new Set<string>(), seen=new Set<string>();
-    for (const head of heads.results.filter(h=>h.date===date)) {
-      const key=await applicationSharedQuotaSourceKey(head.machine_id,head.local_user_id,head.assignment_version);
-      if(excluded.includes(key))continue;
-      const manifest=await verifyUsageAccountManifestV2(JSON.parse(head.manifest_json));
-      if(!isV3OnlyApplicationManifest(manifest,childId)){ reasons.add('APPLICATION_V3_RECORDS_NOT_AVAILABLE');continue; }
-      if(manifest.date!==date||manifest.childId!==childId||manifest.revision!==head.revision||manifest.manifestHash!==head.manifest_hash)
-        throw new HttpError(503,'SOURCE_STATISTICS_INVALID','已发布统计范围或哈希无效。');
-      // 冻结清单已在接收时校验分块/行哈希；这里只取已持久化的日total，不传排行或扫描原账。
-      const row=await db.prepare(`SELECT json_extract(r.value,'$.duration') AS duration
-        FROM runtime_application_account_chunks_v1 c,json_each(c.rows_json) r WHERE c.manifest_id=?1
-        AND json_extract(r.value,'$.kind')='total' AND json_extract(r.value,'$.hour') IS NULL LIMIT 2`)
-        .bind(head.manifest_id).all<{duration:number}>();
-      if(row.results.length!==1||!Number.isSafeInteger(row.results[0]!.duration)||row.results[0]!.duration<0)
-        throw new HttpError(503,'SOURCE_STATISTICS_INVALID','已发布日总量无效。');
-      total=add(total,row.results[0]!.duration);count++;seen.add(key);included.add(key);
-      versions.push([date,key,manifest.revision,manifest.manifestHash]);
-      cutoffs.push(manifest.settledThroughMs);
-      for(const reason of manifest.reasonCodes)reasons.add(reason);
-      if(!manifest.complete)reasons.add('APPLICATION_STATISTICS_INCOMPLETE');
-      const usage=manifest.applicationUsage;
-      if(!usage){reasons.add('APPLICATION_USAGE_CLASSIFICATION_UNAVAILABLE');continue;}
-      nonSpecial=add(nonSpecial,usage.nonSpecialTotal);
-      for(const [category,n] of Object.entries(usage.nonSpecialCategories))categories[category]=add(categories[category]??0,n);
-      for(const reason of usage.reasonCodes)reasons.add(reason);
-      if(!usage.complete)reasons.add('APPLICATION_USAGE_CLASSIFICATION_UNAVAILABLE');
-    }
-    if([...expected].some(key=>!seen.has(key)))reasons.add('APPLICATION_SOURCE_NOT_PUBLISHED');
-    const unknown=count===0&&reasons.size>0;
-    days.push({date,totalSeconds:unknown?null:total,categoriesSeconds:categories,
-      nonSpecialTotalSeconds:unknown||reasons.has('APPLICATION_USAGE_CLASSIFICATION_UNAVAILABLE')?null:nonSpecial,
-      settledThroughMs:cutoffs.length&&cutoffs.every(n=>n!==null)?Math.min(...cutoffs as number[]):null,complete:reasons.size===0,reasonCodes:[...reasons].sort()});
-  }
-  const value:SourceStatisticsSnapshot={schemaVersion:1,durationUnit:'seconds',source:'application',childId,
-    fromDate:query.fromDate,toDate:query.toDate,readAtMs:now,includedSourceKeys:[...included].sort(),excludedSourceKeys:excluded,days,
-    revision:await sha256Hex(JSON.stringify({childId,query,versions,days}))};
-  return validateSourceStatisticsSnapshot(value,{source:'application',childId,fromDate:query.fromDate,toDate:query.toDate});
+/** 本机云账仅供核对；两个分项各自读取，不用合计减其他来源反拆。 */
+export async function readApplicationQuotaBucketsSources(db:D1Database,accountId:string,childId:string,query:QuotaBucketsQuery,
+  ownSource:ApplicationQuotaSource,now=Date.now()):Promise<QuotaBucketsSources>{
+  const local=await readApplicationQuotaBuckets(db,accountId,childId,{...query,scope:'all'},undefined,now,{onlySource:ownSource});
+  const other=await readApplicationQuotaBucketsWithState(db,accountId,childId,{...query,scope:'other'},ownSource,now);
+  return validateQuotaBucketsSources({local,other:other.sourceState==='available'?other.snapshot:null,otherState:other.sourceState},
+    {childId,fromDate:query.fromDate,toDate:query.toDate});
 }

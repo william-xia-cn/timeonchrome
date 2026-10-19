@@ -91,6 +91,53 @@ async function readDeviceHeadsForDate(env: Env, profileId: string, date: string)
   return result.results || [];
 }
 
+type DeviceHead = { device_id: string; manifest_id: string; revision: number };
+const HISTORY_READ_LIMIT = 8;
+function checkScope(valid: boolean) {
+  if (!valid) throw new Error('PROFILE_ACCOUNT_SOURCE_SCOPE_MISMATCH');
+}
+function rejectScopeFailure(error: unknown) {
+  if (error instanceof Error && error.message === 'PROFILE_ACCOUNT_SOURCE_SCOPE_MISMATCH') throw error;
+}
+
+/** 仅回退有published事件证明的旧版；不把已接收但未发布的清单升级为权威。 */
+async function readConfirmedDeviceAccount(env: Env, profileId: string, date: string, head: DeviceHead) {
+  const read = async (manifestId: string, revision: number) => {
+    const account = await readManifestAccountV2(env, manifestId);
+    if (account) checkScope(account.profileId === profileId && account.deviceId === head.device_id
+      && account.date === date && account.revision === Number(revision));
+    return account;
+  };
+  try {
+    const account = await read(head.manifest_id, head.revision);
+    if (account) return { account, degraded: false };
+  } catch (error) { rejectScopeFailure(error); }
+  console.warn('PROFILE_ACCOUNT_SOURCE_READ_DEGRADED');
+  try {
+    const history = await env.DB.prepare(`SELECT manifest_id, revision FROM profile_account_publication_events_v2
+      WHERE profile_id = ? AND device_id = ? AND date = ? AND event_code = 'published'
+        AND revision <= ? AND manifest_id != ? ORDER BY revision DESC LIMIT ?`)
+      .bind(profileId, head.device_id, date, head.revision, head.manifest_id, HISTORY_READ_LIMIT)
+      .all<{ manifest_id: string; revision: number }>();
+    for (const prior of history.results) {
+      try {
+        const account = await read(prior.manifest_id, prior.revision);
+        if (account) return { account: { ...account, complete: false }, degraded: true };
+      } catch (error) { rejectScopeFailure(error); }
+    }
+  } catch (error) { rejectScopeFailure(error); }
+  return { account: null, degraded: true };
+}
+
+async function partialAccount<T extends { totalHash: string; complete: boolean; incompleteDevices: string[] }>(
+  account: T, degraded: boolean, missingDevices: string[] = []): Promise<T> {
+  if (!degraded) return account;
+  const partial = { ...account, complete: false,
+    incompleteDevices: [...new Set([...account.incompleteDevices, ...missingDevices])].sort() };
+  const { totalHash: _hash, ...body } = partial;
+  return { ...partial, totalHash: await hashDeviceAccountValue(body) };
+}
+
 export async function readProfileDayAccountV2(env: Env, generationId: string): Promise<any | null> {
   const row = await env.DB.prepare(
     `SELECT id, profile_id, date, week_start, generation, as_of, device_version_vector_json,
@@ -160,26 +207,49 @@ export async function readProfileWeekAccountV2(env: Env, generationId: string): 
   };
 }
 
-async function readDayHeadsForWeek(env: Env, profileId: string, weekStart: string, replacingDay: any): Promise<any[]> {
+async function readDayHeadsForWeek(env: Env, profileId: string, weekStart: string, replacingDay: any) {
   const { weekEnd } = getBeijingWeekPeriod(weekStart);
   const result = await env.DB.prepare(
-    `SELECT date, generation_id FROM profile_account_day_heads_v2
+    `SELECT date, generation_id, generation FROM profile_account_day_heads_v2
       WHERE profile_id = ? AND date >= ? AND date <= ? ORDER BY date ASC`
   ).bind(profileId, weekStart, weekEnd).all<any>();
   const days = [];
-  let replaced = false;
+  let replaced = false, degraded = false;
   for (const head of result.results || []) {
     if (head.date === replacingDay.date) {
       days.push(replacingDay);
       replaced = true;
     } else {
-      const day = await readProfileDayAccountV2(env, head.generation_id);
-      if (!day) throw new Error('PROFILE_ACCOUNT_DAY_HEAD_MISSING');
-      days.push(day);
+      const read = async (id: string) => {
+        const day = await readProfileDayAccountV2(env, id);
+        if (day) checkScope(day.profileId === profileId && day.date === head.date && day.weekStart === weekStart);
+        if (day && await hashDeviceAccountValue({schemaVersion: 2, profileId: day.profileId, date: day.date,
+          generation: day.generation, asOf: day.asOf, deviceVersionVector: day.deviceVersionVector,
+          rows: day.rows, totalSeconds: day.totalSeconds, complete: day.complete, incompleteDevices: day.incompleteDevices}) !== day.totalHash)
+          throw new Error('PROFILE_ACCOUNT_DAY_HASH_MISMATCH');
+        return day;
+      };
+      let day = null;
+      try { day = await read(head.generation_id); } catch (error) { rejectScopeFailure(error); }
+      if (!day) {
+        degraded = true;
+        console.warn('PROFILE_ACCOUNT_DAY_READ_DEGRADED');
+        try {
+          const history = await env.DB.prepare(`SELECT id FROM profile_account_day_generations_v2
+            WHERE profile_id = ? AND date = ? AND generation <= ? AND id != ?
+            ORDER BY generation DESC LIMIT ?`)
+            .bind(profileId, head.date, head.generation, head.generation_id, HISTORY_READ_LIMIT)
+            .all<{ id: string }>();
+          for (const prior of history.results) {
+            try { day = await read(prior.id); if (day) break; } catch (error) { rejectScopeFailure(error); }
+          }
+        } catch (error) { rejectScopeFailure(error); }
+      }
+      if (day) days.push(day);
     }
   }
   if (!replaced) days.push(replacingDay);
-  return days.sort((left, right) => left.date.localeCompare(right.date));
+  return { days: days.sort((left, right) => left.date.localeCompare(right.date)), degraded };
 }
 
 export async function getDeviceAccountPublishedRevision(
@@ -199,6 +269,11 @@ export async function publishCommittedDeviceAccountV2(
   if (!candidate || candidate.profileId !== profileId || candidate.deviceId !== deviceId) {
     throw new Error('PROFILE_ACCOUNT_DEVICE_MANIFEST_NOT_COMMITTED');
   }
+  const { weekStart } = getBeijingWeekPeriod(candidate.date);
+  // 先固定周generation再读来源；并发发布由现有UNIQUE约束使整批回滚，不能覆盖陈旧输入。
+  const currentWeekHead = await env.DB.prepare(
+    `SELECT generation FROM profile_account_week_heads_v2 WHERE profile_id = ? AND week_start = ?`
+  ).bind(profileId, weekStart).first<any>();
   const existingHead = await getDeviceAccountPublishedRevision(env, profileId, deviceId, candidate.date);
   if (existingHead && existingHead.revision >= candidate.revision) {
     return {
@@ -211,15 +286,16 @@ export async function publishCommittedDeviceAccountV2(
 
   const headRows = await readDeviceHeadsForDate(env, profileId, candidate.date);
   const manifests: DeviceAccountManifestV2[] = [];
+  const missingDevices: string[] = [];
   let candidateAdded = false;
   for (const head of headRows) {
     if (head.device_id === deviceId) {
       manifests.push(candidate);
       candidateAdded = true;
     } else {
-      const account = await readManifestAccountV2(env, head.manifest_id);
-      if (!account) throw new Error('PROFILE_ACCOUNT_DEVICE_HEAD_MISSING');
-      manifests.push(account);
+      const source = await readConfirmedDeviceAccount(env, profileId, candidate.date, head);
+      if (source.degraded) missingDevices.push(head.device_id);
+      if (source.account) manifests.push(source.account);
     }
   }
   if (!candidateAdded) manifests.push(candidate);
@@ -229,14 +305,15 @@ export async function publishCommittedDeviceAccountV2(
     `SELECT generation FROM profile_account_day_heads_v2 WHERE profile_id = ? AND date = ?`
   ).bind(profileId, candidate.date).first<any>();
   const dayGeneration = Number(currentDayHead?.generation || 0) + 1;
-  const dayAccount = await buildProfileDayAccount({ profileId, date: candidate.date, generation: dayGeneration, manifests });
-  const { weekStart } = getBeijingWeekPeriod(candidate.date);
+  const dayAccount = await partialAccount(
+    await buildProfileDayAccount({ profileId, date: candidate.date, generation: dayGeneration, manifests }),
+    missingDevices.length > 0, missingDevices);
   const dayAccounts = await readDayHeadsForWeek(env, profileId, weekStart, dayAccount);
-  const currentWeekHead = await env.DB.prepare(
-    `SELECT generation FROM profile_account_week_heads_v2 WHERE profile_id = ? AND week_start = ?`
-  ).bind(profileId, weekStart).first<any>();
   const weekGeneration = Number(currentWeekHead?.generation || 0) + 1;
-  const weekAccount = await buildProfileWeekAccount({ profileId, weekStart, generation: weekGeneration, dayAccounts });
+  const weekAccount = await partialAccount(
+    await buildProfileWeekAccount({ profileId, weekStart, generation: weekGeneration, dayAccounts: dayAccounts.days }),
+    dayAccounts.degraded || dayAccounts.days.some(day => !day.complete),
+    dayAccounts.days.flatMap(day => day.incompleteDevices));
   const now = Date.now();
   const dayGenerationId = crypto.randomUUID();
   const weekGenerationId = crypto.randomUUID();
@@ -338,16 +415,32 @@ export async function publishCommittedDeviceAccountV2(
   };
 }
 
-export async function listPublishedDeviceAccountsForWeek(env: Env, profileId: string, weekStart: string): Promise<DeviceAccountManifestV2[]> {
+export async function listPublishedDeviceAccountsForWeek(env: Env, profileId: string, weekStart: string,
+  versionVector?: Array<{deviceId: string; manifestId: string; date: string; revision: number; statsHash: string; complete: boolean}>): Promise<DeviceAccountManifestV2[]> {
   const { weekEnd } = getBeijingWeekPeriod(weekStart);
+  if (versionVector) {
+    // 传输快照必须读取该周generation确认的版本，不能混入读取期间变化的设备头。
+    const accounts: DeviceAccountManifestV2[] = [];
+    for (const reference of versionVector) {
+      checkScope(reference.date >= weekStart && reference.date <= weekEnd);
+      const account = await readManifestAccountV2(env, reference.manifestId);
+      if (!account) throw new Error('PROFILE_ACCOUNT_DEVICE_HEAD_MISSING');
+      checkScope(account.profileId === profileId && account.deviceId === reference.deviceId && account.date === reference.date);
+      if (account.revision !== reference.revision || account.statsHash !== reference.statsHash)
+        throw new Error('PROFILE_ACCOUNT_SOURCE_VERSION_MISMATCH');
+      accounts.push({ ...account, complete: account.complete && reference.complete });
+    }
+    return accounts;
+  }
   const result = await env.DB.prepare(
-    `SELECT manifest_id FROM device_account_heads_v2
+    `SELECT manifest_id, device_id, date, revision FROM device_account_heads_v2
       WHERE profile_id = ? AND date >= ? AND date <= ? ORDER BY date ASC, device_id ASC`
   ).bind(profileId, weekStart, weekEnd).all<any>();
   const accounts: DeviceAccountManifestV2[] = [];
   for (const row of result.results || []) {
     const account = await readManifestAccountV2(env, row.manifest_id);
     if (!account) throw new Error('PROFILE_ACCOUNT_DEVICE_HEAD_MISSING');
+    checkScope(account.profileId === profileId && account.deviceId === row.device_id && account.date === row.date);
     accounts.push(account);
   }
   return accounts;

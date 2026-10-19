@@ -12,9 +12,7 @@ import {
 import { routeV2 } from './v2Routes';
 import { deleteRuntimeChildV2 } from './v2Repository';
 import { exchangeBrowserSession, revokeBrowserSession } from './browserSessions';
-import { rebuildApplicationStatistics } from './applicationStatistics';
 import { publishApplicationAccounts } from './applicationAccountPublication';
-import { reconcileApplicationSharedQuotaEvidence } from './applicationSharedQuota';
 import { requireApplicationLegacyEnabled } from './applicationLedgerRetirement';
 import { refreshPendingProgramInstanceMappings } from './programInstances';
 export { RuntimeComputerUsageService } from './computerUsageService';
@@ -224,8 +222,9 @@ export default {
     ctx.waitUntil(refreshPendingProgramInstanceMappings(env.RUNTIME_DB).catch(()=>{
       console.error(JSON.stringify({message:'program_instance_mapping_refresh_failed',code:'PROGRAM_INSTANCE_MAPPING_RETRY_PENDING'}));
     }));
-    ctx.waitUntil((async()=>{await publishApplicationAccounts(env.RUNTIME_DB);await rebuildApplicationStatistics(env.RUNTIME_DB);
-      await reconcileApplicationSharedQuotaEvidence(env.RUNTIME_DB);})());
+    // Current received snapshots publish directly; the retired raw-ledger
+    // materializer and contribution reconciliation are not current consumers.
+    ctx.waitUntil(publishApplicationAccounts(env.RUNTIME_DB));
   },
   async fetch(request: Request, env: Env, ctx?:ExecutionContext): Promise<Response> {
     const origin = request.headers.get('origin');

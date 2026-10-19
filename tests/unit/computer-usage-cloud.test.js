@@ -23,7 +23,7 @@ const authorityRows=['daily_domain','hourly_domain','daily_target','hourly_targe
 assert.equal(schema.validateDeviceAccountRows(authorityRows,date).ok,true,'fixture must match the real authoritative schema');
 assert.equal(schema.validateDeviceAccountRows([{kind:'daily_total'}],date).code,'DEVICE_ACCOUNT_INVALID_KIND');
 const app={key:'app:opaque',computerKey:'opaque-computer',computerName:'电脑',revision:'a1',associationVersion:'association1',correctionRevision:'ac1',settledAtMs:start+4000,complete:true,reasons:[],totalMs:2000,categoriesMs:{composite:2000},intervals:[{startMs:start+1500,endMs:start+3500,classification:'composite',subjectKey:'opaque-product',label:'办公应用',special:false}]};
-const fullPolicy=JSON.parse(JSON.stringify(loader()('app-runtime-management/contracts/shared-access.ts').projectLegacySharedAccessPolicy(
+const fullPolicy=JSON.parse(JSON.stringify(loader()('app-runtime-management/contracts/shared-access.ts').projectSharedAccessPolicyV2(
  {timeQuota:{daily:{friday:{studyMinutes:60,compositeMinutes:30,restMinutes:60}}}},7,0)));
 function fixture({owned=true,appFailure=false,webFailure=false,sharedStateFailure=false,policyChanges=false,policyContentChanges=false,failedDate,legacy=false,appError='private runtime failure',publicStats=[],webDevices=[{id:'browser',device_name:'浏览器设备'}]}={}){
 let reads=0,heads=1,appReads=0;const store=new Map();
@@ -39,31 +39,8 @@ const load=loader({'./profileAccountsV2':{readManifestAccountV2:async(_db,manife
 './compositePageCorrections':{readCompositeCorrections:async()=>({revision:'c1',items:[]}),projectCompositeDailyRows:current=>current.rows.filter(row=>row.kind==='daily_target')},
 './usageAccountingCorrections':{listUsageAccountingCorrections:async()=>[],applyCorrectionsToV1StatsRows:rows=>rows},
 '../db/middleware':{generateToken:async()=> 'test-internal',verifyAccountToken:async request=>request.headers.get('authorization')==='Bearer fixture'?'family':null,json:(body,status=200)=>Response.json(body,{status})},'../routes/stats':{statsRouter:{handle:async request=>Response.json({stats:new URL(request.url).pathname.includes('hourly')?publicStats.map(row=>({...row,hour:0})):publicStats})}},
-'../routes/profiles':{readSharedAccessPolicyForChild:async(_db,accountId,childId)=>{
-  if(accountId!=='current-account'||childId!=='current-child')return null;
-  const value=structuredClone(fullPolicy);policyReads++;
-  if(policyReads>1&&policyChanges)value.revision='profile-config:8';
-  if(policyReads>1&&policyContentChanges)value.dailyMinutes.friday.study=61;
-  return value;
-}},
-'./sharedAccessState':{readSharedQuotaExecutionBasis:async(_env,accountId,childId,selectedDate,policy)=>{
-  assert.equal(accountId,'current-account');assert.equal(childId,'current-child');
-  if(sharedStateFailure)throw Error('private database failure');
-  return {revision:'a'.repeat(64),policyRevision:policy.revision,toDate:selectedDate};
-},pageSharedQuotaExecutionBasis:(basis,key,offset,limit,revision,source)=>{
-  assert.equal(source,'application');
-  if(revision!==null&&revision!==basis.revision)throw Error('EXECUTION_BASIS_VERSION_CHANGED');
-  if(offset>1)throw Error('INVALID_EXECUTION_CURSOR');
-  return {schemaVersion:1,basisRevision:basis.revision,policyRevision:basis.policyRevision,fromDate:'2026-09-28',toDate:basis.toDate,
-    days:[],authorizedScopes:[{source,sourceKey:key,date:basis.toDate}],page:{offset,limit,total:1,nextOffset:null,items:[]}};
-},readSharedAccessDayState:async(_env,accountId,childId,selectedDate,policy)=>{
-  assert.equal(accountId,'current-account');assert.equal(childId,'current-child');
-  if(sharedStateFailure)throw Error('private state failure');
-  return {schemaVersion:1,policyRevision:policy.revision,revision:'state-r1',computedAtMs:1234,settledAtMs:null,
-    complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],sources:[{source:'web',sourceKey:'opaque-source',date:selectedDate,revision:'web-r1'}],
-    day:{date:selectedDate,usedMs:{study:1000,composite:2000,rest:0},remainingMs:{study:5000,composite:4000,rest:3000},borrowedRestMs:0},
-    week:{fromDate:'2026-09-28',toDate:selectedDate,complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],restUsedMs:0,restRemainingMs:3000}};
-}}});
+'../routes/profiles':{readSharedAccessPolicyV2ForChild:async(_db,accountId,childId)=>accountId==='current-account'&&childId==='current-child'?structuredClone(fullPolicy):null}});
+
 return {load,env:{DB:db,CONFIG_CACHE:{get:async key=>store.has(key)?JSON.parse(store.get(key)):null,put:async(key,value)=>store.set(key,value)},RUNTIME_COMPUTER_USAGE:{applicationEvidenceRevision:async()=>{if(appFailure)throw Error(appError);return 'a1';},readApplicationEvidence:async()=>{appReads++;if(appFailure)throw Error(appError);return [app];}}},store,reads:()=>reads,appReads:()=>appReads,change(){heads++;}};
 }
 (async()=>{
@@ -112,7 +89,7 @@ emptyRegistrations[0].empty=true;
 for(const webDevices of [[],emptyRegistrations]){
   const emptyFixture=fixture({webDevices}),emptyService=emptyFixture.load('workers/src/services/computerUsage.ts');
   const empty=await emptyService.readComputerWebStatisticsSeconds(emptyFixture.env,'family','child',date,date);
-  assert.equal(empty.complete,false);assert.equal(empty.totalDuration,null);assert.equal(empty.availableTotalDuration,null,'no records never becomes a fabricated complete zero');
+  assert.equal(empty.complete,true);assert.equal(empty.totalDuration,0);assert.equal(empty.availableTotalDuration,0,'successful empty reads are normal zero usage, not failed reads');
 }
 const zeroFixture=fixture({webDevices:[{id:'browser',device_name:'显式零清单',zero:true}]}),zeroService=zeroFixture.load('workers/src/services/computerUsage.ts');
 const zero=await zeroService.readComputerWebStatisticsSeconds(zeroFixture.env,'family','child',date,date);
@@ -207,7 +184,7 @@ secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async(...a
   revision:'identity-product-r2',applicationUsage:null});
 const productPending=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
 assert.equal(productPending.totals.application,15,'missing product projection preserves the valid base total');
-assert.equal(productPending.totals.web,3);assert.equal(productPending.totals.computer,null);
+assert.equal(productPending.totals.web,3);assert.equal(productPending.totals.computer,3,'unknown application deduction does not erase known web usage');
 assert.equal(productPending.totals.specialIncluded,null,'unknown deduction must not become zero');
 assert.notEqual(productPending.revision,bindingSeconds.revision,'product-only revision invalidates the summary');
 secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async(...args)=>({...(await identityReader(...args)),childId:'other-child'});
@@ -216,7 +193,7 @@ assert.equal(wrongIdentityScope.totals.application,null,'response scope must mat
 assert.equal(wrongIdentityScope.totals.web,3);
 secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async()=>{throw Error('APPLICATION_SOURCE_UNAVAILABLE');};
 const appMissing=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
-assert.equal(appMissing.totals.web,3);assert.equal(appMissing.totals.application,null);assert.equal(appMissing.totals.computer,null);
+assert.equal(appMissing.totals.web,3);assert.equal(appMissing.totals.application,null);assert.equal(appMissing.totals.computer,3);
 assert(appMissing.reasonCodes.includes('APPLICATION_SOURCE_UNAVAILABLE'));
 secondsFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async()=>{throw Error('APPLICATION_DATABASE_MEMORY_LIMIT');};
 assert((await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date)).reasonCodes.includes('APPLICATION_DATABASE_MEMORY_LIMIT'));
@@ -224,7 +201,7 @@ const webMissingFixture=fixture({webFailure:true}),webMissingService=webMissingF
 webMissingFixture.env.RUNTIME_COMPUTER_USAGE.getApplicationIdentityUsage=async()=>({model:'program-instance-v1',childId:'child',revision:'identity-r2',durationUnit:'seconds',fromDate:date,toDate:date,complete:true,totalDuration:5,availableTotalDuration:5,
   categories:[{classification:'unclassified',duration:5}],applicationUsage:{nonSpecialTotal:5,nonSpecialCategories:{unclassified:5},specialTotal:0,complete:true,reasonCodes:[]},statistics:{revision:'r2'}});
 const webMissing=await webMissingService.readComputerUsageStatisticsSummarySeconds(webMissingFixture.env,'family','child',date,date);
-assert.equal(webMissing.totals.web,null);assert.equal(webMissing.totals.application,5);assert.equal(webMissing.totals.computer,null);
+assert.equal(webMissing.totals.web,null);assert.equal(webMissing.totals.application,5);assert.equal(webMissing.totals.computer,5);
 const legacySecondsFixture=fixture({legacy:true}),legacySecondsService=legacySecondsFixture.load('workers/src/services/computerUsage.ts');
 assert.equal((await legacySecondsService.readComputerWebStatisticsSeconds(legacySecondsFixture.env,'family','child',date,date)).totalDuration,5134);
 assert.equal(legacySecondsFixture.reads(),0,'legacy statistics also avoid raw intervals');
@@ -236,48 +213,14 @@ const scopeRequest=(accountId,childId)=>new Request('https://private-capability/
 assert.deepEqual(await (await scoped.fetch(scopeRequest('current-account','current-child'))).json(),{owned:true});
 assert.deepEqual(await (await scoped.fetch(scopeRequest('foreign-account','current-child'))).json(),{owned:false});
 const policyRequest=(accountId,childId)=>new Request('https://private-capability/readSharedAccessPolicy',
-  {method:'POST',body:JSON.stringify({accountId,childId})});
+  {method:'POST',body:JSON.stringify({accountId,childId,schemaVersion:2})});
 assert.deepEqual(await (await scoped.fetch(policyRequest('current-account','current-child'))).json(),
   {policy:fullPolicy});
 assert.equal((await scoped.fetch(policyRequest('foreign-account','current-child'))).status,404);
 assert.equal((await scoped.fetch(new Request('https://private-capability/getUsage',{method:'POST'}))).status,405);
 assert.equal((await scoped.fetch(scopeRequest('x'.repeat(3000),'current-child'))).status,400);
-const quotaStateRequest=(accountId,childId,date='2026-10-02',extra={})=>new Request('https://private-capability/readSharedQuotaState',
-  {method:'POST',body:JSON.stringify({accountId,childId,date,...extra})});
-const quotaStateResponse=await scoped.fetch(quotaStateRequest('current-account','current-child'));
-assert.equal(quotaStateResponse.status,200);
-const quotaStateBody=await quotaStateResponse.json();
-assert.deepEqual(quotaStateBody.state,{schemaVersion:1,policyRevision:'profile-config:7',revision:'state-r1',computedAtMs:1234,
-  settledAtMs:null,complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],
-  sources:[{source:'web',sourceKey:'opaque-source',date:'2026-10-02',revision:'web-r1'}],
-  day:{date:'2026-10-02',usedMs:{study:1000,composite:2000,rest:0},remainingMs:{study:5000,composite:4000,rest:3000},borrowedRestMs:0},
-  week:{fromDate:'2026-09-28',toDate:'2026-10-02',complete:false,reasonCodes:['APPLICATION_COVERAGE_MISSING'],restUsedMs:0,restRemainingMs:3000},offline:false});
-assert.equal('stage' in quotaStateBody.state,false,'wire state contains only the published contract fields');
-assert.equal((await scoped.fetch(quotaStateRequest('current-account','current-child','2026-02-30'))).status,400);
-assert.equal((await scoped.fetch(quotaStateRequest('foreign-account','current-child'))).status,404);
-assert.equal((await scoped.fetch(quotaStateRequest('current-account','current-child','2026-10-02',{childId:'foreign-child'}))).status,404);
-const basisRequest=(extra={})=>new Request('https://private-capability/readSharedQuotaExecutionBasis',
- {method:'POST',body:JSON.stringify({accountId:'current-account',childId:'current-child',date:'2026-10-02',
- ownSourceKey:'b'.repeat(64),offset:0,limit:50,expectedRevision:null,...extra})});
-const basisResponse=await scoped.fetch(basisRequest());
-assert.equal(basisResponse.status,200);assert.equal(basisResponse.headers.get('cache-control'),'no-store');
-assert.equal((await basisResponse.json()).authorizedScopes[0].source,'application');
-for(const extra of [{source:'web'},{token:'private'},{date:'2026-02-30'},{offset:1},{limit:101},{ownSourceKey:'display-name'}])
- assert.equal((await scoped.fetch(basisRequest(extra))).status,400);
-assert.equal((await scoped.fetch(basisRequest({accountId:'foreign-account'}))).status,404);
-assert.equal((await scoped.fetch(basisRequest({expectedRevision:'c'.repeat(64)}))).status,409);
-const changingFixture=fixture({policyChanges:true});
-const changingService=new (changingFixture.load('workers/src/services/computerUsage.ts').ComputerUsageService)({},f.env);
-assert.equal((await changingService.fetch(basisRequest())).status,409,'a policy change during basis loading cannot publish a mixed page');
-const contentFixture=fixture({policyContentChanges:true});
-const contentService=new (contentFixture.load('workers/src/services/computerUsage.ts').ComputerUsageService)({},f.env);
-assert.equal((await contentService.fetch(basisRequest())).status,409,'a full policy content change with the same ordinal invalidates an in-flight page');
-const stateFailureFixture=fixture({sharedStateFailure:true});const stateFailureService=new (stateFailureFixture.load('workers/src/services/computerUsage.ts').ComputerUsageService)({}, {DB:{
-  prepare(){return {bind(){return {first:async()=>({id:'current-child'})};}};}}});
-const stateFailure=await stateFailureService.fetch(quotaStateRequest('current-account','current-child'));
-assert.equal(stateFailure.status,503);assert.deepEqual(await stateFailure.json(),{code:'SHARED_QUOTA_STATE_UNAVAILABLE'});
-const basisFailure=await stateFailureService.fetch(basisRequest());
-assert.equal(basisFailure.status,503);assert.deepEqual(await basisFailure.json(),{code:'SHARED_EXECUTION_BASIS_UNAVAILABLE'});
+for(const operation of ['readSharedQuotaState','readSharedQuotaExecutionBasis','createSharedWebSourceChallenge'])
+ assert.equal((await scoped.fetch(new Request('https://private-capability/'+operation,{method:'POST',body:'{}'}))).status,405,'retired binding operations are not dispatched');
 const failedScope=new service.ComputerUsageService({}, {DB:{prepare(){throw Error('private DB failure');}}});
 assert.deepEqual(await (await failedScope.fetch(scopeRequest('current-account','current-child'))).json(),{code:'APPLICATION_SCOPE_UNAVAILABLE'});
 let result=await service.readComputerUsage(f.env,'account','child',date,date);

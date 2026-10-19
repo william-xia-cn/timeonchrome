@@ -2,46 +2,18 @@ export const NATIVE_HOST_PROTOCOL_VERSION = 1 as const;
 export const BROWSER_BRIDGE_PROTOCOL_VERSION = 2 as const;
 export const BROWSER_BRIDGE_V3_PROTOCOL_VERSION = 3 as const;
 export const NATIVE_HOST_ID = 'com.timeonchrome.nativehost' as const;
-export const LEGACY_NATIVE_HOST_ID = 'com.timeonchrome.guardian' as const;
 export const BROWSER_BRIDGE_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v1' as const;
 export const BROWSER_BRIDGE_V2_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v2' as const;
 export const BROWSER_BRIDGE_V3_PIPE_NAME = 'TimeOnChrome.AppRuntime.BrowserBridge.v3' as const;
 export { APPLICATION_USAGE_SECONDS_READ_CAPABILITY, validateApplicationUsageSecondsQuery,
   validateApplicationUsageSecondsSnapshot } from './application-usage-seconds.js';
 export type { ApplicationUsageSecondsQuery, ApplicationUsageSecondsSnapshot } from './application-usage-seconds.js';
-export {APPLICATION_IDENTITY_USAGE_READ_CAPABILITY,validateApplicationIdentityUsageQuery,validateApplicationIdentityUsageSnapshot} from './application-usage-seconds.js';
-export type {ApplicationIdentityUsageQuery,ApplicationIdentityUsageSnapshot} from './application-usage-seconds.js';
-/** These capabilities never imply shared enforcement is enabled. */
-export const SHARED_QUOTA_STATE_READ_CAPABILITY = 'shared-quota-state-read' as const;
-export const SHARED_ACCESS_POLICY_IDENTITY_READ_CAPABILITY = 'shared-access-policy-identity-read' as const;
-export const SHARED_WEB_CONTRIBUTION_SYNC_CAPABILITY = 'shared-web-contribution-sync-v1' as const;
-export const SHARED_WEB_LOCAL_LEASE_CAPABILITY = 'shared-web-local-lease-v1' as const;
-export { SOURCE_STATISTICS_READ_CAPABILITY, SOURCE_STATISTICS_EXCHANGE_MESSAGE, validateSourceStatisticsExchange } from './source-statistics.js';
 export { QUOTA_BUCKETS_READ_CAPABILITY, QUOTA_BUCKETS_EXCHANGE_MESSAGE, validateQuotaBucketsExchange,validateQuotaBucketsSnapshot } from './source-statistics.js';
 export type {QuotaBucketsSnapshot,QuotaBucketsQuery,QuotaBucketsDay,QuotaBucketsSeconds} from './source-statistics.js';
 export { QUOTA_BUCKETS_SOURCES_CAPABILITY, APPLICATION_QUOTA_SOURCE_STATE_HEADER, validateQuotaBucketsSources } from './source-statistics.js';
 export type { QuotaBucketsSources } from './source-statistics.js';
-export type { SourceStatisticsExchange, SourceStatisticsSnapshot, SourceStatisticsQuery, SharedQuotaSecondsDay } from './source-statistics.js';
-export const SHARED_QUOTA_EXECUTION_PREPARATION_CAPABILITY = 'shared-quota-execution-preparation-read-v1' as const;
-export const SHARED_REMINDER_RESULT_SHADOW_CAPABILITY = 'shared-reminder-result-shadow' as const;
-export { SHARED_REMINDER_LIFECYCLE_CAPABILITY, SHARED_REMINDER_CONTINUITY_CAPABILITY, SHARED_BROWSER_ACTIVITY_CAPABILITY,
-  SHARED_BROWSER_EXECUTION_CAPABILITY, SHARED_FORCED_USE_RUNTIME_V2_CAPABILITY } from './shared-reminder-lifecycle.js';
-
-export interface SharedQuotaStateQuery { date: string }
-
-/** Identity and assignment are resolved by the authenticated Service connection. */
-export function validateSharedQuotaStateQuery(value: unknown): SharedQuotaStateQuery {
-  if (!value || typeof value !== 'object' || Array.isArray(value)
-    || Object.keys(value).length !== 1 || !Object.hasOwn(value, 'date'))
-    throw new Error('INVALID_SHARED_QUOTA_QUERY');
-  const date = (value as {date?: unknown}).date;
-  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date))
-    throw new Error('INVALID_SHARED_QUOTA_QUERY');
-  const start = Date.parse(`${date}T00:00:00+08:00`);
-  if (!Number.isFinite(start) || new Date(start + 28_800_000).toISOString().slice(0, 10) !== date)
-    throw new Error('INVALID_SHARED_QUOTA_QUERY');
-  return {date};
-}
+export type { SharedQuotaSecondsDay } from './source-statistics.js';
+export { SHARED_FORCED_USE_RUNTIME_V2_CAPABILITY } from './shared-reminder-lifecycle.js';
 
 export type NativeHostMessageType = 'heartbeat' | 'probe' | 'settledUsageSegments';
 
@@ -87,36 +59,26 @@ export interface NativeHostResponse {
   acceptedRevision?: string;
   duplicate?: boolean;
   stale?: boolean;
-  applicationUsage?: ApplicationUsageSnapshot | import('./source-statistics.js').QuotaBucketsSnapshot | null;
+  applicationUsage?: import('./source-statistics.js').QuotaBucketsSnapshot | null;
   /** 能力协商后的来源说明；绝不能与applicationUsage合计再次相加。 */
   applicationSources?: import('./source-statistics.js').QuotaBucketsSources;
   applicationUsageSeconds?: import('./application-usage-seconds.js').ApplicationUsageSecondsSnapshot;
-  applicationIdentityUsage?: import('./application-usage-seconds.js').ApplicationIdentityUsageSnapshot;
-  /** Own-domain total only; successful reading never enables shared enforcement. */
-  sourceStatistics?: import('./source-statistics.js').SourceStatisticsSnapshot;
-  sharedQuota?: import('./shared-access.js').SharedQuotaStateV1;
   /** Optional only after capability negotiation; equality is not execution authorization. */
-  sharedAccessPolicyIdentity?: import('./shared-access.js').SharedAccessPolicyIdentityV1 | import('./shared-access.js').SharedAccessPolicyIdentityV2;
-  sharedQuotaPreparation?: import('./shared-web-sync.js').SharedQuotaExecutionPreparationV1;
-  /** Returned only to the verified BrowserBridge connection that created this challenge. */
-  sharedWebSourceChallenge?: import('./shared-web-sync.js').SharedWebSourceChallengeV1;
-  sharedWebSourceBound?: { challengeId:string;webSourceKey:string;expiresAtMs:number };
+  sharedAccessPolicyIdentity?: import('./shared-access.js').SharedAccessPolicyIdentityV2;
   sharedWebSourceScope?: import('./shared-web-sync.js').SharedWebMachineScopeProofV2;
-  /** Channel connectivity is separate from child identity verification and contribution ACK. */
+  /** 通道连接与同孩子身份确认分开，不授权执行。 */
   sharedWebIdentity?: { status: 'verified'; webSourceKey:string; expiresAtMs:number };
-  sharedWebContributionAccepted?: { date:string;revisionOrdinal:number;contentHash:string;duplicate:boolean };
   /** Read success is not permission to enforce quota or end an application. */
   sharedQuotaStage?: 'shadow' | 'shared';
-  sharedReminder?: import('./shared-reminder-lifecycle.js').SharedReminderState | import('./shared-reminder-lifecycle.js').SharedReminderStateV2 | null;
+  sharedReminder?: import('./shared-reminder-lifecycle.js').SharedReminderStateV2 | null;
   /** Service-issued scope-bound lease, returned only when its capability is supported. */
   browserActivityLeaseId?: string;
-  browserActivityAck?: { leaseId: string; acceptedSequence: number; duplicate: boolean; stale: boolean }
-    | import('./shared-reminder-lifecycle.js').SharedBrowserActivityAckV2;
+  browserActivityAck?: import('./shared-reminder-lifecycle.js').SharedBrowserActivityAckV2;
   /** Only an explicit, freshly revalidated permit authorizes the bound webpage. */
-  browserExecution?: import('./shared-reminder-lifecycle.js').SharedBrowserExecution | import('./shared-reminder-lifecycle.js').SharedBrowserExecutionV2 | null;
-  /** Legacy ACK may omit outcome; runtime V2 consumers require it to match the acknowledged action. */
+  browserExecution?: import('./shared-reminder-lifecycle.js').SharedBrowserExecutionV2 | null;
+  /** 当前执行回执必须对应已确认动作。 */
   browserExecutionAck?: { executionId:string;duplicate:boolean;
-    outcome?: import('./shared-reminder-lifecycle.js').SharedBrowserExecutionAckV2['outcome'] };
+    outcome: import('./shared-reminder-lifecycle.js').SharedBrowserExecutionAckV2['outcome'] };
 }
 
 export type BrowserBridgeChannel = 'health' | 'ledger';
@@ -166,10 +128,10 @@ export interface BrowserBridgeV3Envelope<TPayload = unknown> {
   protocolVersion: typeof BROWSER_BRIDGE_V3_PROTOCOL_VERSION;
   channel: 'health' | 'statistics' | 'application' | 'sharedQuota';
   requestId: string;
-  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsage' | 'getApplicationUsageSeconds' | 'getApplicationIdentityUsage' | 'getSharedQuotaState' | 'reportReminderResult'
+  messageType: 'heartbeat' | 'probe' | 'dailyUsageSnapshot' | 'getApplicationUsageSeconds'
     | 'getSharedReminderState' | 'acknowledgeSharedReminderDelivery' | 'resolveSharedReminder' | 'reportBrowserActivity'
-    | 'acknowledgeBrowserExecution' | 'getSharedWebSourceChallenge' | 'bindSharedWebSource' | 'replaceSharedWebContribution'
-    | 'getSharedWebSourceScope' | 'bindSharedWebSourceV2' | 'replaceSharedWebContributionV2' | 'exchangeSourceStatistics' | 'exchangeQuotaBuckets';
+    | 'acknowledgeBrowserExecution'
+    | 'getSharedWebSourceScope' | 'bindSharedWebSourceV2' | 'exchangeQuotaBuckets';
   extensionId: string;
   profileId: string;
   sentAtMs: number;
@@ -183,51 +145,4 @@ export interface BrowserDailyUsageSnapshotResponse {
   errorCode?: string;
   acceptedRevision?: string;
   duplicate?: boolean;
-}
-
-/** Local, read-only, settled application usage; never a shared quota result. */
-export interface ApplicationUsageQuery {
-  fromDate: string;
-  toDate: string;
-  offset: number;
-  expectedRevision?: string;
-}
-export interface ApplicationUsageHour {
-  hour: number;
-  totalMs: number;
-  categoriesMs: Readonly<Record<string, number>>;
-}
-export interface ApplicationUsageDay {
-  date: string;
-  totalMs: number;
-  categoriesMs: Readonly<Record<string, number>>;
-  hours: readonly ApplicationUsageHour[];
-  complete: boolean;
-  reasonCodes: readonly string[];
-}
-export interface ApplicationUsageRow {
-  key: string;
-  name: string;
-  classifications: readonly string[];
-  totalMs: number;
-  dailyMs: Readonly<Record<string, number>>;
-}
-export interface ApplicationUsageSnapshot {
-  attribution?: {
-    complete: boolean;
-    productAssociationVersion: string | null;
-    classificationCorrectionVersion: number | null;
-    reasonCodes: readonly string[];
-  };
-  fromDate: string;
-  toDate: string;
-  revision: string;
-  computedAtMs: number;
-  lastSettledAtMs: number | null;
-  complete: boolean;
-  reasonCodes: readonly string[];
-  totalMs: number;
-  days: readonly ApplicationUsageDay[];
-  applications: readonly ApplicationUsageRow[];
-  nextOffset: number | null;
 }
