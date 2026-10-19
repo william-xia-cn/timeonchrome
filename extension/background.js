@@ -3,13 +3,11 @@
 import { initSignal } from './core/signal.js';
 import { initCompositePageObserver } from './infra/composite-page-observer.js';
 import { initSharedReminderContentBridge } from './product/shared-reminder-content-bridge.js';
-import { initSharedAccessPolicyReader, initSharedAccessPolicyV2Reader } from './infra/shared-access-policy-reader.js';
+import { initSharedAccessPolicyV2Reader } from './infra/shared-access-policy-reader.js';
 import { initSourceStatisticsShadow } from './infra/source-statistics-shadow.js';
-import { initSharedQuotaExecutionReader } from './infra/shared-quota-execution-reader.js';
-import { initSharedWebContributionSync } from './infra/shared-web-contribution-sync.js';
+import { initApplicationIdentityBinding } from './infra/shared-web-reusable-binding.js';
 import { beginForcedUseContributionRecovery, initForcedUseContributionObserver, markDerivedIncomplete,
   persistForcedUseGrantEvidence, closeForcedUseGrantEvidence } from './infra/forced-use-contribution-store.js';
-import { initSharedBrowserActivity } from './product/shared-browser-activity.js';
 import { dispatchTimingSignal, drainPendingModeBoundaries } from './core/timing-dispatcher.js';
 import { confirmForegroundPageCheckpoint, resolveUnknownDomainForSettlement } from './core/foreground-timing.js';
 import { closeMediaForTabLifecycle, handleMediaTabActivated, handleMediaTabReplaced, handleMediaWindowFocusChanged, handleMediaWindowStateChanged, runMediaCheckpoint } from './core/media-timing.js';
@@ -73,15 +71,12 @@ import { dispatchOptionalModuleAlarm, dispatchOptionalModuleMessage, getOptional
 registerStoragePressureHandler((options) => runV1StorageMaintenance(options));
 initCompositePageObserver();
 initSharedReminderContentBridge();
-initSharedAccessPolicyReader();
-initSharedQuotaExecutionReader();
 let sourceStatisticsShadow = null;
-initSharedWebContributionSync({ identityAllowed: isMonitoringEnabled, onIdentityReady: () => {
+initApplicationIdentityBinding({ identityAllowed: isMonitoringEnabled, onIdentityReady: () => {
   sourceStatisticsShadow?.invalidate();
   return sourceStatisticsShadow?.refresh({ force: true });
 } });
 initForcedUseContributionObserver();
-initSharedBrowserActivity();
 
 let badgeUpdateQueue = Promise.resolve();
 let lastActiveTabId = null;

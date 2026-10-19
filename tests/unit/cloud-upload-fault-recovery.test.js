@@ -5,6 +5,9 @@ const path = require('node:path');
 const http = require('node:http');
 const source = fs.readFileSync(path.join(__dirname, '../../extension/infra/cloud-sync.js'), 'utf8').replaceAll('\r\n', '\n');
 function extract(name) {
+  const implementation = { uploadDeviceAccountV2Shadow: 'uploadDeviceAccountV2ForBinding',
+    syncUsageStatsByDateWatermarkV1: 'syncUsageStatsForBinding', syncStatsFoundationV1: 'syncStatsFoundationForBinding' }[name];
+  if (implementation) return extract(implementation).replace('function ' + implementation + '(', 'function ' + name + '(');
   const match = source.match(new RegExp('(?:export )?(?:async )?function ' + name + '\\('));
   assert(match, name);
   return source.slice(match.index, source.indexOf('\n}', match.index) + 2).replace(/^export /, '');
@@ -144,7 +147,7 @@ function syncFixture(parts = {}) {
     ...parts,
   };
   return { state, sync: load('syncUsageStatsByDateWatermarkV1', deps,
-    ['makeUploadPartResult', 'makeUsageDateSyncResult', 'mergeUsageDatePartResults']) };
+    ['makeUploadPartResult', 'makeUsageDateSyncResult', 'mergeUsageDatePartResults', 'syncUsageUploadsByDateWatermarkV1']) };
 }
 
 async function stageCases() {

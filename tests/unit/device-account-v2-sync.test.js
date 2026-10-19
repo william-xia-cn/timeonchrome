@@ -6,6 +6,10 @@ const fs = require('fs');
 const path = require('path');
 
 function extractFunctionSource(code, name) {
+  if (name === 'uploadDeviceAccountV2Shadow') {
+    return extractFunctionSource(code, 'uploadDeviceAccountV2ForBinding')
+      .replace('function uploadDeviceAccountV2ForBinding(', 'function uploadDeviceAccountV2Shadow(');
+  }
   const start = code.indexOf(`async function ${name}(`);
   if (start < 0) throw new Error(`${name} not found`);
   const signatureEnd = code.indexOf(') {', start);

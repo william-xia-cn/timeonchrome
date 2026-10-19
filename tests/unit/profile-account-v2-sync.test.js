@@ -5,6 +5,11 @@ const fs = require('fs');
 const path = require('path');
 
 function extractFunctionSource(code, name) {
+  if (name === 'syncUsageStatsByDateWatermarkV1') {
+    // The unchanged upload algorithm is exercised here; binding guards have real-module integration coverage.
+    return extractFunctionSource(code, 'syncUsageStatsForBinding')
+      .replace('function syncUsageStatsForBinding(', 'function syncUsageStatsByDateWatermarkV1(');
+  }
   const start = code.indexOf(`async function ${name}(`);
   if (start < 0) throw new Error(`${name} not found`);
   const braceStart = code.indexOf('{', code.indexOf(')', start));

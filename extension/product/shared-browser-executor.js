@@ -1,12 +1,11 @@
-import { createSharedBrowserExecutionPreparation, readBrowserExecutionContext } from './shared-browser-execution-preparation.js';
-import { sharedBrowserExecutionEligibility } from '../core/shared-browser-execution.js';
+import { createSharedBrowserExecutionPreparation } from './shared-browser-execution-preparation.js';
 import { sharedReminderIdentity } from '../core/shared-reminder-lifecycle.js';
 import { requestSharedReminderLifecycle } from '../infra/native-host-client.js';
 import { createSharedBrowserCloser, readSharedBrowserCloseCapability } from './shared-browser-closer.js';
 import { sharedExecutionEligibilityV2 } from '../core/shared-forced-use-runtime-v2.js';
 
-export function createSharedBrowserExecutor({ enabled = false, effectsEnabled = false, schemaVersion = 1,
-  readContext = readBrowserExecutionContext,
+export function createSharedBrowserExecutor({ enabled = false, effectsEnabled = false, schemaVersion = 2,
+  readContext,
   request = requestSharedReminderLifecycle,
   preparation = createSharedBrowserExecutionPreparation({ enabled, schemaVersion, readContext, request }),
   closer = null, readCapability = readSharedBrowserCloseCapability,
@@ -14,7 +13,7 @@ export function createSharedBrowserExecutor({ enabled = false, effectsEnabled = 
   let busy = false;
   const unconfirmed = new Map();
   return { async execute(state, target) {
-    if (!enabled || !effectsEnabled) return { ok: true, skipped: true, effectsEnabled: false };
+    if (!enabled || !effectsEnabled || schemaVersion !== 2) return { ok: true, skipped: true, effectsEnabled: false };
     if (busy) return { ok: false, errorCode: 'shared_browser_execution_busy' };
     if (state?.status !== 'resolved' || !['end_rest', 'timeout_end'].includes(state.resolution))
       return { ok: true, skipped: true, reason: 'shared_browser_execution_not_resolved' };
@@ -29,22 +28,21 @@ export function createSharedBrowserExecutor({ enabled = false, effectsEnabled = 
       if (!checked?.eligible) return { ok: false, errorCode: checked?.reasonCode || checked?.errorCode || 'shared_browser_execution_not_issued' };
       const permit = checked.permit;
       if (Object.entries(sharedReminderIdentity(state)).some(([k, v]) =>
-        (k === 'stateRevision' ? permit.triggerStateRevision ?? permit.stateRevision : permit[k]) !== v)
+        permit[k] !== v)
         || permit.effect !== (state.resolution === 'end_rest' ? 'request-normal-close' : 'force-close')
         || state.resolution === 'timeout_end' && state.timeoutAction !== 'end')
         return { ok: false, errorCode: 'shared_browser_execution_resolution_mismatch' };
       if (unconfirmed.size >= 20) return { ok: false, errorCode: 'shared_browser_execution_ack_backlog' };
       const claimed = await preparation.claim(permit);
       if (!claimed?.ok) return claimed;
-      const isCurrent = async () => (permit.schemaVersion === 2 ? sharedExecutionEligibilityV2 : sharedBrowserExecutionEligibility)(permit, {
+      const isCurrent = async () => sharedExecutionEligibilityV2(permit, {
         ...await readContext(state), reminder: sharedReminderIdentity(state), attemptedIds: new Set(),
         requestStartedMonotonicMs: start, monotonicNowMs: now(),
       }).eligible;
       if (!await isCurrent()) return { ok: false, errorCode: 'shared_browser_execution_stale', registered: true };
       const result = await (closer || createSharedBrowserCloser({ readCapability })).close(target, permit.effect, isCurrent);
       const payload = { ...sharedReminderIdentity(permit),
-        ...(permit.schemaVersion === 2 ? { policyIdentity: permit.policyIdentity } : {}),
-        ...(permit.triggerStateRevision === undefined ? {} : { triggerStateRevision: permit.triggerStateRevision }),
+        policyIdentity: permit.policyIdentity,
         executionId: permit.executionId, leaseId: permit.leaseId,
         activityId: permit.activityId, outcome: result.outcome };
       unconfirmed.set(JSON.stringify(sharedReminderIdentity(state)), payload);
@@ -55,7 +53,7 @@ export function createSharedBrowserExecutor({ enabled = false, effectsEnabled = 
   async function acknowledge(payload) {
     const response = await request('acknowledgeBrowserExecution', payload);
       if (response?.ok) unconfirmed.delete(JSON.stringify({ ...sharedReminderIdentity(payload),
-        stateRevision: payload.triggerStateRevision ?? payload.stateRevision }));
+        stateRevision: payload.stateRevision }));
     return { ...response, outcome: payload.outcome, effectsEnabled: true };
   }
 }

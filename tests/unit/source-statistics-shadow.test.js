@@ -5,7 +5,7 @@ const load = source => import('data:text/javascript;base64,' + Buffer.from(sourc
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 async function contract() {
   const file = process.env.TIMEONCHROME_SOURCE_STATISTICS_CONTRACT_PATH;
-  if (!file) return load(read('extension/core/shared-contracts/1.57.0/source-statistics.js'));
+  if (!file) return load(read('extension/core/shared-contracts/1.58.0/source-statistics.js'));
   const source = fs.readFileSync(file, 'utf8');
   return load(file.endsWith('.ts') ? require('typescript').transpileModule(source, {
     compilerOptions: { module: require('typescript').ModuleKind.ESNext, target: require('typescript').ScriptTarget.ES2022 },
@@ -18,11 +18,13 @@ async function run() {
   const mod = await load('const sourceStatisticsContract=globalThis.__quotaBucketsContract;\n'
     + 'const {PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY,isProfileAccountShadowScopeCurrent}=globalThis.__profileShadow;\n'
     + read('extension/infra/source-statistics-shadow.js').replace(/^import .*;\r?\n/gm, ''));
-  const cloudFunction = read('extension/infra/cloud-sync.js').match(/export async function readCloudSourceStatistics[\s\S]*?(?=export async function readCloudSharedWebWatermark)/)[0];
+  const ts = require('typescript');
+  const tree = ts.createSourceFile('cloud-sync.js', read('extension/infra/cloud-sync.js'), ts.ScriptTarget.Latest, true);
+  const cloudFunction = tree.statements.find(node => ts.isFunctionDeclaration(node)
+    && node.name?.text === 'readCloudSourceStatistics').getText(tree);
   const cloudRequests = [];
   globalThis.__quotaCloudRequests = cloudRequests;
   const cloudClient = await load('const sourceStatisticsContract=globalThis.__quotaBucketsContract;'
-    + 'const validateSourceStatisticsQuery=sourceStatisticsContract.validateSourceStatisticsQuery;'
     + 'const readCapturedSharedDeviceJson=async(_options,route,body)=>{globalThis.__quotaCloudRequests.push({route,body});return {ok:true,value:globalThis.__quotaCloudValue??null};};\n'
     + cloudFunction);
   const query = { schemaVersion: 2, source: 'application', fromDate: '2026-10-12', toDate: '2026-10-12', scope: 'all' };
@@ -30,7 +32,10 @@ async function run() {
   assert.deepEqual(cloudRequests[0], { route: '/device/source-statistics', body: query });
   assert.equal((await cloudClient.readCloudSourceStatistics({}, { ...query, childId: 'forbidden' })).ok, false);
   const { schemaVersion, ...oldQuery } = query;
-  assert.equal((await cloudClient.readCloudSourceStatistics({}, oldQuery)).ok, true, 'legacy query remains supported');
+  assert.equal((await cloudClient.readCloudSourceStatistics({}, oldQuery)).ok, false,
+    'current bucket request requires an explicit schemaVersion2');
+  assert.equal((await cloudClient.readCloudSourceStatistics({}, { ...query, schemaVersion: 1 })).ok, false,
+    'explicit old source schema never downgrades the bucket reader');
   const transportSnapshot = { schemaVersion: 2, durationUnit: 'seconds', source: 'application', childId: 'synthetic-child',
     fromDate: query.fromDate, toDate: query.toDate, readAtMs: 1, days: [{ date: query.fromDate,
       bucketsSeconds: { study: 0, composite: 0, rest: 900 }, settledThroughMs: null, complete: true, reasonCodes: [] }] };

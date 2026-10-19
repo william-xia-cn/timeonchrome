@@ -8,56 +8,37 @@ const { pathToFileURL } = require('node:url');
 const root = path.resolve(__dirname, '../..');
 const clone = value => structuredClone(value);
 const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-const policy = version => ({ schemaVersion: 1, revision: `profile-config:${version}`, effectiveAtMs: 1234, stage: 'legacy',
-  dailyMinutes: Object.fromEntries(days.map(day => [day, { study: null, composite: 60, rest: 240 }])),
-  weeklyRestMinutes: 840,
-  timeWindows: Object.fromEntries(days.map(day => [day, { study: null, composite: null, rest: [{ start: '07:00', end: '24:00' }] }])),
-  autonomy: { restrictedEntryConfirmationRequired: true, dailyFirstReminderMinutes: 120,
-    weeklyFirstReminderMinutes: 840, repeatReminderMinutes: 60, softReminderTimeoutAction: 'end_rest', visibleResponseDeadlineSeconds: 60 } });
+let policy;
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
 async function run() {
   const coreUrl = pathToFileURL(path.join(root, 'extension/core/shared-access-policy.js')).href;
-  const { validateSharedAccessPolicyV1, validateSharedAccessPolicyV2 } = await import(coreUrl);
-const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.54.0/shared-access.js')).href);
+  const { validateSharedAccessPolicyV2 } = await import(coreUrl);
+const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/shared-contracts/1.58.0/shared-access.js')).href);
   let source = fs.readFileSync(path.join(root, 'extension/infra/shared-access-policy-reader.js'), 'utf8')
     .replace(/from '\.\.\/core\/shared-access-policy.js'/, `from '${coreUrl}'`)
     .replace(/import \{ runStorageMutation \} from '[^']+';/, 'const runStorageMutation = () => { throw Error("no default writes"); };')
-    .replace(/import \{ readSharedAccessPolicyCloudScope, readCloudSharedAccessPolicy, readCloudSharedAccessPolicyV2 \} from '[^']+';/,
+    .replace(/import \{ readSharedAccessPolicyCloudScope, readCloudSharedAccessPolicyV2 \} from '[^']+';/,
       'const readSharedAccessPolicyCloudScope = () => { throw Error("no default reads"); }; const readCloudSharedAccessPolicy = () => { throw Error("no default requests"); }; const readCloudSharedAccessPolicyV2 = readCloudSharedAccessPolicy;')
     .replace(/import \{ hasSharedAccessPolicyCapability, observeSharedAccessPolicyCapability \} from '[^']+';/,
       'const hasSharedAccessPolicyCapability = () => false; const observeSharedAccessPolicyCapability = fn => { fn(false); };');
   const mod = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-  const key = mod.SHARED_ACCESS_POLICY_LKG_KEY;
+  policy = version => v2Contract.projectSharedAccessPolicyV2({
+    timeQuota: { daily: Object.fromEntries(days.map(day => [day, { studyMinutes:null, compositeMinutes:60, restMinutes:240 }])), weekly:{restMinutes:840} },
+    timeWindows:{daily:Object.fromEntries(days.map(day=>[day,{studyWindows:null,compositeWindows:null,restWindows:[{start:'07:00',end:'24:00'}]}]))}
+  }, version, 1234);
+  const key = mod.SHARED_ACCESS_POLICY_V2_LKG_KEY;
   const valid = policy(4);
-  assert.equal(validateSharedAccessPolicyV1(valid).ok, true);
-  // Optional fixed-package consumer check; no installation or shared-source edits.
-  for (const packagePath of process.argv.slice(2)) {
-    const file = name => execFileSync('tar', ['-xOf', packagePath, `package/${name}`], { encoding: 'utf8' });
-    const metadata = JSON.parse(file('package.json'));
-    assert(['1.26.0', '1.27.0'].includes(metadata.version));
-    const schema = JSON.parse(file('shared-access-v1.schema.json'));
-    assert.deepEqual([...schema.$defs.policy.required].sort(), Object.keys(valid).sort());
-    assert.equal(schema.$defs.minutes.maximum, 10080);
-    assert.equal(schema.$defs.policy.properties.autonomy.properties.repeatReminderMinutes.maximum, 1440);
-    const contract = await import('data:text/javascript;base64,' + Buffer.from(file('dist/shared-access.js')).toString('base64'));
-    const projected = contract.projectLegacySharedAccessPolicy({ timeQuota: { daily: { monday: {
-      studyMinutes: null, compositeMinutes: 60, restMinutes: 240 } }, weekly: { restMinutes: 840 } },
-      timeWindows: { daily: { monday: { restWindows: [{ start: '07:00', end: '24:00' }] } } },
-      restConfig: { firstReminderMinutes: 120, weeklyFirstReminderMinutes: 840, repeatReminderMinutes: 60 } }, 12, 1234);
-    assert.equal(validateSharedAccessPolicyV1(projected).ok, true);
-    assert.equal(projected.timeWindows.monday.rest[0].end, '24:00');
-    console.log(`[Shared policy fixed-package consumer] ${metadata.version} passed`);
-  }
-  for (const change of [value => { delete value.dailyMinutes.sunday; }, value => { value.autonomy.repeatReminderMinutes = 0; },
-    value => { value.autonomy.repeatReminderMinutes = 1441; }, value => { value.dailyMinutes.monday.rest = 1.5; },
+  assert.equal(validateSharedAccessPolicyV2(valid).ok, true);
+  for (const change of [value => { delete value.dailyMinutes.sunday; }, value => { value.autonomy.timeWindowAdvisoryEnabled = 'invalid'; },
+    value => { value.autonomy.quotaOverrunConfirmationRequired = 1; }, value => { value.dailyMinutes.monday.rest = 1.5; },
     value => { value.weeklyRestMinutes = -1; }, value => { value.timeWindows.friday.rest[0].end = '24:30'; },
     value => { value.timeWindows.friday.rest[0].start = '24:00'; }, value => { value.deviceToken = 'forbidden'; },
     value => { value.revision = 'opaque-unordered'; }, value => { value.revision = 'profile-config:9007199254740992'; },
     value => { value.autonomy.visibleResponseDeadlineSeconds = 59; }]) {
-    const candidate = clone(valid); change(candidate); assert.equal(validateSharedAccessPolicyV1(candidate).ok, false);
+    const candidate = clone(valid); change(candidate); assert.equal(validateSharedAccessPolicyV2(candidate).ok, false);
   }
-  function fixture(key = mod.SHARED_ACCESS_POLICY_LKG_KEY) {
+  function fixture(key = mod.SHARED_ACCESS_POLICY_V2_LKG_KEY) {
     let value, context = { deviceId: 'device-A', childId: 'child-A', deviceToken: 'fixture-credential-A', apiBase: 'https://fixture.invalid' };
     let reply = { ok: true, profileId: context.childId, policy: policy(4) }, support = true, failWrite = false;
     let pending = Promise.resolve();
@@ -77,17 +58,19 @@ const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/sh
     return { options, requests, writes, deletes, cache: () => clone(value),
       context: patch => { context = { ...context, ...patch }; }, response: next => { reply = next; },
       setCache(next) { value = clone(next); }, setSupported(value) { support = value; }, failWrite(value) { failWrite = value; },
-      reader: () => mod.createSharedAccessPolicyReader(options) };
+      reader: () => mod.createSharedAccessPolicyV2Reader(options) };
   }
   const f = fixture();
   const v2 = fixture(mod.SHARED_ACCESS_POLICY_V2_LKG_KEY);
   const v2Policy = v2Contract.projectSharedAccessPolicyV2({ autonomyConfig: { timeWindowAdvisoryEnabled: true } }, 4, 1234);
   assert.equal(validateSharedAccessPolicyV2(v2Policy).ok, true);
-  assert.equal(validateSharedAccessPolicyV2(policy(4)).ok, false, 'V1 cannot enter V2 cache');
+  assert.equal(validateSharedAccessPolicyV2({...policy(4),schemaVersion:1}).ok, false, 'V1 cannot enter V2 cache');
   v2.response({ ok: true, profileId: 'child-A', policy: v2Policy });
   const v2Reader = mod.createSharedAccessPolicyV2Reader(v2.options);
   assert.equal((await v2Reader.refresh()).status, 'fresh');
+  assert.equal(v2.cache().schemaVersion, 1, 'cache record envelope remains v1 independently from policy payload');
   assert.equal(v2.cache().policy.schemaVersion, 2);
+  assert.equal((await v2Reader.read()).status,'lkg', 'V2 validates and reads existing v1 cache envelopes');
   const changedAutonomy = clone(v2Policy);
   changedAutonomy.autonomy.timeWindowAdvisoryEnabled = false;
   v2.response({ ok: true, profileId: 'child-A', policy: changedAutonomy });
@@ -95,7 +78,7 @@ const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/sh
   assert.equal(v2.cache().policy.autonomy.timeWindowAdvisoryEnabled, true);
   v2.context({ childId: 'child-B' });
   assert.equal((await v2Reader.read()).ok, false, 'V2 cache is scoped to binding identity');
-  const disabled = mod.createSharedAccessPolicyReader({ ...f.options, enabled: false });
+  const disabled = mod.createSharedAccessPolicyV2Reader({ ...f.options, enabled: false });
   assert.equal((await disabled.refresh()).errorCode, 'shared_access_disabled');
   assert.equal((await disabled.read()).ok, false); assert.equal(f.requests.length, 0);
   f.setSupported(false); assert.equal((await f.reader().refresh()).errorCode, 'shared_access_unsupported');
@@ -175,7 +158,7 @@ const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/sh
   // An epoch may change during the awaited identity check itself.
   const delayed = fixture(); await delayed.reader().refresh();
   const identityEntered = deferred(), identityGate = deferred(); let reads = 0;
-  const delayedReader = mod.createSharedAccessPolicyReader({ ...delayed.options, readContext: async () => {
+  const delayedReader = mod.createSharedAccessPolicyV2Reader({ ...delayed.options, readContext: async () => {
     const context = await delayed.options.readContext();
     if (++reads === 2) { identityEntered.resolve(); await identityGate.promise; }
     return context;
@@ -188,7 +171,7 @@ const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/sh
   assert.equal((await delayedReader.read()).version, 8);
   // Delayed failed reads cannot clear a newer generation's in-memory status.
   const failedRead = fixture(), failEntered = deferred(), failGate = deferred(); let failOnce = true;
-  const failedReader = mod.createSharedAccessPolicyReader({ ...failedRead.options, readCache: async () => {
+  const failedReader = mod.createSharedAccessPolicyV2Reader({ ...failedRead.options, readCache: async () => {
     if (failOnce) { failOnce = false; failEntered.resolve(); await failGate.promise; throw Error('read fixture'); }
     return failedRead.cache();
   } });
@@ -198,7 +181,7 @@ const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/sh
   assert.equal(failedReader.inspect().hasPolicy, true);
   // Network ignores abort: a bounded wait still preserves LKG, and its late reply is ignored.
   const timed = fixture(), never = deferred();
-  const short = mod.createSharedAccessPolicyReader({ ...timed.options, requestTimeoutMs: 10 });
+  const short = mod.createSharedAccessPolicyV2Reader({ ...timed.options, requestTimeoutMs: 10 });
   await short.refresh(); timed.response(() => never.promise);
   assert.equal((await short.refresh()).status, 'lkg'); assert.equal(timed.requests.at(-1).signal.aborted, true);
   never.resolve({ ok: true, profileId: 'child-A', policy: policy(100) });
@@ -208,18 +191,14 @@ const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/sh
   const event = name => ({ addListener(fn) { (events[name] ||= []).push(fn); } });
   try {
     global.chrome = { runtime: { onStartup: event('startup'), onInstalled: event('installed') }, storage: { onChanged: event('changed') } };
-    mod.initSharedAccessPolicyReader(); mod.initSharedAccessPolicyReader();
-    assert(Object.values(events).every(list => list.length === 1));
-    events.startup[0](); events.installed[0](); events.changed[0]({ cloud_device_token: {} }, 'local');
-    assert.equal((await mod.readSharedAccessPolicyLkg()).errorCode, 'shared_access_disabled');
     const alarms = [];
     global.chrome.alarms = { create(name, options) { alarms.push({ name, options }); }, onAlarm: event('alarm') };
     mod.initSharedAccessPolicyV2Reader({ isEnabled: () => false });
     mod.initSharedAccessPolicyV2Reader({ isEnabled: () => false });
     assert.equal(alarms.length, 1, 'repeated bootstrap creates one V2 refresh controller');
-    assert.equal(events.startup.length, 2);
-    assert.equal(events.changed.length, 2);
-    events.changed[1]({ guardian_config: {} }, 'local');
+    assert.equal(events.startup.length, 1);
+    assert.equal(events.changed.length, 1);
+    events.changed[0]({ guardian_config: {} }, 'local');
     events.alarm[0]({ name: alarms[0].name });
     assert.equal((await mod.readSharedAccessPolicyV2Lkg()).ok, false, 'disabled monitoring cannot read V2 policy');
   } finally { global.chrome = oldChrome; }
@@ -228,15 +207,15 @@ const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/sh
   const cloud = fs.readFileSync(path.join(root, 'extension/infra/cloud-sync.js'), 'utf8');
   const transport = cloud.slice(cloud.indexOf('// Optional read adapter:'), cloud.indexOf('async function requireRuntimeActivation()'))
     .replace(/export /g, '');
-  let response = new Response(JSON.stringify({ schemaVersion: 1, profileId: 'child-A', policy: policy(4) }));
+  let response = new Response(JSON.stringify({ schemaVersion: 2, profileId: 'child-A', policy: policy(4) }));
   const calls = [];
   const context = { AbortController, TextDecoder, TextEncoder, setTimeout, clearTimeout, CLOUD_CONFIG: { REQUEST_TIMEOUT_MS: 15000 },
     requireRuntimeActivation: async () => ({ ok: true }), getCloudApiBase: () => 'https://fixture.invalid',
     fetch: async (url, options) => { calls.push({ url, options }); return response; } };
-  vm.runInNewContext(`${transport};this.read = readCloudSharedAccessPolicy;this.readV2=readCloudSharedAccessPolicyV2;this.uploadWeb=postCloudSharedWebContribution;this.bindWeb=requestCloudSharedWebSourceBinding;this.webCapability=readCloudSharedWebCapabilities;this.webWatermark=readCloudSharedWebWatermark;`, context);
+  vm.runInNewContext(`${transport};this.read = readCloudSharedAccessPolicyV2;this.readV2=readCloudSharedAccessPolicyV2;`, context);
   const input = { deviceToken: 'fixture-credential-A', apiBase: 'https://fixture.invalid' };
   assert.equal((await context.read(input)).profileId, 'child-A');
-  assert.equal(calls[0].url, 'https://fixture.invalid/device/shared-access/v1');
+  assert.equal(calls[0].url, 'https://fixture.invalid/device/shared-access/v2');
   assert.equal(calls[0].options.headers.Authorization, 'Bearer fixture-credential-A');
   assert.equal(calls[0].options.method, 'GET'); assert.equal(calls[0].options.body, undefined);
   assert.equal(calls[0].options.redirect, 'error');
@@ -244,20 +223,6 @@ const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/sh
   assert.equal((await context.readV2(input)).policy.schemaVersion, 2);
   assert.equal(calls.at(-1).url, 'https://fixture.invalid/device/shared-access/v2');
   assert.equal(calls.at(-1).options.body, undefined, 'caller cannot choose another child');
-  response = new Response(JSON.stringify({ accepted: true }));
-  assert.equal((await context.uploadWeb(input, { schemaVersion: 1, example: 'fixture' })).ok, true);
-  assert.equal(calls.at(-1).url, 'https://fixture.invalid/device/shared-web-contributions/v1');
-  assert.equal(calls.at(-1).options.method, 'POST');
-  assert.equal(calls.at(-1).options.headers.Authorization, 'Bearer fixture-credential-A');
-  assert.equal(calls.at(-1).options.body.includes('fixture-credential-A'), false);
-  const webRequests = calls.length;
-  assert.equal((await context.uploadWeb(input, { value: 'x'.repeat(17000) })).ok, false);
-  assert.equal(calls.length, webRequests);
-  response = new Response('{}');
-  await context.bindWeb(input, 'a'.repeat(64));
-  assert.equal(calls.at(-1).options.body, JSON.stringify({ challengeId: 'a'.repeat(64) }));
-  response = new Response('{}'); await context.webWatermark(input, '2026-10-03');
-  assert.equal(calls.at(-1).url, 'https://fixture.invalid/device/shared-web-watermark/v1?date=2026-10-03');
   for (const [status, code] of [[401, 'shared_access_unauthorized'], [403, 'shared_access_unbound'], [404, 'shared_access_unsupported'], [503, 'shared_access_unavailable']]) {
     response = new Response('private backend body must not be returned', { status });
     assert.equal((await context.read(input)).errorCode, code);
@@ -277,15 +242,15 @@ const v2Contract = await import(pathToFileURL(path.join(root, 'extension/core/sh
     }, { highWaterMark: 0 });
     return { response: new Response(body), size: bytes.length, consumed: () => offset, cancelled: () => cancelled };
   }
-  const unicode = JSON.stringify({ schemaVersion: 1, profileId: '孩子-👦', policy: policy(4) });
+  const unicode = JSON.stringify({ schemaVersion: 2, profileId: '孩子-👦', policy: policy(4) });
   response = streamed(unicode, 1).response;
   assert.equal((await context.read(input)).profileId, '孩子-👦', 'split UTF-8 bytes decode without replacing characters');
-  const json = JSON.stringify({ schemaVersion: 1, profileId: 'child-A', policy: policy(4) });
+  const json = JSON.stringify({ schemaVersion: 2, profileId: 'child-A', policy: policy(4) });
   const exactBytes = streamed(json + ' '.repeat(64 * 1024 - Buffer.byteLength(json)), 4096);
   response = exactBytes.response;
   assert.equal((await context.read(input)).ok, true, 'exact 64KiB body is accepted');
   assert.equal(exactBytes.cancelled(), false);
-  const oversizedText = JSON.stringify({ schemaVersion: 1, profileId: '中'.repeat(24000), policy: policy(4) });
+  const oversizedText = JSON.stringify({ schemaVersion: 2, profileId: '中'.repeat(24000), policy: policy(4) });
   assert(oversizedText.length < 64 * 1024, 'character count alone would incorrectly accept this UTF-8 body');
   const oversized = streamed(oversizedText, 4096); response = oversized.response;
   assert.equal((await context.read(input)).errorCode, 'shared_access_invalid_policy');

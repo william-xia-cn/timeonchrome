@@ -1,10 +1,10 @@
 import { readQuotaReadModelV2 } from '../core/quota-read-model-v2.js';
 import { PROFILE_ACCOUNT_V2_SHADOW_CACHE_KEY, isProfileAccountShadowScopeCurrent } from '../core/profile-account-shadow-v2.js';
-import * as sourceStatisticsContract from '../core/shared-contracts/1.57.0/source-statistics.js';
+import * as sourceStatisticsContract from '../core/shared-contracts/1.58.0/source-statistics.js';
 import { readSharedAccessPolicyContext } from './shared-access-policy-reader.js';
 import { readCloudSourceStatistics } from './cloud-sync.js';
 import { readSourceStatisticsNativeContext, requestQuotaBucketsExchange } from './native-host-client.js';
-import { readApplicationStatisticsSourceProof } from './shared-web-contribution-sync.js';
+import { readApplicationStatisticsSourceProof } from './shared-web-reusable-binding.js';
 import { budgetedLocalSet } from './storage-budget.js';
 
 export const SOURCE_STATISTICS_SHADOW_KEY = 'source_statistics_shadow_v1';

@@ -1,9 +1,7 @@
-import { validateSharedAccessPolicyV1, validateSharedAccessPolicyV2 } from '../core/shared-access-policy.js';
+import { validateSharedAccessPolicyV2 } from '../core/shared-access-policy.js';
 import { runStorageMutation } from './storage-budget.js';
-import { readSharedAccessPolicyCloudScope, readCloudSharedAccessPolicy, readCloudSharedAccessPolicyV2 } from './cloud-sync.js';
-import { hasSharedAccessPolicyCapability, observeSharedAccessPolicyCapability } from './native-host-client.js';
+import { readSharedAccessPolicyCloudScope, readCloudSharedAccessPolicyV2 } from './cloud-sync.js';
 
-export const SHARED_ACCESS_POLICY_LKG_KEY = 'shared_access_policy_lkg_v1';
 export const SHARED_ACCESS_POLICY_V2_LKG_KEY = 'shared_access_policy_lkg_v2';
 const IDENTITY_KEYS = ['cloud_device_id', 'cloud_profile_id', 'cloud_device_token'];
 const FORBIDDEN_CACHE = new Set(['shared_access_unauthorized', 'shared_access_unbound', 'shared_access_unsupported', 'shared_access_identity_mismatch']);
@@ -33,7 +31,8 @@ async function capturedContext(readContext) {
 // Internal captured identity for read-only consumers. Never sent to UI or logs.
 export async function readSharedAccessPolicyContext() { return capturedContext(readCurrentContext); }
 
-async function validRecord(value, scopeHash, validate = validateSharedAccessPolicyV1) {
+// Cache envelope version is independent of the current V2 policy payload.
+async function validRecord(value, scopeHash, validate = validateSharedAccessPolicyV2) {
   if (!value || Object.keys(value).length !== 6 || value.schemaVersion !== 1 || value.scopeHash !== scopeHash
     || !Number.isSafeInteger(value.receivedAtMs) || value.receivedAtMs < 0
     || !/^[0-9a-f]{64}$/.test(value.policyHash) || new TextEncoder().encode(JSON.stringify(value)).length > MAX_CACHE_BYTES) return null;
@@ -42,11 +41,11 @@ async function validRecord(value, scopeHash, validate = validateSharedAccessPoli
   return { ...value, policy: checked.policy };
 }
 
-export function createSharedAccessPolicyReader({ enabled = false, readContext = readCurrentContext,
-  request = readCloudSharedAccessPolicy, supported = hasSharedAccessPolicyCapability,
-  readCache = async () => (await chrome.storage.local.get(SHARED_ACCESS_POLICY_LKG_KEY))[SHARED_ACCESS_POLICY_LKG_KEY],
+function createSharedAccessPolicyReader({ enabled = false, readContext = readCurrentContext,
+  request = readCloudSharedAccessPolicyV2, supported = () => false,
+  readCache = async () => (await chrome.storage.local.get(SHARED_ACCESS_POLICY_V2_LKG_KEY))[SHARED_ACCESS_POLICY_V2_LKG_KEY],
   mutate = runStorageMutation, now = Date.now, requestTimeoutMs = 15000,
-  validate = validateSharedAccessPolicyV1, cacheKey = SHARED_ACCESS_POLICY_LKG_KEY } = {}) {
+  validate = validateSharedAccessPolicyV2, cacheKey = SHARED_ACCESS_POLICY_V2_LKG_KEY } = {}) {
   let generation = 0;
   let controller = null;
   let current = null;
@@ -147,7 +146,6 @@ export function createSharedAccessPolicyReader({ enabled = false, readContext = 
   };
 }
 
-let reader = null;
 let v2Reader = null;
 export function createSharedAccessPolicyV2Reader(options = {}) {
   return createSharedAccessPolicyReader({
@@ -172,27 +170,5 @@ export function initSharedAccessPolicyV2Reader({ isEnabled = () => false } = {})
   });
   chrome.alarms.create('shared_access_policy_v2_refresh', { periodInMinutes: 5 });
   chrome.alarms.onAlarm.addListener(alarm => { if (alarm?.name === 'shared_access_policy_v2_refresh') refresh(); });
-  refresh();
-}
-export function configureSharedAccessPolicyReader({ enabled = false } = {}) {
-  return reader?.configure(enabled) || Promise.resolve(fail('shared_access_disabled'));
-}
-export function readSharedAccessPolicyLkg() { return reader?.read() || Promise.resolve(fail('shared_access_disabled')); }
-export function initSharedAccessPolicyReader() {
-  if (reader) return;
-  reader = createSharedAccessPolicyReader();
-  const refresh = () => { void reader.refresh().catch(() => {}); };
-  chrome.runtime.onStartup.addListener(refresh);
-  chrome.runtime.onInstalled.addListener(refresh);
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !IDENTITY_KEYS.some(key => Object.hasOwn(changes, key))) return;
-    reader.invalidate(); refresh();
-  });
-  let wasAvailable = false;
-  observeSharedAccessPolicyCapability(available => {
-    if (!available) reader.invalidate();
-    else if (!wasAvailable) refresh();
-    wasAvailable = available;
-  });
   refresh();
 }

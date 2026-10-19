@@ -1322,45 +1322,42 @@ this.__modeService = {
     });
   }
 
-  section('D-114 shared actual ACCESS_OBSERVED consumer');
+  section('Current V2 shared ACCESS_OBSERVED consumer uses current config and quota state');
   {
-    const { pathToFileURL } = require('node:url');
-    const common = await import(pathToFileURL(path.resolve(__dirname, '../../extension/core/shared-contracts/1.30.0/shared-access.js')).href);
     const at = Date.parse('2026-09-28T04:00:00Z');
     for (const test of [
       { name: 'composite borrows Rest inside Composite window with Rest window closed', nature: 'composite', access: 'allow', mode: 'rest' },
       { name: 'unclassified borrows Rest with same Composite window', nature: 'pending_composite', access: 'allow', mode: 'rest' },
       { name: 'closed Composite cannot borrow', nature: 'composite', close: true, reason: 'composite_schedule_locked' },
       { name: 'restricted stays subject to Rest window', nature: 'restricted', reason: 'rest_schedule_locked' },
-      { name: 'weekly exhausted', nature: 'composite', week: 0, reason: 'weekly_rest_locked' },
+      { name: 'weekly exhausted', nature: 'composite', week: 0, reason: 'quota_composite_and_rest' },
       { name: 'blacklist wins even for other', nature: 'blocked', reason: 'unsafe' },
       { name: 'other bypasses category windows', nature: 'other', access: 'allow' },
       { name: 'other still has object daily limit', nature: 'other', siteLocked: true, reason: 'quota' },
     ]) {
-      const policy = { ...common.projectLegacySharedAccessPolicy({}, 1, 0), stage: 'shared' };
-      policy.timeWindows.monday.composite = test.close ? [{ start: '13:00', end: '14:00' }] : [{ start: '12:00', end: '13:00' }];
-      policy.timeWindows.monday.rest = [{ start: '13:00', end: '14:00' }];
       const cfg = { enabled: true, mode: 'study', timeQuota: { accountingVersion: 2 }, dailyUndeterminedQuota: 1,
-        dailyRestQuota: 120, timeWindows: { daily: {} }, autonomyConfig: { restrictedEntryConfirmationRequired: false } };
+        dailyRestQuota: 120, timeWindows: { daily: { monday: {
+          compositeWindows: test.close ? [{ start: '13:00', end: '14:00' }] : [{ start: '12:00', end: '13:00' }],
+          restWindows: [{ start: '13:00', end: '14:00' }], studyWindows: null } } },
+        autonomyConfig: { restrictedEntryConfirmationRequired: false } };
       let reads = 0;
       const svc = loadModeService({
         isInternalPseudoDomain: () => false, recordUnclassifiedSiteAccess: async () => ({ ok: false }),
-        isSharedAccessRuntimeEnabled: () => true, sharedAccessAdmissionV1: common.sharedAccessAdmissionV1,
+        isSharedAccessRuntimeEnabled: () => true,
         resolveManagedTargetAttribution: () => ({ targetClassificationAtTime: test.nature }),
         resolveSiteAccessClassification: () => ({ classification: test.nature }),
         getConfig: async () => cfg, getSession: async () => ({ currentMode: 'study' }),
         evaluateQuotaState: async () => { reads++; return { sharedRuntime: true, accountingVersion: 2, config: cfg,
-          newState: {}, lockedDomains: test.siteLocked ? ['fixture.test'] : [],
+          newState: test.week === 0 ? { restLocked: true, weeklyRestLocked: true } : {}, lockedDomains: test.siteLocked ? ['fixture.test'] : [],
           usage: { studySeconds: 0, undeterminedSeconds: 60, restSeconds: 0, totalSeconds: 60 },
-          sharedModel: { policy, preparation: { projection: { complete: true,
-            days: [{ date: '2026-09-28', complete: true, remainingMs: { study: null, composite: 0, rest: 60000 } }],
-            week: { restRemainingMs: test.week ?? null } } } } }; },
+          sharedModel: { policy: { schemaVersion: 2 } } }; },
       });
       const result = await svc.handleModeEvent({ type: 'ACCESS_OBSERVED', url: 'https://fixture.test/page',
         foreground: true, nowMs: at });
       expect(test.name, { access: result.access, reason: result.reminder?.reason, mode: result.modeChange?.toMode },
         { access: test.access ?? 'reminder', reason: test.reason, mode: test.mode });
-      expect('quota snapshot only after blacklist: ' + test.name, reads, test.nature === 'blocked' ? 0 : 1);
+      expect('quota snapshot only after blacklist and time windows: ' + test.name, reads,
+        test.nature === 'blocked' || test.close || test.nature === 'restricted' ? 0 : 1);
     }
   }
   section('Advisory windows: actual access consumer and hard gates');

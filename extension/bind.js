@@ -322,28 +322,14 @@ async function doBind(profileId) {
 
     const data = await resp.json();
 
-    // 保存账号会话（不保存可逆密码）
     const email = document.getElementById('email').value.trim().toLowerCase();
-
-    // 保存到本地
-    await new Promise((resolve) => {
-      chrome.storage.local.set({
-        cloud_device_token: data.device_token,
-        cloud_device_id: data.device_id || null,
-        cloud_profile_id: data.profile_id,
-        account_token: accountToken,
-        account_refresh_token: accountRefreshToken,
-        cloud_account_email: email,
-        cloud_credentials: null,
-        cloud_last_sync: Date.now()
-      }, resolve);
-    });
-
-    // 通知 background 初始化云同步
+    // The background closes the old scope before committing credentials and books together.
     let bindResult = null;
     try {
-      bindResult = await chrome.runtime.sendMessage({ type: 'CLOUD_BIND' });
+      bindResult = await chrome.runtime.sendMessage({ type: 'CLOUD_BIND', binding: data,
+        accountSession: { token: accountToken, refreshToken: accountRefreshToken, email } });
     } catch (_) {}
+    if (!bindResult?.success) throw new Error('绑定尚未保存，原有本地数据已保留，请稍后重试。');
 
     // 根据同步结果显示不同提示
     const successIcon = document.getElementById('successIcon');
