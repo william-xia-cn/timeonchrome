@@ -137,6 +137,19 @@ function load(file,deps={}){
  assert.equal(current.day.remainingSeconds.study,2000);assert.equal(current.week.restUsedSeconds,150);
  assert.equal(current.week.restRemainingSeconds,7050);assert.equal(current.complete,true);
  assert.deepEqual(await management(),current,'summary reads replace results without accumulating');
+ assert.equal(current.week.fromDate,period.weekStart);assert.equal(current.week.toDate,date);
+ accounts[1].quotaProjection.activeSeconds=0;accounts[1].quotaProjection.byQuotaBucket[0].durationSeconds=0;
+ assert.equal((await management()).day.usedSeconds.study,1200,'网页600秒＋应用600秒，重复读取不累计');
+ accounts[1].quotaProjection.activeSeconds=400;accounts[1].quotaProjection.byQuotaBucket[0].durationSeconds=400;
+ accounts[0].quotaProjection.byQuotaBucket.push({quotaBucket:'other',durationSeconds:900});
+ assert.deepEqual((await management()).day.usedSeconds,current.day.usedSeconds,'其他时间不扣三类配额');
+ accounts[0].quotaProjection.byQuotaBucket.pop();
+ policy.dailyMinutes.wednesday.study=61;
+ assert.equal((await management()).day.remainingSeconds.study,2060,'同版本配置内容变化直接采用，不复用旧余额');
+ policy.dailyMinutes.wednesday.study=60;
+ const priorStage=policy.stage;policy.stage=priorStage==='shadow'?'legacy':'shadow';
+ assert.equal((await management()).stage,policy.stage,'采用当前阶段，不保留旧混合清单状态');
+ policy.stage=priorStage;
  // 网页rest桶已经包括原侧借用；复合超出额度不允许在管理摘要再次转入rest。
  accounts[0].quotaProjection={activeSeconds:600,byQuotaBucket:[{quotaBucket:'composite',durationSeconds:100},{quotaBucket:'rest',durationSeconds:500}],byDomain:[]};
  const borrowed=await management();

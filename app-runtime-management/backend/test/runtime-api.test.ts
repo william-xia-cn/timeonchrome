@@ -1276,7 +1276,7 @@ describe('Runtime product API', () => {
     });
   });
 
-  it('keeps shared category quotas Guardian-owned and evaluates per-application limits per Beijing day', async () => {
+  it('keeps quota configuration Guardian-owned, delivers app limits and never restores ledger-derived quota in statistics', async () => {
     const { account, enrolled, localUserId } = await createMachineWithUser();
     const policyBody = {
       classifications: [{ platform: 'windows', runtimeIdentity: 'app:editor', displayName: 'Editor', classification: 'study' }],
@@ -1295,6 +1295,10 @@ describe('Runtime product API', () => {
     expect((await call('/v2/module/app-policy?childId=child-a', {
       method: 'PUT', headers: { ...bearer(account), 'If-Match': '"app-policy-v0"' }, body: JSON.stringify(policyBody),
     })).status).toBe(200);
+    const delivered = await (await call('/v2/machines/policy', { headers: bearer(enrolled.machineToken) }))
+      .json<{ appPolicies: Array<{ childId: string; policy: { quotas: unknown } }> }>();
+    expect(delivered.appPolicies.find(item => item.childId === 'child-a')?.policy.quotas)
+      .toEqual(policyBody.quotas);
     const first = await accountingUsage({ runtimeIdentity: 'app:editor', channel: 'active', basis: 'foregroundInteraction', start: 0, end: 600_000 });
     first.policySnapshot = { assignmentVersion: 2, appPolicyVersion: 1, quotaBucket: 'study' };
     first.id = await accountingUsageId(first);
@@ -1306,11 +1310,20 @@ describe('Runtime product API', () => {
       body: JSON.stringify({ schemaVersion: 2, segments: [first, second].map((segment) => ({ ...segment, localUserId, assignmentVersion: 2 })) }),
     });
     expect((await response.json<{ acceptedIds: string[] }>()).acceptedIds).toHaveLength(2);
-    const usage = await (await call('/v2/module/app-usage?childId=child-a&fromMs=0&toMs=172800000', {
+    // 当前读取器按北京时间完整日读取持久秒统计；旧原账不再用于查询时重算或计算配额。
+    const fromMs = Date.parse('1970-01-02T00:00:00+08:00'), toMs = fromMs + 2 * 86_400_000;
+    const current = await call(`/v2/module/app-usage?childId=child-a&durationUnit=seconds&fromMs=${fromMs}&toMs=${toMs}`, {
       headers: bearer(account),
-    })).json<{ categories: Array<{ quota: { exceeded: boolean; exceededDays: number } }>; applications: Array<{ quota: { exceeded: boolean; exceededDays: number } }> }>();
-    expect(usage.categories[0]?.quota).toMatchObject({ exceeded: false, exceededDays: 0 });
-    expect(usage.applications[0]?.quota).toMatchObject({ exceeded: false, exceededDays: 0 });
+    });
+    expect(current.status).toBe(200);
+    const usage = await current.json<{ durationUnit: string; totalDuration: number; categories: unknown[]; products: unknown[];
+      days: Array<{ date: string; totalDuration: number }> }>();
+    expect(usage.durationUnit).toBe('seconds');
+    expect(usage.days.map(day => ({date:day.date,totalDuration:day.totalDuration})))
+      .toEqual([{date:'1970-01-02',totalDuration:0},{date:'1970-01-03',totalDuration:0}]);
+    expect(usage.totalDuration).toBe(0);
+    expect(usage.categories).toEqual([]);expect(usage.products).toEqual([]);
+    expect(JSON.stringify(usage)).not.toMatch(/"(?:quota|exceeded|exceededDays|remainingSeconds)"/);
   });
 
   it('controls machine terminal logging with ETag, policy delivery, item ACK, and no upload while disabled', async () => {
