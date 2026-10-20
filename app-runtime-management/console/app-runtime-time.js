@@ -99,6 +99,7 @@
       buckets:snapshot.buckets.map(row=>({startAtMs:row.startAtMs,durationSeconds:seconds(row.duration)})),
       productStatus:snapshot.productStatus,
       applicationUsage:snapshot.applicationUsage,fromDate:snapshot.fromDate,toDate:snapshot.toDate,
+      statistics:snapshot.statistics,days:snapshot.days,
       missingDates:snapshot.days.filter(day=>!day.complete).map(day=>day.date),
       // 缺持久统计不能证明没有原始记录，不推断“无新版记录”。
       noNewRecordDates:[],

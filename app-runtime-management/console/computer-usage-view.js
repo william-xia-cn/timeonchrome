@@ -15,15 +15,12 @@ const time=ms=>ms===null?'未报告':new Date(ms).toLocaleString('zh-CN',{timeZo
 const bucketColors={study:'#1d6ff2',composite:'#f59e0b',rest:'#37b7b7',other:'#b6b8bb'};
 const validSeconds=value=>Number.isSafeInteger(value)&&value>=0;
 function applicationBuckets(snapshot){
-  const usage=snapshot.applicationUsage,c=usage?.nonSpecialCategories;
-  if(snapshot.durationUnit!=='seconds'||!c||Array.isArray(c)||typeof c!=='object'
-    ||!Object.values(c).every(validSeconds)||!validSeconds(usage.nonSpecialTotal))
-    return {values:null,complete:false};
-  const values={study:c.study??0,composite:(c.composite??0)+(c.unclassified??0),
-    rest:c.restrictedEntertainment??0,other:c.other??0};
-  if(!Object.values(values).every(validSeconds))return {values:null,complete:false};
-  return {values,complete:snapshot.complete===true&&usage.complete===true
-    &&Object.keys(c).every(key=>['study','composite','unclassified','restrictedEntertainment','other'].includes(key))};
+  return webBuckets.application(snapshot);
+}
+function applicationStamp(snapshot){
+  const dates=snapshot?.statistics?.settledThroughByDate||snapshot?.days||[];
+  return '<p class="usage-source-stamp">应用统计截止：'+(dates.length?dates.map(day=>esc(day.date)+' '+esc(Number.isSafeInteger(day.settledThroughMs)?time(day.settledThroughMs):'未提供')).join('；'):'未提供')+'</p>'+
+    '<details><summary>应用来源版本</summary><code>'+esc(snapshot?.revision||snapshot?.statistics?.revision||'未提供')+'</code></details>';
 }
 function bucketSummary(result,note='',inline=false){
   const tag=inline?'div':'section';
@@ -83,6 +80,7 @@ function usageStyle(){
   .computer-view .usage-application-table details{font-size:12px;color:var(--muted,#697d78);margin-top:4px}
   .computer-view .usage-application-table summary{cursor:pointer}
   .computer-view .usage-application-table code{white-space:normal;overflow-wrap:anywhere}
+  .computer-view .usage-distribution{min-width:0}
   .computer-view .usage-distribution h3{font-size:13px;font-weight:400;color:var(--muted,#697d78)}
   .computer-view .usage-list-toolbar{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:12px}
   .computer-view .usage-list-toolbar h3{margin:0}
@@ -125,6 +123,7 @@ function applicationSummary(snapshot){
   const noRecords=days.filter(day=>(day.reasonCodes||[]).includes('APPLICATION_V3_RECORDS_NOT_AVAILABLE')).map(day=>day.date);
   return usageStyle()+'<section class="usage-analysis-card"><div class="usage-card-head"><div><div class="usage-total-label">应用使用'+(partial?'已知小计':'时间')+'</div><div class="usage-total-value"><strong>'+durationSeconds(total)+'</strong></div></div><div class="usage-date-nav computer-toolbar"><span>'+esc(snapshot.fromDate)+(snapshot.fromDate===snapshot.toDate?'':' — '+esc(snapshot.toDate))+'</span></div></div>'+
     (snapshot.readDisplay?'<p>'+esc(snapshot.readDisplay)+'</p>':'')+
+    applicationStamp(snapshot)+
     (partial?'<p>统计不完整；保留已有有效读数，缺失不代表零用量。</p>':'')+
     (snapshot.productStatus?.complete===false?'<p>应用明细尚不完整；'+(hasTotal?'基础用量仍有效。':'基础用量尚不可用。')+'</p>':'')+
     (snapshot.statistics?.stale&&hasTotal?'<p>更新中，保留已有有效读数。</p>':'')+
@@ -156,7 +155,8 @@ return '<style>.computer-view{display:grid;gap:16px}.computer-view button,.compu
 '<style>.computer-view button,.computer-view select{min-height:44px;padding:9px 14px;border:1px solid #c9ddd6;border-radius:10px;background:#fff;color:inherit;font:inherit;line-height:1.4}.computer-view button{cursor:pointer}.computer-view button:hover{background:#edf7f3}.computer-view button:disabled{opacity:.55;cursor:default}.computer-view button:focus-visible,.computer-view select:focus-visible{outline:2px solid #168d72;outline-offset:2px}.computer-view summary{cursor:pointer;min-height:44px;display:list-item;padding:10px 0}</style>'+
 usageStyle()+'<section class="usage-analysis-card"><div class="usage-card-head"><div><div class="usage-total-label">'+(seconds&&!snapshot.complete?'电脑已知小计（来源累计）':'电脑使用时间')+'</div><div class="usage-total-value">'+format(computer)+'</div></div><div class="usage-date-nav computer-toolbar"><span>'+esc(snapshot.fromDate)+(snapshot.fromDate===snapshot.toDate?'':' — '+esc(snapshot.toDate))+'</span></div></div>'+
 (!snapshot.complete?'<p>来源未齐，当前仅显示可用部分，不是完整合计。</p>':'')+
-bucketSummary({values:null,complete:false},'当前电脑汇总未提供可靠的四桶和小时分布；不按分类推算，总量保持原值。',true)+'</section>'+
+applicationStamp(snapshot.applicationSnapshot)+
+bucketSummary(snapshot.displayBuckets||{values:null,complete:false},'网页桶与非特殊应用桶的已知用量；总量沿用原统计，不从四桶反推。当前没有电脑小时分布。',true)+'</section>'+
 '<section class="usage-analysis-card"><div class="usage-list-toolbar"><h3>来源明细</h3><button data-computer-retry>刷新</button></div><table class="usage-source-table"><thead><tr><th>来源</th><th>使用时间</th></tr></thead><tbody><tr><td>网页主用量</td><td>'+format(web)+'</td></tr><tr><td>应用主用量</td><td>'+format(application)+'</td></tr><tr><td>'+container+' 容器扣除</td><td>'+format(special)+'</td></tr></tbody></table>'+
 '<p>电脑使用＝网页＋应用－应用总量中 '+container+' 的贡献。其他应用与网页同时使用仍分别累计。</p>'+
 '<div class="usage-detail-actions"><button data-computer-detail="products">查看产品</button><button data-computer-detail="timeline">查看时间线</button></div><div data-computer-products></div><div data-computer-timeline class="computer-timeline"></div>'+
@@ -186,7 +186,7 @@ const readView=(query,refresh=false)=>cache.read(JSON.stringify([getScope?.()??n
 async function load({refresh=false}={}){
 const currentScope=getScope?.();if(currentScope!==scope){scope=currentScope;snapshot=null;lastMarkup='';}
 const token=++generation;host.innerHTML='<p>正在读取云端电脑使用…</p>';
-try{const {value:result}=await readView({detail:'summary',durationUnit:'seconds'},refresh);if(token!==generation)return;const markup=summary(result);snapshot=result;host.classList.add('computer-view');host.innerHTML=markup;if(onRange)host.querySelector('.computer-toolbar').insertAdjacentHTML('beforeend','<button data-computer-period="previous" aria-label="上一日或上一周">‹</button><button data-computer-period="today">'+(result.fromDate===result.toDate?'今天':'本周')+'</button><button data-computer-period="next" aria-label="下一日或下一周">›</button>');lastMarkup=host.innerHTML;}
+try{const result=await read({detail:'summary',durationUnit:'seconds'},{refresh});if(token!==generation)return;const markup=summary(result);snapshot=result;host.classList.add('computer-view');host.innerHTML=markup;if(onRange)host.querySelector('.computer-toolbar').insertAdjacentHTML('beforeend','<button data-computer-period="previous" aria-label="上一日或上一周">‹</button><button data-computer-period="today">'+(result.fromDate===result.toDate?'今天':'本周')+'</button><button data-computer-period="next" aria-label="下一日或下一周">›</button>');lastMarkup=host.innerHTML;}
 catch(error){if(token!==generation)return;if(error?.status===401||error?.status===403){cache.clear();snapshot=null;lastMarkup='';}host.innerHTML=lastMarkup?lastMarkup+'<section><p>更新失败，保留本范围上次有效统计；不是当前同步结果。</p><small>'+esc(error?.code||'COMPUTER_USAGE_UNAVAILABLE')+'</small><button data-computer-retry>重试</button></section>':'<section><h3>电脑使用暂不可用</h3><p>独立网页、媒体与应用统计不受影响。请重试。</p><button data-computer-retry>重试</button></section>';}
 }
 async function details(kind,offset=0,product){
@@ -223,6 +223,22 @@ return result;
 .finally(()=>{if(pending.get(key)===request)pending.delete(key);});
 pending.set(key,request);return request;
 }};
+}
+// One read batch for the two unfiltered views. No local persistence or cross-child reuse.
+function createUsageReadSession(options={}){
+  const cache=createReadCache({ttlMs:Infinity,...options,shouldCache:value=>value.complete===true});
+  return {clear:()=>cache.clear(),async read(scope,loader,{refresh=false,application=false}={}){
+    const result=await cache.read(JSON.stringify(scope),async()=>{
+      const bundle=await loader(),source=bundle.applicationSnapshot;
+      if(bundle.fromDate!==scope.from||bundle.toDate!==scope.to)throw new Error('SELECTION_CHANGED');
+      if(source&&(source.childId!==scope.childId||source.fromDate!==scope.from||source.toDate!==scope.to
+        ||source.revision!==bundle.sourceVersions?.application))throw new Error('APPLICATION_SOURCE_VERSION_MISMATCH');
+      return bundle;
+    },{refresh});
+    const bundle=result.value,source=bundle.applicationSnapshot;
+    if(application&&(!source||!validSeconds(source.totalDuration??source.availableTotalDuration)))throw new Error('APPLICATION_SOURCE_UNAVAILABLE');
+    return {...result,value:application?source:bundle};
+  }};
 }
 function independentSummary(snapshot){
 if(snapshot.source==='application'&&snapshot.durationUnit==='seconds')return applicationSummary(snapshot);
@@ -268,5 +284,5 @@ host.addEventListener('click',event=>{if(event.target.closest('[data-independent
 host.addEventListener('input',event=>{if(event.target.matches('[data-application-search]')&&snapshot&&scope===getScope?.())host.querySelector('[data-application-list]').innerHTML=applicationList(snapshot,event.target.value);});
 return{load,invalidate(){generation++;lastMarkup='';snapshot=null;host.innerHTML='';}};
 }
-const api={create,createIndependent,createReadCache,summary,independentSummary,detailRows,duration,applicationBuckets,bucketSummary,timeDistribution,applicationRows,usageStyle};if(typeof module==='object')module.exports=api;else root.ComputerUsageView=api;
+const api={create,createIndependent,createReadCache,createUsageReadSession,applicationStamp,summary,independentSummary,detailRows,duration,applicationBuckets,bucketSummary,timeDistribution,applicationRows,usageStyle};if(typeof module==='object')module.exports=api;else root.ComputerUsageView=api;
 })(typeof globalThis==='object'?globalThis:this);

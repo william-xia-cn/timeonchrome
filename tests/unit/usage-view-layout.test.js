@@ -3,6 +3,35 @@ const assert=require('node:assert/strict'),test=require('node:test'),fs=require(
 const view=require('../../pages/computer-usage-view');
 const samples=require('../fixtures/usage-view-samples');
 const clone=value=>JSON.parse(JSON.stringify(value));
+test('same batch binds application seconds, cutoff and version; refresh can decrease corrected usage',async()=>{
+  let now=0;
+  const session=view.createUsageReadSession({now:()=>now}),scope={childId:'isolated-child',from:'2026-10-21',to:'2026-10-21'};
+  let reads=0,seconds=10423,cutoff=1792524655722;
+  const loader=async()=>{reads++;const applicationSnapshot={...scope,childId:scope.childId,fromDate:scope.from,toDate:scope.to,
+    revision:'rev-'+seconds,totalDuration:seconds,statistics:{settledThroughByDate:[{date:scope.from,settledThroughMs:cutoff}]}};
+    return {fromDate:scope.from,toDate:scope.to,complete:true,sourceVersions:{application:applicationSnapshot.revision},applicationSnapshot,totals:{application:seconds}};};
+  const computer=await session.read(scope,loader),application=await session.read(scope,loader,{application:true});
+  assert.equal(reads,1);assert.equal(computer.value.totals.application,application.value.totalDuration);
+  assert.equal(application.value.statistics.settledThroughByDate[0].settledThroughMs,1792524655722);
+  seconds=10913;cutoff=1792525145724;
+  now=60000;
+  assert.equal((await session.read(scope,loader,{application:true})).value.totalDuration,10423,'tab switching does not silently advance the batch cutoff');
+  const next=await session.read(scope,loader,{refresh:true,application:true});
+  assert.equal(next.value.totalDuration-application.value.totalDuration,490);
+  assert.equal((await session.read(scope,loader)).value.totals.application,10913);
+  seconds=10000;assert.equal((await session.read(scope,loader,{refresh:true,application:true})).value.totalDuration,10000);
+  session.clear();
+  await assert.rejects(session.read(scope,async()=>({...computer.value,applicationSnapshot:{...application.value,childId:'other'}})),/VERSION_MISMATCH/);
+  assert.equal((await session.read(scope,loader)).value.totals.application,10000,'invalid response did not poison cache');
+});
+test('computer display combines explicit web buckets and non-special application buckets without source mutation',()=>{
+  const buckets=require('../../app-runtime-management/console/web-usage-buckets');
+  const web=buckets.rowsResult([{quotaBucket:'other',duration:3},{quotaBucket:'pending_composite',duration:2}]);
+  const app=buckets.application(clone(samples.application));
+  assert.deepEqual(buckets.combine(web,app),{values:{study:1200,composite:902,rest:900,other:603},complete:true});
+  assert.equal(buckets.combine(null,app).complete,false);
+  assert.equal(buckets.rowsResult([{quotaBucket:'unknown',duration:9}]).values,null);
+});
 function host(){
   const events={},list={innerHTML:''};
   return {innerHTML:'',classList:{add(){}},events,list,
@@ -78,6 +107,7 @@ test('application uses web overview and table hierarchy while preserving identit
   assert.equal((html.match(/<section class="usage-analysis-card">/g)||[]).length,2);
   assert.match(html,/<div class="usage-date-nav computer-toolbar">/);
   assert.ok(html.indexOf('class="usage-distribution"')<html.indexOf('<div class="usage-bucket-summary">'));
+  assert.match(html,/\.computer-view \.usage-distribution\{min-width:0\}/);
   assert.match(html,/<th>管理对象<\/th><th>分类<\/th><th>当前范围用量<\/th>/);
   assert.match(html,/<details><summary>对象详情<\/summary>管理对象：<code>/);
   assert.match(html,/fixture:machine-a:editor/);

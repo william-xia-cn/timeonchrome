@@ -14,8 +14,9 @@ assert.equal(members('special').length,1);assert.deepEqual(members('unclassified
 assert.equal(raw,fs.readFileSync(path.join(__dirname,'../../pages/computer-usage-view.js'),'utf8').replace("require('../app-runtime-management/console/web-usage-buckets.js')","require('./web-usage-buckets.js')"),'both cloud pages use identical readonly renderer');
 const mainPage=fs.readFileSync(path.join(__dirname,'../../pages/index.html'),'utf8');
 const applicationRead=mainPage.slice(mainPage.indexOf('const cloudApplicationReader='),mainPage.indexOf('const cloudApplicationReader=')+1200);
-assert.ok(applicationRead.includes("source:'application',durationUnit:'seconds'"),'main application view explicitly selects seconds');
-assert.ok(applicationRead.includes("model:'program-instance-v1'"),'main application view selects the cloud identity projection');
+assert.ok(applicationRead.includes('readCloudUsageBatch({refresh,application:true})'),'application extracts the same read batch as computer');
+assert.ok(mainPage.includes("detail:'summary',durationUnit:'seconds'"),'shared batch explicitly selects seconds');
+assert.ok(controller.includes('await readUsageBatch({refresh,application:true})'),'independent Runtime reuses the same unfiltered batch');
 const identityHtml=view.independentSummary({model:'program-instance-v1',source:'application',durationUnit:'seconds',
   fromDate:'2026-10-09',toDate:'2026-10-09',complete:true,totalDuration:60,availableTotalDuration:60,
   categories:[],applications:[],buckets:[],productStatus:{complete:false},
@@ -125,7 +126,10 @@ const queries=[],cleanHost={...host,innerHTML:''};await view.create(cleanHost,as
 assert.deepEqual(queries,[{detail:'summary',durationUnit:'seconds'}]);assert.ok(!cleanHost.innerHTML.includes('<select'));
 let currentScope='child-a|day',viewCalls=0;
 const successfulSnapshot={...snapshot,reasons:[]};
-const cachedReader=view.create(cleanHost,async()=>{viewCalls++;return successfulSnapshot;},null,()=>currentScope);
+const batchCache=view.createReadCache();
+const cachedReader=view.create(cleanHost,async(query,options)=>{
+  return (await batchCache.read(currentScope,async()=>{viewCalls++;return successfulSnapshot;},options)).value;
+},null,()=>currentScope);
 await cachedReader.load();cachedReader.invalidate();await cachedReader.load();assert.equal(viewCalls,1,'switching back uses the same generated summary');
 await cachedReader.load({refresh:true});assert.equal(viewCalls,2,'manual refresh bypasses memory cache');
 currentScope='child-b|day';await cachedReader.load();assert.equal(viewCalls,3,'child changes never reuse another child snapshot');
