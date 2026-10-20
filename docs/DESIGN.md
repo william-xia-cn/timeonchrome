@@ -1,12 +1,12 @@
 # TimeOnChrome — 技术设计文档
 
-## 2026-10-21 Mac 动态身份登记契约补正（本地实施，未发布）
+## 2026-10-21 Mac 动态身份登记契约补正（已发布Runtime）
 
 发布边界补正：现有四桶纯展示函数以原实现纳入contracts的 `./web-usage-buckets` CJS导出，Guardian只经该入口读取，不直接依赖Runtime页面目录。浏览器分发脚本保持原样，直接测试核对内容一致（仅归一化换行）。这不是新增统计或扣费算法，也不因此部署Guardian/Pages。最终1.58.1包含该导出，以最终哈希交付Native，替代尚未锁定的预备包。
 
 共享识别解析器在原规则之外仅允许 `^macos:[a-f0-9]{64}$` 与 `dynamic-process` 配对；保持原Windows `dynamic-local:` 两种动态状态约束。Mac runtime来源仍为runtime，扫描仍为scan/null；不通过哈希前缀推断bundle/path证据，不变更冻结nativeId，不要求Team必填。不扩大Mac dynamic-registry，不增加字段、接口或schemaVersion。现有PROCESS_NAME_FALLBACK证据可直接使用。
 
-Runtime对象登记、回执和管理target继续复用同一契约。1.58.1为待交付源码版本，已发布1.58.0及Native固定包不改写；本轮不制包部署，Native固定包及线上Runtime采用待后续交付。统计协议、原账、分类和配额计算不变。
+Runtime对象登记、回执和管理target继续复用同一契约。1.58.1固定包及Runtime-only已按后续授权交付，精确源码/哈希/部署证据见TASK_BOARD；已发布1.58.0包不改写。Native锁已更新，Mac实际消费及实机验收仍单列。统计协议、原账、分类和配额计算不变。
 
 ## 2026-10-21 电脑与应用同批展示读取（本地实施，未发布）
 
