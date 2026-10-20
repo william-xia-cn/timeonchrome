@@ -58,7 +58,7 @@
   const childIndex = (id) => String(state.children.findIndex((item) => item.id === id));
   const childFromIndex = (value) => state.children[Number(value)] || null;
   const range = () => AppRuntimeTime.beijingRange(state.period, state.offset);
-  state.usageKind='computer';
+  state.usageKind='web';
   const applicationReadCache=ComputerUsageView.createReadCache();
   const computerReader=ComputerUsageView.create($('#runtime-computer-usage'),async(query)=>{
     const selected=state.childId,period=range();

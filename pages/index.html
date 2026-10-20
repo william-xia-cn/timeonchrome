@@ -1525,9 +1525,9 @@
           </div>
 
           <div class="usage-segmented" aria-label="使用分析账本" style="width:max-content;margin-bottom:12px;">
-            <button type="button" class="active" data-cloud-usage-ledger="computer">电脑使用</button>
+            <button type="button" class="active" data-cloud-usage-ledger="web">网页使用</button>
             <button type="button" data-cloud-usage-ledger="application">应用使用</button>
-            <button type="button" data-cloud-usage-ledger="web">网页使用</button>
+            <button type="button" data-cloud-usage-ledger="computer">电脑使用</button>
             <button type="button" data-cloud-usage-ledger="media">网页媒体使用</button>
           </div>
           <div id="cloud-computer-usage" hidden></div>
@@ -2165,7 +2165,7 @@ let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore:
 let cloudSystemManagementActiveTab = 'reconciliation';
 let cloudRulesManagementActiveTab = 'quota';
 let cloudDevicesCache = { profileId: null, devices: [] };
-let cloudUsageState = { ledger: 'computer', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
+let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
 let cloudUsageLastView = null;
 let cloudRestoreState = { package: null, preflight: null };
 let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'acct-config-import-diff', messageId: 'acct-config-io-msg' };

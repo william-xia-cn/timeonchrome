@@ -52,9 +52,11 @@ assert.ok(statusHtml.includes('<details><summary>来源状态与诊断详情</su
 for(const [file,attribute] of [['index.html','data-usage-kind'],['../../pages/index.html','data-cloud-usage-ledger']]){
 const page=fs.readFileSync(path.join(__dirname,file),'utf8');
 const tabs=[...page.matchAll(new RegExp(attribute+'="([^"]+)"[^>]*>([^<]+)<','g'))].map(match=>[match[1],match[2]]);
-assert.deepEqual(tabs,[['computer','电脑使用'],['application','应用使用'],['web','网页使用'],['media','网页媒体使用']]);
+assert.deepEqual(tabs,[['web','网页使用'],['application','应用使用'],['computer','电脑使用'],['media','网页媒体使用']]);
+assert.ok(page.includes(`class="active" ${attribute}="web">网页使用</button>`),'web tab is initially active');
 assert.ok(page.includes('.computer-view[hidden]'),'hidden root beats display:grid');
 }
+assert.ok(controller.includes("state.usageKind='web'"),'independent console defaults to web usage');
 const independent=view.independentSummary({source:'web',fromDate:'2026-10-01',toDate:'2026-10-01',totalDurationMs:5134000,categories:[{classification:'study',durationMs:5134000}],buckets:[],applications:[]});
 assert.ok(independent.includes('1小时 25分 34秒'));assert.ok(!independent.includes('电脑总用量'));
 const appSnapshot={source:'application',fromDate:'2026-10-04',toDate:'2026-10-04',totalDurationMs:51125,categories:[{classification:'unclassified',durationMs:51125}],buckets:[],applications:[],statistics:{producer:'native',stale:true,computedAtMs:1791100800000,settledThroughByDate:[{date:'2026-10-04',settledThroughMs:1791100700000}]}};
