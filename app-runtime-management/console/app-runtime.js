@@ -307,7 +307,7 @@
   function classificationActions(app, selected = 'unclassified') {
     if (app.manageability !== 'actionable') return '';
     const index = state.actionApps.push(app) - 1;
-    return ['study','composite','restrictedEntertainment','other','blocked','unclassified'].map((category) => `<button data-classify-index="${index}" data-classification="${category}"${category === selected ? ' class="current" disabled' : ''}>${category === 'unclassified' ? '暂不归类' : `归为${categoryLabels[category]}`}</button>`).join('');
+    return ['study','composite','restrictedEntertainment','other','blocked'].map((category) => `<button data-classify-index="${index}" data-classification="${category}"${category === selected ? ' class="current" disabled' : ''}>归为${categoryLabels[category]}</button>`).join('');
   }
   function visibleProductVariants(app) {
     const variants = Array.isArray(app.variants) ? app.variants : [];
@@ -340,10 +340,10 @@
   function renderAppDirectory() {
     state.actionApps = [];
     if(state.nativeDirectory?.length&&!state.managementError){
-      if(!state.nativeCategoryInitialized){state.appCategory='following';state.nativeCategoryInitialized=true;}
-      const choices=[['following','沿用原配置'],['study','学习应用'],['composite','复合应用'],['restrictedEntertainment','受限娱乐应用'],['other','其他时间应用'],['blocked','黑名单应用'],['unclassified','未归类应用'],['special','特殊应用']];
-      if(!choices.some(([key])=>key===state.appCategory))state.appCategory='following';
-      const classification=item=>{const c=state.policy.nativeApplications?.find(c=>c.target.machineId===item.target.machineId&&c.target.nativeId===item.target.nativeId);return c?.specialApplication?'special':c?.classification||'following';};
+      if(!state.nativeCategoryInitialized){state.appCategory='unclassified';state.nativeCategoryInitialized=true;}
+      const choices=[['unclassified','未归类应用'],['study','学习应用'],['composite','复合应用'],['restrictedEntertainment','受限娱乐应用'],['other','其他时间应用'],['blocked','黑名单应用'],['special','特殊应用']];
+      if(!choices.some(([key])=>key===state.appCategory))state.appCategory='unclassified';
+      const classification=item=>{const c=state.policy.nativeApplications?.find(c=>c.target.machineId===item.target.machineId&&c.target.nativeId===item.target.nativeId);return c?.specialApplication?'special':c?.classification||'unclassified';};
       $('#app-category-nav').innerHTML=choices.map(([key,label])=>`<button class="app-category-item ${state.appCategory===key?'active':''}" data-app-category="${key}"><strong>${label}</strong><span>${state.nativeDirectory.filter(item=>classification(item)===key).length}</span></button>`).join('');
       const search=($('#app-search').value||'').trim().toLowerCase(),platform=$('#management-platform').value;
       state.nativeVisible=state.nativeDirectory.filter(item=>classification(item)===state.appCategory&&(!platform||item.platform===platform)&&(!search||item.presentations.some(p=>p.name.toLowerCase().includes(search))||item.target.nativeId.toLowerCase().includes(search)));
@@ -365,8 +365,8 @@
     if(state.identityCatalog&&!state.managementError){
       if(!state.identityDirectory)$('#directory-scope').value='all';
       const catalog=state.identityCatalog,binding=catalog.bindings.find(item=>item.childId===state.childId);
-      const choices=[['study','学习应用'],['composite','复合应用'],['restrictedEntertainment','受限娱乐应用'],['other','其他时间应用'],['blocked','黑名单应用'],['unclassified','明确未归类'],['following','跟随分类规则'],['special','特殊应用']];
-      const category=product=>product.catalogGroup==='specialApplication'?'special':binding?.products.find(item=>item.productId===product.id)?.classification??'following';
+      const choices=[['study','学习应用'],['composite','复合应用'],['restrictedEntertainment','受限娱乐应用'],['other','其他时间应用'],['blocked','黑名单应用'],['unclassified','未归类应用'],['special','特殊应用']];
+      const category=product=>product.catalogGroup==='specialApplication'?'special':binding?.products.find(item=>item.productId===product.id)?.classification??'unclassified';
       const platforms=product=>[...new Set(catalog.ownershipRules.filter(rule=>rule.enabled&&rule.productId===product.id).map(rule=>rule.platform))];
       $('#open-products').disabled=false;$('#open-rules').disabled=false;
       $('#open-rules').title='管理孩子批准、分类结果、模式、平台及高级条件草稿；保存须通过云端校验';
@@ -382,7 +382,7 @@
       };
       const items=catalog.products.filter(product=>category(product)===state.appCategory&&inScope(product)&&(!search||product.name.toLowerCase().includes(search))&&(!platform||platforms(product).includes(platform)));
       $('#app-directory-title').textContent=choices.find(([key])=>key===state.appCategory)?.[1]||'产品目录';
-      $('#app-directory-subtitle').textContent=`集中目录 v${catalog.version}；分类为当前孩子明确设置，跟随规则的实际分类以实例投影为准。`;
+      $('#app-directory-subtitle').textContent=`集中目录 v${catalog.version}；显示当前孩子明确分类，未分配分类的应用默认未归类。`;
       $('#inventory-status').textContent='平台仅表示已启用归属规则的范围，不代表已安装、盘点完整或终端已执行。'+
         (!directory?' 安装／使用范围暂不可读。':directory.usage.state!=='available'?' 使用来源不完整，不能判定“已安装未使用”。':' 使用观察覆盖最近30天；未观察不代表从未使用。');
       const games=items.filter(product=>['game','gameLauncher','gameUtility'].includes(product.type));
@@ -594,7 +594,7 @@
       if(result.state!=='available'||result.catalog?.schemaVersion!==4||result.catalog.version!==result.version)throw error;
       state.identityCatalog=result.catalog;state.catalog={items:[],technicalItems:[]};state.records={pending:[],processed:[],technical:[]};
       await loadIdentityDirectory(result.catalog);
-      state.managementError=null;state.managementLoaded=true;state.appCategory='following';return;
+      state.managementError=null;state.managementLoaded=true;state.appCategory='unclassified';return;
     }
     const [policy, catalog, records] = results;
     state.policy = AppRuntimePolicy.normalize(policy);
@@ -854,7 +854,7 @@
     if (button.dataset.appCategory) { state.appCategory = button.dataset.appCategory; renderAppDirectory(); }
     if(button.dataset.nativeSave!==undefined){
       const index=Number(button.dataset.nativeSave),item=state.nativeVisible?.[index];if(!item)throw new Error('APPLICATION_DIRECTORY_CHANGED');
-      if(!$(`[data-native-class="${index}"]`).value)throw new Error('请选择应用分类；尚未单独配置的对象仍保留原配置');
+      if(!$(`[data-native-class="${index}"]`).value)throw new Error('请选择应用分类；未分配分类的应用属于未归类');
       const input=$(`[data-native-quota="${index}"]`),minutes=input.value===''?null:Number(input.value);
       if(minutes!==null&&(!Number.isSafeInteger(minutes)||minutes<0||minutes>1440))throw new Error('单应用日限必须为0至1440整数分钟');
       const next={target:{...item.target},classification:$(`[data-native-class="${index}"]`).value,

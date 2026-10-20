@@ -9,6 +9,22 @@ import {readApplicationIdentityUsage} from '../src/applicationProductProjections
 import {usageAccountDayStart} from '@timeonchrome/app-runtime-contracts/usage-account';
 import type {MachineSelfResponse} from '../src/contracts';
 const start=usageAccountDayStart('2026-10-15'),now=start+86400000;
+it('未配置保持未归类；禁止主动设为未归类或删除已归类设置，允许改为其他时间', async()=>{
+ const f=await fixture();await f.send();
+ const current=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.childId);
+ const target={machineId:f.machine.machineId,nativeId:'scan-app'};
+ const entry={target,classification:'unclassified',specialApplication:false,dailyQuotaMinutes:null};
+ const save=(policy:typeof current,entries:unknown[])=>putAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.childId,
+  appPolicyEtag(policy.version),parseAppPolicyUpdate({...policy,nativeApplications:entries}),now);
+ await expect(save(current,[entry])).rejects.toMatchObject({code:'APPLICATION_CLASSIFICATION_REQUIRED'});
+ const classified=await save(current,[{...entry,classification:'study'}]);
+ await expect(save(classified,[entry])).rejects.toMatchObject({code:'APPLICATION_CLASSIFICATION_REQUIRED'});
+ await expect(save(classified,[])).rejects.toMatchObject({code:'APPLICATION_CLASSIFICATION_REQUIRED'});
+ const other=await save(classified,[{...entry,classification:'other'}]);
+ expect(other.nativeApplications?.[0].classification).toBe('other');
+ expect(other.quotas).toEqual(current.quotas);
+ expect(other.timeWindows).toEqual(current.timeWindows);
+});
 async function fixture(){
  const token=randomToken(''),childId=crypto.randomUUID(),localUserId='u'.repeat(64);
  const machine:MachineSelfResponse={machineId:crypto.randomUUID(),accountId:crypto.randomUUID(),platform:'windows',displayName:null,

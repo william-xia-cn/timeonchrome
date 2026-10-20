@@ -1,5 +1,19 @@
 # TASK_BOARD
 
+## NOW：归类默认状态、其他时间保存一致性和四桶展示集中修复（2026-10-20）
+
+发布授权追加：PO批准本批集中提交、推送、合并及两个必要Worker、主控制台和独立Runtime Pages同步交付。发布职责为release；复用下述已通过的本地专项和目视证据，执行精确合并SHA的Runtime／Guardian／主控制台CI及生产只读smoke。只发布本批代码，不执行migration、不修改真实原账／访问权限／配置／扣费口径，不启共享、不参与Mac或控件托管；生产核验不点击分类保存。
+
+PO批准本批统一修复：①应用管理按当前有效分类分组，缺省未归类，删除“沿用原配置／未单独配置”分组；已归类对象不得撤销回未归类，只能改为明确类别；②复用已接通的网页“其他时间”用途规则，确认记录和规则保存保持一致，补齐失败、重试与重复提交；③时间桶展示固定学习／复合／休息／其他，去除紫色第五桶，统一图例、时段和汇总。未知数据不得冒充其他时间。
+
+基线为现有主检出 `D:\Codex\TimeOnchrome` / `codex/web-usage-object-sort` / `a6f1020`，实施前无未提交修改。旧81a1工作树落后，不用于本批修改。变更等级为管理业务保存及展示；本地验证包括应用默认分组与禁止退回、网页用途规则失败重试、四桶与借用口径、相邻用途规则不变性、相关typecheck及隔离桌面/窄屏目视。CI/生产smoke本轮不执行；不改原账、访问权限、扣费算法、真实配置，不安装部署或参与Mac发布。先文档后实现，集中展示结果。
+
+本地实施结果：Native对象无配置和既存unclassified同入未归类，表单不提供清空／unclassified选项，服务端拒绝新设unclassified及删除已归类Native配置；目录编辑不能撤销已有明确分类。网页其他时间复用原用途规则，用D1 batch同时保存配置和approved_other，CAS冲突重读，重复成功不再递增版本；关闭“暂不归类”和旧撤销入口，不修改访问清单。四桶按现有quotaBucket展示，借用只进休息显示，缺失桶不猜其他且总量保留；没有修改落账、统计物化、上传或配额算法。
+
+验证：根及Runtime `npm run typecheck` 通过；Runtime `npx --no-install vitest run test/native-application-management.test.ts` 7/7；`app-runtime-knowledge.test.cjs`、`pages-site-classification-edit.test.js`（11/11）、`runtime-management-loader.test.js`、`site-classification-other-approval.test.js`、`site-other-atomic-retry.test.js`、`site-usage-other-ui.test.js`、`web-other-cloud-ingestion.test.js`、`pages-four-buckets.test.js`、`pages-usage-timeline.test.js`、`pages-usage-object-sort.test.js`通过。SQLite注入第一／第二条SQL失败均回滚，随后重试成功；重复提交、并发配置不覆盖、访问规则及原账哨兵不变。Runtime缺少测试依赖，按既有lockfile恢复后完成复验，未改依赖版本。
+
+桌面1440px／窄屏390px隔离浏览器：`native-classification-view.test.js`、`pages-usage-timeline-browser.test.js`通过，截图已目视；应用默认分组／分类选择和四桶图例、条纹、重叠设备、窄屏滚动正常。未知桶、分页失败保留原统计总量；周／媒体视图不切到时段图。对照三项均为`Matched`，范围外原账／访问权限／扣费改动为`Extra: 0`。待交付：源码未提交、未部署，生产页面尚未复验；隔离验证不冒充线上通过。
+
 ## NOW：网页使用管理对象列表排序（2026-10-20）
 
 PO要求移除网页使用列表的“显示分类”切换，网页使用只显示现有管理对象行；原位置提供“今日使用／本周使用”排序，默认今日使用。实施清单：① `pages/index.html` 仅在网页使用标签显示排序控件、隐藏原视图切换；②直接按现有 `targetRows.todaySeconds`／`weekSeconds` 降序排列，名称稳定破同分，不修改数据源、聚合或对象详情；③应用、电脑、媒体标签原列表行为不变；④更新 `tests/unit/pages-config-v12-fields.test.js` 并增加聚焦排序行为测试，桌面／窄屏目视核对。变更等级：页面展示小改；不运行全平台、原账、Worker、Native 或发布测试；本轮不部署。

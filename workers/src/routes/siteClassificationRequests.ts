@@ -71,6 +71,52 @@ async function verifyProfileOwner(request: Request, env: Env, profileId: string)
   return profile?.id || null;
 }
 
+// 用途规则与处理状态必须同批提交；任一 SQL 失败时 D1 batch 整批回滚。
+export async function approveOtherSiteRequest(
+  env: Env, profileId: string, requestId: string,
+  target: { targetType: string; normalizedValue: string }, now: number,
+): Promise<Record<string, any>> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const request = await env.DB.prepare(
+      `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
+    ).bind(requestId, profileId).first<any>();
+    const profile = await env.DB.prepare(
+      `SELECT config, version FROM profiles WHERE id = ?`
+    ).bind(profileId).first<{ config: string; version: number }>();
+    if (!request || !profile) return { ok: false, status: 404, code: 'REQUEST_NOT_FOUND' };
+    const config = JSON.parse(profile.config || '{}');
+    const ruleApplied = (config.siteUsageClassificationRulesV1 || []).some((rule: any) =>
+      rule.requestId === requestId && rule.classification === 'other'
+      && rule.targetType === target.targetType && rule.normalizedValue === target.normalizedValue);
+    if (request.status === 'approved_other' && request.decision_target_type === target.targetType
+      && request.decision_normalized_value === target.normalizedValue && ruleApplied) {
+      return { ok: true, success: true, request: rowToResponse(request), accountingReattributions: [] };
+    }
+    if (request.status !== 'pending') {
+      return { ok: false, status: 409, code: 'REQUEST_NOT_PENDING', request: rowToResponse(request) };
+    }
+    upsertOtherUsageClassificationRule(config, requestId, target, now);
+    const serialized = JSON.stringify(config);
+    const version = Number(profile.version || 0);
+    const results = await env.DB.batch([
+      env.DB.prepare(`UPDATE profiles SET config = ?, version = ?, updated_at = ?
+        WHERE id = ? AND version = ? AND EXISTS (
+          SELECT 1 FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ? AND status = 'pending'
+        )`).bind(serialized, version + 1, now, profileId, version, requestId, profileId),
+      env.DB.prepare(`UPDATE site_classification_requests_v1 SET status = 'approved_other', decision = 'other',
+        decision_target_type = ?, decision_normalized_value = ?, decided_at = ?, updated_at = ?
+        WHERE id = ? AND profile_id = ? AND status = 'pending' AND changes() = 1`)
+        .bind(target.targetType, target.normalizedValue, now, now, requestId, profileId),
+    ]);
+    if (Number(results[0].meta?.changes || 0) !== 1) continue;
+    const updated = await env.DB.prepare(
+      `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
+    ).bind(requestId, profileId).first<any>();
+    return { ok: true, success: true, request: rowToResponse(updated), accountingReattributions: [] };
+  }
+  return { ok: false, status: 409, code: 'PROFILE_CONFIG_VERSION_CONFLICT' };
+}
+
 function rowToResponse(row: any) {
   return {
     id: row.id,
@@ -341,10 +387,6 @@ async function applyDecisionToProfileConfig(env: Env, profileId: string, request
     sourceAction: 'site_classification_decision',
     requestId,
   }, (config) => {
-    if (decision === 'other') {
-      upsertOtherUsageClassificationRule(config, requestId, target, now);
-      return;
-    }
     removeUsageClassificationRuleForTarget(config, target);
     const rules = Array.isArray(config.siteClassificationRulesV1) ? config.siteClassificationRulesV1 : [];
     const nextRules = rules.filter((rule: any) => rule?.requestId !== requestId);
@@ -617,7 +659,10 @@ export async function decideSiteClassificationRequest(
     `SELECT * FROM site_classification_requests_v1 WHERE id = ? AND profile_id = ?`
   ).bind(input.requestId, input.profileId).first<any>();
   if (!existing) return { ok: false, status: 404, error: 'Request not found', code: 'REQUEST_NOT_FOUND' };
-  if (existing.status !== 'pending') {
+  if (decision === 'return' && existing.record_source === 'unclassified_visit') {
+    return { ok: false, status: 400, code: 'CLASSIFICATION_REQUIRED', error: '请选择分类；不处理可保留待归类状态。' };
+  }
+  if (existing.status !== 'pending' && decision !== 'other') {
     return { ok: false, status: 409, error: 'Request is no longer pending', code: 'REQUEST_NOT_PENDING', request: rowToResponse(existing) };
   }
 
@@ -626,6 +671,11 @@ export async function decideSiteClassificationRequest(
   if (!target.ok) return { ok: false, status: 400, error: target.error || 'invalid target', code: target.code || 'INVALID_TARGET' };
   if (input.targetType && input.targetType !== target.targetType) {
     return { ok: false, status: 400, error: 'target type mismatch', code: 'TARGET_TYPE_MISMATCH' };
+  }
+  if (decision === 'other') {
+    if (!target.targetType || !target.normalizedValue) return { ok: false, status: 400, code: 'INVALID_TARGET' };
+    return approveOtherSiteRequest(env, input.profileId, input.requestId,
+      {targetType: target.targetType, normalizedValue: target.normalizedValue}, Date.now());
   }
 
   if (decision === 'study' || decision === 'composite') {

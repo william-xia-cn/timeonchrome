@@ -3,10 +3,12 @@ const K=require('./app-runtime-knowledge');
 {
  const items=[{target:{machineId:'machine-a',nativeId:'dynamic-local:sample'},presentations:[{name:'<同名>',origin:'runtime',status:'dynamic-process'}]}];
  const html=K.nativeApplicationsHTML(items);
- assert.match(html,/&lt;同名&gt;/);assert.match(html,/data-native-save="0"/);assert.match(html,/保留原配置/);
+ assert.match(html,/&lt;同名&gt;/);assert.match(html,/data-native-save="0"/);assert.match(html,/value="" selected disabled>未归类/);
+ assert.doesNotMatch(html,/保留原配置|沿用原配置|value="unclassified"/);
  assert.doesNotMatch(html,/请先确认产品|不能直接归类/);
  const configured=K.nativeApplicationsHTML(items,[{target:items[0].target,classification:'other',specialApplication:false,dailyQuotaMinutes:null}]);
  assert.match(configured,/value="other" selected/);assert.match(configured,/dynamic-local:sample/);
+ assert.doesNotMatch(configured,/<option value=""|<option value="unclassified"/,'已归类对象不能撤销分类');
 }
 {
   const identified={nativeId:'audit-app-1',name:'<本机名称>',status:'identified',evidence:['os-application-aumid']};
@@ -84,9 +86,8 @@ assert.deepEqual(renamed.ownershipRules,draft.ownershipRules);
 assert.deepEqual(renamed.bindings.find(item=>item.childId==='child-b'),ownershipCatalog.bindings[0]);
 assert.equal(renamed.bindings.find(item=>item.childId==='child-a').products[0].classification,'other');
 assert.equal(draft.products[0].name,'测试应用');
-const following=K.editOwnershipProduct(renamed,{productId:'product-a',name:'改名产品',childId:'child-a',classification:''});
-assert.deepEqual(following.bindings.find(item=>item.childId==='child-a').products,[]);
-assert.deepEqual(following.bindings.find(item=>item.childId==='child-b'),ownershipCatalog.bindings[0]);
+assert.throws(()=>K.editOwnershipProduct(renamed,{productId:'product-a',name:'改名产品',childId:'child-a',classification:''}),/不能撤销分类/);
+assert.throws(()=>K.editOwnershipProduct(draft,{productId:'product-a',name:'产品',childId:'child-a',classification:'unclassified'}),/不能撤销分类/);
 assert.throws(()=>K.editOwnershipProduct(draft,{productId:'product-a',name:' ',childId:'child-a',classification:'study'}),/名称/);
 assert.throws(()=>K.editOwnershipProduct(draft,{productId:'product-a',name:'名称',childId:'child-a',classification:'invented'}),/分类无效/);
 assert.deepEqual(draft.bindings,ownershipCatalog.bindings);assert.equal(ownershipCatalog.ownershipRules.length,0);
@@ -568,8 +569,9 @@ async function newCatalogRuleContractTests(){
   const explicit=K.editOwnershipProduct(parsed,{childId:'child-a',productId:'product-a',name:'改名不改身份',classification:'composite'});
   assert.equal(resolve(parseApplicationKnowledgeV4(explicit)).classification,'composite');
   // 两孩子共享同一分类规则模板；修订只替换当前孩子引用，实际消费不串用。
-  const childBFollowing=K.editOwnershipProduct(parsed,
-    {childId:'child-b',productId:'product-a',name:'测试应用',classification:''});
+  const childBFollowing=JSON.parse(JSON.stringify(parsed));
+  // 独立规则复用场景从无明确分类的夹具开始，不通过产品操作撤销分类。
+  childBFollowing.bindings.find(item=>item.childId==='child-b').products=[];
   const shared=K.toggleApproval(childBFollowing,input.id,'child-b','unused');
   const forChild=(catalog,child)=>resolveProgramInstanceClassification({...context(catalog),childId:child,
     binding:catalog.bindings.find(b=>b.childId===child)},child,'a'.repeat(64),verifiedInstance.evidence);
@@ -623,12 +625,14 @@ async function newCatalogRuleContractTests(){
   assert.equal(forChild(stopped,'child-b').classification,'other');
   const covered=K.editOwnershipProduct(revised,{childId:'child-a',productId:'product-a',name:'产品',classification:'blocked'});
   assert.equal(forChild(parseApplicationKnowledgeV4(covered),'child-a').classification,'blocked');
-  const inherited=parseApplicationKnowledgeV4(K.editOwnershipProduct(covered,
-    {childId:'child-a',productId:'product-a',name:'产品',classification:''}));
-  assert.equal(forChild(inherited,'child-a').classification,'study');
-  assert.equal(forChild(inherited,'child-b').classification,'other');
-  assert.deepEqual(inherited.ownershipRules,shared.ownershipRules);
-  assert.deepEqual(context(inherited).items,context(shared).items);
+  assert.throws(()=>K.editOwnershipProduct(covered,
+    {childId:'child-a',productId:'product-a',name:'产品',classification:''}),/不能撤销分类/);
+  const explicitOther=parseApplicationKnowledgeV4(K.editOwnershipProduct(covered,
+    {childId:'child-a',productId:'product-a',name:'产品',classification:'other'}));
+  assert.equal(forChild(explicitOther,'child-a').classification,'other');
+  assert.equal(forChild(explicitOther,'child-b').classification,'other');
+  assert.deepEqual(explicitOther.ownershipRules,shared.ownershipRules);
+  assert.deepEqual(context(explicitOther).items,context(shared).items);
   assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,productId:'测试应用'}),/集中目录/);
   assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,kind:'type',type:'unknown'}),/客观产品类型/);
   assert.throws(()=>K.addCatalogClassification(ownershipCatalog,{...input,reason:''}),/解释/);

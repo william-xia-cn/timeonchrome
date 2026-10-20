@@ -21,15 +21,17 @@ const day = '2026-10-20';
 const dayStart = Date.parse(`${day}T00:00:00+08:00`);
 const row = (id, startMinute, endMinute, classification = 'study', deviceId = 'a', overrides = {}) => ({
   id, date: day, deviceId, channel: 'active', targetClassificationAtTime: classification,
+  quotaBucketAtTime: classification === 'pending_composite' ? 'composite' : classification,
   startMs: dayStart + startMinute * 60000, endMs: dayStart + endMinute * 60000,
   durationSeconds: 51, ...overrides,
 });
 
 async function main() {
   const { cloudUsageTimelineCategory, buildCloudUsageTimelineGeometry } = functions(async () => ({}));
-  assert.equal(cloudUsageTimelineCategory('pending_composite'), 'pending');
-  assert.equal(cloudUsageTimelineCategory('composite'), 'composite');
-  assert.equal(cloudUsageTimelineCategory('restricted'), 'rest');
+  assert.equal(cloudUsageTimelineCategory({targetClassificationAtTime:'pending_composite',quotaBucketAtTime:'composite'}), 'composite');
+  assert.equal(cloudUsageTimelineCategory({targetClassificationAtTime:'pending_composite',quotaBucketAtTime:'rest'}), 'rest');
+  assert.equal(cloudUsageTimelineCategory({targetClassificationAtTime:'study',quotaBucketAtTime:'other'}), 'other');
+  assert.equal(cloudUsageTimelineCategory({targetClassificationAtTime:'study'}), null);
 
   const result = buildCloudUsageTimelineGeometry([
     row('across-hour', 59, 61),
@@ -44,7 +46,10 @@ async function main() {
   assert.equal(result.marks.length, 6);
   assert.equal(result.marks.find(mark => mark.hour === 0 && mark.category === 'study').startMinute, 59);
   assert.equal(result.marks.find(mark => mark.hour === 1 && mark.category === 'study').endMinute, 1);
-  assert.equal(result.marks.find(mark => mark.category === 'pending').lane, 1);
+  assert.equal(result.marks.find(mark => mark.category === 'composite').lane, 1);
+  const unknown = buildCloudUsageTimelineGeometry([row('unknown',1,2,'study','a',{quotaBucketAtTime:null})],day);
+  assert.equal(unknown.marks.length,0);
+  assert.equal(unknown.unknownBucketCount,1);
   assert.equal(result.marks.find(mark => mark.category === 'rest').startMinute, 0);
   assert.equal(result.marks.find(mark => mark.category === 'other').endMinute, 60);
   assert.equal(result.marks.find(mark => mark.category === 'study').durationSeconds, 51);
