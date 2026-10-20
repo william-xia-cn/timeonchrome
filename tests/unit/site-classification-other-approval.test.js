@@ -63,7 +63,8 @@ assert.equal(config.siteUsageClassificationRulesV1[0].updatedAt, 300);
 helpers.removeUsageClassificationRuleForTarget(config, { targetType: 'host', normalizedValue: 'other.example' });
 assert.equal(config.siteUsageClassificationRulesV1.length, 0, 'an explicit replacement classification must clear the old usage override');
 
-assert(source.includes("if (decision === 'other') {\n      upsertOtherUsageClassificationRule"), 'other approval must use the separate usage rule store');
+assert(source.includes('upsertOtherUsageClassificationRule(config, requestId, target, now);')
+  && source.includes('return approveOtherSiteRequest(env, input.profileId'), 'other approval must use the separate usage rule store through the atomic path');
 assert(source.includes('siteClassificationDecisionStatusForWorker(decision)'), 'other approval response must use approved_other status');
 assert(source.includes('removeUsageClassificationRuleForTarget(config, target)'), 'later non-other decisions must remove the old usage-only override');
 console.log('site classification other approval: PASS');

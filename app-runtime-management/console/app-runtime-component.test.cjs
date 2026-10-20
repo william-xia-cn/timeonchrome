@@ -18,7 +18,7 @@ function fixture(){
     AppRuntimeSession:{createRecovery(){throw Error('Embedded code must not create a second session');}},
     AppRuntimePolicy:Policy,AppRuntimeDevices:Devices,AppRuntimeTime:{beijingRange:()=>({from:0,to:86400000,label:'fixture'})},
     AppRuntimeNetwork:{friendlyError:error=>error,catalogClassificationRecords:async()=>({pending:[],processed:[],technical:[]})},
-    ComputerUsageView:{createReadCache:()=>({clear(){}}),create:()=>({invalidate(){}}),createIndependent:()=>({invalidate(){}})},
+    ComputerUsageView:{createReadCache:()=>({clear(){}}),createUsageReadSession:()=>({clear(){}}),create:()=>({invalidate(){}}),createIndependent:()=>({invalidate(){}})},
     AppRuntimeKnowledge:{nativeApplicationsHTML:require('./app-runtime-knowledge').nativeApplicationsHTML,mount(options){assert.equal(options.root,root);knowledgeOptions=options;return{dispose(){knowledgeDisposed++;}};}}};
   vm.runInNewContext(source,context,{filename:'app-runtime.js'});
   return{mount:context.AppRuntimeManagement.mount,root,element,elements,listeners,queries,get knowledgeDisposed(){return knowledgeDisposed;},get knowledgeOptions(){return knowledgeOptions;}};
@@ -69,7 +69,7 @@ function fixture(){
   let usageRange={from:1,to:2};
   const usageContext={state:usageState,usageRequestVersion:0,mock:false,URLSearchParams,
     computerReader:{invalidate(){},async load(){}},independentReader:{invalidate(){},async load(){}},
-    range:()=>usageRange,$:()=>({value:''}),renderUsage:()=>paints.push(usageState.usage),
+    range:()=>usageRange,$:()=>({value:'isolated-machine'}),renderUsage:()=>paints.push(usageState.usage),
     applicationReadCache:{async read(key,read){return{value:await read()};}},
     runtime:path=>{const pending=deferred();usageRequests.push({path,...pending});return pending.promise;},
     AppRuntimeTime:{applicationIdentityView:value=>value},AppRuntimeNetwork:{friendlyError:error=>error},
@@ -149,6 +149,7 @@ function fixture(){
     const controller=page.mount({root:page.root,view,children:[{id:'a',name:'隔离孩子'}],childId:'a',isCurrent:()=>current,request:async(path,options={})=>{
       assert.equal(options.method||'GET','GET','本次读取不能写配置');calls.push(path);
       if(path==='/v2/module/app-policy?childId=a')return appPolicy;
+      if(path==='/v2/module/machines')return {machines:[]};
       if(path==='/v2/module/applications?childId=a')return{schemaVersion:1,state:'available',childId:'a',policyVersion:0,nextOffset:null,
         items:legacy?[]:[{target:{machineId:'isolated-machine',nativeId:'isolated-editor'},presentations:[{name:'隔离编辑器',origin:'runtime',status:'dynamic-process'}]}]};
       if(path==='/v2/module/shared-access-policy?childId=a'){if(gate)await gate.promise;if(error)throw error;return{policy:unifiedPolicy(revision)};}
@@ -167,7 +168,7 @@ function fixture(){
   assert.match(access.page.element('#schedule-editor').innerHTML,/08:00–20:00/);
   assert.doesNotMatch(access.page.element('#quota-form').innerHTML,/UNKNOWN/);
   await access.open('apps');assert.match(access.page.element('#managed-app-list').innerHTML,/隔离编辑器/);
-  assert.equal(access.calls.length,3,'目录在配置读取后不新增依赖');access.assertReadOnly();access.controller.dispose();
+  assert.equal(access.calls.length,4,'访问页增加来源电脑名称读取，返回目录不重复读取');access.assertReadOnly();access.controller.dispose();
 
   const fromDirectory=accessFixture({view:'apps'});await fromDirectory.controller.ready;
   assert.equal(fromDirectory.calls.length,2,'应用目录仍只有两个既有请求');
@@ -246,33 +247,22 @@ function fixture(){
   assert.equal(identity.element('#load-empty-state').hidden,true);
   assert.match(identity.element('#managed-app-list').innerHTML,/新版产品/);
   assert.match(identity.element('#managed-app-list').innerHTML,/另一孩子分类不串入/);
-  assert.match(identity.element('#app-directory-title').textContent,/跟随分类规则/);
+  assert.equal(identity.element('#app-directory-title').textContent,'未归类应用');
   assert.match(identity.element('#inventory-status').textContent,/不代表已安装/);
   assert.equal(identity.element('#open-products').disabled,false);
   assert.equal(identity.element('#open-rules').disabled,false);
-  assert.equal(identity.element('#directory-scope').disabled,true);
-  assert.equal(identity.element('#directory-scope').value,'all');
   assert(identityCalls.includes('/v2/module/program-instance-catalog'));
   directoryResult={schemaVersion:1,childId:'a',catalogVersion:4,usage:{state:'available'},facts:[
     {productId:'p',platform:'windows',installationObserved:true,usageObserved:false,lastUsedDate:null},
     {productId:'q',platform:'windows',installationObserved:false,usageObserved:true,lastUsedDate:'2026-10-10'}]};
   await identityController.refresh();
-  assert.equal(identity.element('#directory-scope').disabled,false);
-  const changeIdentity=identity.listeners.find(item=>item[0]==='root'&&item[1]==='change')[2];
-  const setScope=async value=>{identity.element('#directory-scope').value=value;await changeIdentity({target:{id:'directory-scope'}});};
-  await setScope('unused');
   assert.match(identity.element('#managed-app-list').innerHTML,/新版产品/);
-  assert.doesNotMatch(identity.element('#managed-app-list').innerHTML,/另一孩子分类不串入/);
-  await setScope('usage');
-  assert.doesNotMatch(identity.element('#managed-app-list').innerHTML,/新版产品/);
   assert.match(identity.element('#managed-app-list').innerHTML,/最近使用 2026-10-10/);
   directoryResult={...directoryResult,usage:{state:'unavailable'}};
-  await identityController.refresh();await setScope('unused');
-  assert.doesNotMatch(identity.element('#managed-app-list').innerHTML,/新版产品/);
-  assert.match(identity.element('#inventory-status').textContent,/不能判定/);
-  await setScope('all');assert.match(identity.element('#managed-app-list').innerHTML,/新版产品/);
+  await identityController.refresh();
+  assert.match(identity.element('#managed-app-list').innerHTML,/新版产品/);
   directoryResult={...directoryResult,childId:'wrong-child'};
-  await identityController.refresh();assert.equal(identity.element('#directory-scope').disabled,true);
+  await identityController.refresh();
   const savedCatalog={schemaVersion:4,version:5,products:[{id:'p',name:'保存后新名称',type:'other'}],ownershipRules:[],rules:[],bindings:[]};
   identity.knowledgeOptions.onCatalogSaved(savedCatalog,'other-child');
   assert.doesNotMatch(identity.element('#managed-app-list').innerHTML,/保存后新名称/);

@@ -4,6 +4,24 @@
 
 正式managed包沿用现有隐私页面排除边界，Admin只在activationState.privacyConsentRequired明确为true时显示同意入口；受管策略待到达、关闭、无效或个人资料不匹配时显示实际状态，无隐私跳转。启用状态机、凭据、权限、账本及共享开关不变。控件固定桶契约1.58.0，与Mac1.58.1不涉及对象登记的桶消费范围兼容；manifest正式版本为1.7.65。托管与真实Mac安装/双向读取验收分别记录。
 
+## 2026-10-21 Mac 动态身份登记契约补正（已发布Runtime）
+
+发布边界补正：现有四桶纯展示函数以原实现纳入contracts的 `./web-usage-buckets` CJS导出，Guardian只经该入口读取，不直接依赖Runtime页面目录。浏览器分发脚本保持原样，直接测试核对内容一致（仅归一化换行）。这不是新增统计或扣费算法，也不因此部署Guardian/Pages。最终1.58.1包含该导出，以最终哈希交付Native，替代尚未锁定的预备包。
+
+共享识别解析器在原规则之外仅允许 `^macos:[a-f0-9]{64}$` 与 `dynamic-process` 配对；保持原Windows `dynamic-local:` 两种动态状态约束。Mac runtime来源仍为runtime，扫描仍为scan/null；不通过哈希前缀推断bundle/path证据，不变更冻结nativeId，不要求Team必填。不扩大Mac dynamic-registry，不增加字段、接口或schemaVersion。现有PROCESS_NAME_FALLBACK证据可直接使用。
+
+Runtime对象登记、回执和管理target继续复用同一契约。1.58.1固定包及Runtime-only已按后续授权交付，精确源码/哈希/部署证据见TASK_BOARD；已发布1.58.0包不改写。Native锁已更新，Mac实际消费及实机验收仍单列。统计协议、原账、分类和配额计算不变。
+
+## 2026-10-21 电脑与应用同批展示读取（本地实施，未发布）
+
+现有电脑秒统计响应附带 displayBuckets 和 applicationSnapshot：前者只适配已读取网页 quotaBucket/mode 与现有非特殊应用桶，后者直接复用本次应用读取结果。原总量、分类统计、特殊应用扣除及持久化均不变。两套页面的无筛选应用与电脑视图共用同孩子、日期范围的内存读取批次，并展示应用来源版本与真实统计截止；独立 Runtime 的设备、用户、平台筛选仍独立读取。失败不使用其他范围结果，不用读取时间冒充统计截止，不新增接口或历史回填。
+
+## 2026-10-20 管理对象局部配置保存（本地实施，未发布）
+
+沿用 `PUT /v2/module/app-policy?childId=…` 及 Guardian 的现有管理转接地址。当前身份表单发送 `{nativeApplicationChanges:[{target:{machineId,nativeId},…本次字段}]}`，每次只含一个对象；允许字段为 classification、specialApplication、dailyQuotaMinutes，不接受公共配额/时间段或未知字段混入。分类卡片只提交分类与特殊设置，限额编辑只提交 dailyQuotaMinutes；空限额为 null，整数分钟 0—1440。没有分类配置的对象可以只设置限额，分类仍为缺省未归类；禁止主动设置 unclassified 或删除已有分类。
+
+复用当前策略版本持久化及 If-Match、孩子归属检查。服务器在当前策略上合并指定字段，未提交字段与非目标对象保留；不迁移数据、不增加限制执行语义。主控制台访问管理使用现有 Runtime 组件的 limits 视图，独立页面访问管理使用同一渲染及保存函数；不再使用 runtimeIdentity 配额编辑器。公共配置冲突的隔离证据为 timeWindows 对象键顺序经全量解析规范化后与存储顺序不同，旧 JSON 字符串比较触发409；这不是生产报错原始请求已完整取证的结论。
+
 ## 2026-10-17 控件改绑隔离（A/B，未发布）
 
 沿用现有孩子/设备身份，不新增云端接口、来源协议或同步队列。同范围升级和token轮换延续现有账；范围变化由后台单一绑定入口在原会话边界完成后，将现有本地账及日期同步状态保留为原范围快照，再切换到新范围各自的活动存储。旧原始字段/秒数/ID不改，不重建历史，不自动补传冻结范围；没有可信原范围的旧数据不得贴上新绑定。切换写入必须将归档、活动键及绑定放在一次受预算保护的存储提交中，失败保留原绑定/数据。后台会话队列与上传任务在切换期间互斥，既有正在上传任务先完成或失败，再切账。
@@ -2537,3 +2555,7 @@ cloudRequest沿用原每次请求超时和重试策略，将fetch及既有正文
 原`/device/source-statistics`业务query不变。schema2/application/all可附`includeSources:true`和可选`sourceProof`（既有shared-web-source:v2签名证明）；transport字段先剥离，再严格验证业务query。无flag保持直接QuotaBucketsSnapshot；有flag返回`{snapshot,applicationSources}`，其中snapshot为原严格快照，applicationSources复用QuotaBucketsSources或null。无／失效证明只丢分项，不影响合法合计；坏分项也不能让有效合计被客户端拒绝。
 
 Guardian复用现有专用签名及browser/deviceToken绑定核验，内部Service Binding只传验证后的applicationSourceKey／assignmentVersion；Runtime在当前家庭／孩子分配内解析精确machine/user/assignment，再分别委托原读取器，不从合计相减或由客户端自报key授权。云端本机分项只作核对，消费合计与分项不可叠加。三次读取之间发布头可更新；附加分项前核对逐日三个桶与已选合计的解释一致性，不一致只丢可选分项，合计照常返回，不等待版本匹配或阻断统计。旧机器端点／Host／1.56契约保持兼容；本轮集中追加1.57的可选transport解包定义，不重建1.56包，不新建DB或证明协议。
+
+## 独立网页统计展示补充（2026-10-21）
+
+现有独立网页使用查询透传已读取的日统计为 `quotaRows: [{quotaBucket, duration}]`，`duration` 单位秒；桶取既有 `quota_bucket`／`mode`，不新增查询、不写账或配置、不修改扣费。原总量、分类、网站明细及时间分布字段不变。主站与独立 Runtime 共享展示投影模块；缺少桶的响应不以管理分类替代。

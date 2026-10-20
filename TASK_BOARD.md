@@ -6,6 +6,246 @@ PO已在控件会话明确批准最小修正，测试通过后继续完成1.7.65
 
 修正直接验证已完成：Admin实际激活和renderSyncStatus函数的隔离9组通过，activation-gate19项、managed行为6项、development激活5项和managed包矩阵均通过。新增Admin测试首轮仅正常激活对照夹具误要求原界面不存在的文字，修为原有登录/绑定展示后第二轮通过，未改产品行为；typecheck首轮引用陈旧本地契约dist，按原构建命令重新生成ignored产物后通过，契约源码与vendor不变。extension-root、node语法通过。专用无登录agent-browser合成页面1280桌面及390窄屏已截图并查看，受管两分支无同意按钮、普通分支保留，390布局宽度390无溢出；这不是家庭Chrome或Mac实机验收。Plan audit：仅Admin状态分流及批准版本字段Matched，排除页/激活/原账/共享不变Matched，无Deviated/Extra；正式签名与线上回读仍Missing。既有三份文档草稿保留，提交只抽取本次新增段落。
 
+## DEPLOYED_VERIFIED：Mac 登记契约1.58.1及Runtime-only（2026-10-21）
+
+完成：PR #312合并 `d3a0652f993a14b8e5ec22bb67ce8ae1f80b2176`；PR CI39498624291及精确合并SHA CI39498831860通过。生产39499034985成功，Runtime Worker版本 `f13ab59d-1aed-4f73-b342-5bdf009a6cc0`，smoke成功。下载核验manifest：contractVersion=1.58.1、requested/deployedResources仅runtimeWorker、runtime/guardianMigrations均空、sharedAccessShadowPrepared=false、evidenceErrors=[]；Guardian和两套Pages跳过。production审批在PO本次授权内完成，未更改保护设置。
+
+最终契约包92文件，SHA256 `1db02a41e2fb27730439d587c743822b5740cbea58d5cf71a6a53f27e6f16d29`；包内全文件与固定源码/编译输出一致，登记解析器与已验预备包逐字节相同。预备c55553包未作为最终交付。Native已推送main `8514d79308017e93932838f3d0389cb015f28add`，锁的1.58.1/sourceGitSha/最终hash已独立从远端读回核对；原Issue #12最终包交接评论6301684531。Native报告包级19项与.NET对象/向量19项通过，最终登记七文件相同故复用，不重跑39/2/26；Mac实际消费及实机结果未在本次完成，不冒称Mac全链验收。已将Runtime上线依赖事实通知Native沿原Issue补记。
+
+边界修正验证：源码边界、computer-usage-cloud、pages-four-buckets、根typecheck和diff通过；共享函数仅换行归一化后内容相同，Guardian只更换导入。本次没有安装包/安装、真实配置/原账/身份/统计口径变化。审计Matched；无未批准Deviated/Extra。以下保留失败与恢复过程，不抹去前两轮CI失败。新增根测试的Scope-Exception最初遗漏导致39498535704范围检查失败，补PR精确声明后39498624291成功，未改门禁。
+
+PO已批准解决共享引用边界并继续发布。最小修正：将现有纯展示web-usage-buckets脚本原字节纳入contracts包并导出；Guardian改用包入口，浏览器脚本保持不变，以直接字节一致性和原computer-usage-cloud/pages-four-buckets回归证明算法输出不变。不修改边界门禁。固定1.58.1尚未发布/锁定，最终包将有新哈希，原c55553…仅预备证据，不可作为最终消费包；通知Native撤回预备交付标记并锁最终包。必要复验仅源码边界、两项展示直接回归、根typecheck及既有CI，不新增安装测试、不部署Guardian/Pages。
+
+发布阻塞（2026-10-21）：实现c6c064e、历史同步753e8b6、版本断言补正7ddcdbc已推送PR #312，尚未合并。第一次CI39496484419版本断言失败已修复；第二次39496704571契约测试通过，但源码边界门发现此前电脑四桶的 `workers/src/services/computerUsage.ts` 直接导入 `app-runtime-management/console/web-usage-buckets.js`。该文件不在本批修改中；未放宽门禁、未继续重跑、未合并部署。需另获准最小共享模块依赖修正后再复验。固定tgz1.58.1 SHA256为c55553cb6a66ae10de5a9c448cc76821ec76124ecb17837fb8ff220e63ae86d8，包内91文件一致性和包内解析器验证通过，已交Native准备消费；尚无合并sourceGitSha，锁提交暂缓。Native报告包级19项通过，DTO实际消费者发现同前缀校验，按本契约准备受影响适配；不冒称全部消费验证通过。
+
+PR #312首次CI失败为contract-compatibility.test.cjs仍断言版本1.58.0；仅同步为本批1.58.1并运行该直接测试，产品源码和已生成包保持。没有跳过门禁。
+
+PO批准集中提交推送合并、交付固定契约包、仅部署Runtime Worker，并沿原Issue #12协调Native更新锁及受影响消费验证。复用下方已通过源码证据；清单：①10文件职责/diff审核后提交；②PR和精确合并SHA Runtime CI；③从固定源码构建契约tgz、核验内容/版本/SHA256；④既有生产流程Runtime-only，其他Worker/Pages/迁移/bootstrap/shared准备均关闭；⑤核对部署manifest与smoke并交原Native消费。本轮不制作Native安装包、不安装、不修改应用ID、原账、配置或统计口径。线上登记真实设备验证与本地消费证据分开记载。
+
+## LOCAL_VERIFIED：Mac 动态身份登记最小契约修复（2026-10-21，未提交／制包／部署）
+
+PO批准本地源码修复及沿原 Issue #12 协调 Native。职责 architecture-integration + standard-cloud；允许共享契约、Runtime 直接测试及依赖锁、现有文档。清单：①契约仅增加 `macos:<64位小写hex>` + `dynamic-process` 组合，schema同步；②Runtime沿用共享解析器，不另造平台解析，不改身份/统计/配置；③补登记、回执、非法组合、孩子/分配隔离聚焦验证，复用其余已有证据；④将源码结果交原Native会话沿Issue #12接续。版本预备1.58.1，不覆盖已发布1.58.0包；本轮不打tgz、不安装、不部署、不启共享，不修改Native仓库。
+
+变更等级：契约接受范围小幅扩展。必要本地测试：契约build/识别及对象管理专项、Runtime native-application-management专项与typecheck、diff。无生产smoke、全量/浏览器/Mac平台测试。源码通过不代表线上Runtime已采用，也不代表Mac固定包消费已通过。
+
+结果：解析器和JSON schema仅扩展精确Mac动态进程组合；Runtime现有 `file:../contracts` 依赖实际链接该源码，正式POST登记路由已直接隔离验证，无需增加第二解析器或改生产路由。契约源码版本及根/Runtime两处锁元数据同步为1.58.1；根package-lock仅此workspace版本行变化，未修改依赖树。未生成tgz，未改Native固定1.58.0包或锁。
+
+验证：`npm run build:app-runtime-contracts`、两个契约专项（新增11组接受边界与Mac三种来源/状态及回执负例）、Runtime `vitest run test/native-application-management.test.ts` 10/10、Runtime `npm run typecheck`、diff检查通过。首次Runtime专项10/10后typecheck发现新增测试schemaVersion被推断为number，已标注共享契约类型并复验两者通过。真实产品路由在本地隔离D1中完成鉴权登记、回执hash核验、读回同一target、重复提交、同版冲突、孩子/家庭/改绑隔离；未请求生产。
+
+审计：契约最小接受边界、schema一致、Runtime同解析器接线、ID与统计不变、聚焦验证均Matched；Deviated/Extra无。固定包消费与线上实测是明确未交付项，不冒称登记已经在线打通。已通知原Native会话沿Issue #12接续，不重跑其Portable39/配置2/Swift26未受影响证据；当前无Mac产品代码或安装变更。
+
+协调回执：原Native会话确认已在原Issue #12评论6301230627登记本次实施，Native文档提交aa1452eae1c7d5a29abd2e2be20c457081b9369e。最终本地验证结果已再发同会话补充原交接；不将“消息已送达”当作Mac固定包验证通过。
+
+## DEPLOYED_VERIFIED：电脑四桶与同批应用读数（2026-10-21）
+
+发布完成：PR #310，合并SHA `7cb927ebca90f2bdce42ce56d95c652199eed641`。Runtime CI 39493171615、Guardian integration 39493171493、主控制台39493171383全部通过；生产39493332683成功，Guardian Worker `2cf9979f-c6a5-48ca-b5f1-57b983250f89`、Runtime Pages `e8b47456`、主控制台Pages `c9e356b6`，三项smoke通过，manifest已生成且evidenceErrors为空。Runtime Worker跳过、迁移为空、shared准备false。PR附件因会话附件数量上限未登记，不影响PR实际合并。
+
+线上只读核验：主控制台2026-10-21应用页与电脑应用来源均14288秒、截止04:35:25；电脑四桶学习711/复合14288/休息0/其他0秒。独立Runtime同日应用页与电脑应用来源均14468秒、截止04:38:25；电脑四桶学习711/复合14468/休息0/其他0秒。两套在各自批次中数值与截止完全一致；不同时间采样不冒充同截止横向对比。Runtime首次SSO票据失效，经正常入口重取并重载后恢复，无配置/配对更改。
+
+五项线上关键资源（主index/shared view、Runtime controller/shared view/bucket helper）与合并SHA的Git blob逐字节一致。首次拿Windows CRLF工作区比较误报差异，已查实为换行而非部署不一致，并以实际发布Git LF字节复核通过。此前squash历史冲突已证实本批前树与生产树完全一致，仅补合并关系，未改变已验证文件。Matched：集中发布、资源一致、两套线上四桶/同范围读数/截止；无Deviated/Missing/Extra。本节只补发布记录，不触发重复部署；原账、配置、统计/配额口径及Mac/共享边界不变。
+
+PO已批准集中提交推送合并及部署。复用下方完整本地验证，发布范围为Guardian Worker只读展示适配、主控制台Pages、独立Runtime Pages；Runtime Worker无源码变化不重复部署。精确合并SHA的Runtime、Guardian integration和主控制台CI通过后统一执行现有生产工作流，所有migration/bootstrap/shared准备参数关闭。发布后只读核对线上资源与两套页面四桶、同范围应用数值和截止；未验证前不报线上通过。不改原账、配置、统计/配额算法，不涉及Mac、Native或扩展托管。
+
+## LOCAL_VERIFIED：电脑四桶及应用同批读数（2026-10-21，未提交／部署）
+
+最终收口：本轮获准复验后，computer-usage-view缓存专项、app-runtime-component专项、computer-usage-cloud通过；usage-view-layout 12/12、实际控制器usage-read-controllers 3/3、根typecheck及diff检查通过。控制器测试直接加载主控制台读取函数、Runtime实际runtime封装/loadUsage及共用缓存，不以模拟渲染代替接线。覆盖同批5400秒与截止一致、刷新修订/更正下降、GET不清缓存、筛选隔离、孩子/日期变化、迟到响应拒绝、同范围失败保留及有效零。此前两次失败与暂停记录保留在下方，已由本轮批准复验结果替代。
+
+实际页面隔离交互：仅回环服务注入合成会话和只读内存网络；Runtime应用→电脑仅1次summary请求，刷新5890秒后两页均采用新值及01:38:10截止；电脑筛选1200秒隔离，清筛选恢复5890秒且不另读summary；模拟失败保留本范围结果并显示旧读数。两套搜索均保留2个同名不同对象。主控制台、Runtime均完成1440×1000及390×844应用/电脑目视；Runtime侧栏开闭正常，小时图修复后body宽390、图表容器336、内部宽627、可滚动291px至末小时（末列右边356≤容器363），不再裁切。截图closeout-{main,runtime}-{application,computer}及其-narrow仅保存在本机隔离预览目录。
+
+审计：Matched＝电脑可靠四桶适配、同范围应用读数/截止/版本、缓存/实际控制器与筛选隔离、两套桌面窄屏；Deviated/Missing/Extra＝无（本轮本地范围）。不改原账、真实配置、物化、统计/配额算法；不提交、不部署。线上同范围验收留待后续获准发布，不把本地证据冒充线上通过。以下为实施过程记录。
+
+最终窄屏深查追加：侧栏动画结束后，Runtime小时图仍存在grid子项默认min-width:auto导致的真实溢出，body隐藏横向溢出使后半小时不可达。只给共享usage-distribution加min-width:0，恢复已有usage-chart-scroll的内部横向滚动；两份分发同步，补样式断言及滚到23时验证，不改图形数据或布局层级。
+
+本轮收口授权：允许缓存专项必要复验，Runtime窄屏裁切及两套真实控制器隔离交互集中收口。缓存专项本轮已通过；先查实际计算样式再最小修正，不移动或删除功能。补齐同批切换/刷新、设备过滤、孩子/日期变化、旧响应与失败保留验证；仅运行直接相关测试及桌面/窄屏隔离浏览器，不连接生产、不提交部署。
+
+控制器核对发现本批清缓存接线遗漏条件括号，使Runtime GET也清除了共用批次；按本轮授权最小修正为仅既有非GET分支清缓存，并直接执行实际runtime封装补回归。窄屏已复现为缩放后200ms侧栏过渡尚未结束即截图，稳定后侧栏完全退场，先补稳定条件截图与导航开闭验证，不臆改CSS。
+
+本地实施进展：电脑秒响应增加只读 displayBuckets 与同次 applicationSnapshot；主控制台及独立Runtime无筛选应用/电脑读取共用孩子和日期范围批次，切换标签不自动推进截止，显式刷新及既有清缓存入口使批次失效。Runtime筛选读取继续隔离。两页显示应用真实截止及来源版本，保留原总量/分类/特殊应用边界。
+
+验证：computer-usage-cloud通过（追加四桶与同源应用断言）；usage-view-layout 12/12；app-runtime-time 11/11；app-runtime-usage通过；根typecheck、语法、diff检查通过。computer-usage-view.test.cjs先后在旧请求入口静态断言、原组件内部缓存断言失败，已调整夹具为共用缓存调用，但累计两次失败后未再执行，待获准复验，不报整批通过。两套实际页面隔离桌面截图已核对：应用总量与电脑应用来源均5400秒，截止均12:00，四桶保持原色；Runtime截图为固定隔离样例渲染，不替代真实网络接线验收。主控制台390px正常，Runtime390px存在左侧裁切，未以局部截图宣布窄屏通过。
+
+对照：Matched＝四桶读取适配、同批读数/截止、原输入不变及桌面显示；Missing＝上述暂停套件复验、Runtime窄屏核对收口及更完整的真实控制器隔离交互验证；无原账/配置/统计物化/配额算法修改，无提交部署。截图仅存本机隔离预览目录，不写入仓库。不将本项标记完成。
+
+PO批准最小修复，先本地验证不部署。清单按序：①电脑现有秒响应补展示用四桶（网页沿用已读统计quotaBucket/mode及现有四桶映射，应用沿用非特殊分类映射），总量/分类/扣除算法不动；②响应携带同次应用快照及真实截止，两套页面无筛选应用/电脑复用同范围内存读数和刷新失效，独立Runtime筛选保持隔离；③两套显示统计截止、版本，缺失不伪装零；④固定77/80版本、其他/未归类/特殊应用、缺失、改孩子/日期/筛选与异步响应隔离测试及桌面/窄屏目视。变更等级中：仅云端读取展示适配与两套Pages，不改原账、配置、统计物化、配额算法、接口地址、Mac或共享开关。必要验证：computer-usage-cloud、usage-view-layout、computer-usage-view及相关Runtime读取测试、typecheck、语法/diff；不跑全量、不操作生产、不提交部署。保留已有发布收尾记录。
+
+## DEPLOYED_VERIFIED：两套Pages集中布局发布（2026-10-21）
+
+PO批准提交／推送／合并及两套Pages发布。发布前发现独立Runtime renderSecondsUsage仍使用旧summary-grid和双列明细，本轮先按已确认布局补齐实际入口：保留全部DOM读取ID及原对象／分类详情操作，统一主卡与明细表；仅HTML和展示渲染，不改源数据。复用已有主控制台证据，增加独立Runtime最小渲染验证与隔离目视，之后取得精确SHA的两套CI，使用既有Pages-only流程。两个Worker、配置、原账、迁移、配额、Mac排除。
+
+补齐结果：独立Runtime当前秒统计采用主卡（总量／小时图／四桶）与明细表，原筛选导航及媒体开关保留，使用详情仍以原数组index触发，分类详情与同步／配额状态折叠保留。usage-view-layout 10/10、computer-usage-view专项及语法通过；本机当前秒统计隔离页面已目视，不连接生产。主控制台三页证据沿用上一轮。Matched：两套实际入口与功能保留；无语义变更。
+
+发布与线上结果：PR #309 已合并，合并 SHA `0bb0a3c393c7ddf521cb6ac87660099350f8b7d9`；精确 SHA 的 Runtime CI 39481206309、主控制台 CI 39481206519 均通过。生产运行 39481366512 成功，仅发布 Runtime Pages 与主控制台 Pages，两项 smoke 通过，发布 manifest 已生成，无 evidenceErrors。两套 computer-usage-view.js、Runtime app-runtime.js 与 index.html 共四项线上资源逐字节匹配合并源码。已在登录后的两套实际页面分别核对应用与电脑布局：应用主卡／中性灰小时总量图／四桶／明细表、电脑主卡／来源明细及原入口均符合本批范围。Runtime 首次加载命中旧脚本的300秒缓存，缓存更新后核对通过，未重复部署。电脑可靠四桶与小时数据缺口仍如实标注，不推算；原账、配置、统计及配额口径未改。审计 Matched，无 Deviated／Missing／Extra；下方 LOCAL_VERIFIED 为此前阶段记录，已由本节发布结果收口。首次PR检查因测试文件未声明scope例外失败，补齐声明后的检查通过，不作为产品测试失败隐去。PR附件工具因会话附件数量上限未能登记，PR链接保留于此：https://github.com/william-xia-cn/timeonchrome/pull/309 。本节为发布后只读核对记录，不触发再次部署。
+
+## LOCAL_VERIFIED：应用主卡及明细与网页实际布局对齐（2026-10-21，未提交／部署）
+
+本轮清单：①共享视图 applicationSummary 将总量与日期导航、现有小时／逐日图、四桶摘要归入同一主卡；②applicationList 改为名称／分类／当前范围用量表格，完整身份键收进逐项可展开详情，保留搜索、稳定排序及同名不同对象；③分类、实例与诊断保留在明细卡展开区；④两套分发模块同步，真实主控制台隔离数据三页1440×1000对照及窄屏核对。仅展示层变更，最小验证为usage-view-layout、computer-usage-view、cloud-fault-tolerance与语法／diff；不改统计、配额、配置、接口，不提交部署，不涉及Mac。独立Runtime原有交互详情不删除，不以共享模块核验冒充其完整页面改版。
+
+结果：上述主卡及明细表完成；原小时／逐日总量柱、四桶值、特殊应用说明、分类与来源诊断保留，身份键默认折叠而不删除。usage-view-layout 10/10、computer-usage-view渲染缓存专项PASS、cloud-fault-tolerance 7/7、两模块语法及diff检查通过。agent-browser在实际pages/index.html内存隔离数据验证搜索保留2个同名对象、详情展开、日周切换、390宽无横向溢出；1440×1000网页／应用／电脑及390×844应用主卡／明细截图已目视。截图保存在本机visualizations目录actual-{web,application,computer}-1440.png及actual-application-detail-{1440,390}.png。一次浏览器find指令不支持scrollintoview，改用独立scrollintoview命令完成，非产品失败。
+
+审计：主卡层级、明细表、现有数据与功能保留、相同尺寸对照Matched；Deviated／Missing／Extra无（针对本轮主控制台三页范围）。电脑可靠四桶及小时数据缺口仍明确显示，不伪造；应用小时总量仍用中性色。独立Runtime仅同步共用模块，不声称其独立应用页完成同样整体重排。未提交、部署或操作真实家庭。
+
+## LOCAL_VERIFIED：按实际页面统一电脑布局（2026-10-21，未提交／部署）
+
+PO否决上一轮组件布局验收：独立长卡片不等于网页／应用实际页面一致，上一节布局Matched结论不再作为完成依据。实施：①对照pages/index.html实际usage-analysis-card／usage-card-head／日期导航，电脑复用同一主卡+明细卡层级及尺寸；②总量日期同排，四桶能力提示并入主卡，来源构成表、原分类及产品／时间线入口归入明细卡，状态可展开；③保持外层日周切换与原读取事件，无统计／配额／后端改动；④同一真实页面、同尺寸、隔离数据截取网页／应用／电脑，补窄屏及日期／详情按钮验证。必要测试仍限usage-view-layout、computer-usage-view及cloud-fault-tolerance、语法和diff；不提交部署，不读写真实配置。agent-browser只用于回环页面。保留所有已有修改。
+
+结果：电脑改成实际网页同名usage-analysis-card两张卡，主卡总量／日期导航／四桶缺口，明细卡来源表与产品／时间线按钮；原分类和来源诊断折叠保留。日周沿用页面现有切换，前后日期委托原处理器，日期按钮与网页使用相同符号及ARIA说明。未改查询、源值、扣除或配额算法。应用保留现有小时图和分区；三页不是相同的数据能力或完全相同的内部结构，本轮不顺带重做应用。
+
+验证：usage-view-layout 9/9、computer-usage-view渲染缓存专项、cloud-fault-tolerance 7/7、两模块一致性、两模块语法与diff检查通过。渲染缓存专项首次失败为断言硬编码无class的details标签；改为允许样式类且继续要求原诊断summary，复验通过。实际pages/index.html及原脚本仅替换内存API/统计结果，在127.0.0.1隔离加载；三页统一1440×1000截图actual-web-1440.png、actual-application-1440.png、actual-computer-1440.png，电脑390×844截图actual-computer-390.png，已逐张目视。电脑日→周、前一周、产品／时间线读出、窄屏无页面横向溢出通过。详情使用合成数据，不宣称生产验证；Runtime分发模块一致性通过，未另外声称独立站实机验收。
+
+审计：本轮电脑主卡与明细卡／现有功能保留／数据口径不变／实际三页同尺寸对照Matched；无未批准Extra。已明确电脑无四桶及小时来源的能力缺口，未伪造图表；用户视觉确认仍待预览，不以本地验证替代部署或用户认可。
+
+## LOCAL_VERIFIED：小时图颜色与电脑页布局补正（2026-10-21，未提交／部署）
+
+此前“统一展示全部Matched”结论不完整：小时总量柱仍写死青色，电脑页仅插入四桶提示而保留旧卡片层级。本轮只修这两处，不部署、不提交、不改统计／配额／原账／配置。
+
+清单：①核对现有小时字段：computerUsageService.getApplicationUsage 的 buckets 仅总量，应用视图适配同样只输出总量，无可确认的非特殊小时四桶；小时／日总量用中性深灰与“总用量（不分桶）”图例，不按全天分类猜色；②共用视图电脑页按时间选择、单一总量、四桶能力提示、来源明细及有效详情入口、状态说明排列，保留现有按钮和读数，不增加小时图；③更新两套同步模块与最小专项，核对输入不变、入口及缓存不变；④隔离桌面／窄屏目视并集中展示。
+
+变更等级：前端展示。必要验证：usage-view-layout、computer-usage-view、cloud-fault-tolerance、两模块一致性、语法／diff检查及本地浏览器截图；不跑全量、生产或Mac测试，无发布CI／smoke。保留现有未提交的发布记录。
+
+结果：当前身份入口 applicationProductProjections 的 buckets 也仅从 kind=total 小时行取 duration；没有逐小时非特殊四桶，不从全日数据反推。两套分发模块同步采用深灰总量柱与“不分桶”图例；电脑单一总量、四桶缺口、来源构成与扣除、原分类、对象与来源时间线、状态说明依次显示，现有请求和事件保持。未改任何后端或配额代码。
+
+验证：usage-view-layout 9/9（补入中性色、全日分类变化不影响柱图、布局顺序、源值与入口不变断言）；computer-usage-view 渲染／缓存专项PASS；cloud-fault-tolerance 7/7；两模块一致性、node --check及git diff --check PASS。agent-browser仅访问127.0.0.1合成数据，以实际分发渲染器完成1440桌面、390窄屏目视，缺失小时斜纹／长名称／四桶颜色及窄屏无页面溢出通过；Runtime渲染器的产品、时间线按钮读出合成详情。截图为本机visualizations目录的computer-corrected-desktop/mobile.png及application-corrected-desktop/mobile.png。这是组件隔离预览，不宣称生产页面或真实数据验收。
+
+审计：小时字段核对／中性总量柱／电脑层级／有效入口保留／输入与口径不变／本地测试及目视均Matched；Deviated、Missing、Extra无。技术边界仍为小时无可靠四桶、电脑无可靠四桶及小时数据。没有提交、推送、部署或修改真实家庭。
+
+## DEPLOYED_VERIFIED：待处理计数与发布失败留证（2026-10-21）
+
+收尾：实现1536900，PR #308合并88c4814919965db6f436d55f13acd6f3b26e6d63；PR及精确合并SHA相关CI通过，生产运行39472871034成功，主控制台Pages d84fd018。线上HTML与合并源码逐字节一致；已登录页面只读目视确认左侧／摘要／列表一致为待处理0、已处理10、不适用1，未执行分类或保存。manifest已下载核对：jobStatus=success、requestedResources/deployedResources均仅mainPages、main_pages_deploy/main_pages_smoke=success、其他部署和迁移skipped、evidenceErrors为空。失败路径复用既有隔离回归，未对生产注入故障；旧失败运行仍不伪装补齐artifact。独立Runtime沿用734605a未重复发布；不改原账、配置、统计口径或Mac。Matched；Deviated/Missing/Extra无。
+
+PO批准本批集中提交、推送、合并及部署；复用下方已通过的隔离回归与目视证据，不重复故障测试。清单：①核对剩余10个文件仅含计数、发布工具及直接测试／记录；②提交并取得精确SHA CI；③仅部署有变更的主控制台Pages，以本次运行核验新manifest和资源重试；④登录后只读核对待处理仅计可归类对象，并记录真实步骤状态。独立Runtime、两个Worker、迁移、Mac、原账、真实配置、统计口径均不变。不故意破坏生产来验证失败留证，失败分支沿用既有隔离证据。
+
+## DEPLOYED_VERIFIED：应用／电脑使用统一展示（2026-10-21）
+
+发布记录：本批实现提交840fee0，PR #307已合并至734605ace3168b0872820ae7770dc32c4460b848；精确合并SHA的Runtime及主控制台CI通过。生产运行39469264903成功，仅部署Runtime Pages（c7129f52）和主控制台Pages（a7b67ec1）；两项smoke、manifest生成及artifact上传均成功（artifact 12286332042）。两个Worker、migration、共享准备均跳过，不涉及Mac。线上5项关键静态资源与该SHA逐字节一致。两套登录页面的应用四桶／小时图、电脑总览／四桶能力缺口均已只读核对并目视确认。独立Runtime最初显示旧缓存布局（资源max-age=300），缓存窗口后刷新已显示新布局；未重复部署、未修改真实配置。电脑桶不可用仍按已确认能力边界显示，不以分类推算桶。浏览器证据不含故障注入，失败／异步隔离沿用精确代码树的本地回归；不把正常页面核对冒称全部故障场景生产测试。
+
+PO已批准本批集中提交、推送、合并与两套Pages部署；仅主控制台和独立Runtime，两个Worker、migration、共享、Mac均排除。复用下述本地证据，合并后必须取得精确SHA的Runtime与主控制台CI，再执行既有生产流程的Pages-only选项及线上只读资源／页面核对。待处理计数及发布失败留证代码不混入本次发布，仍保留未提交。
+
+实施顺序：①核定字段并复用网页四色，应用仅使用 applicationUsage.nonSpecialCategories 的现有明确对应（study、composite+unclassified、restrictedEntertainment、other），特殊应用另列；电脑分类汇总不是桶，明确缺口并保留原明细；②应用小时／逐日图、当前范围排序与搜索；③电脑统一总览、四桶缺口及来源说明，保留有效入口；④同范围缓存、范围切换与迟到响应隔离；⑤聚焦测试及桌面／窄屏隔离目视。执行位置为两套 Pages 的共用 computer-usage-view.js 及其调用处，文档和直接测试同步。不得从图形重算总量、按分类重新扣费或仿造分段。
+
+变更等级：前端展示及读取状态隔离。必要本地验证：统一视图专项、cloud-fault-tolerance、pages-four-buckets、两份模块一致性、JavaScript语法与diff检查，以及隔离桌面／窄屏截图。原本地阶段不提交部署；本轮按PO后续授权执行精确SHA CI及Pages-only发布smoke，结果见上。排除Worker改动、真实配置、原账、物化、配额算法、Mac与全量测试。已有未提交的计数和发布留证修复保留。
+
+结果：两套页面复用一致的四桶、小时／逐日柱图和稳定对象排序函数。应用四桶只取非特殊应用的现有分类输入，特殊应用独立说明，原总量、分类、实例、截止及缺失原因保留。电脑四桶显示不可用及具体原因，原总量、来源分类、产品和时间线入口保留，没有增加小时图。主站应用读取增加孩子／日期范围隔离；主站与Runtime刷新不再无条件清空当前电脑读取器的有效结果。搜索后列表序号与排序一致，详情索引保留原对象。
+
+已执行：`node tests/unit/usage-view-layout.test.js`（9/9）、`node tests/unit/cloud-fault-tolerance.test.js`（7/7）、`node tests/unit/pages-four-buckets.test.js`、`node app-runtime-management/console/computer-usage-view.test.cjs`、`node app-runtime-management/console/app-runtime-time.test.js`（11/11）全部通过；相关5个JavaScript文件`node --check`与`git diff --check`通过。测试证明展示前后输入不变、总量不按分类重新相加、未知与零分开、同名对象不合并、同范围失败保留及迟到响应隔离。未运行全量或生产测试。
+
+目视：agent-browser仅访问127.0.0.1合成数据；1440桌面与390窄屏检查了共用主站渲染器预览及独立Runtime实际页面。四桶颜色、小时柱与缺失斜纹、长名称、电脑缺口提示通过；Runtime搜索“编辑器”保留两个不同身份且不改变总量。截图位于本机visualizations会话目录：application-desktop.png、application-mobile.png、runtime-application-desktop.png、runtime-application-mobile.png、runtime-computer-desktop.png、runtime-computer-mobile.png。浏览器技能只用于隔离目视，不登录、不读取真实家庭。
+
+| 对照 | 结果 |
+|---|---|
+| 字段与四桶边界 | Matched：只使用已确认的非特殊输入，不改原值、不把全部分类当桶 |
+| 应用图表／明细 | Matched：已有小时／逐日统计、名称搜索、当前范围排序、稳定身份键；不新增今日／本周列 |
+| 电脑展示 | Matched：总量与扣除说明保留，四桶不可用明确提示，分类和明细入口保留 |
+| 读取状态 | Matched：同范围保留、跨范围清理、旧响应隔离的直接回归通过 |
+| 验证与隔离 | Matched：最小测试与桌面／窄屏隔离目视完成；未修改后端、原账、配置或配额输入 |
+| Deviated / Missing / Extra | 无本轮实现偏离／未完成项／越界项 |
+
+技术能力缺口（按批准范围明确保留，不算伪造补齐）：电脑无可靠四桶字段和小时数据；应用单次明细无并列今日／本周用量；两页均不增加分段高亮。上述本地测试与隔离目视证据复用；本轮发布与真实登录页面只读核对状态见本节顶部，不把静态文件一致性替代浏览器效果。
+
+## 历史本地验证：待处理计数与发布失败留证收尾（2026-10-21，已由本节顶部发布记录收口）
+
+PO批准集中修复，不部署、不改真实配置、原账或统计。实施清单：①pages/index.html 左侧、摘要、列表共用去重后可归类判定，未知页面单列不适用，不算待处理或已处理；②生产流程对内容一致性作有限重试，持续失败仍失败，manifest及上传不因smoke失败而跳过，并记录步骤实际结果；③在本任务板补记39457325255的既有发布证据，不重新部署或伪造旧运行artifact。变更等级为UI计数及发布工具；必要本地验证：未归类展示专项、页面契约、发布配置/重试专项、隔离目视、diff检查。排除全量测试、真实保存、Mac及共享操作；提交/CI另行安排。
+
+结果：导航、摘要和列表共用分组判定，截图场景对应待处理0／已处理10／不适用1；不适用项折叠保留原记录及用量，已匹配其他用途的历史请求不重新计入。隔离DOM和目视通过。发布资源最多6次、每次15秒请求超时、间隔2秒；HTTP成功但内容旧同样重试，持续不匹配仍退出失败。manifest先保存实际步骤结果，再补远程版本观察；失败、跳过与成功分别记录，请求发布资源不冒充实际成功资源；manifest和artifact步骤always执行，证据缺失明确保留，不降低门禁。
+
+聚焦验证：unclassified-usage-display、release-resource-retry、app-runtime-release-config、app-runtime-ci-routing、pages-config-v12-fields（246/246）、pages-four-buckets、pages-usage-object-sort及工具语法／diff通过。补正测试自身的Windows CRLF解析；综合静态测试中沿用分类着色和排序下拉的两条旧期望已按既有批准方案改为共用四桶和双按钮，产品逻辑未变。覆盖旧内容后成功、网络失败后恢复、持续旧内容／HTTP错误／断网失败、部署失败／跳过、缺失版本证据仍产出记录。浏览器技能仅用于合成数据目视，不读取真实家庭。
+
+本次发布记录补齐（事后登记，不是重建原运行artifact）：2026-10-21通过GitHub只读回查39457325255，headSha仍为7131efd73fa81ba9c49dae77107252b086c2326e；Guardian、Runtime Pages、Main Pages均success，Runtime Worker skipped，Main Pages smoke failure，Release manifest skipped，运行结论failure。版本及随后7项线上资源一致性证据沿用下节和PR306评论6295862518，不冒称本轮重新做了线上核对。原运行缺失artifact无法追写，本记录明确补足追溯；新失败留证机制尚未提交或在CI执行，不重跑生产。
+
+审计：两项实现、必要回归及事后发布记录Matched；Deviated／Extra无；剩余为提交后的CI与上线（本轮明确不执行）。此前“无已知代码缺项”结论被本次截图证据纠正，本修复尚未部署，生产待处理数字不会因本地验证而改变。
+
+## RELEASED：本批页面整改发布与验收汇总（2026-10-21）
+
+本节为本批页面整改的当前状态；下方早期“未提交／未部署／待线上核对”仅为当时实施记录，以本节及各项发布结果为准。不扩展到 Mac、Native 执行或共享启用，不重复部署。
+
+| 范围 | 已完成及证据边界 | 尚缺项 |
+|---|---|---|
+| 网站重复归类及500 | 生产表结构与只读目标状态确认；旧完整路由确定性复现唯一键冲突；修复、失败重试／并发隔离回归、部署完成。线上已有其他用途规则对象不再列为未处理项 | 未在真实家庭执行分类保存／失败重试；不能称生产写入复测通过 |
+| 应用配置保存 | 公共时间段键序误报已定位；局部更新、分类／特殊设置／限额互不覆盖、孩子隔离和版本冲突隔离验证通过，已部署 | 未在真实家庭点击分类或限额保存；生产写入验收未执行 |
+| 管理入口职责与布局 | 两套页面已更新；目录范围移除、应用分类卡片无日限额、访问管理当前身份限额列表可读；桌面／窄屏隔离目视通过 | 无已知实现缺项；不把“可读取／可保存”扩称为限制执行已验收 |
+| 分类说明与四桶展示 | 合法other及缺失信息文案已修复；共用四桶模块已部署，主站及登录后的独立Runtime均只读确认学习／复合／休息／其他，原总量保留 | 无已知实现缺项；不将主站取整文案当作逐秒对账证据 |
+| 今日／本周排序 | 并排按钮及默认今日、稳定排序已实现；隔离验证和主站线上切换通过 | 无已知缺项 |
+| 对象与日时段联动 | 选择、排序保持、清除已在线上核对；跨小时／同名隔离／无匹配／分页不完整／迟到响应等隔离回归通过 | 无已知缺项 |
+
+剩余仅保留两个证据边界：①真实家庭的分类／应用配置保存未执行，当前使用隔离完整保存链路证据，不为补证擅自修改真实配置；②本次四桶发布流水线即时smoke失败导致发布manifest未生成，后续独立线上资源比对通过，见下节。不因这两项重复部署或重跑已通过专项。未发现需继续实施的本批页面代码缺口，不宣称全部生产写入行为已经实测。
+
+## RELEASED：独立 Runtime 网页四桶展示统一（2026-10-21）
+
+PR [#306](https://github.com/william-xia-cn/timeonchrome/pull/306) 已合并，SHA `7131efd73fa81ba9c49dae77107252b086c2326e`；该SHA的Runtime、Guardian及主控制台CI均通过。[生产运行39457325255](https://github.com/william-xia-cn/timeonchrome/actions/runs/39457325255) 的三项部署成功：Guardian `75c9a843-f196-45b0-a3c6-cecbba1d2715`、Runtime Pages `32901f87`、主控制台Pages `190130e0`。Runtime Worker、迁移、RPC初始化及共享准备均跳过。
+
+流水线整体为failure，不能记为全绿：部署后的即时Main Pages字节比对失败，后续发布manifest步骤未执行。随后独立回读主站生产域名和本次专属部署域名，与精确合并SHA一致；两套页面共7项页面／脚本资源逐字节核对及组件manifest引用核对通过。即时差异根因未单独证实，不以“缓存问题”作确定结论；没有重复部署。
+
+登录后线上只读核对：独立Runtime同日学习6分47秒、复合14分43秒、休息及其他0秒，总量21分30秒保持；主控制台同日四桶正常，保留原取整显示。主站应用管理组件正常加载，无资源版本错误。未点击真实保存、不改配置原账或扣费、不启共享、不参与Mac发布。[集中证据](https://github.com/william-xia-cn/timeonchrome/pull/306#issuecomment-6295862518)。审计：实现及只读展示Matched；Deviated／Extra无；生产写入与流水线manifest缺口按上节保留。
+
+PO批准本批集中提交、推送、合并及部署。只发布Guardian Worker（既有读取返回桶字段）、主控制台Pages和独立Runtime Pages；Runtime Worker源码无改动，不重复部署。不执行迁移、RPC初始化或共享准备，不改真实配置、原账、扣费口径，不参与Mac发布。复用下列本地证据，通过精确合并SHA的CI后执行既有生产工作流；线上核对资源一致性和登录页面四桶展示，结果追加PR证据。
+
+发布前CI发现的共用模块打包清单与主站加载器严格白名单不一致已修复；保留严格资源校验，runtime-management-loader和management-save-ui-browser复验通过，提交`95e729f`已包含在本次合并。PR职责声明已补齐，未修改检查器或降低门禁。
+
+PO批准只读展示修正，不部署。清单：①主控制台现有cloudRowCategory／sumCloudRowsByCategory逻辑抽至Runtime与主站共用的web-usage-buckets.js；②既有独立网页查询透传已读取daily统计的桶字段和秒数，不新增查询或修改物化、修正、落账；③独立网页汇总固定学习／复合／休息／其他，缺失桶明确提示并保留原总量，网站管理分类仍与用量桶分开。必要验证为四桶对照、独立渲染、只读接口字段及打包引用、相关typecheck、隔离桌面／窄屏目视；不运行全仓测试，不改配置、扣费、媒体、应用统计或共享开关。
+
+本地证据：`computer-usage-view.test.cjs`、`pages-four-buckets.test.js`、`computer-usage-cloud.test.js`、`main-console-release-stage.test.js`、`pages-usage-timeline-browser.test.js`、`npm run typecheck`通过。云端测试第一次因VM跨上下文对象比较失败，改为比较序列化值后通过；未改产品规则。隔离Runtime mock日／周均显示四桶，1440和390宽截图目视通过，窄屏无横向溢出；只允许本地回环域名，不读取真实家庭。主站仍用原桶投影，应用／媒体及总量保留。逐项实现审查：三项Matched，Deviated／Missing／Extra均无；发布与线上证据见上文，不将实现审查等同于所有生产行为实测。
+
+## RELEASED：管理保存与网页使用展示统一整改（2026-10-20，PO批准）
+
+发布结果补记：PR [#305](https://github.com/william-xia-cn/timeonchrome/pull/305) 合并SHA `31ee58e97ed864c34c1b3f21b70d29522d9bea8d`，三个相关CI通过；[生产运行39451941509](https://github.com/william-xia-cn/timeonchrome/actions/runs/39451941509) 成功部署两个Worker及两套Pages，smoke通过，无迁移／共享准备。主站资源与Git blob一致，线上目录范围移除、分类卡片无日限额、访问管理限额可读、排序／选择／清除及其他用途规则过滤通过；35段中20段对象匹配高亮，其余淡化。[发布证据](https://github.com/william-xia-cn/timeonchrome/pull/305#issuecomment-6295129686)。后续独立Runtime登录后已只读核对应用目录、访问管理限额列表及统一时间配置读取；最新四桶显示另见PR306。真实保存未执行。以下保留本地实施及根因记录，不再代表待部署。
+
+CI夹具补正授权：PO允许仅修正 `computer-usage-view.test.cjs` 仍模拟已移除目录范围的旧夹具。改用主要目录中的普通未归类应用，保留特殊应用不混入普通列表的断言，并断言不读取已移除控件；不修改产品代码。最小复验为该文件及已有关联组件测试，通过后继续PR305精确SHA CI与集中部署。
+
+发布授权：PO批准本批集中提交、推送、合并并部署Guardian Worker、Runtime Worker、主控制台Pages及独立Runtime Pages。复用已通过本地证据，合并后要求精确SHA的三项云端/控制台CI通过；使用既有集中生产工作流，迁移、RPC bootstrap及共享准备全部关闭。线上验收仅资源回读及正常页面只读展示，不点击真实分类/限额保存，不改原账、真实配置、共享开关或Mac发布产物。
+
+实施清单：①网站未归类发现与现有其他用途规则对齐，并独立定位分类500；②当前应用身份局部保存，分类/特殊设置与限额互不覆盖，保留If-Match和孩子隔离；③移除目录范围及分类卡片日限额，主站访问管理与独立Runtime共用当前身份限额入口；④合法other名称、真实分类缺失提示；⑤今日/本周排序按钮；⑥日视图对象选择/取消与已上传时段联动。先文档后代码；现有主检出9f65179、工作树干净，不使用旧81a1源码，不新建分支或工作树。
+
+变更等级：管理业务保存/API局部更新与展示交互。必要验证：直接相关网站真实表结构隔离、Runtime策略测试及typecheck、页面排序/时段/不变性测试、桌面与窄屏目视；不运行无关全量回归。原账、计时、统计物化、访问权限、扣费算法、真实配置不变；不安装部署、不开共享/Native自主执行、不参与Mac。HTTP500未证实根因前保持Missing，不能以重复列表修复代替。本批尚在实施，集中结果另补。
+
+本地结果（未提交／未部署）：当前身份局部保存、两处共用限额组件、目录范围移除、other映射／缺失文案、排序双按钮、对象时段选择联动均已实施。网站发现／待处理列表使用现有用途归属判断；历史待处理记录不改写，仅已属其他时间者不再提供重复归类。没有修改终端待处理下发、原账、统计物化、权限或扣费算法。
+
+验证证据：Runtime `vitest run test/native-application-management.test.ts` 9/9；根 `npm run typecheck` 通过；组件、网站完整鉴权路由＋真实请求表迁移、other原子失败／重试／并发、四桶、排序、时段几何及两个浏览器专项通过。浏览器使用内存配置，主站和独立Runtime分别实际点击限额保存及分类保存，核对只有指定字段提交、同名不同对象隔离，1440／390宽截图已目视；网页选择／取消／清除／排序保持／同名隔离／无匹配通过。调用者没有重新请求分段或重算统计。
+
+补验：现有Guardian管理转接15/15通过，保留If-Match、请求体、鉴权及冲突响应，不重试写入；时段分页失败保留已加载分段、旧孩子迟到结果不覆盖、日期／设备／日周切换清除选择均通过。预览使用隔离示例，不是生产验收证据。
+
+追加复验与现场只读核对（2026-10-20）：获准后 Runtime `npm run typecheck` 已通过。通过当前已登录主控制台正常打开应用管理，仅读取页面自身 GET app-policy 响应，没有提交配置。线上 timeWindows 的星期键顺序为 friday、monday、saturday、sunday、thursday、tuesday、wednesday，类别键顺序为 composite、restrictedEntertainment、study、unclassified；前端规范化重排为固定星期／类别顺序。递归排序比较确认时间段值完全相同，直接 JSON.stringify 比较却不同，符合现有后端公共时间段保护误报409的分支。当前局部保存实现不携带公共时间段，现有回归已覆盖同类键顺序误报和原值保持。现场未重新点击保存，不能把只读字段核对称为生产保存成功。
+
+网站500现场证据追加：用户恢复授权后，SELECT sqlite_master 成功，rows_written=0。生产请求表仍保留 UNIQUE(profile_id, requested_target_type, requested_normalized_value)，与此前隔离测试应用015迁移后的表不一致。对用户指定孩子和已报告目标的受限SELECT确认 extension-page.chrome-local、127.0.0.1 已是 approved_other。旧 ensure 只检查待处理和拒绝记录、不识别其他用途规则，可能对同一目标重复INSERT。下一步在内存按生产仍有唯一键的009＋016结构运行旧完整路由复现，再验证当前用途规则前置判断；不迁移生产、不修改历史记录，保留已有失败原子重试验证。
+
+网站500定位与验证结果：受限SELECT进一步确认上述两个目标确有host/other用途规则，三次生产查询均rows_written=0。固定旧源码9f65179按生产唯一键结构在内存重放，第二次ensure已处理other目标时确定抛出 `UNIQUE constraint failed`（profile_id、requested_target_type、requested_normalized_value）；Worker入口异常处理返回500。根因是未归类发现／创建入口未考虑当前other用途规则，忽略已处理记录后重复INSERT，不是用户分类内容错误。此前测试套用015移除唯一键而漏检，这是测试环境偏差。未获取当时请求日志；结论依据生产结构／目标状态／有效规则与旧代码确定性隔离复现，不冒充生产写入复测。
+
+修复复用本批已有other用途规则判断及列表过滤，不新增迁移、表或分类算法。新增固定回归默认保留生产唯一键，另以 `--migrated-schema` 覆盖015后结构；两个现场域名及普通示例域名均经完整鉴权路由验证“创建→归其他→重复ensure”，确认返回alreadyClassified/other、配置及版本与请求记录不变。两种表结构测试、`site-other-atomic-retry.test.js`（两步失败回滚／重试／幂等／并发／访问规则和原账不变）及根 `npm run typecheck` 全通过。未重跑已通过且源码未变化的UI和Runtime专项。
+
+一致性审计：Matched＝六组本地实现与隔离／目视验证、两侧类型检查、应用公共时间段顺序现场证据、网站500生产结构隔离复现及修复回归；Deviated＝无已知主动偏离；Extra＝无范围外产品修改；Missing＝提交部署后真实页面读回与保存验收尚未执行，本轮明确不部署、不修改真实配置和原账。源码本地验证完成，保留未提交变更，不宣称生产故障已经消失。
+
+## NOW：归类默认状态、其他时间保存一致性和四桶展示集中修复（2026-10-20）
+
+发布授权追加：PO批准本批集中提交、推送、合并及两个必要Worker、主控制台和独立Runtime Pages同步交付。发布职责为release；复用下述已通过的本地专项和目视证据，执行精确合并SHA的Runtime／Guardian／主控制台CI及生产只读smoke。只发布本批代码，不执行migration、不修改真实原账／访问权限／配置／扣费口径，不启共享、不参与Mac或控件托管；生产核验不点击分类保存。
+
+发布前必要测试适配：CI组件测试仍期待无明确分类显示“跟随分类规则”，与本批已确认规则冲突。按已批准实施范围仅将该期望改为“未归类应用”，本地复验整个组件测试；不修改产品实现或放宽身份隔离、目录过滤断言。该步骤按Build&Test职责完成后返回发布核验。
+
+PO批准本批统一修复：①应用管理按当前有效分类分组，缺省未归类，删除“沿用原配置／未单独配置”分组；已归类对象不得撤销回未归类，只能改为明确类别；②复用已接通的网页“其他时间”用途规则，确认记录和规则保存保持一致，补齐失败、重试与重复提交；③时间桶展示固定学习／复合／休息／其他，去除紫色第五桶，统一图例、时段和汇总。未知数据不得冒充其他时间。
+
+基线为现有主检出 `D:\Codex\TimeOnchrome` / `codex/web-usage-object-sort` / `a6f1020`，实施前无未提交修改。旧81a1工作树落后，不用于本批修改。变更等级为管理业务保存及展示；本地验证包括应用默认分组与禁止退回、网页用途规则失败重试、四桶与借用口径、相邻用途规则不变性、相关typecheck及隔离桌面/窄屏目视。CI/生产smoke本轮不执行；不改原账、访问权限、扣费算法、真实配置，不安装部署或参与Mac发布。先文档后实现，集中展示结果。
+
+本地实施结果：Native对象无配置和既存unclassified同入未归类，表单不提供清空／unclassified选项，服务端拒绝新设unclassified及删除已归类Native配置；目录编辑不能撤销已有明确分类。网页其他时间复用原用途规则，用D1 batch同时保存配置和approved_other，CAS冲突重读，重复成功不再递增版本；关闭“暂不归类”和旧撤销入口，不修改访问清单。四桶按现有quotaBucket展示，借用只进休息显示，缺失桶不猜其他且总量保留；没有修改落账、统计物化、上传或配额算法。
+
+验证：根及Runtime `npm run typecheck` 通过；Runtime `npx --no-install vitest run test/native-application-management.test.ts` 7/7；`app-runtime-knowledge.test.cjs`、`pages-site-classification-edit.test.js`（11/11）、`runtime-management-loader.test.js`、`site-classification-other-approval.test.js`、`site-other-atomic-retry.test.js`、`site-usage-other-ui.test.js`、`web-other-cloud-ingestion.test.js`、`pages-four-buckets.test.js`、`pages-usage-timeline.test.js`、`pages-usage-object-sort.test.js`通过。SQLite注入第一／第二条SQL失败均回滚，随后重试成功；重复提交、并发配置不覆盖、访问规则及原账哨兵不变。Runtime缺少测试依赖，按既有lockfile恢复后完成复验，未改依赖版本。
+
+桌面1440px／窄屏390px隔离浏览器：`native-classification-view.test.js`、`pages-usage-timeline-browser.test.js`通过，截图已目视；应用默认分组／分类选择和四桶图例、条纹、重叠设备、窄屏滚动正常。未知桶、分页失败保留原统计总量；周／媒体视图不切到时段图。对照三项均为`Matched`，范围外原账／访问权限／扣费改动为`Extra: 0`。待交付：源码未提交、未部署，生产页面尚未复验；隔离验证不冒充线上通过。
+
+## NOW：网页使用管理对象列表排序（2026-10-20）
+
+PO要求移除网页使用列表的“显示分类”切换，网页使用只显示现有管理对象行；原位置提供“今日使用／本周使用”排序，默认今日使用。实施清单：① `pages/index.html` 仅在网页使用标签显示排序控件、隐藏原视图切换；②直接按现有 `targetRows.todaySeconds`／`weekSeconds` 降序排列，名称稳定破同分，不修改数据源、聚合或对象详情；③应用、电脑、媒体标签原列表行为不变；④更新 `tests/unit/pages-config-v12-fields.test.js` 并增加聚焦排序行为测试，桌面／窄屏目视核对。变更等级：页面展示小改；不运行全平台、原账、Worker、Native 或发布测试；本轮不部署。
+
+结果：`pages-usage-object-sort`、`pages-config-v12-fields` 246/246、相邻时段网格单测和差异检查通过。隔离浏览器用三条示例管理对象验证今日顺序、切本周后的顺序及媒体原分类视图；桌面与390px目视通过，窄屏整页无横向溢出。实施对照：网页对象单视图、两种排序与默认值、其他标签不变均为 `Matched`；`Deviated/Missing/Extra: 0`。仅本地源码验证；未连接真实家庭、未部署。
+
+## NOW：应用管理与网页日视图统一页面交付（2026-10-20）
+
+PO确认本批统一交付三项：已上线的使用分析标签顺序（网页、应用、电脑、网页媒体，默认网页）、应用管理纯排版、网页使用日视图 24 小时／每小时 12 格时段网格。旧工作树应用管理改动夹带默认分类与筛选语义变化，已被范围审核拦截，本批明确排除；所有现有按钮、目录范围和分类行为保留。必须基于包含标签顺序的最新主线集中合入，桌面与窄屏目视及聚焦测试通过后，一次发布主控制台与独立 Runtime Pages。仅页面展示与已有控件接线，不改应用身份、分类、统计、配额、原账、配置或 Mac 工作；不部署 Worker、不迁移、不托管。
+
+隔离浏览器旧测试先等待尚未进入的应用视图，随后断言旧夹具的 5 类而现行页面为 7 类；模拟分类保存还会重建目录，故将原始系统应用检查放在该操作之前。仅修正测试的进入顺序、当前分类数量及展开详情后的观察方式，不调整产品分类或管理事件。应用管理桌面／390px 浏览器测试、知识管理专项、网页时段网格单元与浏览器测试、typecheck、`git diff --check` 均通过；目视确认两种宽度无应用管理横向溢出，时段网格在窄屏仅图内横向滚动。实施对照：确认布局与保留项 `Matched`；业务语义变化 `Extra: 0`；原账、配额、配置和 Mac 改动 `Extra: 0`。待合并部署后另核线上实际页面。
+
+## 2026-10-20 最终合并CI静态断言适配（无产品改动）
+
+- 最终主线`0d32fbe`的Guardian CI在`profile-account-v2-worker-contract.test.js`失败：旧静态检查从公开入口起截取，误将已经验收的`runBindingScopedUpload`包装器`return`当成上传失败后跳过快照。实际`syncUsageStatsForBinding`仍在上传try/catch后独立读取已确认账户快照，未发现此项容错丢失。
+- 最小修正仅测试定位：公开入口必须委托既有绑定隔离包装及内部函数；内部函数仍逐项要求上传错误捕获后无条件执行snapshot。复用改绑隔离证据，不删安全包装、不改产品或网页落账。只复验该19项静态专项及已有`profile-account-v2-sync.test.js`四类上传/退避/失败读取行为；合并准备树与最终主线零差异，不重制固定候选包、不部署或启共享。
+- 结果：增加公开包装接线断言后静态专项20/20，现有动态同步42/42，diff与职责范围检查通过。Matched＝公开绑定保护、内部失败容错均保留；Deviated/Extra＝无；Missing＝新SHA CI及正式实机，源码/包均未重制。此项只是测试识别函数边界修正，不改变容错标准。
+
 ## NOW：跨仓契约一致与唯一控件候选核验（2026-10-19）
 
 **终检纠正／当前待重新核验**：架构独立检查发现`core/shared-web-contribution.js`仍被打入候选，导出已退役schema1/毫秒贡献转换。反查唯一消费者是其专属unit，无当前产品入口；先前仅核对已删除清单漏掉该独立文件，不能据此宣称旧模块清完。下方ZIP hash `fb979213…`和PASS_ARTIFACT_ONLY已失效，禁止交付。按原批准清理范围删除实现及旧专属测试，并在现有包validator拒绝已退役模块混入，补同文件夹具；补跑打包专项及当前桶shadow直接回归。保持同一1.7.65版本，集中修正后重新解压/静态link/同源/隐私核验；不安装部署、重载、启共享或改原账配置。

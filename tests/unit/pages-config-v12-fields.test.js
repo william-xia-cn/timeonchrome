@@ -65,13 +65,17 @@ function run() {
   expectTrue('统计分类应仅读取 compositeList', source.includes('const compositeList = cfg.compositeList || [];'));
   expectTrue('Pages 控制台应优先读取 stats/v1', source.includes('/stats/v1?from='));
   expectTrue('Pages 控制台应优先读取 target-stats/v1', source.includes('/target-stats/v1?from=') && source.includes('normalizeTargetStatsRows'));
-  expectTrue('Pages 使用分析应采用 Screen Time 结构', source.includes('id="cloud-usage-total"') && source.includes('id="cloud-usage-week-chart"') && source.includes('id="cloud-usage-main-chart"') && source.includes('id="cloud-usage-list-mode"'));
+  expectTrue('Pages 使用分析应采用 Screen Time 结构', source.includes('id="cloud-usage-total"') && source.includes('id="cloud-usage-week-chart"') && source.includes('id="cloud-usage-main-chart"') && source.includes('id="cloud-usage-list-sort"'));
   expectTrue('Pages 使用分析默认全部设备并支持日周切换', source.includes('设备：') && source.includes('全部设备') && source.includes('data-cloud-usage-mode="day"') && source.includes('data-cloud-usage-mode="week"'));
   expectTrue('Pages 使用分析应拆分网页使用和媒体使用 Tab', source.includes('data-cloud-usage-ledger="web"') && source.includes('data-cloud-usage-ledger="media"'));
+  const ledgerTabs = [...source.matchAll(/<button type="button"(?: class="active")? data-cloud-usage-ledger="([^"]+)">([^<]+)<\/button>/g)];
+  expectEqual('Pages 使用分析 Tab 顺序', ledgerTabs.map(match => `${match[1]}:${match[2]}`).join(','), 'web:网页使用,application:应用使用,computer:电脑使用,media:网页媒体使用');
+  expectTrue('Pages 使用分析默认进入网页使用', ledgerTabs[0]?.[0].includes('class="active"') && source.includes("let cloudUsageState = { ledger: 'web',"));
   expectTrue('Pages 使用分析网页和媒体分别读取对应统计源', source.includes('/target-stats/v1?') && source.includes('/hourly-target-stats/v1?') && source.includes('/media-stats/v1?') && source.includes('/hourly-media-stats/v1?'));
-  expectTrue('Pages 使用分析主分类应优先按 targetClassificationAtTime 展示，配额 bucket 仅作 fallback', extractFunctionSource(source, 'cloudRowCategory').includes('cloudClassificationCategory(row?.targetClassificationAtTime)') && extractFunctionSource(source, 'cloudRowCategory').includes('row.quotaBucket || row.mode'));
+  expectTrue('Pages 使用分析四桶委托共用桶展示模块', extractFunctionSource(source, 'cloudRowCategory').includes('WebUsageBuckets.category(row)'));
   expectTrue('Pages 使用分析应标注待归类借用休息配额', source.includes('cloudRowBorrowedRestSeconds') && source.includes('待归类 · 借用休息配额'));
-  expectTrue('Pages 使用分析普通列表不暴露落账诊断字段', source.includes('显示管理对象') && source.includes('显示分类') && !extractFunctionSource(source, 'renderCloudUsageList').includes('settlementReason') && !extractFunctionSource(source, 'renderCloudUsageList').includes('tabId'));
+  expectTrue('Pages 网页使用只显示管理对象并可按今日／本周排序', source.includes('id="cloud-usage-list-sort"') && source.includes('data-cloud-usage-sort="today" aria-pressed="true">今日使用</button>') && source.includes('data-cloud-usage-sort="week" aria-pressed="false">本周使用</button>') && extractFunctionSource(source, 'renderCloudUsageList').includes('listMode.hidden = isWeb') && extractFunctionSource(source, 'renderCloudUsageList').includes('!isWeb && cloudUsageState.listMode'));
+  expectTrue('Pages 使用分析普通列表不暴露落账诊断字段', !extractFunctionSource(source, 'renderCloudUsageList').includes('settlementReason') && !extractFunctionSource(source, 'renderCloudUsageList').includes('tabId'));
   expectTrue('Pages 配额页应通过 effective quota read model 渲染', source.includes('function buildEffectiveTimeQuotaView') && source.includes('quotaTimeField'));
   expectTrue('Pages 配额页不应原地写入 remoteConfig.timeQuota 做懒迁移', !extractFunctionSource(source, 'renderQuotaPage').includes('remoteConfig.timeQuota ='));
   expectTrue('Pages 配额页应提供 V2 统一账本切换', source.includes('id="q-accounting-version"') && extractFunctionSource(source, 'saveTimeQuotaConfig').includes('accountingVersion'));
@@ -206,7 +210,7 @@ function run() {
   const classifyReviewUsedUnclassifiedEnd = source.indexOf('window.classifyRulesSiteEntry', classifyReviewUsedUnclassifiedStart);
   const classifyReviewUsedUnclassifiedSource = source.slice(classifyReviewUsedUnclassifiedStart, classifyReviewUsedUnclassifiedEnd);
   expectTrue('Pages 复合网站申请学习记录应读取全部显式记录再仅展示学习申请', loadSiteClassificationRequestsSource.includes('/site-classification-requests/v1?status=all') && extractFunctionSource(source, 'renderLearningRequestRecords').includes("siteRequestRecordKind(request) === 'learning_request'"));
-  expectTrue('Pages 未归类网站使用记录应合并自动记录和最近 30 天聚合', renderReviewUsedUnclassifiedSitesSource.includes('explicitUnclassifiedRequestEntries(requests)') && renderReviewUsedUnclassifiedSitesSource.includes('reviewUsedUnclassifiedEntries()') && renderUnclassifiedUsageRecordsSource.includes('buildUnclassifiedReviewRows(requests, usedEntries)') && source.includes("type: 'request'") && source.includes("type: 'used'"));
+  expectTrue('Pages 未归类网站使用记录应合并自动记录和最近 30 天聚合', renderReviewUsedUnclassifiedSitesSource.includes('explicitUnclassifiedRequestEntries(requests)') && renderReviewUsedUnclassifiedSitesSource.includes('reviewUsedUnclassifiedEntries()') && renderUnclassifiedUsageRecordsSource.includes('unclassifiedReviewGroups(requests, usedEntries)') && extractFunctionSource(source, 'unclassifiedReviewGroups').includes('buildUnclassifiedReviewRows(requests, entries)') && source.includes("type: 'request'") && source.includes("type: 'used'"));
   expectTrue('Pages 未归类网站使用记录应使用统一列表行而非审批四列布局', source.includes('function renderUnclassifiedReviewRow') && renderUnclassifiedUsageRecordsSource.includes('renderUnclassifiedReviewRow(row, rows.indexOf(row))') && !renderUnclassifiedUsageRecordsSource.includes('renderSiteRequestRow(row.request, row.idx)'));
   expectTrue('Pages 两个记录单元应默认显示未处理并折叠已处理记录', source.includes('record-history-details') && source.includes('已处理记录') && source.includes('isProcessedSiteRequest') && source.includes('pendingRows') && source.includes('processedRows'));
   expectTrue('Pages 已使用未归类网站归类前应先生成或复用审核记录', source.includes('/site-classification-requests/v1/ensure') && source.includes('decideSiteClassificationRequestRecord') && classifyReviewUsedUnclassifiedSource.includes('classifyUnclassifiedEntryViaRequest') && !classifyReviewUsedUnclassifiedSource.includes("/used-unclassified-sites/v1', 'POST'"));
@@ -242,7 +246,7 @@ function run() {
   expectTrue('Pages 日志策略保存不应提交完整 remoteConfig', !saveClientLoggingPolicySource.includes('{ data: remoteConfig }') && !saveClientLoggingPolicySource.includes('remoteConfig.clientLoggingPolicyV1 = nextPolicy'));
   expectTrue('Pages 日志开启策略应包含上传过滤字段', saveClientLoggingPolicySource.includes('uploadEnabled: true') && saveClientLoggingPolicySource.includes('uploadMinLevel: level') && saveClientLoggingPolicySource.includes('uploadCategories') && saveClientLoggingPolicySource.includes('targetDeviceIds') && saveClientLoggingPolicySource.includes('expiresAt'));
   expectTrue('Pages 日志关闭策略只更新上传策略字段', saveClientLoggingPolicySource.includes('uploadEnabled: false') && saveClientLoggingPolicySource.includes("uploadMinLevel: 'error'") && saveClientLoggingPolicySource.includes('uploadCategories: []') && saveClientLoggingPolicySource.includes('targetDeviceIds: []'));
-  expectTrue('Pages API 错误应优先展示 message', source.includes('data.message || data.error || `HTTP ${r.status}`'));
+  expectTrue('Pages API 错误应优先展示 message', source.includes('data.message || data.error?.message || (typeof data.error===\'string\'?data.error:null) || `HTTP ${r.status}`'));
 
   // 系统配置文案检查
   expectTrue('pages 应使用"系统网站配置"文案', source.includes('系统网站配置'));

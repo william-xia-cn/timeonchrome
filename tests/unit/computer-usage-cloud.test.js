@@ -1,5 +1,8 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript'),{webcrypto}=require('node:crypto');
 const root=path.resolve(__dirname,'../..');
+assert.equal(fs.readFileSync(path.join(root,'app-runtime-management/contracts/web-usage-buckets.cjs'),'utf8').replace(/\r\n/g,'\n'),
+ fs.readFileSync(path.join(root,'app-runtime-management/console/web-usage-buckets.js'),'utf8').replace(/\r\n/g,'\n'),
+ '共享契约出口必须与既有浏览器展示函数一致，不改变算法');
 function loader(overrides={}){
 const cache=new Map();
 return function load(file){if(cache.has(file))return cache.get(file).exports;
@@ -8,6 +11,7 @@ const source=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{co
 vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,URLSearchParams,Date,Map,Set,Error,Request,Response,console,require:name=>{
 if(name==='cloudflare:workers')return {WorkerEntrypoint:class{constructor(_,env){this.env=env;}}};
 if(name in overrides)return overrides[name];
+if(name==='@timeonchrome/app-runtime-contracts/web-usage-buckets')return require('../../app-runtime-management/contracts/web-usage-buckets.cjs');
 if(name==='@timeonchrome/app-runtime-contracts/computer-usage')return load('app-runtime-management/contracts/computer-usage.ts');
 if(name==='@timeonchrome/app-runtime-contracts/shared-access')return load('app-runtime-management/contracts/shared-access.ts');
 if(name==='@timeonchrome/app-runtime-contracts/shared-web-sync')return load('app-runtime-management/contracts/shared-web-sync.ts');
@@ -62,6 +66,9 @@ assert.equal(sourceSeconds.totalDuration,3,'web source uses authoritative second
 assert.equal(secondsFixture.reads(),0,'summary does not load web raw intervals');
 const combinedSeconds=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
 assert.equal(combinedSeconds.totals.computer,13);assert.equal(combinedSeconds.totals.specialIncluded,5);
+assert.deepEqual(JSON.parse(JSON.stringify(combinedSeconds.displayBuckets)),{values:{study:13,composite:0,rest:0,other:0},complete:true});
+assert.equal(combinedSeconds.applicationSnapshot.totalDuration,combinedSeconds.totals.application);
+assert.equal(combinedSeconds.applicationSnapshot.revision,combinedSeconds.sourceVersions.application);
 assert.deepEqual(JSON.parse(JSON.stringify(combinedSeconds.categories)),{study:13});
 assert.equal(combinedSeconds.sourceVersions.application,'identity-product-r1','summary version includes product/catalog changes, not only base statistics');
 assert.equal(secondsFixture.reads(),0);assert.equal(secondsFixture.appReads(),0,'new summary does not call old application evidence');
@@ -263,6 +270,11 @@ const publicStats=[{date,channel:'active',mode:'study',target_key:'domain:learni
 f=fixture({publicStats});service=f.load('workers/src/services/computerUsage.ts');
 const independent=await service.readIndependentUsage(f.env,'account','child',date,date,'web');assert.equal(independent.totalDurationMs,5134000);assert.equal(independent.categories[0].durationMs,5134000);assert.equal(independent.applications[0].displayName,'learning.example');assert.equal(independent.buckets[0].startAtMs,start);
 const independentWeek=await service.readIndependentUsage(f.env,'account','child',date,'2026-10-02','web');assert.equal(independentWeek.totalDurationMs,independent.totalDurationMs,'hourly rows are not added to daily authority');
+assert.equal(JSON.stringify(independent.quotaRows),JSON.stringify([{quotaBucket:'study',duration:5134}]));
+const fourBuckets=['study','composite','rest','other'].map((quota_bucket,i)=>({...publicStats[0],quota_bucket,mode:'composite',target_classification_at_time:'pending_composite',duration_seconds:i+1}));
+f=fixture({publicStats:fourBuckets});const bucketRead=await f.load('workers/src/services/computerUsage.ts').readIndependentUsage(f.env,'account','child',date,date,'web');
+assert.equal(JSON.stringify(bucketRead.quotaRows),JSON.stringify(fourBuckets.map(row=>({quotaBucket:row.quota_bucket,duration:row.duration_seconds}))));
+assert.equal(bucketRead.totalDurationMs,10000,'透传桶不重算或叠加小时统计');
 await assert.rejects(()=>service.readIndependentUsage(f.env,'account','child',date,date,'other'),/INVALID_SOURCE/);
 f=fixture();f.env.RUNTIME_COMPUTER_USAGE.fetch=async request=>{const scope=await request.json();assert.equal(scope.childId,'child');return Response.json(new URL(request.url).pathname.includes('Revision')?'cap-r1':[app]);};
 result=await f.load('workers/src/services/computerUsage.ts').readComputerUsage(f.env,'account','child',date,date);assert.equal(result.totals.applicationMs,2000,'bounded capability HTTP transport preserves app authority');

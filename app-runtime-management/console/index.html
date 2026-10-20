@@ -36,7 +36,7 @@
         <div class="load-empty-actions"><a class="button primary" href="https://timeonchrome-console.pages.dev/?launch=app-runtime">从家长控制台进入</a><button id="initial-load-retry">重新加载</button></div>
       </section>
       <section class="view active" data-view-panel="usage">
-        <div class="tabbar"><button class="active" data-usage-kind="computer">电脑使用</button><button data-usage-kind="application">应用使用</button><button data-usage-kind="web">网页使用</button><button data-usage-kind="media">网页媒体使用</button></div>
+        <div class="tabbar"><button class="active" data-usage-kind="web">网页使用</button><button data-usage-kind="application">应用使用</button><button data-usage-kind="computer">电脑使用</button><button data-usage-kind="media">网页媒体使用</button></div>
         <div class="toolbar card">
           <div class="segmented"><button data-period="day" class="active">日</button><button data-period="week">周</button></div>
           <button id="previous">上一周期</button><button id="today">今天</button>
@@ -47,33 +47,40 @@
         </div>
         <div id="runtime-computer-usage" hidden></div>
         <div id="runtime-web-usage" hidden></div>
-        <div data-independent-app-usage hidden>
-        <p id="application-read-note"></p><p id="outside-window-summary"></p><button id="refresh-application">刷新应用</button>
-        <div class="summary-grid">
-          <article class="card metric"><span>主使用时长</span><strong id="total-time">0 分钟</strong><small>按主 Segment 区间并集</small></article>
-          <article class="card metric"><span>配额状态</span><strong id="quota-state">额度充足</strong><small>本阶段只提示，不关闭应用</small></article>
-          <article class="card metric"><span>最近同步</span><strong id="last-sync">尚未同步</strong><small id="policy-version">应用策略 v0</small></article>
-        </div>
-        <section class="card"><div class="section-title"><div><h2>使用分析</h2><p id="chart-caption">北京时间，按小时</p></div><label class="switch-label"><input id="media-toggle" type="checkbox"> 显示辅助媒体</label></div><div id="usage-chart" class="chart"></div><div id="category-legend" class="legend"></div></section>
-        <div class="two-column">
-          <section class="card"><div class="section-title"><div><h2>应用使用</h2><p>同一应用 ACTIVE/PiP 重叠按并集</p></div></div><div id="app-ranking" class="list empty">暂无使用记录</div></section>
-          <section class="card"><div class="section-title"><div><h2>分类使用</h2><p>分类时长不可直接相加为设备总时长</p></div></div><div id="category-ranking" class="list empty">暂无分类记录</div></section>
-        </div>
+        <div data-independent-app-usage class="computer-view" hidden>
+        <section class="usage-analysis-card">
+          <div class="usage-card-head"><div><div class="usage-total-label">应用使用时间</div><strong id="total-time" class="usage-total-value">0 分钟</strong></div></div>
+          <p id="application-read-note"></p><p id="outside-window-summary"></p>
+          <div class="section-title"><p id="chart-caption">北京时间，按小时</p><label class="switch-label"><input id="media-toggle" type="checkbox"> 显示辅助媒体</label></div>
+          <div id="usage-chart"></div><div id="category-legend" class="legend"></div>
+          <div id="application-bucket-summary"></div>
+        </section>
+        <section class="usage-analysis-card">
+          <div class="usage-app-toolbar"><h3>应用明细</h3><label>搜索应用<input id="usage-app-search" type="search" placeholder="搜索应用名称"></label><button id="refresh-application">刷新应用</button></div>
+          <p>按当前范围用量降序；同名不同对象分别显示。</p><div id="app-ranking">暂无使用记录</div>
+          <details class="usage-secondary-details"><summary>应用分类明细（不是时间桶）</summary><p>分类时长不可直接相加为设备总时长</p><div id="category-ranking" class="list empty">暂无分类记录</div></details>
+          <details class="usage-secondary-details"><summary>来源状态与诊断详情</summary><p id="quota-state"></p><p>最近同步：<span id="last-sync">尚未同步</span></p><p id="policy-version"></p></details>
+        </section>
         </div>
       </section>
       <section class="view" data-view-panel="access">
         <div class="tabbar"><button class="active" data-access-tab="quotas">统一时间配置</button><button data-access-tab="schedule">单应用限制</button><button data-access-tab="config">应用配置文件</button></div>
         <div data-access-panel="quotas"><section class="card"><div class="section-title"><div><h2>孩子级统一配额与自主度</h2><p>权威配置由主家长控制台的“访问管理”维护；此处只读展示。</p></div></div><div id="quota-form" class="quota-grid"></div></section><aside class="notice warning"><strong>共享配额仍处于兼容／影子阶段</strong><span>此页不再保存第二份公共配额或时间段。设备实际执行覆盖仍需检查；本次不代表网页与应用已经合并扣费。</span></aside></div>
-        <div data-access-panel="schedule" hidden><section class="card"><div class="section-title"><div><h2>应用单项限制</h2><p>此限制只作用于所选产品，不属于孩子级共享时间配置。</p></div><button id="save-quotas" class="primary">保存单项限制</button></div><div id="app-quota-list" class="list"></div></section><section class="card"><h2>统一时间段（只读）</h2><p>时间段由主家长控制台的“访问管理”统一维护。</p><div id="schedule-editor" class="schedule-editor"></div></section></div>
+        <div data-access-panel="schedule" hidden><section class="card" id="native-limits-panel"><div class="section-title"><div><h2>单应用日限额</h2><p>按当前应用身份保存；不修改分类或公共时间配置。保存成功不代表终端已执行。</p></div></div><label>搜索应用名称<input id="native-limit-search" type="search" placeholder="搜索应用名称"></label><div id="app-quota-list" class="list"></div></section><section class="card" id="runtime-schedule-panel"><h2>统一时间段（只读）</h2><p>时间段由主家长控制台的“访问管理”统一维护。</p><div id="schedule-editor" class="schedule-editor"></div></section></div>
         <div data-access-panel="config" hidden><section class="card"><div class="section-title"><div><h2>应用配置文件</h2><p>导入／导出应用分类和单应用限制；孩子级公共配额与时间段不属于此配置文件。</p></div></div><div class="config-actions"><button id="export-config">导出配置</button><label class="button">选择导入文件<input id="import-config" type="file" accept="application/json" hidden></label></div><div id="import-diff" hidden></div></section></div>
       </section>
       <section class="view" data-view-panel="apps">
+        <div class="app-directory-toolbar card">
+          <label class="app-search-field">应用名称<input id="app-search" type="search" placeholder="搜索应用名称" aria-label="搜索应用名称"></label>
+          <label>平台<select id="management-platform" aria-label="平台筛选"><option value="">全部平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select></label>
+          <div class="knowledge-tools"><span>管理入口</span><button id="open-instances">程序实例与未识别项</button><button id="open-products">确定性应用列表</button><button id="open-rules">分类规则管理</button></div>
+          <p class="app-directory-help">来自安装发现、使用观察或可靠身份预配置，不支持仅按名称添加</p>
+        </div>
         <div class="app-management-shell">
           <aside id="app-category-nav" class="app-category-nav card" aria-label="应用分类目录"></aside>
           <div class="app-directory-main">
-<div class="app-directory-toolbar card"><input id="app-search" type="search" placeholder="搜索应用名称" aria-label="搜索应用名称"><select id="management-platform" aria-label="平台筛选"><option value="">全部平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select><span>来自安装发现、使用观察或可靠身份预配置，不支持仅按名称添加</span><div class="knowledge-tools"><button id="open-instances">程序实例与未识别项</button><button id="open-products">确定性应用列表</button><button id="open-rules">分类规则管理</button></div></div>
-            <section class="card inventory-status"><label>目录范围<select id="directory-scope" aria-label="目录范围"><option value="primary">主要应用</option><option value="unused">已安装未使用</option><option value="usage">使用未归类证据</option><option value="all">全部可管理应用</option></select></label><p id="inventory-status">盘点完整性未验证；目录数量不等于已完成整机盘点。</p></section>
             <section class="card app-directory-card"><div class="section-title"><div><h2 id="app-directory-title">学习应用</h2><p id="app-directory-subtitle">按孩子和平台共享分类，历史账本不追溯修改</p></div></div><details id="ordinary-app-group" class="app-origin-group ordinary-apps" open><summary data-app-group-toggle="application"><span>普通应用</span><span id="ordinary-app-count" class="badge offline">0 个</span></summary><div id="managed-app-list" class="record-list"></div></details><details id="game-app-group" class="app-origin-group game-apps" open><summary data-app-group-toggle="game"><span>游戏</span><span id="game-app-count" class="badge offline">0 个</span></summary><p class="app-origin-help">已由可信产品身份确认的游戏、游戏平台及游戏工具；管理归类与配额仍按孩子配置。</p><div id="game-app-list" class="record-list"></div></details><details id="system-tool-group" class="app-origin-group system-apps"><summary data-app-group-toggle="systemTool"><span>系统应用</span><span id="system-tool-count" class="badge offline">0 个</span></summary><p class="app-origin-help">Windows 内置、可主动打开的系统应用；仍可分类和配置配额。</p><div id="system-tool-list" class="record-list"></div></details><details id="processed-history" class="processed" hidden><summary data-app-group-toggle="processed">已处理历史 <span id="processed-count">0</span></summary><div id="processed-records" class="record-list"></div></details></section>
+            <details class="card inventory-status"><summary>同步详情 · 展开查看盘点状态</summary><div id="inventory-status">盘点完整性未验证；目录数量不等于已完成整机盘点。</div></details>
             <aside class="notice warning"><strong>黑名单执行依赖设备能力</strong><span>允许额度视为 0。旧设备可能仅覆盖精确身份；产品级结束能力须在设备管理中确认，策略 ACK 不代表已实际执行。</span></aside>
           </div>
         </div>
@@ -122,6 +129,6 @@
   <dialog id="rule-dialog" class="knowledge-dialog" aria-labelledby="rule-dialog-title"><header><div><h2 id="rule-dialog-title">分类规则管理</h2><p>已核实身份可自动匹配；名称、类型和来源只能辅助或建议</p></div><button data-knowledge-close="rule-dialog" aria-label="关闭分类规则管理">×</button></header><div class="knowledge-body" id="rule-panel"></div><footer><small>孩子明确分类优先；同层冲突不会静默覆盖。</small><button data-knowledge-close="rule-dialog">关闭</button></footer></dialog>
   <dialog id="instance-dialog" class="knowledge-dialog" aria-labelledby="instance-dialog-title"><header><div><h2 id="instance-dialog-title">程序实例与未识别项</h2><p>实例只读；规则可预览与保存，终端生效另行确认</p></div><button data-knowledge-close="instance-dialog" aria-label="关闭程序实例">×</button></header><div class="knowledge-body" id="instance-panel"></div><footer><small>实例归属由集中规则生成，不按名称猜测。</small><button data-knowledge-close="instance-dialog">关闭</button></footer></dialog>
   <link rel="stylesheet" href="app-runtime-knowledge.css">
-  <script src="computer-usage-view.js"></script><script src="app-runtime-time.js"></script><script src="app-runtime-network.js"></script><script src="app-runtime-clipboard.js"></script><script src="app-runtime-policy.js"></script><script src="app-runtime-knowledge.js"></script><script src="app-runtime-devices.js"></script><script src="app-runtime.js"></script>
+  <script src="web-usage-buckets.js"></script><script src="computer-usage-view.js"></script><script src="app-runtime-time.js"></script><script src="app-runtime-network.js"></script><script src="app-runtime-clipboard.js"></script><script src="app-runtime-policy.js"></script><script src="app-runtime-knowledge.js"></script><script src="app-runtime-devices.js"></script><script src="app-runtime.js"></script>
 </body>
 </html>

@@ -44,7 +44,11 @@ function check(label, condition) { if (!condition) throw new Error(label); passe
   check('V2 sync removes the legacy cloud quota fact instead of fetching a lock', cloudSync.includes('if (usesQuotaAccountingV2(currentConfig))') && cloudSync.includes('chrome.storage.local.remove(CLOUD_QUOTA_STATE_FACT_KEY)'));
   check('current-week uploads use the isolated V2 stage runner', cloudSync.includes("await runV2Stage('deviceAccountV2CurrentWeek', () => uploadCurrentWeekDeviceAccountsV2({ enabled }))")
     && cloudSync.includes('try { part = await task(); }') && cloudSync.includes('result[stage] = part;'));
-  const syncEntry = cloudSync.slice(cloudSync.indexOf('export async function syncUsageStatsByDateWatermarkV1('),
+  const publicSyncEntry = cloudSync.slice(cloudSync.indexOf('export async function syncUsageStatsByDateWatermarkV1('),
+    cloudSync.indexOf('async function syncUsageStatsForBinding('));
+  check('public sync retains the binding isolation wrapper and delegates the current upload/snapshot flow',
+    publicSyncEntry.includes('return runBindingScopedUpload(() => syncUsageStatsForBinding(options));'));
+  const syncEntry = cloudSync.slice(cloudSync.indexOf('async function syncUsageStatsForBinding('),
     cloudSync.indexOf('async function syncUsageUploadsByDateWatermarkV1('));
   check('confirmed snapshot reading remains independent of upload failure',
     syncEntry.includes('result = await syncUsageUploadsByDateWatermarkV1({ enabled });')

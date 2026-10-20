@@ -133,7 +133,9 @@ export function parseNativeApplicationIdentification(value: unknown): NativeAppl
     || !Array.isArray(value.evidence) || value.evidence.length > 16
     || value.evidence.some(code => typeof code !== 'string' || !evidenceCodes.has(code))
     || new Set(value.evidence).size !== value.evidence.length) return fail();
-  if ((value.status !== 'identified') !== value.nativeId.startsWith('dynamic-local:')) return fail();
+  // Mac 已落账身份不编码识别状态；仅放行其现有动态进程组合，不重写 ID。
+  const macDynamicProcess = value.status === 'dynamic-process' && /^macos:[a-f0-9]{64}$/.test(value.nativeId);
+  if (!macDynamicProcess && (value.status !== 'identified') !== value.nativeId.startsWith('dynamic-local:')) return fail();
   return {nativeId:value.nativeId,name:value.name,status:value.status as NativeApplicationIdentification['status'],
     evidence:[...value.evidence] as string[]};
 }

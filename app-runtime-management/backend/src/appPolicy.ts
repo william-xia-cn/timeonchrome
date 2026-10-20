@@ -390,6 +390,42 @@ export async function getAppPolicy(
   return { version: Number(row.version), effectiveAtMs: Number(row.effective_at_ms), ...payload };
 }
 
+/** Current native object edits only; absent properties never reset stored policy. */
+export async function putNativeApplicationChanges(
+  database: D1Database, accountId: string, childId: string,
+  expectedEtag: string | null, body: unknown, nowMs: number,
+): Promise<AppPolicyDocument> {
+  if (!isRecord(body) || Object.keys(body).some(key => key !== 'nativeApplicationChanges')
+    || !Array.isArray(body.nativeApplicationChanges) || body.nativeApplicationChanges.length !== 1) {
+    throw new HttpError(400, 'INVALID_NATIVE_APPLICATION_CONFIGURATION', '每次仅保存一个应用的指定字段。');
+  }
+  const change = body.nativeApplicationChanges[0];
+  if (!isRecord(change) || !isRecord(change.target)
+    || Object.keys(change).some(key => !['target', 'classification', 'specialApplication', 'dailyQuotaMinutes'].includes(key))
+    || Object.keys(change.target).some(key => !['machineId', 'nativeId'].includes(key))
+    || typeof change.target.machineId !== 'string' || typeof change.target.nativeId !== 'string'
+    || Object.keys(change).length < 2 || change.classification === 'unclassified') {
+    throw new HttpError(400, 'INVALID_NATIVE_APPLICATION_CONFIGURATION', '应用局部配置无效。');
+  }
+  const current = await getAppPolicy(database, accountId, childId);
+  if (expectedEtag !== appPolicyEtag(current.version)) {
+    throw new HttpError(412, 'APP_POLICY_CONFLICT', '配置已变化，请刷新后重试。');
+  }
+  const target = change.target;
+  const same = (entry: {target: {machineId: string; nativeId: string}}) =>
+    entry.target.machineId === target.machineId && entry.target.nativeId === target.nativeId;
+  const previous = current.nativeApplications?.find(same);
+  const entry = parseNativeApplicationConfigurations([{
+    ...(previous || {target: change.target, classification: 'unclassified', specialApplication: false, dailyQuotaMinutes: null}),
+    ...change,
+  }])[0];
+  const quotaOnly = Object.keys(change).every(key => ['target', 'dailyQuotaMinutes'].includes(key));
+  return putAppPolicy(database, accountId, childId, expectedEtag, {
+    classifications: current.classifications, quotas: current.quotas, timeWindows: current.timeWindows,
+    nativeApplications: [...(current.nativeApplications || []).filter(item => !same(item)), entry],
+  }, nowMs, quotaOnly);
+}
+
 export async function putAppPolicy(
   database: D1Database,
   accountId: string,
@@ -397,10 +433,24 @@ export async function putAppPolicy(
   expectedEtag: string | null,
   update: AppPolicyUpdate,
   nowMs: number,
+  nativeQuotaOnly = false,
 ): Promise<AppPolicyDocument> {
   const current = await getAppPolicy(database, accountId, childId);
   if (expectedEtag !== appPolicyEtag(current.version)) {
     throw new HttpError(412, 'APP_POLICY_CONFLICT', 'App policy has changed. Reload before saving.');
+  }
+  if (update.nativeApplications !== undefined) {
+    const key = (entry: {target: {machineId: string; nativeId: string}}) =>
+      JSON.stringify([entry.target.machineId, entry.target.nativeId]);
+    const previous = new Map((current.nativeApplications || []).map(entry => [key(entry), entry]));
+    const next = new Map(update.nativeApplications.map(entry => [key(entry), entry]));
+    if (update.nativeApplications.some(entry => !nativeQuotaOnly && entry.classification === 'unclassified'
+      && previous.get(key(entry))?.classification !== 'unclassified')
+      || [...previous].some(([id, entry]) => entry.classification !== 'unclassified'
+        && (!next.has(id) || next.get(id)?.classification === 'unclassified'))) {
+      throw new HttpError(400, 'APPLICATION_CLASSIFICATION_REQUIRED',
+        '未归类是缺省状态，不能作为归类操作；已归类应用可改为其他时间。');
+    }
   }
   if(update.nativeApplications!==undefined&&update.nativeApplications.length){
     const targets=await database.prepare(`SELECT DISTINCT n.machine_id,n.native_id FROM runtime_native_application_objects_v1 n
