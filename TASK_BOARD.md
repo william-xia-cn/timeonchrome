@@ -1,5 +1,15 @@
 # TASK_BOARD
 
+## RELEASING：独立 Runtime 网页四桶展示统一（2026-10-21）
+
+PO批准本批集中提交、推送、合并及部署。只发布Guardian Worker（既有读取返回桶字段）、主控制台Pages和独立Runtime Pages；Runtime Worker源码无改动，不重复部署。不执行迁移、RPC初始化或共享准备，不改真实配置、原账、扣费口径，不参与Mac发布。复用下列本地证据，通过精确合并SHA的CI后执行既有生产工作流；线上核对资源一致性和登录页面四桶展示，结果追加PR证据。
+
+发布前CI发现共用模块打包清单与主站加载器严格白名单不一致，尚未合并部署。按同一共用模块接线范围补齐加载器白名单，保留严格资源校验；必要复验为runtime-management-loader和management-save-ui-browser，防止影响现有管理入口。同时补齐PR职责声明，不修改检查器或降低门禁。
+
+PO批准只读展示修正，不部署。清单：①主控制台现有cloudRowCategory／sumCloudRowsByCategory逻辑抽至Runtime与主站共用的web-usage-buckets.js；②既有独立网页查询透传已读取daily统计的桶字段和秒数，不新增查询或修改物化、修正、落账；③独立网页汇总固定学习／复合／休息／其他，缺失桶明确提示并保留原总量，网站管理分类仍与用量桶分开。必要验证为四桶对照、独立渲染、只读接口字段及打包引用、相关typecheck、隔离桌面／窄屏目视；不运行全仓测试，不改配置、扣费、媒体、应用统计或共享开关。
+
+本地证据：`computer-usage-view.test.cjs`、`pages-four-buckets.test.js`、`computer-usage-cloud.test.js`、`main-console-release-stage.test.js`、`pages-usage-timeline-browser.test.js`、`npm run typecheck`通过。云端测试第一次因VM跨上下文对象比较失败，改为比较序列化值后通过；未改产品规则。隔离Runtime mock日／周均显示四桶，1440和390宽截图目视通过，窄屏无横向溢出；只允许本地回环域名，不读取真实家庭。主站仍用原桶投影，应用／媒体及总量保留。逐项审查：三项Matched，Deviated／Missing／Extra均无；线上尚未部署或验收，本次不提交。
+
 ## NOW：管理保存与网页使用展示统一整改（2026-10-20，PO批准）
 
 CI夹具补正授权：PO允许仅修正 `computer-usage-view.test.cjs` 仍模拟已移除目录范围的旧夹具。改用主要目录中的普通未归类应用，保留特殊应用不混入普通列表的断言，并断言不读取已移除控件；不修改产品代码。最小复验为该文件及已有关联组件测试，通过后继续PR305精确SHA CI与集中部署。

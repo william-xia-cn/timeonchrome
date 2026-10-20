@@ -1,6 +1,7 @@
 /* Cloud-only display. This module never merges or re-settles source statistics. */
 (function(root){
 'use strict';
+const webBuckets=typeof module==='object'?require('../app-runtime-management/console/web-usage-buckets.js'):root.WebUsageBuckets;
 const labels={study:'学习',composite:'复合',restrictedEntertainment:'受限娱乐',unclassified:'未归类',blocked:'黑名单',unknown:'历史分类未知',historicalUnknown:'历史分类未知',rest:'娱乐',other:'其他',video:'视频',audio:'音频'};
 const reasons={WEB_ACCOUNT_UNAVAILABLE:'网页权威统计尚不可用',WEB_SOURCE_UNAVAILABLE:'网页来源读取失败',APPLICATION_SOURCE_UNAVAILABLE:'应用来源读取失败',APPLICATION_SERVICE_UNAVAILABLE:'应用服务未连接',APPLICATION_EVIDENCE_UNAVAILABLE:'应用区间证据不可用',SOURCE_VERSION_CHANGED:'来源正在更新，请重试',WEB_EVIDENCE_LIMIT:'网页证据超出本次查询上限',APPLICATION_EVIDENCE_LIMIT:'应用证据超出本次查询上限',WEB_CREDIT_EVIDENCE_MISMATCH:'网页区间证据与原统计不一致',APPLICATION_TOTAL_EVIDENCE_MISMATCH:'应用区间证据与原统计不一致',APPLICATION_SOURCE_OVERLAP:'应用来源存在不可唯一合并的重叠',PARTIAL_WEB_CREDIT_OVERLAP_AMBIGUOUS:'网页部分计秒的重叠无法唯一确定'};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -94,6 +95,9 @@ pending.set(key,request);return request;
 }};
 }
 function independentSummary(snapshot){
+const web=snapshot.source==='web';
+const quotaRows=snapshot.quotaRows;
+const bucketMarkup=web?'<section><h3>时间桶用量</h3><div class="computer-category-list">'+Object.entries(webBuckets.sum(Array.isArray(quotaRows)?quotaRows:[])).map(([key,value])=>'<p><b>'+webBuckets.labels[key]+'</b><br>'+(!Array.isArray(quotaRows)?'不可用':durationSeconds(value))+'</p>').join('')+'</div>'+(!Array.isArray(quotaRows)||quotaRows.some(row=>!webBuckets.category(row))?'<p>时间桶明细不完整；未明确桶的用量保留在原统计总量中，不猜测归属。</p>':'')+'</section>':null;
 const seconds=snapshot.durationUnit==='seconds';
 const format=seconds?value=>{if(value===null||value===undefined)return '不可用';if(!Number.isSafeInteger(value)||value<0)throw new Error('INVALID_STATISTICS_SECONDS');const h=Math.floor(value/3600),m=Math.floor(value%3600/60),s=value%60;return (h?h+'小时 ':'')+m+'分 '+s+'秒';}:duration;
 const valueOf=item=>seconds?item.duration:item.durationMs;
@@ -116,7 +120,7 @@ sourceInfo+='<p>无新版应用记录：'+esc(snapshot.days.filter(day=>day.reas
 }
 return '<style>.computer-view{display:grid;gap:16px}.computer-view[hidden]{display:none!important}.computer-toolbar,.computer-category-list{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.computer-view section,.computer-metric{padding:18px;background:#fff;border:1px solid #dce7e3;border-radius:12px}.computer-metric strong{display:block;font-size:24px;margin-top:8px}.computer-view button{min-height:44px;padding:9px 14px;border:1px solid #c9ddd6;border-radius:10px;background:#fff;font:inherit;cursor:pointer}.computer-view ul{padding:0;list-style:none}.computer-view li{padding:10px 0;border-bottom:1px solid #e7eeeb;overflow-wrap:anywhere}.computer-view p,.computer-view small{color:#697d78;line-height:1.6}</style><div class="computer-toolbar"><b>'+esc(title)+' · '+esc(snapshot.fromDate)+' — '+esc(snapshot.toDate)+'</b><button data-independent-retry>刷新</button></div>'+
 (snapshot.readDisplay?'<p>'+esc(snapshot.readDisplay)+'</p>':'')+sourceInfo+(snapshot.compatibility==='legacy'?'<p>旧版兼容统计，尚未采用新版 Service 秒统计。</p>':'')+(seconds&&snapshot.complete===false&&snapshot.availableTotalDuration!=null?'<p>部分统计可用：'+format(snapshot.availableTotalDuration)+'；不完整日期：'+esc(stats?.missingDates?.join('、')||'尚未确认')+'。空白不代表零用量。</p>':'')+'<div class="computer-metrics"><article class="computer-metric"><small>'+esc(title)+(partialTotal?'已知小计':'时间')+'</small><strong>'+format(seconds?(snapshot.totalDuration??snapshot.availableTotalDuration):snapshot.totalDurationMs)+'</strong></article></div>'+
-productNotice+instanceDetails+'<section><h3>分类明细</h3><p>独立来源原口径；明细可能重叠，不相加生成总量。</p><div class="computer-category-list">'+snapshot.categories.map(item=>'<p><b>'+esc(labels[item.classification]||item.classification)+'</b><br>'+format(valueOf(item))+'</p>').join('')+'</div></section>'+
+productNotice+instanceDetails+(bucketMarkup||'<section><h3>分类明细</h3><p>独立来源原口径；明细可能重叠，不相加生成总量。</p><div class="computer-category-list">'+snapshot.categories.map(item=>'<p><b>'+esc(labels[item.classification]||item.classification)+'</b><br>'+format(valueOf(item))+'</p>').join('')+'</div></section>')+
 '<section><h3>时间分布</h3><ul>'+snapshot.buckets.map(item=>'<li>'+esc(item.label||time(item.startAtMs))+' · '+format(valueOf(item))+'</li>').join('')+'</ul></section>'+
 '<section><h3>'+esc(snapshot.source==='application'?'应用明细':'网站明细')+'</h3><ul>'+snapshot.applications.map(item=>'<li><strong>'+esc(item.displayName)+'</strong> · '+esc(item.classifications?.length?item.classifications.map(category=>labels[category]||category).join('／'):labels[item.classification]||item.classification)+' · '+format(valueOf(item))+'</li>').join('')+'</ul></section>';
 }

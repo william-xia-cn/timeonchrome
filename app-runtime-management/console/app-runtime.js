@@ -74,7 +74,7 @@
     const selected=state.childId,source=state.usageKind,period=range();
     const date=ms=>new Date(ms+8*3600000).toISOString().slice(0,10);
     const params=new URLSearchParams({childId:selected,from:date(period.from),to:date(period.to-1),source});
-    if(mock)return {source,fromDate:date(period.from),toDate:date(period.to-1),totalDurationMs:5134000,categories:[{classification:'study',durationMs:5134000}],buckets:[{label:date(period.from),durationMs:5134000}],applications:[{displayName:'示例网站',classification:'study',durationMs:5134000}]};
+    if(mock)return {source,fromDate:date(period.from),toDate:date(period.to-1),totalDurationMs:5134000,...(source==='web'?{quotaRows:[{quotaBucket:'study',duration:3000},{quotaBucket:'composite',duration:1200},{quotaBucket:'rest',duration:600},{quotaBucket:'other',duration:334}]}:{}),categories:[{classification:'study',durationMs:5134000}],buckets:[{label:date(period.from),durationMs:5134000}],applications:[{displayName:'示例网站',classification:'study',durationMs:5134000}]};
     const result=await runtime(`/v2/module/computer-usage?${params}`);
     if(selected!==state.childId)throw new Error('SELECTION_CHANGED');return result;
   });

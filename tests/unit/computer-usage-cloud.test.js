@@ -263,6 +263,11 @@ const publicStats=[{date,channel:'active',mode:'study',target_key:'domain:learni
 f=fixture({publicStats});service=f.load('workers/src/services/computerUsage.ts');
 const independent=await service.readIndependentUsage(f.env,'account','child',date,date,'web');assert.equal(independent.totalDurationMs,5134000);assert.equal(independent.categories[0].durationMs,5134000);assert.equal(independent.applications[0].displayName,'learning.example');assert.equal(independent.buckets[0].startAtMs,start);
 const independentWeek=await service.readIndependentUsage(f.env,'account','child',date,'2026-10-02','web');assert.equal(independentWeek.totalDurationMs,independent.totalDurationMs,'hourly rows are not added to daily authority');
+assert.equal(JSON.stringify(independent.quotaRows),JSON.stringify([{quotaBucket:'study',duration:5134}]));
+const fourBuckets=['study','composite','rest','other'].map((quota_bucket,i)=>({...publicStats[0],quota_bucket,mode:'composite',target_classification_at_time:'pending_composite',duration_seconds:i+1}));
+f=fixture({publicStats:fourBuckets});const bucketRead=await f.load('workers/src/services/computerUsage.ts').readIndependentUsage(f.env,'account','child',date,date,'web');
+assert.equal(JSON.stringify(bucketRead.quotaRows),JSON.stringify(fourBuckets.map(row=>({quotaBucket:row.quota_bucket,duration:row.duration_seconds}))));
+assert.equal(bucketRead.totalDurationMs,10000,'透传桶不重算或叠加小时统计');
 await assert.rejects(()=>service.readIndependentUsage(f.env,'account','child',date,date,'other'),/INVALID_SOURCE/);
 f=fixture();f.env.RUNTIME_COMPUTER_USAGE.fetch=async request=>{const scope=await request.json();assert.equal(scope.childId,'child');return Response.json(new URL(request.url).pathname.includes('Revision')?'cap-r1':[app]);};
 result=await f.load('workers/src/services/computerUsage.ts').readComputerUsage(f.env,'account','child',date,date);assert.equal(result.totals.applicationMs,2000,'bounded capability HTTP transport preserves app authority');

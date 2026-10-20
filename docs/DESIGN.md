@@ -2539,3 +2539,7 @@ cloudRequest沿用原每次请求超时和重试策略，将fetch及既有正文
 原`/device/source-statistics`业务query不变。schema2/application/all可附`includeSources:true`和可选`sourceProof`（既有shared-web-source:v2签名证明）；transport字段先剥离，再严格验证业务query。无flag保持直接QuotaBucketsSnapshot；有flag返回`{snapshot,applicationSources}`，其中snapshot为原严格快照，applicationSources复用QuotaBucketsSources或null。无／失效证明只丢分项，不影响合法合计；坏分项也不能让有效合计被客户端拒绝。
 
 Guardian复用现有专用签名及browser/deviceToken绑定核验，内部Service Binding只传验证后的applicationSourceKey／assignmentVersion；Runtime在当前家庭／孩子分配内解析精确machine/user/assignment，再分别委托原读取器，不从合计相减或由客户端自报key授权。云端本机分项只作核对，消费合计与分项不可叠加。三次读取之间发布头可更新；附加分项前核对逐日三个桶与已选合计的解释一致性，不一致只丢可选分项，合计照常返回，不等待版本匹配或阻断统计。旧机器端点／Host／1.56契约保持兼容；本轮集中追加1.57的可选transport解包定义，不重建1.56包，不新建DB或证明协议。
+
+## 独立网页统计展示补充（2026-10-21）
+
+现有独立网页使用查询透传已读取的日统计为 `quotaRows: [{quotaBucket, duration}]`，`duration` 单位秒；桶取既有 `quota_bucket`／`mode`，不新增查询、不写账或配置、不修改扣费。原总量、分类、网站明细及时间分布字段不变。主站与独立 Runtime 共享展示投影模块；缺少桶的响应不以管理分类替代。

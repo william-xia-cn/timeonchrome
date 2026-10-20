@@ -1,7 +1,7 @@
 // Canonical Runtime component builder; consumers may depend on this module, never the reverse.
 const fs = require('node:fs');
 const path = require('node:path');
-const scripts = ['computer-usage-view.js', 'app-runtime-time.js', 'app-runtime-network.js', 'app-runtime-clipboard.js', 'app-runtime-policy.js', 'app-runtime-knowledge.js', 'app-runtime-devices.js', 'app-runtime.js'];
+const scripts = ['web-usage-buckets.js', 'computer-usage-view.js', 'app-runtime-time.js', 'app-runtime-network.js', 'app-runtime-clipboard.js', 'app-runtime-policy.js', 'app-runtime-knowledge.js', 'app-runtime-devices.js', 'app-runtime.js'];
 const styles = ['app-runtime.css', 'app-runtime-v2.css', 'app-runtime-knowledge.css'];
 function stageRuntimeManagementComponent(source, destination) {
   if (fs.lstatSync(source).isSymbolicLink()) throw new Error('Symlinks are not publishable');

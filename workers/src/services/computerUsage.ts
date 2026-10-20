@@ -341,6 +341,10 @@ export async function readIndependentUsage(env:ComputerUsageEnv,accountId:string
       if(from!==to){const start=Date.parse(`${row.date}T00:00:00+08:00`);buckets.set(start,(buckets.get(start)??0)+ms);}
     }
     if(from===to)for(const row of relevant(hourly)){const start=Date.parse(`${row.date}T${String(row.hour).padStart(2,'0')}:00:00+08:00`);if(Number.isFinite(start))buckets.set(start,(buckets.get(start)??0)+Number(row.duration_seconds)*1000);}
-    return {source,fromDate:from,toDate:to,totalDurationMs,categories:[...categories].map(([classification,durationMs])=>({classification,durationMs})),
+    return {source,fromDate:from,toDate:to,totalDurationMs,
+      ...(source==='web'?{quotaRows:relevant(daily).map(row=>({
+        quotaBucket:domain?row.mode:(row.quota_bucket||row.mode),duration:Number(row.duration_seconds)
+      }))}:{}),
+      categories:[...categories].map(([classification,durationMs])=>({classification,durationMs})),
       buckets:[...buckets].sort((a,b)=>a[0]-b[0]).map(([startAtMs,durationMs])=>({startAtMs,durationMs})),applications:[...products.values()].sort((a,b)=>b.durationMs-a.durationMs)};
 }
