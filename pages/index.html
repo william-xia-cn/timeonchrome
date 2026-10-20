@@ -1582,9 +1582,13 @@
 
           <div class="usage-analysis-card" data-cloud-independent>
             <div class="usage-list-toolbar">
-              <select id="cloud-usage-list-mode">
+              <select id="cloud-usage-list-mode" hidden>
                 <option value="targets">显示管理对象</option>
                 <option value="categories">显示分类</option>
+              </select>
+              <select id="cloud-usage-list-sort" aria-label="管理对象排序">
+                <option value="today">今日使用</option>
+                <option value="week">本周使用</option>
               </select>
               <input type="search" id="cloud-usage-search" placeholder="搜索管理对象">
             </div>
@@ -2192,7 +2196,7 @@ let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore:
 let cloudSystemManagementActiveTab = 'reconciliation';
 let cloudRulesManagementActiveTab = 'quota';
 let cloudDevicesCache = { profileId: null, devices: [] };
-let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
+let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', listMode: 'targets', listSort: 'today', query: '', detail: null };
 let cloudUsageLastView = null;
 let cloudRestoreState = { package: null, preflight: null };
 let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'acct-config-import-diff', messageId: 'acct-config-io-msg' };
@@ -7356,6 +7360,10 @@ function setupStats() {
     cloudUsageState.detail = null;
     renderCloudUsageList(cloudUsageLastView);
   });
+  document.getElementById('cloud-usage-list-sort')?.addEventListener('change', (event) => {
+    cloudUsageState.listSort = event.target.value === 'week' ? 'week' : 'today';
+    renderCloudUsageList(cloudUsageLastView);
+  });
   document.getElementById('cloud-usage-search')?.addEventListener('input', (event) => {
     cloudUsageState.query = event.target.value || '';
     renderCloudUsageList(cloudUsageLastView);
@@ -8098,16 +8106,24 @@ function cloudUsageStatusClass(status) {
   return String(status || '').startsWith('待归类') || String(status || '').includes('借用休息配额') ? 'pending' : '';
 }
 
+function sortCloudWebTargetRows(rows, sortMode = 'today') {
+  const field = sortMode === 'week' ? 'weekSeconds' : 'todaySeconds';
+  return [...rows].sort((a, b) =>
+    (Number(b[field]) || 0) - (Number(a[field]) || 0) ||
+    String(a.label || '').localeCompare(String(b.label || ''), 'zh-CN'));
+}
+
 function filteredCloudUsageRows(view) {
   const query = cloudUsageState.query.trim().toLowerCase();
-  if (cloudUsageState.listMode === 'categories') {
+  if (view?.kind !== 'web' && cloudUsageState.listMode === 'categories') {
     return (view?.categoryRows || []).filter(row => !query || row.label.toLowerCase().includes(query));
   }
-  return (view?.targetRows || []).filter(row => {
+  const rows = (view?.targetRows || []).filter(row => {
     if (!query) return true;
     return String(row.label || '').toLowerCase().includes(query) ||
       String(row.fallbackDomain || '').toLowerCase().includes(query);
   });
+  return view?.kind === 'web' ? sortCloudWebTargetRows(rows, cloudUsageState.listSort) : rows;
 }
 
 function renderCloudUsageList(view) {
@@ -8121,11 +8137,20 @@ function renderCloudUsageList(view) {
     return;
   }
   const listMode = document.getElementById('cloud-usage-list-mode');
+  const listSort = document.getElementById('cloud-usage-list-sort');
   const search = document.getElementById('cloud-usage-search');
-  if (listMode) listMode.value = cloudUsageState.listMode;
+  const isWeb = view.kind === 'web';
+  if (listMode) {
+    listMode.hidden = isWeb;
+    listMode.value = cloudUsageState.listMode;
+  }
+  if (listSort) {
+    listSort.hidden = !isWeb;
+    listSort.value = cloudUsageState.listSort;
+  }
   if (search) {
     search.value = cloudUsageState.query;
-    search.placeholder = cloudUsageState.listMode === 'categories' ? '搜索分类' : (view.searchTargetPlaceholder || '搜索管理对象');
+    search.placeholder = !isWeb && cloudUsageState.listMode === 'categories' ? '搜索分类' : (view.searchTargetPlaceholder || '搜索管理对象');
   }
   const rows = filteredCloudUsageRows(view);
   if (rows.length === 0) {
@@ -8133,7 +8158,7 @@ function renderCloudUsageList(view) {
     if (detail) detail.className = 'usage-detail-panel';
     return;
   }
-  if (cloudUsageState.listMode === 'categories') {
+  if (!isWeb && cloudUsageState.listMode === 'categories') {
     wrap.innerHTML = `
       <table class="usage-analysis-table">
         <thead><tr><th>分类</th><th>时间</th><th>单站点限额</th><th>用量说明</th></tr></thead>
