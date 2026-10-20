@@ -1,5 +1,10 @@
 # PROJECT_MASTER
 
+## 1.7.65正式内部托管已回读（2026-10-21）
+
+PR314合入master cf2ba817158e83b97f5fd35f9ad1cdb901260037，控件正式managed更新站部署4d0ee00e完成。CRX606627字节，SHA256 25a87c6e8839d69830f3025c99e47e034c7a65b36147362e3f255f98b0af1f62，稳定扩展ID不变。独立CRX3验签、180文件解压同源、双域名feed/CRX/SHA六项逐字节回读通过，24旧包保留且线上1.7.59仍可下载。仅更新站发布，不部署业务云端、不启用共享、不改历史账或原unpacked目录。三份旧文档草稿按PO明确批准完整保护并三方恢复，原备份保留；Mac安装后真实双向读取及同截止对账仍独立验收。已直接交付架构和Native，用户无需跨任务转述。
+
+
 ## 2026-10-21 Mac 登记契约最小交付完成
 
 契约1.58.1仅增加冻结macos哈希的dynamic-process登记支持，Runtime Worker已部署采用；PR312、固定包、Native锁及聚焦证据见TASK_BOARD。原Issue #12继续承接Mac侧消费，不把Windows消费验证或Runtime上线称作Mac实机完成。没有制作安装包或安装，未改身份、原账、配置及统计口径；Guardian与两套Pages未部署，共享未启用。

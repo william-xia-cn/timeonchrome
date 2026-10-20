@@ -1,5 +1,16 @@
 # TASK_BOARD
 
+## DEPLOYED_VERIFIED：1.7.65正式托管与草稿恢复（2026-10-21）
+
+完成：PR314精确6文件111增1删，CI39507275105职责及app-runtime-gate通过，其他任务依实际路径skipped；架构正常合并cf2ba817158e83b97f5fd35f9ad1cdb901260037。本线唯一执行原更新站部署4d0ee00e，未部署任何业务Worker/Pages或迁移。正式managed1.7.65 CRX606627字节，SHA256 25a87c6e8839d69830f3025c99e47e034c7a65b36147362e3f255f98b0af1f62，ID jdcancbiocacabbjdkngadmjpjmkdnih。180文件解压逐SHA同源、独立CRX3验签通过；相对旧183内部候选仅Admin修正/manifest/marker变化及原渠道三页排除，未变证据复用。
+
+稳定及deployment域名各回读feed、CRX、SHA256SUMS共六项200且逐字节匹配本地，CRX MIME为application/x-chrome-extension；稳定feed已指向1.7.65。24个旧CRX逐hash保留，线上旧1.7.59再次下载核对一致。线上证据dist/managed-1.7.65-release/online-readback.json，时间戳换算北京时间2026-10-21 06:23:31；产物证据同目录artifact-verification.json。没有把新的签名摘要与旧373ff3e2内部ZIP混用。
+
+三份原草稿（PROJECT_MASTER/TASK_BOARD/CHANGELOG）先保全完整内容、原HEAD和diff逐SHA验证，PO明确批准后经apply_patch临时还原，再正常两父merge主线；仅TASK_BOARD/DESIGN冲突保留双方段落。随后三方恢复全部未提交差异，唯一空基线新增段落冲突保留双方，恢复内容逐文件核验一致，原备份及restoration-verification.json均保留在.tmp/managed-1.7.65-drafts-20261021，不stash/reset或删除备份。曾被审核拒绝的临时操作在取得PO具体批准后才执行，不绕过。最终产品树无变化地快进到cf2ba817，三份草稿仍未提交；本发布收尾只抽取本节和对应主状态/变更记录，不混入旧草稿。
+
+Matched：批准Admin修正/直接测试与隔离目视、精确主线签包、唯一更新站部署、线上字节回读、旧包及草稿保护；无Deviated/Extra。本轮不修改共享开关、家庭配置、绑定、本地数据、历史账或原加载目录。固定交付链接/hash/ID及原受管Chrome更新步骤已直接发架构和Native沿Issue12交Mac。Mac安装、当前可信Host连接、双向桶及同范围截止对账仍待真实验收，不由托管代替。此前“待批准/未托管”均为历史阶段记录，以上线回读为准。
+
+
 ## NOW：获批修正受管Admin入口并正式托管1.7.65（2026-10-21）
 
 PO已在控件会话明确批准最小修正，测试通过后继续完成1.7.65托管，直接与架构、Native对齐。extension-local允许路径为Admin、直接专项、manifest及既有发布文档/产物；不改激活状态机、权限规则、计时、配额、原账、共享开关或家庭配置，不更新原unpacked目录。实施顺序：先仅按privacyConsentRequired区分未激活展示，再验证受管无策略/关闭/无效/身份不符及普通/开发同意入口、正常激活；完成桌面/窄屏合成页面目视后固定源码、经PR集成，最后沿现有managed渠道签名和部署更新站，回读稳定及deployment域名的feed/CRX/摘要。复用d6a1752未变功能证据；最小本地测试为Admin激活显示、activation-gate、managed-activation-behavior、native-host-development-activation和managed-package-privacy-boundary，加typecheck/diff/职责检查；CI按PR实际路径执行，不跑全量或生产浏览器故障测试。计划审计与实际签名/上线结果随后登记，未完成不提前报通过。
