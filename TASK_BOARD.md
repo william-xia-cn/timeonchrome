@@ -1,5 +1,11 @@
 # TASK_BOARD
 
+## NOW：获批修正受管Admin入口并正式托管1.7.65（2026-10-21）
+
+PO已在控件会话明确批准最小修正，测试通过后继续完成1.7.65托管，直接与架构、Native对齐。extension-local允许路径为Admin、直接专项、manifest及既有发布文档/产物；不改激活状态机、权限规则、计时、配额、原账、共享开关或家庭配置，不更新原unpacked目录。实施顺序：先仅按privacyConsentRequired区分未激活展示，再验证受管无策略/关闭/无效/身份不符及普通/开发同意入口、正常激活；完成桌面/窄屏合成页面目视后固定源码、经PR集成，最后沿现有managed渠道签名和部署更新站，回读稳定及deployment域名的feed/CRX/摘要。复用d6a1752未变功能证据；最小本地测试为Admin激活显示、activation-gate、managed-activation-behavior、native-host-development-activation和managed-package-privacy-boundary，加typecheck/diff/职责检查；CI按PR实际路径执行，不跑全量或生产浏览器故障测试。计划审计与实际签名/上线结果随后登记，未完成不提前报通过。
+
+修正直接验证已完成：Admin实际激活和renderSyncStatus函数的隔离9组通过，activation-gate19项、managed行为6项、development激活5项和managed包矩阵均通过。新增Admin测试首轮仅正常激活对照夹具误要求原界面不存在的文字，修为原有登录/绑定展示后第二轮通过，未改产品行为；typecheck首轮引用陈旧本地契约dist，按原构建命令重新生成ignored产物后通过，契约源码与vendor不变。extension-root、node语法通过。专用无登录agent-browser合成页面1280桌面及390窄屏已截图并查看，受管两分支无同意按钮、普通分支保留，390布局宽度390无溢出；这不是家庭Chrome或Mac实机验收。Plan audit：仅Admin状态分流及批准版本字段Matched，排除页/激活/原账/共享不变Matched，无Deviated/Extra；正式签名与线上回读仍Missing。既有三份文档草稿保留，提交只抽取本次新增段落。
+
 ## NOW：跨仓契约一致与唯一控件候选核验（2026-10-19）
 
 **终检纠正／当前待重新核验**：架构独立检查发现`core/shared-web-contribution.js`仍被打入候选，导出已退役schema1/毫秒贡献转换。反查唯一消费者是其专属unit，无当前产品入口；先前仅核对已删除清单漏掉该独立文件，不能据此宣称旧模块清完。下方ZIP hash `fb979213…`和PASS_ARTIFACT_ONLY已失效，禁止交付。按原批准清理范围删除实现及旧专属测试，并在现有包validator拒绝已退役模块混入，补同文件夹具；补跑打包专项及当前桶shadow直接回归。保持同一1.7.65版本，集中修正后重新解压/静态link/同源/隐私核验；不安装部署、重载、启共享或改原账配置。

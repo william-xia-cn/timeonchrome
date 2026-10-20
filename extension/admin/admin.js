@@ -2708,6 +2708,26 @@ async function renderSyncStatus() {
       ? '—'
       : (recoveryState.lastError || identityStatus.reason || identityStatus.error || '—'));
   if (!activationActive) {
+    if (activationState.privacyConsentRequired !== true) {
+      const activationReason = activationState.managedPolicyStatus?.reason || activationState.reason;
+      const activationMessages = {
+        managed_policy_not_configured: '尚未收到受管启用策略，请联系家长检查此设备的部署配置。',
+        managed_policy_disabled: '受管启用策略已关闭，请联系家长检查部署配置。',
+        managed_policy_not_managed: '受管启用策略的部署方式不匹配，请联系家长检查部署配置。',
+        managed_policy_malformed: '受管启用策略不完整，请联系家长检查部署配置。',
+        managed_policy_pending: '正在等待有效的受管启用策略，请稍后重新检查。',
+        managed_profile_email_mismatch: '当前 Chrome 个人资料与受管部署不匹配，请切换到获授权的个人资料。',
+      };
+      const activationMessage = activationMessages[activationReason] || '暂时无法确认启用状态，请稍后重新检查。';
+      container.innerHTML = `
+        <div style="padding:14px; background:var(--surface); border-radius:8px; border:1px solid var(--border);">
+          <div style="font-size:15px; font-weight:700; margin-bottom:6px;">TimeOnChrome 暂未启用</div>
+          <div style="font-size:13px; color:var(--muted); line-height:1.7;">${escHtml(activationMessage)}</div>
+          <div style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.7;">已有绑定、配置和本地数据保持不变。</div>
+        </div>
+      `;
+      return;
+    }
     const tokenPresent = !!storage[CLOUD_KEYS.DEVICE_TOKEN];
     container.innerHTML = `
       <div style="display:grid; grid-template-columns:1fr; gap:14px;">
