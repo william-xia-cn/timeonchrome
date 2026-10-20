@@ -7,6 +7,7 @@ import {receiveNativeApplicationObjects,readNativeApplicationObjects,readNativeA
 import {getAppPolicy,putAppPolicy,putNativeApplicationChanges,parseAppPolicyUpdate,appPolicyEtag} from '../src/appPolicy';
 import {readApplicationIdentityUsage} from '../src/applicationProductProjections';
 import {usageAccountDayStart} from '@timeonchrome/app-runtime-contracts/usage-account';
+import {verifyNativeApplicationObjectReceipt,type NativeApplicationObjectBatch} from '@timeonchrome/app-runtime-contracts/native-application-identification';
 import type {MachineSelfResponse} from '../src/contracts';
 const start=usageAccountDayStart('2026-10-15'),now=start+86400000;
 it('当前身份局部保存：限额不强迫分类，分类与限额互不覆盖，公共字段及版本隔离保留',async()=>{
@@ -65,12 +66,12 @@ it('未配置保持未归类；禁止主动设为未归类或删除已归类设�
  expect(other.quotas).toEqual(current.quotas);
  expect(other.timeWindows).toEqual(current.timeWindows);
 });
-async function fixture(){
+async function fixture(platform:MachineSelfResponse['platform']='windows'){
  const token=randomToken(''),childId=crypto.randomUUID(),localUserId='u'.repeat(64);
- const machine:MachineSelfResponse={machineId:crypto.randomUUID(),accountId:crypto.randomUUID(),platform:'windows',displayName:null,
+ const machine:MachineSelfResponse={machineId:crypto.randomUUID(),accountId:crypto.randomUUID(),platform,displayName:null,
   defaultChildId:null,desiredPolicyVersion:1,appliedPolicyVersion:0,policyState:'pending',revoked:false};
  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_machines_v2(id,account_id,platform,token_hash,last_seen_at_ms,created_at_ms,updated_at_ms)
- VALUES(?1,?2,'windows',?3,0,0,0)`).bind(machine.machineId,machine.accountId,await sha256Hex(token)).run();
+ VALUES(?1,?2,?4,?3,0,0,0)`).bind(machine.machineId,machine.accountId,await sha256Hex(token),platform).run();
  await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,1,?3,1,'override',0,0)`)
  .bind(machine.machineId,localUserId,childId).run();
  const batch={schemaVersion:1,childId,localUserId,assignmentVersion:1,items:[{nativeId:'scan-app',revision:1,observedAtMs:start,
@@ -80,6 +81,36 @@ async function fixture(){
   headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)}),env,now);
  return {machine,childId,localUserId,batch,send,api};
 }
+it('Mac冻结动态身份通过正式登记路由与回执，重放/同版冲突/孩子和分配隔离保持',async()=>{
+ const f=await fixture('macos'),nativeId='macos:'+'a'.repeat(64);
+ const input:NativeApplicationObjectBatch={...f.batch,schemaVersion:1,items:[{...f.batch.items[0],nativeId,
+  presentations:[{name:'Synthetic Mac app',origin:'runtime',status:'dynamic-process',evidence:['PROCESS_NAME_FALLBACK']}]}]};
+ const before=structuredClone(input);
+ const post=(body:unknown=input)=>f.api('/v2/machines/applications','POST',body);
+ const response=await post();expect(response?.status).toBe(200);
+ const ack=await response!.json();
+ expect(await verifyNativeApplicationObjectReceipt(ack,input)).toEqual(ack);
+ expect(await (await post())!.json()).toEqual(ack);
+ const directory=await readNativeApplicationObjects(env.RUNTIME_DB,f.machine.accountId,f.childId);
+ expect(directory.items).toHaveLength(1);
+ expect(directory.items[0]).toMatchObject({target:{machineId:f.machine.machineId,nativeId},platform:'macos',
+  presentations:input.items[0].presentations,configuration:null});
+ const config=await f.api(`/v2/machines/applications/config?localUserId=${f.localUserId}&assignmentVersion=1`);
+ expect(await config!.json()).toMatchObject({childId:f.childId,applications:[]});
+ const item=input.items[0],presentation=item.presentations[0];
+ await expect(post({...input,items:[{...item,presentations:[{...presentation,name:'Conflict'}]}]}))
+  .rejects.toMatchObject({code:'NATIVE_APPLICATION_REVISION_CONFLICT'});
+ for(const changed of [{nativeId:'macos:bad'}, {presentations:[{...presentation,status:'dynamic-registry'}]},
+  {presentations:[{...presentation,origin:'scan'}]}])
+  await expect(post({...input,items:[{...item,...changed}]})).rejects.toMatchObject({code:'INVALID_NATIVE_APPLICATION_OBJECT'});
+ await expect(post({...input,childId:'other'})).rejects.toMatchObject({code:'NATIVE_APPLICATION_SCOPE_CHANGED'});
+ expect((await readNativeApplicationObjects(env.RUNTIME_DB,'other-account',f.childId)).items).toEqual([]);
+ await env.RUNTIME_DB.prepare(`INSERT INTO runtime_user_assignments_v2 VALUES(?1,?2,2,'new-child',1,'override',1,1)`)
+  .bind(f.machine.machineId,f.localUserId).run();
+ await expect(post()).rejects.toMatchObject({code:'NATIVE_APPLICATION_SCOPE_CHANGED'});
+ expect((await readNativeApplicationObjects(env.RUNTIME_DB,f.machine.accountId,'new-child')).items).toEqual([]);
+ expect(input).toEqual(before);
+});
 it('无实例或capture，扫描和动态身份均可登记；对象、配置与机器消费者使用同一target',async()=>{
  const f=await fixture();const ack=await f.send();expect(ack.items[0]).toMatchObject({nativeId:'scan-app',revision:1});
  expect(await f.send()).toEqual(ack);

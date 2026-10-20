@@ -13,7 +13,7 @@ import { readSharedAccessPolicyV2ForChild } from '../routes/profiles';
 import { createSharedWebMachineScope, readSharedWebVerificationKey } from './sharedWebSourceBinding';
 import { validateQuotaBucketsQuery,validateQuotaBucketsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
 import { readWebQuotaBuckets,readSourceStatisticsResponse } from './sourceStatistics';
-import * as displayBuckets from '../../../app-runtime-management/console/web-usage-buckets.js';
+import displayBuckets from '@timeonchrome/app-runtime-contracts/web-usage-buckets';
 
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
