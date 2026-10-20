@@ -27,7 +27,7 @@ test('application statistics notice has a real DOM target before requesting usag
   assert.match(html,/<p id="outside-window-summary"><\/p>/);
   const script=require('node:fs').readFileSync(require('node:path').join(__dirname,'app-runtime.js'),'utf8');
   const secondsRenderer=script.slice(script.indexOf('function renderSecondsUsage'),script.indexOf('function observedApps'));
-  assert.match(secondsRenderer,/class="bar-part"/);
+  assert.match(secondsRenderer,/ComputerUsageView\.timeDistribution/);
 });
 
 test('实际应用渲染区分缺失基础读数与有效零秒',()=>{
@@ -35,7 +35,7 @@ test('实际应用渲染区分缺失基础读数与有效零秒',()=>{
   const renderer=script.slice(script.indexOf('function renderSecondsUsage'),script.indexOf('function observedApps'));
   const nodes=new Map();
   const $=key=>{if(!nodes.has(key))nodes.set(key,{textContent:'',innerHTML:'',classList:{remove(){}}});return nodes.get(key);};
-  const render=new Function('$','AppRuntimeTime','categoryLabels','categoryColors','state','escape','time',renderer+';return renderSecondsUsage;')($,require('./app-runtime-time.js'),{},{},{period:'day'},String,String);
+  const render=new Function('$','AppRuntimeTime','categoryLabels','categoryColors','state','escape','time','ComputerUsageView',renderer+';return renderSecondsUsage;')($,require('./app-runtime-time.js'),{},{},{period:'day'},String,String,require('./computer-usage-view.js'));
   for(const available of [null,0,12]){
     render({totalDurationSeconds:null,availableTotalDurationSeconds:available,complete:false,missingDates:['2026-10-10'],
       buckets:[],categories:[],applications:[],instances:[],productStatus:{complete:false}});

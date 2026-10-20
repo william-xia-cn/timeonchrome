@@ -54,9 +54,10 @@
           <article class="card metric"><span>配额状态</span><strong id="quota-state">额度充足</strong><small>本阶段只提示，不关闭应用</small></article>
           <article class="card metric"><span>最近同步</span><strong id="last-sync">尚未同步</strong><small id="policy-version">应用策略 v0</small></article>
         </div>
+        <div id="application-bucket-summary" class="computer-view"></div>
         <section class="card"><div class="section-title"><div><h2>使用分析</h2><p id="chart-caption">北京时间，按小时</p></div><label class="switch-label"><input id="media-toggle" type="checkbox"> 显示辅助媒体</label></div><div id="usage-chart" class="chart"></div><div id="category-legend" class="legend"></div></section>
         <div class="two-column">
-          <section class="card"><div class="section-title"><div><h2>应用使用</h2><p>同一应用 ACTIVE/PiP 重叠按并集</p></div></div><div id="app-ranking" class="list empty">暂无使用记录</div></section>
+          <section class="card"><div class="section-title"><div><h2>应用使用</h2><p>按当前范围用量降序；同名不同对象分别显示。</p></div></div><label>搜索应用<input id="usage-app-search" type="search" placeholder="搜索应用名称"></label><div id="app-ranking" class="list empty">暂无使用记录</div></section>
           <section class="card"><div class="section-title"><div><h2>分类使用</h2><p>分类时长不可直接相加为设备总时长</p></div></div><div id="category-ranking" class="list empty">暂无分类记录</div></section>
         </div>
         </div>

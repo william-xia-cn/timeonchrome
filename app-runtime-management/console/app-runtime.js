@@ -208,6 +208,7 @@
     $('#application-read-note').textContent=state.usageReadInfo?`${state.usageReadInfo.legacy?'旧版兼容统计 · ':''}${state.usageReadInfo.cached?'缓存 · ':''}读取于 ${time(state.usageReadInfo.readAtMs)}（手动刷新可重新读取）`:'';
     if(state.usageKind!=='application')return;
     if (!mock && !state.usage) {
+      $('#application-bucket-summary').innerHTML='';
       const message = state.usageLoading ? '正在读取使用统计…' : state.usageError || '使用统计尚未加载';
       $('#total-time').textContent = '—';
       $('#quota-state').textContent = '暂不可用';
@@ -261,14 +262,14 @@
       :usage.complete?'已结算应用统计；分类明细可能重叠，不相加生成总量。'
       :!hasBaseUsage?'当前范围尚无可用基础统计；不代表零用量。'
       :`部分统计可用：${fmt(usage.availableTotalDurationSeconds)}；不完整日期：${usage.missingDates.join('、')}。空白不代表零用量。`;
-    const max=Math.max(1,...usage.buckets.map(item=>item.durationSeconds??0));
-    $('#usage-chart').innerHTML=usage.buckets.map(item=>{
-      const caption=state.period==='day'?AppRuntimeTime.beijingHourLabel(item.startAtMs):new Date(item.startAtMs).toLocaleDateString('zh-CN',{weekday:'short',timeZone:'Asia/Shanghai'});
-      return `<div class="bar" title="${fmt(item.durationSeconds)}" style="height:${item.durationSeconds===null?0:Math.max(2,item.durationSeconds/max*100)}%">${item.durationSeconds>0?'<i class="bar-part" style="height:100%;background:var(--green)"></i>':''}<span class="bar-label">${escape(caption)}</span></div>`;
-    }).join('');
-    $('#category-legend').innerHTML=usage.categories.map(item=>`<span><i style="background:${categoryColors[item.classification]||categoryColors.unclassified}"></i>${escape(label(item.classification))} ${fmt(item.durationSeconds)}</span>`).join('');
+    $('#application-bucket-summary').innerHTML=ComputerUsageView.usageStyle()+ComputerUsageView.bucketSummary(
+      ComputerUsageView.applicationBuckets(usage),'四桶仅显示非特殊应用；特殊应用用量 '+fmt(usage.applicationUsage?.specialTotal)+'，不重复加入总量。');
+    $('#usage-chart').className='computer-view';
+    $('#usage-chart').innerHTML=ComputerUsageView.timeDistribution({...usage,buckets:usage.buckets.map(item=>({...item,duration:item.durationSeconds}))});
+    $('#category-legend').innerHTML='';
     $('#app-ranking').className='list';
-    $('#app-ranking').innerHTML=usage.applications.map((item,index)=>`<button class="app-row" data-usage-app="${index}"><span class="app-icon">${index+1}</span><div class="app-meta"><strong>${escape(item.displayName||'未知应用')}</strong><small>${escape(item.classifications.map(label).join('／'))}</small></div><div><strong>${fmt(item.durationSeconds)}</strong><small>独立应用统计</small></div></button>`).join('')||(usage.complete?'暂无使用记录':'尚无可用应用明细');
+    $('#app-ranking').innerHTML=ComputerUsageView.applicationRows({applications:usage.applications.map(item=>({...item,duration:item.durationSeconds}))},$('#usage-app-search').value)
+      .map(({item,index},rank)=>`<button class="app-row" data-usage-app="${index}"><span class="app-icon">${rank+1}</span><div class="app-meta"><strong>${escape(item.displayName||'未知应用')}</strong><small>${escape(item.classifications.map(label).join('／'))}</small><small>${escape(item.subjectKey)}</small></div><div><strong>${fmt(item.durationSeconds)}</strong><small>独立应用统计</small></div></button>`).join('')||($('#usage-app-search').value?'没有匹配的应用':usage.complete?'暂无使用记录':'尚无可用应用明细');
     $('#category-ranking').className='list';
     $('#category-ranking').innerHTML=usage.categories.map(item=>`<button class="category-row" data-usage-category="${escape(item.classification)}"><span class="app-icon">${escape(label(item.classification).slice(0,1))}</span><div><strong>${escape(label(item.classification))}</strong><small>分类明细可能重叠</small></div><strong>${fmt(item.durationSeconds)}</strong></button>`).join('')||(usage.complete?'暂无分类记录':'尚无可用分类明细');
     if(usage.productStatus?.complete===false){
@@ -670,7 +671,8 @@
   let usageRequestVersion = 0;
   async function loadUsage({refresh=false}={}) {
     const requestVersion = ++usageRequestVersion;
-    computerReader.invalidate();independentReader.invalidate();
+    if(state.usageKind!=='computer')computerReader.invalidate();
+    independentReader.invalidate();
     if(state.usageKind==='computer'){renderUsage();await computerReader.load({refresh});return;}
     if(['web','media'].includes(state.usageKind)){renderUsage();await independentReader.load();return;}
     if (mock) return;
@@ -947,7 +949,7 @@
     else if (control.dataset.user) { const selected = control.value === 'u' ? null : childFromIndex(control.value); if (!mock) { await runtime(`/v2/module/machines/${encodeURIComponent(control.dataset.machine)}/users/${encodeURIComponent(control.dataset.user)}`, { method: 'PATCH', body: JSON.stringify({ protected: Boolean(selected), childId: selected?.id || null }) }); await load(); } }
     else if (control.id === 'import-config' && control.files[0]) await reviewImport(control.files[0]);
   } catch (error) { showError(error); } });
-  listen(root,'input', (event) => { if(!live())return;if(event.target.id==='native-limit-search')renderNativeLimits();if (event.target.id === 'app-search') { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(()=>{if(live())renderAppDirectory();}, 120); } });
+  listen(root,'input', (event) => { if(!live())return;if(event.target.id==='usage-app-search')renderUsage();if(event.target.id==='native-limit-search')renderNativeLimits();if (event.target.id === 'app-search') { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(()=>{if(live())renderAppDirectory();}, 120); } });
   listen($('#mobile-backdrop'),'click', () => { $('#sidebar').classList.remove('open'); closeDrawer(); });
   if(!embedded)listen($('#runtime-logout'),'click', async () => {
     applicationReadCache.clear();

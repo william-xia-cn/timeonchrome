@@ -8403,7 +8403,8 @@ async function renderStatsPage() {
   if (!currentProfileId) return;
   const computer=cloudUsageState.ledger==='computer';
   const application=cloudUsageState.ledger==='application';
-  cloudComputerReader.invalidate();cloudApplicationReader.invalidate();
+  if(!computer)cloudComputerReader.invalidate();
+  if(!application)cloudApplicationReader.invalidate();
   document.querySelectorAll('[data-cloud-independent]').forEach(element=>element.hidden=computer||application);
   document.querySelectorAll('[data-cloud-usage-ledger]').forEach(button=>button.classList.toggle('active',button.dataset.cloudUsageLedger===cloudUsageState.ledger));
   document.getElementById('cloud-computer-usage').hidden=!computer;
@@ -8448,7 +8449,7 @@ const cloudApplicationReader=ComputerUsageView.createIndependent(document.getEle
   const result=await cloudApplicationReadCache.read(url,()=>api(url),{refresh});
   if(selected!==currentProfileId)throw new Error('SELECTION_CHANGED');
   return {...result.value,readDisplay:`${result.cached?'缓存 · ':''}读取于 ${new Date(result.readAtMs).toLocaleTimeString('zh-CN')}（手动刷新可重新读取）`};
-},direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click());
+},direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click(),()=>{const range=cloudUsageRange();return currentProfileId+'|'+range.from+'|'+range.to;});
 function setupReconciliation() {
   document.querySelectorAll('[data-reconciliation-range]').forEach(btn => {
     btn.addEventListener('click', () => {

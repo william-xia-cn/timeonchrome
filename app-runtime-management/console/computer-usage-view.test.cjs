@@ -22,7 +22,7 @@ const identityHtml=view.independentSummary({model:'program-instance-v1',source:'
   instances:[{subjectKey:'instance:<unsafe>',duration:60},{subjectKey:'instance:second',duration:60}],
   statistics:{producer:'native'}});
 assert.ok(identityHtml.includes('<strong>1分 0秒</strong>'),'base total is not summed from overlapping instances');
-assert.ok(identityHtml.includes('产品／分类投影尚未完整'));assert.ok(identityHtml.includes('基础程序实例（2）'));
+assert.ok(identityHtml.includes('应用明细尚不完整'));assert.ok(identityHtml.includes('基础程序实例（2）'));
 assert.ok(identityHtml.includes('instance:&lt;unsafe&gt;'));assert.ok(!identityHtml.includes('<unsafe>'));
 for(const available of [null,0,12]){
   const missing=view.independentSummary({model:'program-instance-v1',source:'application',durationUnit:'seconds',
