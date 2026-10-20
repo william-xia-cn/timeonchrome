@@ -11,7 +11,7 @@ const keyOf=item=>item.platform+'|'+item.runtimeIdentity;
 state.catalog.items.push({platform:'windows',runtimeIdentity:'excel',classification:'unclassified',catalogKind:'application'});
 const members=new Function('state','AppRuntimePolicy','$',directory+';return directoryMembers;')(state,{keyOf},()=>{throw new Error('主要目录不再读取已移除的目录范围控件');});
 assert.equal(members('special').length,1);assert.deepEqual(members('unclassified').map(item=>item.runtimeIdentity),['excel']);
-assert.equal(raw,fs.readFileSync(path.join(__dirname,'../../pages/computer-usage-view.js'),'utf8'),'both cloud pages use identical readonly renderer');
+assert.equal(raw,fs.readFileSync(path.join(__dirname,'../../pages/computer-usage-view.js'),'utf8').replace("require('../app-runtime-management/console/web-usage-buckets.js')","require('./web-usage-buckets.js')"),'both cloud pages use identical readonly renderer');
 const mainPage=fs.readFileSync(path.join(__dirname,'../../pages/index.html'),'utf8');
 const applicationRead=mainPage.slice(mainPage.indexOf('const cloudApplicationReader='),mainPage.indexOf('const cloudApplicationReader=')+1200);
 assert.ok(applicationRead.includes("source:'application',durationUnit:'seconds'"),'main application view explicitly selects seconds');
@@ -60,6 +60,14 @@ assert.ok(page.includes('.computer-view[hidden]'),'hidden root beats display:gri
 assert.ok(controller.includes("state.usageKind='web'"),'independent console defaults to web usage');
 const independent=view.independentSummary({source:'web',fromDate:'2026-10-01',toDate:'2026-10-01',totalDurationMs:5134000,categories:[{classification:'study',durationMs:5134000}],buckets:[],applications:[]});
 assert.ok(independent.includes('1小时 25分 34秒'));assert.ok(!independent.includes('电脑总用量'));
+assert.ok(independent.includes('时间桶明细不完整'),'旧响应缺少桶时不从分类猜配');
+const webSnapshot={source:'web',fromDate:'2026-10-21',toDate:'2026-10-21',totalDurationMs:349000,
+ quotaRows:[{quotaBucket:'study',duration:60},{quotaBucket:'composite',duration:120},{quotaBucket:'rest',duration:30},{quotaBucket:'other',duration:40},{quotaBucket:'unknown',duration:99}],
+ categories:[{classification:'unclassified',durationMs:349000}],buckets:[],applications:[]};
+const webBefore=JSON.stringify(webSnapshot),webHtml=view.independentSummary(webSnapshot);
+for(const [label,time] of [['学习','1分 0秒'],['复合','2分 0秒'],['休息','0分 30秒'],['其他','0分 40秒']])assert.ok(webHtml.includes('<b>'+label+'</b><br>'+time));
+assert.ok(webHtml.includes('5分 49秒'));assert.ok(webHtml.includes('时间桶明细不完整'));assert.ok(!webHtml.includes('<b>未归类</b>'));assert.equal(JSON.stringify(webSnapshot),webBefore);
+assert.ok(view.independentSummary({...webSnapshot,source:'media'}).includes('分类明细'),'媒体不改变展示口径');
 const appSnapshot={source:'application',fromDate:'2026-10-04',toDate:'2026-10-04',totalDurationMs:51125,categories:[{classification:'unclassified',durationMs:51125}],buckets:[],applications:[],statistics:{producer:'native',stale:true,computedAtMs:1791100800000,settledThroughByDate:[{date:'2026-10-04',settledThroughMs:1791100700000}]}};
 assert.ok(view.independentSummary(appSnapshot).includes('Service 已发布持久化统计'));
 assert.ok(view.independentSummary(appSnapshot).includes('结算截止'));

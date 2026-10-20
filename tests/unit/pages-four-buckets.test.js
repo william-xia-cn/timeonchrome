@@ -9,7 +9,7 @@ const functions=new Map(ast.statements.filter(ts.isFunctionDeclaration).map(n=>[
 const names=['usageCategoryLabel','emptyCloudCategories','cloudClassificationCategory','cloudRowCategory',
  'cloudRowBorrowedRestSeconds','sumCloudRowsByCategory','buildCloudDailySeries','buildCloudHourlySeries','cloudUsageTimelineCategory',
  'usageExplanationSummary','unknownUsageIdentifier'];
-const context={};vm.createContext(context);vm.runInContext(names.map(n=>functions.get(n)).join('\n'),context);
+const context={WebUsageBuckets:require('../../app-runtime-management/console/web-usage-buckets.js')};vm.createContext(context);vm.runInContext(names.map(n=>functions.get(n)).join('\n'),context);
 const rows=[
  {date:'2026-10-20',hour:2,duration:60,quotaBucket:'study',targetClassificationAtTime:'study'},
  {date:'2026-10-20',hour:2,duration:120,quotaBucket:'composite',targetClassificationAtTime:'pending_composite'},

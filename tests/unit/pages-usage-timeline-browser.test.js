@@ -22,6 +22,7 @@ async function main() {
   const browser = await chromium.launch({ headless: true, ...(fs.existsSync(windowsChrome) ? { executablePath: windowsChrome } : {}) });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 950 } });
+    await page.addInitScript({path:path.join(root,'app-runtime-management/console/web-usage-buckets.js')});
     await page.goto(pathToFileURL(path.join(root, 'pages/index.html')).href, { waitUntil: 'domcontentloaded' });
     await page.evaluate(() => {
       showScreen('main');

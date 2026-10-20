@@ -2136,6 +2136,7 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
+<script src="runtime-management-component/web-usage-buckets.js"></script>
 <script src="computer-usage-view.js"></script>
 <script src="runtime-management-loader.js"></script>
 <script src="access-config-domains.js"></script>
@@ -7415,7 +7416,7 @@ function usageCategoryLabel(key) {
 }
 
 function emptyCloudCategories() {
-  return { study: 0, composite: 0, rest: 0, other: 0 };
+  return WebUsageBuckets.empty();
 }
 
 function emptyCloudMediaCategories() {
@@ -7430,11 +7431,7 @@ function cloudClassificationCategory(classification) {
 }
 
 function cloudRowCategory(row) {
-  const bucket = row?.quotaBucket || row?.mode;
-  if (bucket === 'study') return 'study';
-  if (bucket === 'composite' || bucket === 'pending_composite') return 'composite';
-  if (bucket === 'rest') return 'rest';
-  return bucket === 'other' ? 'other' : null;
+  return WebUsageBuckets.category(row);
 }
 
 function cloudRowBorrowedRestSeconds(row) {
@@ -7705,12 +7702,7 @@ function buildCloudMediaTargetRows(todayRows, weekRows, rangeRows) {
 }
 
 function sumCloudRowsByCategory(rows = []) {
-  const totals = emptyCloudCategories();
-  for (const row of rows) {
-    const bucket = cloudRowCategory(row);
-    if (bucket) totals[bucket] += row.duration;
-  }
-  return totals;
+  return WebUsageBuckets.sum(rows);
 }
 
 function sumCloudMediaRowsByCategory(rows = []) {
