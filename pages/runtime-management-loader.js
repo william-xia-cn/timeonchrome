@@ -1,6 +1,6 @@
 (() => {
   const base = '/runtime-management-component/';
-  const expectedScripts = ['computer-usage-view.js','app-runtime-time.js','app-runtime-network.js','app-runtime-clipboard.js','app-runtime-policy.js','app-runtime-knowledge.js','app-runtime-devices.js','app-runtime.js'];
+  const expectedScripts = ['web-usage-buckets.js','computer-usage-view.js','app-runtime-time.js','app-runtime-network.js','app-runtime-clipboard.js','app-runtime-policy.js','app-runtime-knowledge.js','app-runtime-devices.js','app-runtime.js'];
   const expectedStyles = ['app-runtime.css','app-runtime-v2.css','app-runtime-knowledge.css'];
   let assets;
   const leases=new WeakMap();
