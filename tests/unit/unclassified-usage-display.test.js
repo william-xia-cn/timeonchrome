@@ -78,3 +78,37 @@ vm.runInContext('unclassifiedUsageDisplay = null', context);
 assert.equal(context.unclassifiedReviewUsage(row).totalSeconds, null);
 assert.equal((context.unclassifiedReviewMetricsHtml(row).match(/未知/g) || []).length, 3);
 console.log('Unclassified usage display: aggregation, sorting, missing data, identity, folding and action mapping passed');
+
+context.unknownUsageIdentifier = ({ label }) => label === 'unknown';
+const history = Array.from({ length: 10 }, (_, i) => ({
+  value: `processed-${i}.example`, title: `processed-${i}.example`,
+  site: { historicalPending: true, actionable: false, currentClassification: 'other' },
+}));
+history.push({ value: 'unknown', title: 'unknown', site: {} });
+context.reviewUsedUnclassifiedEntries = () => history;
+const groups = context.unclassifiedReviewGroups([], history);
+assert.equal(groups.pending.length, 0);
+assert.equal(groups.processed.length, 10);
+assert.equal(groups.inapplicable.length, 1);
+const stale = { ...request, displayValue: history[0].title, requestedNormalizedValue: history[0].value };
+assert.equal(context.unclassifiedReviewGroups([stale], history).pending.length, 0);
+const live = { value: 'new.example', title: 'new.example', site: {} };
+assert.equal(context.unclassifiedReviewGroups([], [...history, live]).pending.length, 1);
+context.rulesSitePolicyState = {};
+vm.runInContext(source.slice(source.indexOf('function renderUsedUnclassifiedIntro('), source.indexOf('function reviewUsedUnclassifiedEntries(')), context);
+const intro = context.renderUsedUnclassifiedIntro(history);
+assert(intro.includes('未处理 0 个 · 已处理 10 个 · 不适用归类 1 个'));
+const rendered = context.renderUnclassifiedUsageRecords([], history);
+assert(rendered.includes('未处理 0 条 · 已处理 10 条 · 不适用归类 1 条'));
+assert(!rendered.includes('onclick="classifyUnclassifiedReviewRow'));
+context.document = { getElementById: () => context.nav };
+context.nav = {};
+context.getRulesPolicyModel = () => [{ isUsedUnclassified: true, usedUnclassified: history, label: '已使用未归类网站' }];
+vm.runInContext(source.slice(source.indexOf('function renderRulesPolicyNav('), source.indexOf('\nfunction ', source.indexOf('function renderRulesPolicyNav(') + 10)), context);
+context.renderRulesPolicyNav();
+assert(context.nav.innerHTML.includes('待处理 0'));
+if (process.env.REVIEW_PREVIEW) {
+  const styles = [...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(match => match[0]).join('');
+  fs.writeFileSync(process.env.REVIEW_PREVIEW, `<!doctype html><meta charset="utf-8">${styles}<main style="padding:24px">${context.nav.innerHTML}${intro}${rendered}</main>`);
+}
+console.log('Pending counts: nav, intro, list, stale request, inapplicable and actionable cases PASS');
