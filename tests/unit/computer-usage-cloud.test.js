@@ -62,6 +62,9 @@ assert.equal(sourceSeconds.totalDuration,3,'web source uses authoritative second
 assert.equal(secondsFixture.reads(),0,'summary does not load web raw intervals');
 const combinedSeconds=await secondsService.readComputerUsageStatisticsSummarySeconds(secondsFixture.env,'family','child',date,date);
 assert.equal(combinedSeconds.totals.computer,13);assert.equal(combinedSeconds.totals.specialIncluded,5);
+assert.deepEqual(JSON.parse(JSON.stringify(combinedSeconds.displayBuckets)),{values:{study:13,composite:0,rest:0,other:0},complete:true});
+assert.equal(combinedSeconds.applicationSnapshot.totalDuration,combinedSeconds.totals.application);
+assert.equal(combinedSeconds.applicationSnapshot.revision,combinedSeconds.sourceVersions.application);
 assert.deepEqual(JSON.parse(JSON.stringify(combinedSeconds.categories)),{study:13});
 assert.equal(combinedSeconds.sourceVersions.application,'identity-product-r1','summary version includes product/catalog changes, not only base statistics');
 assert.equal(secondsFixture.reads(),0);assert.equal(secondsFixture.appReads(),0,'new summary does not call old application evidence');

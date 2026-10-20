@@ -1,5 +1,9 @@
 # TimeOnChrome — 技术设计文档
 
+## 2026-10-21 电脑与应用同批展示读取（本地实施，未发布）
+
+现有电脑秒统计响应附带 displayBuckets 和 applicationSnapshot：前者只适配已读取网页 quotaBucket/mode 与现有非特殊应用桶，后者直接复用本次应用读取结果。原总量、分类统计、特殊应用扣除及持久化均不变。两套页面的无筛选应用与电脑视图共用同孩子、日期范围的内存读取批次，并展示应用来源版本与真实统计截止；独立 Runtime 的设备、用户、平台筛选仍独立读取。失败不使用其他范围结果，不用读取时间冒充统计截止，不新增接口或历史回填。
+
 ## 2026-10-20 管理对象局部配置保存（本地实施，未发布）
 
 沿用 `PUT /v2/module/app-policy?childId=…` 及 Guardian 的现有管理转接地址。当前身份表单发送 `{nativeApplicationChanges:[{target:{machineId,nativeId},…本次字段}]}`，每次只含一个对象；允许字段为 classification、specialApplication、dailyQuotaMinutes，不接受公共配额/时间段或未知字段混入。分类卡片只提交分类与特殊设置，限额编辑只提交 dailyQuotaMinutes；空限额为 null，整数分钟 0—1440。没有分类配置的对象可以只设置限额，分类仍为缺省未归类；禁止主动设置 unclassified 或删除已有分类。

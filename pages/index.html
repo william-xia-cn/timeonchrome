@@ -8444,7 +8444,17 @@ async function renderStatsPage() {
     if (table) table.innerHTML = '<div class="usage-empty">部分数据暂时不可用</div>';
   }
 }
-const cloudComputerReader=ComputerUsageView.create(document.getElementById('cloud-computer-usage'),async(query)=>{
+const cloudUsageSession=ComputerUsageView.createUsageReadSession();
+async function readCloudUsageBatch(options={}){
+  const selected=currentProfileId,range=cloudUsageRange(),scope={childId:selected,...range};
+  const params=new URLSearchParams({...range,detail:'summary',durationUnit:'seconds'});
+  const result=await cloudUsageSession.read(scope,()=>api(`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`),options);
+  const current=cloudUsageRange();
+  if(selected!==currentProfileId||range.from!==current.from||range.to!==current.to)throw new Error('SELECTION_CHANGED');
+  return result;
+}
+const cloudComputerReader=ComputerUsageView.create(document.getElementById('cloud-computer-usage'),async(query,options)=>{
+  if(query.detail==='summary')return (await readCloudUsageBatch(options)).value;
   const selected=currentProfileId,range=cloudUsageRange();
   const params=new URLSearchParams({from:range.from,to:range.to,...Object.fromEntries(Object.entries(query).filter(([,value])=>value!==''&&value!==undefined).map(([key,value])=>[key,String(value)]))});
   const result=await api(`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`);
@@ -8453,13 +8463,8 @@ const cloudComputerReader=ComputerUsageView.create(document.getElementById('clou
 },direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click(),()=>{const range=cloudUsageRange();return currentProfileId+'|'+range.from+'|'+range.to;});
 
 // ── Stats reconciliation ─────────────────────────────────────
-const cloudApplicationReadCache=ComputerUsageView.createReadCache();
 const cloudApplicationReader=ComputerUsageView.createIndependent(document.getElementById('cloud-application-usage'),async({refresh}={})=>{
-  const selected=currentProfileId,range=cloudUsageRange();
-  const params=new URLSearchParams({from:range.from,to:range.to,source:'application',durationUnit:'seconds',model:'program-instance-v1'});
-  const url=`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`;
-  const result=await cloudApplicationReadCache.read(url,()=>api(url),{refresh});
-  if(selected!==currentProfileId)throw new Error('SELECTION_CHANGED');
+  const result=await readCloudUsageBatch({refresh,application:true});
   return {...result.value,readDisplay:`${result.cached?'缓存 · ':''}读取于 ${new Date(result.readAtMs).toLocaleTimeString('zh-CN')}（手动刷新可重新读取）`};
 },direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click(),()=>{const range=cloudUsageRange();return currentProfileId+'|'+range.from+'|'+range.to;});
 function setupReconciliation() {

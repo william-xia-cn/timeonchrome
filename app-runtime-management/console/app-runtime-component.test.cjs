@@ -18,7 +18,7 @@ function fixture(){
     AppRuntimeSession:{createRecovery(){throw Error('Embedded code must not create a second session');}},
     AppRuntimePolicy:Policy,AppRuntimeDevices:Devices,AppRuntimeTime:{beijingRange:()=>({from:0,to:86400000,label:'fixture'})},
     AppRuntimeNetwork:{friendlyError:error=>error,catalogClassificationRecords:async()=>({pending:[],processed:[],technical:[]})},
-    ComputerUsageView:{createReadCache:()=>({clear(){}}),create:()=>({invalidate(){}}),createIndependent:()=>({invalidate(){}})},
+    ComputerUsageView:{createReadCache:()=>({clear(){}}),createUsageReadSession:()=>({clear(){}}),create:()=>({invalidate(){}}),createIndependent:()=>({invalidate(){}})},
     AppRuntimeKnowledge:{nativeApplicationsHTML:require('./app-runtime-knowledge').nativeApplicationsHTML,mount(options){assert.equal(options.root,root);knowledgeOptions=options;return{dispose(){knowledgeDisposed++;}};}}};
   vm.runInNewContext(source,context,{filename:'app-runtime.js'});
   return{mount:context.AppRuntimeManagement.mount,root,element,elements,listeners,queries,get knowledgeDisposed(){return knowledgeDisposed;},get knowledgeOptions(){return knowledgeOptions;}};
@@ -69,7 +69,7 @@ function fixture(){
   let usageRange={from:1,to:2};
   const usageContext={state:usageState,usageRequestVersion:0,mock:false,URLSearchParams,
     computerReader:{invalidate(){},async load(){}},independentReader:{invalidate(){},async load(){}},
-    range:()=>usageRange,$:()=>({value:''}),renderUsage:()=>paints.push(usageState.usage),
+    range:()=>usageRange,$:()=>({value:'isolated-machine'}),renderUsage:()=>paints.push(usageState.usage),
     applicationReadCache:{async read(key,read){return{value:await read()};}},
     runtime:path=>{const pending=deferred();usageRequests.push({path,...pending});return pending.promise;},
     AppRuntimeTime:{applicationIdentityView:value=>value},AppRuntimeNetwork:{friendlyError:error=>error},
