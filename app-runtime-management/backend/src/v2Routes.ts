@@ -59,6 +59,7 @@ import {
   appPolicyEtag,
   getAppPolicy,
   parseAppPolicyUpdate,
+  putNativeApplicationChanges,
   parseCursor,
   putAppPolicy,
   queryAppCatalog,
@@ -262,7 +263,13 @@ export async function routeV2(request: Request, env: Env, nowMs: number, defer?:
         return jsonResponse(policy, { headers: { etag: appPolicyEtag(policy.version) } });
       }
       if (request.method === 'PUT') {
-        const update = parseAppPolicyUpdate(await readJsonBody(request));
+        const body = await readJsonBody(request);
+        if (body && typeof body === 'object' && 'nativeApplicationChanges' in body) {
+          const policy = await putNativeApplicationChanges(env.RUNTIME_DB, claims.account_id, childId,
+            request.headers.get('if-match'), body, nowMs);
+          return jsonResponse(policy, {headers: {etag: appPolicyEtag(policy.version)}});
+        }
+        const update = parseAppPolicyUpdate(body);
         const policy = await putAppPolicy(env.RUNTIME_DB, claims.account_id, childId,
           request.headers.get('if-match'), update, nowMs);
         return jsonResponse(policy, { headers: { etag: appPolicyEtag(policy.version) } });
