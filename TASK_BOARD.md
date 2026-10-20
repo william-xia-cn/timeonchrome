@@ -2,6 +2,10 @@
 
 ## RELEASE_IN_PROGRESS：Mac 登记契约1.58.1及Runtime-only（2026-10-21）
 
+PO已批准解决共享引用边界并继续发布。最小修正：将现有纯展示web-usage-buckets脚本原字节纳入contracts包并导出；Guardian改用包入口，浏览器脚本保持不变，以直接字节一致性和原computer-usage-cloud/pages-four-buckets回归证明算法输出不变。不修改边界门禁。固定1.58.1尚未发布/锁定，最终包将有新哈希，原c55553…仅预备证据，不可作为最终消费包；通知Native撤回预备交付标记并锁最终包。必要复验仅源码边界、两项展示直接回归、根typecheck及既有CI，不新增安装测试、不部署Guardian/Pages。
+
+发布阻塞（2026-10-21）：实现c6c064e、历史同步753e8b6、版本断言补正7ddcdbc已推送PR #312，尚未合并。第一次CI39496484419版本断言失败已修复；第二次39496704571契约测试通过，但源码边界门发现此前电脑四桶的 `workers/src/services/computerUsage.ts` 直接导入 `app-runtime-management/console/web-usage-buckets.js`。该文件不在本批修改中；未放宽门禁、未继续重跑、未合并部署。需另获准最小共享模块依赖修正后再复验。固定tgz1.58.1 SHA256为c55553cb6a66ae10de5a9c448cc76821ec76124ecb17837fb8ff220e63ae86d8，包内91文件一致性和包内解析器验证通过，已交Native准备消费；尚无合并sourceGitSha，锁提交暂缓。Native报告包级19项通过，DTO实际消费者发现同前缀校验，按本契约准备受影响适配；不冒称全部消费验证通过。
+
 PR #312首次CI失败为contract-compatibility.test.cjs仍断言版本1.58.0；仅同步为本批1.58.1并运行该直接测试，产品源码和已生成包保持。没有跳过门禁。
 
 PO批准集中提交推送合并、交付固定契约包、仅部署Runtime Worker，并沿原Issue #12协调Native更新锁及受影响消费验证。复用下方已通过源码证据；清单：①10文件职责/diff审核后提交；②PR和精确合并SHA Runtime CI；③从固定源码构建契约tgz、核验内容/版本/SHA256；④既有生产流程Runtime-only，其他Worker/Pages/迁移/bootstrap/shared准备均关闭；⑤核对部署manifest与smoke并交原Native消费。本轮不制作Native安装包、不安装、不修改应用ID、原账、配置或统计口径。线上登记真实设备验证与本地消费证据分开记载。

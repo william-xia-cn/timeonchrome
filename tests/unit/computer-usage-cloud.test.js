@@ -1,5 +1,8 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript'),{webcrypto}=require('node:crypto');
 const root=path.resolve(__dirname,'../..');
+assert.equal(fs.readFileSync(path.join(root,'app-runtime-management/contracts/web-usage-buckets.cjs'),'utf8').replace(/\r\n/g,'\n'),
+ fs.readFileSync(path.join(root,'app-runtime-management/console/web-usage-buckets.js'),'utf8').replace(/\r\n/g,'\n'),
+ '共享契约出口必须与既有浏览器展示函数一致，不改变算法');
 function loader(overrides={}){
 const cache=new Map();
 return function load(file){if(cache.has(file))return cache.get(file).exports;
@@ -8,6 +11,7 @@ const source=ts.transpileModule(fs.readFileSync(path.join(root,file),'utf8'),{co
 vm.runInNewContext(source,{module,exports:module.exports,crypto:webcrypto,TextEncoder,TextDecoder,Uint8Array,URL,URLSearchParams,Date,Map,Set,Error,Request,Response,console,require:name=>{
 if(name==='cloudflare:workers')return {WorkerEntrypoint:class{constructor(_,env){this.env=env;}}};
 if(name in overrides)return overrides[name];
+if(name==='@timeonchrome/app-runtime-contracts/web-usage-buckets')return require('../../app-runtime-management/contracts/web-usage-buckets.cjs');
 if(name==='@timeonchrome/app-runtime-contracts/computer-usage')return load('app-runtime-management/contracts/computer-usage.ts');
 if(name==='@timeonchrome/app-runtime-contracts/shared-access')return load('app-runtime-management/contracts/shared-access.ts');
 if(name==='@timeonchrome/app-runtime-contracts/shared-web-sync')return load('app-runtime-management/contracts/shared-web-sync.ts');
