@@ -1,5 +1,23 @@
 # TASK_BOARD
 
+## RELEASE_IN_PROGRESS：Mac 登记契约1.58.1及Runtime-only（2026-10-21）
+
+PO批准集中提交推送合并、交付固定契约包、仅部署Runtime Worker，并沿原Issue #12协调Native更新锁及受影响消费验证。复用下方已通过源码证据；清单：①10文件职责/diff审核后提交；②PR和精确合并SHA Runtime CI；③从固定源码构建契约tgz、核验内容/版本/SHA256；④既有生产流程Runtime-only，其他Worker/Pages/迁移/bootstrap/shared准备均关闭；⑤核对部署manifest与smoke并交原Native消费。本轮不制作Native安装包、不安装、不修改应用ID、原账、配置或统计口径。线上登记真实设备验证与本地消费证据分开记载。
+
+## LOCAL_VERIFIED：Mac 动态身份登记最小契约修复（2026-10-21，未提交／制包／部署）
+
+PO批准本地源码修复及沿原 Issue #12 协调 Native。职责 architecture-integration + standard-cloud；允许共享契约、Runtime 直接测试及依赖锁、现有文档。清单：①契约仅增加 `macos:<64位小写hex>` + `dynamic-process` 组合，schema同步；②Runtime沿用共享解析器，不另造平台解析，不改身份/统计/配置；③补登记、回执、非法组合、孩子/分配隔离聚焦验证，复用其余已有证据；④将源码结果交原Native会话沿Issue #12接续。版本预备1.58.1，不覆盖已发布1.58.0包；本轮不打tgz、不安装、不部署、不启共享，不修改Native仓库。
+
+变更等级：契约接受范围小幅扩展。必要本地测试：契约build/识别及对象管理专项、Runtime native-application-management专项与typecheck、diff。无生产smoke、全量/浏览器/Mac平台测试。源码通过不代表线上Runtime已采用，也不代表Mac固定包消费已通过。
+
+结果：解析器和JSON schema仅扩展精确Mac动态进程组合；Runtime现有 `file:../contracts` 依赖实际链接该源码，正式POST登记路由已直接隔离验证，无需增加第二解析器或改生产路由。契约源码版本及根/Runtime两处锁元数据同步为1.58.1；根package-lock仅此workspace版本行变化，未修改依赖树。未生成tgz，未改Native固定1.58.0包或锁。
+
+验证：`npm run build:app-runtime-contracts`、两个契约专项（新增11组接受边界与Mac三种来源/状态及回执负例）、Runtime `vitest run test/native-application-management.test.ts` 10/10、Runtime `npm run typecheck`、diff检查通过。首次Runtime专项10/10后typecheck发现新增测试schemaVersion被推断为number，已标注共享契约类型并复验两者通过。真实产品路由在本地隔离D1中完成鉴权登记、回执hash核验、读回同一target、重复提交、同版冲突、孩子/家庭/改绑隔离；未请求生产。
+
+审计：契约最小接受边界、schema一致、Runtime同解析器接线、ID与统计不变、聚焦验证均Matched；Deviated/Extra无。固定包消费与线上实测是明确未交付项，不冒称登记已经在线打通。已通知原Native会话沿Issue #12接续，不重跑其Portable39/配置2/Swift26未受影响证据；当前无Mac产品代码或安装变更。
+
+协调回执：原Native会话确认已在原Issue #12评论6301230627登记本次实施，Native文档提交aa1452eae1c7d5a29abd2e2be20c457081b9369e。最终本地验证结果已再发同会话补充原交接；不将“消息已送达”当作Mac固定包验证通过。
+
 ## DEPLOYED_VERIFIED：电脑四桶与同批应用读数（2026-10-21）
 
 发布完成：PR #310，合并SHA `7cb927ebca90f2bdce42ce56d95c652199eed641`。Runtime CI 39493171615、Guardian integration 39493171493、主控制台39493171383全部通过；生产39493332683成功，Guardian Worker `2cf9979f-c6a5-48ca-b5f1-57b983250f89`、Runtime Pages `e8b47456`、主控制台Pages `c9e356b6`，三项smoke通过，manifest已生成且evidenceErrors为空。Runtime Worker跳过、迁移为空、shared准备false。PR附件因会话附件数量上限未登记，不影响PR实际合并。

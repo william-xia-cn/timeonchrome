@@ -54,3 +54,25 @@ assert.deepEqual(objects([{machineId:'machine-a',identifications:[{...dynamic,st
 assert.throws(()=>objects([{machineId:'invalid/path',identifications:[identity]}]));
 assert.throws(()=>targetKey({machineId:'machine-a',nativeId:identity.nativeId,productId:'extra'}));
 console.log('PASS: Native identity contract, equal management objects, no name/machine merging, privacy, scope and ACK');
+
+// Mac 只扩展精确的动态进程组合；schema 与运行解析器保持相同接受边界。
+const macId='macos:'+'a'.repeat(64);
+const macBranch=schema.$defs.identity.allOf[0].else.anyOf[1].properties;
+const {parseNativeApplicationIdentification}=await import('./dist/native-application-identification.js');
+for(const [nativeId,status,accepted] of [
+ [macId,'dynamic-process',true], [macId,'identified',true],
+ [macId,'dynamic-registry',false], ['macos:'+'A'.repeat(64),'dynamic-process',false],
+ ['macos:'+'a'.repeat(63),'dynamic-process',false], ['macos:'+'a'.repeat(65),'dynamic-process',false],
+ ['macos:not-a-hash','dynamic-process',false], ['other-app','dynamic-process',false],
+ ['dynamic-local:sample','identified',false],
+ ['dynamic-local:sample','dynamic-process',true], ['dynamic-local:sample','dynamic-registry',true]
+]) {
+ const entry={nativeId,name:'Synthetic application',status,evidence:['PROCESS_NAME_FALLBACK']};
+ const schemaAccepts=status==='identified' ? !nativeId.startsWith('dynamic-local:') :
+  nativeId.startsWith('dynamic-local:') ||
+  (status===macBranch.status.const && new RegExp(macBranch.nativeId.pattern).test(nativeId));
+ assert.equal(schemaAccepts,accepted);
+ if(accepted)assert.deepEqual(parseNativeApplicationIdentification(entry),entry);
+ else assert.throws(()=>parseNativeApplicationIdentification(entry),/INVALID_NATIVE_APPLICATION_IDENTIFICATION/);
+}
+console.log('PASS: Mac精确动态进程组合与schema一致；Windows及非法组合边界保持（11组）');

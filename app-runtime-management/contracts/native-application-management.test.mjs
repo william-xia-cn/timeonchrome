@@ -26,3 +26,22 @@ const current = await import('./dist/native-application-identification.js');
 for (const retired of ['parseNativeApplicationStatisticsProjection','verifyNativeApplicationStatisticsProjection'])
  assert.equal(Object.hasOwn(current,retired),false,'旧身份投影不能继续导出');
 console.log('Native应用对象/配置/ACK及跨端hash向量 PASS；旧统计投影已退出');
+
+const macId='macos:'+'a'.repeat(64);
+for(const [origin,status,evidence] of [
+ ['scan',null,[]], ['runtime','identified',[]], ['runtime','dynamic-process',['PROCESS_NAME_FALLBACK']]
+]) {
+ const item={nativeId:macId,revision:1,observedAtMs:1,presentations:[{name:'Synthetic Mac app',origin,status,evidence}]};
+ const request={...batch,items:[item]},before=structuredClone(request);
+ assert.deepEqual(parseNativeApplicationObjectBatch(request),request);
+ const response={...ack,items:[{nativeId:macId,revision:1,payloadHash:await hashUsageAccountValue(item)}]};
+ assert.deepEqual(await verifyNativeApplicationObjectReceipt(response,request),response);
+ for(const extra of [{childId:'wrong'}, {localUserId:'wrong'}, {assignmentVersion:2},
+  {items:[{...response.items[0],revision:2}]}, {items:[{...response.items[0],payloadHash:'0'.repeat(64)}]},
+  {items:[{...response.items[0],nativeId:'macos:'+'b'.repeat(64)}]}])
+  await assert.rejects(verifyNativeApplicationObjectReceipt({...response,...extra},request));
+ assert.deepEqual(request,before);
+}
+const macCfg={...cfg,target:{machineId:'synthetic-mac',nativeId:macId}};
+assert.deepEqual(parseNativeApplicationConfigurations([macCfg]),[macCfg]);
+console.log('PASS: Mac扫描/确定/动态对象登记及同scope回执；冻结target不变');
