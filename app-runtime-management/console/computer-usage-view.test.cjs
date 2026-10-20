@@ -8,7 +8,8 @@ assert.ok(controller.includes("current==='special'?'特殊应用':'普通应用'
 const directory=controller.match(/function directoryMembers\(category\) \{([\s\S]*?)\n  \}/)[0];
 const state={catalog:{items:[{platform:'windows',runtimeIdentity:null,presentationKind:'contentBased',runtimeImplementations:[{platform:'windows',runtimeIdentity:'chrome1'},{platform:'windows',runtimeIdentity:'chrome2'}]}]},records:{pending:[{platform:'windows',runtimeIdentity:'chrome1'},{platform:'windows',runtimeIdentity:'chrome2'},{platform:'windows',runtimeIdentity:'excel'}]}};
 const keyOf=item=>item.platform+'|'+item.runtimeIdentity;
-const members=new Function('state','AppRuntimePolicy','$',directory+';return directoryMembers;')(state,{keyOf},()=>({value:'usage'}));
+state.catalog.items.push({platform:'windows',runtimeIdentity:'excel',classification:'unclassified',catalogKind:'application'});
+const members=new Function('state','AppRuntimePolicy','$',directory+';return directoryMembers;')(state,{keyOf},()=>{throw new Error('主要目录不再读取已移除的目录范围控件');});
 assert.equal(members('special').length,1);assert.deepEqual(members('unclassified').map(item=>item.runtimeIdentity),['excel']);
 assert.equal(raw,fs.readFileSync(path.join(__dirname,'../../pages/computer-usage-view.js'),'utf8'),'both cloud pages use identical readonly renderer');
 const mainPage=fs.readFileSync(path.join(__dirname,'../../pages/index.html'),'utf8');
