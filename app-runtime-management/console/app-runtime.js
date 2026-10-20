@@ -263,13 +263,14 @@
       :!hasBaseUsage?'当前范围尚无可用基础统计；不代表零用量。'
       :`部分统计可用：${fmt(usage.availableTotalDurationSeconds)}；不完整日期：${usage.missingDates.join('、')}。空白不代表零用量。`;
     $('#application-bucket-summary').innerHTML=ComputerUsageView.usageStyle()+ComputerUsageView.bucketSummary(
-      ComputerUsageView.applicationBuckets(usage),'四桶仅显示非特殊应用；特殊应用用量 '+fmt(usage.applicationUsage?.specialTotal)+'，不重复加入总量。');
+      ComputerUsageView.applicationBuckets(usage),'四桶仅显示非特殊应用；特殊应用用量 '+fmt(usage.applicationUsage?.specialTotal)+'，不重复加入总量。',true);
     $('#usage-chart').className='computer-view';
-    $('#usage-chart').innerHTML=ComputerUsageView.timeDistribution({...usage,buckets:usage.buckets.map(item=>({...item,duration:item.durationSeconds}))});
+    $('#usage-chart').innerHTML=ComputerUsageView.timeDistribution({...usage,buckets:usage.buckets.map(item=>({...item,duration:item.durationSeconds}))},true);
     $('#category-legend').innerHTML='';
-    $('#app-ranking').className='list';
-    $('#app-ranking').innerHTML=ComputerUsageView.applicationRows({applications:usage.applications.map(item=>({...item,duration:item.durationSeconds}))},$('#usage-app-search').value)
-      .map(({item,index},rank)=>`<button class="app-row" data-usage-app="${index}"><span class="app-icon">${rank+1}</span><div class="app-meta"><strong>${escape(item.displayName||'未知应用')}</strong><small>${escape(item.classifications.map(label).join('／'))}</small><small>${escape(item.subjectKey)}</small></div><div><strong>${fmt(item.durationSeconds)}</strong><small>独立应用统计</small></div></button>`).join('')||($('#usage-app-search').value?'没有匹配的应用':usage.complete?'暂无使用记录':'尚无可用应用明细');
+    $('#app-ranking').className='';
+    const appRows=ComputerUsageView.applicationRows({applications:usage.applications.map(item=>({...item,duration:item.durationSeconds}))},$('#usage-app-search').value);
+    $('#app-ranking').innerHTML=appRows.length?'<table class="usage-source-table usage-application-table"><thead><tr><th>管理对象</th><th>分类</th><th>当前范围用量</th></tr></thead><tbody>'+
+      appRows.map(({item,index})=>`<tr><td><strong>${escape(item.displayName||'未知应用')}</strong><details><summary>对象详情</summary><code>${escape(item.subjectKey)}</code><p><button data-usage-app="${index}">查看使用详情</button></p></details></td><td>${escape(item.classifications.map(label).join('／'))}</td><td>${fmt(item.durationSeconds)}</td></tr>`).join('')+'</tbody></table>':($('#usage-app-search').value?'没有匹配的应用':usage.complete?'暂无使用记录':'尚无可用应用明细');
     $('#category-ranking').className='list';
     $('#category-ranking').innerHTML=usage.categories.map(item=>`<button class="category-row" data-usage-category="${escape(item.classification)}"><span class="app-icon">${escape(label(item.classification).slice(0,1))}</span><div><strong>${escape(label(item.classification))}</strong><small>分类明细可能重叠</small></div><strong>${fmt(item.durationSeconds)}</strong></button>`).join('')||(usage.complete?'暂无分类记录':'尚无可用分类明细');
     if(usage.productStatus?.complete===false){

@@ -49,7 +49,7 @@ assert.ok(childContent.includes('该孩子的网页内容'));assert.ok(childCont
 const statusHtml=view.summary({...snapshot,sourceStatus:{web:'complete',application:'partial'},historyStatus:'bestEffort',overlapStatus:'unconfirmed',categoryBasis:'sourceCumulative',categoriesMs:{study:1501},sourceCategoriesMs:{web:{study:1501},application:{composite:3001}}});
 assert.ok(statusHtml.includes('电脑使用＝网页＋应用－应用总量中 Chrome 的贡献'));
 assert.ok(statusHtml.includes('不是完整合计'));assert.ok(statusHtml.includes('独立权威分类'));assert.ok(statusHtml.includes('历史数据，尽力还原'));
-assert.ok(statusHtml.includes('<details><summary>来源状态与诊断详情</summary>'));
+assert.match(statusHtml,/<details(?: class="usage-secondary-details")?><summary>来源状态与诊断详情<\/summary>/);
 for(const [file,attribute] of [['index.html','data-usage-kind'],['../../pages/index.html','data-cloud-usage-ledger']]){
 const page=fs.readFileSync(path.join(__dirname,file),'utf8');
 const tabs=[...page.matchAll(new RegExp(attribute+'="([^"]+)"[^>]*>([^<]+)<','g'))].map(match=>[match[1],match[2]]);

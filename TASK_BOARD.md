@@ -1,6 +1,46 @@
 # TASK_BOARD
 
-## RELEASING：待处理计数与发布失败留证（2026-10-21）
+## IN_PROGRESS：两套Pages集中布局发布（2026-10-21）
+
+PO批准提交／推送／合并及两套Pages发布。发布前发现独立Runtime renderSecondsUsage仍使用旧summary-grid和双列明细，本轮先按已确认布局补齐实际入口：保留全部DOM读取ID及原对象／分类详情操作，统一主卡与明细表；仅HTML和展示渲染，不改源数据。复用已有主控制台证据，增加独立Runtime最小渲染验证与隔离目视，之后取得精确SHA的两套CI，使用既有Pages-only流程。两个Worker、配置、原账、迁移、配额、Mac排除。
+
+补齐结果：独立Runtime当前秒统计采用主卡（总量／小时图／四桶）与明细表，原筛选导航及媒体开关保留，使用详情仍以原数组index触发，分类详情与同步／配额状态折叠保留。usage-view-layout 10/10、computer-usage-view专项及语法通过；本机当前秒统计隔离页面已目视，不连接生产。主控制台三页证据沿用上一轮。Matched：两套实际入口与功能保留；无语义变更。发布结果待CI及生产运行补记。
+
+## LOCAL_VERIFIED：应用主卡及明细与网页实际布局对齐（2026-10-21，未提交／部署）
+
+本轮清单：①共享视图 applicationSummary 将总量与日期导航、现有小时／逐日图、四桶摘要归入同一主卡；②applicationList 改为名称／分类／当前范围用量表格，完整身份键收进逐项可展开详情，保留搜索、稳定排序及同名不同对象；③分类、实例与诊断保留在明细卡展开区；④两套分发模块同步，真实主控制台隔离数据三页1440×1000对照及窄屏核对。仅展示层变更，最小验证为usage-view-layout、computer-usage-view、cloud-fault-tolerance与语法／diff；不改统计、配额、配置、接口，不提交部署，不涉及Mac。独立Runtime原有交互详情不删除，不以共享模块核验冒充其完整页面改版。
+
+结果：上述主卡及明细表完成；原小时／逐日总量柱、四桶值、特殊应用说明、分类与来源诊断保留，身份键默认折叠而不删除。usage-view-layout 10/10、computer-usage-view渲染缓存专项PASS、cloud-fault-tolerance 7/7、两模块语法及diff检查通过。agent-browser在实际pages/index.html内存隔离数据验证搜索保留2个同名对象、详情展开、日周切换、390宽无横向溢出；1440×1000网页／应用／电脑及390×844应用主卡／明细截图已目视。截图保存在本机visualizations目录actual-{web,application,computer}-1440.png及actual-application-detail-{1440,390}.png。一次浏览器find指令不支持scrollintoview，改用独立scrollintoview命令完成，非产品失败。
+
+审计：主卡层级、明细表、现有数据与功能保留、相同尺寸对照Matched；Deviated／Missing／Extra无（针对本轮主控制台三页范围）。电脑可靠四桶及小时数据缺口仍明确显示，不伪造；应用小时总量仍用中性色。独立Runtime仅同步共用模块，不声称其独立应用页完成同样整体重排。未提交、部署或操作真实家庭。
+
+## LOCAL_VERIFIED：按实际页面统一电脑布局（2026-10-21，未提交／部署）
+
+PO否决上一轮组件布局验收：独立长卡片不等于网页／应用实际页面一致，上一节布局Matched结论不再作为完成依据。实施：①对照pages/index.html实际usage-analysis-card／usage-card-head／日期导航，电脑复用同一主卡+明细卡层级及尺寸；②总量日期同排，四桶能力提示并入主卡，来源构成表、原分类及产品／时间线入口归入明细卡，状态可展开；③保持外层日周切换与原读取事件，无统计／配额／后端改动；④同一真实页面、同尺寸、隔离数据截取网页／应用／电脑，补窄屏及日期／详情按钮验证。必要测试仍限usage-view-layout、computer-usage-view及cloud-fault-tolerance、语法和diff；不提交部署，不读写真实配置。agent-browser只用于回环页面。保留所有已有修改。
+
+结果：电脑改成实际网页同名usage-analysis-card两张卡，主卡总量／日期导航／四桶缺口，明细卡来源表与产品／时间线按钮；原分类和来源诊断折叠保留。日周沿用页面现有切换，前后日期委托原处理器，日期按钮与网页使用相同符号及ARIA说明。未改查询、源值、扣除或配额算法。应用保留现有小时图和分区；三页不是相同的数据能力或完全相同的内部结构，本轮不顺带重做应用。
+
+验证：usage-view-layout 9/9、computer-usage-view渲染缓存专项、cloud-fault-tolerance 7/7、两模块一致性、两模块语法与diff检查通过。渲染缓存专项首次失败为断言硬编码无class的details标签；改为允许样式类且继续要求原诊断summary，复验通过。实际pages/index.html及原脚本仅替换内存API/统计结果，在127.0.0.1隔离加载；三页统一1440×1000截图actual-web-1440.png、actual-application-1440.png、actual-computer-1440.png，电脑390×844截图actual-computer-390.png，已逐张目视。电脑日→周、前一周、产品／时间线读出、窄屏无页面横向溢出通过。详情使用合成数据，不宣称生产验证；Runtime分发模块一致性通过，未另外声称独立站实机验收。
+
+审计：本轮电脑主卡与明细卡／现有功能保留／数据口径不变／实际三页同尺寸对照Matched；无未批准Extra。已明确电脑无四桶及小时来源的能力缺口，未伪造图表；用户视觉确认仍待预览，不以本地验证替代部署或用户认可。
+
+## LOCAL_VERIFIED：小时图颜色与电脑页布局补正（2026-10-21，未提交／部署）
+
+此前“统一展示全部Matched”结论不完整：小时总量柱仍写死青色，电脑页仅插入四桶提示而保留旧卡片层级。本轮只修这两处，不部署、不提交、不改统计／配额／原账／配置。
+
+清单：①核对现有小时字段：computerUsageService.getApplicationUsage 的 buckets 仅总量，应用视图适配同样只输出总量，无可确认的非特殊小时四桶；小时／日总量用中性深灰与“总用量（不分桶）”图例，不按全天分类猜色；②共用视图电脑页按时间选择、单一总量、四桶能力提示、来源明细及有效详情入口、状态说明排列，保留现有按钮和读数，不增加小时图；③更新两套同步模块与最小专项，核对输入不变、入口及缓存不变；④隔离桌面／窄屏目视并集中展示。
+
+变更等级：前端展示。必要验证：usage-view-layout、computer-usage-view、cloud-fault-tolerance、两模块一致性、语法／diff检查及本地浏览器截图；不跑全量、生产或Mac测试，无发布CI／smoke。保留现有未提交的发布记录。
+
+结果：当前身份入口 applicationProductProjections 的 buckets 也仅从 kind=total 小时行取 duration；没有逐小时非特殊四桶，不从全日数据反推。两套分发模块同步采用深灰总量柱与“不分桶”图例；电脑单一总量、四桶缺口、来源构成与扣除、原分类、对象与来源时间线、状态说明依次显示，现有请求和事件保持。未改任何后端或配额代码。
+
+验证：usage-view-layout 9/9（补入中性色、全日分类变化不影响柱图、布局顺序、源值与入口不变断言）；computer-usage-view 渲染／缓存专项PASS；cloud-fault-tolerance 7/7；两模块一致性、node --check及git diff --check PASS。agent-browser仅访问127.0.0.1合成数据，以实际分发渲染器完成1440桌面、390窄屏目视，缺失小时斜纹／长名称／四桶颜色及窄屏无页面溢出通过；Runtime渲染器的产品、时间线按钮读出合成详情。截图为本机visualizations目录的computer-corrected-desktop/mobile.png及application-corrected-desktop/mobile.png。这是组件隔离预览，不宣称生产页面或真实数据验收。
+
+审计：小时字段核对／中性总量柱／电脑层级／有效入口保留／输入与口径不变／本地测试及目视均Matched；Deviated、Missing、Extra无。技术边界仍为小时无可靠四桶、电脑无可靠四桶及小时数据。没有提交、推送、部署或修改真实家庭。
+
+## DEPLOYED_VERIFIED：待处理计数与发布失败留证（2026-10-21）
+
+收尾：实现1536900，PR #308合并88c4814919965db6f436d55f13acd6f3b26e6d63；PR及精确合并SHA相关CI通过，生产运行39472871034成功，主控制台Pages d84fd018。线上HTML与合并源码逐字节一致；已登录页面只读目视确认左侧／摘要／列表一致为待处理0、已处理10、不适用1，未执行分类或保存。manifest已下载核对：jobStatus=success、requestedResources/deployedResources均仅mainPages、main_pages_deploy/main_pages_smoke=success、其他部署和迁移skipped、evidenceErrors为空。失败路径复用既有隔离回归，未对生产注入故障；旧失败运行仍不伪装补齐artifact。独立Runtime沿用734605a未重复发布；不改原账、配置、统计口径或Mac。Matched；Deviated/Missing/Extra无。
 
 PO批准本批集中提交、推送、合并及部署；复用下方已通过的隔离回归与目视证据，不重复故障测试。清单：①核对剩余10个文件仅含计数、发布工具及直接测试／记录；②提交并取得精确SHA CI；③仅部署有变更的主控制台Pages，以本次运行核验新manifest和资源重试；④登录后只读核对待处理仅计可归类对象，并记录真实步骤状态。独立Runtime、两个Worker、迁移、Mac、原账、真实配置、统计口径均不变。不故意破坏生产来验证失败留证，失败分支沿用既有隔离证据。
 
@@ -31,7 +71,7 @@ PO已批准本批集中提交、推送、合并与两套Pages部署；仅主控�
 
 技术能力缺口（按批准范围明确保留，不算伪造补齐）：电脑无可靠四桶字段和小时数据；应用单次明细无并列今日／本周用量；两页均不增加分段高亮。上述本地测试与隔离目视证据复用；本轮发布与真实登录页面只读核对状态见本节顶部，不把静态文件一致性替代浏览器效果。
 
-## VERIFIED_LOCAL：待处理计数与发布失败留证收尾（2026-10-21，未部署）
+## 历史本地验证：待处理计数与发布失败留证收尾（2026-10-21，已由本节顶部发布记录收口）
 
 PO批准集中修复，不部署、不改真实配置、原账或统计。实施清单：①pages/index.html 左侧、摘要、列表共用去重后可归类判定，未知页面单列不适用，不算待处理或已处理；②生产流程对内容一致性作有限重试，持续失败仍失败，manifest及上传不因smoke失败而跳过，并记录步骤实际结果；③在本任务板补记39457325255的既有发布证据，不重新部署或伪造旧运行artifact。变更等级为UI计数及发布工具；必要本地验证：未归类展示专项、页面契约、发布配置/重试专项、隔离目视、diff检查。排除全量测试、真实保存、Mac及共享操作；提交/CI另行安排。
 

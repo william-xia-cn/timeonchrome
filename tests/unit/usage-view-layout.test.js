@@ -38,6 +38,12 @@ test('hour bars preserve positions, known zeros and missing hours; week uses dai
   assert.equal((html.match(/usage-bar-track is-missing/g)||[]).length,1);
   assert.match(html,/03.*统计缺失/);assert.match(html,/00.*0分 0秒/);
   assert.match(view.timeDistribution({...sample,toDate:'2026-10-27',buckets:[sample.buckets[0]]}),/每日使用/);
+  assert.match(html,/总用量（不分桶）/);
+  assert.match(view.usageStyle(),/\.usage-bar-fill\{[^}]*background:#64748b/);
+  assert.doesNotMatch(view.usageStyle(),/background:#00998e/);
+  const changed=clone(sample);
+  changed.applicationUsage.nonSpecialCategories={other:3600};
+  assert.equal(view.timeDistribution(changed),html,'daily classification cannot recolor hourly totals');
 });
 test('same-name objects retained, duration descending, stable keys and search without mutation',()=>{
   const sample=clone(samples.application),before=JSON.stringify(sample);
@@ -52,6 +58,32 @@ test('computer retains totals and source detail, never treats categories as four
   assert.match(html,/1小时 10分 0秒/);assert.match(html,/分类归集（不是时间桶）/);
   assert.match(html,/桶用量暂不可用/);assert.doesNotMatch(html,/usage-time-column" title=/);
   assert.match(html,/data-computer-detail="products"/);assert.match(html,/data-computer-detail="timeline"/);
+  const headings=['电脑使用时间','时间桶用量','来源明细','分类归集（不是时间桶）','来源状态与诊断详情'];
+  const positions=headings.map(text=>html.indexOf(text));
+  assert.ok(positions.every((pos,index)=>pos>=0&&(index===0||pos>positions[index-1])));
+  assert.equal((html.match(/<section class="usage-analysis-card">/g)||[]).length,2);
+  assert.match(html,/<div class="usage-card-head">/);
+  assert.match(html,/<div class="usage-date-nav computer-toolbar">/);
+  assert.match(html,/<div class="usage-bucket-summary">/,'four buckets inside overview, not a third card');
+  assert.match(html,/<details class="usage-secondary-details"><summary>分类归集/);
+  assert.doesNotMatch(html,/<article class="computer-metric">/);
+  assert.match(html,/网页主用量<\/td><td>10分 0秒/);
+  assert.match(html,/应用主用量<\/td><td>1小时 30分 0秒/);
+  assert.match(html,/特殊应用 容器扣除<\/td><td>30分 0秒/);
+  assert.equal(JSON.stringify(sample),before);
+});
+test('application uses web overview and table hierarchy while preserving identities and source values',()=>{
+  const sample=clone(samples.application),before=JSON.stringify(sample);
+  const html=view.independentSummary(sample);
+  assert.equal((html.match(/<section class="usage-analysis-card">/g)||[]).length,2);
+  assert.match(html,/<div class="usage-date-nav computer-toolbar">/);
+  assert.ok(html.indexOf('class="usage-distribution"')<html.indexOf('<div class="usage-bucket-summary">'));
+  assert.match(html,/<th>管理对象<\/th><th>分类<\/th><th>当前范围用量<\/th>/);
+  assert.match(html,/<details><summary>对象详情<\/summary>管理对象：<code>/);
+  assert.match(html,/fixture:machine-a:editor/);
+  assert.match(html,/fixture:machine-b:editor/);
+  assert.match(html,/data-application-search/);
+  assert.match(html,/data-independent-retry/);
   assert.equal(JSON.stringify(sample),before);
 });
 test('application retains same-scope success on failure, clears on range and authorization changes',async()=>{
@@ -85,5 +117,10 @@ test('page refresh preserves the active reader, while inactive readers are inval
   assert.match(main,/if\(!application\)cloudApplicationReader\.invalidate\(\)/);
   const runtime=fs.readFileSync('app-runtime-management/console/app-runtime.js','utf8');
   assert.match(runtime,/if\(state\.usageKind!=='computer'\)computerReader\.invalidate\(\)/);
-  assert.match(runtime,/data-usage-app="\$\{index\}".*?\$\{rank\+1\}/);
+  assert.match(runtime,/data-usage-app="\$\{index\}">查看使用详情/);
+  assert.match(runtime,/appRows\.map\(\(\{item,index\}\)/);
+  const html=fs.readFileSync('app-runtime-management/console/index.html','utf8');
+  assert.match(html,/data-independent-app-usage class="computer-view"/);
+  assert.match(html,/id="app-ranking"/);
+  assert.doesNotMatch(html,/<div class="summary-grid">/);
 });
