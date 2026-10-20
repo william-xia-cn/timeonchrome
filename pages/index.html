@@ -193,6 +193,7 @@
     /* Main content */
     .main-content { flex: 1; overflow-y: auto; background: var(--bg); }
     .page { display: none; padding: 32px 36px; max-width: 960px; }
+    #page-apps { max-width: none; }
     .page.active { display: block; }
     .page-header { margin-bottom: 28px; }
     .page-header h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
@@ -294,6 +295,31 @@
       border-bottom: 1px solid var(--border); padding: 6px 0 0;
     }
     .usage-chart-scroll { overflow: hidden; }
+    .usage-interval-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+    .usage-interval-chart { min-width: 880px; }
+    .usage-interval-plot { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; }
+    .usage-interval-axis { height: 300px; display: flex; flex-direction: column; justify-content: space-between; color: var(--muted); font-size: 11px; transform: translateY(-5px); text-align: right; }
+    .usage-interval-hours { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; }
+    .usage-interval-hour { height: 322px; position: relative; min-width: 0; }
+    .usage-interval-grid { position: absolute; inset: 0 0 22px; background: repeating-linear-gradient(to top, transparent 0, transparent calc(8.333333% - 1px), rgba(0, 184, 148, .13) calc(8.333333% - 1px), rgba(0, 184, 148, .13) 8.333333%); border-left: 1px solid var(--border); }
+    .usage-interval-mark { position: absolute; z-index: 1; min-height: 2px; border: 0; border-radius: 3px; padding: 0; cursor: help; }
+    .usage-interval-mark.study { background: #1d6ff2; }
+    .usage-interval-mark.composite { background: #f59e0b; }
+    .usage-interval-mark.rest { background: #37b7b7; }
+    .usage-interval-mark.other { background: #b6b8bb; }
+    .usage-interval-mark.pending { background: #8a5cf6; }
+    .usage-interval-hour-label { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; color: var(--muted); font-size: 11px; }
+    .usage-interval-note { color: var(--muted); font-size: 12px; margin: 7px 0 0 36px; }
+    .usage-interval-state { color: var(--muted); font-size: 12px; margin: 8px 0; }
+    .usage-interval-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; color: var(--text); font-size: 12px; }
+    .usage-interval-legend[hidden] { display: none; }
+    .usage-interval-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .usage-interval-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    .usage-interval-legend .study { background: #1d6ff2; }
+    .usage-interval-legend .composite { background: #f59e0b; }
+    .usage-interval-legend .rest { background: #37b7b7; }
+    .usage-interval-legend .other { background: #b6b8bb; }
+    .usage-interval-legend .pending { background: #8a5cf6; }
     .usage-stack-slot {
       flex: 1; min-width: 8px; height: 100%; display: flex;
       flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 2px;
@@ -1549,7 +1575,8 @@
             <div class="usage-chart-title">本周每日结构</div>
             <div class="usage-chart-scroll"><div class="usage-stack-chart" id="cloud-usage-week-chart">加载中...</div></div>
             <div class="usage-chart-title" id="cloud-usage-main-title">24 小时分布</div>
-            <div class="usage-chart-scroll"><div class="usage-stack-chart" id="cloud-usage-main-chart">加载中...</div></div>
+            <div class="usage-chart-scroll" id="cloud-usage-main-scroll"><div class="usage-stack-chart" id="cloud-usage-main-chart">加载中...</div></div>
+            <div class="usage-interval-legend" id="cloud-usage-timeline-legend" hidden><span><i class="study"></i>学习</span><span><i class="composite"></i>复合</span><span><i class="rest"></i>休息</span><span><i class="other"></i>其他</span><span><i class="pending"></i>未定（待归类）</span></div>
             <div class="usage-legend" id="cloud-usage-legend"></div>
           </div>
 
@@ -7900,6 +7927,148 @@ function renderCloudUsageStackChart(id, series = [], options = {}) {
   }).join('');
 }
 
+function cloudUsageTimelineCategory(classification) {
+  if (classification === 'study') return 'study';
+  if (classification === 'composite') return 'composite';
+  if (classification === 'pending_composite') return 'pending';
+  if (classification === 'rest' || classification === 'restricted' || classification === 'rejected') return 'rest';
+  return 'other';
+}
+
+function buildCloudUsageTimelineGeometry(segments, date, selectedDeviceId = '') {
+  const dayStart = Date.parse(`${date}T00:00:00+08:00`);
+  if (!Number.isFinite(dayStart)) return { devices: [], marks: [] };
+  const dayEnd = dayStart + 86400000;
+  const valid = (segments || []).filter(row => {
+    const start = Number(row?.startMs);
+    const end = Number(row?.endMs);
+    return row?.channel === 'active' && row?.date === date &&
+      (!selectedDeviceId || row?.deviceId === selectedDeviceId) &&
+      Number(row?.durationSeconds) > 0 && Number.isFinite(start) && Number.isFinite(end) &&
+      end > start && start < dayEnd && end > dayStart;
+  });
+  const devices = [...new Set(valid.map(row => row.deviceId || 'unknown'))].sort();
+  const marks = [];
+  for (const row of valid) {
+    const start = Math.max(Number(row.startMs), dayStart);
+    const end = Math.min(Number(row.endMs), dayEnd);
+    const device = row.deviceId || 'unknown';
+    for (let cursor = start; cursor < end;) {
+      const hour = Math.floor((cursor - dayStart) / 3600000);
+      const hourStart = dayStart + hour * 3600000;
+      const pieceEnd = Math.min(end, hourStart + 3600000);
+      marks.push({
+        hour,
+        startMinute: (cursor - hourStart) / 60000,
+        endMinute: (pieceEnd - hourStart) / 60000,
+        device,
+        lane: devices.indexOf(device),
+        laneCount: devices.length,
+        category: cloudUsageTimelineCategory(row.targetClassificationAtTime),
+        startMs: Number(row.startMs),
+        endMs: Number(row.endMs),
+        durationSeconds: Number(row.durationSeconds),
+      });
+      cursor = pieceEnd;
+    }
+  }
+  return { devices, marks };
+}
+
+async function fetchCloudUsageTimelineSegments(profileId, date, deviceId = '') {
+  const segments = [];
+  const seen = new Set();
+  const cursors = new Set();
+  let cursor = null;
+  try {
+    for (let page = 0; page < 20; page++) {
+      const params = new URLSearchParams({ from: date, to: date, limit: '500' });
+      if (deviceId) params.set('deviceId', deviceId);
+      if (cursor) params.set('cursor', cursor);
+      const payload = await api(`/profiles/${profileId}/usage-segments/v1?${params.toString()}`);
+      if (!Array.isArray(payload?.segments)) throw new Error('usage segments response missing segments');
+      for (const row of payload.segments) {
+        if (!row?.id || seen.has(row.id)) continue;
+        seen.add(row.id);
+        segments.push(row);
+      }
+      if (!payload.hasMore) return { segments, complete: true };
+      if (!payload.nextCursor || cursors.has(payload.nextCursor)) throw new Error('usage segments cursor did not advance');
+      cursor = payload.nextCursor;
+      cursors.add(cursor);
+    }
+    throw new Error('usage segments page limit reached');
+  } catch (error) {
+    console.warn('[Pages] usage interval chart incomplete:', error);
+    return { segments, complete: false };
+  }
+}
+
+function renderCloudUsageTimeline(view, result, deviceId = '') {
+  const el = document.getElementById('cloud-usage-main-chart');
+  if (!el) return;
+  const { devices, marks } = buildCloudUsageTimelineGeometry(result.segments, view.range.from, deviceId);
+  el.className = 'usage-interval-chart';
+  el.replaceChildren();
+  const plot = document.createElement('div');
+  plot.className = 'usage-interval-plot';
+  const axis = document.createElement('div');
+  axis.className = 'usage-interval-axis';
+  axis.setAttribute('aria-hidden', 'true');
+  for (const minute of [60, 45, 30, 15, 0]) {
+    const tick = document.createElement('span');
+    tick.textContent = minute;
+    axis.appendChild(tick);
+  }
+  const hours = document.createElement('div');
+  hours.className = 'usage-interval-hours';
+  hours.setAttribute('role', 'group');
+  hours.setAttribute('aria-label', '24 小时网页使用时段；每小时从下往上分为 12 个五分钟刻度，彩条表示已上传的使用时段');
+  const names = { study: '学习', composite: '复合', rest: '休息', other: '其他', pending: '未定（待归类）' };
+  const formatTime = ms => new Date(ms).toLocaleTimeString('zh-CN', {
+    timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+  for (let hour = 0; hour < 24; hour++) {
+    const column = document.createElement('div');
+    column.className = 'usage-interval-hour';
+    const grid = document.createElement('div');
+    grid.className = 'usage-interval-grid';
+    column.appendChild(grid);
+    for (const mark of marks.filter(item => item.hour === hour)) {
+      const bar = document.createElement('button');
+      bar.type = 'button';
+      bar.className = `usage-interval-mark ${mark.category}`;
+      const laneWidth = 100 / mark.laneCount;
+      bar.style.left = `${laneWidth * (mark.lane + 0.12)}%`;
+      bar.style.width = `${laneWidth * 0.76}%`;
+      bar.style.bottom = `${22 + mark.startMinute * 5}px`;
+      bar.style.height = `${Math.max(2, (mark.endMinute - mark.startMinute) * 5)}px`;
+      const deviceLabel = mark.device === 'unknown' ? '设备未知' : cloudDeviceLabel(mark.device);
+      bar.title = `${deviceLabel} · ${names[mark.category]} · ${formatTime(mark.startMs)}–${formatTime(mark.endMs)} · 时间跨度 ${((mark.endMs - mark.startMs) / 1000).toFixed(1)} 秒 · 该分段记入 ${mark.durationSeconds} 秒`;
+      bar.setAttribute('aria-label', bar.title);
+      column.appendChild(bar);
+    }
+    const label = document.createElement('span');
+    label.className = 'usage-interval-hour-label';
+    label.textContent = String(hour).padStart(2, '0');
+    column.appendChild(label);
+    hours.appendChild(column);
+  }
+  plot.append(axis, hours);
+  el.appendChild(plot);
+  const note = document.createElement('div');
+  note.className = 'usage-interval-note';
+  note.textContent = '小时 →　每列从下往上 0–60 分钟 · 5 分钟刻度';
+  el.appendChild(note);
+  const state = document.createElement('div');
+  state.className = 'usage-interval-state';
+  if (!result.complete) state.textContent = '时段图不完整：仅显示已读到的上传分段；统计总量不受影响。';
+  else if (!marks.length && view.totalSeconds > 0) state.textContent = '时段图不完整：统计已有用量，但未找到对应的已上传前台网页分段。';
+  else if (!marks.length) state.textContent = '当日暂无已上传网页使用时段。';
+  else state.textContent = `已上传网页时段 · ${devices.length} 个设备；近期未上传时段可能尚未显示。`;
+  el.appendChild(state);
+}
+
 function renderCloudUsageLegend(view) {
   const el = document.getElementById('cloud-usage-legend');
   if (!el) return;
@@ -8158,9 +8327,23 @@ function renderCloudUsageView(view) {
   const todayBtn = document.getElementById('cloud-usage-today');
   if (todayBtn) todayBtn.textContent = view.range.mode === 'week' ? '本周' : '今天';
   const mainTitle = document.getElementById('cloud-usage-main-title');
-  if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : '24 小时分布';
+  const intervalMode = view.kind === 'web' && view.range.mode === 'day';
+  if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : intervalMode ? '24 小时使用时段' : '24 小时分布';
   renderCloudUsageStackChart('cloud-usage-week-chart', view.weekSummarySeries || [], { emptyMessage: '本周还没有使用记录', categoryKeys: cloudUsageCategoryKeys(view) });
-  renderCloudUsageStackChart('cloud-usage-main-chart', view.chartSeries || [], { emptyMessage: view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: cloudUsageCategoryKeys(view) });
+  const mainScroll = document.getElementById('cloud-usage-main-scroll');
+  if (mainScroll) mainScroll.classList.toggle('usage-interval-scroll', intervalMode);
+  const timelineLegend = document.getElementById('cloud-usage-timeline-legend');
+  if (timelineLegend) timelineLegend.hidden = !intervalMode;
+  const mainChart = document.getElementById('cloud-usage-main-chart');
+  if (intervalMode) {
+    if (mainChart) {
+      mainChart.className = 'usage-interval-chart';
+      mainChart.innerHTML = '<div class="usage-interval-state">已上传网页时段加载中...</div>';
+    }
+  } else {
+    if (mainChart) mainChart.className = 'usage-stack-chart';
+    renderCloudUsageStackChart('cloud-usage-main-chart', view.chartSeries || [], { emptyMessage: view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: cloudUsageCategoryKeys(view) });
+  }
   renderCloudUsageLegend(view);
   renderCloudUsageList(view);
 }
@@ -8187,6 +8370,12 @@ async function renderStatsPage() {
     const view = await buildCloudUsageView();
     if(requestVersion!==cloudStatsRequestVersion)return;
     renderCloudUsageView(view);
+    if (view?.kind === 'web' && view?.range?.mode === 'day') {
+      const selectedProfileId = currentProfileId;
+      const selectedDeviceId = cloudUsageState.deviceId;
+      const result = await fetchCloudUsageTimelineSegments(selectedProfileId, view.range.from, selectedDeviceId);
+      if (requestVersion === cloudStatsRequestVersion && selectedProfileId === currentProfileId) renderCloudUsageTimeline(view, result, selectedDeviceId);
+    }
   } catch (e) {
     console.warn('[Pages] cloud usage analysis unavailable:', e);
     if(requestVersion!==cloudStatsRequestVersion)return;
