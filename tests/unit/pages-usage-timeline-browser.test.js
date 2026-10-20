@@ -11,6 +11,7 @@ const date = '2026-10-20';
 const dayStart = Date.parse(`${date}T00:00:00+08:00`);
 const segment = (id, startMinute, endMinute, kind, deviceId) => ({
   id, date, deviceId, channel: 'active', targetClassificationAtTime: kind,
+  quotaBucketAtTime: kind === 'pending_composite' ? 'composite' : kind,
   startMs: dayStart + startMinute * 60000, endMs: dayStart + endMinute * 60000,
   durationSeconds: 51,
 });
@@ -41,6 +42,7 @@ async function main() {
       segment('e', 558, 585, 'study', 'device-b'),
       segment('f', 857, 891, 'rest', 'device-a'),
       segment('g', 868, 898, 'study', 'device-b'),
+      segment('h', 1100, 1130, 'other', 'device-a'),
     ];
     await page.evaluate(({ view, rows }) => {
       cloudUsageState.deviceId = '';
@@ -48,7 +50,11 @@ async function main() {
       renderCloudUsageTimeline(view, { segments: rows, complete: true });
     }, { view, rows });
     assert.equal(await page.locator('.usage-interval-hour').count(), 24);
-    assert.ok(await page.locator('.usage-interval-mark.pending').count() > 0);
+    assert.equal(await page.locator('.usage-interval-mark.pending').count(), 0);
+    assert.equal(await page.locator('#cloud-usage-timeline-legend > span').count(), 4);
+    assert.deepEqual(await page.locator('#cloud-usage-timeline-legend > span').allTextContents(),['学习','复合','休息','其他']);
+    for (const bucket of ['study','composite','rest','other'])
+      assert.ok(await page.locator(`.usage-interval-mark.${bucket}`).count()>0);
     assert.equal(await page.locator('#cloud-usage-total').innerText(), '12分');
     const overlap = await page.locator('.usage-interval-hour').nth(14).locator('.usage-interval-mark').evaluateAll(nodes =>
       nodes.map(node => ({ left: node.style.left, width: node.style.width })));

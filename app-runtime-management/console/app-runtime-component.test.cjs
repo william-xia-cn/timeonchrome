@@ -246,7 +246,7 @@ function fixture(){
   assert.equal(identity.element('#load-empty-state').hidden,true);
   assert.match(identity.element('#managed-app-list').innerHTML,/新版产品/);
   assert.match(identity.element('#managed-app-list').innerHTML,/另一孩子分类不串入/);
-  assert.match(identity.element('#app-directory-title').textContent,/跟随分类规则/);
+  assert.equal(identity.element('#app-directory-title').textContent,'未归类应用');
   assert.match(identity.element('#inventory-status').textContent,/不代表已安装/);
   assert.equal(identity.element('#open-products').disabled,false);
   assert.equal(identity.element('#open-rules').disabled,false);

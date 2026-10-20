@@ -402,6 +402,19 @@ export async function putAppPolicy(
   if (expectedEtag !== appPolicyEtag(current.version)) {
     throw new HttpError(412, 'APP_POLICY_CONFLICT', 'App policy has changed. Reload before saving.');
   }
+  if (update.nativeApplications !== undefined) {
+    const key = (entry: {target: {machineId: string; nativeId: string}}) =>
+      JSON.stringify([entry.target.machineId, entry.target.nativeId]);
+    const previous = new Map((current.nativeApplications || []).map(entry => [key(entry), entry]));
+    const next = new Map(update.nativeApplications.map(entry => [key(entry), entry]));
+    if (update.nativeApplications.some(entry => entry.classification === 'unclassified'
+      && previous.get(key(entry))?.classification !== 'unclassified')
+      || [...previous].some(([id, entry]) => entry.classification !== 'unclassified'
+        && (!next.has(id) || next.get(id)?.classification === 'unclassified'))) {
+      throw new HttpError(400, 'APPLICATION_CLASSIFICATION_REQUIRED',
+        '未归类是缺省状态，不能作为归类操作；已归类应用可改为其他时间。');
+    }
+  }
   if(update.nativeApplications!==undefined&&update.nativeApplications.length){
     const targets=await database.prepare(`SELECT DISTINCT n.machine_id,n.native_id FROM runtime_native_application_objects_v1 n
       JOIN runtime_machines_v2 m ON m.id=n.machine_id WHERE m.account_id=?1 AND n.child_id=?2 AND m.revoked_at_ms IS NULL
