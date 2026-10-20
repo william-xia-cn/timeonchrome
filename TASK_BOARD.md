@@ -2,6 +2,8 @@
 
 ## RELEASE_IN_PROGRESS：Mac 登记契约1.58.1及Runtime-only（2026-10-21）
 
+PR #312首次CI失败为contract-compatibility.test.cjs仍断言版本1.58.0；仅同步为本批1.58.1并运行该直接测试，产品源码和已生成包保持。没有跳过门禁。
+
 PO批准集中提交推送合并、交付固定契约包、仅部署Runtime Worker，并沿原Issue #12协调Native更新锁及受影响消费验证。复用下方已通过源码证据；清单：①10文件职责/diff审核后提交；②PR和精确合并SHA Runtime CI；③从固定源码构建契约tgz、核验内容/版本/SHA256；④既有生产流程Runtime-only，其他Worker/Pages/迁移/bootstrap/shared准备均关闭；⑤核对部署manifest与smoke并交原Native消费。本轮不制作Native安装包、不安装、不修改应用ID、原账、配置或统计口径。线上登记真实设备验证与本地消费证据分开记载。
 
 ## LOCAL_VERIFIED：Mac 动态身份登记最小契约修复（2026-10-21，未提交／制包／部署）
