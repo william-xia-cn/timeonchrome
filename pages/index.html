@@ -3173,7 +3173,7 @@ function renderRulesPolicyNav() {
       ? '<span>对象 ' + def.rules.length + '</span><span>YouTube</span>'
       : def.isUsage ? '<span>用途规则 ' + def.rules.length + '</span><span>权限不变</span>'
       : def.isUsedUnclassified
-        ? '<span>待处理 ' + def.usedUnclassified.length + '</span><span>最近 30 天</span>'
+        ? '<span>待处理 ' + unclassifiedReviewGroups().pending.length + '</span><span>最近 30 天</span>'
         : '<span>系统 ' + def.system.length + '</span><span>自定义 ' + def.custom.length + '</span><span>规则 ' + def.rules.length + '</span>';
     return '<button class="rules-policy-nav-btn ' + (def.key === rulesSitePolicyState.policy ? 'active' : '') + '" data-policy="' + def.key + '" onclick="selectRulesPolicy(\'' + def.key + '\')">' +
       '<div class="rules-policy-nav-title"><img class="toc-ui-icon small" src="' + def.icon + '" alt=""> ' + htmlEscape(def.label) + '</div>' +
@@ -3559,11 +3559,12 @@ function renderSpecialSitesSummary() {
   </section>`;
 }
 
-function renderUsedUnclassifiedIntro(entries = reviewUsedUnclassifiedEntries()) {
-  const pendingCount = entries.filter((entry) => !(entry.site?.historicalPending || entry.site?.actionable === false)).length;
-  const processedCount = Math.max(0, entries.length - pendingCount);
+function renderUsedUnclassifiedIntro(entries = reviewUsedUnclassifiedEntries(), requests = []) {
+  const groups = unclassifiedReviewGroups(requests, entries);
+  const pendingCount = groups.pending.length;
+  const processedCount = groups.processed.length;
   const loading = rulesSitePolicyState.usedUnclassifiedLoading ? ' · 正在读取最近 30 天访问历史' : '';
-  return `<div class="rules-used-unclassified-summary" data-used-unclassified-module="true"><strong>未归类网站使用记录：未处理 ${pendingCount} 个 · 已处理 ${processedCount} 个${loading}</strong><span>来自最近 30 天使用历史；当前仍未归类的默认显示，已处理或当前已归类的记录默认折叠。</span></div>`;
+  return `<div class="rules-used-unclassified-summary" data-used-unclassified-module="true"><strong>未归类网站使用记录：未处理 ${pendingCount} 个 · 已处理 ${processedCount} 个 · 不适用归类 ${groups.inapplicable.length} 个${loading}</strong><span>来自最近 30 天使用历史；仅可归类对象计入待处理，已处理及不适用归类记录默认折叠。</span></div>`;
 }
 
 function reviewUsedUnclassifiedEntries() {
@@ -3681,8 +3682,20 @@ function unclassifiedReviewMetricsHtml(row) {
 }
 
 function isProcessedUnclassifiedReviewRow(row) {
+  if (row.usedEntry?.site?.historicalPending || row.usedEntry?.site?.actionable === false) return true;
   if (row.type === 'request') return isProcessedSiteRequest(row.request);
   return Boolean(row.entry?.site?.historicalPending || row.entry?.site?.actionable === false);
+}
+
+function unclassifiedReviewGroups(requests = [], entries = reviewUsedUnclassifiedEntries()) {
+  const rows = buildUnclassifiedReviewRows(requests, entries);
+  const pending = [], processed = [], inapplicable = [];
+  for (const row of rows) {
+    if (unknownUsageIdentifier({ label: unclassifiedReviewRowTitle(row) })) inapplicable.push(row);
+    else if (isProcessedUnclassifiedReviewRow(row)) processed.push(row);
+    else pending.push(row);
+  }
+  return { rows, pending, processed, inapplicable };
 }
 
 function unclassifiedReviewRowTitle(row) {
@@ -3699,9 +3712,7 @@ function unclassifiedReviewStatsText(site = {}) {
 }
 
 function renderUnclassifiedUsageRecords(requests = [], usedEntries = reviewUsedUnclassifiedEntries()) {
-  const rows = buildUnclassifiedReviewRows(requests, usedEntries);
-  const pendingRows = rows.filter((row) => !isProcessedUnclassifiedReviewRow(row));
-  const processedRows = rows.filter((row) => isProcessedUnclassifiedReviewRow(row));
+  const { rows, pending: pendingRows, processed: processedRows, inapplicable } = unclassifiedReviewGroups(requests, usedEntries);
   window._reviewUnclassifiedRows = rows;
   window._reviewUsedUnclassifiedEntries = usedEntries;
   const renderRow = (row) => renderUnclassifiedReviewRow(row, rows.indexOf(row));
@@ -3711,11 +3722,12 @@ function renderUnclassifiedUsageRecords(requests = [], usedEntries = reviewUsedU
     <div class="rules-site-group-header">
       <div>
         <div>未归类网站使用记录</div>
-        <div class="rules-site-group-subtitle">未处理 ${pendingRows.length} 条 · 已处理 ${processedRows.length} 条 · 默认先按今日、再按本周、最后按近30天累计使用时长降序排列（北京时间）。</div>
+        <div class="rules-site-group-subtitle">未处理 ${pendingRows.length} 条 · 已处理 ${processedRows.length} 条 · 不适用归类 ${inapplicable.length} 条 · 默认先按今日、再按本周、最后按近30天累计使用时长降序排列（北京时间）。</div>
       </div>
     </div>
     ${pendingHtml}
     ${renderRecordHistoryDetails('已处理记录', processedRows.length, processedHtml)}
+    ${renderRecordHistoryDetails('不适用网站归类', inapplicable.length, inapplicable.map(renderRow).join(''))}
   </section>`;
 }
 
@@ -3764,7 +3776,7 @@ function renderReviewUsedUnclassifiedSites() {
     container.innerHTML = '<div class="empty-state" style="padding:36px;">当前没有未归类网站使用记录。</div>';
     return;
   }
-  container.innerHTML = renderUsedUnclassifiedIntro(entries) + renderUnclassifiedUsageRecords(requests, entries);
+  container.innerHTML = renderUsedUnclassifiedIntro(entries, requests) + renderUnclassifiedUsageRecords(requests, entries);
 }
 
 function renderReviewUsedUnclassifiedRow(entry, idx) {

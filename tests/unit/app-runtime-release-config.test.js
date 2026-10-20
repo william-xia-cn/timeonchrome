@@ -5,7 +5,7 @@ const assert = require('assert');
 const { spawnSync } = require('child_process');
 
 const root = path.resolve(__dirname, '../..');
-const workflow = fs.readFileSync(path.join(root, '.github/workflows/app-runtime-production.yml'), 'utf8');
+const workflow = fs.readFileSync(path.join(root, '.github/workflows/app-runtime-production.yml'), 'utf8').replace(/\r\n/g, '\n');
 for (const resource of ['runtime_worker', 'runtime_pages', 'guardian_worker', 'main_pages']) {
   const expectedDefault = resource.startsWith('runtime') ? 'true' : 'false';
   assert(new RegExp(`deploy_${resource}:\\s+description:[^\\n]+\\s+type: boolean\\s+default: ${expectedDefault}`).test(workflow));
@@ -28,6 +28,11 @@ assert(workflow.includes('Runtime Worker smoke'));
 assert(workflow.includes('Runtime Pages smoke'));
 assert(workflow.includes('Guardian fail-closed smoke'));
 assert(workflow.includes('Main Pages smoke'));
+assert(workflow.includes('node tools/check-release-resource.js'));
+assert(/name: Release manifest\s+if: \$\{\{ always\(\) \}\}/.test(workflow));
+assert(/uses: actions\/upload-artifact@v4\s+if: \$\{\{ always\(\) \}\}/.test(workflow));
+const manifestSteps = workflow.slice(workflow.indexOf('- name: Release manifest'));
+assert(manifestSteps.indexOf('node tools/write-app-runtime-release-manifest.js') < manifestSteps.indexOf('npx --no-install wrangler'));
 const bootstrap = workflow.indexOf('- name: Runtime RPC bootstrap');
 const guardian = workflow.indexOf('- name: Guardian Worker');
 const runtime = workflow.indexOf('- name: Runtime Worker');
@@ -118,14 +123,17 @@ try {
   json('runtime-pages-deployments.json', [{ Id: 'unknown-source' }, { Id: 'new-page', Source: 'abcdef0', Deployment: 'https://example.invalid' }]);
   json('main-pages-deployments.json', [{ Id: 'unchanged-main', Source: '1234567' }]);
   json('runtime-r2-latest.json', { version: '2.0.6' });
-  const run = (applied, guardianApplied = '', shadowPrepared = false) => {
+  const run = (applied, guardianApplied = '', shadowPrepared = false, overrides = {}) => {
     const result = spawnSync(process.execPath, [path.join(root, 'tools/write-app-runtime-release-manifest.js')], {
       cwd: fixture, encoding: 'utf8', env: {
         ...process.env, GITHUB_SHA: 'abcdef0123456789', GITHUB_STEP_SUMMARY: '',
+        RELEASE_JOB_STATUS: 'failure',
+        RELEASE_STEPS: JSON.stringify({ main_pages_smoke: { outcome: 'failure' }, runtime_deploy: { outcome: 'success' }, runtime_pages_deploy: { outcome: 'success' } }),
         APPLIED_RUNTIME_MIGRATIONS: applied, EXPECTED_RUNTIME_MIGRATIONS: 'must-not-be-recorded.sql',
         APPLIED_GUARDIAN_MIGRATIONS: guardianApplied, PREPARE_SHARED_ACCESS_SHADOW: String(shadowPrepared),
         DEPLOY_RUNTIME_WORKER: 'true', DEPLOY_RUNTIME_PAGES: 'true',
         DEPLOY_GUARDIAN_WORKER: 'false', DEPLOY_MAIN_PAGES: 'false',
+        ...overrides,
       },
     });
     assert.equal(result.status, 0, result.stderr);
@@ -133,6 +141,8 @@ try {
   };
   const manifest = run('0008_runtime_application_knowledge.sql');
   assert.equal(manifest.contractVersion, '1.1.0');
+  assert.equal(manifest.jobStatus, 'failure');
+  assert.equal(manifest.stepOutcomes.main_pages_smoke, 'failure');
   assert.deepEqual(manifest.deployedResources, ['runtimeWorker', 'runtimePages']);
   assert.deepEqual(manifest.runtimeMigrations, ['0008_runtime_application_knowledge.sql']);
   assert.equal(manifest.runtimeWorkerVersion, 'new-worker');
@@ -146,6 +156,21 @@ try {
   const shadowManifest = run('', '033_shared_web_contributions_v1.sql', true);
   assert.deepEqual(shadowManifest.guardianMigrations, ['033_shared_web_contributions_v1.sql']);
   assert.equal(shadowManifest.sharedAccessShadowPrepared, true);
+  json('runtime-worker-deployments.json', []);
+  json('runtime-pages-deployments.json', []);
+  json('runtime-r2-latest.json', null);
+  const incomplete = run('');
+  assert.equal(incomplete.jobStatus, 'failure');
+  assert.equal(incomplete.runtimeWorkerVersion, null);
+  assert.equal(incomplete.runtimePages, null);
+  assert.equal(incomplete.r2Latest, null);
+  const failedDeploy = run('', '', false, { RELEASE_STEPS: JSON.stringify({
+    runtime_deploy: { outcome: 'failure' }, runtime_pages_deploy: { outcome: 'skipped' },
+  }) });
+  assert.deepEqual(failedDeploy.deployedResources, []);
+  assert.deepEqual(failedDeploy.requestedResources, ['runtimeWorker', 'runtimePages']);
+  fs.writeFileSync(path.join(fixture, 'runtime-worker-deployments.json'), 'invalid');
+  assert(run('').evidenceErrors.includes('Unavailable evidence: runtime-worker-deployments.json'));
 } finally {
   fs.rmSync(fixture, { recursive: true, force: true });
 }

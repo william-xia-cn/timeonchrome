@@ -205,6 +205,7 @@ jobs:
           NODE
           npx wrangler deploy --config "$RUNNER_TEMP/runtime-rpc-bootstrap.json"
       - name: Guardian Worker
+        id: guardian_deploy
         if: inputs.deploy_guardian_worker
         working-directory: app-runtime-management/backend
         env:
@@ -217,14 +218,17 @@ jobs:
             npx wrangler deploy --config ../../workers/wrangler.toml --keep-vars
           fi
       - name: Runtime Worker
+        id: runtime_deploy
         if: inputs.deploy_runtime_worker
         working-directory: app-runtime-management/backend
         run: npx wrangler deploy
       - name: Runtime Pages
+        id: runtime_pages_deploy
         if: inputs.deploy_runtime_pages
         working-directory: app-runtime-management/backend
         run: npx wrangler pages deploy ../console --project-name timeonchrome-app-runtime-console --branch master --commit-hash "${GITHUB_SHA}"
       - name: Main Pages
+        id: main_pages_deploy
         if: inputs.deploy_main_pages
         working-directory: app-runtime-management/backend
         run: |
@@ -232,6 +236,7 @@ jobs:
           node ../../tools/stage-main-console-release.js ../../pages "$stage"
           npx wrangler pages deploy "$stage" --project-name timeonchrome-console --branch master --commit-hash "${GITHUB_SHA}"
       - name: Runtime Worker smoke
+        id: runtime_smoke
         if: inputs.deploy_runtime_worker
         run: |
           curl --retry 5 --retry-all-errors --retry-delay 2 --fail --silent --show-error \
@@ -240,22 +245,28 @@ jobs:
             'https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev/v2/module/app-catalog?childId=ci-smoke')"
           test "$status" = "401"
       - name: Runtime Pages smoke
+        id: runtime_pages_smoke
         if: inputs.deploy_runtime_pages
         run: curl --retry 5 --retry-all-errors --retry-delay 2 --fail --silent --show-error https://timeonchrome-app-runtime-console.pages.dev/ > /dev/null
       - name: Guardian fail-closed smoke
+        id: guardian_smoke
         if: inputs.deploy_guardian_worker
         run: |
           status="$(curl --retry 5 --retry-all-errors --retry-delay 2 --silent --output /dev/null --write-out '%{http_code}' \
             --request POST https://guardian-api.william-xia-cn.workers.dev/app-runtime/account-token)"
           test "$status" = "401"
       - name: Main Pages smoke
+        id: main_pages_smoke
         if: inputs.deploy_main_pages
         run: |
           curl --retry 5 --retry-all-errors --retry-delay 2 --fail --silent --show-error https://timeonchrome-console.pages.dev/ > /dev/null
-          curl --retry 5 --retry-all-errors --retry-delay 2 --fail --silent --show-error https://timeonchrome-console.pages.dev/computer-usage-view.js > "$RUNNER_TEMP/main-console-computer-usage-view.js"
-          cmp pages/computer-usage-view.js "$RUNNER_TEMP/main-console-computer-usage-view.js"
+          node tools/check-release-resource.js https://timeonchrome-console.pages.dev/computer-usage-view.js pages/computer-usage-view.js
       - name: Release manifest
+        if: ${{ always() }}
+        timeout-minutes: 3
         env:
+          RELEASE_STEPS: ${{ toJSON(steps) }}
+          RELEASE_JOB_STATUS: ${{ job.status }}
           APPLIED_RUNTIME_MIGRATIONS: ${{ steps.migrations.outputs.applied }}
           APPLIED_GUARDIAN_MIGRATIONS: ${{ steps.shared_web_storage.outputs.applied }}
           PREPARE_SHARED_ACCESS_SHADOW: ${{ inputs.prepare_shared_access_shadow }}
@@ -264,13 +275,17 @@ jobs:
           DEPLOY_GUARDIAN_WORKER: ${{ inputs.deploy_guardian_worker }}
           DEPLOY_MAIN_PAGES: ${{ inputs.deploy_main_pages }}
         run: |
-          (cd app-runtime-management/backend && npx wrangler deployments list --json) > runtime-worker-deployments.json
-          (cd app-runtime-management/backend && npx wrangler deployments list --config ../../workers/wrangler.toml --json) > guardian-worker-deployments.json
-          (cd app-runtime-management/backend && npx wrangler pages deployment list --project-name timeonchrome-app-runtime-console --environment production --json) > runtime-pages-deployments.json
-          (cd app-runtime-management/backend && npx wrangler pages deployment list --project-name timeonchrome-console --environment production --json) > main-pages-deployments.json
-          curl --fail --silent --show-error https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev/v1/releases/windows/x64/latest > runtime-r2-latest.json
+          # Persist step outcomes before optional remote evidence collection can fail or time out.
+          node tools/write-app-runtime-release-manifest.js
+          (cd app-runtime-management/backend && npx --no-install wrangler deployments list --json) > runtime-worker-deployments.json || echo '[]' > runtime-worker-deployments.json
+          (cd app-runtime-management/backend && npx --no-install wrangler deployments list --config ../../workers/wrangler.toml --json) > guardian-worker-deployments.json || echo '[]' > guardian-worker-deployments.json
+          (cd app-runtime-management/backend && npx --no-install wrangler pages deployment list --project-name timeonchrome-app-runtime-console --environment production --json) > runtime-pages-deployments.json || echo '[]' > runtime-pages-deployments.json
+          (cd app-runtime-management/backend && npx --no-install wrangler pages deployment list --project-name timeonchrome-console --environment production --json) > main-pages-deployments.json || echo '[]' > main-pages-deployments.json
+          curl --max-time 20 --fail --silent --show-error https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev/v1/releases/windows/x64/latest > runtime-r2-latest.json || echo 'null' > runtime-r2-latest.json
           node tools/write-app-runtime-release-manifest.js
       - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
         with:
           name: app-runtime-production-manifest-${{ github.sha }}
           path: app-runtime-production-manifest.json
+          if-no-files-found: error

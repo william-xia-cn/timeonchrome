@@ -67,7 +67,7 @@ assert.throws(() => validateGateResults(requirements, {
   changes: 'failure', worker: 'skipped', console: 'skipped',
 }), /changes failed/);
 
-const workflow = fs.readFileSync(path.join(root, '.github/workflows/app-runtime.yml'), 'utf8');
+const workflow = fs.readFileSync(path.join(root, '.github/workflows/app-runtime.yml'), 'utf8').replace(/\r\n/g, '\n');
 for (const job of ['changes', 'contracts-worker-console', 'console', 'release-config', 'app-runtime-gate']) {
   assert(new RegExp(`^  ${job}:`, 'm').test(workflow), `missing job ${job}`);
 }
@@ -93,7 +93,7 @@ assert.equal(guardianIntegration.split("- 'tests/unit/source-statistics-cloud.te
   'source regression changes must trigger the existing Guardian job');
 assert(guardianIntegration.includes('run: node tests/unit/source-statistics-cloud.test.js'),
   'the existing Guardian job must execute the actual source reader regression');
-assert(production.includes('cmp pages/computer-usage-view.js "$RUNNER_TEMP/main-console-computer-usage-view.js"'),
+assert(production.includes('node tools/check-release-resource.js https://timeonchrome-console.pages.dev/computer-usage-view.js pages/computer-usage-view.js'),
   'existing Pages smoke must compare the real statistics renderer, not only HTML status');
 
 console.log('app-runtime-ci-routing tests: PASS');
