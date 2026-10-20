@@ -68,6 +68,9 @@ function run() {
   expectTrue('Pages 使用分析应采用 Screen Time 结构', source.includes('id="cloud-usage-total"') && source.includes('id="cloud-usage-week-chart"') && source.includes('id="cloud-usage-main-chart"') && source.includes('id="cloud-usage-list-mode"'));
   expectTrue('Pages 使用分析默认全部设备并支持日周切换', source.includes('设备：') && source.includes('全部设备') && source.includes('data-cloud-usage-mode="day"') && source.includes('data-cloud-usage-mode="week"'));
   expectTrue('Pages 使用分析应拆分网页使用和媒体使用 Tab', source.includes('data-cloud-usage-ledger="web"') && source.includes('data-cloud-usage-ledger="media"'));
+  const ledgerTabs = [...source.matchAll(/<button type="button"(?: class="active")? data-cloud-usage-ledger="([^"]+)">([^<]+)<\/button>/g)];
+  expectEqual('Pages 使用分析 Tab 顺序', ledgerTabs.map(match => `${match[1]}:${match[2]}`).join(','), 'web:网页使用,application:应用使用,computer:电脑使用,media:网页媒体使用');
+  expectTrue('Pages 使用分析默认进入网页使用', ledgerTabs[0]?.[0].includes('class="active"') && source.includes("let cloudUsageState = { ledger: 'web',"));
   expectTrue('Pages 使用分析网页和媒体分别读取对应统计源', source.includes('/target-stats/v1?') && source.includes('/hourly-target-stats/v1?') && source.includes('/media-stats/v1?') && source.includes('/hourly-media-stats/v1?'));
   expectTrue('Pages 使用分析主分类应优先按 targetClassificationAtTime 展示，配额 bucket 仅作 fallback', extractFunctionSource(source, 'cloudRowCategory').includes('cloudClassificationCategory(row?.targetClassificationAtTime)') && extractFunctionSource(source, 'cloudRowCategory').includes('row.quotaBucket || row.mode'));
   expectTrue('Pages 使用分析应标注待归类借用休息配额', source.includes('cloudRowBorrowedRestSeconds') && source.includes('待归类 · 借用休息配额'));
@@ -242,7 +245,7 @@ function run() {
   expectTrue('Pages 日志策略保存不应提交完整 remoteConfig', !saveClientLoggingPolicySource.includes('{ data: remoteConfig }') && !saveClientLoggingPolicySource.includes('remoteConfig.clientLoggingPolicyV1 = nextPolicy'));
   expectTrue('Pages 日志开启策略应包含上传过滤字段', saveClientLoggingPolicySource.includes('uploadEnabled: true') && saveClientLoggingPolicySource.includes('uploadMinLevel: level') && saveClientLoggingPolicySource.includes('uploadCategories') && saveClientLoggingPolicySource.includes('targetDeviceIds') && saveClientLoggingPolicySource.includes('expiresAt'));
   expectTrue('Pages 日志关闭策略只更新上传策略字段', saveClientLoggingPolicySource.includes('uploadEnabled: false') && saveClientLoggingPolicySource.includes("uploadMinLevel: 'error'") && saveClientLoggingPolicySource.includes('uploadCategories: []') && saveClientLoggingPolicySource.includes('targetDeviceIds: []'));
-  expectTrue('Pages API 错误应优先展示 message', source.includes('data.message || data.error || `HTTP ${r.status}`'));
+  expectTrue('Pages API 错误应优先展示 message', source.includes('data.message || data.error?.message || (typeof data.error===\'string\'?data.error:null) || `HTTP ${r.status}`'));
 
   // 系统配置文案检查
   expectTrue('pages 应使用"系统网站配置"文案', source.includes('系统网站配置'));
