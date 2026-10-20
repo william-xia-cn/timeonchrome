@@ -1,6 +1,12 @@
 # TASK_BOARD
 
-## RELEASE_IN_PROGRESS：电脑四桶与同批应用读数（2026-10-21）
+## DEPLOYED_VERIFIED：电脑四桶与同批应用读数（2026-10-21）
+
+发布完成：PR #310，合并SHA `7cb927ebca90f2bdce42ce56d95c652199eed641`。Runtime CI 39493171615、Guardian integration 39493171493、主控制台39493171383全部通过；生产39493332683成功，Guardian Worker `2cf9979f-c6a5-48ca-b5f1-57b983250f89`、Runtime Pages `e8b47456`、主控制台Pages `c9e356b6`，三项smoke通过，manifest已生成且evidenceErrors为空。Runtime Worker跳过、迁移为空、shared准备false。PR附件因会话附件数量上限未登记，不影响PR实际合并。
+
+线上只读核验：主控制台2026-10-21应用页与电脑应用来源均14288秒、截止04:35:25；电脑四桶学习711/复合14288/休息0/其他0秒。独立Runtime同日应用页与电脑应用来源均14468秒、截止04:38:25；电脑四桶学习711/复合14468/休息0/其他0秒。两套在各自批次中数值与截止完全一致；不同时间采样不冒充同截止横向对比。Runtime首次SSO票据失效，经正常入口重取并重载后恢复，无配置/配对更改。
+
+五项线上关键资源（主index/shared view、Runtime controller/shared view/bucket helper）与合并SHA的Git blob逐字节一致。首次拿Windows CRLF工作区比较误报差异，已查实为换行而非部署不一致，并以实际发布Git LF字节复核通过。此前squash历史冲突已证实本批前树与生产树完全一致，仅补合并关系，未改变已验证文件。Matched：集中发布、资源一致、两套线上四桶/同范围读数/截止；无Deviated/Missing/Extra。本节只补发布记录，不触发重复部署；原账、配置、统计/配额口径及Mac/共享边界不变。
 
 PO已批准集中提交推送合并及部署。复用下方完整本地验证，发布范围为Guardian Worker只读展示适配、主控制台Pages、独立Runtime Pages；Runtime Worker无源码变化不重复部署。精确合并SHA的Runtime、Guardian integration和主控制台CI通过后统一执行现有生产工作流，所有migration/bootstrap/shared准备参数关闭。发布后只读核对线上资源与两套页面四桶、同范围应用数值和截止；未验证前不报线上通过。不改原账、配置、统计/配额算法，不涉及Mac、Native或扩展托管。
 
