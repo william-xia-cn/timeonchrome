@@ -64,14 +64,13 @@
       <section class="view" data-view-panel="access">
         <div class="tabbar"><button class="active" data-access-tab="quotas">统一时间配置</button><button data-access-tab="schedule">单应用限制</button><button data-access-tab="config">应用配置文件</button></div>
         <div data-access-panel="quotas"><section class="card"><div class="section-title"><div><h2>孩子级统一配额与自主度</h2><p>权威配置由主家长控制台的“访问管理”维护；此处只读展示。</p></div></div><div id="quota-form" class="quota-grid"></div></section><aside class="notice warning"><strong>共享配额仍处于兼容／影子阶段</strong><span>此页不再保存第二份公共配额或时间段。设备实际执行覆盖仍需检查；本次不代表网页与应用已经合并扣费。</span></aside></div>
-        <div data-access-panel="schedule" hidden><section class="card"><div class="section-title"><div><h2>应用单项限制</h2><p>此限制只作用于所选产品，不属于孩子级共享时间配置。</p></div><button id="save-quotas" class="primary">保存单项限制</button></div><div id="app-quota-list" class="list"></div></section><section class="card"><h2>统一时间段（只读）</h2><p>时间段由主家长控制台的“访问管理”统一维护。</p><div id="schedule-editor" class="schedule-editor"></div></section></div>
+        <div data-access-panel="schedule" hidden><section class="card" id="native-limits-panel"><div class="section-title"><div><h2>单应用日限额</h2><p>按当前应用身份保存；不修改分类或公共时间配置。保存成功不代表终端已执行。</p></div></div><label>搜索应用名称<input id="native-limit-search" type="search" placeholder="搜索应用名称"></label><div id="app-quota-list" class="list"></div></section><section class="card" id="runtime-schedule-panel"><h2>统一时间段（只读）</h2><p>时间段由主家长控制台的“访问管理”统一维护。</p><div id="schedule-editor" class="schedule-editor"></div></section></div>
         <div data-access-panel="config" hidden><section class="card"><div class="section-title"><div><h2>应用配置文件</h2><p>导入／导出应用分类和单应用限制；孩子级公共配额与时间段不属于此配置文件。</p></div></div><div class="config-actions"><button id="export-config">导出配置</button><label class="button">选择导入文件<input id="import-config" type="file" accept="application/json" hidden></label></div><div id="import-diff" hidden></div></section></div>
       </section>
       <section class="view" data-view-panel="apps">
         <div class="app-directory-toolbar card">
           <label class="app-search-field">应用名称<input id="app-search" type="search" placeholder="搜索应用名称" aria-label="搜索应用名称"></label>
           <label>平台<select id="management-platform" aria-label="平台筛选"><option value="">全部平台</option><option value="windows">Windows</option><option value="macos">macOS</option></select></label>
-          <label id="directory-scope-field">目录范围<select id="directory-scope" aria-label="目录范围"><option value="primary">主要应用</option><option value="unused">已安装未使用</option><option value="usage">使用未归类证据</option><option value="all">全部可管理应用</option></select></label>
           <div class="knowledge-tools"><span>管理入口</span><button id="open-instances">程序实例与未识别项</button><button id="open-products">确定性应用列表</button><button id="open-rules">分类规则管理</button></div>
           <p class="app-directory-help">来自安装发现、使用观察或可靠身份预配置，不支持仅按名称添加</p>
         </div>

@@ -1,5 +1,6 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { matchDomain as matchDomainV12 } from '../../../extension/core/domain-semantics.js';
+import { resolveManagedTargetAttribution } from '../../../extension/core/managed-targets.js';
 import {
   decisionToStatus,
   normalizeSiteClassificationDecision,
@@ -566,6 +567,9 @@ export async function ensureUnclassifiedSiteRequest(
   if (target.targetType !== 'host') return { ok: false, status: 400, error: 'host target required', code: 'INVALID_TARGET' };
 
   const effective = await getProfileSiteAccessConfig(env, profileId);
+  if (resolveManagedTargetAttribution(effective, [], target.normalizedValue)?.targetClassificationAtTime === 'other') {
+    return {ok: true, alreadyClassified: true, currentClassification: 'other'};
+  }
   const pendingByHost = await getPendingRequestsByHost(env, profileId);
   const matchingPending = Array.from(pendingByHost.entries())
     .filter(([requestHost]) => sameHostRule(requestHost, target.normalizedValue))
@@ -753,7 +757,8 @@ async function listUsedUnclassifiedSites(request: Request, env: Env, profileId: 
       .filter(([requestHost]) => sameHostRule(requestHost, domain))
       .flatMap(([, values]) => values);
     const resolved = resolveSiteAccessClassification(config || {}, pendingRows.map(rowToResponse), domain);
-    const currentClassification = resolved.classification || 'unclassified';
+    const currentClassification = resolveManagedTargetAttribution(config, [], domain)?.targetClassificationAtTime === 'other'
+      ? 'other' : resolved.classification || 'unclassified';
     const historicalPending = currentClassification !== 'unclassified' && currentClassification !== 'pending_composite';
     sites.push({
       domain,
@@ -982,7 +987,11 @@ export const siteClassificationRequestsRouter = {
          ORDER BY requested_at DESC
          LIMIT 500`
       ).bind(...binds).all<any>();
-      return json({ requests: (result.results || []).map(rowToResponse) });
+      const effective = await getProfileSiteAccessConfig(env, profileId);
+      const visible = (result.results || []).filter(row => row.status !== 'pending'
+        || resolveManagedTargetAttribution(effective, [],
+          row.requested_host || row.requested_normalized_value || row.display_value)?.targetClassificationAtTime !== 'other');
+      return json({ requests: visible.map(rowToResponse) });
     }
 
     const decisionMatch = path.match(/^\/profiles\/([^/]+)\/site-classification-requests\/([^/]+)\/decision$/);

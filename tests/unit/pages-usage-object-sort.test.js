@@ -13,12 +13,14 @@ const context = {};
 vm.runInNewContext(`${source.slice(start, end)}\nthis.sortRows = sortCloudWebTargetRows;`, context);
 
 const rows = [
-  { label: '乙', todaySeconds: 20, weekSeconds: 90 },
-  { label: '甲', todaySeconds: 20, weekSeconds: 30 },
-  { label: '丙', todaySeconds: 0, weekSeconds: 200 },
+  { key:'b', label: '乙', todaySeconds: 20, weekSeconds: 90 },
+  { key:'a', label: '甲', todaySeconds: 20, weekSeconds: 30 },
+  { key:'c', label: '丙', todaySeconds: 0, weekSeconds: 200 },
 ];
 const labels = result => Array.from(result, row => row.label).join(',');
-assert.equal(labels(context.sortRows(rows)), '甲,乙,丙', '默认按今日秒数降序，同秒按名称稳定排列');
+assert.equal(labels(context.sortRows(rows)), '甲,乙,丙', '默认按今日秒数降序，同秒按对象键稳定排列');
+assert.equal(labels(context.sortRows([{...rows[0],label:'同名'},{...rows[1],label:'同名'}])), '同名,同名');
+assert.equal(context.sortRows([{...rows[0],label:'甲'},{...rows[1],label:'乙'}])[0].key,'a','显示名称不影响同值排序');
 assert.equal(labels(context.sortRows(rows, 'week')), '丙,乙,甲', '可按本周秒数降序');
 assert.equal(labels(context.sortRows(rows, 'unknown')), '甲,乙,丙', '无效选项回到今日');
 assert.equal(labels(rows), '乙,甲,丙', '排序不改动统计源数组');

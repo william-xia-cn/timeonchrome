@@ -13,7 +13,7 @@
   const assertLive=()=>{if(!live())throw Object.assign(new Error('组件上下文已变化'),{code:'COMPONENT_CONTEXT_CHANGED'});};
   const RUNTIME_API = 'https://timeonchrome-app-runtime-api.william-xia-cn.workers.dev';
   const requestedLaunchView = embedded?config.view:new URLSearchParams(location.search).get('view');
-  if(embedded&&!['apps','devices','access','system','configuration'].includes(requestedLaunchView))throw new Error('INVALID_RUNTIME_MANAGEMENT_VIEW');
+  if(embedded&&!['apps','devices','access','system','configuration','limits'].includes(requestedLaunchView))throw new Error('INVALID_RUNTIME_MANAGEMENT_VIEW');
   const initialView = embedded?requestedLaunchView:['apps', 'devices'].includes(requestedLaunchView) ? requestedLaunchView : 'usage';
   const mainConsoleUrl = new URL('https://timeonchrome-console.pages.dev/?launch=app-runtime');
   if (['apps', 'devices'].includes(initialView)) mainConsoleUrl.searchParams.set('view', initialView);
@@ -39,6 +39,7 @@
     apps: ['应用管理', '管理安装发现、产品确认与孩子分类规则'], devices: ['设备管理', '管理电脑、账户分配与运行状态'],
     system: ['系统管理', '查看系统日志、技术进程、主账本、辅助媒体和运行健康'],
     configuration: ['应用配置文件', '仅应用分类和单应用限制；公共时间配置由综合访问管理'],
+    limits: ['单应用日限额', '当前应用身份的独立限制；保存不代表终端已执行'],
   };
   const state = { period: 'day', offset: 0, session: null, childId: null, children: [], machines: [], users: new Map(), machineUserErrors: new Map(), policy: AppRuntimePolicy.defaultPolicy(), policyEtag: '"app-policy-v0"', sharedAccess: null, sharedAccessError: null, loggingPolicy: null, loggingPolicyEtag: null, records: { pending: [], processed: [], technical: [] }, catalog: { items: [], technicalItems: [] }, usage: {}, runtimeLogs: { range: 'today', items: [], nextCursor: null, summary: null }, timer: null, searchTimer: null, view: initialView, appCategory: 'unclassified', appGroups: { application: true, game: true, systemTool: false, processed: false }, actionApps: [], quotaApps: [], loaded: false, managementLoaded: false };
   let applicationImportDraft = null;
@@ -297,7 +298,7 @@
     if(category==='special')return (state.catalog.items||[]).filter(item=>item.presentationKind==='contentBased');
     const specialKeys=new Set((state.catalog.items||[]).filter(item=>item.presentationKind==='contentBased')
       .flatMap(item=>[...(item.runtimeIdentity?[AppRuntimePolicy.keyOf(item)]:[]),...(item.runtimeImplementations||[]).map(AppRuntimePolicy.keyOf)]));
-    const scope = $('#directory-scope').value;
+    const scope = 'primary';
     if (scope === 'usage') return category === 'unclassified' ? (state.records.pending || []).filter(item=>!specialKeys.has(AppRuntimePolicy.keyOf(item)))
       : (state.catalog.items || []).filter(item=>item.presentationKind!=='contentBased'&&item.classification===category&&item.observedInWindow);
     return (state.catalog.items || []).filter(item=>item.presentationKind!=='contentBased'&&item.classification===category)
@@ -350,7 +351,6 @@
       $('#app-directory-title').textContent=choices.find(([key])=>key===state.appCategory)?.[1]||'应用管理';
       $('#app-directory-subtitle').textContent='本机应用身份就是管理对象；与应用统计采用相同身份，不等待旧产品目录确认。';
       $('#inventory-status').textContent='扫描与运行发现统一登记。分类保存不代表终端已执行；原有产品与Firefox配置保持。';
-      $('#directory-scope').disabled=true;$('#directory-scope').title='当前对象目录不推断已安装未使用；统计请查看应用使用。';
       $('#managed-app-list').innerHTML=AppRuntimeKnowledge.nativeApplicationsHTML(state.nativeVisible,state.policy.nativeApplications||[]);
       $('#game-app-list').textContent='应用类型未由本机声明，不按名称猜分组。';
       $('#ordinary-app-count').textContent=`${state.nativeVisible.length} 个`;
@@ -360,10 +360,7 @@
       $('#open-products').disabled=false;$('#open-rules').disabled=false;
       return;
     }
-    $('#directory-scope').disabled=Boolean(state.identityCatalog&&!state.identityDirectory)||Boolean(state.managementError);
-    $('#directory-scope').title=state.identityCatalog&&!state.identityDirectory?'安装／使用范围暂不可读，仍可查看全部目录':'';
     if(state.identityCatalog&&!state.managementError){
-      if(!state.identityDirectory)$('#directory-scope').value='all';
       const catalog=state.identityCatalog,binding=catalog.bindings.find(item=>item.childId===state.childId);
       const choices=[['study','学习应用'],['composite','复合应用'],['restrictedEntertainment','受限娱乐应用'],['other','其他时间应用'],['blocked','黑名单应用'],['unclassified','未归类应用'],['special','特殊应用']];
       const category=product=>product.catalogGroup==='specialApplication'?'special':binding?.products.find(item=>item.productId===product.id)?.classification??'unclassified';
@@ -372,7 +369,7 @@
       $('#open-rules').title='管理孩子批准、分类结果、模式、平台及高级条件草稿；保存须通过云端校验';
       $('#app-category-nav').innerHTML=choices.map(([key,label])=>`<button class="app-category-item ${state.appCategory===key?'active':''}" data-app-category="${key}"><strong>${label}</strong><span>${catalog.products.filter(product=>category(product)===key).length}</span></button>`).join('');
       const search=($('#app-search').value||'').trim().toLowerCase(),platform=$('#management-platform').value;
-      const directory=state.identityDirectory,scope=$('#directory-scope').value;
+      const directory=state.identityDirectory,scope=directory?'primary':'all';
       const facts=product=>(directory?.facts||[]).filter(item=>item.productId===product.id&&(!platform||item.platform===platform));
       const inScope=product=>{
         const records=facts(product);
@@ -435,7 +432,7 @@
     const gameApps = list.filter((item) => item.catalogGroup === 'game');
     const systemTools = list.filter((item) => item.catalogGroup === 'systemTool');
     const ordinaryApps = list.filter((item) => item.catalogGroup !== 'game' && item.catalogGroup !== 'systemTool');
-    $('#app-directory-title').textContent = current === 'unclassified' ? ($('#directory-scope').value==='usage'?'已使用未归类应用':'未归类应用 · 安装发现与使用观察') : `${categoryLabels[current]}应用`;
+    $('#app-directory-title').textContent = current === 'unclassified' ? '未归类应用 · 安装发现与使用观察' : `${categoryLabels[current]}应用`;
     $('#app-directory-subtitle').textContent = current === 'unclassified'
       ? `当前范围待处理 ${source.length} 个 · 使用证据最近 30 天；安装发现不生成账本，归类仅向前生效`
       : `应用 ${categoryCounts(current).total} · Windows ${categoryCounts(current).windows} · macOS ${categoryCounts(current).macos}`;
@@ -483,9 +480,28 @@
     const rows = shared ? AppRuntimePolicy.weekdays.map((day) => `<div class="shared-access-row"><strong>${dayLabels[day]}</strong><span>学习 ${minutes(shared.dailyMinutes?.[day]?.study)}</span><span>复合 ${minutes(shared.dailyMinutes?.[day]?.composite)}</span><span>娱乐 ${minutes(shared.dailyMinutes?.[day]?.rest)}</span></div>`).join('') : '';
     const stateLabel = shared ? ({ legacy: '沿用旧配置来源', shadow: '影子核对中', shared: '共享执行' }[shared.stage] || '状态未知') : '统一访问配置暂不可读取';
     $('#quota-form').innerHTML = shared ? `<p>配置版本 ${escape(shared.revision)} · ${stateLabel}</p><div class="shared-access-grid">${rows}</div><p>每周娱乐 ${minutes(shared.weeklyRestMinutes)} · 娱乐进入确认 ${shared.autonomy?.restrictedEntryConfirmationRequired ? '开启' : '关闭'} · 日提醒 ${minutes(shared.autonomy?.dailyFirstReminderMinutes)} · 周提醒 ${minutes(shared.autonomy?.weeklyFirstReminderMinutes)} · 重复间隔 ${minutes(shared.autonomy?.repeatReminderMinutes)}</p><p class="muted">单应用限制在“单应用限制”维护；终端共享执行覆盖仍需在设备管理核对。</p>` : `<p class="error">无法读取主控制台的统一配置（${escape(state.sharedAccessError || 'UNKNOWN')}）。应用统计和分类管理仍可用。</p>`;
-    state.quotaApps = observedApps();
-    const per = new Map(quotas.perApplicationDailyMinutes.map((item) => [AppRuntimePolicy.keyOf(item), item.minutes]));
-    $('#app-quota-list').innerHTML = state.quotaApps.map((app, index) => `<div class="quota-app-row"><span class="app-icon">${escape((app.displayName || '?')[0])}</span><div><strong>${escape(app.displayName || '未知应用')}</strong><small>${app.platform}</small></div><input type="number" min="0" data-app-quota-index="${index}" value="${per.get(AppRuntimePolicy.keyOf(app)) ?? ''}" placeholder="无限制" aria-label="${escape(app.displayName)} 每日分钟"></div>`).join('') || '<p class="empty">暂无已观察应用</p>';
+    renderNativeLimits();
+  }
+  function renderNativeLimits() {
+    const query=($('#native-limit-search').value||'').trim().toLowerCase();
+    state.limitVisible=(state.nativeDirectory||[]).filter(item=>(item.presentations[0]?.name||item.target.nativeId).toLowerCase().includes(query));
+    $('#app-quota-list').innerHTML=state.limitVisible.map((item,index)=>{
+      const name=item.presentations[0]?.name||item.target.nativeId;
+      const entry=state.policy.nativeApplications?.find(c=>c.target.machineId===item.target.machineId&&c.target.nativeId===item.target.nativeId);
+      const machine=state.machines.find(m=>m.id===item.target.machineId||m.machineId===item.target.machineId);
+      return `<div class="record-card"><div><strong>${escape(name)}</strong><p>来源电脑：${escape(machine?.displayName||item.target.machineId)}</p><small>${escape(item.target.nativeId)}</small></div><div class="record-actions"><label>每日分钟（空为不限制）<input type="number" min="0" max="1440" data-native-limit="${index}" value="${entry?.dailyQuotaMinutes??''}"></label><button type="button" data-native-limit-save="${index}">保存日限额</button></div></div>`;
+    }).join('')||'<p class="empty">当前范围没有可显示的应用身份。</p>';
+  }
+  async function saveNativeChange(change) {
+    if(mock){
+      const entries=state.policy.nativeApplications||[];
+      const same=c=>c.target.machineId===change.target.machineId&&c.target.nativeId===change.target.nativeId;
+      state.policy.nativeApplications=[...entries.filter(c=>!same(c)),{classification:'unclassified',specialApplication:false,dailyQuotaMinutes:null,...entries.find(same),...change}];
+      renderAll();return;
+    }
+    await runtime(`/v2/module/app-policy?childId=${encodeURIComponent(state.childId)}`,{method:'PUT',headers:{'If-Match':state.policyEtag},
+      body:JSON.stringify({nativeApplicationChanges:[change]})});
+    await load();
   }
   function renderSchedule() {
     const dayLabels = { monday: '周一', tuesday: '周二', wednesday: '周三', thursday: '周四', friday: '周五', saturday: '周六', sunday: '周日' };
@@ -568,7 +584,7 @@
     try{nativePage=await runtime(`/v2/module/applications?childId=${childId}`);}catch(error){if(error?.code==='COMPONENT_CONTEXT_CHANGED')throw error;}
     const policyResult=await nativePolicyRead,nativePolicy=policyResult.value;
     if(selectedChild!==state.childId)throw Object.assign(new Error('孩子已切换'),{code:'COMPONENT_CONTEXT_CHANGED'});
-    if(nativePage?.state==='available'&&nativePage.items?.length){
+    if(nativePage?.state==='available'){
       if(policyResult.error)throw policyResult.error;
       const items=[...nativePage.items];let next=nativePage.nextOffset;
       while(next!==null){
@@ -631,6 +647,10 @@
         renderAll(); markLoaded(); if (state.view === requestedView) clearError();
         if (requestedView === 'usage') void loadUsage();
       } else {
+        if(requestedView==='limits'||requestedView==='access'){
+          const machines=await runtime('/v2/module/machines');
+          state.machines=machines.machines||[];
+        }
         await loadManagementState();
         renderAll(); markLoaded(); if (state.view === requestedView) clearError();
       }
@@ -679,13 +699,12 @@
     renderChildPicker();
     if (state.view === 'usage') { const period = range(); $('#range-label').textContent = period.label; $('#chart-caption').textContent = `北京时间，${state.period === 'day' ? '按小时' : '按每日'}`; renderFilters(); renderUsage(); }
     else if (state.view === 'access') { renderQuotaForm(); renderSchedule(); }
+    else if (state.view === 'limits') renderNativeLimits();
     else if (state.view === 'apps') renderAppDirectory();
     else if (state.view === 'devices') renderMachines();
     else if (state.view === 'system') { renderHealth(); renderLoggingPolicy(); renderTechnicalRecords(); }
   }
   async function savePolicy(next) { if (mock) { const history = [...(state.records.pending || []), ...(state.records.processed || [])]; state.policy = AppRuntimePolicy.normalize({ ...next, version: state.policy.version + 1, effectiveAtMs: Date.now() }); state.policyEtag = `"app-policy-v${state.policy.version}"`; const current = new Map(state.policy.classifications.map((entry) => [AppRuntimePolicy.keyOf(entry), entry])); state.records.pending = history.filter((record) => !current.has(AppRuntimePolicy.keyOf(record))); state.records.processed = history.filter((record) => current.has(AppRuntimePolicy.keyOf(record))).map((record) => ({ ...record, status: 'processed', classification: current.get(AppRuntimePolicy.keyOf(record)).classification })); state.catalog.items = observedApps().map((item) => ({ ...item, classification: current.get(AppRuntimePolicy.keyOf(item))?.classification || 'unclassified' })); renderAll(); return; } const body = { classifications: next.classifications, quotas: next.quotas, timeWindows: next.timeWindows }; const saved = await runtime(`/v2/module/app-policy?childId=${encodeURIComponent(state.childId)}`, { method: 'PUT', headers: { 'If-Match': state.policyEtag }, body: JSON.stringify(body) }); state.policy = AppRuntimePolicy.normalize(saved); state.policyEtag = `"app-policy-v${state.policy.version}"`; await load(); }
-  function quotaValue(input) { return input.value === '' ? null : Math.max(0, Number.parseInt(input.value, 10)); }
-  async function saveQuotas() { const perApplicationDailyMinutes = $$('[data-app-quota-index]').filter((input) => input.value !== '').map((input) => { const app = state.quotaApps[Number(input.dataset.appQuotaIndex)]; return { platform: app.platform, runtimeIdentity: app.runtimeIdentity, minutes: quotaValue(input) }; }); await savePolicy(AppRuntimePolicy.withQuotas(state.policy, { ...state.policy.quotas, perApplicationDailyMinutes })); }
   function collectSchedule() {
     const next = AppRuntimePolicy.allOpenTimeWindows();
     AppRuntimePolicy.weekdays.forEach((day) => AppRuntimePolicy.scheduleCategories.forEach((category) => { next[day][category] = []; }));
@@ -844,7 +863,6 @@
     if (button.dataset.period) { state.period = button.dataset.period; state.offset = 0; $$('[data-period]').forEach((item) => item.classList.toggle('active', item === button)); await loadUsage(); renderUsage(); }
     if (button.id === 'previous') { state.offset -= 1; await loadUsage(); renderUsage(); }
     if (button.id === 'today') { state.offset = 0; await loadUsage(); renderUsage(); }
-    if (button.id === 'save-quotas') await saveQuotas();
     if (button.id === 'add-machine') openPair();
     if (button.id === 'create-pairing') await createPairing();
     if (button.id === 'copy-code') await copyCode('pair'); if (button.id === 'copy-uninstall') await copyCode('uninstall');
@@ -855,14 +873,17 @@
     if(button.dataset.nativeSave!==undefined){
       const index=Number(button.dataset.nativeSave),item=state.nativeVisible?.[index];if(!item)throw new Error('APPLICATION_DIRECTORY_CHANGED');
       if(!$(`[data-native-class="${index}"]`).value)throw new Error('请选择应用分类；未分配分类的应用属于未归类');
-      const input=$(`[data-native-quota="${index}"]`),minutes=input.value===''?null:Number(input.value);
-      if(minutes!==null&&(!Number.isSafeInteger(minutes)||minutes<0||minutes>1440))throw new Error('单应用日限必须为0至1440整数分钟');
       const next={target:{...item.target},classification:$(`[data-native-class="${index}"]`).value,
-        specialApplication:$(`[data-native-special="${index}"]`).checked,dailyQuotaMinutes:minutes};
-      const entries=(state.policy.nativeApplications||[]).filter(c=>c.target.machineId!==item.target.machineId||c.target.nativeId!==item.target.nativeId);
-      const body={classifications:state.policy.classifications,quotas:state.policy.quotas,timeWindows:state.policy.timeWindows,nativeApplications:[...entries,next]};
-      await runtime(`/v2/module/app-policy?childId=${encodeURIComponent(state.childId)}`,{method:'PUT',headers:{'If-Match':state.policyEtag},body:JSON.stringify(body)});
-      await load();showSuccess('应用配置已保存；新身份黑名单／日限暂未接入限制执行。');return;
+        specialApplication:$(`[data-native-special="${index}"]`).checked};
+      await saveNativeChange(next);showSuccess('应用分类和特殊应用设置已保存；不代表终端已执行。');return;
+    }
+    if(button.dataset.nativeLimitSave!==undefined){
+      const index=Number(button.dataset.nativeLimitSave),item=state.limitVisible?.[index];
+      if(!item)throw new Error('APPLICATION_DIRECTORY_CHANGED');
+      const value=$(`[data-native-limit="${index}"]`).value,minutes=value===''?null:Number(value);
+      if(minutes!==null&&(!Number.isSafeInteger(minutes)||minutes<0||minutes>1440))throw new Error('单应用日限必须为0至1440整数分钟');
+      await saveNativeChange({target:{...item.target},dailyQuotaMinutes:minutes});
+      showSuccess('单应用日限额已保存；不代表终端已执行。');return;
     }
     if (button.dataset.classifyIndex != null && button.dataset.classification) { const app = state.actionApps[Number(button.dataset.classifyIndex)]; if (app) { if(app.manageability!=='actionable')throw new Error('技术进程记录不能直接归类，请先确认产品身份');if(app.productId) await knowledgeManager.classify(app.productId,button.dataset.classification); else {const implementations=app.runtimeImplementations?.length?app.runtimeImplementations:[app];let next=state.policy;for(const implementation of implementations){if(!implementation.runtimeIdentity)throw new Error('此应用缺少可靠身份，请先在确定性应用列表确认');next=AppRuntimePolicy.classify(next,{...app,...implementation},button.dataset.classification);}await savePolicy(next);} showSuccess(`${app.displayName || '应用'} 分类已保存，等待设备实际应用`); } }
     if (button.dataset.manageVariants !== undefined) await knowledgeManager.open('product');
@@ -916,7 +937,7 @@
   });
   listen(root,'change', async (event) => { if(!live())return;const control = event.target; try {
     if (['pair-platform','pair-default-child'].includes(control.id)) { resetPairing(); return; }
-    if (['directory-scope','management-platform'].includes(control.id)) { renderAppDirectory(); return; }
+    if (control.id==='management-platform') { renderAppDirectory(); return; }
     if (control.id === 'child-select') { if(embedded)return;const selected = childFromIndex(control.value); if (selected) { usageRequestVersion++;computerReader.invalidate();independentReader.invalidate();state.usage={};renderUsage();state.childId = selected.id; mountKnowledgeManager(); state.managementLoaded = false; state.session.selectedChildId = selected.id; AppRuntimeSession.save(sessionStorage, state.session); await load(); } }
     else if (control.id === 'machine-filter') { renderFilters(); if (!mock) await loadUsage(); renderUsage(); }
     else if (['user-filter','platform-filter'].includes(control.id)) { if (!mock) await loadUsage(); renderUsage(); }
@@ -926,7 +947,7 @@
     else if (control.dataset.user) { const selected = control.value === 'u' ? null : childFromIndex(control.value); if (!mock) { await runtime(`/v2/module/machines/${encodeURIComponent(control.dataset.machine)}/users/${encodeURIComponent(control.dataset.user)}`, { method: 'PATCH', body: JSON.stringify({ protected: Boolean(selected), childId: selected?.id || null }) }); await load(); } }
     else if (control.id === 'import-config' && control.files[0]) await reviewImport(control.files[0]);
   } catch (error) { showError(error); } });
-  listen(root,'input', (event) => { if(!live())return;if (event.target.id === 'app-search') { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(()=>{if(live())renderAppDirectory();}, 120); } });
+  listen(root,'input', (event) => { if(!live())return;if(event.target.id==='native-limit-search')renderNativeLimits();if (event.target.id === 'app-search') { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(()=>{if(live())renderAppDirectory();}, 120); } });
   listen($('#mobile-backdrop'),'click', () => { $('#sidebar').classList.remove('open'); closeDrawer(); });
   if(!embedded)listen($('#runtime-logout'),'click', async () => {
     applicationReadCache.clear();
@@ -952,7 +973,8 @@
   }
   mountKnowledgeManager();
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === state.view));
-  $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === (state.view==='configuration'?'access':state.view)));
+  $$('.view').forEach((panel) => panel.classList.toggle('active', panel.dataset.viewPanel === (['configuration','limits'].includes(state.view)?'access':state.view)));
+  if(state.view==='limits'){ $('[data-view-panel="access"] .tabbar').hidden=true; switchTab('access','schedule'); $('#runtime-schedule-panel').hidden=true; $('.topbar').hidden=true; }
   if(state.view==='configuration') { $('[data-view-panel="access"] .tabbar').hidden=true; switchTab('access','config'); }
   [$('#page-title').textContent, $('#page-subtitle').textContent] = viewText[state.view];
   const ready=load();

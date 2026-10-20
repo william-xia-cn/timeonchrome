@@ -4,11 +4,51 @@ import {randomToken,sha256Hex} from '../src/crypto';
 import {routeV2} from '../src/v2Routes';
 import {projectAppPolicyForMachine} from '../src/v2Repository';
 import {receiveNativeApplicationObjects,readNativeApplicationObjects,readNativeApplicationConfiguration} from '../src/nativeApplicationObjects';
-import {getAppPolicy,putAppPolicy,parseAppPolicyUpdate,appPolicyEtag} from '../src/appPolicy';
+import {getAppPolicy,putAppPolicy,putNativeApplicationChanges,parseAppPolicyUpdate,appPolicyEtag} from '../src/appPolicy';
 import {readApplicationIdentityUsage} from '../src/applicationProductProjections';
 import {usageAccountDayStart} from '@timeonchrome/app-runtime-contracts/usage-account';
 import type {MachineSelfResponse} from '../src/contracts';
 const start=usageAccountDayStart('2026-10-15'),now=start+86400000;
+it('当前身份局部保存：限额不强迫分类，分类与限额互不覆盖，公共字段及版本隔离保留',async()=>{
+ const f=await fixture();await f.send();
+ const target={machineId:f.machine.machineId,nativeId:'scan-app'};
+ const original=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.childId);
+ const patch=(version:number,change:Record<string,unknown>,child:string=f.childId)=>
+  putNativeApplicationChanges(env.RUNTIME_DB,f.machine.accountId,child,appPolicyEtag(version),
+   {nativeApplicationChanges:[{target,...change}]},now);
+ const limited=await patch(original.version,{dailyQuotaMinutes:30});
+ expect(limited.nativeApplications?.[0]).toMatchObject({classification:'unclassified',dailyQuotaMinutes:30,specialApplication:false});
+ const classified=await patch(limited.version,{classification:'other',specialApplication:true});
+ expect(classified.nativeApplications?.[0]).toMatchObject({classification:'other',dailyQuotaMinutes:30,specialApplication:true});
+ const cleared=await patch(classified.version,{dailyQuotaMinutes:null});
+ expect(cleared.nativeApplications?.[0]).toMatchObject({classification:'other',dailyQuotaMinutes:null,specialApplication:true});
+ expect(cleared.quotas).toEqual(original.quotas);
+ expect(cleared.timeWindows).toEqual(original.timeWindows);
+ expect(cleared.classifications).toEqual(original.classifications);
+ await expect(patch(original.version,{dailyQuotaMinutes:10})).rejects.toMatchObject({code:'APP_POLICY_CONFLICT'});
+ await expect(patch(0,{dailyQuotaMinutes:10},'another-child')).rejects.toMatchObject({code:'NATIVE_APPLICATION_TARGET_NOT_FOUND'});
+ await expect(patch(cleared.version,{classification:'unclassified'})).rejects.toMatchObject({code:'INVALID_NATIVE_APPLICATION_CONFIGURATION'});
+});
+it('公共时间段序列化顺序差异可触发旧全量保存冲突；局部保存不传递或重排公共字段',async()=>{
+ const f=await fixture();await f.send();
+ const original=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.childId);
+ const timeWindows=Object.fromEntries(Object.entries(original.timeWindows).reverse().map(([day,value])=>[day,
+  Object.fromEntries(Object.entries(value).reverse())]));
+ const payload=JSON.stringify({...original,timeWindows});
+ await env.RUNTIME_DB.prepare(`INSERT INTO runtime_child_app_policy_versions_v1(account_id,child_id,version,payload_json,payload_hash,effective_at_ms,created_at_ms)
+ VALUES(?1,?2,1,?3,?4,0,0)`).bind(f.machine.accountId,f.childId,payload,await sha256Hex(payload)).run();
+ const current=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.childId);
+ const entry={target:{machineId:f.machine.machineId,nativeId:'scan-app'},classification:'other',specialApplication:false,dailyQuotaMinutes:null};
+ const normalized=parseAppPolicyUpdate({...current,nativeApplications:[entry]});
+ expect(normalized.timeWindows).toEqual(current.timeWindows);
+ expect(JSON.stringify(normalized.timeWindows)).not.toBe(JSON.stringify(current.timeWindows));
+ await expect(putAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.childId,appPolicyEtag(1),normalized,now))
+  .rejects.toMatchObject({code:'SHARED_ACCESS_CONFIG_OWNED_BY_GUARDIAN'});
+ const saved=await putNativeApplicationChanges(env.RUNTIME_DB,f.machine.accountId,f.childId,appPolicyEtag(1),
+  {nativeApplicationChanges:[{target:entry.target,classification:'other',specialApplication:false}]},now);
+ expect(JSON.stringify(saved.timeWindows)).toBe(JSON.stringify(current.timeWindows));
+ expect(saved.quotas).toEqual(current.quotas);
+});
 it('未配置保持未归类；禁止主动设为未归类或删除已归类设置，允许改为其他时间', async()=>{
  const f=await fixture();await f.send();
  const current=await getAppPolicy(env.RUNTIME_DB,f.machine.accountId,f.childId);

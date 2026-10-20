@@ -18,3 +18,9 @@
 .record-card[data-native-object] .record-actions select,.record-card[data-native-object] .record-actions input[type=number]{width:100%;min-width:0;max-width:none}
 @media(max-width:700px){.record-card[data-native-object] .record-actions{grid-template-columns:1fr;width:100%}}
 .user-registration fieldset{border:0;padding:0;margin:0;min-width:0}.user-registration input{width:100%;box-sizing:border-box;min-width:0;border:1px solid var(--line,#d9e8e3);border-radius:8px;padding:10px;background:white;color:inherit;font:inherit}.user-registration .registration-status,.user-registration small{overflow-wrap:anywhere}.user-registration fieldset:disabled{opacity:.65}
+#native-limits-panel>label{display:grid;gap:8px;max-width:420px;margin:16px 0}
+#native-limits-panel input{box-sizing:border-box;min-width:0;max-width:100%;border:1px solid var(--border);border-radius:9px;padding:10px;font:inherit;background:white}
+#native-limits-panel .record-actions label{display:grid;gap:8px}
+#native-limits-panel .record-actions{align-items:end}
+#native-limits-panel .record-card{margin-top:12px;overflow-wrap:anywhere}
+#native-limits-panel small{color:var(--muted)}
