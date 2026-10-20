@@ -1,6 +1,12 @@
 # TASK_BOARD
 
-## RELEASE_IN_PROGRESS：Mac 登记契约1.58.1及Runtime-only（2026-10-21）
+## DEPLOYED_VERIFIED：Mac 登记契约1.58.1及Runtime-only（2026-10-21）
+
+完成：PR #312合并 `d3a0652f993a14b8e5ec22bb67ce8ae1f80b2176`；PR CI39498624291及精确合并SHA CI39498831860通过。生产39499034985成功，Runtime Worker版本 `f13ab59d-1aed-4f73-b342-5bdf009a6cc0`，smoke成功。下载核验manifest：contractVersion=1.58.1、requested/deployedResources仅runtimeWorker、runtime/guardianMigrations均空、sharedAccessShadowPrepared=false、evidenceErrors=[]；Guardian和两套Pages跳过。production审批在PO本次授权内完成，未更改保护设置。
+
+最终契约包92文件，SHA256 `1db02a41e2fb27730439d587c743822b5740cbea58d5cf71a6a53f27e6f16d29`；包内全文件与固定源码/编译输出一致，登记解析器与已验预备包逐字节相同。预备c55553包未作为最终交付。Native已推送main `8514d79308017e93932838f3d0389cb015f28add`，锁的1.58.1/sourceGitSha/最终hash已独立从远端读回核对；原Issue #12最终包交接评论6301684531。Native报告包级19项与.NET对象/向量19项通过，最终登记七文件相同故复用，不重跑39/2/26；Mac实际消费及实机结果未在本次完成，不冒称Mac全链验收。已将Runtime上线依赖事实通知Native沿原Issue补记。
+
+边界修正验证：源码边界、computer-usage-cloud、pages-four-buckets、根typecheck和diff通过；共享函数仅换行归一化后内容相同，Guardian只更换导入。本次没有安装包/安装、真实配置/原账/身份/统计口径变化。审计Matched；无未批准Deviated/Extra。以下保留失败与恢复过程，不抹去前两轮CI失败。新增根测试的Scope-Exception最初遗漏导致39498535704范围检查失败，补PR精确声明后39498624291成功，未改门禁。
 
 PO已批准解决共享引用边界并继续发布。最小修正：将现有纯展示web-usage-buckets脚本原字节纳入contracts包并导出；Guardian改用包入口，浏览器脚本保持不变，以直接字节一致性和原computer-usage-cloud/pages-four-buckets回归证明算法输出不变。不修改边界门禁。固定1.58.1尚未发布/锁定，最终包将有新哈希，原c55553…仅预备证据，不可作为最终消费包；通知Native撤回预备交付标记并锁最终包。必要复验仅源码边界、两项展示直接回归、根typecheck及既有CI，不新增安装测试、不部署Guardian/Pages。
 
