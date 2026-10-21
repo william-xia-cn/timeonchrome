@@ -9,7 +9,9 @@ import {
   getAdminMediaSettlementView,
   getAdminSettlementView,
   getAdminUsageAnalysisView,
+  getAdminDateKey,
 } from '../stats/admin-read-model.js';
+import { createWebHourlyHistoryReader } from '../stats/web-hourly-history.js';
 import { buildEffectiveTimeQuota, weeklyRestLimitFromConfig } from '../core/quota-config.js';
 import { readQuotaReadModelV2 } from '../core/quota-read-model-v2.js';
 import {
@@ -3649,7 +3651,7 @@ function usageCategoryLabel(key) {
   if (key?.startsWith('app_')) return APPLICATION_CATEGORY_LABELS[key.slice(4)] || '历史分类未知';
   return ({
     study: '学习',
-    composite: '待归类',
+    composite: '复合',
     rest: '休息',
     other: '其他',
     foregroundAudio: '前台音频',
@@ -4021,12 +4023,23 @@ function renderUsageAnalysisView(view) {
   }
   const incompleteApp = view.kind === 'application' && view.totalSeconds == null;
   renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: view.weekUnavailable ? '本周应用统计尚不可用，不代表零用量' : incompleteApp ? '应用统计证据不完整，不代表零用量' : '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
-  renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: incompleteApp ? '应用统计证据不完整，不代表零用量' : view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: usageCategoryKeys(view) });
+  const hourlyNotice = document.getElementById('usage-analysis-hourly-notice');
+  if (hourlyNotice) { hourlyNotice.hidden = !view.hourlyNotice; hourlyNotice.textContent = view.hourlyNotice || ''; }
+  renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: view.hourlyEmptyMessage || (incompleteApp ? '应用统计证据不完整，不代表零用量' : view.range.mode === 'week' ? '所选周没有使用记录' : '所选日期没有使用记录'), categoryKeys: usageCategoryKeys(view) });
   renderUsageLegend(view);
   renderUsageAnalysisList(view);
 }
 
 let statsReadSequence = 0;
+async function readWebHourlyContext() {
+  const values = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id', 'cloud_device_token']);
+  return { profileId: values.cloud_profile_id, deviceId: values.cloud_device_id, bindingToken: values.cloud_device_token };
+}
+const readWebHourlyHistory = createWebHourlyHistoryReader({
+  readContext: readWebHourlyContext,
+  request: path => accountFetch(`${API_BASE}${path}`, { signal: AbortSignal.timeout(10000) }),
+  today: () => getAdminDateKey(),
+});
 let restSummaryReadSequence = 0;
 let restSummaryDate = null;
 async function renderRestUsageSummary(options = {}) {
@@ -4056,6 +4069,7 @@ async function renderStatsPage({ force = false, retain = false, recheck = false 
   const sequence = ++statsReadSequence;
   const application = usageAnalysisState.ledger === 'application';
   document.getElementById('page-stats')?.classList.toggle('usage-app-view', application);
+  document.getElementById('page-stats')?.classList.toggle('usage-web-view', usageAnalysisState.ledger === 'web');
   applicationStatsReading = application;
   document.querySelectorAll('[data-usage-ledger]').forEach(button => button.classList.toggle('active', button.dataset.usageLedger === usageAnalysisState.ledger));
   const refresh = document.getElementById('usage-analysis-app-refresh');
@@ -4081,12 +4095,22 @@ async function renderStatsPage({ force = false, retain = false, recheck = false 
     const getView = application ? getAdminApplicationUsageAnalysisView : usageAnalysisState.ledger === 'media'
       ? getAdminMediaUsageAnalysisView
       : getAdminUsageAnalysisView;
-    const usageView = await getView({
+    const webContext = usageAnalysisState.ledger === 'web' ? await readWebHourlyContext() : null;
+    let usageView = await getView({
       mode: usageAnalysisState.mode,
       date: usageAnalysisState.date || undefined,
       ...(application ? { force, recheck } : {}),
     });
     if (sequence !== statsReadSequence) return;
+    if (webContext && JSON.stringify(webContext) !== JSON.stringify(await readWebHourlyContext())) return;
+    if (usageView.kind === 'web' && usageView.range.mode === 'day') {
+      renderUsageAnalysisView({ ...usageView,
+        hourlyNotice: usageView.range.from === getAdminDateKey() ? '本机小时统计' : '正在读取所选日期小时数据；日总量保持不变',
+        hourlyEmptyMessage: '所选日期小时数据暂不可用' });
+    }
+    usageView = await readWebHourlyHistory(usageView, webContext);
+    if (!usageView || sequence !== statsReadSequence) return;
+    if (webContext && JSON.stringify(webContext) !== JSON.stringify(await readWebHourlyContext())) return;
     if (!config || typeof config !== 'object') {
       config = usageView.config || { studyList: [], compositeList: [] };
     }
