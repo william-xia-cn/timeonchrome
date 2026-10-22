@@ -1,5 +1,13 @@
 # TASK_BOARD
 
+## 云端发布：同步黑名单其他展示桶（2026-10-22）
+
+PO批准本批集中云端交付及主控制台/独立Runtime只读复核。Task-Role: standard-cloud。以干净master377ee2c为基线；既有cloud旁路存在无关UI草稿，原样保留，由已批准主检出完成最小同源集成。contracts/web-usage-buckets.cjs的fe50e4f已修正blocked→other展示，但console副本未同步；Guardian直接通过workspace源码包消费，Runtime Worker不消费此展示映射。
+
+执行清单：仅同步console/web-usage-buckets.js两行，现有console测试增加同源一致性断言；复用契约映射既有通过证据，补跑直接console渲染及主站打包测试。通过后提交推送，按精确SHA既有生产门禁仅部署Guardian Worker与两套Pages；Runtime Worker、固定tgz/Native锁不重发。无migration、不改原账/现有配置/三桶配额、不安装Native、不启共享。部署前后资源版本与页面脚本逐字回读，真实页面由主会话核对，未取得证据前不标已上线通过。
+
+提交前审计：Matched——console副本与已批准cjs规范化逐字一致；Guardian workspace/file依赖直接消费当前源码，不覆盖冻结包；两页面打包均从同一console副本取资源。`node app-runtime-management/console/computer-usage-view.test.cjs`、`node tests/unit/main-console-release-stage.test.js`及`git diff --check`通过。无Deviated/Extra；部署/实机仍Missing。生产前基线run39786808483（906300f）：Guardian987d0013、Runtime f13ab59d；独立Pages e8b47456与主Pages c9e356b6，R2latest2.3.1。本次保留Runtime及R2不变，未改任何运行配置。
+
 ## 已合入并更新原控件：黑名单其他桶／本周未来日期（2026-10-22）
 
 共享映射fe50e4f、控件精确源码d9add1e已集中交付；PR318经自动轻量39806036579（changes/gate通过，其他产品jobs按路由跳过）合入master 94958a60ca4c06c7b0edcb33e12232b0b9c7d03a。仅TASK_BOARD记录冲突，双方证据保留；合入后的core/web-usage-buckets.js、stats/application-usage-read-model.js、stats/rest-usage-summary.js与已验d9add1e规范化逐字一致，未重复产品测试。

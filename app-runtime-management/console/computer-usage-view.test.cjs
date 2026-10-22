@@ -1,5 +1,8 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const view=require('./computer-usage-view.js');
+assert.equal(fs.readFileSync(path.join(__dirname,'web-usage-buckets.js'),'utf8').replace(/\r\n/g,'\n'),
+  fs.readFileSync(path.join(__dirname,'../contracts/web-usage-buckets.cjs'),'utf8').replace(/\r\n/g,'\n'),
+  'both cloud Pages must publish the approved shared display mapping, not a stale copy');
 const raw=fs.readFileSync(path.join(__dirname,'computer-usage-view.js'),'utf8');
 assert.ok(!raw.includes('data-computer-select'),'child summary must not contain a source/computer selector');
 const controller=fs.readFileSync(path.join(__dirname,'app-runtime.js'),'utf8');
