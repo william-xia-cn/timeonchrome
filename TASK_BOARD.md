@@ -1,5 +1,21 @@
 # TASK_BOARD
 
+## NOW：认证恢复与加载退出（2026-10-23，仅本地）
+
+后续发布授权（2026-10-23）：PO已批准本批5文件集中提交、推送、合并，按精确SHA门禁仅部署主控制台与独立Runtime Pages。复用上述隔离验证；不部署Worker、不迁移、不改原账/现有配置/共享、无Native操作。线上资源逐字回读与匿名登录页smoke完成前不标生产通过。
+
+PR范围纠正：PO另行明确批准撤出本地merge3624bed额外带入、origin/master原本不含的152行旧旁路历史块（DECISIONS24、PROJECT_MASTER35、TASK_BOARD93）；主线原文及本轮认证记录保持。历史完整保存在3624bed对应Git对象及受限逐字备份，未删除备份或stash；PR只包含本批5文件，不将旧草稿随发布带入。
+
+PO授权仅修复主控制台认证恢复、失败停留加载壳及退出异常，并核对独立Runtime退出；不提交部署，不改原账、配置、配额或共享。现场已确认profiles返回401、refresh返回Invalid refresh token；凭据失效的历史原因未知，不能推断为并发轮换。源码确定logout仍引用已移除的cloudApplicationReadCache（90ff781引入，7cb927e改用cloudUsageSession时遗漏）；每个401分别刷新则另有可复现并发风险。
+
+实施清单：当前缓存清理API替换；刷新single-flight与会话代际/迟到401保护；永久拒绝回登录、网络/5xx保留凭据；档案加载失败不留加载壳；Runtime本地退出不等待远端撤销。仅运行实际函数隔离回归及直接相关现有用例，目视由主会话核对；不放宽鉴权或延长有效期。
+
+基线已正常整合为本地3624bed，当前产品采用master；原10项tracked草稿及1项布局测试完整保存在stash df32269f1be01e2c87de2023898f1508f330f05c及受限本地toc-cloud-auth-20261023-preflight逐字备份，11项SHA256均一致。旧目录UI草稿与当前规则冲突，按PO协调决定不恢复进产品、不删除；原untracked产物排除。主检出人工验收记录未动。完成状态与聚焦结果待补，不把本地测试当已发布。
+
+本地实现审计：Matched——当前缓存API替换、同页单飞刷新、迟到初次/重试401不清新会话、退出/重新登录/跨标签存储变化拒绝旧响应、永久拒绝回登录、网络/5xx保留凭据、启动失败停止加载壳；受保护的auth/change-password仍可刷新，匿名登录不刷新。独立Runtime既有一次恢复/错误空态保持，仅退出改为本地先清、远端keepalive撤销不阻塞导航。未改服务端鉴权/有效期、账本、配置或共享，无Deviated/Extra。
+
+聚焦证据：`node tests/unit/pages-auth-recovery.test.js`实际页面函数12/12；`cloud-fault-tolerance.test.js`7/7；`pages-config-v12-fields.test.js`246/246；Runtime session现有断言PASS及3/3、network9/9。既有错误码测试仅补会话代际参数，未删断言。`git diff --check`通过。生产现场refresh失效原因仍仅确认为服务端拒绝，不追读真实凭据。主会话已在隔离localhost、虚构session及禁止真实网络条件下完成四场景截图目视：expired显示登录失效；network显示加载失败并保留登录信息；主站退出及Runtime退出均立即回登录页，布局和提示正常。四项目视通过是隔离UI证据，不是生产验收；产品尚未提交/部署，不能宣称现场已修复。预览服务完成后关闭。
+
 ## 云端发布：同步黑名单其他展示桶（2026-10-22）
 
 PO批准本批集中云端交付及主控制台/独立Runtime只读复核。Task-Role: standard-cloud。以干净master377ee2c为基线；既有cloud旁路存在无关UI草稿，原样保留，由已批准主检出完成最小同源集成。contracts/web-usage-buckets.cjs的fe50e4f已修正blocked→other展示，但console副本未同步；Guardian直接通过workspace源码包消费，Runtime Worker不消费此展示映射。

@@ -81,8 +81,8 @@ test('Guardian forwarding keeps safe error codes and bounded responses, never fo
 });
 test('main console retains nested API errors',async()=>{
   const code=source('pages/index.html').split("async function api(path, method='GET', body=null, conditionalHeaders=null) {")[1].split('\nfunction applyProfileConfigResponse')[0];
-  const api=new Function('fetch','Headers','accountToken','API_BASE','refreshAccountTokenForPage',
+  const api=new Function('fetch','Headers','accountToken','API_BASE','refreshAccountTokenForPage','accountSessionGeneration',
     "return async function api(path, method='GET', body=null, conditionalHeaders=null) {"+code)(
-      async()=>Response.json({error:{code:'APPLICATION_STATISTICS_CHUNKS_MISSING',message:'读取失败'}},{status:503}),Headers,null,'https://fixture.invalid',async()=>false);
+      async()=>Response.json({error:{code:'APPLICATION_STATISTICS_CHUNKS_MISSING',message:'读取失败'}},{status:503}),Headers,null,'https://fixture.invalid',async()=>false,0);
   await assert.rejects(api('/test'),error=>error.status===503&&error.code==='APPLICATION_STATISTICS_CHUNKS_MISSING'&&error.message==='读取失败');
 });

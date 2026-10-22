@@ -967,8 +967,8 @@
   if(!embedded)listen($('#runtime-logout'),'click', async () => {
     applicationReadCache.clear();usageReadSession.clear();
     const active = AppRuntimeSession.load(sessionStorage);
-    if (active) await fetch(`${RUNTIME_API}/v2/auth/browser-sessions/current`, { method: 'DELETE', headers: { Authorization: `RuntimeSession ${active.token}` } }).catch(() => {});
     AppRuntimeSession.clear(sessionStorage);
+    if (active) void fetch(`${RUNTIME_API}/v2/auth/browser-sessions/current`, { method: 'DELETE', keepalive: true, headers: { Authorization: `RuntimeSession ${active.token}` } }).catch(() => {});
     location.assign('https://timeonchrome-console.pages.dev/');
   });
   let knowledgeManager;
