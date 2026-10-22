@@ -14,8 +14,10 @@ export function buildRestUsageSummary({ date, period, localProjection, applicati
   const appToday = applicationView?.range.from === date && known(applicationView.totalSeconds)
     ? applicationView.categoryTotals.app_restrictedEntertainment || 0 : null;
   const series = applicationView?.weekSummarySeries;
-  const appWeek = series?.length === 7 && series.every(row => known(row.totalSeconds))
-    ? series.reduce((sum, row) => sum + (row.categories.app_restrictedEntertainment || 0), 0) : null;
+  // The calendar keeps seven slots; future dates are not missing usage or zero usage.
+  const elapsedSeries = series?.filter(row => !row.date || row.date <= date);
+  const appWeek = series?.length === 7 && elapsedSeries.length > 0 && elapsedSeries.every(row => known(row.totalSeconds))
+    ? elapsedSeries.reduce((sum, row) => sum + (row.categories.app_restrictedEntertainment || 0), 0) : null;
   return { date, ...period, today: total(webToday, appToday), week: total(webWeek, appWeek) };
 }
 
