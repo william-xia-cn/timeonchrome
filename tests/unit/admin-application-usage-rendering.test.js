@@ -128,4 +128,14 @@ assert.match(element('usage-analysis-legend').innerHTML, /1秒 500毫秒/);
 
 assert.doesNotMatch(source, /identityModel|renderIdentityUsageList|identityProductProjectionStatus/);
 
+context.renderUsageLegend({ ...completeZero, bucketKeys: ['study','composite','rest','other'], bucketTotals: null, bucketsComplete: false });
+assert.equal((element('usage-analysis-legend').innerHTML.match(/usage-legend-item/g) || []).length, 4);
+assert.equal((element('usage-analysis-legend').innerHTML.match(/>—</g) || []).length, 4);
+assert.doesNotMatch(element('usage-analysis-legend').innerHTML, />0秒</);
+context.renderUsageLegend({ ...completeZero, bucketKeys: ['study','composite','rest','other'],
+  bucketTotals: {study: 0, composite: 3, rest: 1, other: 2}, bucketsComplete: true });
+assert.match(element('usage-analysis-legend').innerHTML, /usage-dot composite/);
+assert.match(element('usage-analysis-legend').innerHTML, /3秒/);
+assert.doesNotMatch(element('usage-analysis-legend').innerHTML, /未归类|黑名单|历史分类/);
+
 console.log('Admin application renderer: partial known data visible, unknown values not zero, complete-zero and legacy-ms preserved');

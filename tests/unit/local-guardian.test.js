@@ -279,7 +279,7 @@ async function testAutomaticBindingLifecycle(policy, holdCloud = false) {
 
 async function testColdProtocolNegotiation(policy) {
   const baseCaps = ['health', 'ledger-item-ack', 'ledger-durable-shadow', 'authoritative-daily-snapshot', 'application-usage-read'];
-  async function createHost({ sourceOverride = originalSource, missing = false, fault = null } = {}) {
+  async function createHost({ sourceOverride = originalSource, missing = false, fault = null, usageSummary = false } = {}) {
     const messages = [], ports = [], store = { cloud_profile_id: 'protocol-child', cloud_device_id: 'protocol-device' };
     const control = { missing, old: false, fault };
     const host = await loadGuardian({ policy, storage: store, sourceOverride,
@@ -294,7 +294,7 @@ async function testColdProtocolNegotiation(policy) {
           const modern = request.protocolVersion === 3 && !control.old;
           const response = { ok: true, requestId: request.requestId, receivedAt: Date.now(),
             supportedProtocols: control.old ? [1] : [1, 2, 3], capabilities: modern
-              ? [...baseCaps, 'quota-buckets-read-v1', 'application-usage-seconds-read-v1'] : baseCaps };
+              ? [...baseCaps, 'quota-buckets-read-v1', 'application-usage-seconds-read-v1', ...(usageSummary ? ['application-usage-non-special-read-v1'] : [])] : baseCaps };
           if (request.messageType === 'getApplicationUsage') {
             response.ok = false; response.errorCode = 'BROWSER_BRIDGE_MESSAGE_REJECTED';
           }
@@ -340,6 +340,14 @@ async function testColdProtocolNegotiation(policy) {
   assert.equal(read.readUnit, 'seconds');
   assert(app.messages.some(row => row.messageType === 'getApplicationUsageSeconds'));
   assert(!app.messages.some(row => row.messageType === 'getApplicationUsage'));
+  const extraQuery = { fromDate: '2026-10-16', toDate: '2026-10-16', offset: 0, includeApplicationUsage: true };
+  const beforeExtra = app.messages.filter(row => row.channel === 'application').length;
+  assert.equal((await app.module.requestApplicationUsage(extraQuery)).errorCode, 'application_usage_query_invalid');
+  assert.equal(app.messages.filter(row => row.channel === 'application').length, beforeExtra, 'no new query to old capability');
+  const summaryApp = await createHost({ usageSummary: true });
+  assert.equal((await summaryApp.module.requestApplicationUsage(extraQuery)).ok, true);
+  assert(summaryApp.messages.some(row => row.messageType === 'getApplicationUsageSeconds' && row.payload.includeApplicationUsage === true));
+  assert.equal((await summaryApp.module.requestApplicationUsage({ ...extraQuery, includeApplicationUsage: false })).errorCode, 'application_usage_query_invalid');
   const concurrent = await createHost();
   const together = await Promise.all([concurrent.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true }),
     concurrent.module.readSourceStatisticsNativeContext({ prepare: true, quotaBuckets: true })]);
@@ -373,6 +381,7 @@ async function run() {
     managedProfileEmail: 'child@example.test',
   };
   await testColdProtocolNegotiation(policy);
+  if (process.argv.includes('--current-protocol-only')) { process.exit(0); }
   if (process.argv.includes('--current-binding-only')) {
     await testAutomaticBindingLifecycle(policy);
     await testAutomaticBindingLifecycle(policy, true);

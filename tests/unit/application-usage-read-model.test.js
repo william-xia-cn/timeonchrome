@@ -3,7 +3,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const source = fs.readFileSync(path.join(__dirname, '../../extension/stats/application-usage-read-model.js'), 'utf8');
+const bucketSource = fs.readFileSync(path.join(__dirname, '../../extension/core/web-usage-buckets.js'), 'utf8');
+assert.equal(bucketSource.replace(/\r\n/g, '\n').trim(), fs.readFileSync(path.join(__dirname, '../../app-runtime-management/contracts/web-usage-buckets.cjs'), 'utf8').replace(/\r\n/g, '\n').trim());
+const source = fs.readFileSync(path.join(__dirname, '../../extension/stats/application-usage-read-model.js'), 'utf8')
+  .replace("import '../core/web-usage-buckets.js';", bucketSource);
 const fixedNow = Date.parse('2026-09-26T12:00:00+08:00');
 function page(offset = 0, count = 2) {
   const days = Array.from({ length: 7 }, (_, index) => ({ date: `2026-09-${21 + index}`, status: 'available', generatedAtMs: fixedNow, settledThroughMs: fixedNow - 1000, totalSeconds: index === 5 ? 2 : 0,
@@ -50,7 +53,40 @@ async function main() {
     assert.equal(view.totalSeconds, 2);
     assert.equal(view.targetRows.reduce((n, r) => n + r.todaySeconds, 0), 3);
     assert.equal(view.targetRows.find(r => r.label === 'Fixture 0').categoryLabel, '复合');
-    assert.equal(view.chartSeries[1].categories.app_composite, 1);
+    assert.equal(view.chartSeries[1].categories.usage_total, 2);
+    assert.equal(view.bucketTotals, null);
+    assert.deepEqual(view.bucketKeys, ['study', 'composite', 'rest', 'other']);
+    const extendedPage = page();
+    for (const day of extendedPage.days) day.applicationUsage = { nonSpecialTotal: day.totalSeconds,
+      nonSpecialCategories: day.totalSeconds ? { unclassified: 1, other: 1 } : {}, specialTotal: 0, complete: true, reasonCodes: [] };
+    const extended = await load(async ({ query }) => {
+      assert.equal(query.includeApplicationUsage, true);
+      return { ok: true, applicationUsageSeconds: extendedPage };
+    }, { readUnit: 'seconds', contextId: 'new-capability', available: true, applicationUsageSupported: true });
+    const bucketView = await extended.getAdminApplicationUsageAnalysisView({ mode: 'week' });
+    assert.deepEqual(bucketView.bucketTotals, { study: 0, composite: 1, rest: 0, other: 1 });
+    assert.equal(bucketView.bucketsComplete, true);
+    assert.equal(bucketView.totalSeconds, 2);
+    assert.deepEqual(bucketView.categoryTotals, view.categoryTotals);
+    assert.deepEqual(bucketView.chartSeries[5].categories, bucketView.bucketTotals);
+    const extendedQuery = { fromDate: extendedPage.fromDate, toDate: extendedPage.toDate, offset: 0, includeApplicationUsage: true };
+    assert.throws(() => extended.validateApplicationUsageSecondsPage(extendedPage, { ...extendedQuery, includeApplicationUsage: false }));
+    for (const mutate of [u => u.nonSpecialCategories.other = -1, u => u.nonSpecialCategories.fake = 1,
+      u => u.specialTotal = 86401, u => u.complete = false, u => u.extra = true]) {
+      const bad = structuredClone(extendedPage); mutate(bad.days[5].applicationUsage);
+      assert.throws(() => extended.validateApplicationUsageSecondsPage(bad, extendedQuery));
+    }
+    extendedPage.days[5].applicationUsage = { nonSpecialTotal: 1, nonSpecialCategories: { other: 1 }, specialTotal: 1, complete: true, reasonCodes: [] };
+    const specialView = await extended.getAdminApplicationUsageAnalysisView({ mode: 'week', force: true });
+    assert.equal(specialView.totalSeconds, 2);
+    assert.deepEqual(specialView.bucketTotals, { study: 0, composite: 0, rest: 0, other: 1 });
+    delete extendedPage.days[5].applicationUsage;
+    const missingView = await extended.getAdminApplicationUsageAnalysisView({ mode: 'week', force: true });
+    assert.equal(missingView.bucketsComplete, false);
+    assert.equal(missingView.totalSeconds, 2);
+    assert.match(missingView.hourlyNotice, /缺失不代表零/);
+    // Return to the original context for its cache/retry assertions below.
+    await load(async message => { calls++; return { ok: true, applicationUsageSeconds: page() }; });
     assert.equal(view.readUnit, 'seconds');
     await adapter.getAdminApplicationUsageAnalysisView(); assert.equal(calls, 2);
     await adapter.getAdminApplicationUsageAnalysisView({ force: true }); assert.equal(calls, 4);
@@ -79,6 +115,18 @@ async function main() {
     });
     await changed.getAdminApplicationUsageAnalysisView(); assert.equal(restarted, 3);
 
+    const unstablePageTime = await load(async ({ query }) => {
+      const result = page(query.offset, query.offset ? 1 : 100);
+      if (!query.offset) result.nextOffset = 100;
+      else {
+        result.computedAtMs++;
+        for (const day of result.days) day.generatedAtMs++;
+      }
+      return { ok: true, applicationUsageSeconds: result };
+    });
+    await assert.rejects(() => unstablePageTime.getAdminApplicationUsageAnalysisView({ mode: 'week' }),
+      /application_usage_seconds_revision_changed/, 'same-revision pages must keep one computed time');
+
     const incomplete = await load(async () => {
       const p = page(); p.complete = false; p.reasonCodes = ['APPLICATION_CLOCK_AMBIGUOUS'];
       p.totalSeconds = null; p.applications.forEach(row => row.totalSeconds = null);
@@ -89,7 +137,7 @@ async function main() {
     assert.equal(partial.totalSeconds, null);
     assert.match(partial.incompleteDates, /2026-09-26/);
     assert.equal(partial.knownTotalSeconds, 2);
-    assert.equal(partial.chartSeries[1].categories.app_composite, 1);
+    assert.equal(partial.chartSeries[1].categories.usage_total, 2);
 
     for (const code of ['native_host_unavailable', 'runtime_service_unavailable', 'application_usage_unsupported', 'native_response_timeout']) {
       const missing = await load(async () => ({ ok: false, errorCode: code }));
@@ -118,6 +166,38 @@ async function main() {
 
     const invalid = page(); invalid.totalSeconds++;
     assert.throws(() => adapter.validateApplicationUsageSecondsPage(invalid, { fromDate: invalid.fromDate, toDate: invalid.toDate, offset: 0 }), /native_invalid_response/);
+    const weekQuery = { fromDate: '2026-09-21', toDate: '2026-09-27', offset: 0 };
+    for (const nullTotal of [false, true]) {
+      const mislabeled = page();
+      mislabeled.complete = false; mislabeled.totalSeconds = null;
+      mislabeled.days[5].complete = false;
+      if (nullTotal) mislabeled.days[5].totalSeconds = null;
+      for (const row of mislabeled.applications) row.totalSeconds = null;
+      assert.throws(() => adapter.validateApplicationUsageSecondsPage(mislabeled, weekQuery), /native_invalid_response/,
+        'an incomplete day cannot be labeled available, with either a known or null day total');
+    }
+    const missingDateWeek = page();
+    missingDateWeek.complete = false; missingDateWeek.totalSeconds = null;
+    missingDateWeek.days[6] = { date: '2026-09-27', status: 'unknown', complete: false,
+      generatedAtMs: null, settledThroughMs: null, totalSeconds: null, categoriesSeconds: {}, hours: [],
+      reasonCodes: ['CURRENT_SOURCE_MISSING'] };
+    for (const row of missingDateWeek.applications) {
+      row.totalSeconds = null; row.dailySeconds['2026-09-27'] = null;
+    }
+    adapter.validateApplicationUsageSecondsPage(missingDateWeek, weekQuery);
+    const availableMissingDate = structuredClone(missingDateWeek);
+    availableMissingDate.days[6].status = 'available';
+    availableMissingDate.days[6].generatedAtMs = fixedNow;
+    availableMissingDate.days[6].hours = Array.from({ length: 24 }, (_, hour) => ({ hour, totalSeconds: 0, categoriesSeconds: {} }));
+    assert.throws(() => adapter.validateApplicationUsageSecondsPage(availableMissingDate, weekQuery), /native_invalid_response/,
+      'missing days must not be projected as available days with empty hourly values');
+    const missingDateReader = await load(async ({ query }) => ({ ok: true,
+      applicationUsageSeconds: query.fromDate === query.toDate ? page() : structuredClone(missingDateWeek) }));
+    const knownDayUnknownWeek = await missingDateReader.getAdminApplicationUsageAnalysisView();
+    assert.equal(knownDayUnknownWeek.totalSeconds, 2);
+    assert.equal(knownDayUnknownWeek.warning, null, 'a valid unknown date must not fail the whole supplemental week');
+    assert.equal(knownDayUnknownWeek.targetRows[0].weekSeconds, null);
+    assert.equal(knownDayUnknownWeek.weekSummarySeries.at(-1).totalSeconds, null);
     const weekPending = await load(async ({ query }) => query.fromDate === query.toDate
       ? { ok: true, applicationUsageSeconds: page() }
       : { ok: false, errorCode: 'application_usage_pending' });
@@ -136,6 +216,78 @@ async function main() {
       ? { ok: true, applicationUsageSeconds: page() }
       : { ok: false, errorCode: 'application_usage_context_changed' });
     await assert.rejects(() => changedDuringSupplement.getAdminApplicationUsageAnalysisView(), /application_usage_context_changed/);
+    const scaledPage = value => {
+      const result = page();
+      result.revision = String(value).repeat(64);
+      result.computedAtMs += value;
+      result.lastSettledAtMs += value;
+      result.knownTotalSeconds = result.totalSeconds = 2 * value;
+      for (const values of [result.knownCategoriesSeconds, ...result.days.map(day => day.categoriesSeconds),
+        ...result.days.flatMap(day => day.hours.map(hour => hour.categoriesSeconds))]) {
+        for (const key of Object.keys(values)) values[key] *= value;
+      }
+      for (const day of result.days) {
+        day.totalSeconds *= value;
+        day.generatedAtMs += value;
+        day.settledThroughMs += value;
+        for (const hour of day.hours) hour.totalSeconds *= value;
+      }
+      for (const row of result.applications) {
+        row.knownTotalSeconds *= value; row.totalSeconds *= value;
+        for (const date of Object.keys(row.dailySeconds)) row.dailySeconds[date] *= value;
+      }
+      return result;
+    };
+    for (const [dayValue, weekValue] of [[4, 8], [8, 4], [4, 4]]) {
+      const mixed = await load(async ({ query }) => ({ ok: true,
+        applicationUsageSeconds: scaledPage(query.fromDate === query.toDate ? dayValue : weekValue) }));
+      const dayView = await mixed.getAdminApplicationUsageAnalysisView();
+      const row = dayView.targetRows.find(item => item.label === 'Fixture 0');
+      assert.equal(row.rangeKnownSeconds, dayValue);
+      assert.equal(row.todaySeconds, dayValue, 'today in the selected current day must use the primary day snapshot');
+      assert.equal(row.weekSeconds, weekValue, 'week remains an independent supplemental snapshot');
+      assert.equal(dayView.totalSeconds, 2 * dayValue);
+      const weekView = await mixed.getAdminApplicationUsageAnalysisView({ mode: 'week' });
+      assert.equal(weekView.targetRows.find(item => item.label === 'Fixture 0').todaySeconds, weekValue);
+      assert.equal((await mixed.getAdminApplicationUsageAnalysisView()).targetRows.find(item => item.label === 'Fixture 0').todaySeconds, dayValue);
+    }
+    for (const complete of [true, false]) {
+      const pendingDay = await load(async ({ query }) => {
+        const result = scaledPage(query.fromDate === query.toDate ? 4 : 8);
+        if (query.fromDate === query.toDate) {
+          result.days[5].status = 'pending_update';
+          result.days[5].complete = result.complete = complete;
+          if (!complete) {
+            result.totalSeconds = null;
+            for (const row of result.applications) row.totalSeconds = null;
+          }
+        }
+        return { ok: true, applicationUsageSeconds: result };
+      });
+      const pendingView = await pendingDay.getAdminApplicationUsageAnalysisView();
+      const row = pendingView.targetRows.find(item => item.label === 'Fixture 0');
+      assert.equal(pendingView.totalSeconds, complete ? 8 : null);
+      assert.equal(pendingView.knownTotalSeconds, 8);
+      assert.equal(row.rangeSeconds, complete ? 4 : null);
+      assert.equal(row.rangeKnownSeconds, 4);
+      assert.equal(row.todaySeconds, 4);
+      assert.equal(row.weekSeconds, 8);
+    }
+    let latestDay = 4, cacheReads = 0;
+    const cachedWeek = await load(async ({ query }) => {
+      cacheReads++;
+      return { ok: true, applicationUsageSeconds: scaledPage(query.fromDate === query.toDate ? latestDay : 4) };
+    });
+    await cachedWeek.getAdminApplicationUsageAnalysisView({ mode: 'week' });
+    latestDay = 8;
+    const freshDay = await cachedWeek.getAdminApplicationUsageAnalysisView();
+    assert.equal(cacheReads, 2, 'the supplementary week reuses its range-scoped cache');
+    assert.equal(freshDay.targetRows.find(item => item.label === 'Fixture 0').todaySeconds, 8);
+    assert.equal(freshDay.targetRows.find(item => item.label === 'Fixture 0').weekSeconds, 4);
+    const history = await cachedWeek.getAdminApplicationUsageAnalysisView({ date: '2026-09-25' });
+    assert.equal(history.targetRows.find(item => item.label === 'Fixture 0').rangeSeconds, 0);
+    assert.equal(history.targetRows.find(item => item.label === 'Fixture 0').todaySeconds, 4,
+      'historical selected days still obtain today from the current week');
     const absentInWeek = await load(async ({ query }) => {
       const result = page();
       if (query.fromDate !== query.toDate) result.applications = [];
@@ -143,7 +295,7 @@ async function main() {
     });
     const absentView = await absentInWeek.getAdminApplicationUsageAnalysisView();
     assert.equal(absentView.targetRows[0].rangeSeconds, 2);
-    assert.equal(absentView.targetRows[0].todaySeconds, 0, 'complete current range without this application is zero');
+    assert.equal(absentView.targetRows[0].todaySeconds, 2, 'today retains the primary day even if the week omits this application');
     assert.equal(absentView.targetRows[0].weekSeconds, 0);
     if (process.argv[2] && process.argv[3]) {
       const bundle = process.argv[2], wire = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
