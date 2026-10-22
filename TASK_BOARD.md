@@ -8,6 +8,10 @@ PO批准本批集中云端交付及主控制台/独立Runtime只读复核。Task
 
 提交前审计：Matched——console副本与已批准cjs规范化逐字一致；Guardian workspace/file依赖直接消费当前源码，不覆盖冻结包；两页面打包均从同一console副本取资源。`node app-runtime-management/console/computer-usage-view.test.cjs`、`node tests/unit/main-console-release-stage.test.js`及`git diff --check`通过。无Deviated/Extra；部署/实机仍Missing。生产前基线run39786808483（906300f）：Guardian987d0013、Runtime f13ab59d；独立Pages e8b47456与主Pages c9e356b6，R2latest2.3.1。本次保留Runtime及R2不变，未改任何运行配置。
 
+集中交付完成：源码5e25b7c5a293f1531b8feb68c434275c31bef6c8；精确SHA门禁Guardian39808312316、Runtime39808285907、主站39808286115全部成功。生产39808469033成功，仅Guardian与两套Pages实际部署；Guardian版本265d202c-e27e-4f75-8989-c90016e03fd3，独立Pages c6588c36-7b99-45fd-abd7-c32c62b36389、主Pages528eb46f-94fb-4422-9489-c589f935229f（source均5e25b7c）。Runtime版本f13ab59d及R2latest2.3.1/原SHA保持；所有migration、RPC bootstrap和shared准备均跳过，Guardian沿用keep-vars，未操作运行配置/共享开关。两域线上映射JS均200、2520bytes且与git blob逐字相同，SHA256为0299ae3e9ee001b6c13975ddf8eb27226200a8f14708c64867f536b0d5549efb；发布manifest无evidenceErrors。
+
+真实页面验收通过（浏览器实际DOM/UI证据，非隔离测试）：主会话刷新主控制台与独立Runtime，同日2026-10-22/应用截止23:51:07，两端应用总量10:24:42、复合10:24:28、其他14秒、学习/休息0；Microsoft Edge明细仍为黑名单14秒，不再出现此前桶不完整提示。两端电脑总量11:09:37，学习44:47、复合10:24:36、休息0、其他14秒，网页44:55＋应用10:24:42－特殊0；两端一致。此项Matched，无Deviated/Extra，本次不证明共享执行或Mac验收，原账/配置/配额算法未改；本段更新前文的部署及实机Missing状态，不重复部署纯文档证据。
+
 ## 已合入并更新原控件：黑名单其他桶／本周未来日期（2026-10-22）
 
 共享映射fe50e4f、控件精确源码d9add1e已集中交付；PR318经自动轻量39806036579（changes/gate通过，其他产品jobs按路由跳过）合入master 94958a60ca4c06c7b0edcb33e12232b0b9c7d03a。仅TASK_BOARD记录冲突，双方证据保留；合入后的core/web-usage-buckets.js、stats/application-usage-read-model.js、stats/rest-usage-summary.js与已验d9add1e规范化逐字一致，未重复产品测试。
