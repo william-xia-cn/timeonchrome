@@ -3647,6 +3647,7 @@ function shiftUsageAnalysisDate(currentKey, days) {
 }
 
 function usageCategoryLabel(key) {
+  if (key === 'usage_total') return '总用量（不分桶）';
   if (key === 'app_instance_total') return '基础实例用量';
   if (key?.startsWith('app_')) return APPLICATION_CATEGORY_LABELS[key.slice(4)] || '历史分类未知';
   return ({
@@ -3722,9 +3723,10 @@ function renderUsageStackChart(id, series = [], options = {}) {
 function renderUsageLegend(view) {
   const el = document.getElementById('usage-analysis-legend');
   if (!el) return;
-  const totals = view?.categoryTotals || {};
-  el.innerHTML = usageCategoryKeys(view).map(key => {
-    const incomplete = view?.kind === 'application' && view.totalSeconds == null;
+  const bucketView = Array.isArray(view?.bucketKeys);
+  const totals = (bucketView ? view.bucketTotals : view?.categoryTotals) || {};
+  el.innerHTML = (bucketView ? view.bucketKeys : usageCategoryKeys(view)).map(key => {
+    const incomplete = bucketView ? !view.bucketsComplete : view?.kind === 'application' && view.totalSeconds == null;
     const partial = incomplete && view.readUnit === 'seconds';
     const known = Object.prototype.hasOwnProperty.call(totals, key);
     const value = incomplete ? (partial && known ? totals[key] : null) : (totals[key] ?? 0);
@@ -4021,7 +4023,7 @@ function renderUsageAnalysisView(view) {
   if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : '24 小时分布';
   if (view.kind === 'application') {
     if (summaryTitle) summaryTitle.textContent = '所选周分类明细（分类可能重叠）';
-    if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '每日分类明细（可能重叠）' : '小时分类明细（可能重叠）';
+    if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '每日时间桶用量' : '每小时总用量（不分桶）';
     const notice = document.getElementById('usage-analysis-app-notice');
     const partialSeconds = view.readUnit === 'seconds' && view.totalSeconds == null;
     if (notice) notice.textContent = `${view.warning || ''} 独立应用统计，不计网页配额；仅含已结算记录，明细可能重叠，不相加生成总量。${view.incompleteDates ? '不完整日期：' + view.incompleteDates + (partialSeconds
@@ -4032,7 +4034,7 @@ function renderUsageAnalysisView(view) {
   if (showWeekSummary) renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: view.weekUnavailable ? '本周应用统计尚不可用，不代表零用量' : incompleteApp ? '应用统计证据不完整，不代表零用量' : '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
   const hourlyNotice = document.getElementById('usage-analysis-hourly-notice');
   if (hourlyNotice) { hourlyNotice.hidden = !view.hourlyNotice; hourlyNotice.textContent = view.hourlyNotice || ''; }
-  renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: view.hourlyEmptyMessage || (incompleteApp ? '应用统计证据不完整，不代表零用量' : view.range.mode === 'week' ? '所选周没有使用记录' : '所选日期没有使用记录'), categoryKeys: usageCategoryKeys(view) });
+  renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: view.hourlyEmptyMessage || (incompleteApp ? '应用统计证据不完整，不代表零用量' : view.range.mode === 'week' ? '所选周没有使用记录' : '所选日期没有使用记录'), categoryKeys: view.chartCategoryKeys || usageCategoryKeys(view) });
   renderUsageLegend(view);
   renderUsageAnalysisList(view);
 }
