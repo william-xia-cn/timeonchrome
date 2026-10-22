@@ -2146,6 +2146,8 @@ const API_BASE = 'https://guardian-api.william-xia-cn.workers.dev';
 const DAY_NAMES = ['周日','周一','周二','周三','周四','周五','周六'];
 
 let accountToken = null;
+let accountSessionGeneration = 0;
+let accountRefreshInFlight = null;
 let currentProfileId = null;
 let runtimeManagementController = null;
 let runtimeManagementEpoch = 0;
@@ -2327,6 +2329,7 @@ async function doLogin() {
 
   try {
     const r = await api('/auth/login', 'POST', { email, password: pw });
+    accountSessionGeneration++;
     accountToken = r.token;
     saveLocal('session', { token: r.token, refreshToken: r.refreshToken || null, email });
     await enterMain(email);
@@ -2352,6 +2355,7 @@ async function doRegister() {
 
   try {
     const r = await api('/auth/register', 'POST', { email, password: pw });
+    accountSessionGeneration++;
     accountToken = r.token;
     saveLocal('session', { token: r.token, refreshToken: r.refreshToken || null, email });
     await enterMain(email);
@@ -2362,9 +2366,9 @@ async function doRegister() {
 }
 
 function logout() {
-  disposeRuntimeManagement();
-  cloudApplicationReadCache.clear();
   const saved = loadLocal('session');
+  clearAccountSession();
+  document.getElementById('login-email').value = '';
   if (saved?.refreshToken) {
     fetch(`${API_BASE}/auth/logout`, {
       method: 'POST',
@@ -2372,26 +2376,47 @@ function logout() {
       body: JSON.stringify({ refreshToken: saved.refreshToken }),
     }).catch(() => {});
   }
+}
+
+function clearAccountSession(message = '') {
+  accountSessionGeneration++;
+  accountRefreshInFlight = null;
+  accountToken = null; saveLocal('session', null);
+  currentProfileId = null; profiles = [];
+  showScreen('login');
+  document.getElementById('login-password').value = '';
+  const error = document.getElementById('login-error');
+  error.textContent = message; error.style.display = message ? 'block' : 'none';
+  cloudUsageSession.clear();
+  cloudStatsRequestVersion++;
+  cloudComputerReader.invalidate(); cloudApplicationReader.invalidate();
+  try { disposeRuntimeManagement(); } catch { console.warn('Runtime组件退出清理失败'); }
   stopTelegramPairingPoll();
   accountNotificationSettingsState = { loading: false, loaded: false, settings: null, capabilities: null, accountEmail: '' };
   profileNotificationSettingsState = { profileId: null, loading: false, settings: null };
-  accountToken = null; saveLocal('session', null);
-  showScreen('login');
-  document.getElementById('login-email').value = '';
-  document.getElementById('login-password').value = '';
 }
 
 async function refreshAccountTokenForPage() {
+  if (accountRefreshInFlight) return accountRefreshInFlight;
   const saved = loadLocal('session');
   if (!saved?.refreshToken) return false;
+  const generation = accountSessionGeneration;
+  const pending = (async () => {
   const resp = await fetch(`${API_BASE}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken: saved.refreshToken }),
   });
-  if (!resp.ok) return false;
+  if (generation !== accountSessionGeneration || loadLocal('session')?.refreshToken !== saved.refreshToken) {
+    throw Object.assign(new Error('登录会话已变化'), {code:'ACCOUNT_SESSION_CHANGED'});
+  }
+  if (resp.status === 401 || resp.status === 403) return false;
+  if (!resp.ok) throw Object.assign(new Error('登录恢复暂不可用，请稍后重试'), {status:resp.status});
   const data = await resp.json().catch(() => null);
-  if (!data?.token) return false;
+  if (!data?.token) throw new Error('登录恢复响应无效，请稍后重试');
+  if (generation !== accountSessionGeneration || loadLocal('session')?.refreshToken !== saved.refreshToken) {
+    throw Object.assign(new Error('登录会话已变化'), {code:'ACCOUNT_SESSION_CHANGED'});
+  }
   accountToken = data.token;
   saveLocal('session', {
     token: data.token,
@@ -2399,28 +2424,40 @@ async function refreshAccountTokenForPage() {
     email: saved.email,
   });
   return true;
+  })();
+  accountRefreshInFlight = pending;
+  try { return await pending; }
+  finally { if (accountRefreshInFlight === pending) accountRefreshInFlight = null; }
 }
 
 // ── Enter main ───────────────────────────────────────────────
 async function enterMain(email) {
+  const generation = accountSessionGeneration;
   showScreen('main');
   document.getElementById('account-email-display').textContent = email || '';
 
   // 加载 profiles
   try {
     const r = await api('/profiles');
+    if (generation !== accountSessionGeneration) return;
     profiles = r.profiles || [];
     renderProfileOptions();
 
     // 恢复上次选中的 profile
     const saved = loadLocal('currentProfileId');
     const found = profiles.find(p => p.id === saved);
-    if (found) selectProfile(found.id);
-    else if (profiles.length > 0) selectProfile(profiles[0].id);
+    if (found) await selectProfile(found.id);
+    else if (profiles.length > 0) await selectProfile(profiles[0].id);
     else renderNoProfile();
   } catch(e) {
-    toast('加载档案失败: ' + e.message, false);
+    if (generation !== accountSessionGeneration) return;
+    showScreen('login');
+    const error = document.getElementById('login-error');
+    error.textContent = '加载档案失败，请刷新页面重试；登录信息已保留。';
+    error.style.display = 'block';
+    return;
   }
+  if (generation !== accountSessionGeneration || !accountToken) return;
   if (new URLSearchParams(location.search).get('launch') === 'app-runtime') {
     const requestedView = new URLSearchParams(location.search).get('view');
     await launchAppRuntime(['apps', 'devices'].includes(requestedView) ? requestedView : 'usage');
@@ -2479,6 +2516,8 @@ function renderProfileOptions() {
 }
 
 async function selectProfile(id) {
+  const generation = accountSessionGeneration;
+  const isCurrent = () => generation === accountSessionGeneration && currentProfileId === id;
   disposeRuntimeManagement();
   cloudStatsRequestVersion++;
   cloudComputerReader.invalidate();
@@ -2509,8 +2548,10 @@ async function selectProfile(id) {
   // 加载配置
   try {
     const r = await api(`/profiles/${id}/config`);
+    if (!isCurrent()) return;
     applyProfileConfigResponse(r);
   } catch(e) {
+    if (!isCurrent()) return;
     remoteConfig = {};
     remoteConfigVersion = null;
     toast('加载配置失败', false);
@@ -2519,8 +2560,10 @@ async function selectProfile(id) {
   // 加载系统缺省清单
   try {
     const d = await api(`/profiles/${id}/defaults`);
+    if (!isCurrent()) return;
     siteAccessDefaults = d || {};
   } catch(e) {
+    if (!isCurrent()) return;
     siteAccessDefaults = { defaultStudySites: [], defaultCompositeSites: [], defaultRestrictedEntertainmentSites: [], defaultBlockedSites: [] };
   }
 
@@ -10316,6 +10359,15 @@ async function saveConfig() {
 
 // ── API helper ────────────────────────────────────────────────
 async function api(path, method='GET', body=null, conditionalHeaders=null) {
+  const generation = accountSessionGeneration;
+  const sentToken = accountToken;
+  const protectedRequest = !['/auth/login','/auth/register','/auth/refresh','/auth/logout'].includes(path);
+  let responseToken = sentToken;
+  const assertCurrent = () => {
+    if (generation !== accountSessionGeneration || (protectedRequest && accountToken && loadLocal('session')?.token !== accountToken)) {
+      throw Object.assign(new Error('登录会话已变化'), {code:'ACCOUNT_SESSION_CHANGED'});
+    }
+  };
   const makeOptions = () => {
     const opts = {
       method,
@@ -10329,10 +10381,21 @@ async function api(path, method='GET', body=null, conditionalHeaders=null) {
   };
 
   let r = await fetch(API_BASE + path, makeOptions());
-  if (r.status === 401 && path !== '/auth/refresh' && await refreshAccountTokenForPage()) {
-    r = await fetch(API_BASE + path, makeOptions());
+  assertCurrent();
+  if (r.status === 401 && protectedRequest) {
+    const refreshed = accountToken !== sentToken || await refreshAccountTokenForPage();
+    assertCurrent();
+    if (refreshed) {
+      responseToken = accountToken;
+      r = await fetch(API_BASE + path, makeOptions());
+    }
   }
   const data = await r.json().catch(() => ({}));
+  assertCurrent();
+  if (r.status === 401 && protectedRequest && responseToken !== accountToken) {
+    throw Object.assign(new Error('登录会话已变化'), {code:'ACCOUNT_SESSION_CHANGED'});
+  }
+  if (r.status === 401 && protectedRequest) clearAccountSession('登录已失效，请重新登录。');
   if (!r.ok) {
     const error = new Error(data.message || data.error?.message || (typeof data.error==='string'?data.error:null) || `HTTP ${r.status}`);
     error.status = r.status;
