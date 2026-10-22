@@ -2,7 +2,7 @@
 import { json, Env, verifyAccountToken } from '../db/middleware';
 import { normalizeHostname } from '../../../extension/core/domain-semantics.js';
 import { hashUsageSegmentContent, isUsageSegmentContentHash } from '../../../extension/core/usage-segment-integrity.js';
-import { deviceUnboundResponse, verifyDeviceToken } from './deviceIdentity';
+import { deviceUnboundResponse, verifyDeviceToken, verifyDeviceTokenFromRequest } from './deviceIdentity';
 import {
   evaluateDailyUnclassifiedEmailNotifications,
   processEmailClassificationOutbox,
@@ -1606,32 +1606,51 @@ export const statsRouter = {
     // V1: GET /profiles/:id/hourly-target-stats/v1 — 查询每小时 managed target 聚合统计
     // ═══════════════════════════════════════════════════════════════════════════════
     const hourlyTargetStatsV1Match = path.match(/^\/profiles\/([^/]+)\/hourly-target-stats\/v1$/);
-    if (request.method === 'GET' && hourlyTargetStatsV1Match) {
-      const profileId = hourlyTargetStatsV1Match[1];
-      const accountId = await verifyAccountToken(request, env.JWT_SECRET);
-      if (!accountId) return json({ error: 'Unauthorized' }, 401);
+    const deviceHourlyRead = path === '/device/hourly-target-stats/v1';
+    if (request.method === 'GET' && (hourlyTargetStatsV1Match || deviceHourlyRead)) {
+      let profileId: string;
+      let boundDeviceId: string | null = null;
+      const date = url.searchParams.get('date');
+      if (deviceHourlyRead) {
+        const device = await verifyDeviceTokenFromRequest(request, env);
+        if (!device) return json({ error: 'Unauthorized' }, 401);
+        if (device.unbound) return deviceUnboundResponse(device.deviceId);
+        if (!device.deviceId) return json({ error: 'Device identity missing' }, 403);
+        if (!isDateKey(date) || !Number.isFinite(Date.parse(`${date}T00:00:00Z`))
+          || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date
+          || [...url.searchParams.keys()].some(key => key !== 'date')
+          || url.searchParams.getAll('date').length !== 1) {
+          return json({ error: 'A single valid date is required' }, 400);
+        }
+        profileId = device.profileId;
+        boundDeviceId = device.deviceId;
+      } else {
+        profileId = hourlyTargetStatsV1Match![1];
+        const accountId = await verifyAccountToken(request, env.JWT_SECRET);
+        if (!accountId) return json({ error: 'Unauthorized' }, 401);
 
-      const profile = await env.DB.prepare(
-        `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
-      ).bind(profileId, accountId).first<{ id: string }>();
-      if (!profile) return json({ error: 'Profile not found' }, 404);
+        const profile = await env.DB.prepare(
+          `SELECT id FROM profiles WHERE id = ? AND account_id = ?`
+        ).bind(profileId, accountId).first<{ id: string }>();
+        if (!profile) return json({ error: 'Profile not found' }, 404);
+      }
 
-      const from = url.searchParams.get('from') || (() => {
+      const from = (deviceHourlyRead ? date : url.searchParams.get('from')) || (() => {
         const d = new Date();
         d.setDate(d.getDate() - 7);
         return d.toISOString().split('T')[0];
       })();
-      const to = url.searchParams.get('to') || new Date().toISOString().split('T')[0];
-      const deviceId = url.searchParams.get('deviceId');
+      const to = (deviceHourlyRead ? date : url.searchParams.get('to')) || new Date().toISOString().split('T')[0];
+      const deviceId = deviceHourlyRead ? boundDeviceId : url.searchParams.get('deviceId');
       const targetKey = url.searchParams.get('targetKey');
-      const channel = url.searchParams.get('channel');
+      const channel = deviceHourlyRead ? 'active' : url.searchParams.get('channel');
       const mode = url.searchParams.get('mode');
       const quotaBucket = url.searchParams.get('quotaBucket');
       if ((from && !isDateKey(from)) || (to && !isDateKey(to))) return json({ error: 'from/to must be YYYY-MM-DD' }, 400);
       if (channel && !VALID_CHANNELS.has(channel)) return json({ error: 'invalid channel' }, 400);
       if (mode && !VALID_MODES.has(mode)) return json({ error: 'invalid mode' }, 400);
       if (quotaBucket && !VALID_QUOTA_BUCKETS.has(quotaBucket)) return json({ error: 'invalid quotaBucket' }, 400);
-      if (!(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
+      if (!deviceHourlyRead && !(await verifyProfileDevice(env, profileId, deviceId))) return json({ error: 'Device not found' }, 404);
 
       const where: string[] = ['profile_id = ?', 'date >= ?', 'date <= ?'];
       const binds: any[] = [profileId, from, to];
@@ -1653,7 +1672,10 @@ export const statsRouter = {
       const corrected = applyCorrectionsToV1StatsRows(result.results || [], corrections, 'hourly_target')
         .filter((row) => (!targetKey || row.target_key === targetKey) && (!channel || row.channel === channel) &&
           (!mode || row.mode === mode) && (!quotaBucket || row.quota_bucket === quotaBucket));
-      return json({ stats: corrected, correctionsApplied: corrections.length });
+      const response = json({ stats: corrected, correctionsApplied: corrections.length,
+        ...(deviceHourlyRead ? { profileId, deviceId, date } : {}) });
+      if (deviceHourlyRead) response.headers.set('Cache-Control', 'no-store');
+      return response;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
