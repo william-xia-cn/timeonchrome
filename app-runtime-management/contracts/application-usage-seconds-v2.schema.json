@@ -587,7 +587,8 @@
       "properties": {
         "fromDate": { "$ref": "#/$defs/date" }, "toDate": { "$ref": "#/$defs/date" },
         "offset": { "type": "integer", "minimum": 0, "maximum": 20000 },
-        "expectedRevision": { "$ref": "#/$defs/revision" }
+        "expectedRevision": { "$ref": "#/$defs/revision" },
+        "includeApplicationUsage": { "const": true }
       },
       "allOf": [{ "if": { "properties": { "offset": { "minimum": 1 } } }, "then": { "required": ["expectedRevision"] } }]
     },
@@ -609,7 +610,8 @@
         "complete": { "type": "boolean" }, "reasonCodes": { "$ref": "#/$defs/reasons" },
         "totalSeconds": { "type": ["integer", "null"], "minimum": 0, "maximum": 86400 },
         "categoriesSeconds": { "$ref": "#/$defs/categories" },
-        "hours": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/hour" } }
+        "hours": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/hour" } },
+        "applicationUsage": { "$ref": "#/$defs/identityApplicationUsage" }
       }
     },
     "application": {
