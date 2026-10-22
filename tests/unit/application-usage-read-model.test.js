@@ -80,6 +80,16 @@ async function main() {
     const specialView = await extended.getAdminApplicationUsageAnalysisView({ mode: 'week', force: true });
     assert.equal(specialView.totalSeconds, 2);
     assert.deepEqual(specialView.bucketTotals, { study: 0, composite: 0, rest: 0, other: 1 });
+    extendedPage.days[5].applicationUsage.nonSpecialCategories = { blocked: 1 };
+    extendedPage.applications[0].classifications = ['blocked'];
+    const blockedInput = JSON.stringify(extendedPage);
+    const blockedView = await extended.getAdminApplicationUsageAnalysisView({ mode: 'week', force: true });
+    assert.deepEqual(blockedView.bucketTotals, { study: 0, composite: 0, rest: 0, other: 1 });
+    assert.equal(blockedView.bucketsComplete, true);
+    assert.equal(blockedView.totalSeconds, 2, 'special exclusion must not reduce total');
+    assert.equal(blockedView.targetRows.find(row => row.label === 'Fixture 0').categoryLabel, '黑名单');
+    assert.deepEqual(blockedView.categoryTotals, specialView.categoryTotals, 'classification detail is not rewritten');
+    assert.equal(JSON.stringify(extendedPage), blockedInput);
     delete extendedPage.days[5].applicationUsage;
     const missingView = await extended.getAdminApplicationUsageAnalysisView({ mode: 'week', force: true });
     assert.equal(missingView.bucketsComplete, false);
@@ -196,8 +206,29 @@ async function main() {
     const knownDayUnknownWeek = await missingDateReader.getAdminApplicationUsageAnalysisView();
     assert.equal(knownDayUnknownWeek.totalSeconds, 2);
     assert.equal(knownDayUnknownWeek.warning, null, 'a valid unknown date must not fail the whole supplemental week');
-    assert.equal(knownDayUnknownWeek.targetRows[0].weekSeconds, null);
+    assert.equal(knownDayUnknownWeek.targetRows[0].weekSeconds, 2, 'future unknown does not invalidate elapsed week');
     assert.equal(knownDayUnknownWeek.weekSummarySeries.at(-1).totalSeconds, null);
+    assert.equal(knownDayUnknownWeek.weekSummarySeries.at(-1).future, true);
+    const unchangedWire = JSON.stringify(missingDateWeek);
+    const elapsedWeek = await missingDateReader.getAdminApplicationUsageAnalysisView({ mode: 'week' });
+    assert.equal(elapsedWeek.totalSeconds, 2);
+    assert.equal(elapsedWeek.incompleteDates, '');
+    assert.equal(elapsedWeek.chartSeries.length, 7);
+    assert.deepEqual(elapsedWeek.chartSeries.at(-1), { label: '09-27', future: true, categories: {}, totalSeconds: null });
+    assert.equal(JSON.stringify(missingDateWeek), unchangedWire, 'display must not mutate wire or cache');
+    // Once that unknown date arrives it must no longer be excluded, including cache reuse.
+    Date.now = () => fixedNow + 86400000;
+    const arrived = await missingDateReader.getAdminApplicationUsageAnalysisView({ mode: 'week' });
+    assert.equal(arrived.totalSeconds, null);
+    assert.match(arrived.incompleteDates, /2026-09-27/);
+    Date.now = () => fixedNow;
+    const pastMissing = structuredClone(missingDateWeek);
+    pastMissing.days[4] = { ...pastMissing.days[6], date: '2026-09-25' };
+    for (const row of pastMissing.applications) row.dailySeconds['2026-09-25'] = null;
+    const pastReader = await load(async () => ({ ok: true, applicationUsageSeconds: pastMissing }));
+    const partialWeek = await pastReader.getAdminApplicationUsageAnalysisView({ mode: 'week' });
+    assert.equal(partialWeek.totalSeconds, null);
+    assert.equal(partialWeek.incompleteDates, '2026-09-25');
     const weekPending = await load(async ({ query }) => query.fromDate === query.toDate
       ? { ok: true, applicationUsageSeconds: page() }
       : { ok: false, errorCode: 'application_usage_pending' });

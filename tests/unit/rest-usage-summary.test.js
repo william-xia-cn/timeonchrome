@@ -41,6 +41,16 @@ async function run(){
   storage={daily_usage_stats_v1:{}};app=appView('2026-10-05');app.categoryTotals={};app.totalSeconds=0;app.weekSummarySeries.forEach(row=>{row.totalSeconds=0;row.categories={};});
   result=await readRestUsageSummary({now:Date.parse('2026-10-04T16:00:00Z')});
   assert.equal(result.date,'2026-10-05');assert.equal(result.weekStart,'2026-10-05');assert.equal(result.today.totalSeconds,0);assert.equal(result.week.totalSeconds,0);
+  app.weekSummarySeries = Array.from({length:7}, (_, i) => ({date:`2026-10-${String(5+i).padStart(2,'0')}`,
+    totalSeconds:i===0?100:null,categories:i===0?{app_restrictedEntertainment:10,app_blocked:14}:{}}));
+  result=await readRestUsageSummary({now:Date.parse('2026-10-05T12:00:00+08:00')});
+  assert.equal(result.week.applicationSeconds,10,'future dates do not block elapsed rest; blocked never charges rest');
+  assert.equal(app.weekSummarySeries[1].totalSeconds,null,'future is not rewritten to zero');
+  result=await readRestUsageSummary({now:Date.parse('2026-10-06T12:00:00+08:00')});
+  assert.equal(result.week.applicationSeconds,null,'unknown current date is still incomplete');
+  app.weekSummarySeries[1].totalSeconds=0;app.weekSummarySeries[0].totalSeconds=null;
+  result=await readRestUsageSummary({now:Date.parse('2026-10-06T12:00:00+08:00')});
+  assert.equal(result.week.applicationSeconds,null,'unknown past date is still incomplete');
   assert.doesNotMatch(source,/storage\.local\.set|budgetedLocalSet|usage_segments_v1|cloudSnapshot|locked/);
   console.log('Rest usage title summary: PASS (local buckets, borrowing, application category, partial, zero, Beijing day/week)');
 }

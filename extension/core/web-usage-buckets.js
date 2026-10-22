@@ -19,10 +19,10 @@
     const usage=snapshot?.applicationUsage,c=usage?.nonSpecialCategories;
     if(snapshot?.durationUnit!=='seconds'||!c||Array.isArray(c)||typeof c!=='object'
       ||!Object.values(c).every(valid)||!valid(usage.nonSpecialTotal))return {values:null,complete:false};
-    const values={study:c.study??0,composite:(c.composite??0)+(c.unclassified??0),rest:c.restrictedEntertainment??0,other:c.other??0};
+    const values={study:c.study??0,composite:(c.composite??0)+(c.unclassified??0),rest:c.restrictedEntertainment??0,other:(c.other??0)+(c.blocked??0)};
     if(!Object.values(values).every(valid))return {values:null,complete:false};
     return {values,complete:snapshot.complete===true&&usage.complete===true
-      &&Object.keys(c).every(key=>['study','composite','unclassified','restrictedEntertainment','other'].includes(key))};
+      &&Object.keys(c).every(key=>['study','composite','unclassified','restrictedEntertainment','other','blocked'].includes(key))};
   }
   function rowsResult(rows,complete=true){
     if(!Array.isArray(rows))return {values:null,complete:false};

@@ -245,9 +245,22 @@ function dayTotal(day) { return day.totalSeconds; }
 function productDaily(row, date, unit, snapshot) { return row ? row.dailySeconds[date] : snapshot.complete ? 0 : null; }
 function productKnown(row) { return row?.knownTotalSeconds ?? 0; }
 function productTotal(row, unit, snapshot) { return row ? row.totalSeconds : snapshot?.complete ? 0 : null; }
-function summarySeries(snapshot) {
-  return snapshot?.days.map(day => ({ label: day.date.slice(5), categories: uiCategories(dayCategories(day)),
-    totalSeconds: day.complete ? dayTotal(day) : null })) || [];
+function summarySeries(snapshot, today) {
+  return snapshot?.days.map(day => ({ date: day.date, label: day.date.slice(5), future: day.date > today,
+    categories: day.date > today ? {} : uiCategories(dayCategories(day)),
+    totalSeconds: day.date <= today && day.complete ? dayTotal(day) : null })) || [];
+}
+// Display projection only, after strict wire validation. Never mutate the cached response.
+function throughToday(snapshot, today) {
+  if (!snapshot || !snapshot.days.some(day => day.date > today)) return snapshot;
+  const days = snapshot.days.filter(day => day.date <= today);
+  const complete = days.length > 0 && days.every(day => day.complete);
+  const knownTotalSeconds = days.reduce((sum, day) => sum + (day.totalSeconds ?? 0), 0);
+  return { ...snapshot, complete, knownTotalSeconds, totalSeconds: complete ? knownTotalSeconds : null,
+    applications: snapshot.applications.map(row => {
+      const known = days.reduce((sum, day) => sum + (row.dailySeconds[day.date] ?? 0), 0);
+      return { ...row, knownTotalSeconds: known, totalSeconds: complete ? known : null };
+    }) };
 }
 function rangeCacheKey(context, dates) { return `${context.readUnit}/${context.contextId}/${dates[0]}/${dates.at(-1)}`; }
 export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date, force = false, recheck = false } = {}) {
@@ -275,9 +288,12 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
     current = cachedRange(currentDates);
     warning = [warning, `本周补充数据暂不可用：${applicationUsageErrorMessage(error.message)}`].filter(Boolean).join(' ');
   }
+  snapshot = throughToday(snapshot, today);
+  selectedWeek = throughToday(selectedWeek, today);
+  current = throughToday(current, today);
   const unit = snapshot.readUnit;
   const todaySnapshot = mode === 'day' && selected === today ? snapshot : current || (selected === today ? snapshot : null);
-  const selectedDays = mode === 'week' ? snapshot.days : snapshot.days.filter(day => day.date === selected);
+  const selectedDays = mode === 'week' ? snapshot.days.filter(day => day.date <= today) : snapshot.days.filter(day => day.date === selected);
   const unavailable = selectedDays.some(day => !day.complete);
   const categoryTotals = {};
   for (const day of selectedDays) for (const [key, value] of Object.entries(dayCategories(day, unit))) {
@@ -302,7 +318,7 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
       todaySeconds: todayValue, weekSeconds: weekValue, limitLabel: '不适用', status: partialLabel };
   }).filter(row => (row.rangeSeconds || row.rangeKnownSeconds || row.todaySeconds || row.weekSeconds))
     .sort((a, b) => (b.rangeKnownSeconds || 0) - (a.rangeKnownSeconds || 0));
-  const incomplete = snapshot.days.filter(day => !day.complete).map(day => day.date).join('、');
+  const incomplete = snapshot.days.filter(day => day.date <= today && !day.complete).map(day => day.date).join('、');
   const knownTotalSeconds = snapshot.knownTotalSeconds;
   const totalSeconds = snapshot.totalSeconds;
   const categoryRows = Object.entries(APPLICATION_CATEGORY_LABELS).map(([key, label]) => {
@@ -319,9 +335,11 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
   const knownBuckets = bucketDays.filter(day => day.values);
   const bucketTotals = knownBuckets.length ? bucketDisplay.empty() : null;
   if (bucketTotals) for (const day of knownBuckets) for (const key of Object.keys(bucketTotals)) bucketTotals[key] += day.values[key];
-  const bucketsComplete = bucketDays.every(day => day.complete);
-  const chartSeries = mode === 'week' ? selectedDays.map((day, index) => ({ label: day.date.slice(5),
-    categories: bucketDays[index].values || {}, totalSeconds: day.totalSeconds })) : selectedDays[0].hours.map(hour => ({ label: `${hour.hour}`,
+  const bucketsComplete = bucketDays.length > 0 && bucketDays.every(day => day.complete);
+  const chartSeries = mode === 'week' ? snapshot.days.map(day => ({ label: day.date.slice(5),
+    future: day.date > today,
+    categories: day.date > today ? {} : bucketDays[selectedDays.indexOf(day)].values || {},
+    totalSeconds: day.date > today ? null : day.totalSeconds })) : selectedDays[0].hours.map(hour => ({ label: `${hour.hour}`,
     categories: { usage_total: hour.totalSeconds },
     totalSeconds: selectedDays[0].complete ? hour.totalSeconds : null }));
   const lastSettledAtMs = snapshot.lastSettledAtMs;
@@ -341,7 +359,7 @@ export async function getAdminApplicationUsageAnalysisView({ mode = 'day', date,
       ? bucketsComplete ? '四桶为非特殊应用用量，不以四桶之和替代应用总量。' : '四桶仅显示已知部分，缺失不代表零用量。'
       : '桶用量暂不可用：当前读取未提供非特殊应用摘要。'}`,
     hourlyEmptyMessage: mode === 'week' && !bucketTotals ? '桶用量暂不可用，不代表零用量' : undefined,
-    targetRows, chartSeries, weekSummarySeries: selectedWeek ? summarySeries(selectedWeek) : selectedDates.map(day => ({ label: day.slice(5), categories: {}, totalSeconds: null })),
+    targetRows, chartSeries, weekSummarySeries: selectedWeek ? summarySeries(selectedWeek, today) : selectedDates.map(day => ({ date: day, label: day.slice(5), future: day > today, categories: {}, totalSeconds: null })),
     targetColumnLabel: '应用', categoryColumnLabel: '历史管理分类', limitColumnLabel: '网页配额', searchTargetPlaceholder: '搜索应用名称',
     warning, weekUnavailable: !selectedWeek, incompleteDates: incomplete, attribution, readUnit: unit,
     meta: { syncLabel: `${warning ? '缓存／连接中断 · ' : ''}本机当前孩子 · 最近读取 ${new Date(snapshot.readAtMs).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} · 已结算至 ${settled}${incomplete ? ' · 不完整日期：' + incomplete : ''}${completenessLabel} · ${attributionLabel}${associationLabel}` } };
