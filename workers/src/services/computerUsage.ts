@@ -13,6 +13,7 @@ import { readSharedAccessPolicyV2ForChild } from '../routes/profiles';
 import { createSharedWebMachineScope, readSharedWebVerificationKey } from './sharedWebSourceBinding';
 import { validateQuotaBucketsQuery,validateQuotaBucketsSnapshot } from '@timeonchrome/app-runtime-contracts/source-statistics';
 import { readWebQuotaBuckets,readSourceStatisticsResponse } from './sourceStatistics';
+import displayBuckets from '@timeonchrome/app-runtime-contracts/web-usage-buckets';
 
 export interface ComputerUsageEnv extends Env {
   RUNTIME_COMPUTER_USAGE?: {readApplicationEvidence(accountId:string,childId:string,fromDate:string,toDate:string):Promise<ComputerApplicationSource[]>;
@@ -51,12 +52,12 @@ export function validateComputerUsageRange(from:string,to:string) {
 const classification=(value:unknown)=>({restricted:'restrictedEntertainment',pending_composite:'unclassified',rejected:'blocked'}[String(value)]||String(value||'unknown'));
 
 /** Read authority first; intervals only verify/support display overlap, never replace V2 statistics. */
-export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,includeIntervals=true):Promise<ComputerWebSource[]> {
+export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,includeIntervals=true):Promise<Array<ComputerWebSource & {quotaRows?:Array<{quotaBucket:unknown;mode?:unknown;duration:number}>}>> {
   const {start,end}=validateComputerUsageRange(from,to);
   const devices=await env.DB.prepare('SELECT id,device_name FROM devices WHERE profile_id=? ORDER BY id LIMIT 101')
     .bind(childId).all<{id:string;device_name:string}>();
   if((devices.results?.length??0)>100)throw new Error('COMPUTER_USAGE_SOURCE_LIMIT');
-  const sources:ComputerWebSource[]=[];
+  const sources:Array<ComputerWebSource & {quotaRows?:Array<{quotaBucket:unknown;mode?:unknown;duration:number}>}>=[];
   let remaining=10000; // Combined with Runtime's 10k budget, never exceeds shared 20k.
   for(const device of devices.results??[])for(let day=start;day<=end;day+=DAY) {
     const date=new Date(day+8*3600000).toISOString().slice(0,10);
@@ -85,7 +86,8 @@ export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:str
       sources.push({...base,revision:await sha(JSON.stringify(raw)),correctionRevision:await sha(JSON.stringify(changes)),
         settledAtMs:Math.max(...raw.map(row=>Number(row.last_seen_at??row.updated_at??0))),statisticsComplete:true,
         historyQuality:'bestEffort',reasons:['HISTORICAL_SOURCE_BEST_EFFORT'],
-        totalMs:corrected.reduce((sum,row)=>sum+Number(row.duration_seconds)*1000,0),categoriesMs});continue;
+        totalMs:corrected.reduce((sum,row)=>sum+Number(row.duration_seconds)*1000,0),categoriesMs,
+        quotaRows:corrected.map(row=>({quotaBucket:row.quota_bucket,mode:row.mode,duration:Number(row.duration_seconds)}))});continue;
     }
     const account=await readManifestAccountV2(env,head.manifest_id);
     if(!account||account.profileId!==childId||account.deviceId!==device.id||account.date!==date)throw new Error('WEB_ACCOUNT_SCOPE_CONFLICT');
@@ -118,6 +120,7 @@ export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:str
       .bind(childId,device.id,date).first<{manifest_id:string}>();
     if(current?.manifest_id!==head.manifest_id)reasons.push('SOURCE_VERSION_CHANGED');
     sources.push({...base,revision:`${account.revision}:${account.statsHash}`,correctionRevision:corrections.revision,
+      quotaRows:corrected.filter(row=>row.channel==='active').map(row=>({quotaBucket:row.quotaBucket,mode:row.mode,duration:row.durationSeconds})),
       settledAtMs:account.generatedAt,complete:account.complete&&!account.lossCount&&reasons.length===0,
       statisticsComplete:account.complete&&!account.lossCount&&!reasons.includes('SOURCE_VERSION_CHANGED'),
       reasons,totalMs,categoriesMs,intervals});
@@ -127,7 +130,7 @@ export async function readComputerWebEvidence(env:ComputerUsageEnv,accountId:str
 }
 
 /** Display-only adapter to the existing web authority; never reads raw intervals. */
-export async function readComputerWebStatisticsSeconds(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string):Promise<ComputerUsageStatisticsSourceV2> {
+export async function readComputerWebStatisticsSeconds(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string) {
   const sources=await readComputerWebEvidence(env,accountId,childId,from,to,false);
   const seconds=(ms:number)=>{
     if(!Number.isSafeInteger(ms)||ms<0||ms%1000)throw new Error('WEB_STATISTICS_UNIT_INVALID');
@@ -148,7 +151,8 @@ export async function readComputerWebStatisticsSeconds(env:ComputerUsageEnv,acco
   return {durationUnit:'seconds',revision:await sha(JSON.stringify(sources.map(source=>({key:source.key,
     revision:source.revision,correctionRevision:source.correctionRevision,statisticsComplete:source.statisticsComplete,reasons:source.reasons})))),
     complete,totalDuration:complete?availableTotalDuration:null,availableTotalDuration,
-    categories:[...categories].map(([classification,duration])=>({classification,duration}))};
+    categories:[...categories].map(([classification,duration])=>({classification,duration})),
+    displayBuckets:displayBuckets.rowsResult(sources.flatMap(source=>source.quotaRows??[]),complete&&sources.every(source=>Array.isArray(source.quotaRows)))};
 }
 
 /** Independent authority reads followed by a display projection; no mixed-source quota query. */
@@ -171,7 +175,9 @@ export async function readComputerUsageStatisticsSummarySeconds(env:ComputerUsag
   ]);
   const summary=projectComputerUsageStatisticsV2({fromDate:from,toDate:to,web,application});
   const result={...summary,reasonCodes:[...new Set([...summary.reasonCodes,...errors])].sort()};
-  return {...result,revision:`computer-v2:${await sha(JSON.stringify({accountId,childId,result}))}`};
+  return {...result,revision:`computer-v2:${await sha(JSON.stringify({accountId,childId,result}))}`,
+    displayBuckets:displayBuckets.combine(web?.displayBuckets,displayBuckets.application(application)),
+    applicationSnapshot:application};
 }
 
 export async function readComputerUsage(env:ComputerUsageEnv,accountId:string,childId:string,from:string,to:string,_computer?:string,summaryOnly=false) {
@@ -341,6 +347,10 @@ export async function readIndependentUsage(env:ComputerUsageEnv,accountId:string
       if(from!==to){const start=Date.parse(`${row.date}T00:00:00+08:00`);buckets.set(start,(buckets.get(start)??0)+ms);}
     }
     if(from===to)for(const row of relevant(hourly)){const start=Date.parse(`${row.date}T${String(row.hour).padStart(2,'0')}:00:00+08:00`);if(Number.isFinite(start))buckets.set(start,(buckets.get(start)??0)+Number(row.duration_seconds)*1000);}
-    return {source,fromDate:from,toDate:to,totalDurationMs,categories:[...categories].map(([classification,durationMs])=>({classification,durationMs})),
+    return {source,fromDate:from,toDate:to,totalDurationMs,
+      ...(source==='web'?{quotaRows:relevant(daily).map(row=>({
+        quotaBucket:domain?row.mode:(row.quota_bucket||row.mode),duration:Number(row.duration_seconds)
+      }))}:{}),
+      categories:[...categories].map(([classification,durationMs])=>({classification,durationMs})),
       buckets:[...buckets].sort((a,b)=>a[0]-b[0]).map(([startAtMs,durationMs])=>({startAtMs,durationMs})),applications:[...products.values()].sort((a,b)=>b.durationMs-a.durationMs)};
 }

@@ -1,5 +1,8 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const view=require('./computer-usage-view.js');
+assert.equal(fs.readFileSync(path.join(__dirname,'web-usage-buckets.js'),'utf8').replace(/\r\n/g,'\n'),
+  fs.readFileSync(path.join(__dirname,'../contracts/web-usage-buckets.cjs'),'utf8').replace(/\r\n/g,'\n'),
+  'both cloud Pages must publish the approved shared display mapping, not a stale copy');
 const raw=fs.readFileSync(path.join(__dirname,'computer-usage-view.js'),'utf8');
 assert.ok(!raw.includes('data-computer-select'),'child summary must not contain a source/computer selector');
 const controller=fs.readFileSync(path.join(__dirname,'app-runtime.js'),'utf8');
@@ -8,20 +11,22 @@ assert.ok(controller.includes("current==='special'?'特殊应用':'普通应用'
 const directory=controller.match(/function directoryMembers\(category\) \{([\s\S]*?)\n  \}/)[0];
 const state={catalog:{items:[{platform:'windows',runtimeIdentity:null,presentationKind:'contentBased',runtimeImplementations:[{platform:'windows',runtimeIdentity:'chrome1'},{platform:'windows',runtimeIdentity:'chrome2'}]}]},records:{pending:[{platform:'windows',runtimeIdentity:'chrome1'},{platform:'windows',runtimeIdentity:'chrome2'},{platform:'windows',runtimeIdentity:'excel'}]}};
 const keyOf=item=>item.platform+'|'+item.runtimeIdentity;
-const members=new Function('state','AppRuntimePolicy','$',directory+';return directoryMembers;')(state,{keyOf},()=>({value:'usage'}));
+state.catalog.items.push({platform:'windows',runtimeIdentity:'excel',classification:'unclassified',catalogKind:'application'});
+const members=new Function('state','AppRuntimePolicy','$',directory+';return directoryMembers;')(state,{keyOf},()=>{throw new Error('主要目录不再读取已移除的目录范围控件');});
 assert.equal(members('special').length,1);assert.deepEqual(members('unclassified').map(item=>item.runtimeIdentity),['excel']);
-assert.equal(raw,fs.readFileSync(path.join(__dirname,'../../pages/computer-usage-view.js'),'utf8'),'both cloud pages use identical readonly renderer');
+assert.equal(raw,fs.readFileSync(path.join(__dirname,'../../pages/computer-usage-view.js'),'utf8').replace("require('../app-runtime-management/console/web-usage-buckets.js')","require('./web-usage-buckets.js')"),'both cloud pages use identical readonly renderer');
 const mainPage=fs.readFileSync(path.join(__dirname,'../../pages/index.html'),'utf8');
 const applicationRead=mainPage.slice(mainPage.indexOf('const cloudApplicationReader='),mainPage.indexOf('const cloudApplicationReader=')+1200);
-assert.ok(applicationRead.includes("source:'application',durationUnit:'seconds'"),'main application view explicitly selects seconds');
-assert.ok(applicationRead.includes("model:'program-instance-v1'"),'main application view selects the cloud identity projection');
+assert.ok(applicationRead.includes('readCloudUsageBatch({refresh,application:true})'),'application extracts the same read batch as computer');
+assert.ok(mainPage.includes("detail:'summary',durationUnit:'seconds'"),'shared batch explicitly selects seconds');
+assert.ok(controller.includes('await readUsageBatch({refresh,application:true})'),'independent Runtime reuses the same unfiltered batch');
 const identityHtml=view.independentSummary({model:'program-instance-v1',source:'application',durationUnit:'seconds',
   fromDate:'2026-10-09',toDate:'2026-10-09',complete:true,totalDuration:60,availableTotalDuration:60,
   categories:[],applications:[],buckets:[],productStatus:{complete:false},
   instances:[{subjectKey:'instance:<unsafe>',duration:60},{subjectKey:'instance:second',duration:60}],
   statistics:{producer:'native'}});
 assert.ok(identityHtml.includes('<strong>1分 0秒</strong>'),'base total is not summed from overlapping instances');
-assert.ok(identityHtml.includes('产品／分类投影尚未完整'));assert.ok(identityHtml.includes('基础程序实例（2）'));
+assert.ok(identityHtml.includes('应用明细尚不完整'));assert.ok(identityHtml.includes('基础程序实例（2）'));
 assert.ok(identityHtml.includes('instance:&lt;unsafe&gt;'));assert.ok(!identityHtml.includes('<unsafe>'));
 for(const available of [null,0,12]){
   const missing=view.independentSummary({model:'program-instance-v1',source:'application',durationUnit:'seconds',
@@ -48,15 +53,25 @@ assert.ok(childContent.includes('该孩子的网页内容'));assert.ok(childCont
 const statusHtml=view.summary({...snapshot,sourceStatus:{web:'complete',application:'partial'},historyStatus:'bestEffort',overlapStatus:'unconfirmed',categoryBasis:'sourceCumulative',categoriesMs:{study:1501},sourceCategoriesMs:{web:{study:1501},application:{composite:3001}}});
 assert.ok(statusHtml.includes('电脑使用＝网页＋应用－应用总量中 Chrome 的贡献'));
 assert.ok(statusHtml.includes('不是完整合计'));assert.ok(statusHtml.includes('独立权威分类'));assert.ok(statusHtml.includes('历史数据，尽力还原'));
-assert.ok(statusHtml.includes('<details><summary>来源状态与诊断详情</summary>'));
+assert.match(statusHtml,/<details(?: class="usage-secondary-details")?><summary>来源状态与诊断详情<\/summary>/);
 for(const [file,attribute] of [['index.html','data-usage-kind'],['../../pages/index.html','data-cloud-usage-ledger']]){
 const page=fs.readFileSync(path.join(__dirname,file),'utf8');
 const tabs=[...page.matchAll(new RegExp(attribute+'="([^"]+)"[^>]*>([^<]+)<','g'))].map(match=>[match[1],match[2]]);
-assert.deepEqual(tabs,[['computer','电脑使用'],['application','应用使用'],['web','网页使用'],['media','网页媒体使用']]);
+assert.deepEqual(tabs,[['web','网页使用'],['application','应用使用'],['computer','电脑使用'],['media','网页媒体使用']]);
+assert.ok(page.includes(`class="active" ${attribute}="web">网页使用</button>`),'web tab is initially active');
 assert.ok(page.includes('.computer-view[hidden]'),'hidden root beats display:grid');
 }
+assert.ok(controller.includes("state.usageKind='web'"),'independent console defaults to web usage');
 const independent=view.independentSummary({source:'web',fromDate:'2026-10-01',toDate:'2026-10-01',totalDurationMs:5134000,categories:[{classification:'study',durationMs:5134000}],buckets:[],applications:[]});
 assert.ok(independent.includes('1小时 25分 34秒'));assert.ok(!independent.includes('电脑总用量'));
+assert.ok(independent.includes('时间桶明细不完整'),'旧响应缺少桶时不从分类猜配');
+const webSnapshot={source:'web',fromDate:'2026-10-21',toDate:'2026-10-21',totalDurationMs:349000,
+ quotaRows:[{quotaBucket:'study',duration:60},{quotaBucket:'composite',duration:120},{quotaBucket:'rest',duration:30},{quotaBucket:'other',duration:40},{quotaBucket:'unknown',duration:99}],
+ categories:[{classification:'unclassified',durationMs:349000}],buckets:[],applications:[]};
+const webBefore=JSON.stringify(webSnapshot),webHtml=view.independentSummary(webSnapshot);
+for(const [label,time] of [['学习','1分 0秒'],['复合','2分 0秒'],['休息','0分 30秒'],['其他','0分 40秒']])assert.ok(webHtml.includes('<b>'+label+'</b><br>'+time));
+assert.ok(webHtml.includes('5分 49秒'));assert.ok(webHtml.includes('时间桶明细不完整'));assert.ok(!webHtml.includes('<b>未归类</b>'));assert.equal(JSON.stringify(webSnapshot),webBefore);
+assert.ok(view.independentSummary({...webSnapshot,source:'media'}).includes('分类明细'),'媒体不改变展示口径');
 const appSnapshot={source:'application',fromDate:'2026-10-04',toDate:'2026-10-04',totalDurationMs:51125,categories:[{classification:'unclassified',durationMs:51125}],buckets:[],applications:[],statistics:{producer:'native',stale:true,computedAtMs:1791100800000,settledThroughByDate:[{date:'2026-10-04',settledThroughMs:1791100700000}]}};
 assert.ok(view.independentSummary(appSnapshot).includes('Service 已发布持久化统计'));
 assert.ok(view.independentSummary(appSnapshot).includes('结算截止'));
@@ -114,7 +129,10 @@ const queries=[],cleanHost={...host,innerHTML:''};await view.create(cleanHost,as
 assert.deepEqual(queries,[{detail:'summary',durationUnit:'seconds'}]);assert.ok(!cleanHost.innerHTML.includes('<select'));
 let currentScope='child-a|day',viewCalls=0;
 const successfulSnapshot={...snapshot,reasons:[]};
-const cachedReader=view.create(cleanHost,async()=>{viewCalls++;return successfulSnapshot;},null,()=>currentScope);
+const batchCache=view.createReadCache();
+const cachedReader=view.create(cleanHost,async(query,options)=>{
+  return (await batchCache.read(currentScope,async()=>{viewCalls++;return successfulSnapshot;},options)).value;
+},null,()=>currentScope);
 await cachedReader.load();cachedReader.invalidate();await cachedReader.load();assert.equal(viewCalls,1,'switching back uses the same generated summary');
 await cachedReader.load({refresh:true});assert.equal(viewCalls,2,'manual refresh bypasses memory cache');
 currentScope='child-b|day';await cachedReader.load();assert.equal(viewCalls,3,'child changes never reuse another child snapshot');

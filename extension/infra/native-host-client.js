@@ -960,7 +960,8 @@ async function performSend(options) {
         || (options.expectedReadUnit && options.expectedReadUnit !== readUnit)) {
         return { ok: false, errorCode: 'application_usage_context_changed' };
       }
-      if (!isValidApplicationUsageQuery(options.query, readUnit)) {
+      if (!isValidApplicationUsageQuery(options.query, readUnit)
+        || options.query.includeApplicationUsage && !context.applicationUsageSupported) {
         return { ok: false, errorCode: 'application_usage_query_invalid' };
       }
       const payload = { protocolVersion: 3, channel: 'application', requestId: createUuid(),
@@ -1242,7 +1243,8 @@ function validBeijingDate(value) {
 
 function isValidApplicationUsageQuery(query, readUnit) {
   if (!query || typeof query !== 'object' || Array.isArray(query)
-    || Object.keys(query).some(key => !['fromDate', 'toDate', 'offset', 'expectedRevision'].includes(key))
+    || Object.keys(query).some(key => !['fromDate', 'toDate', 'offset', 'expectedRevision', 'includeApplicationUsage'].includes(key))
+    || Object.hasOwn(query, 'includeApplicationUsage') && query.includeApplicationUsage !== true
     || !validBeijingDate(query.fromDate) || !validBeijingDate(query.toDate)
     || Date.parse(`${query.toDate}T00:00:00+08:00`) < Date.parse(`${query.fromDate}T00:00:00+08:00`)
     || Date.parse(`${query.toDate}T00:00:00+08:00`) - Date.parse(`${query.fromDate}T00:00:00+08:00`) > 6 * 86_400_000
@@ -1262,9 +1264,10 @@ async function readApplicationUsageContext() {
   try {
     const profile = await getOrCreateProfileUuid();
     const stored = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id']);
-    const contextId = await stableDigest({ connectionGeneration: applicationConnectionGeneration, profile,
+    const applicationUsageSupported = applicationUsageSecondsSupported && sharedNativeCapabilities.has('application-usage-non-special-read-v1');
+    const contextId = await stableDigest({ connectionGeneration: applicationConnectionGeneration, profile, applicationUsageSupported,
       cloudProfileId: String(stored?.cloud_profile_id || ''), cloudDeviceId: String(stored?.cloud_device_id || '') });
-    return { ok: true, readUnit, contextId, available: nativePort !== null
+    return { ok: true, readUnit, contextId, applicationUsageSupported, available: nativePort !== null
       && applicationUsageSecondsSupported };
   } catch (_) {
     return { ok: false, errorCode: 'application_usage_context_changed' };
@@ -1306,7 +1309,7 @@ export async function requestApplicationUsage(query, { recheck = false, expected
   if (!await readNativeHostDeploymentMarker().catch(() => false)) {
     return { ok: false, errorCode: 'managed_marker_unavailable' };
   }
-  if (!query || Object.keys(query).some(key => !['fromDate', 'toDate', 'offset', 'expectedRevision'].includes(key))
+  if (!query || Object.keys(query).some(key => !['fromDate', 'toDate', 'offset', 'expectedRevision', 'includeApplicationUsage'].includes(key))
     || !validBeijingDate(query.fromDate) || !validBeijingDate(query.toDate)
     || !Number.isSafeInteger(query.offset) || query.offset < 0 || query.offset > 20_000) {
     return { ok: false, errorCode: 'application_usage_query_invalid' };

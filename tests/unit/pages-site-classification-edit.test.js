@@ -76,15 +76,12 @@ function page(config = base(), defaults = {}) {
 }
 
 async function run() {
-  await test('删除→一次保存→重新读取→加入学习，不再残留旧host规则', async () => {
+  await test('旧删除入口不能撤销分类；直接改类仍正常', async () => {
     const p = page();
     p.context.window._rulesSiteDirectoryEntries = [{ source: 'custom', classification: 'composite', value: '127.0.0.1' }];
     p.context.window.deleteRulesCustomSite(0);
-    await p.context.saveSiteAccessConfig();
-    assert.equal(p.calls.filter(c => c.method === 'PUT').length, 1);
-    assert.equal(p.calls[0].body.sourceAction, 'site_access_save');
-    assert.deepEqual(p.calls[0].body.data.siteClassificationRulesV1, []);
-    assert.equal(p.context.validateRulesSiteAdd('127.0.0.1', 'study').ok, true);
+    assert.deepEqual(clone(p.context.remoteConfig),base());
+    assert.equal(p.calls.filter(c => c.method === 'PUT').length, 0);
     assert.equal(p.context.moveCustomSiteToPolicy('127.0.0.1', 'study'), true);
     await p.context.saveSiteAccessConfig();
     assert.equal(classify(p.stored(), '127.0.0.1'), 'study');
@@ -98,23 +95,23 @@ async function run() {
       assert.equal(classify(p.stored(), '127.0.0.1'), expected);
     });
   }
-  await test('规则单独存在时可见、可移动、可删除；已有custom同分类不重复展示', async () => {
+  await test('规则单独存在时可见可移动、不可删除；已有custom同分类不重复展示', async () => {
     const p = page({ ...base(), customCompositeList: [] });
     const model = p.context.getRulesPolicyModel().find(m => m.key === 'composite');
     assert.equal(model.rules.length, 1);
     const entry = { source: 'rule', classification: 'composite', value: '127.0.0.1', rule: model.rules[0] };
     assert.match(p.context.renderRulesSiteRow(entry, 0), /classifyRulesSiteEntry\(0, 'study'\)/);
-    assert.match(p.context.renderRulesSiteRow(entry, 0), /deleteRulesCustomSite\(0\)/);
+    assert.doesNotMatch(p.context.renderRulesSiteRow(entry, 0), /deleteRulesCustomSite\(0\)/);
     p.context.window._rulesSiteDirectoryEntries = [entry];
     await p.context.window.classifyRulesSiteEntry(0, 'study');
     await p.context.saveSiteAccessConfig();
     assert.equal(classify(p.stored(), '127.0.0.1'), 'study');
     const q = page({ ...base(), customCompositeList: [] });
     q.context.window._rulesSiteDirectoryEntries = [entry]; q.context.window.deleteRulesCustomSite(0);
-    await q.context.saveSiteAccessConfig(); assert.deepEqual(q.stored().siteClassificationRulesV1, []);
+    assert.deepEqual(clone(q.context.remoteConfig.siteClassificationRulesV1),base().siteClassificationRulesV1);
     assert.equal(page().context.getRulesPolicyModel().find(m => m.key === 'composite').rules.length, 0);
   });
-  await test('精确删除www别名，保留父域／子域／URL／YouTube／用途规则和历史对象', async () => {
+  await test('旧删除别名入口不改父域／子域／URL／YouTube／用途规则和历史对象', async () => {
     const preserved = [hostRule('child.example.com'), hostRule('other.example.com'),
       { targetType: 'url', normalizedValue: 'https://example.com/page?a=1', decision: 'study' },
       { targetType: 'url', normalizedValue: 'https://www.youtube.com/watch?v=test', decision: 'study' }];
@@ -124,8 +121,8 @@ async function run() {
     const before = clone(config), p = page(config);
     p.context.window._rulesSiteDirectoryEntries = [{ source:'custom', classification:'composite', value:'www.example.com' }];
     p.context.window.deleteRulesCustomSite(0); await p.context.saveSiteAccessConfig();
-    assert.deepEqual(p.stored().siteClassificationRulesV1, preserved);
-    assert.deepEqual(p.stored().customCompositeList, ['child.example.com']);
+    assert.deepEqual(p.stored().siteClassificationRulesV1,config.siteClassificationRulesV1);
+    assert.deepEqual(p.stored().customCompositeList,config.customCompositeList);
     assert.deepEqual(config, before, 'input/audit facts must not be mutated');
     assert.deepEqual(p.stored().siteUsageClassificationRulesV1, config.siteUsageClassificationRulesV1);
   });
@@ -155,9 +152,9 @@ async function run() {
     assert.equal(p.context.validateRulesSiteAdd('127.0.0.1', 'study').ok, false);
     assert.equal(p.context.findSiteAccessExactConflicts({ ...p.context.remoteConfig, customStudyList:['127.0.0.1'] }).length, 1);
   });
-  await test('版本冲突只刷新最新配置，不重放过期删除或覆盖他人修改', async () => {
+  await test('版本冲突只刷新最新配置，不重放过期改类或覆盖他人修改', async () => {
     const p = page(); p.context.window._rulesSiteDirectoryEntries = [{source:'custom',classification:'composite',value:'127.0.0.1'}];
-    p.context.window.deleteRulesCustomSite(0); p.bump(); await p.context.saveSiteAccessConfig();
+    p.context.moveCustomSiteToPolicy('127.0.0.1','study'); p.bump(); await p.context.saveSiteAccessConfig();
     assert.equal(p.calls.filter(c => c.method==='PUT').length, 1);
     assert.deepEqual(p.stored(), base()); assert.deepEqual(clone(p.context.remoteConfig), base());
     assert(p.toasts.some(args => args[0].includes('配置已被其他页面更新')));

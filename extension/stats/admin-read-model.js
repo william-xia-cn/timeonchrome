@@ -16,7 +16,7 @@ const ANALYSIS_CATEGORY_KEYS = ['study', 'composite', 'rest', 'other'];
 const MEDIA_ANALYSIS_CATEGORY_KEYS = ['foregroundAudio', 'backgroundAudio', 'foregroundVideo', 'backgroundVideo', 'pip'];
 const ANALYSIS_CATEGORY_LABELS = {
   study: '学习',
-  composite: '待归类',
+  composite: '复合',
   rest: '休息',
   other: '其他',
   foregroundAudio: '前台音频',
@@ -42,6 +42,8 @@ export const ADMIN_READ_MODEL_KEYS = [
   SEGMENT_INDEX_KEY,
   DAILY_USAGE_STATS_KEY,
   HOURLY_USAGE_STATS_KEY,
+  'hourly_stats_sync_outbox_v1',
+  'hourly_target_stats_sync_outbox_v1',
   MEDIA_SEGMENTS_KEY,
   DAILY_MEDIA_STATS_KEY,
   HOURLY_MEDIA_STATS_KEY,
@@ -640,10 +642,29 @@ function buildHourlySeries(hourlyStats, dateKey, config, storage) {
       key: `${dateKey}-${hour}`,
       hour,
       label: `${hour}时`,
-      categories: dailyCategoryTotals(entry?.[1], config, storage),
+      categories: webHourlyBuckets(entry?.[1]).categories,
     });
   }
   return rows;
+}
+
+function webHourlyBuckets(stat) {
+  const categories = emptyAnalysisCategories();
+  let complete = true;
+  const targets = Object.values(stat?.targets || {});
+  for (const row of targets.length ? targets : Object.values(stat?.domains || {})) {
+    let assigned = 0;
+    for (const [bucket, seconds] of Object.entries(row.activeByQuotaBucket || {})) {
+      if (!ANALYSIS_CATEGORY_KEYS.includes(bucket) || !Number.isFinite(seconds) || seconds < 0) {
+        complete = false;
+        continue;
+      }
+      categories[bucket] += seconds;
+      assigned += seconds;
+    }
+    if (assigned !== Number(row.activeSeconds || 0)) complete = false;
+  }
+  return { categories, complete };
 }
 
 function sumSeriesCategories(series) {
@@ -666,6 +687,12 @@ function buildUsageAnalysisView(storage, config, options = {}) {
   const weekEnd = addDays(weekStart, 6);
   const weekDateKeys = dateKeysBetween(getAdminDateKey(weekStart), getAdminDateKey(weekEnd));
   const rangeDateKeys = mode === 'week' ? weekDateKeys : [selectedDateKey];
+  const selectedHours = Object.entries(hourlyStats).filter(([key, stat]) =>
+    key.startsWith(`${selectedDateKey}T`) || stat?.date === selectedDateKey);
+  const dirtyHours = new Set([
+    ...(storage.hourly_stats_sync_outbox_v1?.dirtyHourKeys || []),
+    ...(storage.hourly_target_stats_sync_outbox_v1?.dirtyHourKeys || []),
+  ]);
   const chartSeries = mode === 'week'
     ? buildDailySeries(dailyStats, weekDateKeys, config, storage)
     : buildHourlySeries(hourlyStats, selectedDateKey, config, storage);
@@ -698,6 +725,11 @@ function buildUsageAnalysisView(storage, config, options = {}) {
     totalSeconds: ANALYSIS_CATEGORY_KEYS.reduce((sum, key) => sum + categoryTotals[key], 0),
     categoryTotals,
     chartSeries,
+    hourlyRead: {
+      available: selectedHours.length > 0,
+      complete: selectedHours.length > 0 && selectedHours.every(([, stat]) => webHourlyBuckets(stat).complete),
+      pending: selectedHours.some(([key, stat]) => dirtyHours.has(key) || !(stat.uploadedAt || stat.lastUploadedAt)),
+    },
     weekSummarySeries: buildDailySeries(dailyStats, weekDateKeys, config, storage),
     targetRows,
     categoryRows: categoryRowsForAnalysis(categoryTotals),

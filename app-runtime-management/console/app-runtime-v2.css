@@ -15,3 +15,53 @@ html,body{overflow-x:hidden}
 @media(max-width:1100px){.schedule-categories{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:720px){.schedule-categories{grid-template-columns:1fr}}
 .view[data-view-panel="access"] #quota-form.quota-grid{display:block}
+
+/* 应用管理仅调整布局；旧目录和其它视图保持原样。 */
+[data-view-panel="apps"] .app-directory-toolbar{display:grid;grid-template-columns:minmax(180px,1fr) minmax(140px,180px) minmax(160px,210px);gap:12px 16px;padding:18px 20px;box-shadow:none}
+[data-view-panel="apps"] .app-directory-toolbar>label{display:grid;gap:5px;font-size:12px;color:var(--muted);min-width:0}
+[data-view-panel="apps"] .app-directory-toolbar>[hidden],[data-view-panel="apps"] .knowledge-tools>[hidden]{display:none}
+[data-view-panel="apps"] #native-special-filter-field:not([hidden]){display:flex;align-items:center;gap:6px;align-self:end;min-height:38px;font-size:13px;color:#26352e}
+[data-view-panel="apps"] #native-special-filter-field input{width:auto;min-height:0;margin:0}
+[data-view-panel="apps"] #native-special-count{color:var(--muted)}
+[data-view-panel="apps"] .app-directory-toolbar input,[data-view-panel="apps"] .app-directory-toolbar select{width:100%;font-size:14px;color:#26352e;padding:9px 11px;min-height:38px}
+[data-view-panel="apps"] .knowledge-tools{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+[data-view-panel="apps"] .knowledge-tools>span{font-size:12px;color:var(--muted);margin-right:4px}
+[data-view-panel="apps"] .knowledge-tools button{min-height:32px;padding:5px 9px;border-color:transparent;color:var(--green-dark);font-size:13px}
+[data-view-panel="apps"] .app-directory-help{grid-column:1/-1;margin:0;color:var(--muted);font-size:12px}
+[data-view-panel="apps"] .app-management-shell{grid-template-columns:190px minmax(0,1fr);gap:20px}
+[data-view-panel="apps"] .app-category-nav{padding:0;border:0;background:transparent;box-shadow:none;gap:5px}
+[data-view-panel="apps"] .app-category-item{grid-template-columns:minmax(0,1fr) auto;padding:11px 12px;gap:6px;min-width:0}
+[data-view-panel="apps"] .app-category-item>span{grid-row:auto;width:auto;height:auto;padding:2px 7px;border-radius:6px;font-size:12px}
+[data-view-panel="apps"] .app-category-item:has(.app-category-copy){display:block;position:relative}
+[data-view-panel="apps"] .app-category-item>.app-category-icon{display:none}
+[data-view-panel="apps"] .app-category-item strong{font-size:13px}
+[data-view-panel="apps"] .app-category-item .app-category-stats{display:flex;gap:9px;flex-wrap:wrap;margin-top:5px}
+[data-view-panel="apps"] .app-category-stat{display:flex;align-items:baseline;gap:4px}
+[data-view-panel="apps"] .app-category-stat:first-child{position:absolute;right:12px;top:10px}
+[data-view-panel="apps"] .app-category-stat:first-child b{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+[data-view-panel="apps"] .app-category-copy>strong{padding-right:28px}
+[data-view-panel="apps"] .app-category-stat em{font-size:11px;font-weight:500}
+[data-view-panel="apps"] .app-category-stat:first-child em{font-weight:700;font-size:13px}
+[data-view-panel="apps"] .app-directory-card{box-shadow:none;border-radius:10px}
+[data-view-panel="apps"] .app-directory-card .section-title{padding:16px 18px 13px}
+[data-view-panel="apps"] .app-directory-card h2{font-size:18px}
+[data-view-panel="apps"] .app-origin-group,[data-view-panel="apps"] .app-directory-card .processed{padding:12px 18px}
+[data-view-panel="apps"] .record-list{gap:0}
+[data-view-panel="apps"] .record-card{border:0;border-top:1px solid var(--border);border-radius:0;padding:14px 0;gap:12px 18px;align-items:start;grid-template-columns:minmax(0,1fr) minmax(220px,310px)}
+[data-view-panel="apps"] .record-card>div{min-width:0;overflow-wrap:anywhere}
+[data-view-panel="apps"] .app-record-main{min-width:0;align-items:flex-start;gap:10px}
+[data-view-panel="apps"] .app-record-main>.app-icon{flex:0 0 32px;width:32px;height:32px;font-size:14px}
+[data-view-panel="apps"] .record-actions{max-width:none;gap:6px;align-items:start;flex-direction:row}
+[data-view-panel="apps"] .record-actions label{display:grid;gap:5px;min-width:0;max-width:100%;font-size:12px;color:var(--muted)}
+[data-view-panel="apps"] .record-actions label:has([type="checkbox"]){display:flex;align-items:center}
+[data-view-panel="apps"] .record-actions input[type="number"],[data-view-panel="apps"] .record-actions select{width:100%;max-width:100%;min-width:0;border:1px solid var(--border);border-radius:7px;padding:7px;color:#26352e;background:#fff;font-size:12px}
+[data-view-panel="apps"] .record-actions button{min-height:32px}
+[data-view-panel="apps"] .record-card small{overflow-wrap:anywhere;color:var(--muted);font-size:11px}
+[data-view-panel="apps"] .inventory-status{order:-1;padding:12px 16px;box-shadow:none;border-radius:9px;font-size:12px}
+[data-view-panel="apps"] .inventory-status>summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;cursor:pointer;font-weight:600}
+[data-view-panel="apps"] #inventory-summary{color:#80611d;font-weight:400}
+[data-view-panel="apps"] #inventory-status{margin-top:12px;color:var(--muted);line-height:1.7;overflow-wrap:anywhere}
+[data-view-panel="apps"] #inventory-status>span{display:block;padding:8px 0;border-top:1px solid var(--border)}
+[data-view-panel="apps"] .notice{margin-top:0;font-size:12px;line-height:1.6;flex-wrap:wrap}
+@media(max-width:1050px){[data-view-panel="apps"] .record-card{grid-template-columns:minmax(0,1fr)}[data-view-panel="apps"] .record-actions{justify-content:flex-start}}
+@media(max-width:720px){[data-view-panel="apps"] .app-directory-toolbar{grid-template-columns:repeat(2,minmax(0,1fr));padding:14px;gap:10px}[data-view-panel="apps"] .app-search-field{grid-column:1/-1}[data-view-panel="apps"] .app-management-shell{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}[data-view-panel="apps"] .app-category-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));max-width:100%;overflow:visible;margin:0}[data-view-panel="apps"] .app-category-item{min-width:0;width:100%;padding:10px}[data-view-panel="apps"] .record-actions{display:flex;flex-wrap:wrap}[data-view-panel="apps"] .record-actions label{flex:1 1 140px}[data-view-panel="apps"] .record-actions button{white-space:normal}[data-view-panel="apps"] .app-directory-card .section-title,[data-view-panel="apps"] .app-origin-group{padding:14px}[data-view-panel="apps"] .record-card{grid-template-columns:minmax(0,1fr)}}

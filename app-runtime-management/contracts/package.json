@@ -1,9 +1,10 @@
 {
   "name": "@timeonchrome/app-runtime-contracts",
-  "version": "1.58.0",
+  "version": "1.58.2",
   "private": false,
   "type": "module",
   "exports": {
+    "./web-usage-buckets": "./web-usage-buckets.cjs",
     "./native-application-identification": {
       "types": "./dist/native-application-identification.d.ts",
       "default": "./dist/native-application-identification.js"
@@ -58,6 +59,7 @@
     }
   },
   "files": [
+    "web-usage-buckets.cjs",
     "native-application-identification.ts",
     "source-statistics.ts",
     "application-usage-seconds.ts",

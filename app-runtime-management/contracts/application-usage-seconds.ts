@@ -1,11 +1,14 @@
 /** 应用权威秒统计的只读传输；不生成统计、重分类或计算配额。 */
 import {parseApplicationUsageSeconds} from './usage-account.js';
 export const APPLICATION_USAGE_SECONDS_READ_CAPABILITY = 'application-usage-seconds-read-v1' as const;
+export const APPLICATION_USAGE_NON_SPECIAL_READ_CAPABILITY = 'application-usage-non-special-read-v1' as const;
 export const APPLICATION_USAGE_SECONDS_PAGE_SIZE = 100;
 export const APPLICATION_USAGE_SECONDS_MAX_OFFSET = 20_000;
 export const APPLICATION_USAGE_SECONDS_REVISION_PATTERN = '^[A-Za-z0-9][A-Za-z0-9:_-]{0,159}$';
 export interface ApplicationUsageSecondsQuery {
   fromDate: string; toDate: string; offset: number; expectedRevision?: string;
+  /** 显式请求已有非特殊应用摘要；缺省不改变原响应。 */
+  includeApplicationUsage?: true;
 }
 export interface ApplicationUsageSecondsHour {
   hour: number; totalSeconds: number; categoriesSeconds: Readonly<Record<string, number>>;
@@ -18,6 +21,7 @@ export interface ApplicationUsageSecondsDay {
   totalSeconds: number | null;
   categoriesSeconds: Readonly<Record<string, number>>;
   hours: readonly ApplicationUsageSecondsHour[];
+  applicationUsage?: import('./usage-account.js').ApplicationUsageSeconds;
 }
 export interface ApplicationUsageSecondsRow {
   key: string; name: string; classifications: readonly string[];
@@ -69,7 +73,7 @@ export interface ApplicationIdentityUsageSnapshot {
 export function validateApplicationIdentityUsageQuery(value:unknown):ApplicationIdentityUsageQuery {
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('APPLICATION_USAGE_SECONDS_INVALID_QUERY');
   const {view,...query}=value as Record<string,unknown>;
-  if(view!==undefined&&view!=='base'&&view!=='product')throw new Error('APPLICATION_USAGE_SECONDS_INVALID_QUERY');
+  if(view!==undefined&&view!=='base'&&view!=='product'||Object.hasOwn(query,'includeApplicationUsage'))throw new Error('APPLICATION_USAGE_SECONDS_INVALID_QUERY');
   validateApplicationUsageSecondsQuery(query);return value as ApplicationIdentityUsageQuery;
 }
 const revisionPattern = new RegExp(APPLICATION_USAGE_SECONDS_REVISION_PATTERN);
@@ -83,7 +87,8 @@ export function validateApplicationUsageSecondsQuery(value: unknown): Applicatio
   const fail = () => { throw new Error('APPLICATION_USAGE_SECONDS_INVALID_QUERY'); };
   if (!value || typeof value !== 'object' || Array.isArray(value)) return fail();
   const q = value as Record<string, unknown>;
-  if (Object.keys(q).some(k => !['fromDate','toDate','offset','expectedRevision'].includes(k))) return fail();
+  if (Object.keys(q).some(k => !['fromDate','toDate','offset','expectedRevision','includeApplicationUsage'].includes(k))
+    || Object.hasOwn(q,'includeApplicationUsage') && q.includeApplicationUsage !== true) return fail();
   const start = dateMs(q.fromDate), end = dateMs(q.toDate);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end - start > 6 * 86_400_000
     || !Number.isSafeInteger(q.offset) || Number(q.offset) < 0 || Number(q.offset) > APPLICATION_USAGE_SECONDS_MAX_OFFSET
@@ -141,7 +146,14 @@ export function validateApplicationUsageSecondsSnapshot(value: unknown, query: A
   const categoryTotals: Record<string,number> = {};
   let known = 0, computed: number | null = null, settled: number | null = null, complete = true;
   for (let index=0; index < p.days.length; index++) {
-    const d=object(p.days[index],['date','status','generatedAtMs','settledThroughMs','complete','reasonCodes','totalSeconds','categoriesSeconds','hours']);
+    const rawDay=p.days[index];
+    const hasUsage=!!rawDay&&typeof rawDay==='object'&&Object.hasOwn(rawDay,'applicationUsage');
+    if(hasUsage&&query.includeApplicationUsage!==true)return invalidSnapshot();
+    const d=object(rawDay,['date','status','generatedAtMs','settledThroughMs','complete','reasonCodes','totalSeconds','categoriesSeconds','hours',...(hasUsage?['applicationUsage']:[])]);
+    if(hasUsage){
+      const usage=parseApplicationUsageSeconds(d.applicationUsage);
+      if(d.status==='unknown'||Object.keys(usage.nonSpecialCategories).some(k=>!categories.has(k)))return invalidSnapshot();
+    }
     const date = new Date(dateMs(query.fromDate)+index*86_400_000+28_800_000).toISOString().slice(0,10);
     if (d.date !== date || !['available','pending_update','incomplete','unknown'].includes(String(d.status))
       || typeof d.complete !== 'boolean' || !Array.isArray(d.hours)) return invalidSnapshot();

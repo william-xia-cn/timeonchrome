@@ -193,6 +193,7 @@
     /* Main content */
     .main-content { flex: 1; overflow-y: auto; background: var(--bg); }
     .page { display: none; padding: 32px 36px; max-width: 960px; }
+    #page-apps { max-width: none; }
     .page.active { display: block; }
     .page-header { margin-bottom: 28px; }
     .page-header h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
@@ -294,6 +295,34 @@
       border-bottom: 1px solid var(--border); padding: 6px 0 0;
     }
     .usage-chart-scroll { overflow: hidden; }
+    .usage-interval-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+    .usage-interval-chart { min-width: 880px; }
+    .usage-interval-plot { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 8px; }
+    .usage-interval-axis { height: 300px; display: flex; flex-direction: column; justify-content: space-between; color: var(--muted); font-size: 11px; transform: translateY(-5px); text-align: right; }
+    .usage-interval-hours { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; }
+    .usage-interval-hour { height: 322px; position: relative; min-width: 0; }
+    .usage-interval-grid { position: absolute; inset: 0 0 22px; background: repeating-linear-gradient(to top, transparent 0, transparent calc(8.333333% - 1px), rgba(0, 184, 148, .13) calc(8.333333% - 1px), rgba(0, 184, 148, .13) 8.333333%); border-left: 1px solid var(--border); }
+    .usage-interval-mark { position: absolute; z-index: 1; min-height: 2px; border: 0; border-radius: 3px; padding: 0; cursor: help; }
+    .usage-interval-mark.study { background: #1d6ff2; }
+    .usage-interval-mark.composite { background: #f59e0b; }
+    .usage-interval-mark.rest { background: #37b7b7; }
+    .usage-interval-mark.other { background: #b6b8bb; }
+    .usage-interval-mark.is-muted { opacity: .18; }
+    .usage-interval-mark.is-selected { outline: 2px solid var(--text); outline-offset: 1px; z-index: 2; }
+    .usage-analysis-table tr.is-selected { background: var(--accent-light, #e6f5f0); box-shadow: inset 3px 0 var(--accent); }
+    .usage-object-selection { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:10px 0; }
+    .usage-object-selection[hidden] { display:none; }
+    .usage-interval-hour-label { position: absolute; bottom: 0; left: 0; right: 0; text-align: center; color: var(--muted); font-size: 11px; }
+    .usage-interval-note { color: var(--muted); font-size: 12px; margin: 7px 0 0 36px; }
+    .usage-interval-state { color: var(--muted); font-size: 12px; margin: 8px 0; }
+    .usage-interval-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; color: var(--text); font-size: 12px; }
+    .usage-interval-legend[hidden] { display: none; }
+    .usage-interval-legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .usage-interval-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+    .usage-interval-legend .study { background: #1d6ff2; }
+    .usage-interval-legend .composite { background: #f59e0b; }
+    .usage-interval-legend .rest { background: #37b7b7; }
+    .usage-interval-legend .other { background: #b6b8bb; }
     .usage-stack-slot {
       flex: 1; min-width: 8px; height: 100%; display: flex;
       flex-direction: column; justify-content: flex-end; align-items: stretch; gap: 2px;
@@ -1390,6 +1419,7 @@
           </div>
           <div id="q-quotas-list"></div>
         </div>
+        <div id="runtime-limits-host"></div><div id="runtime-limits-error" hidden role="alert"></div>
         <div class="save-bar"><button class="btn-save" id="save-quota-btn">保存配置</button></div>
       </section>
 
@@ -1525,9 +1555,9 @@
           </div>
 
           <div class="usage-segmented" aria-label="使用分析账本" style="width:max-content;margin-bottom:12px;">
-            <button type="button" class="active" data-cloud-usage-ledger="computer">电脑使用</button>
+            <button type="button" class="active" data-cloud-usage-ledger="web">网页使用</button>
             <button type="button" data-cloud-usage-ledger="application">应用使用</button>
-            <button type="button" data-cloud-usage-ledger="web">网页使用</button>
+            <button type="button" data-cloud-usage-ledger="computer">电脑使用</button>
             <button type="button" data-cloud-usage-ledger="media">网页媒体使用</button>
           </div>
           <div id="cloud-computer-usage" hidden></div>
@@ -1549,16 +1579,19 @@
             <div class="usage-chart-title">本周每日结构</div>
             <div class="usage-chart-scroll"><div class="usage-stack-chart" id="cloud-usage-week-chart">加载中...</div></div>
             <div class="usage-chart-title" id="cloud-usage-main-title">24 小时分布</div>
-            <div class="usage-chart-scroll"><div class="usage-stack-chart" id="cloud-usage-main-chart">加载中...</div></div>
+            <div class="usage-chart-scroll" id="cloud-usage-main-scroll"><div class="usage-stack-chart" id="cloud-usage-main-chart">加载中...</div></div>
+            <div class="usage-interval-legend" id="cloud-usage-timeline-legend" hidden><span><i class="study"></i>学习</span><span><i class="composite"></i>复合</span><span><i class="rest"></i>休息</span><span><i class="other"></i>其他</span></div>
+            <div id="cloud-usage-selection" class="usage-object-selection" hidden><span id="cloud-usage-selection-label"></span><button type="button" id="cloud-usage-clear-selection" class="btn-add">清除选择</button><span id="cloud-usage-selection-empty"></span></div>
             <div class="usage-legend" id="cloud-usage-legend"></div>
           </div>
 
           <div class="usage-analysis-card" data-cloud-independent>
             <div class="usage-list-toolbar">
-              <select id="cloud-usage-list-mode">
+              <select id="cloud-usage-list-mode" hidden>
                 <option value="targets">显示管理对象</option>
                 <option value="categories">显示分类</option>
               </select>
+              <div id="cloud-usage-list-sort" class="usage-segmented" role="group" aria-label="管理对象排序"><button type="button" data-cloud-usage-sort="today" aria-pressed="true">今日使用</button><button type="button" data-cloud-usage-sort="week" aria-pressed="false">本周使用</button></div>
               <input type="search" id="cloud-usage-search" placeholder="搜索管理对象">
             </div>
             <div id="cloud-usage-table"><div class="usage-empty">加载中...</div></div>
@@ -2103,6 +2136,7 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
+<script src="runtime-management-component/web-usage-buckets.js"></script>
 <script src="computer-usage-view.js"></script>
 <script src="runtime-management-loader.js"></script>
 <script src="access-config-domains.js"></script>
@@ -2118,7 +2152,7 @@ let runtimeManagementEpoch = 0;
 function disposeRuntimeManagement() {
   runtimeManagementEpoch++;
   runtimeManagementController?.dispose();runtimeManagementController=null;
-  for(const view of ['apps','devices','system','configuration']) {
+  for(const view of ['apps','devices','system','configuration','limits']) {
     const host=document.getElementById(`runtime-${view}-host`);
     host?.shadowRoot?.replaceChildren();
     const error=document.getElementById(`runtime-${view}-error`);
@@ -2129,7 +2163,8 @@ async function renderRuntimeManagement(view) {
   disposeRuntimeManagement();
   const epoch=runtimeManagementEpoch, childId=currentProfileId;
   const isCurrent=()=>epoch===runtimeManagementEpoch&&currentProfileId===childId
-    &&document.getElementById(`page-${['system','configuration'].includes(view)?'system-management':view}`)?.classList.contains('active')
+    &&document.getElementById(`page-${view==='limits'?'rules':['system','configuration'].includes(view)?'system-management':view}`)?.classList.contains('active')
+    &&(view!=='limits'||cloudRulesManagementActiveTab==='quota')
     &&(view!=='system'||cloudSystemManagementActiveTab==='runtime-diagnostics')
     &&(view!=='configuration'||(cloudSystemManagementActiveTab==='config-files'&&readAccessConfigDomain()==='applications'));
   const host=document.getElementById(`runtime-${view}-host`);
@@ -2165,7 +2200,7 @@ let cloudClientLogState = { range: 'today', rows: [], nextCursor: null, hasMore:
 let cloudSystemManagementActiveTab = 'reconciliation';
 let cloudRulesManagementActiveTab = 'quota';
 let cloudDevicesCache = { profileId: null, devices: [] };
-let cloudUsageState = { ledger: 'computer', mode: 'day', date: null, deviceId: '', listMode: 'targets', query: '', detail: null };
+let cloudUsageState = { ledger: 'web', mode: 'day', date: null, deviceId: '', listMode: 'targets', listSort: 'today', query: '', detail: null };
 let cloudUsageLastView = null;
 let cloudRestoreState = { package: null, preflight: null };
 let configImportDiffState = { fileName: '', importedConfig: null, diffs: [], selectedIds: new Set(), filter: 'all', targetContainerId: 'acct-config-import-diff', messageId: 'acct-config-io-msg' };
@@ -2452,6 +2487,7 @@ async function selectProfile(id) {
   document.getElementById('cloud-usage-table').innerHTML='';
   for(const chart of ['cloud-usage-week-chart','cloud-usage-main-chart','cloud-usage-legend'])document.getElementById(chart)?.replaceChildren();
   currentProfileId = id;
+  cloudUsageState.detail = null;
   window.resetCompositeReviews?.();
   remoteConfigVersion = null;
   profileNotificationSettingsState = { profileId: null, loading: false, settings: null };
@@ -2678,7 +2714,7 @@ function renderRulesManagementPage() {
     : '管理网页与应用共用的时间配额、自主度、时间段与停用时间配置。';
   if (cloudRulesManagementActiveTab === 'site-management') void window.loadCompositeReviews?.();
   if (cloudRulesManagementActiveTab === 'site-management') renderRulesPage();
-  if (cloudRulesManagementActiveTab === 'quota') renderQuotaPage();
+  if (cloudRulesManagementActiveTab === 'quota') { renderQuotaPage(); void renderRuntimeManagement('limits'); }
   if (cloudRulesManagementActiveTab === 'autonomy') renderAutonomyPage();
   if (cloudRulesManagementActiveTab === 'schedule') renderSchedulePage();
   if (cloudRulesManagementActiveTab === 'downtime') renderDowntimePage();
@@ -3137,7 +3173,7 @@ function renderRulesPolicyNav() {
       ? '<span>对象 ' + def.rules.length + '</span><span>YouTube</span>'
       : def.isUsage ? '<span>用途规则 ' + def.rules.length + '</span><span>权限不变</span>'
       : def.isUsedUnclassified
-        ? '<span>待处理 ' + def.usedUnclassified.length + '</span><span>最近 30 天</span>'
+        ? '<span>待处理 ' + unclassifiedReviewGroups().pending.length + '</span><span>最近 30 天</span>'
         : '<span>系统 ' + def.system.length + '</span><span>自定义 ' + def.custom.length + '</span><span>规则 ' + def.rules.length + '</span>';
     return '<button class="rules-policy-nav-btn ' + (def.key === rulesSitePolicyState.policy ? 'active' : '') + '" data-policy="' + def.key + '" onclick="selectRulesPolicy(\'' + def.key + '\')">' +
       '<div class="rules-policy-nav-title"><img class="toc-ui-icon small" src="' + def.icon + '" alt=""> ' + htmlEscape(def.label) + '</div>' +
@@ -3330,7 +3366,7 @@ function renderRulesSiteRow(entry, idx) {
         .map(def => `<button class="rules-site-action-btn" onclick="classifySpecialSiteRule(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
         .join('')
       : '';
-    const deleteButton = hostRule ? `<button class="rules-site-action-btn danger" onclick="deleteRulesCustomSite(${idx})">删除</button>` : '';
+    const deleteButton = '';
     actionHtml = `<div class="rules-site-actions"><span class="rules-site-badge">${hostRule ? '主机分类规则' : specialRule ? '特殊对象规则' : '规则项'}</span>${options}${deleteButton}</div>`;
   } else if (entry.source === 'system') {
     const disabled = !systemAccessCanWrite;
@@ -3343,9 +3379,7 @@ function renderRulesSiteRow(entry, idx) {
         .filter(def => def.key !== entry.classification || entry.source === 'used-unclassified')
         .map(def => `<button class="rules-site-action-btn" onclick="classifyRulesSiteEntry(${idx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`)
         .join('');
-      const deleteButton = entry.source === 'custom'
-        ? `<button class="rules-site-action-btn danger" onclick="deleteRulesCustomSite(${idx})">删除</button>`
-        : '';
+      const deleteButton = '';
       const promoteButton = entry.source === 'custom'
         ? `<button class="rules-site-action-btn" ${systemAccessCanWrite ? '' : 'disabled title="需要系统管理员权限"'} onclick="promoteCustomSiteToSystemConfig(${idx})">添加到系统配置</button>`
         : '';
@@ -3362,7 +3396,6 @@ function renderRulesSiteRow(entry, idx) {
         ${actionHtml}
       </div>
       ${!unknown && entry.source !== 'usage' ? `<div class="rules-site-actions"><button class="rules-site-action-btn" onclick="setRulesOtherUsage(${idx})">归为其他时间</button></div>` : ''}
-      ${!unknown && entry.source === 'usage' ? `<div class="rules-site-actions"><button class="rules-site-action-btn danger" onclick="deleteRulesOtherUsage(${idx})">解除其他时间</button></div>` : ''}
       ${unknown ? '' : renderSystemSiteCategoryEditor(entry, idx)}
     </div>`;
 }
@@ -3526,11 +3559,12 @@ function renderSpecialSitesSummary() {
   </section>`;
 }
 
-function renderUsedUnclassifiedIntro(entries = reviewUsedUnclassifiedEntries()) {
-  const pendingCount = entries.filter((entry) => !(entry.site?.historicalPending || entry.site?.actionable === false)).length;
-  const processedCount = Math.max(0, entries.length - pendingCount);
+function renderUsedUnclassifiedIntro(entries = reviewUsedUnclassifiedEntries(), requests = []) {
+  const groups = unclassifiedReviewGroups(requests, entries);
+  const pendingCount = groups.pending.length;
+  const processedCount = groups.processed.length;
   const loading = rulesSitePolicyState.usedUnclassifiedLoading ? ' · 正在读取最近 30 天访问历史' : '';
-  return `<div class="rules-used-unclassified-summary" data-used-unclassified-module="true"><strong>未归类网站使用记录：未处理 ${pendingCount} 个 · 已处理 ${processedCount} 个${loading}</strong><span>来自最近 30 天使用历史；当前仍未归类的默认显示，已处理或当前已归类的记录默认折叠。</span></div>`;
+  return `<div class="rules-used-unclassified-summary" data-used-unclassified-module="true"><strong>未归类网站使用记录：未处理 ${pendingCount} 个 · 已处理 ${processedCount} 个 · 不适用归类 ${groups.inapplicable.length} 个${loading}</strong><span>来自最近 30 天使用历史；仅可归类对象计入待处理，已处理及不适用归类记录默认折叠。</span></div>`;
 }
 
 function reviewUsedUnclassifiedEntries() {
@@ -3648,8 +3682,20 @@ function unclassifiedReviewMetricsHtml(row) {
 }
 
 function isProcessedUnclassifiedReviewRow(row) {
+  if (row.usedEntry?.site?.historicalPending || row.usedEntry?.site?.actionable === false) return true;
   if (row.type === 'request') return isProcessedSiteRequest(row.request);
   return Boolean(row.entry?.site?.historicalPending || row.entry?.site?.actionable === false);
+}
+
+function unclassifiedReviewGroups(requests = [], entries = reviewUsedUnclassifiedEntries()) {
+  const rows = buildUnclassifiedReviewRows(requests, entries);
+  const pending = [], processed = [], inapplicable = [];
+  for (const row of rows) {
+    if (unknownUsageIdentifier({ label: unclassifiedReviewRowTitle(row) })) inapplicable.push(row);
+    else if (isProcessedUnclassifiedReviewRow(row)) processed.push(row);
+    else pending.push(row);
+  }
+  return { rows, pending, processed, inapplicable };
 }
 
 function unclassifiedReviewRowTitle(row) {
@@ -3666,9 +3712,7 @@ function unclassifiedReviewStatsText(site = {}) {
 }
 
 function renderUnclassifiedUsageRecords(requests = [], usedEntries = reviewUsedUnclassifiedEntries()) {
-  const rows = buildUnclassifiedReviewRows(requests, usedEntries);
-  const pendingRows = rows.filter((row) => !isProcessedUnclassifiedReviewRow(row));
-  const processedRows = rows.filter((row) => isProcessedUnclassifiedReviewRow(row));
+  const { rows, pending: pendingRows, processed: processedRows, inapplicable } = unclassifiedReviewGroups(requests, usedEntries);
   window._reviewUnclassifiedRows = rows;
   window._reviewUsedUnclassifiedEntries = usedEntries;
   const renderRow = (row) => renderUnclassifiedReviewRow(row, rows.indexOf(row));
@@ -3678,11 +3722,12 @@ function renderUnclassifiedUsageRecords(requests = [], usedEntries = reviewUsedU
     <div class="rules-site-group-header">
       <div>
         <div>未归类网站使用记录</div>
-        <div class="rules-site-group-subtitle">未处理 ${pendingRows.length} 条 · 已处理 ${processedRows.length} 条 · 默认先按今日、再按本周、最后按近30天累计使用时长降序排列（北京时间）。</div>
+        <div class="rules-site-group-subtitle">未处理 ${pendingRows.length} 条 · 已处理 ${processedRows.length} 条 · 不适用归类 ${inapplicable.length} 条 · 默认先按今日、再按本周、最后按近30天累计使用时长降序排列（北京时间）。</div>
       </div>
     </div>
     ${pendingHtml}
     ${renderRecordHistoryDetails('已处理记录', processedRows.length, processedHtml)}
+    ${renderRecordHistoryDetails('不适用网站归类', inapplicable.length, inapplicable.map(renderRow).join(''))}
   </section>`;
 }
 
@@ -3699,7 +3744,7 @@ function renderUnclassifiedReviewRow(row, rowIdx) {
   const observationText = isRequest ? siteRequestObservationText(request) : unclassifiedReviewStatsText(site);
   const statusText = isRequest ? siteRequestStatusLabel(request.status, request) : (site.historicalPending || site.actionable === false ? `当前已归类：${sitePolicyLabel(site.currentClassification)}` : '待生成记录');
   const actionHtml = unknown ? '<span class="rules-site-badge">未识别页面，不适用网站归类</span>' : isPending
-    ? classificationPolicyDefs().map(def => `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`).join('') + `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, 'other')">归为其他时间</button><button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, 'return')">暂不归类</button>`
+    ? classificationPolicyDefs().map(def => `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, '${def.key}')">归为${htmlEscape(def.label)}</button>`).join('') + `<button class="rules-site-action-btn" onclick="classifyUnclassifiedReviewRow(${rowIdx}, 'other')">归为其他时间</button>`
     : `<span class="rules-site-badge">${escHtml(statusText)}</span>`;
   return `
     <div class="rules-site-row-wrap" data-source="${isRequest ? 'site-request' : 'used-unclassified'}" data-domain="${escHtml(title)}">
@@ -3731,7 +3776,7 @@ function renderReviewUsedUnclassifiedSites() {
     container.innerHTML = '<div class="empty-state" style="padding:36px;">当前没有未归类网站使用记录。</div>';
     return;
   }
-  container.innerHTML = renderUsedUnclassifiedIntro(entries) + renderUnclassifiedUsageRecords(requests, entries);
+  container.innerHTML = renderUsedUnclassifiedIntro(entries, requests) + renderUnclassifiedUsageRecords(requests, entries);
 }
 
 function renderReviewUsedUnclassifiedRow(entry, idx) {
@@ -3865,6 +3910,7 @@ function addSiteToCurrentPolicy() {
 
 let otherUsageSavePending = false;
 async function saveOtherUsageTarget(value, remove = false) {
+  if (remove) { toast('不能撤销已确认分类使网站退回未归类', false); return; }
   if (otherUsageSavePending || !currentProfileId || !Number.isInteger(remoteConfigVersion)) return;
   const raw = String(value || '').trim();
   if (!raw) { toast('请输入域名或完整页面网址', false); return; }
@@ -3893,8 +3939,7 @@ window.setRulesOtherUsage = idx => {
   if (entry && !unknownUsageIdentifier(entry)) return saveOtherUsageTarget(entry.value);
 };
 window.deleteRulesOtherUsage = idx => {
-  const entry = window._rulesSiteDirectoryEntries?.[idx];
-  if (entry?.source === 'usage') return saveOtherUsageTarget(entry.value, true);
+  toast('不能撤销已确认分类使网站退回未归类', false);
 };
 
 function isHostSiteClassificationRule(rule = {}) {
@@ -3941,17 +3986,8 @@ function moveCustomSiteToPolicy(value, policy) {
 }
 
 window.deleteRulesCustomSite = (idx) => {
-  const entry = window._rulesSiteDirectoryEntries?.[idx];
-  if (!entry || !(entry.source === 'custom' || entry.source === 'rule' && isHostSiteClassificationRule(entry.rule))) return;
-  const def = classificationPolicyDefs().find(item => item.key === entry.classification);
-  if (!def) return;
-  const nextConfig = { ...remoteConfig };
-  const key = normalizeSiteAccessHostKey(entry.value);
-  nextConfig[def.customKey] = getPolicyCustomList(def).filter(d => normalizeSiteAccessHostKey(d) !== key);
-  removeExactHostClassificationRules(nextConfig, entry.value);
-  remoteConfig = nextConfig;
-  renderRulesPage();
-  toast('已删除，点击保存后同步');
+  // 拒绝旧页面遗留点击，不通过删除分类让网站退回未归类。
+  toast('已归类网站不能撤销分类；请修改为明确类别，需要时归为其他时间', false);
 };
 
 window.promoteCustomSiteToSystemConfig = async (idx) => {
@@ -7329,6 +7365,13 @@ function setupStats() {
     cloudUsageState.detail = null;
     renderCloudUsageList(cloudUsageLastView);
   });
+  document.querySelectorAll('[data-cloud-usage-sort]').forEach(button=>button.addEventListener('click', () => {
+    cloudUsageState.listSort = button.dataset.cloudUsageSort === 'week' ? 'week' : 'today';
+    renderCloudUsageList(cloudUsageLastView);
+  }));
+  document.getElementById('cloud-usage-clear-selection')?.addEventListener('click',()=>{
+    cloudUsageState.detail=null;renderCloudUsageList(cloudUsageLastView);
+  });
   document.getElementById('cloud-usage-search')?.addEventListener('input', (event) => {
     cloudUsageState.query = event.target.value || '';
     renderCloudUsageList(cloudUsageLastView);
@@ -7373,7 +7416,7 @@ function cloudUsageRange() {
 function usageCategoryLabel(key) {
   return ({
     study: '学习',
-    composite: '待归类',
+    composite: '复合',
     rest: '休息',
     other: '其他',
     foregroundAudio: '前台音频',
@@ -7385,7 +7428,7 @@ function usageCategoryLabel(key) {
 }
 
 function emptyCloudCategories() {
-  return { study: 0, composite: 0, rest: 0, other: 0 };
+  return WebUsageBuckets.empty();
 }
 
 function emptyCloudMediaCategories() {
@@ -7400,17 +7443,11 @@ function cloudClassificationCategory(classification) {
 }
 
 function cloudRowCategory(row) {
-  const classificationCategory = cloudClassificationCategory(row?.targetClassificationAtTime);
-  if (classificationCategory) return classificationCategory;
-  const bucket = row.quotaBucket || row.mode;
-  if (bucket === 'study') return 'study';
-  if (bucket === 'composite' || bucket === 'pending_composite') return 'composite';
-  if (bucket === 'rest') return 'rest';
-  return 'other';
+  return WebUsageBuckets.category(row);
 }
 
 function cloudRowBorrowedRestSeconds(row) {
-  return cloudRowCategory(row) === 'composite' && (row?.quotaBucket || row?.mode) === 'rest'
+  return cloudClassificationCategory(row?.targetClassificationAtTime) === 'composite' && (row?.quotaBucket || row?.mode) === 'rest'
     ? Math.max(0, Number(row?.duration) || 0)
     : 0;
 }
@@ -7553,7 +7590,7 @@ function aggregateCloudRows(rows = []) {
       lastSeenAt: row.lastSeenAt || null,
     };
     const category = cloudRowCategory(row);
-    entry.categories[category] += row.duration;
+    if (category) entry.categories[category] += row.duration;
     entry.seconds += row.duration;
     entry.borrowedRestSeconds += cloudRowBorrowedRestSeconds(row);
     const bucket = Object.prototype.hasOwnProperty.call(row, 'displayRecordedQuotaBucket')
@@ -7677,9 +7714,7 @@ function buildCloudMediaTargetRows(todayRows, weekRows, rangeRows) {
 }
 
 function sumCloudRowsByCategory(rows = []) {
-  const totals = emptyCloudCategories();
-  for (const row of rows) totals[cloudRowCategory(row)] += row.duration;
-  return totals;
+  return WebUsageBuckets.sum(rows);
 }
 
 function sumCloudMediaRowsByCategory(rows = []) {
@@ -7824,6 +7859,8 @@ async function buildCloudUsageView() {
     ? buildCloudDailySeries(selectedRows, selectedKeys)
     : buildCloudHourlySeries(hourlyRows, range.from);
   const categoryTotals = sumCloudRowsByCategory(selectedRows);
+  const unknownBucketSeconds = selectedRows.filter(row => !cloudRowCategory(row))
+    .reduce((sum, row) => sum + Number(row.duration || 0), 0);
   const targetRows = buildCloudTargetRows(todayRows, weekRows, selectedRows);
   const categoryRows = ['study', 'composite', 'rest', 'other'].map(key => ({
     key,
@@ -7835,7 +7872,7 @@ async function buildCloudUsageView() {
   return {
     meta: {
       source,
-      syncLabel: `同步于 今天 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
+      syncLabel: `同步于 今天 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })}${unknownBucketSeconds ? ' · 时间桶明细不完整，未明确桶的用量仅保留在总量中' : ''}`,
       deviceScope: {
         selected: cloudUsageState.deviceId || '',
         label: cloudUsageState.deviceId ? cloudDeviceLabel(cloudUsageState.deviceId) : '全部设备',
@@ -7849,7 +7886,7 @@ async function buildCloudUsageView() {
     categoryColumnLabel: '分类',
     searchTargetPlaceholder: '搜索管理对象',
     range,
-    totalSeconds: Object.values(categoryTotals).reduce((sum, value) => sum + value, 0),
+    totalSeconds: Object.values(categoryTotals).reduce((sum, value) => sum + value, 0) + unknownBucketSeconds,
     categoryTotals,
     chartSeries,
     weekSummarySeries: buildCloudDailySeries(weekRows, weekKeys),
@@ -7900,6 +7937,175 @@ function renderCloudUsageStackChart(id, series = [], options = {}) {
   }).join('');
 }
 
+function cloudUsageTimelineCategory(row) {
+  const bucket = row?.quotaBucketAtTime || row?.quotaBucket;
+  return ['study', 'composite', 'rest', 'other'].includes(bucket) ? bucket : null;
+}
+
+function buildCloudUsageTimelineGeometry(segments, date, selectedDeviceId = '') {
+  const dayStart = Date.parse(`${date}T00:00:00+08:00`);
+  if (!Number.isFinite(dayStart)) return { devices: [], marks: [] };
+  const dayEnd = dayStart + 86400000;
+  const valid = (segments || []).filter(row => {
+    const start = Number(row?.startMs);
+    const end = Number(row?.endMs);
+    return row?.channel === 'active' && row?.date === date &&
+      (!selectedDeviceId || row?.deviceId === selectedDeviceId) &&
+      Number(row?.durationSeconds) > 0 && Number.isFinite(start) && Number.isFinite(end) &&
+      end > start && start < dayEnd && end > dayStart;
+  });
+  const devices = [...new Set(valid.map(row => row.deviceId || 'unknown'))].sort();
+  const marks = [];
+  let unknownBucketCount = 0;
+  for (const row of valid) {
+    const category = cloudUsageTimelineCategory(row);
+    if (!category) { unknownBucketCount++; continue; }
+    const start = Math.max(Number(row.startMs), dayStart);
+    const end = Math.min(Number(row.endMs), dayEnd);
+    const device = row.deviceId || 'unknown';
+    for (let cursor = start; cursor < end;) {
+      const hour = Math.floor((cursor - dayStart) / 3600000);
+      const hourStart = dayStart + hour * 3600000;
+      const pieceEnd = Math.min(end, hourStart + 3600000);
+      marks.push({
+        targetKey: row.targetKey || row.managedTargetId || `fallback:domain:${row.fallbackDomain || row.domain || 'unknown'}`,
+        hour,
+        startMinute: (cursor - hourStart) / 60000,
+        endMinute: (pieceEnd - hourStart) / 60000,
+        device,
+        lane: devices.indexOf(device),
+        laneCount: devices.length,
+        category,
+        startMs: Number(row.startMs),
+        endMs: Number(row.endMs),
+        durationSeconds: Number(row.durationSeconds),
+      });
+      cursor = pieceEnd;
+    }
+  }
+  return { devices, marks, unknownBucketCount };
+}
+
+async function fetchCloudUsageTimelineSegments(profileId, date, deviceId = '') {
+  const segments = [];
+  const seen = new Set();
+  const cursors = new Set();
+  let cursor = null;
+  try {
+    for (let page = 0; page < 20; page++) {
+      const params = new URLSearchParams({ from: date, to: date, limit: '500' });
+      if (deviceId) params.set('deviceId', deviceId);
+      if (cursor) params.set('cursor', cursor);
+      const payload = await api(`/profiles/${profileId}/usage-segments/v1?${params.toString()}`);
+      if (!Array.isArray(payload?.segments)) throw new Error('usage segments response missing segments');
+      for (const row of payload.segments) {
+        if (!row?.id || seen.has(row.id)) continue;
+        seen.add(row.id);
+        segments.push(row);
+      }
+      if (!payload.hasMore) return { segments, complete: true };
+      if (!payload.nextCursor || cursors.has(payload.nextCursor)) throw new Error('usage segments cursor did not advance');
+      cursor = payload.nextCursor;
+      cursors.add(cursor);
+    }
+    throw new Error('usage segments page limit reached');
+  } catch (error) {
+    console.warn('[Pages] usage interval chart incomplete:', error);
+    return { segments, complete: false };
+  }
+}
+
+function renderCloudUsageTimeline(view, result, deviceId = '') {
+  const el = document.getElementById('cloud-usage-main-chart');
+  if (!el) return;
+  const { devices, marks, unknownBucketCount } = buildCloudUsageTimelineGeometry(result.segments, view.range.from, deviceId);
+  el.className = 'usage-interval-chart';
+  el.replaceChildren();
+  const plot = document.createElement('div');
+  plot.className = 'usage-interval-plot';
+  const axis = document.createElement('div');
+  axis.className = 'usage-interval-axis';
+  axis.setAttribute('aria-hidden', 'true');
+  for (const minute of [60, 45, 30, 15, 0]) {
+    const tick = document.createElement('span');
+    tick.textContent = minute;
+    axis.appendChild(tick);
+  }
+  const hours = document.createElement('div');
+  hours.className = 'usage-interval-hours';
+  hours.setAttribute('role', 'group');
+  hours.setAttribute('aria-label', '24 小时网页使用时段；每小时从下往上分为 12 个五分钟刻度，彩条表示已上传的使用时段');
+  const names = { study: '学习', composite: '复合', rest: '休息', other: '其他' };
+  const formatTime = ms => new Date(ms).toLocaleTimeString('zh-CN', {
+    timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+  for (let hour = 0; hour < 24; hour++) {
+    const column = document.createElement('div');
+    column.className = 'usage-interval-hour';
+    const grid = document.createElement('div');
+    grid.className = 'usage-interval-grid';
+    column.appendChild(grid);
+    for (const mark of marks.filter(item => item.hour === hour)) {
+      const bar = document.createElement('button');
+      bar.type = 'button';
+      bar.className = `usage-interval-mark ${mark.category}`;
+      bar.dataset.usageTargetKey = mark.targetKey;
+      const laneWidth = 100 / mark.laneCount;
+      bar.style.left = `${laneWidth * (mark.lane + 0.12)}%`;
+      bar.style.width = `${laneWidth * 0.76}%`;
+      bar.style.bottom = `${22 + mark.startMinute * 5}px`;
+      bar.style.height = `${Math.max(2, (mark.endMinute - mark.startMinute) * 5)}px`;
+      const deviceLabel = mark.device === 'unknown' ? '设备未知' : cloudDeviceLabel(mark.device);
+      bar.title = `${deviceLabel} · ${names[mark.category]} · ${formatTime(mark.startMs)}–${formatTime(mark.endMs)} · 时间跨度 ${((mark.endMs - mark.startMs) / 1000).toFixed(1)} 秒 · 该分段记入 ${mark.durationSeconds} 秒`;
+      bar.setAttribute('aria-label', bar.title);
+      column.appendChild(bar);
+    }
+    const label = document.createElement('span');
+    label.className = 'usage-interval-hour-label';
+    label.textContent = String(hour).padStart(2, '0');
+    column.appendChild(label);
+    hours.appendChild(column);
+  }
+  plot.append(axis, hours);
+  el.appendChild(plot);
+  const note = document.createElement('div');
+  note.className = 'usage-interval-note';
+  note.textContent = '小时 →　每列从下往上 0–60 分钟 · 5 分钟刻度';
+  el.appendChild(note);
+  const state = document.createElement('div');
+  state.className = 'usage-interval-state';
+  if (unknownBucketCount) state.textContent = '时段图不完整：部分分段未提供有效时间桶，不猜测着色；统计总量不受影响。';
+  else if (!result.complete) state.textContent = '时段图不完整：仅显示已读到的上传分段；统计总量不受影响。';
+  else if (!marks.length && view.totalSeconds > 0) state.textContent = '时段图不完整：统计已有用量，但未找到对应的已上传前台网页分段。';
+  else if (!marks.length) state.textContent = '当日暂无已上传网页使用时段。';
+  else state.textContent = `已上传网页时段 · ${devices.length} 个设备；近期未上传时段可能尚未显示。`;
+  el.appendChild(state);
+  updateCloudUsageSelection(view);
+}
+
+function updateCloudUsageSelection(view) {
+  const selection=cloudUsageState.detail;
+  const selected=view?.kind==='web'&&view.range?.mode==='day'&&selection?.kind==='target'
+    ? (view.targetRows||[]).find(row=>row.key===selection.key) : null;
+  const panel=document.getElementById('cloud-usage-selection');
+  if(panel)panel.hidden=!selected;
+  let matches=0;
+  document.querySelectorAll('#cloud-usage-main-chart .usage-interval-mark').forEach(bar=>{
+    const match=Boolean(selected&&bar.dataset.usageTargetKey===selected.key);
+    if(match)matches++;
+    bar.classList.toggle('is-selected',match);
+    bar.classList.toggle('is-muted',Boolean(selected&&!match));
+  });
+  document.querySelectorAll('#cloud-usage-table [data-cloud-usage-key]').forEach(row=>{
+    row.classList.toggle('is-selected',Boolean(selected&&row.dataset.cloudUsageKey===selected.key));
+    row.setAttribute('aria-selected',String(Boolean(selected&&row.dataset.cloudUsageKey===selected.key)));
+  });
+  if(selected){
+    document.getElementById('cloud-usage-selection-label').textContent=`已选择：${selected.label}`;
+    document.getElementById('cloud-usage-selection-empty').textContent=matches?'':'当前已加载时段中没有该对象的记录';
+  }
+}
+
 function renderCloudUsageLegend(view) {
   const el = document.getElementById('cloud-usage-legend');
   if (!el) return;
@@ -7929,16 +8135,24 @@ function cloudUsageStatusClass(status) {
   return String(status || '').startsWith('待归类') || String(status || '').includes('借用休息配额') ? 'pending' : '';
 }
 
+function sortCloudWebTargetRows(rows, sortMode = 'today') {
+  const field = sortMode === 'week' ? 'weekSeconds' : 'todaySeconds';
+  return [...rows].sort((a, b) =>
+    (Number(b[field]) || 0) - (Number(a[field]) || 0) ||
+    String(a.key || '').localeCompare(String(b.key || '')));
+}
+
 function filteredCloudUsageRows(view) {
   const query = cloudUsageState.query.trim().toLowerCase();
-  if (cloudUsageState.listMode === 'categories') {
+  if (view?.kind !== 'web' && cloudUsageState.listMode === 'categories') {
     return (view?.categoryRows || []).filter(row => !query || row.label.toLowerCase().includes(query));
   }
-  return (view?.targetRows || []).filter(row => {
+  const rows = (view?.targetRows || []).filter(row => {
     if (!query) return true;
     return String(row.label || '').toLowerCase().includes(query) ||
       String(row.fallbackDomain || '').toLowerCase().includes(query);
   });
+  return view?.kind === 'web' ? sortCloudWebTargetRows(rows, cloudUsageState.listSort) : rows;
 }
 
 function renderCloudUsageList(view) {
@@ -7952,19 +8166,32 @@ function renderCloudUsageList(view) {
     return;
   }
   const listMode = document.getElementById('cloud-usage-list-mode');
+  const listSort = document.getElementById('cloud-usage-list-sort');
   const search = document.getElementById('cloud-usage-search');
-  if (listMode) listMode.value = cloudUsageState.listMode;
+  const isWeb = view.kind === 'web';
+  if (listMode) {
+    listMode.hidden = isWeb;
+    listMode.value = cloudUsageState.listMode;
+  }
+  if (listSort) {
+    listSort.hidden = !isWeb;
+    listSort.querySelectorAll('button').forEach(button=>{
+      const active=button.dataset.cloudUsageSort===cloudUsageState.listSort;
+      button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));
+    });
+  }
   if (search) {
     search.value = cloudUsageState.query;
-    search.placeholder = cloudUsageState.listMode === 'categories' ? '搜索分类' : (view.searchTargetPlaceholder || '搜索管理对象');
+    search.placeholder = !isWeb && cloudUsageState.listMode === 'categories' ? '搜索分类' : (view.searchTargetPlaceholder || '搜索管理对象');
   }
   const rows = filteredCloudUsageRows(view);
   if (rows.length === 0) {
     wrap.innerHTML = '<div class="usage-empty">当前时间范围内没有管理对象使用记录</div>';
     if (detail) detail.className = 'usage-detail-panel';
+    updateCloudUsageSelection(view);
     return;
   }
-  if (cloudUsageState.listMode === 'categories') {
+  if (!isWeb && cloudUsageState.listMode === 'categories') {
     wrap.innerHTML = `
       <table class="usage-analysis-table">
         <thead><tr><th>分类</th><th>时间</th><th>单站点限额</th><th>用量说明</th></tr></thead>
@@ -8001,11 +8228,14 @@ function renderCloudUsageList(view) {
   }
   wrap.querySelectorAll('[data-cloud-usage-key]').forEach(row => {
     row.addEventListener('click', () => {
-      cloudUsageState.detail = { kind: row.dataset.cloudUsageKind, key: row.dataset.cloudUsageKey };
+      const same=cloudUsageState.detail?.kind===row.dataset.cloudUsageKind&&cloudUsageState.detail?.key===row.dataset.cloudUsageKey;
+      cloudUsageState.detail = same?null:{ kind: row.dataset.cloudUsageKind, key: row.dataset.cloudUsageKey };
       renderCloudUsageDetail(view);
+      updateCloudUsageSelection(view);
     });
   });
   renderCloudUsageDetail(view);
+  updateCloudUsageSelection(view);
 }
 
 function renderCloudUsageDetail(view) {
@@ -8084,14 +8314,14 @@ function usageExplanationSummary(row, media) {
   if (unknownUsageIdentifier(row)) return { text: '归属待核查', borrowedSeconds: 0 };
   if (media) return { text: '独立媒体统计，不计网页配额', borrowedSeconds: 0 };
   const labels = { study: '学习', composite: '复合', pending_composite: '待归类',
-    restricted: '受限娱乐', rest: '受限娱乐', rejected: '受限娱乐', blocked: '黑名单', unknown: '历史性质未知' };
+    restricted: '受限娱乐', rest: '受限娱乐', rejected: '受限娱乐', blocked: '黑名单', other:'其他', unknown: '分类信息缺失' };
   const breakdown = row.displayUsageBreakdown?.range;
   const classifications = breakdown
     ? Object.keys(breakdown).filter(key => Object.values(breakdown[key]).some(seconds => Number(seconds) > 0))
     : [row.targetClassificationAtTime || 'unknown'];
   const ordered = Object.keys(labels).filter(key => classifications.includes(key));
   const names = [...new Set(ordered.map(key => labels[key]))];
-  if (classifications.some(key => !Object.prototype.hasOwnProperty.call(labels, key))) names.push('历史性质未知');
+  if (classifications.some(key => !Object.prototype.hasOwnProperty.call(labels, key))) names.push('分类信息缺失');
   const borrowedSeconds = ['composite', 'pending_composite'].reduce((sum, key) =>
     sum + Math.max(0, Number(breakdown?.[key]?.rest) || 0), 0);
   const mixedComposite = classifications.includes('composite') && classifications.includes('pending_composite');
@@ -8103,8 +8333,8 @@ function usageExplanationSummary(row, media) {
 function usageBucketDetailsHtml(target, media, format, escape) {
   if (media || unknownUsageIdentifier(target)) return '';
   const names = { study: '学习', composite: '复合', pending_composite: '待归类', restricted: '受限娱乐',
-    rest: '受限娱乐', rejected: '受限娱乐', blocked: '黑名单', unknown: '历史性质未知' };
-  const buckets = { study: '学习用量', composite: '复合用量', rest: '休息用量', unknown: '未知桶' };
+    rest: '受限娱乐', rejected: '受限娱乐', blocked: '黑名单', other:'其他', unknown: '分类信息缺失' };
+  const buckets = { study: '学习用量', composite: '复合用量', rest: '休息用量', other:'其他用量', unknown: '未知桶' };
   return '<div style="margin-top:12px;overflow-wrap:anywhere;">' +
     ['range', 'today', 'week'].map((key, index) => {
       const breakdown = target.displayUsageBreakdown?.[key] ||
@@ -8112,11 +8342,11 @@ function usageBucketDetailsHtml(target, media, format, escape) {
       const lines = Object.entries(breakdown).map(([classification, values]) => {
         const contributions = Object.entries(values).filter(([, seconds]) => Number(seconds) > 0)
           .map(([bucket, seconds]) => escape(buckets[bucket] || ('其他桶（' + bucket + '）')) + ' ' + format(seconds));
-        return contributions.length ? escape(names[classification] || '历史性质未知') + '：' + contributions.join('、') : '';
+        return contributions.length ? escape(names[classification] || '分类信息缺失') + '：' + contributions.join('、') : '';
       }).filter(Boolean);
       const total = Number(target[{ range: 'rangeSeconds', today: 'todaySeconds', week: 'weekSeconds' }[key]]) || 0;
       return '<div style="margin-top:6px;"><strong>' + ['当前范围', '今日', '本周'][index] + '</strong><br>' +
-        (lines.join('<br>') || (total > 0 ? '历史性质及实际桶信息未知' : '无用量')) + '</div>';
+        (lines.join('<br>') || (total > 0 ? '分类及实际桶信息缺失' : '无用量')) + '</div>';
     }).join('') + '</div>';
 }
 
@@ -8158,9 +8388,23 @@ function renderCloudUsageView(view) {
   const todayBtn = document.getElementById('cloud-usage-today');
   if (todayBtn) todayBtn.textContent = view.range.mode === 'week' ? '本周' : '今天';
   const mainTitle = document.getElementById('cloud-usage-main-title');
-  if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : '24 小时分布';
+  const intervalMode = view.kind === 'web' && view.range.mode === 'day';
+  if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : intervalMode ? '24 小时使用时段' : '24 小时分布';
   renderCloudUsageStackChart('cloud-usage-week-chart', view.weekSummarySeries || [], { emptyMessage: '本周还没有使用记录', categoryKeys: cloudUsageCategoryKeys(view) });
-  renderCloudUsageStackChart('cloud-usage-main-chart', view.chartSeries || [], { emptyMessage: view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: cloudUsageCategoryKeys(view) });
+  const mainScroll = document.getElementById('cloud-usage-main-scroll');
+  if (mainScroll) mainScroll.classList.toggle('usage-interval-scroll', intervalMode);
+  const timelineLegend = document.getElementById('cloud-usage-timeline-legend');
+  if (timelineLegend) timelineLegend.hidden = !intervalMode;
+  const mainChart = document.getElementById('cloud-usage-main-chart');
+  if (intervalMode) {
+    if (mainChart) {
+      mainChart.className = 'usage-interval-chart';
+      mainChart.innerHTML = '<div class="usage-interval-state">已上传网页时段加载中...</div>';
+    }
+  } else {
+    if (mainChart) mainChart.className = 'usage-stack-chart';
+    renderCloudUsageStackChart('cloud-usage-main-chart', view.chartSeries || [], { emptyMessage: view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: cloudUsageCategoryKeys(view) });
+  }
   renderCloudUsageLegend(view);
   renderCloudUsageList(view);
 }
@@ -8171,7 +8415,8 @@ async function renderStatsPage() {
   if (!currentProfileId) return;
   const computer=cloudUsageState.ledger==='computer';
   const application=cloudUsageState.ledger==='application';
-  cloudComputerReader.invalidate();cloudApplicationReader.invalidate();
+  if(!computer)cloudComputerReader.invalidate();
+  if(!application)cloudApplicationReader.invalidate();
   document.querySelectorAll('[data-cloud-independent]').forEach(element=>element.hidden=computer||application);
   document.querySelectorAll('[data-cloud-usage-ledger]').forEach(button=>button.classList.toggle('active',button.dataset.cloudUsageLedger===cloudUsageState.ledger));
   document.getElementById('cloud-computer-usage').hidden=!computer;
@@ -8187,13 +8432,29 @@ async function renderStatsPage() {
     const view = await buildCloudUsageView();
     if(requestVersion!==cloudStatsRequestVersion)return;
     renderCloudUsageView(view);
+    if (view?.kind === 'web' && view?.range?.mode === 'day') {
+      const selectedProfileId = currentProfileId;
+      const selectedDeviceId = cloudUsageState.deviceId;
+      const result = await fetchCloudUsageTimelineSegments(selectedProfileId, view.range.from, selectedDeviceId);
+      if (requestVersion === cloudStatsRequestVersion && selectedProfileId === currentProfileId) renderCloudUsageTimeline(view, result, selectedDeviceId);
+    }
   } catch (e) {
     console.warn('[Pages] cloud usage analysis unavailable:', e);
     if(requestVersion!==cloudStatsRequestVersion)return;
     if (table) table.innerHTML = '<div class="usage-empty">部分数据暂时不可用</div>';
   }
 }
-const cloudComputerReader=ComputerUsageView.create(document.getElementById('cloud-computer-usage'),async(query)=>{
+const cloudUsageSession=ComputerUsageView.createUsageReadSession();
+async function readCloudUsageBatch(options={}){
+  const selected=currentProfileId,range=cloudUsageRange(),scope={childId:selected,...range};
+  const params=new URLSearchParams({...range,detail:'summary',durationUnit:'seconds'});
+  const result=await cloudUsageSession.read(scope,()=>api(`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`),options);
+  const current=cloudUsageRange();
+  if(selected!==currentProfileId||range.from!==current.from||range.to!==current.to)throw new Error('SELECTION_CHANGED');
+  return result;
+}
+const cloudComputerReader=ComputerUsageView.create(document.getElementById('cloud-computer-usage'),async(query,options)=>{
+  if(query.detail==='summary')return (await readCloudUsageBatch(options)).value;
   const selected=currentProfileId,range=cloudUsageRange();
   const params=new URLSearchParams({from:range.from,to:range.to,...Object.fromEntries(Object.entries(query).filter(([,value])=>value!==''&&value!==undefined).map(([key,value])=>[key,String(value)]))});
   const result=await api(`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`);
@@ -8202,15 +8463,10 @@ const cloudComputerReader=ComputerUsageView.create(document.getElementById('clou
 },direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click(),()=>{const range=cloudUsageRange();return currentProfileId+'|'+range.from+'|'+range.to;});
 
 // ── Stats reconciliation ─────────────────────────────────────
-const cloudApplicationReadCache=ComputerUsageView.createReadCache();
 const cloudApplicationReader=ComputerUsageView.createIndependent(document.getElementById('cloud-application-usage'),async({refresh}={})=>{
-  const selected=currentProfileId,range=cloudUsageRange();
-  const params=new URLSearchParams({from:range.from,to:range.to,source:'application',durationUnit:'seconds',model:'program-instance-v1'});
-  const url=`/profiles/${encodeURIComponent(selected)}/computer-usage/v1?${params}`;
-  const result=await cloudApplicationReadCache.read(url,()=>api(url),{refresh});
-  if(selected!==currentProfileId)throw new Error('SELECTION_CHANGED');
+  const result=await readCloudUsageBatch({refresh,application:true});
   return {...result.value,readDisplay:`${result.cached?'缓存 · ':''}读取于 ${new Date(result.readAtMs).toLocaleTimeString('zh-CN')}（手动刷新可重新读取）`};
-},direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click());
+},direction=>document.getElementById(direction==='previous'?'cloud-usage-prev':direction==='next'?'cloud-usage-next':'cloud-usage-today').click(),()=>{const range=cloudUsageRange();return currentProfileId+'|'+range.from+'|'+range.to;});
 function setupReconciliation() {
   document.querySelectorAll('[data-reconciliation-range]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -10327,13 +10583,12 @@ function renderSiteRequestRow(request, idx) {
   const recordLabel = siteRequestRecordLabel(request);
   const primaryAction = isLearningRequest ? '批准归为学习网站' : '确认为学习网站';
   const compositeAction = isLearningRequest ? '改为复合网站' : '确认为复合网站';
-  const returnAction = kind === 'unclassified_visit' ? '暂不归类' : '退回申请';
   const actionHtml = unknown ? '<div class="site-request-status">未识别页面，不适用网站归类</div>' : isPending ? `
     <div class="site-request-actions">
       <button class="btn-classify study" onclick="decideSiteClassificationRequest(${idx},'study')">${primaryAction}</button>
       <button class="btn-classify rest" onclick="decideSiteClassificationRequest(${idx},'composite')">${compositeAction}</button>
       <button class="btn-classify" onclick="decideSiteClassificationRequest(${idx},'other')">归为其他时间</button>
-      <button class="btn-classify" onclick="decideSiteClassificationRequest(${idx},'return')">${returnAction}</button>
+      ${isLearningRequest ? `<button class="btn-classify" onclick="decideSiteClassificationRequest(${idx},'return')">退回申请</button>` : ''}
       <button class="btn-classify" style="color:var(--danger);border-color:rgba(239,68,68,.35);" onclick="decideSiteClassificationRequest(${idx},'reject')">归为受限娱乐</button>
       <button class="btn-classify" style="color:var(--danger);border-color:rgba(17,24,39,.35);" onclick="decideSiteClassificationRequest(${idx},'blocked')">归为黑名单</button>
     </div>` : `<div class="site-request-status">${escHtml(siteRequestStatusLabel(request.status, request))}</div>`;

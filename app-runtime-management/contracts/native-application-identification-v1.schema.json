@@ -26,7 +26,10 @@
       "allOf": [
         { "if": { "properties": { "status": { "const": "identified" } } },
           "then": { "properties": { "nativeId": { "not": { "pattern": "^dynamic-local:" } } } },
-          "else": { "properties": { "nativeId": { "pattern": "^dynamic-local:" } } } }
+          "else": { "anyOf": [
+            { "properties": { "nativeId": { "pattern": "^dynamic-local:" } } },
+            { "properties": { "nativeId": { "pattern": "^macos:[a-f0-9]{64}$" }, "status": { "const": "dynamic-process" } } }
+          ] } }
       ]
     },
     "item": {

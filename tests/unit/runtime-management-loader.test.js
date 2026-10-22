@@ -62,7 +62,8 @@ function fixture({hold=false,invalid=false,holdStyles=false}={}){
   assert.equal(manual.writes[0].action,'site_access_save');assert.deepEqual(manual.config.customStudyList,['study.test']);
   assert.equal(manual.config.siteUsageClassificationRulesV1[0].id,'normalized-server');assert.equal(manual.renders.length,2);
   const remove=otherFixture();await remove.context.saveOtherUsageTarget('old.test',true);
-  assert.deepEqual(JSON.parse(JSON.stringify(remove.writes[0].data)),{siteUsageClassificationRulesV1:[]});
+  assert.equal(remove.writes.length,0,'解除不能把已归类网站退回默认状态');
+  assert.equal(remove.config.siteUsageClassificationRulesV1[0].id,'server');
   const url=otherFixture();await url.context.saveOtherUsageTarget('https://tool.test/page');
   assert.equal(url.writes[0].data.siteUsageClassificationRulesV1[1].targetType,'url');
   for(const changed of ['child','version']){
@@ -78,7 +79,7 @@ function fixture({hold=false,invalid=false,holdStyles=false}={}){
   assert.equal(failed.messages[0][1],false);await failed.context.saveOtherUsageTarget('retry.test');assert.equal(failed.writes.length,2);
   assert.match(html,/key: 'other'.*isUsage: true/);
   assert.match(html,/\['used-unclassified', 'usage', 'custom', 'system', 'rule', 'unmarked'\]/);
-  assert.match(html,/entry.source === 'usage'.*deleteRulesOtherUsage/s);
+  assert.doesNotMatch(html,/onclick="deleteRulesOtherUsage/);
   // 后续主站明确归类解除旧host用途覆盖；不清具体页面、其他域或历史。
   const identityCode=html.slice(html.indexOf('function canonicalSiteIdentityHost('),html.indexOf('function getSiteAccessListsForValidation('));
   const payloadCode=html.slice(html.indexOf('function buildCustomSiteAccessPayload('),html.indexOf('function isYouTubeRootDomain('));

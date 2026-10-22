@@ -9,7 +9,9 @@ import {
   getAdminMediaSettlementView,
   getAdminSettlementView,
   getAdminUsageAnalysisView,
+  getAdminDateKey,
 } from '../stats/admin-read-model.js';
+import { createWebHourlyHistoryReader } from '../stats/web-hourly-history.js';
 import { buildEffectiveTimeQuota, weeklyRestLimitFromConfig } from '../core/quota-config.js';
 import { readQuotaReadModelV2 } from '../core/quota-read-model-v2.js';
 import {
@@ -2708,6 +2710,26 @@ async function renderSyncStatus() {
       ? '—'
       : (recoveryState.lastError || identityStatus.reason || identityStatus.error || '—'));
   if (!activationActive) {
+    if (activationState.privacyConsentRequired !== true) {
+      const activationReason = activationState.managedPolicyStatus?.reason || activationState.reason;
+      const activationMessages = {
+        managed_policy_not_configured: '尚未收到受管启用策略，请联系家长检查此设备的部署配置。',
+        managed_policy_disabled: '受管启用策略已关闭，请联系家长检查部署配置。',
+        managed_policy_not_managed: '受管启用策略的部署方式不匹配，请联系家长检查部署配置。',
+        managed_policy_malformed: '受管启用策略不完整，请联系家长检查部署配置。',
+        managed_policy_pending: '正在等待有效的受管启用策略，请稍后重新检查。',
+        managed_profile_email_mismatch: '当前 Chrome 个人资料与受管部署不匹配，请切换到获授权的个人资料。',
+      };
+      const activationMessage = activationMessages[activationReason] || '暂时无法确认启用状态，请稍后重新检查。';
+      container.innerHTML = `
+        <div style="padding:14px; background:var(--surface); border-radius:8px; border:1px solid var(--border);">
+          <div style="font-size:15px; font-weight:700; margin-bottom:6px;">TimeOnChrome 暂未启用</div>
+          <div style="font-size:13px; color:var(--muted); line-height:1.7;">${escHtml(activationMessage)}</div>
+          <div style="font-size:12px; color:var(--muted); margin-top:8px; line-height:1.7;">已有绑定、配置和本地数据保持不变。</div>
+        </div>
+      `;
+      return;
+    }
     const tokenPresent = !!storage[CLOUD_KEYS.DEVICE_TOKEN];
     container.innerHTML = `
       <div style="display:grid; grid-template-columns:1fr; gap:14px;">
@@ -3625,11 +3647,12 @@ function shiftUsageAnalysisDate(currentKey, days) {
 }
 
 function usageCategoryLabel(key) {
+  if (key === 'usage_total') return '总用量（不分桶）';
   if (key === 'app_instance_total') return '基础实例用量';
   if (key?.startsWith('app_')) return APPLICATION_CATEGORY_LABELS[key.slice(4)] || '历史分类未知';
   return ({
     study: '学习',
-    composite: '待归类',
+    composite: '复合',
     rest: '休息',
     other: '其他',
     foregroundAudio: '前台音频',
@@ -3700,9 +3723,10 @@ function renderUsageStackChart(id, series = [], options = {}) {
 function renderUsageLegend(view) {
   const el = document.getElementById('usage-analysis-legend');
   if (!el) return;
-  const totals = view?.categoryTotals || {};
-  el.innerHTML = usageCategoryKeys(view).map(key => {
-    const incomplete = view?.kind === 'application' && view.totalSeconds == null;
+  const bucketView = Array.isArray(view?.bucketKeys);
+  const totals = (bucketView ? view.bucketTotals : view?.categoryTotals) || {};
+  el.innerHTML = (bucketView ? view.bucketKeys : usageCategoryKeys(view)).map(key => {
+    const incomplete = bucketView ? !view.bucketsComplete : view?.kind === 'application' && view.totalSeconds == null;
     const partial = incomplete && view.readUnit === 'seconds';
     const known = Object.prototype.hasOwnProperty.call(totals, key);
     const value = incomplete ? (partial && known ? totals[key] : null) : (totals[key] ?? 0);
@@ -3987,12 +4011,19 @@ function renderUsageAnalysisView(view) {
   const todayBtn = document.getElementById('usage-analysis-today');
   if (todayBtn) todayBtn.textContent = view.range.mode === 'week' ? '本周' : '今天';
   const summaryTitle = document.getElementById('usage-analysis-summary-title');
+  const showWeekSummary = view.kind !== 'web' && view.kind !== 'application';
+  if (summaryTitle) summaryTitle.hidden = !showWeekSummary;
+  const summaryChart = document.getElementById('usage-analysis-week-chart');
+  if (summaryChart) {
+    summaryChart.hidden = !showWeekSummary;
+    if (!showWeekSummary) summaryChart.innerHTML = '';
+  }
   if (summaryTitle) summaryTitle.textContent = '本周每日结构';
   const mainTitle = document.getElementById('usage-analysis-main-title');
   if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : '24 小时分布';
   if (view.kind === 'application') {
     if (summaryTitle) summaryTitle.textContent = '所选周分类明细（分类可能重叠）';
-    if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '每日分类明细（可能重叠）' : '小时分类明细（可能重叠）';
+    if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '每日时间桶用量' : '每小时总用量（不分桶）';
     const notice = document.getElementById('usage-analysis-app-notice');
     const partialSeconds = view.readUnit === 'seconds' && view.totalSeconds == null;
     if (notice) notice.textContent = `${view.warning || ''} 独立应用统计，不计网页配额；仅含已结算记录，明细可能重叠，不相加生成总量。${view.incompleteDates ? '不完整日期：' + view.incompleteDates + (partialSeconds
@@ -4000,13 +4031,30 @@ function renderUsageAnalysisView(view) {
       : '，对应图表空白不代表零用量。') : ''}`;
   }
   const incompleteApp = view.kind === 'application' && view.totalSeconds == null;
-  renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: view.weekUnavailable ? '本周应用统计尚不可用，不代表零用量' : incompleteApp ? '应用统计证据不完整，不代表零用量' : '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
-  renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: incompleteApp ? '应用统计证据不完整，不代表零用量' : view.range.mode === 'week' ? '本周还没有使用记录' : '今天还没有使用记录', categoryKeys: usageCategoryKeys(view) });
+  if (showWeekSummary) renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: view.weekUnavailable ? '本周应用统计尚不可用，不代表零用量' : incompleteApp ? '应用统计证据不完整，不代表零用量' : '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
+  const hourlyNotice = document.getElementById('usage-analysis-hourly-notice');
+  if (hourlyNotice) { hourlyNotice.hidden = !view.hourlyNotice; hourlyNotice.textContent = view.hourlyNotice || ''; }
+  renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: view.hourlyEmptyMessage || (incompleteApp ? '应用统计证据不完整，不代表零用量' : view.range.mode === 'week' ? '所选周没有使用记录' : '所选日期没有使用记录'), categoryKeys: view.chartCategoryKeys || usageCategoryKeys(view) });
   renderUsageLegend(view);
   renderUsageAnalysisList(view);
 }
 
 let statsReadSequence = 0;
+async function readWebHourlyContext() {
+  const values = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id', 'cloud_device_token']);
+  return { profileId: values.cloud_profile_id, deviceId: values.cloud_device_id, bindingToken: values.cloud_device_token };
+}
+async function requestWebHourlyHistory(path, deviceToken) {
+  return fetch(`${API_BASE}${path}`, {
+    method: 'GET', headers: { Authorization: `Bearer ${deviceToken}` },
+    credentials: 'omit', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10000),
+  });
+}
+const readWebHourlyHistory = createWebHourlyHistoryReader({
+  readContext: readWebHourlyContext,
+  request: requestWebHourlyHistory,
+  today: () => getAdminDateKey(),
+});
 let restSummaryReadSequence = 0;
 let restSummaryDate = null;
 async function renderRestUsageSummary(options = {}) {
@@ -4036,6 +4084,7 @@ async function renderStatsPage({ force = false, retain = false, recheck = false 
   const sequence = ++statsReadSequence;
   const application = usageAnalysisState.ledger === 'application';
   document.getElementById('page-stats')?.classList.toggle('usage-app-view', application);
+  document.getElementById('page-stats')?.classList.toggle('usage-web-view', usageAnalysisState.ledger === 'web');
   applicationStatsReading = application;
   document.querySelectorAll('[data-usage-ledger]').forEach(button => button.classList.toggle('active', button.dataset.usageLedger === usageAnalysisState.ledger));
   const refresh = document.getElementById('usage-analysis-app-refresh');
@@ -4061,12 +4110,22 @@ async function renderStatsPage({ force = false, retain = false, recheck = false 
     const getView = application ? getAdminApplicationUsageAnalysisView : usageAnalysisState.ledger === 'media'
       ? getAdminMediaUsageAnalysisView
       : getAdminUsageAnalysisView;
-    const usageView = await getView({
+    const webContext = usageAnalysisState.ledger === 'web' ? await readWebHourlyContext() : null;
+    let usageView = await getView({
       mode: usageAnalysisState.mode,
       date: usageAnalysisState.date || undefined,
       ...(application ? { force, recheck } : {}),
     });
     if (sequence !== statsReadSequence) return;
+    if (webContext && JSON.stringify(webContext) !== JSON.stringify(await readWebHourlyContext())) return;
+    if (usageView.kind === 'web' && usageView.range.mode === 'day') {
+      renderUsageAnalysisView({ ...usageView,
+        hourlyNotice: usageView.range.from === getAdminDateKey() ? '本机小时统计' : '正在读取所选日期小时数据；日总量保持不变',
+        hourlyEmptyMessage: '所选日期小时数据暂不可用' });
+    }
+    usageView = await readWebHourlyHistory(usageView, webContext);
+    if (!usageView || sequence !== statsReadSequence) return;
+    if (webContext && JSON.stringify(webContext) !== JSON.stringify(await readWebHourlyContext())) return;
     if (!config || typeof config !== 'object') {
       config = usageView.config || { studyList: [], compositeList: [] };
     }

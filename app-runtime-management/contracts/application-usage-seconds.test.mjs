@@ -69,6 +69,19 @@ assert.throws(()=>identitySnapshot({...identityBase,base:{...identityBase.base,c
 console.log('PASS: identity pagination, duplicate rejection, cross-day unknown preservation and exact fields');
 const base=vectors.samples[0].snapshot, first=vectors.samples[0].query;
 const copy=()=>structuredClone(base);
+const withUsage=copy();
+withUsage.days[0].applicationUsage={nonSpecialTotal:100,nonSpecialCategories:{unclassified:80,other:20},specialTotal:50,complete:true,reasonCodes:[]};
+const usageQuery={...first,includeApplicationUsage:true};
+assert.equal(snapshot(withUsage,usageQuery),withUsage);
+assert.throws(()=>snapshot(withUsage,first),'未请求不得接受附加数据');
+assert.equal(snapshot(copy(),usageQuery).totalSeconds,base.totalSeconds,'无字段不捏造四桶');
+for(const value of [false,1,'true',null])assert.throws(()=>query({...first,includeApplicationUsage:value}));
+for(const change of [u=>u.nonSpecialCategories.other=-1,u=>u.nonSpecialCategories.other=101,u=>u.nonSpecialCategories.fake=1,u=>u.complete=false,u=>u.extra=0]){
+  const bad=structuredClone(withUsage);change(bad.days[0].applicationUsage);assert.throws(()=>snapshot(bad,usageQuery));
+}
+assert.deepEqual(snapshot(copy(),first),base,'默认读取保持原结构');
+assert.throws(()=>identityQuery({...iq,includeApplicationUsage:true}),'不扩展旧身份接口');
+console.log('PASS: opt-in non-special usage, strict malformed rejection, default response unchanged');
 let checks=0;
 const test=(name,run)=>{run();checks++;console.log('PASS '+name);};
 const reject=mutate=>{const p=copy();mutate(p);assert.throws(()=>snapshot(p,first),/APPLICATION_USAGE_SECONDS_INVALID_SNAPSHOT/);};

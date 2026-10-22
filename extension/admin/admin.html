@@ -1702,6 +1702,7 @@
       color: var(--muted);
       margin: 10px 0 8px;
     }
+    .usage-stack-chart[hidden] { display: none; }
     .usage-stack-chart {
       display: flex;
       align-items: end;
@@ -1733,6 +1734,7 @@
     .usage-stack-part.rest { background: #37b7b7; }
     .usage-stack-part.media { background: #6c63ff; }
     .usage-stack-part.other { background: #b6b8bb; }
+    .usage-stack-part.usage_total { background: #64748b; }
     .usage-stack-part.foregroundAudio { background: #2fb8ac; }
     .usage-stack-part.backgroundAudio { background: #7cc6c2; }
     .usage-stack-part.foregroundVideo { background: #6c63ff; }
@@ -1754,6 +1756,9 @@
     .usage-app-view .usage-analysis-table { min-width: 760px; }
     .usage-app-view .usage-stack-chart { gap: 4px; overflow-x: auto; overflow-y: hidden; }
     .usage-app-view .usage-stack-slot { min-width: 14px; }
+    .usage-web-view #usage-analysis-main-chart { overflow-x: auto; overflow-y: hidden; }
+    .usage-web-view #usage-analysis-main-chart .usage-stack-slot { min-width: 24px; }
+    .usage-web-view .usage-legend { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
     .usage-stack-label {
       text-align: center;
       font-size: 10px;
@@ -2185,6 +2190,7 @@
           <div class="usage-chart-title" id="usage-analysis-summary-title">本周每日结构</div>
           <div class="usage-stack-chart" id="usage-analysis-week-chart">加载中...</div>
           <div class="usage-chart-title" id="usage-analysis-main-title">24 小时分布</div>
+          <div class="usage-chart-title" id="usage-analysis-hourly-notice" role="status" hidden></div>
           <div class="usage-stack-chart" id="usage-analysis-main-chart">加载中...</div>
           <div class="usage-legend" id="usage-analysis-legend"></div>
         </div>
