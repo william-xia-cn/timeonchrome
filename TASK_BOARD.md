@@ -1,5 +1,15 @@
 # TASK_BOARD
 
+## 本地修复：黑名单已记录时长归入其他展示桶（2026-10-22）
+
+交付授权续记：PO已批准本批共享映射与控件未来日期展示集中提交、推送、合并并仅更新原控件目录；本职责先固定共享cjs/直接测试及两份对应文档，再由控件线交付。复用上述隔离验证，提交仅做精确差异/scope检查；不制包、锁升级、Native安装、云端部署或启用共享。本条覆盖下方实施阶段“不提交”限制，不扩大产品范围。
+
+PO已确认黑名单关闭前实际时长计原总量及其他展示桶，明细仍黑名单、拦截保持。architecture-integration仅负责contracts/web-usage-buckets.cjs与直接测试、DECISIONS；控件未来日期周完整性由控件线独立处理。先核对影响：quota-buckets-v2/schema与source-statistics.ts的共享配额仍为study/composite/rest三桶；Guardian computerUsage仅消费该模块生成displayBuckets，rest-usage-summary仍读取restrictedEntertainment。允许blocked进入other展示不会改休息扣费或共享配额字段。
+
+最小清单：①记录批准规则及配额边界；②仅application摘要映射other加入blocked并认可合法分类完整性；③隔离覆盖blocked+other、总量输入不变、特殊排除、零、未知分类及非法值。仅读既有用量，不修原账/配置/统计/配额算法，不制包或锁升级，不提交安装部署、不涉及Mac。
+
+结果：node app-runtime-management/contracts/web-usage-buckets.test.cjs通过，git diff --check通过。固定样例原总量26秒不变、非特殊四桶合计21秒、特殊5秒不重复，黑名单明细7秒仍blocked而other展示11秒（原other4+blocked7）；零合法、未知不冒充其他、非法/溢出拒绝，配额schema三桶不变。Matched：最小映射及隔离边界；Deviated/Extra无。控件同源同步与未来日期展示由所属任务继续，云端/Native/正式包未更新，不能称线上已生效。
+
 ## 本地交付准备：应用四桶只读契约1.58.2（2026-10-22）
 
 PO批准集中准备固定契约包、消费锁及Native到控件交付，不安装、不部署、不启用共享、不涉及Mac。Task-Role: architecture-integration；允许路径仅contracts既有三项四桶草稿、package版本及其静态断言、根workspace锁与本板。先迁移已验证草稿，保持算法及默认响应不变，再构建固定版本和SHA包。既有Native43项、跨语言及控件直接验证复用；仅运行新版本静态兼容检查、包构建和包内文件/实际导出消费核对，不重跑全量。不能覆盖冻结1.58.1；本地固定提交不等于远程合入或正式Service支持。
