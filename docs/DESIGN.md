@@ -1,5 +1,11 @@
 # TimeOnChrome — 技术设计文档
 
+## 设备历史小时只读查询（2026-10-22，未部署）
+
+新增既有地址的GET /device/hourly-target-stats/v1?date=YYYY-MM-DD，仅接受一个合法自然日date参数，Bearer设备令牌经现有设备认证限定profileId/deviceId，拒绝解绑/无设备身份及额外筛选参数。不更新last_seen，不写账、配置或绑定；POST上传与家长GET保持。读取既有hourly_target_stats_v1并复用现有更正解释，最终仅返回active网页行；响应为{stats,correctionsApplied,profileId,deviceId,date}，Cache-Control:no-store。
+
+控件历史小时使用捕获绑定的设备令牌，credentials:omit、redirect:error、cache:no-store；响应身份/日期须与捕获范围相同，最终再核对当前绑定和请求代际。仅替换小时图，不与本地相加、不改日总量；本地未上传保护、同范围缓存保持。401/403仅显示设备授权错误，不刷新家长会话、不跳登录或绑定。需要后续Guardian Worker部署后才能实机交付，当前仅源码及隔离验证。
+
 ## 1.7.65内部托管与Admin启用状态展示（2026-10-21）
 
 正式managed包沿用现有隐私页面排除边界，Admin只在activationState.privacyConsentRequired明确为true时显示同意入口；受管策略待到达、关闭、无效或个人资料不匹配时显示实际状态，无隐私跳转。启用状态机、凭据、权限、账本及共享开关不变。控件固定桶契约1.58.0，与Mac1.58.1不涉及对象登记的桶消费范围兼容；manifest正式版本为1.7.65。托管与真实Mac安装/双向读取验收分别记录。

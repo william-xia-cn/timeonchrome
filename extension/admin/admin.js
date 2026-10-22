@@ -4009,6 +4009,13 @@ function renderUsageAnalysisView(view) {
   const todayBtn = document.getElementById('usage-analysis-today');
   if (todayBtn) todayBtn.textContent = view.range.mode === 'week' ? '本周' : '今天';
   const summaryTitle = document.getElementById('usage-analysis-summary-title');
+  const showWeekSummary = view.kind !== 'web' && view.kind !== 'application';
+  if (summaryTitle) summaryTitle.hidden = !showWeekSummary;
+  const summaryChart = document.getElementById('usage-analysis-week-chart');
+  if (summaryChart) {
+    summaryChart.hidden = !showWeekSummary;
+    if (!showWeekSummary) summaryChart.innerHTML = '';
+  }
   if (summaryTitle) summaryTitle.textContent = '本周每日结构';
   const mainTitle = document.getElementById('usage-analysis-main-title');
   if (mainTitle) mainTitle.textContent = view.range.mode === 'week' ? '本周每日分布' : '24 小时分布';
@@ -4022,7 +4029,7 @@ function renderUsageAnalysisView(view) {
       : '，对应图表空白不代表零用量。') : ''}`;
   }
   const incompleteApp = view.kind === 'application' && view.totalSeconds == null;
-  renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: view.weekUnavailable ? '本周应用统计尚不可用，不代表零用量' : incompleteApp ? '应用统计证据不完整，不代表零用量' : '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
+  if (showWeekSummary) renderUsageStackChart('usage-analysis-week-chart', view.weekSummarySeries || [], { emptyMessage: view.weekUnavailable ? '本周应用统计尚不可用，不代表零用量' : incompleteApp ? '应用统计证据不完整，不代表零用量' : '本周还没有使用记录', categoryKeys: usageCategoryKeys(view) });
   const hourlyNotice = document.getElementById('usage-analysis-hourly-notice');
   if (hourlyNotice) { hourlyNotice.hidden = !view.hourlyNotice; hourlyNotice.textContent = view.hourlyNotice || ''; }
   renderUsageStackChart('usage-analysis-main-chart', view.chartSeries || [], { emptyMessage: view.hourlyEmptyMessage || (incompleteApp ? '应用统计证据不完整，不代表零用量' : view.range.mode === 'week' ? '所选周没有使用记录' : '所选日期没有使用记录'), categoryKeys: usageCategoryKeys(view) });
@@ -4035,9 +4042,15 @@ async function readWebHourlyContext() {
   const values = await chrome.storage.local.get(['cloud_profile_id', 'cloud_device_id', 'cloud_device_token']);
   return { profileId: values.cloud_profile_id, deviceId: values.cloud_device_id, bindingToken: values.cloud_device_token };
 }
+async function requestWebHourlyHistory(path, deviceToken) {
+  return fetch(`${API_BASE}${path}`, {
+    method: 'GET', headers: { Authorization: `Bearer ${deviceToken}` },
+    credentials: 'omit', redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10000),
+  });
+}
 const readWebHourlyHistory = createWebHourlyHistoryReader({
   readContext: readWebHourlyContext,
-  request: path => accountFetch(`${API_BASE}${path}`, { signal: AbortSignal.timeout(10000) }),
+  request: requestWebHourlyHistory,
   today: () => getAdminDateKey(),
 });
 let restSummaryReadSequence = 0;

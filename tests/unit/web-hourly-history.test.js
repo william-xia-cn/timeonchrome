@@ -11,20 +11,62 @@ const row = (bucket = 'study', seconds = 780) => ({ date, device_id: scope.devic
 const view = () => ({ kind: 'web', range: { mode: 'day', from: date, to: date, label: date },
   totalSeconds: 780, categoryTotals: { study: 780, composite: 0, rest: 0, other: 0 },
   chartSeries: [], hourlyRead: { available: false, complete: false, pending: false }, targetRows: [] });
-const ok = stats => ({ ok: true, json: async () => ({ stats }) });
+const ok = stats => ({ ok: true, json: async () => ({ stats, profileId: scope.profileId, deviceId: scope.deviceId, date }) });
 let passed = 0;
 async function check(name, test) { await test(); passed++; console.log('PASS ' + name); }
 
 (async () => {
   const { createWebHourlyHistoryReader, cloudWebHourSeries } = await load('extension/stats/web-hourly-history.js');
   const setup = request => createWebHourlyHistoryReader({ readContext: async () => scope, request, today: () => '2026-10-22' });
+  await check('失败原因白名单区分授权/接口/数据/超时，不暴露原始错误', async () => {
+    const throwing = error => async () => { throw error; };
+    const cases = [
+      ...[401, 403, 404, 429, 500, 503].map(status => [async () => ({ ok: false, status }), `hourly_http_${status}`]),
+      [throwing(Object.assign(new Error('private timeout context'), { name: 'TimeoutError' })), 'hourly_timeout'],
+      [throwing(Object.assign(new Error('private abort context'), { name: 'AbortError' })), 'hourly_timeout'],
+      [throwing(new TypeError('private network endpoint')), 'hourly_network'],
+      [throwing(new Error('private token=value')), 'hourly_request_failed'],
+      [async () => ({ ok: true, json: throwing(new SyntaxError('private response body')) }), 'invalid_hourly_json'],
+      [async () => undefined, 'invalid_hourly_response'],
+      [async () => ({ ok: true, json: async () => null }), 'invalid_hourly_response'],
+      [async () => ok(undefined), 'invalid_hourly_response'],
+      [async () => ok([null]), 'invalid_hourly_row'],
+      [async () => ok([{ ...row(), quota_bucket: 'unknown' }]), 'invalid_hourly_row'],
+      [async () => ok([]), 'hourly_missing'],
+    ];
+    for (const [request, code] of cases) {
+      const out = await setup(request)(view());
+      assert.equal(out.hourlyReadError.code, code);
+      assert.match(out.hourlyNotice, new RegExp(code));
+      assert.doesNotMatch(JSON.stringify(out.hourlyReadError), /private|token=|fixture-child|fixture-device/);
+      assert.equal(out.totalSeconds, 780);
+      assert.deepEqual(out.categoryTotals, view().categoryTotals);
+      assert.equal(out.hourlyEmptyMessage, '所选日期小时数据暂不可用');
+    }
+  });
+  await check('失败缓存与未上传本地保留诊断，随后成功不残留失败', async () => {
+    let failure = false;
+    const read = setup(async () => failure ? { ok: false, status: 401 } : ok([row()]));
+    await read(view()); failure = true;
+    const cached = await read(view());
+    assert.equal(cached.hourlyReadError.code, 'hourly_http_401');
+    assert.equal(cached.chartSeries[9].categories.study, 780);
+    assert.match(cached.hourlyNotice, /旧读数/);
+    const local = { ...view(), chartSeries: [{ categories: { study: 800 } }], hourlyRead: { pending: true, available: true } };
+    const pending = await read(local);
+    assert.deepEqual(pending.chartSeries, local.chartSeries);
+    assert.equal(pending.hourlyReadError.code, 'hourly_http_401');
+    failure = false;
+    assert.equal((await read(view())).hourlyReadError, undefined);
+  });
   await check('历史整份采用四桶，不按分类猜桶，不改原总量', async () => {
     const original = view(), before = JSON.stringify(original);
-    const read = setup(async url => {
+    const read = setup(async (url, token) => {
+      assert.equal(token, scope.bindingToken);
+      assert.match(url, /^\/device\//);
       assert.match(url, /hourly-target-stats\/v1\?/);
       const query = new URL('https://fixture.invalid' + url).searchParams;
-      assert.equal(query.get('from'), date); assert.equal(query.get('to'), date);
-      assert.equal(query.get('deviceId'), scope.deviceId); assert.equal(query.get('channel'), 'active');
+      assert.equal(query.get('date'), date); assert.equal([...query.keys()].length, 1);
       return ok(['study', 'composite', 'rest', 'other'].map(bucket => row(bucket, 195)));
     });
     const a = await read(original), b = await read(original);
@@ -37,6 +79,15 @@ async function check(name, test) { await test(); passed++; console.log('PASS ' +
     const current = view(); current.range.from = '2026-10-22';
     await read(current); await read({ ...view(), kind: 'application' }); await read({ ...view(), kind: 'media' });
     await read({ ...view(), range: { mode: 'week', from: date } }); assert.equal(calls, 0);
+  });
+  await check('服务端改绑及空结果的响应范围不匹配也拒绝', async () => {
+    for (const field of ['profileId', 'deviceId', 'date']) {
+      const out = await setup(async () => ({ ok: true, json: async () => ({
+        profileId: scope.profileId, deviceId: scope.deviceId, date, stats: [], [field]: 'other',
+      }) }))(view());
+      assert.equal(out.hourlyReadError.code, 'hourly_scope_mismatch');
+      assert.equal(out.totalSeconds, 780);
+    }
   });
   await check('未上传本地整体保留且标部分，不叠加云端', async () => {
     const local = { ...view(), chartSeries: [{ categories: { study: 800 } }], hourlyRead: { available: true, pending: true } };

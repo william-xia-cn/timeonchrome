@@ -51,6 +51,66 @@ function context() {
   rebound.readWebHourlyHistory = async () => { nextScope = { ...scope, deviceId: 'changed' }; return day; };
   await rebound.renderStatsPage(); assert.equal(rebound.renders.length, 1);
   assert.match(html, /id="usage-analysis-hourly-notice" role="status" hidden/);
+  const charts = context();
+  charts.usagePresentationView = view => view;
+  charts.usageTime = seconds => String(seconds);
+  charts.DAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
+  charts.usageCategoryKeys = view => view.categoryKeys;
+  charts.renderUsageLegend = () => {};
+  charts.renderUsageAnalysisList = () => {};
+  charts.chartCalls = [];
+  charts.renderUsageStackChart = (id, series) => charts.chartCalls.push({ id, series });
+  vm.runInContext(fn('renderUsageAnalysisView'), charts);
+  for (const kind of ['web', 'application', 'media', 'web']) {
+    for (const mode of ['day', 'week', 'day']) {
+      const view = { ...structuredClone(day), kind, range: { ...day.range, mode },
+        chartSeries: [{ label: mode === 'day' ? '08' : '10-21', categories: { study: 780 } }] };
+      const before = JSON.stringify(view);
+      charts.chartCalls = [];
+      charts.renderUsageAnalysisView(view);
+      assert.equal(charts.document.getElementById('usage-analysis-summary-title').hidden, kind !== 'media');
+      assert.equal(charts.document.getElementById('usage-analysis-week-chart').hidden, kind !== 'media');
+      assert.deepEqual(charts.chartCalls.map(call => call.id), kind === 'media'
+        ? ['usage-analysis-week-chart', 'usage-analysis-main-chart'] : ['usage-analysis-main-chart']);
+      assert.equal(charts.chartCalls.at(-1).series, view.chartSeries);
+      assert.equal(charts.document.getElementById('usage-analysis-total').textContent, '780');
+      assert.equal(JSON.stringify(view), before);
+    }
+  }
+  console.log('Chart visibility: 12/12 passed (web/application/media, day-week-day, unchanged input and total)');
+  const auth = context();
+  auth.API_BASE = 'https://fixture.invalid';
+  auth.AbortSignal = AbortSignal;
+  auth.accountFetch = () => { throw Error('parent authorization must not be used'); };
+  auth.chrome = { storage: { local: { set: () => { throw Error('no writes'); } } } };
+  auth.URLSearchParams = URLSearchParams;
+  const requests = [];
+  auth.fetch = async (url, options) => { requests.push({ url, options }); return { ok: false, status: 401 }; };
+  vm.runInContext(fn('requestWebHourlyHistory'), auth);
+  vm.runInContext(fs.readFileSync(path.join(root, 'extension/stats/web-hourly-history.js'), 'utf8').replace(/export /g, ''), auth);
+  const history = auth.createWebHourlyHistoryReader({ readContext: async () => scope, today: () => '2026-10-22',
+    request: auth.requestWebHourlyHistory });
+  const denied = await history(structuredClone(day), scope);
+  assert.equal(denied.hourlyReadError.code, 'hourly_http_401');
+  assert.equal(denied.totalSeconds, day.totalSeconds);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.headers.Authorization, `Bearer ${scope.bindingToken}`);
+  assert.equal(requests[0].options.credentials, 'omit');
+  assert.equal(requests[0].options.redirect, 'error');
+  assert.equal(requests[0].options.cache, 'no-store');
+  assert.equal(requests[0].url, 'https://fixture.invalid/device/hourly-target-stats/v1?date=2026-10-21');
+  assert.doesNotMatch(denied.hourlyNotice, /家长|登录/);
+  auth.fetch = async (_url, options) => options.headers.Authorization === `Bearer ${scope.bindingToken}`
+    ? { ok: true, json: async () => ({ profileId: scope.profileId, deviceId: scope.deviceId, date: day.range.from,
+      stats: [{ date: day.range.from, device_id: scope.deviceId,
+      channel: 'active', hour: 9, quota_bucket: 'study', duration_seconds: 780 }] }) }
+    : { ok: false, status: 401 };
+  const recovered = await history(structuredClone(day), scope);
+  assert.equal(recovered.hourlyReadError, undefined);
+  assert.equal(recovered.chartSeries[9].categories.study, 780);
+  assert.equal(recovered.totalSeconds, day.totalSeconds);
+  assert.match(source, /request: requestWebHourlyHistory/);
+  console.log('Device request integration: no parent session, no storage writes, 401 and later recovery preserve day total');
   console.log('Admin hourly controller: 4/4 passed (pending total, successful render, stale sequence, binding change)');
   if (!process.argv.includes('--serve-preview')) return;
   const adapter = fs.readFileSync(path.join(root, 'extension/stats/web-hourly-history.js'), 'utf8').replace(/export /g, '');
@@ -83,7 +143,7 @@ function context() {
     };
     const readWebHourlyHistory=createWebHourlyHistoryReader({readContext:readWebHourlyContext,today:getAdminDateKey,request:async()=>{
       if(new URLSearchParams(location.search).has('failure')) throw Error('fixture offline');
-      return {ok:true,json:async()=>({stats:['study','composite','rest','other'].map((quota_bucket,i)=>({date:'2026-10-21',device_id:fixtureScope.deviceId,channel:'active',hour:8+i,quota_bucket,duration_seconds:[180,300,240,60][i]}))})};
+      return {ok:true,json:async()=>({profileId:fixtureScope.profileId,deviceId:fixtureScope.deviceId,date:'2026-10-21',stats:['study','composite','rest','other'].map((quota_bucket,i)=>({date:'2026-10-21',device_id:fixtureScope.deviceId,channel:'active',hour:8+i,quota_bucket,duration_seconds:[180,300,240,60][i]}))})};
     }});
     const renderRestUsageSummary=async()=>{};
     const setStatsPageError=()=>{};
