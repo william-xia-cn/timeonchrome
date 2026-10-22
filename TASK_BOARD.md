@@ -1,5 +1,29 @@
 # TASK_BOARD
 
+## 集中源码提交：四桶Windows与控件消费（2026-10-22）
+
+PO批准仅本地集中提交本批源码，固定契约/Native/控件版本，不安装部署、不改加载目录、不启用共享、不涉及Mac。契约复用已固定1.58.2/source4c16227fc34df2997ce9a84f71504e6399ecd1f4及留证8619e9a，不重复打包。Native仅三处四桶读取/能力产品文件、对应测试与固定消费锁包；控件仅四桶能力/读取/展示、同源映射及对应回归，包含此前已批准并已交付的今日快照选取修正及周读取安全回归，排除受管激活、health-timeout、其他文档和识别草稿。共享文档按段暂存，不整文件夹带。
+
+提交检查：复用43项Native、控件直接回归/隔离目视及1.58.2包→C#fixture→控件候选组装PASS；本轮仅核对源文件/候选哈希、提交差异、范围与git diff --check，不重跑产品测试或CI。审计Matched：批准范围与已有证据对应；Deviated/Extra无；Missing仅正式交付后的实机验收。本轮不推送、不制安装包、不操作运行中的Service或控件。
+
+固定对应：契约1.58.2源码4c16227fc34df2997ce9a84f71504e6399ecd1f4（留证8619e9a）；包SHA256 37fa05f05b8fb4a3efdf17bfd0c612412d1fcec1c239f9f76c43bcb149b57935；Native消费提交25b3edf0326887a8312c6a216ef2aae5ee82d719（9文件，精确保留其他草稿）；控件对应包含本段的提交，只含已审计10文件，不含契约副本草稿及health-timeout。控件源码保留原HEAD既有激活逻辑，已验隔离候选按明确加载基线排除尚未交付的激活提示；本批增量两者一致，不能将整树源码直接覆盖原加载目录。提交暂存最初CRLF产生整文件差异，已仅在索引按仓库LF规范化并重新通过差异检查，工作区/候选字节不变。
+
+## NOW：四桶固定契约与Windows消费交付准备（2026-10-22）
+
+PO批准集中完成本地固定契约包、消费锁及Native→控件交付准备，暂不安装部署。职责按既有契约集成、native-local与extension-local分工；不混入Mac、真实账本/配置或其他草稿。执行清单：①核对1.58.1与既有四桶差异/通过证据；②新版本固定包及源码/包哈希，不覆盖冻结包；③Native锁及包内消费接线核验；④控件精确交付清单、包内映射同源和对应测试证据核对；⑤登记正式Service→原控件必须补的同范围/同截止实机验收。当前加载目录与正式Service保持不变。
+
+验证契约：复用43项Native、实际C#跨语言fixture及控件四桶/能力门/目视证据，只补固定包构建与锁哈希、包内导出和受影响消费检查；不跑全量、Mac、安装器或生产测试，不启用共享。本轮准备完成不等于正式Windows消费验收通过。
+
+准备结果：新固定契约1.58.2，源码4c16227fc34df2997ce9a84f71504e6399ecd1f4，本地留证8619e9a，未推送。包157626字节、92文件，SHA256 37fa05f05b8fb4a3efdf17bfd0c612412d1fcec1c239f9f76c43bcb149b57935；包文件与固定源码/编译输出逐字节核对通过。Native contracts.lock.json及Windows测试默认版本已指向该包，restore-contracts验证并恢复成功，旧包和previous条目保留；修正测试辅助器硬编码1.58.1为读取锁版本，不改产品算法。Native产品与既有43项验证源码逐SHA相同。
+
+控件隔离交付准备位于.tmp/bucket-delivery-preparation-20261022/package-extension：原目录185文件，候选186文件；仅admin/admin.html、admin/admin.js、infra/native-host-client.js、stats/application-usage-read-model.js四项变化，新增core/web-usage-buckets.js，其余181文件不变。排除无关受管激活提示；manifest/权限/历史小时修复保持，原加载目录逐SHA未变。共享映射规范化换行后与1.58.2包一致，候选Admin及read-model语法通过。此为隔离准备目录，不是已更新控件或正式托管包。
+
+新产物串联通过：node .tmp/verify-bucket-delivery.cjs读取实际Native锁及包、校验SHA后，以已有真实C#隔离周fixture交给新包validator和本候选read-model；已知6秒、非特殊学习3秒、特殊3秒不重复入桶，未知日期、原总量和原输入不变。fixture SHA256 5ad168b98cb513a2dd9d7bab4db3f676fd048bb11be6eb7dfbdc24e92ac1e190；结果与候选逐文件哈希分别在该准备目录的consumer-verification.json、verification.json。仅补组装验证，未重跑43项、全量、目视或实机。git diff --check通过。
+
+后续获准交付后必须集中补的实机验收：①正式Service声明新能力，控件显式请求并接收同孩子/日期/revision/截止摘要；②同一响应的非特殊四桶与页面逐桶一致，特殊用量独立、不强凑总量，小时图仍为中性总量；③日/周切换、未来未知及合法零表现正确，重复读取不累加，现有历史网页小时图不被覆盖。只读验收，无需开共享、改配置或重做已有隔离负例。本轮不提前要求用户操作。
+
+审计：Matched—新固定包、Native消费锁准备、旧验证复用、隔离控件候选及包到候选串联；Deviated/Extra—无。Missing—Native/控件改动的后续集中源码提交交付及正式Service安装消费/控件加载后的实机验收（本轮禁止安装部署，未冒称完成）。Mac及其他草稿保持独立。
+
 ## 非Mac收尾清单（2026-10-22，本轮仅文档提交）
 
 范围：复用现有证据，不重复测试、安装、部署，不操作真实原账/配置/共享开关。只提交本轮验收及对应发布记录，不夹带四桶契约、产品或其他文档草稿；低风险纯文档，必要检查仅暂存差异和git diff --check，无新增本地测试/CI/smoke要求。
