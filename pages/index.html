@@ -10693,6 +10693,8 @@ async function loadSiteClassificationRequests() {
 }
 async function decideSiteClassificationRequestRecord(request, decision, options = {}) {
   if (!request || !currentProfileId) return;
+  const profileId = currentProfileId;
+  const configVersion = remoteConfigVersion;
   const targetType = options.targetType || request.requestedTargetType;
   const targetValue = String(options.targetValue || siteRequestDecisionDefault(request) || '').trim();
   if (!targetValue) {
@@ -10707,11 +10709,19 @@ async function decideSiteClassificationRequestRecord(request, decision, options 
     toast(formatProtectedSiteAccessScopeMessage(protectedScope, { label: targetPolicy === 'study' ? '学习网站' : '复合网站' }), false);
     return;
   }
-  await api(`/profiles/${currentProfileId}/site-classification-requests/${encodeURIComponent(request.id)}/decision`, 'POST', {
+  await api(`/profiles/${profileId}/site-classification-requests/${encodeURIComponent(request.id)}/decision`, 'POST', {
     decision,
     targetType,
     targetValue,
   });
+  if (currentProfileId !== profileId) return;
+  const refreshed = await api(`/profiles/${profileId}/config`);
+  if (currentProfileId !== profileId) return;
+  if (remoteConfigVersion === configVersion) {
+    applyProfileConfigResponse(refreshed);
+    renderRulesPolicyNav();
+    renderRulesSiteDirectory();
+  }
   toast(decision === 'study'
     ? '已批准为学习网站'
     : decision === 'composite'

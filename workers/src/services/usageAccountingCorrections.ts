@@ -1,6 +1,8 @@
 import { Env } from '../db/middleware';
+import { matchDomain } from '../../../extension/core/domain-semantics.js';
 
 const AUTO_RESTRICTED_REASON = 'unclassified_to_restricted_current_week';
+const AUTO_STUDY_REASON = 'unclassified_to_study_current_week';
 const AUTO_CORRECTION_BATCH_SIZE = 99;
 const AUTO_CORRECTION_MAX_BATCHES = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -36,6 +38,8 @@ export type RestrictedReattributionSummary = {
   segmentCount: number;
   durationSeconds: number;
   batchCount: number;
+  reason?: 'unsupported_target_scope' | 'decision_boundary_requires_review';
+  reviewSegmentCount?: number;
 };
 
 function beijingDateKey(timestamp: number) {
@@ -56,22 +60,26 @@ function isPendingClassification(value: unknown) {
   return value === 'pending_composite' || value === 'unclassified';
 }
 
-export function isEligibleRestrictedReattributionSegment(
-  row: any,
-  requestId: string,
-  weekStart: string,
-  weekEnd: string,
-  clientRequestId?: string | null,
-) {
-  const ruleIds = new Set([requestId, clientRequestId].filter((value): value is string => !!value));
-  return !!row && row.channel === 'active' && ruleIds.has(row.target_rule_id) &&
-    row.date >= weekStart && row.date <= weekEnd && isPendingClassification(row.target_classification_at_time) &&
-    Number(row.duration_seconds || 0) >= 0;
+type RestrictedReattributionScope = {
+  profileId: string; weekStart: string; weekEnd: string; startMs: number;
+  decidedAt: number; targetType: string; targetValue: string;
+};
+
+export function isEligibleRestrictedReattributionSegment(row: any, scope: RestrictedReattributionScope) {
+  return !!row && scope.targetType === 'host' && row.profile_id === scope.profileId &&
+    matchDomain(row.domain, scope.targetValue) && row.channel === 'active' &&
+    row.date >= scope.weekStart && row.date <= scope.weekEnd &&
+    Number.isFinite(row.start_ms) && Number.isFinite(row.end_ms) &&
+    row.start_ms >= scope.startMs && row.end_ms >= row.start_ms && row.end_ms <= scope.decidedAt &&
+    isPendingClassification(row.target_classification_at_time) &&
+    Number.isFinite(Number(row.duration_seconds)) && Number(row.duration_seconds) >= 0;
 }
 
 async function requestReattributionContext(env: Env, profileId: string, requestId: string) {
   return env.DB.prepare(
-    `SELECT r.id, r.profile_id, r.client_request_id, r.decision, r.decided_at, p.account_id
+    `SELECT r.id, r.profile_id, r.decision, r.decided_at,
+            COALESCE(r.decision_target_type,r.requested_target_type) AS target_type,
+            COALESCE(r.decision_normalized_value,r.requested_normalized_value) AS target_value, p.account_id
        FROM site_classification_requests_v1 r
        JOIN profiles p ON p.id = r.profile_id
       WHERE r.id = ? AND r.profile_id = ?`
@@ -80,32 +88,25 @@ async function requestReattributionContext(env: Env, profileId: string, requestI
 
 async function nextCorrectionGroup(
   env: Env,
-  profileId: string,
-  requestId: string,
-  clientRequestId: string | null,
-  weekStart: string,
-  weekEnd: string,
+  scope: RestrictedReattributionScope,
 ) {
-  return env.DB.prepare(
-    `SELECT s.device_id, s.date, s.domain
+  const result = await env.DB.prepare(
+    `SELECT DISTINCT s.device_id, s.date, s.domain
        FROM usage_segments_v1 s
        LEFT JOIN usage_segment_corrections_v1 c ON c.segment_id = s.id
-      WHERE s.profile_id = ? AND s.target_rule_id IN (?, ?)
+      WHERE s.profile_id = ?
         AND s.date >= ? AND s.date <= ? AND s.channel = 'active'
+        AND s.start_ms >= ? AND s.end_ms <= ?
         AND s.target_classification_at_time IN ('pending_composite', 'unclassified')
         AND c.segment_id IS NULL
-      ORDER BY s.date ASC, s.device_id ASC, s.domain ASC, s.start_ms ASC, s.id ASC
-      LIMIT 1`
-  ).bind(profileId, requestId, clientRequestId || requestId, weekStart, weekEnd).first<any>();
+      ORDER BY s.date ASC, s.device_id ASC, s.domain ASC`
+  ).bind(scope.profileId, scope.weekStart, scope.weekEnd, scope.startMs, scope.decidedAt).all<any>();
+  return (result.results || []).find(row => matchDomain(row.domain, scope.targetValue)) || null;
 }
 
 async function correctionGroupSegments(
   env: Env,
-  profileId: string,
-  requestId: string,
-  clientRequestId: string | null,
-  weekStart: string,
-  weekEnd: string,
+  scope: RestrictedReattributionScope,
   group: any,
 ) {
   const result = await env.DB.prepare(
@@ -114,16 +115,18 @@ async function correctionGroupSegments(
             s.target_classification_at_time, s.quota_bucket_at_time
        FROM usage_segments_v1 s
        LEFT JOIN usage_segment_corrections_v1 c ON c.segment_id = s.id
-      WHERE s.profile_id = ? AND s.target_rule_id IN (?, ?)
+      WHERE s.profile_id = ?
         AND s.date >= ? AND s.date <= ? AND s.channel = 'active'
+        AND s.start_ms >= ? AND s.end_ms <= ?
         AND s.target_classification_at_time IN ('pending_composite', 'unclassified')
         AND s.device_id = ? AND s.date = ? AND s.domain = ?
         AND c.segment_id IS NULL
       ORDER BY s.start_ms ASC, s.id ASC
       LIMIT ${AUTO_CORRECTION_BATCH_SIZE}`
-  ).bind(profileId, requestId, clientRequestId || requestId, weekStart, weekEnd, group.device_id, group.date, group.domain).all<any>();
+  ).bind(scope.profileId, scope.weekStart, scope.weekEnd, scope.startMs, scope.decidedAt,
+    group.device_id, group.date, group.domain).all<any>();
   return (result.results || []).filter((row) =>
-    isEligibleRestrictedReattributionSegment(row, requestId, weekStart, weekEnd, clientRequestId));
+    isEligibleRestrictedReattributionSegment(row, scope));
 }
 
 export async function applyRestrictedReattributionForRequest(
@@ -133,23 +136,31 @@ export async function applyRestrictedReattributionForRequest(
   options: { maxBatches?: number } = {},
 ): Promise<RestrictedReattributionSummary> {
   const context = await requestReattributionContext(env, profileId, requestId);
-  if (!context || context.decision !== 'reject' || !Number.isFinite(Number(context.decided_at))) {
+  if (!context || !['reject', 'study'].includes(context.decision) || !Number.isFinite(Number(context.decided_at)) || Number(context.decided_at) <= 0) {
     return { requestId, applicable: false, complete: true, weekStart: null, weekEnd: null, segmentCount: 0, durationSeconds: 0, batchCount: 0 };
   }
 
   const { weekStart, weekEnd } = getBeijingWeekForTimestamp(Number(context.decided_at));
-  const clientRequestId = typeof context.client_request_id === 'string' && context.client_request_id
-    ? context.client_request_id
-    : null;
+  const scope: RestrictedReattributionScope = {
+    profileId, weekStart, weekEnd, startMs: Date.parse(`${weekStart}T00:00:00+08:00`),
+    decidedAt: Number(context.decided_at), targetType: context.target_type, targetValue: context.target_value,
+  };
+  const effectiveClassification = context.decision === 'study' ? 'study' : 'restricted';
+  const effectiveMode = context.decision === 'study' ? 'study' : 'rest';
+  const reasonCode = context.decision === 'study' ? AUTO_STUDY_REASON : AUTO_RESTRICTED_REASON;
+  if (scope.targetType !== 'host' || !scope.targetValue) {
+    return { requestId, applicable: true, complete: false, weekStart, weekEnd, segmentCount: 0,
+      durationSeconds: 0, batchCount: 0, reason: 'unsupported_target_scope' };
+  }
   const maxBatches = Math.max(1, Math.min(AUTO_CORRECTION_MAX_BATCHES, Number(options.maxBatches || AUTO_CORRECTION_MAX_BATCHES)));
   let segmentCount = 0;
   let durationSeconds = 0;
   let batchCount = 0;
 
   while (batchCount < maxBatches) {
-    const group = await nextCorrectionGroup(env, profileId, requestId, clientRequestId, weekStart, weekEnd);
+    const group = await nextCorrectionGroup(env, scope);
     if (!group) break;
-    const segments = await correctionGroupSegments(env, profileId, requestId, clientRequestId, weekStart, weekEnd, group);
+    const segments = await correctionGroupSegments(env, scope, group);
     if (segments.length === 0) break;
 
     const batchId = crypto.randomUUID();
@@ -161,34 +172,45 @@ export async function applyRestrictedReattributionForRequest(
           (id, profile_id, device_id, date, domain, segment_count, duration_seconds, reason_code, note, approved_by_account_id, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(batchId, profileId, group.device_id, group.date, group.domain, segments.length, batchSeconds,
-        AUTO_RESTRICTED_REASON, `site classification request ${requestId}`, context.account_id, now),
+        reasonCode, `site classification request ${requestId}`, context.account_id, now),
       ...segments.map((row) => env.DB.prepare(
         `INSERT INTO usage_segment_corrections_v1
           (id, batch_id, segment_id, profile_id, device_id, date, domain, start_ms, end_ms, duration_seconds,
            channel, original_mode, original_target_classification, original_quota_bucket,
            effective_mode, effective_target_classification, effective_quota_bucket,
            reason_code, approved_by_account_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'rest', 'restricted', 'rest', ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(crypto.randomUUID(), batchId, row.id, profileId, row.device_id, row.date, row.domain,
         row.start_ms, row.end_ms, row.duration_seconds, row.channel, row.mode,
         row.target_classification_at_time || null, row.quota_bucket_at_time || row.mode,
-        AUTO_RESTRICTED_REASON, context.account_id, now)),
+        effectiveMode, effectiveClassification, effectiveMode, reasonCode, context.account_id, now)),
     ]);
     segmentCount += segments.length;
     durationSeconds += batchSeconds;
     batchCount += 1;
   }
 
-  const remaining = await nextCorrectionGroup(env, profileId, requestId, clientRequestId, weekStart, weekEnd);
+  const remaining = await nextCorrectionGroup(env, scope);
+  const boundaryRows = await env.DB.prepare(
+    `SELECT s.domain, COUNT(*) AS segment_count FROM usage_segments_v1 s
+       LEFT JOIN usage_segment_corrections_v1 c ON c.segment_id=s.id
+      WHERE s.profile_id=? AND s.date>=? AND s.date<=? AND s.channel='active'
+        AND s.target_classification_at_time IN ('pending_composite','unclassified')
+        AND s.start_ms>=? AND s.start_ms<? AND s.end_ms>? AND c.segment_id IS NULL
+      GROUP BY s.domain`
+  ).bind(profileId, weekStart, weekEnd, scope.startMs, scope.decidedAt, scope.decidedAt).all<any>();
+  const reviewSegmentCount = (boundaryRows.results || []).filter(row => matchDomain(row.domain, scope.targetValue))
+    .reduce((sum, row) => sum + Number(row.segment_count || 0), 0);
   return {
     requestId,
     applicable: true,
-    complete: !remaining,
+    complete: !remaining && reviewSegmentCount === 0,
     weekStart,
     weekEnd,
     segmentCount,
     durationSeconds,
     batchCount,
+    ...(reviewSegmentCount > 0 ? { reason: 'decision_boundary_requires_review' as const, reviewSegmentCount } : {}),
   };
 }
 
@@ -196,7 +218,7 @@ export async function processRestrictedReattributions(
   env: Env,
   options: { profileId?: string; requestIds?: string[]; since?: number; maxRequests?: number; maxBatchesPerRequest?: number } = {},
 ) {
-  const where = [`r.decision = 'reject'`, 'r.decided_at IS NOT NULL'];
+  const where = [`r.decision IN ('reject','study')`, 'r.decided_at IS NOT NULL'];
   const binds: any[] = [];
   if (options.profileId) { where.push('r.profile_id = ?'); binds.push(options.profileId); }
   const requestIds = [...new Set((options.requestIds || []).filter(Boolean))];
