@@ -1,5 +1,37 @@
 # TASK_BOARD
 
+## P0：学习归类调账及 ankiuser.net 本周修正（2026-11-22，PO 授权实施中）
+
+2026-11-22追加授权：提交、经现有PR合入主线并部署本批Guardian Worker和主控制台；不部署扩展/Runtime、不执行migration。提交只含本批与其依赖的既有受限归类修复，其他任务板草稿和未跟踪产物保留。复用已通过直接专项与typecheck，运行现有精确SHA云端/主控制台CI，生产workflow只选择Guardian和主Pages。V1/V2差额P0不改账、不误报通过；本次不会停掉兼容链路或切换页面来源。
+
+Task-Role: standard-cloud。学习归类当前未触发correction、服务及后台只选reject，造成归类后本周待归类仍扣Composite。按PO单项批准扩展既有调账服务及四入口到study/reject，复用既有表/幂等/域名与日期边界，不改原始账、计时或聚合算法，不新增表和概念。修改范围为既有correction服务、网站审批/人工入口、直接回归及D-093/设计；保留10月未提交受限调账修复与其他工作。
+
+核查清单：搜索按当前policy/source过滤，先以实际配置复验学习/全部来源能找到ankiuser，不直接重设计UI；学习目标分类与mode/bucket均study、原Study不重复增加；固定6865秒及Composite6857/Rest1/原Study7、跨日周、多设备、不同ID、幂等/迟到；日小时target/V2/配额一致；生产只对本周ankiuser精确决定和分段插入可追溯correction，前后重新查询、原始指纹与总量守恒。用户已授权该历史数据修正，不需再次授权；没有代码提交、部署或其他历史站点修正授权。最小本地测试为correction/归类入口/搜索和V2配额相关专项、typecheck/diff；生产执行复用已验证更正结构，不改V1基表。真实终端只有下一次同步后可验证，不把云端校验当作终端已应用。
+
+搜索核查：PO确认学习网站/全部来源；当前服务端customStudyList已有ankiuser.net，现有过滤函数能命中。审批成功函数只重读申请及未归类访问记录，不重读remoteConfig，网站目录仍依赖旧配置，已证实存在同页审批后搜索漏显示路径；不能据此断言PO当时页面状态。最小修复为审批成功后重新读取当前档案配置并重绘既有目录，档案或配置版本变化时不得覆盖；不改UI结构、不增加分类规则。补直接函数回归，验证审批后搜索可见和跨档案响应隔离。
+
+实施结果（2026-11-22）：学习调账及目录刷新补丁已完成，未提交/部署。稳定域名只读源码确认审批函数确实未重读/config，与复现路径一致。correction、归类入口、通知专项41/41、V2配额43/43及typecheck通过；最新目录刷新直接函数回归通过。Plan Conformance：学习/受限共用既有筛选、原账冻结、幂等、历史精确范围、目录数据刷新均Matched；未扩大到其他站点或客户端。
+
+生产历史修正已按PO授权执行：199段、6865秒，分别为11月19日1911秒、20日154秒、21日4800秒。Composite减少6857秒、Rest减少1秒、Study净增加6858秒（原Study7秒不重复增加）。更正后该站本周6987秒，19/20/21/22日分别1911/154/4920/2秒，日/小时/domain/target四层一致且全部按Study解释；原始211段及V1基表前后完全不变。V2配额投影应用相同增减，总量守恒；终端应用状态尚未观察，不声称已同步。
+
+独立P0保留：修正前T.xia全档案V2比V1当前周多11926秒（17日Rest3258秒、Study8613秒，20日Composite55秒）；本次修正前后差额未变化，不属于ankiuser调账造成，也未自动修改。不得将“本站四层一致”写成“整个档案V1/V2已一致”。生产快照、SQL、关联目标、回读验证保存在主检出被忽略.tmp中，不提交孩子标识或访问明细。
+
+## P0：网站归类后调账遗漏修复（2026-10-28 批准，2026-10-29 本地实现与验证完成，未上线）
+
+Task-Role: standard-cloud。范围为 usageAccountingCorrections、stats 迟到触发、siteClassificationRequests 人工入口及直接测试；D-093/设计同步。只按孩子/决定周/网站规则/决定前/原待归类选择，移除请求 ID 资格限制，复用 correction 与域名规则，不新增表或概念。主目录已有只读取证：4196秒中1988已调、2208遗漏；本次先验证并生成历史预览，不提交、不部署、不写生产历史。
+
+检查清单：文档先行；服务筛选与完成核对；人工/通知/迟到/定时共用；4196/1988/2208固定回归、跨设备和误调边界；V1日小时target及V2总量守恒；应用保存/当前周重算/缓存/发布/读取只读核查与专项。原始计时/分段/聚合/配额算法和外部Native不变。必要本地测试为直接corrections、reattribution、worker归类/通知和应用归类/cache/account专项、typecheck/diff；无UI、CI、发布smoke或全量测试，本次不发布。保留现有TASK_BOARD及未跟踪产物。
+
+实现结果：调账分段资格移除target_rule_id，按归类决定域名/孩子/周/截止及原待归类筛选；迟到上传触发不再过滤请求ID；人工受限归类无待审记录时复用已有ensure流程建立决定来源。原99条/批、事务及segment唯一修正保持；URL/对象无证据返回unsupported_target_scope，跨决定时刻的完整分段返回decision_boundary_requires_review且complete=false，不整段猜改。原始记录、日小时聚合算法、V2合账和页面代码均未修改。
+
+已通过命令：node tests/unit/usage-accounting-corrections.test.js（实际内存SQLite验证44段4196秒、已修1988/新增16段2208、两个设备/空及不同ID、事务回滚/重试/99条分批/幂等/迟到/已用Rest、V1日小时domain/target和V2总量/页面受限娱乐说明）；node tests/unit/site-classification-reattribution.test.js（人工有/无记录、失败不写配置、已有分类及非受限入口）；worker-record-merge 6/6、email-notifications 41/41、record-semantics 33/33；npm run typecheck通过。人工入口测试首次夹具漏rowToResponse，补齐后通过，未因测试改产品。
+
+应用核查：保存生成不可变weekReclassification，当前周按platform/runtimeIdentity而非归类请求ID解释；缓存包含策略版本，发布检查更正版本及统计hash，读取复用既有更正。应用corrections/cache/accounts三专项39/39通过，未发现同类请求ID遗漏，应用源码无改动。首次沙箱运行因Miniflare缓存写权限导致1项失败；沙箱外复跑相同三专项39/39通过。没有外部Native或真实应用终端验收，不宣称全部应用功能无错误。
+
+只读历史预览：2026-10-29重新读取决定和原始分段，由本次实际资格函数筛选；仍为4196秒、已有28段1988秒（含两个0秒段）、新增16段2208秒，Composite -2208 / Rest +2208 / 总量0。逐段预览在主检出忽略目录 `.tmp/playdaily-correction-preview-20261029.json`，证据摘要e55423cd643ac6aabc35ddde6628d43bbebbe5c4996f35d7fcc27ba0cdbe321c。生产写入前重新核对；本次无D1写入。CLI文件模式不提供所需结果、多行参数被Windows包装器截断，改用单行SELECT后成功；没有改查询业务范围。
+
+已知验证缺口：既有usage-explanation-display.test.js在未知分类文案断言失败（预期“历史性质未知”，当前“分类信息缺失”）；页面/Admin/该测试与HEAD一致，非本补丁引入，未顺手改UI或断言。新4196秒到受限娱乐说明的实际函数验证通过。实施一致性：文档、规则筛选、四入口、幂等/守恒/应用检查和历史预览Matched；发布及真实线上修正未执行。此P0保持未上线，不提交、不推送、不部署。
+
 ## 非 Mac 收口与剩余事项（2026-10-23，仅文档更新）
 
 本节以最新发布及人工验收覆盖下方历史阶段的 Pending，不将旧“未发布／待重载／待登录”继续当作当前阻塞。本次只整理既有证据，不运行产品测试、不安装、不部署，不操作原账、配置或共享开关。

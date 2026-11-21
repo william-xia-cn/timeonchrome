@@ -712,7 +712,7 @@ export async function decideSiteClassificationRequest(
   }
 
   await applyDecisionToProfileConfig(env, input.profileId, input.requestId, decision, target, now);
-  const accountingReattributions = decision === 'reject'
+  const accountingReattributions = (decision === 'reject' || decision === 'study')
     ? await processRestrictedReattributions(env, { profileId: input.profileId, requestIds: [input.requestId] })
     : [];
   const updated = await env.DB.prepare(
@@ -794,6 +794,12 @@ async function classifyUsedUnclassifiedSite(request: Request, env: Env, profileI
     return json({ ok: true, alreadyClassified: true, domain, currentClassification: resolved.classification });
   }
 
+  if ((classification === 'restricted' || classification === 'study') && matchingPending.length === 0) {
+    const ensured = await ensureUnclassifiedSiteRequest(env, profileId, { targetValue: domain });
+    if (!ensured.ok || !ensured.request?.id) {
+      return json({ error: 'Unable to establish classification decision', code: 'CLASSIFICATION_REQUEST_UNAVAILABLE' }, 409);
+    }
+  }
   const now = Date.now();
   await mutateProfileConfig(env, {
     profileId,
@@ -803,7 +809,7 @@ async function classifyUsedUnclassifiedSite(request: Request, env: Env, profileI
     addHostToProfileCustomList(config, classification, domain);
   });
   const closedRequestIds = await closeMatchingPendingRequests(env, profileId, domain, classification, now);
-  const accountingReattributions = classification === 'restricted' && closedRequestIds.length > 0
+  const accountingReattributions = (classification === 'restricted' || classification === 'study') && closedRequestIds.length > 0
     ? await processRestrictedReattributions(env, { profileId, requestIds: closedRequestIds })
     : [];
   const refreshed = await getProfileSiteAccessConfig(env, profileId);

@@ -2433,14 +2433,14 @@ TimeOnChrome 使用统一客户端日志机制记录诊断摘要。日志不是�
 - 统计与配额读取使用 effective projection：未更正行读取原始归属，更正行读取 correction 中的 classification/mode/quota bucket。云端物化、V2 设备/档案账及终端下发必须共享该 projection，禁止各层单独打补丁。
 - 本次 `cg.163.com` 修正仅重归属已经存在的本周分段，不补时、不删时、不合并分段。更正前后网页总秒数必须完全相等；Study/Rest 桶变化必须逐 segment 可解释。
 
-### 未归类转受限娱乐的本周自动调账（D-093）
+### 待归类转学习或受限娱乐的本周自动调账（D-093）
 
-- 家长将一条未归类审核记录决定为受限娱乐（内部 decision `reject`）后，Worker 以该记录的服务器 `id` 与上传时保留的 `client_request_id` 作为同一审核记录的精确关联键，处理决定发生所在北京时间周内的 `active` 网页分段。
-- 仅 `target_rule_id` 精确等于该记录 `id` 或 `client_request_id`，且原分类为 `pending_composite` / `unclassified` 的分段可自动调账；旧分段缺少精确关联时保持不变并留待人工核查，禁止仅凭同域名批量迁移。
-- effective projection 固定为 `restricted + rest mode + rest quota bucket`。原始 segment、duration、domain、上传确认和媒体账均不改；原 Rest bucket 不重复增加，原 Composite bucket 才转入 Rest。
+- 2026-10-28 PO 修订：家长归为受限娱乐后，按当前孩子、决定所在北京时间周、本次网站规则、决定前和原分类 `pending_composite` / `unclassified` 选择全部设备的 `active` 分段。请求 ID 只保留审计来源，不作为资格条件。
+- 域名匹配复用已有 `matchDomain`，包括既有主站别名和父子域规则；URL/对象级决定缺少原页面匹配证据时报告 `unsupported_target_scope`，不降为同域名匹配。分段必须完整位于周开始至决定时刻之间；跨决定边界段不整段迁移，报告 `decision_boundary_requires_review` 和待核查数量，不能返回完成。原已明确分类、其他孩子和旧周不变。
+- 2026-11-22 PO 批准学习路径：decision=study 时有效投影为 `study + study mode + study quota bucket`；decision=reject 时仍为 `restricted + rest mode + rest quota bucket`。原始 segment、duration、domain、上传确认和媒体账均不改；原已扣目标桶只改性质，不重复增加。保留既有内部函数名及调用接口以兼容既有消费者，不另建调账模块。
 - 同一 correction 同时驱动 V1 统计读取、V2 设备/档案账和终端配额读模型，因此“今日”和“本周”只是同一有效账的不同聚合范围，不分别保存调账结果。
-- 审核完成时立即补调云端已有分段；之后迟到上传、但仍携带同一 `targetRuleId` 的本周分段在入库后继续幂等补调。定时自愈会重扫近期已决定为受限娱乐的审核记录，避免瞬时失败永久漏调。
-- 本机制不处理归为学习、复合或黑名单的历史归属，也不改变网页 ACTIVE、checkpoint、idle、焦点或结算语义。
+- 审核/通知决定与人工归类共用服务；人工归类没有待审记录时先用既有流程建立决定来源。迟到的决定前待归类分段不依赖 `targetRuleId`，按档案触发补扫；定时自愈继续使用同一筛选规则。已有 correction 不重复迁移，分批事务失败可重试；完成状态按相同产品条件核对剩余分段。
+- 审批、网站管理人工归类、迟到上传和定时任务同时覆盖 study/reject；不处理归为复合或黑名单的历史归属，不改变网页 ACTIVE、checkpoint、idle、焦点或结算语义。
 
 ---
 
